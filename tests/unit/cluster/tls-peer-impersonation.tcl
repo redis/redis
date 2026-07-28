@@ -79,12 +79,15 @@ if {$::tls} {
             }
             catch {close $fd}
 
-            # The forged FAIL must NOT be processed: the packet is rejected during
-            # the TLS handshake, so "FAIL message received" must never be logged.
-            # Poll the log over a bounded window and fail the instant it appears.
-            assert_condition_stays_false 20 100 {
-                [count_log_message 0 "FAIL message received"] > 0
-            } "Cluster bus processed a forged FAIL from a non-member certificate"
+            # The victim rejects the attacker's client certificate on accept (no
+            # matching SAN), so the handshake fails and the forged FAIL is never
+            # processed. Wait for the accept-side rejection to be logged rather than
+            # sleeping a fixed window; this is the positive signal that the connection
+            # was refused before any packet could be handled.
+            wait_for_log_messages 0 {"*Error accepting cluster node connection*certificate verify failed*"} 0 50 100
+
+            # The forged FAIL must not have been processed.
+            assert_equal 0 [count_log_message 0 "FAIL message received"]
 
             # Node 2 must not be flagged failed in node 0's view.
             set node2 {}
