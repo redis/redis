@@ -8270,10 +8270,6 @@ int main(int argc, char **argv) {
     }
     if (server.sentinel_mode) sentinelCheckConfigFile();
 
-    /* Config apply callbacks do not run during initial config load, so parse
-     * tls-expected-peer-name explicitly here (CONFIG SET handles it afterwards). */
-    tlsParseExpectedPeerName();
-
     /* Reserve dedicated used_memory slots for main + IO threads (single-writer
      * fast path). See zmalloc_reserve_thread_slots(). */
     zmalloc_reserve_thread_slots(server.io_threads_num);

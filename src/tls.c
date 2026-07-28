@@ -85,6 +85,45 @@ static int parseProtocolsConfig(const char *str) {
     return protocols;
 }
 
+/* Parse tls-expected-peer-name (a space-separated list of SAN/CN values) into an
+ * array of individual name tokens stored on ctx_config, so that each outbound and
+ * accept-side connection can consume the pre-parsed list without re-tokenizing.
+ * Called from tlsConfigure(), which runs both at startup and on CONFIG SET, so no
+ * separate parse step is needed for either path. Frees any previously parsed list
+ * first, so it is safe to call on every (re)configure. The value has already been
+ * validated (isValidTlsExpectedPeerName) to contain at least one token when
+ * non-empty. */
+static void parseExpectedPeerNameConfig(redisTLSContextConfig *ctx_config) {
+    /* Free any previously parsed list. */
+    for (int i = 0; i < ctx_config->expected_peer_names_count; i++)
+        zfree(ctx_config->expected_peer_names[i]);
+    zfree(ctx_config->expected_peer_names);
+    ctx_config->expected_peer_names = NULL;
+    ctx_config->expected_peer_names_count = 0;
+
+    const char *val = ctx_config->expected_peer_name;
+    if (!val || !val[0]) return;
+
+    int count = 0;
+    sds *tokens = sdssplitlen(val, strlen(val), " ", 1, &count);
+    if (!tokens) return;
+
+    char **names = zmalloc(sizeof(char *) * count);
+    int n = 0;
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* skip empty tokens from runs of spaces */
+        names[n++] = zstrdup(tokens[i]);
+    }
+    sdsfreesplitres(tokens, count);
+
+    if (n == 0) {
+        zfree(names);
+        return;
+    }
+    ctx_config->expected_peer_names = names;
+    ctx_config->expected_peer_names_count = n;
+}
+
 /**
  * OpenSSL global initialization and locking handling callbacks.
  * Note that this is only required for OpenSSL < 1.1.0.
@@ -297,6 +336,10 @@ static int tlsConfigure(void *priv, int reconfigure) {
 
     int protocols = parseProtocolsConfig(ctx_config->protocols);
     if (protocols == -1) goto error;
+
+    /* Parse tls-expected-peer-name into its individual tokens once here, so
+     * outbound/accept connections can consume the pre-parsed list. */
+    parseExpectedPeerNameConfig(ctx_config);
 
     /* Create server side/general context */
     ctx = createSSLContext(ctx_config, protocols, 0);

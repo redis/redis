@@ -4199,7 +4199,6 @@ int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *optio
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
 void initConfigValues(void);
-void tlsParseExpectedPeerName(void);
 void removeConfig(sds name);
 sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
