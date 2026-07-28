@@ -13,9 +13,12 @@ typedef struct RedisFuzzInput {
     size_t pos;
 } RedisFuzzInput;
 
+typedef void (*RedisFuzzPostHook)(void *ctx);
+
 void redisFuzzInit(void);
 void redisFuzzReset(void);
 void redisFuzzRunResp(sds resp);
+void redisFuzzRunRespWithPostHook(sds resp, RedisFuzzPostHook hook, void *ctx);
 
 uint8_t redisFuzzByte(RedisFuzzInput *in);
 long long redisFuzzChoice(RedisFuzzInput *in, long long count);

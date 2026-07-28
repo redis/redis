@@ -57,6 +57,8 @@ void redisFuzzInit(void) {
     server.tls_port = 0;
     server.aof_enabled = 0;
     server.protected_mode = 0;
+    /* Keep sanitizer/libFuzzer signal handlers in control of crash artifacts. */
+    server.crashlog_enabled = 0;
     ACLInit();
     moduleInitModulesSystem();
     connTypeInitialize();
@@ -71,7 +73,7 @@ void redisFuzzReset(void) {
     server.dirty += emptyData(-1, EMPTYDB_NO_FLAGS | EMPTYDB_NOFUNCTIONS, NULL);
 }
 
-void redisFuzzRunResp(sds resp) {
+void redisFuzzRunRespWithPostHook(sds resp, RedisFuzzPostHook hook, void *ctx) {
     redisFuzzInit();
     updateCachedTime(0);
 
@@ -89,7 +91,12 @@ void redisFuzzRunResp(sds resp) {
     }
     close(peer_fd);
 
+    if (hook) hook(ctx);
     redisFuzzReset();
+}
+
+void redisFuzzRunResp(sds resp) {
+    redisFuzzRunRespWithPostHook(resp, NULL, NULL);
 }
 
 uint8_t redisFuzzByte(RedisFuzzInput *in) {

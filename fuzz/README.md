@@ -1,12 +1,20 @@
 # Redis fuzzing
 
-This directory contains opt-in libFuzzer targets for Redis core. The initial
-targets exercise Redis string and string-backed bitmap commands through the real
-command parser and executor, using a local socketpair-backed client.
+This directory contains opt-in libFuzzer targets for Redis core. The targets
+exercise Redis string, string-backed bitmap, and focused command extensions
+through the real command parser and executor, using a local socketpair-backed
+client.
 
-The targets are intentionally independent from native bitmap work. Once this
-infrastructure lands upstream, native bitmap targets can extend it in the
-feature branch.
+The command-extension target covers `INCREX`, `SUNIONCARD`, `SDIFFCARD`, and
+the `AGGREGATE COUNT` mode of sorted-set union/intersection commands. It
+generates stateful option, encoding, aliasing, and wrong-type combinations.
+Reserved keys provide exact post-execution oracles for integer saturation, set
+cardinality, and weighted COUNT scores.
+
+Its initial corpus also preserves two minimized UBSan findings: a relative
+`INCREX` TTL overflow and malformed sorted-set key-count arithmetic. The draft
+command-extension CI job is expected to remain red on those seeds until the
+corresponding production fixes land.
 
 ## Build
 
@@ -32,6 +40,7 @@ fuzz/generate-seeds.sh
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -runs=1
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
+fuzz/fuzz_command_extensions fuzz/corpus/command_extensions -runs=1
 ```
 
 ## Run a short campaign
@@ -39,6 +48,7 @@ fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -max_total_time=300
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -max_total_time=300
+fuzz/fuzz_command_extensions fuzz/corpus/command_extensions -max_total_time=300
 ```
 
 ## Reproduce a crash
