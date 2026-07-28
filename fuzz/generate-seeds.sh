@@ -12,9 +12,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CORPUS_DIR="$SCRIPT_DIR/corpus"
 STRING_DIR="$CORPUS_DIR/string_commands"
 BITMAP_DIR="$CORPUS_DIR/bitmap_commands"
+REPLICATION_COMPRESSION_DIR="$CORPUS_DIR/replication_compression"
 
-mkdir -p "$STRING_DIR" "$BITMAP_DIR"
-rm -f "$STRING_DIR"/seed* "$BITMAP_DIR"/seed*
+mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$REPLICATION_COMPRESSION_DIR"
+rm -f "$STRING_DIR"/seed* "$BITMAP_DIR"/seed* \
+    "$REPLICATION_COMPRESSION_DIR"/seed*
 
 echo "Generating Redis core fuzz seed corpora..."
 
@@ -104,6 +106,51 @@ printf '\x00\x06\x00\x00\x00\x03\x01\x05' \
 printf '\x00\x07\x00' \
     > "$BITMAP_DIR/seed15_invalid_bitop_shape"
 
+# Replication compression seeds. The first eight bytes select the scenario,
+# compression level, corruption/split points, and independent I/O schedules.
+# Remaining bytes are plaintext, except in raw-malformed mode.
+
+# Valid empty payload and empty Zstd frame lifecycle.
+printf '\x00\x00\x00\x00\x01\x00\x01\x01' \
+    > "$REPLICATION_COMPRESSION_DIR/seed01_valid_empty"
+
+# Valid plaintext, tiny input chunks, frequent frame flushes, tiny output reads.
+printf '\x00\x02\x00\x00\x00\x01\x00\x00redis-replication-stream' \
+    > "$REPLICATION_COMPRESSION_DIR/seed02_valid_chunked"
+
+# Concatenated independently compressed frames split in the middle.
+printf '\x04\x06\x00\x09\x03\x01\x02\x05first-second-third' \
+    > "$REPLICATION_COMPRESSION_DIR/seed03_concatenated_frames"
+
+# A valid stream truncated inside its final frame.
+printf '\x01\x04\x05\x00\x01\x00\x01\x03truncated-frame' \
+    > "$REPLICATION_COMPRESSION_DIR/seed04_truncated_frame"
+
+# A bit flip in a valid stream.
+printf '\x02\x07\x07\x05\x02\x01\x03\x04checksum-corruption' \
+    > "$REPLICATION_COMPRESSION_DIR/seed05_corrupted_frame"
+
+# Raw truncated Zstd magic and frame header.
+printf '\x03\x00\x00\x00\x01\x00\x01\x01\x28\xb5\x2f\xfd\x00\x00' \
+    > "$REPLICATION_COMPRESSION_DIR/seed06_raw_malformed"
+
+# Valid stream followed by non-frame bytes.
+printf '\x05\x03\x00\x00\x04\x01\x05\x02garbage-suffix' \
+    > "$REPLICATION_COMPRESSION_DIR/seed07_trailing_garbage"
+
+# Non-frame bytes before a valid stream.
+printf '\x06\x05\x00\x00\x05\x00\x02\x06garbage-prefix' \
+    > "$REPLICATION_COMPRESSION_DIR/seed08_leading_garbage"
+
+# The same valid frame sequence twice, with a doubled plaintext oracle.
+printf '\x07\x01\x00\x00\x07\x01\x07\x01duplicate-me' \
+    > "$REPLICATION_COMPRESSION_DIR/seed09_duplicate_frames"
+
+# High-entropy plaintext at the highest selected compression level.
+printf '\x00\xff\x00\x00\xff\x01\xfe\x01\x00\xff\x10\xef\x20\xdf\x30\xcf\x40\xbf\x50\xaf\x60\x9f\x70\x8f' \
+    > "$REPLICATION_COMPRESSION_DIR/seed10_high_entropy"
+
 echo "Seed files generated:"
 echo "  string_commands: $(find "$STRING_DIR" -type f | wc -l | tr -d ' ')"
 echo "  bitmap_commands: $(find "$BITMAP_DIR" -type f | wc -l | tr -d ' ')"
+echo "  replication_compression: $(find "$REPLICATION_COMPRESSION_DIR" -type f | wc -l | tr -d ' ')"
