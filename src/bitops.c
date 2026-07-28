@@ -1517,6 +1517,10 @@ static void bitopCommandBitmap(client *c, bitmapBitop op, robj *targetkey,
 
     if (maxlen)
         res_bitmap = bitmapObjectsBitop(op, objects, numkeys, maxlen);
+    if (maxlen && res_bitmap == NULL) {
+        addReplyError(c, "BITOP failed allocating the result, out of memory");
+        return;
+    }
 
     /* Store the computed value into the target key */
     if (maxlen) {

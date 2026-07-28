@@ -1186,9 +1186,11 @@ static void bitmapObjectMaterializeContainer(unsigned char *raw,
 }
 
 static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
-                                          size_t byte_len)
+                                          size_t byte_len, int try_alloc)
 {
-    sds raw = sdsnewlen(NULL, byte_len);
+    sds raw = try_alloc ? sdstrynewlen(NULL, byte_len)
+                        : sdsnewlen(NULL, byte_len);
+    if (raw == NULL) return NULL;
 
     art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
     while (it.value != NULL) {
@@ -1202,25 +1204,26 @@ static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
     return raw;
 }
 
-static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited) {
+static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited,
+                                      int try_alloc) {
     bitmapObject *bitmap = getBitmapObject(o);
     if (proto_limited &&
         bitmap->byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
     if (bitmap->byte_len > (uint64_t)SIZE_MAX) return NULL;
     return bitmapObjectMaterializeRoaring(bitmap->roaring,
-                                          (size_t)bitmap->byte_len);
+                                          (size_t)bitmap->byte_len, try_alloc);
 }
 
 /* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
  * logical length exceeds proto-max-bulk-len. */
 sds bitmapObjectMaterialize(const robj *o) {
-    return bitmapObjectMaterializeRaw(o, 1);
+    return bitmapObjectMaterializeRaw(o, 1, 0);
 }
 
 /* RDB raw payloads are persisted data, not client protocol bulk strings.
  * DUMP serialization cannot fail, so Redis' allocator owns OOM handling. */
 sds bitmapObjectMaterializeForRDB(const robj *o) {
-    return bitmapObjectMaterializeRaw(o, 0);
+    return bitmapObjectMaterializeRaw(o, 0, 0);
 }
 
 typedef struct bitmapBitopSource {
@@ -1369,8 +1372,13 @@ static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
             /* The mixed-path cap, rather than proto-max-bulk-len, bounds this
              * internal temporary so lowering the protocol limit cannot change
              * whether an otherwise valid Roaring BITOP succeeds. */
-            sources[i].owned = bitmapObjectMaterializeRaw(o, 0);
-            serverAssert(sources[i].owned != NULL);
+            sources[i].owned = bitmapObjectMaterializeRaw(o, 0, 1);
+            if (sources[i].owned == NULL) {
+                for (size_t j = 0; j < i; j++) sdsfree(sources[j].owned);
+                zfree(raw_sources);
+                zfree(sources);
+                return NULL;
+            }
             sources[i].raw = (unsigned char *)sources[i].owned;
         } else {
             serverAssert(o->type == OBJ_STRING);
@@ -1381,7 +1389,13 @@ static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
         if (sources[i].len < minlen) minlen = sources[i].len;
     }
 
-    sds raw_result = sdsnewlen(SDS_NOINIT, maxlen);
+    sds raw_result = sdstrynewlen(SDS_NOINIT, maxlen);
+    if (raw_result == NULL) {
+        for (size_t i = 0; i < numkeys; i++) sdsfree(sources[i].owned);
+        zfree(raw_sources);
+        zfree(sources);
+        return NULL;
+    }
     size_t offset = 0;
     int used_vector = 0;
 #ifdef HAVE_AVX512
@@ -1557,6 +1571,7 @@ robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
     if (bitmapObjectsUseMixedRawBitop(objects, numkeys, maxlen)) {
         result = bitmapObjectsMixedRawBitop(op, objects, numkeys,
                                             (size_t)maxlen);
+        if (result == NULL) return NULL;
         optimize_result = 0;
         shrink_result = 0;
         sources = NULL;
