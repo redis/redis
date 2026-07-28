@@ -108,13 +108,13 @@ start_server {tags {"repl external:skip"}} {
             $B config set loglevel debug
             r set test foo
             assert_equal [r getset test bar] foo
-            wait_for_condition 500 10 {
+            wait_for_condition 1000 10 {
                 [$A get test] eq "bar"
             } else {
                 fail "getset wasn't propagated"
             }
             assert_equal [r set test vaz get] bar
-            wait_for_condition 500 10 {
+            wait_for_condition 1000 10 {
                 [$A get test] eq "vaz"
             } else {
                 fail "set get wasn't propagated"
@@ -241,8 +241,8 @@ start_server {tags {"repl external:skip"}} {
             s role
         } {slave}
 
-        wait_for_sync r
         test {Sync should have transferred keys from master} {
+            wait_for_sync r
             r get mykey
         } {foo}
 
@@ -367,7 +367,7 @@ foreach mdl {no yes} rdbchannel {no yes} {
 
                             # Wait for all the three slaves to reach the "online"
                             # state from the POV of the master.
-                            set retry 500
+                            set retry 1000
                             while {$retry} {
                                 set info [r -3 info]
                                 if {[string match {*slave0:*state=online*slave1:*state=online*slave2:*state=online*} $info]} {
@@ -762,6 +762,9 @@ test {diskless loading short read} {
                 redis.register_function('test', function() return 'hello1' end)
             }
 
+            r himport prepare fieldset1 f0 f1 f2 f3 f4 f5 f6 f7 f8 f9
+            r himport prepare fieldset2 g0 g1 g2 g3 g4 g5 g6 g7 g8 [string repeat z 250]
+
             set has_vector_sets [server_has_command vadd]
 
             for {set k 0} {$k < 3} {incr k} {
@@ -790,6 +793,17 @@ test {diskless loading short read} {
                     r xgroup create "$k stream" "mygroup_$i" 0
                     r xreadgroup GROUP "mygroup_$i" Alice COUNT 1 STREAMS "$k stream" >
                 }
+
+                set tmpl_small_vals {}
+                set tmpl_large_vals {}
+                for {set i 0} {$i < 10} {incr i} {
+                    lappend tmpl_small_vals [string repeat A [expr {int(rand()*10)}]]
+                    lappend tmpl_large_vals [string repeat A [expr {int(rand()*100000)}]]
+                }
+                r himport set "$k tmpl_small" fieldset1 {*}$tmpl_small_vals
+                r himport set "$k tmpl_large" fieldset1 {*}$tmpl_large_vals
+                r himport set "$k tmpl_long_field_small" fieldset2 {*}$tmpl_small_vals
+                r himport set "$k tmpl_long_field_large" fieldset2 {*}$tmpl_large_vals
             }
 
             if {$::verbose} {
@@ -810,7 +824,7 @@ test {diskless loading short read} {
             for {set i 0} {$i < $attempts} {incr i} {
                 # wait for the replica to start reading the rdb
                 # using the log file since the replica only responds to INFO once in 2mb
-                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 2000 1]
+                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 10000 1]
                 set loglines [lindex $res 1]
 
                 # add some additional random sleep so that we kill the master on a different place each time
@@ -1551,7 +1565,7 @@ start_server {tags {"repl external:skip"}} {
 
 foreach disklessload {disabled on-empty-db} {
     test "Replica should reply LOADING while flushing a large db (disklessload: $disklessload)" {
-        start_server {} {
+        start_server {tags {"repl"}} {
             set replica [srv 0 client]
             start_server {} {
                 set master [srv 0 client]

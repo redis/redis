@@ -28,6 +28,7 @@
 #include "zmalloc.h"
 #include "redisassert.h"
 #include "monotonic.h"
+#include "atomicvar.h"
 #include "util.h"
 
 /* Using dictSetResizeEnabled() we make possible to disable
@@ -41,8 +42,8 @@
  *    of elements and the buckets >= dict_force_resize_ratio.
  *  - A hash table is still allowed to shrink if the ratio between the number
  *    of elements and the buckets <= 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
-static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
-static unsigned int dict_force_resize_ratio = 4;
+static redisAtomic dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
+static const unsigned int dict_force_resize_ratio = 4;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
@@ -406,11 +407,13 @@ int dictRehash(dict *d, int n) {
     int empty_visits = n*10; /* Max number of empty buckets to visit. */
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
-    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
      * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
+    if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
          (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
@@ -474,11 +477,13 @@ int _dictBucketRehash(dict *d, uint64_t idx) {
     if (d->pauserehash != 0) return 0;
     unsigned long s0 = DICTHT_SIZE(d->ht_size_exp[0]);
     unsigned long s1 = DICTHT_SIZE(d->ht_size_exp[1]);
-    if (dict_can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
-    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing. 
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
      * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
-    if (dict_can_resize == DICT_RESIZE_AVOID && 
+    if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
          (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
     {
@@ -1084,7 +1089,13 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    return dictSize(d) * sizeof(dictEntry) +
+    /* Account for the actual per-entry structure size: no_value=1 dicts (sets,
+     * the sorted-set element index, hashes) allocate a dictEntryNoValue (or
+     * store the key inline in the bucket), not a full dictEntry. Mirrors what
+     * kvstoreMemUsage() already does via dictEntryMemUsage(). This is a strict
+     * over-estimate still (inline-stored keys allocate nothing), but no longer
+     * charges the value slot that a no_value dict never has. */
+    return dictSize(d) * dictEntryMemUsage(d->type->no_value) +
         dictBuckets(d) * sizeof(dictEntry*);
 }
 
@@ -1649,9 +1660,11 @@ int dictExpandIfNeeded(dict *d) {
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
-    if ((dict_can_resize == DICT_RESIZE_ENABLE &&
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if ((can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] >= DICTHT_SIZE(d->ht_size_exp[0])) ||
-        (dict_can_resize != DICT_RESIZE_FORBID &&
+        (can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0] + 1))
@@ -1682,9 +1695,11 @@ int dictShrinkIfNeeded(dict *d) {
     /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
      * we'll trigger a resize of the hash table. */
-    if ((dict_can_resize == DICT_RESIZE_ENABLE &&
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if ((can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] * HASHTABLE_MIN_FILL <= DICTHT_SIZE(d->ht_size_exp[0])) ||
-        (dict_can_resize != DICT_RESIZE_FORBID &&
+        (can_resize != DICT_RESIZE_FORBID &&
          d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0]))
@@ -1786,7 +1801,7 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
 }
 
 void dictSetResizeEnabled(dictResizeEnable enable) {
-    dict_can_resize = enable;
+    atomicSet(dict_can_resize, enable);
 }
 
 /* Compiler inlines this for internal calls within dict.c (verified with -O3). */
@@ -1993,6 +2008,15 @@ dictType BenchmarkDictType = {
     NULL
 };
 
+/* Same as BenchmarkDictType, but a no_value=1 (set-style) dict -- used to verify
+ * that dictMemUsage() sizes entries as dictEntryNoValue, not dictEntry. */
+static dictType BenchmarkDictTypeNoValue = {
+    .hashFunction = hashCallback,
+    .keyCompare = compareCallback,
+    .keyDestructor = freeCallback,
+    .no_value = 1,
+};
+
 #define start_benchmark() start = timeInMilliseconds()
 #define end_benchmark(msg) do { \
     elapsed = timeInMilliseconds()-start; \
@@ -2146,6 +2170,39 @@ int dictTest(int argc, char **argv, int flags) {
         dictEmpty(d, NULL);
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
     }
+
+    TEST("dictMemUsage sizes no_value entries by dictEntryNoValue (not dictEntry)") {
+        /* Regression: MEMORY USAGE used to overcount no_value=1 dicts (sets,
+         * the sorted-set element index, hashes) by charging sizeof(dictEntry)
+         * per entry instead of sizeof(dictEntryNoValue).
+         *
+         * A dictEntry is {next, key, value-union}; a dictEntryNoValue is
+         * {next, key}. Dropping the value makes a no_value entry smaller by
+         * exactly the size of the value union, which is 8 bytes (it holds a
+         * uint64_t/double) on both 64-bit (dictEntry 24 -> dictEntryNoValue 16)
+         * and 32-bit (16 -> 8). dictMemUsage() must reflect that 8 B/entry. */
+        const size_t value_union_bytes = 8;
+        assert(sizeof(dictEntry) - sizeof(dictEntryNoValue) == value_union_bytes);
+
+        long n = 1000;
+        dict *dn = dictCreate(&BenchmarkDictType);          /* no_value = 0 */
+        dict *dv = dictCreate(&BenchmarkDictTypeNoValue);   /* no_value = 1 */
+        for (long i = 0; i < n; i++) {
+            assert(dictAdd(dn, stringFromLongLong(i), (void *)i) == DICT_OK);
+            assert(dictAdd(dv, stringFromLongLong(i), NULL) == DICT_OK);
+        }
+
+        /* Identical keys and resize policy => identical bucket geometry, so the
+         * two dicts' reported memory differs only by the value union that each
+         * of the n no_value entries drops: n * 8 bytes. */
+        assert(dictSize(dn) == (unsigned long)n && dictSize(dv) == (unsigned long)n);
+        assert(dictBuckets(dn) == dictBuckets(dv));
+        assert(dictMemUsage(dn) - dictMemUsage(dv) == (size_t)n * value_union_bytes);
+
+        dictRelease(dn);
+        dictRelease(dv);
+    }
+
     srand(12345);
     start_benchmark();
     for (j = 0; j < count; j++) {

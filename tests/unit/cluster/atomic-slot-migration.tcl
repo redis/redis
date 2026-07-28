@@ -99,34 +99,6 @@ proc populate_slot {num args} {
     R $idx deferred 0
 }
 
-# Return 1 if all instances are idle
-proc asm_all_instances_idle {total} {
-    for {set i 0} {$i < $total} {incr i} {
-        if {[CI $i cluster_slot_migration_active_tasks] != 0} { return 0 }
-        if {[CI $i cluster_slot_migration_active_trim_running] != 0} { return 0 }
-    }
-    return 1
-}
-
-# Wait for all ASM tasks to complete in the cluster
-proc wait_for_asm_done {} {
-    set total_instances [expr {$::cluster_master_nodes + $::cluster_replica_nodes}]
-
-    wait_for_condition 3000 10 {
-        [asm_all_instances_idle $total_instances] == 1
-    } else {
-        # Print the number of active tasks on each instance
-        for {set i 0} {$i < $total_instances} {incr i} {
-            set migration_count [CI $i cluster_slot_migration_active_tasks]
-            set trim_count [CI $i cluster_slot_migration_active_trim_running]
-            puts "Instance $i: migration_tasks=$migration_count, trim_tasks=$trim_count"
-        }
-        fail "ASM tasks did not complete on all instances"
-    }
-    # wait all nodes to reach the same cluster config after ASM
-    wait_for_cluster_propagation
-}
-
 proc failover_and_wait_for_done {node_id {failover_arg ""}} {
     set max_attempts 5
     for {set attempt 1} {$attempt <= $max_attempts} {incr attempt} {
@@ -683,6 +655,62 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal 1000 [R 0 hlen $hash_key]
         assert_equal 1000 [R 0 xlen $stream_key]
         # migrate slot 0-100 to R 1
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
+
+    test "Slot migration preserves template-encoded hashes" {
+        R 0 flushall
+        R 1 flushall
+        R 0 config set hash-min-template-entries 0
+        R 1 config set hash-min-template-entries 0
+        
+        # key with template-listpack encoding
+        set lp_key [slot_key 0 htmpllp]
+        R 1 himport prepare fieldset1 name email age
+        R 1 himport set $lp_key fieldset1 alice alice@example.com 25
+        assert_equal {template-listpack} [R 1 object encoding $lp_key]
+        
+        # key with template-array encoding
+        set ar_key [slot_key 0 htmplar]
+        R 1 himport prepare fieldset2 f1 f2 f3
+        R 1 himport set $ar_key fieldset2 v1 [string repeat x 100] v3
+        assert_equal {template-array} [R 1 object encoding $ar_key]
+        R 1 himport discardall
+        
+        # verify templates exist on source master and replica
+        wait_for_condition 50 100 {
+            [S 1 hash_templates] == 2 && [S 1 hash_template_keys] == 2 &&
+            [S 4 hash_templates] == 2 && [S 4 hash_template_keys] == 2
+        } else {
+            fail "templates not propagated"
+        }
+
+        # migrate slot 0-100 to R 0 and verify both encodings/data survive
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+
+        # verify the encoding and data of template-listpack
+        assert_equal {template-listpack} [R 0 object encoding $lp_key]
+        assert_equal {age 25 name alice email alice@example.com} [R 0 hgetall $lp_key]
+
+        # verify the encoding and data of template-array
+        assert_equal {template-array} [R 0 object encoding $ar_key]
+        assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [R 0 hgetall $ar_key]
+
+        # Both templates rebuilt on the dest.
+        assert_equal 2 [S 0 hash_templates]
+
+        # verify keys do not exist on source master and replica
+        wait_for_condition 50 100 {
+            [R 1 dbsize] == 0 && [R 4 dbsize] == 0 &&
+            [S 1 hash_templates] == 0 && [S 1 hash_template_keys] == 0 &&
+            [S 4 hash_templates] == 0 && [S 4 hash_template_keys] == 0
+        } else {
+            fail "templates not drained"
+        }
+
+        # migrate slot 0-100 back to R 1
         R 1 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
     }
@@ -1685,6 +1713,123 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # cleanup
         wait_for_asm_done
         R 0 CLUSTER MIGRATION IMPORT 0 1
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+    }
+
+    test {Test bgtrim IDMP: disjoint ranges with in-range gap + far-slot; dedup on dest and source} {
+        # One IMPORT with two non-adjacent slot ranges (union trim). Slot between the ranges and a
+        # far slot stay on the source; migrated keys move to the dest. Exercises slotRangeArray
+        # membership + IDMP correctness (stream_idmp_keys vs one bg trim batch).
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+
+        set k0 [slot_key 0 idmp]
+        set k1 [slot_key 1 idmp]
+        set k2 [slot_key 2 idmp]
+        set k4 [slot_key 4 idmp]
+        set k5 [slot_key 5 idmp]
+        set k6 [slot_key 6 idmp]
+        set k101 [slot_key 101 idmp]
+
+        foreach k [list $k0 $k1 $k2 $k4 $k5 $k6 $k101] {
+            R 0 XADD $k IDMP p1 "init" * field "init"
+            R 0 XCFGSET $k IDMP-DURATION 86400
+        }
+
+        set id0 [R 0 XADD $k0 IDMP p1 "r0" * field v0]
+        set id1 [R 0 XADD $k1 IDMP p1 "r1" * field v1]
+        set id2 [R 0 XADD $k2 IDMP p1 "r2" * field v2]
+        set id4 [R 0 XADD $k4 IDMP p1 "r4" * field v4]
+        set id5 [R 0 XADD $k5 IDMP p1 "r5" * field v5]
+        set id6 [R 0 XADD $k6 IDMP p1 "r6" * field v6]
+        set id101 [R 0 XADD $k101 IDMP p1 "r101" * field v101]
+
+        foreach k [list $k0 $k1 $k2 $k4 $k5 $k6 $k101] {
+            assert_equal 1 [dict get [R 0 XINFO STREAM $k] pids-tracked]
+        }
+
+        # Migrate [0-2] and [5-6] in a single IMPORT; slot 4 and 101 are outside both ranges.
+        # After migration, trimmed slots are owned by node 1: use R 1 for those keys (R 0 replies MOVED).
+        R 1 CLUSTER MIGRATION IMPORT 0 2 5 6
+        wait_for_asm_done
+
+        wait_for_condition 1000 10 {
+            [R 1 EXISTS $k0] == 1 && [R 1 EXISTS $k1] == 1 && [R 1 EXISTS $k2] == 1 &&
+            [R 1 EXISTS $k5] == 1 && [R 1 EXISTS $k6] == 1 &&
+            [R 0 EXISTS $k4] == 1 && [R 0 EXISTS $k101] == 1
+        } else {
+            fail "Migrated streams missing on destination or survivors missing on source"
+        }
+
+        foreach k [list $k0 $k1 $k2 $k5 $k6] {
+            assert_equal 1 [dict get [R 1 XINFO STREAM $k] pids-tracked]
+        }
+        assert_equal $id0 [R 1 XADD $k0 IDMP p1 "r0" * field dup]
+        assert_equal $id1 [R 1 XADD $k1 IDMP p1 "r1" * field dup]
+        assert_equal $id2 [R 1 XADD $k2 IDMP p1 "r2" * field dup]
+        assert_equal $id5 [R 1 XADD $k5 IDMP p1 "r5" * field dup]
+        assert_equal $id6 [R 1 XADD $k6 IDMP p1 "r6" * field dup]
+
+        assert_equal 1 [dict get [R 0 XINFO STREAM $k4] pids-tracked]
+        assert_equal 1 [dict get [R 0 XINFO STREAM $k101] pids-tracked]
+        assert_equal $id4 [R 0 XADD $k4 IDMP p1 "r4" * field dup]
+        assert_equal $id101 [R 0 XADD $k101 IDMP p1 "r101" * field dup]
+
+        # cleanup
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 2 5 6
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+    }
+
+    test {Test bgtrim IDMP: many streams; outer ranges migrated, inner + high slots kept} {
+        # Many IDMP entries across the shard; only outer slot ranges migrate so most keys stay on
+        # the source — selective trim vs a large stream_idmp_keys dict (same multi-range ASM path).
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+
+        set keys {}
+        foreach slot {0 1 2 3 4 5 6 7 101 102 103} {
+            lappend keys [slot_key $slot idmp]
+        }
+
+        foreach k $keys {
+            R 0 XADD $k IDMP p1 "init" * field "init"
+            R 0 XCFGSET $k IDMP-DURATION 86400
+            R 0 XADD $k IDMP p1 "req" * field v1
+            assert_equal 1 [dict get [R 0 XINFO STREAM $k] pids-tracked]
+        }
+
+        # Single IMPORT: ranges [0-1] and [6-7]; slots 2-5 and 101-103 are not trimmed on source.
+        R 1 CLUSTER MIGRATION IMPORT 0 1 6 7
+        wait_for_asm_done
+
+        set kept_slots {2 3 4 5 101 102 103}
+        # Trimmed slots are served by node 1 after migration; survivors stay on node 0.
+        # wait_for_condition body must be a single expr (no foreach/set).
+        wait_for_condition 1000 10 {
+            [R 1 EXISTS [slot_key 0 idmp]] == 1 && [R 1 EXISTS [slot_key 1 idmp]] == 1 &&
+            [R 1 EXISTS [slot_key 6 idmp]] == 1 && [R 1 EXISTS [slot_key 7 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 2 idmp]] == 1 && [R 0 EXISTS [slot_key 3 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 4 idmp]] == 1 && [R 0 EXISTS [slot_key 5 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 101 idmp]] == 1 && [R 0 EXISTS [slot_key 102 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 103 idmp]] == 1
+        } else {
+            fail "Selective IDMP trim did not match migrated slot ranges"
+        }
+
+        foreach slot $kept_slots {
+            set k [slot_key $slot idmp]
+            assert_equal 1 [dict get [R 0 XINFO STREAM $k] pids-tracked]
+            R 0 XADD $k IDMP p1 "after_trim" * field x
+        }
+
+        # cleanup
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 1 6 7
         wait_for_asm_done
         R 0 flushall
         R 0 debug asm-trim-method default
@@ -3194,5 +3339,138 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
         assert_equal {{0 5461}} [R 0 asm.cluster_get_local_slot_ranges]
         assert_equal {{5462 10922}} [R 1 asm.cluster_get_local_slot_ranges]
         assert_equal {{10923 16383}} [R 2 asm.cluster_get_local_slot_ranges]
+    }
+}
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    # A template-encoded HIMPORT SET issued to the SOURCE while a slot migration
+    # is in progress.
+    test "ASM forwards a live HIMPORT SET on the source to dest master+replica" {
+        R 0 flushall
+        # Migrate slots 0-100 from node 0 to node 1, with a per-key save delay
+        # so the live HIMPORT writes below land while the migration is still streaming.
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 2 1000000]
+
+        # Write template keys during ASM
+        set lp_short_fields [slot_key 0 lp1]
+        R 0 himport prepare fieldset1 f1 f2 f3 f4 f5
+        R 0 himport set $lp_short_fields fieldset1 v1 v2 v3 v4 v5
+        assert_equal {template-listpack} [R 0 object encoding $lp_short_fields]
+        
+        set lp_long_fields [slot_key 0 lp2]
+        R 0 himport prepare fieldset2 f1 f2 f3 [string repeat e 100]
+        R 0 himport set $lp_long_fields fieldset2 v1 v2 v3 v4
+        assert_equal {template-listpack} [R 0 object encoding $lp_long_fields]
+        
+        set arr_short_fields [slot_key 0 ar1]
+        R 0 himport prepare fieldset3 f1 f2 f3
+        R 0 himport set $arr_short_fields fieldset3 v1 [string repeat z 100] v3
+        assert_equal {template-array} [R 0 object encoding $arr_short_fields]
+        
+        set arr_long_fields [slot_key 0 ar2]
+        R 0 himport prepare fieldset4 f1 f2 f3 [string repeat y 100]
+        R 0 himport set $arr_long_fields fieldset4 v1 v2 v3 [string repeat y 100]
+        assert_equal {template-array} [R 0 object encoding $arr_long_fields]
+
+        set keys [list $lp_short_fields $lp_long_fields $arr_short_fields $arr_long_fields]
+        set src_digest [R 0 debug digest-value {*}$keys]
+        R 0 himport discardall
+
+        # Wait for the migration to complete
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        # All keys reached the dest master and its replica with identical contents.
+        assert_equal $src_digest [R 1 debug digest-value {*}$keys]
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal $src_digest [R 4 debug digest-value {*}$keys]
+
+        # Verify template and template-key count on both source and destination
+        wait_for_condition 50 100 {
+            [S 0 hash_templates] == 0 && [S 3 hash_templates] == 0 &&
+            [S 0 hash_template_keys] == 0 && [S 3 hash_template_keys] == 0 &&
+            [S 1 hash_templates] == 4 && [S 4 hash_templates] == 4 &&
+            [S 1 hash_template_keys] == 4 && [S 4 hash_template_keys] == 4
+        } else {
+            fail "templates not replicated correctly"
+        }
+
+        # DEL frees the templates on master + replica.
+        foreach k [list $lp_short_fields $lp_long_fields $arr_short_fields $arr_long_fields] {
+            R 1 del $k
+        }
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        foreach k [list $lp_short_fields $lp_long_fields $arr_short_fields $arr_long_fields] {
+            assert_equal 0 [R 1 exists $k]
+            assert_equal 0 [R 4 exists $k]
+        }
+        wait_for_condition 50 100 {
+            [S 1 hash_templates] == 0 && [S 4 hash_templates] == 0 &&
+            [S 1 hash_template_keys] == 0 && [S 4 hash_template_keys] == 0
+        } else {
+            fail "templates not deleted"
+        }
+
+        # Cleanup
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
+
+    test "ASM stress: 4000 template keys, half streamed live during migration" {
+        # Create template keys on node 0 in slot 0. Each template is shared by 2 keys
+        proc asm_load_tmpl_keys {lo hi} {
+            set rd [Rn 0]
+            R 0 deferred 1
+            deferred_batch $rd [expr {($hi - $lo) / 2}] { set t [expr {$lo / 2 + $i}]; $rd himport prepare fs$t f$t }
+            deferred_batch $rd [expr {$hi - $lo}] { set j [expr {$lo + $i}]; $rd himport set [slot_key 0 k$j] fs[expr {$j / 2}] v$j }
+            R 0 deferred 0
+        }
+
+        R 0 flushall
+        R 1 flushall
+        set n 4000
+        set half [expr {$n / 2}]
+        set ntmpl [expr {$n / 2}]  ;# 2 keys share each template
+
+        # First half created: migrated in the bulk snapshot.
+        asm_load_tmpl_keys 0 $half
+
+        # Migrate slot 0 with delay
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 2 2000]
+
+        # Second half: live HIMPORT SETs arriving on the source during migration.
+        asm_load_tmpl_keys $half $n
+
+        # Get source digest (still owns all the keys)
+        set src_digest [R 0 debug digest]
+        R 0 himport discardall
+
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        # Everything reached the dest master + replica; source drained to zero.
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        wait_for_condition 50 100 {
+            [S 0 hash_templates] == 0 && [S 0 hash_template_keys] == 0 &&
+            [S 1 hash_templates] == $ntmpl && [S 1 hash_template_keys] == $n &&
+            [S 4 hash_templates] == $ntmpl && [S 4 hash_template_keys] == $n
+        } else {
+            fail "counts src [S 0 hash_templates]/[S 0 hash_template_keys]\
+                  dst [S 1 hash_templates]/[S 1 hash_template_keys]\
+                  rep [S 4 hash_templates]/[S 4 hash_template_keys]"
+        }
+
+        # Spot check keys from both halves survived intact on master and replica.
+        R 4 readonly
+        foreach i {0 1999 2000 3999} {
+            set expect "f[expr {$i / 2}] v$i"
+            assert_equal $expect [R 1 hgetall [slot_key 0 k$i]]
+            assert_equal $expect [R 4 hgetall [slot_key 0 k$i]]
+        }
+
+        # Byte-identical end to end: source-before == dest master == dest replica.
+        assert_equal $src_digest [R 1 debug digest]
+        assert_equal $src_digest [R 4 debug digest]
     }
 }

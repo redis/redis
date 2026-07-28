@@ -453,6 +453,8 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
+"KEYMETA-AOF-DUMP <key>",
+"    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "REPLICATE <string>",
@@ -627,6 +629,8 @@ NULL
             }
         }
 
+        backupSetFailed("debug reload executed");
+
         /* The default behavior is to save the RDB file before loading
          * it back. */
         if (save) {
@@ -654,6 +658,7 @@ NULL
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+        backupSetFailed("debug loadaof executed");
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
@@ -727,6 +732,16 @@ NULL
             (void*)kv, kv->refcount,
             strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id),
             kv->lru, estimateObjectIdleTime(kv)/1000, extra);
+    } else if (!strcasecmp(c->argv[1]->ptr,"keymeta-aof-dump") && c->argc == 3) {
+        kvobj *kv = dbFind(c->db, c->argv[2]->ptr);
+        if (kv == NULL) {
+            addReplyNull(c);
+            return;
+        }
+
+        rio payload;
+        createDumpPayload(&payload, kv, c->argv[2], c->db->id, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+        addReplyBulkSds(c, payload.io.buffer.ptr);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         robj *val;
         sds key;

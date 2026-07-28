@@ -92,7 +92,7 @@ long long stat_prev_total_client_process_input_buff_events = 0;
 /*============================ Internal prototypes ========================== */
 
 static inline int isShutdownInitiated(void);
-static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg);
+static inline int isCommandReusable(struct redisCommand *cmd, robj **argv, int argc);
 int isReadyToShutdown(void);
 int finishShutdown(void);
 const char *replstateToString(int replstate);
@@ -104,11 +104,16 @@ const char *replstateToString(int replstate);
  * - It is not NULL.
  * - It does not have subcommands (subcommands_dict == NULL).
  *   This preserves simplicity on the check and accounts for the majority of the use cases.
- * - Its full name matches the provided command argument. */
-static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg) {
-    return cmd != NULL &&
-           cmd->subcommands_dict == NULL &&
-           strcasecmp(cmd->fullname, commandArg->ptr) == 0;
+ * - For top-level commands, its full name matches argv[0].
+ * - For subcommands, argv[0] matches the parent's full name and argv[1] matches
+ *   the subcommand's declared name. */
+static inline int isCommandReusable(struct redisCommand *cmd, robj **argv, int argc) {
+    if (cmd == NULL || cmd->subcommands_dict != NULL) return 0;
+    if (cmd->parent == NULL)
+        return strcasecmp(cmd->fullname, argv[0]->ptr) == 0;
+    return argc >= 2 &&
+           strcasecmp(cmd->parent->fullname, argv[0]->ptr) == 0 &&
+           strcasecmp(cmd->declared_name, argv[1]->ptr) == 0;
 }
 
 /* This macro tells if we are in the context of loading an AOF. */
@@ -1679,10 +1684,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Handle background operations on Redis databases. */
     databasesCron();
 
-    /* Start a scheduled AOF rewrite if this was requested by the user while
-     * a BGSAVE was in progress. */
+    backupCron();
+
+    /* Start a scheduled AOF rewrite if this was requested while another state
+     * prevented it earlier. */
     if (!hasActiveChildProcess() &&
         server.aof_rewrite_scheduled &&
+        !backupIsInProgress() &&
         !aofRewriteLimited())
     {
         rewriteAppendOnlyFileBackground();
@@ -1721,6 +1729,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         /* Trigger an AOF rewrite if needed. */
         if (server.aof_state == AOF_ON &&
             !hasActiveChildProcess() &&
+            !backupIsInProgress() &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
@@ -1796,6 +1805,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     run_with_period(2000) {
         pendingCommandPoolCron();
     }
+
+    /* Template registry maintenance. */
+    hashTemplatesCron();
 
     /* Resize tracking keys table if needed. This is also done at every
      * command execution, but we want to be sure that if the last command
@@ -1945,6 +1957,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (ProcessingEventsWhileBlocked) {
         uint64_t processed = 0;
         processed += connTypeProcessPendingData(server.el);
+        processed += clientCompressionProcessPendingData(server.el);
         if (server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE)
             flushAppendOnlyFile(0);
         processed += handleClientsWithPendingWrites();
@@ -1963,9 +1976,13 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Handle pending data(typical TLS). (must be done before flushAppendOnlyFile) */
     connTypeProcessPendingData(server.el);
+    /* Drain any buffered decompressed replication data (see client_comp.c). */
+    clientCompressionProcessPendingData(server.el);
 
-    /* If any connection type(typical TLS) still has pending unread data don't sleep at all. */
-    int dont_sleep = connTypeHasPendingData(server.el);
+    /* If any connection type(typical TLS) or compression still has
+     * pending unread data don't sleep at all. */
+    int dont_sleep = connTypeHasPendingData(server.el) ||
+                     clientCompressionHasPendingData(server.el);
 
     /* Call the Redis Cluster before sleep function. Note that this function
      * may change the state of Redis Cluster (from ok to fail or vice versa),
@@ -2312,6 +2329,8 @@ void createSharedObjects(void) {
     shared.hpersist = createStringObject("HPERSIST",8);
     shared.hdel = createStringObject("HDEL",4);
     shared.hsetex = createStringObject("HSETEX",6);
+    shared.restore = createStringObject("RESTORE",7);
+    shared.replace = createStringObject("REPLACE",7);
 
     /* Shared command argument */
     shared.left = createStringObject("left",4);
@@ -2417,6 +2436,14 @@ void initServerConfig(void) {
     server.async_loading = 0;
     server.loading_rdb_used_mem = 0;
     server.aof_state = AOF_OFF;
+    server.backup_state = BACKUP_STATE_IDLE;
+    server.backup_can_remove_aof_dir = 0;
+    server.backup_base_filename = NULL;
+    server.backup_incr_filename = NULL;
+    server.backup_manifest_filename = NULL;
+    server.backup_error = NULL;
+    server.backup_start_time = 0;
+    server.backup_end_time = 0;
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
@@ -2480,6 +2507,7 @@ void initServerConfig(void) {
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
     server.repl_up_since = 0;
     server.master_repl_offset = 0;
+    server.repl_last_flush_offset = 0;
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
     server.repl_total_sync_attempts = 0;
@@ -2936,6 +2964,8 @@ void resetServerStats(void) {
     atomicSet(server.stat_net_output_bytes, 0);
     atomicSet(server.stat_net_repl_input_bytes, 0);
     atomicSet(server.stat_net_repl_output_bytes, 0);
+    atomicSet(server.stat_net_repl_output_uncompressed_bytes, 0);
+    atomicSet(server.stat_net_repl_input_decompressed_bytes, 0);
     server.stat_unexpected_error_replies = 0;
     server.stat_total_error_replies = 0;
     server.stat_dump_payload_sanitizations = 0;
@@ -3036,12 +3066,17 @@ void initServer(void) {
     server.memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
     resetReplicationBuffer();
 
+    /* Force replication compression off if this build has no compression
+     * support. repl-compression is immutable, so this only needs to run once. */
+    setReplCompression(server.repl_compression);
+
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
         serverLog(LL_WARNING, "Failed to configure LOCALE for invalid locale name.");
         exit(1);
     }
 
+    hashTemplatesInit();
     createSharedObjects();
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
@@ -3675,7 +3710,7 @@ int mustObeyClient(client *c) {
     return c->id == CLIENT_ID_AOF || c->flags & CLIENT_MASTER;
 }
 
-static int shouldPropagate(int target) {
+int shouldPropagate(int target) {
     if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
         return 0;
 
@@ -3878,6 +3913,9 @@ void postExecutionUnitOperations(void) {
     /* If we are at the top-most call() and not inside a an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */
     propagatePendingCommands();
+
+    /* Feed replicas mid command-stream if enough has accumulated. */
+    flushSlavesOutputBuffersIfNeeded();
 
     /* Module subsystem post-execution-unit logic */
     modulePostExecutionUnitOperations();
@@ -4373,7 +4411,7 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
      * The previous command is either the penultimate pending command (if it exists), or c->lastcmd. */
     struct redisCommand *last_cmd = pcmd->prev ? pcmd->prev->cmd : c->lastcmd;
 
-    if (isCommandReusable(last_cmd, pcmd->argv[0]))
+    if (isCommandReusable(last_cmd, pcmd->argv, pcmd->argc))
         pcmd->cmd = last_cmd;
     else
         pcmd->cmd = lookupCommand(pcmd->argv, pcmd->argc);
@@ -4454,7 +4492,7 @@ int processCommand(client *c) {
         /* The command may have been modified by modules (e.g., in CommandFilters callbacks),
          * so we need to look it up again. */
         if (!cmd) {
-            if (isCommandReusable(c->lastcmd, c->argv[0]))
+            if (isCommandReusable(c->lastcmd, c->argv, c->argc))
                 cmd = c->lastcmd;
             else
                 cmd = lookupCommand(c->argv, c->argc);
@@ -6509,6 +6547,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "used_memory_vm_total:%lld\r\n", memory_functions + memory_lua,
             "used_memory_vm_total_human:%s\r\n", used_memory_vm_total_hmem,
             "used_memory_functions:%lld\r\n", (long long)mh->functions_caches,
+            "used_memory_hash_templates:%zu\r\n", mh->hash_templates,
             "used_memory_scripts:%lld\r\n", (long long)mh->eval_caches + (long long)mh->functions_caches,
             "used_memory_scripts_human:%s\r\n", used_memory_scripts_hmem,
             "maxmemory:%lld\r\n", server.maxmemory,
@@ -6594,6 +6633,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "aof_last_write_status:%s\r\n", (server.aof_last_write_status == C_OK &&
                                              aof_bio_fsync_status == C_OK) ? "ok" : "err",
             "aof_last_cow_size:%zu\r\n", server.stat_aof_cow_bytes,
+            "backup_in_progress:%d\r\n", backupIsInProgress(),
             "module_fork_in_progress:%d\r\n", server.child_type == CHILD_TYPE_MODULE,
             "module_fork_last_cow_size:%zu\r\n", server.stat_module_cow_bytes));
 
@@ -6669,6 +6709,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         long long stat_total_client_process_input_buff_events;
         long long stat_avg_pipeline_length_sum;
         long long stat_avg_pipeline_length_cnt;
+        long long stat_net_repl_output_uncompressed_bytes, stat_net_repl_input_decompressed_bytes;
         long long current_eviction_exceeded_time = server.stat_last_eviction_exceeded_time ?
             (long long) elapsedUs(server.stat_last_eviction_exceeded_time): 0;
         long long current_active_defrag_time = server.stat_last_active_defrag_time ?
@@ -6682,6 +6723,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         atomicGet(server.stat_total_client_process_input_buff_events, stat_total_client_process_input_buff_events);
         atomicGet(server.stat_avg_pipeline_length_sum, stat_avg_pipeline_length_sum);
         atomicGet(server.stat_avg_pipeline_length_cnt, stat_avg_pipeline_length_cnt);
+        atomicGet(server.stat_net_repl_output_uncompressed_bytes, stat_net_repl_output_uncompressed_bytes);
+        atomicGet(server.stat_net_repl_input_decompressed_bytes, stat_net_repl_input_decompressed_bytes);
 
         /* If we calculated the total reads and writes in the threads section,
          * we don't need to do it again, and also keep the values consistent. */
@@ -6769,10 +6812,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "avg_pipeline_length:%.2f\r\n", stat_avg_pipeline_length_cnt ? (double)stat_avg_pipeline_length_sum / stat_avg_pipeline_length_cnt : 0,
             "slowlog_commands_count:%lld\r\n", server.stat_slowlog_count,
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
-            "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000));
+            "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
+            "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
+            "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
         info = genRedisInfoStringACLStats(info);
         if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);
+        }
+        if (stat_net_repl_output_uncompressed_bytes > 0) {
+            info = sdscatprintf(info, "total_net_repl_uncompressed_bytes:%lld\r\n", stat_net_repl_output_uncompressed_bytes);
+        }
+        if (stat_net_repl_input_decompressed_bytes > 0) {
+            info = sdscatprintf(info, "total_net_repl_decompressed_bytes:%lld\r\n", stat_net_repl_input_decompressed_bytes);
         }
     }
 
@@ -7638,16 +7689,68 @@ int checkForSentinelMode(int argc, char **argv, char *exec_name) {
 /* Function called at startup to load RDB or AOF file in memory. */
 void loadDataFromDisk(void) {
     long long start = ustime();
-    if (server.aof_state == AOF_ON) {
+    rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+    int loaded = 0;
+    int rdb_load_ret = RDB_NOT_EXIST;
+
+    /* Handle preload_file, which overrides anything else. */
+    if (server.preload_file) {
+        if (!strncmp(server.preload_file, "aof:/", 5)) {
+            int ret;
+            if (!strcmp(getFileExtension(server.preload_file), "aof")) {
+                ret = loadPreLoadAOFFile(server.preload_file + 4);
+            } else if (!strcmp(getFileExtension(server.preload_file), "manifest")) {
+                ret = loadPreLoadManifestFile(server.preload_file + 4);
+            } else {
+                serverLog(LL_NOTICE,"Invalid preload-file configuration (not .aof or .manifest): %s. Exiting.", server.preload_file);
+                exit(1);
+            }
+            if (ret == AOF_OK) {
+                serverLog(LL_NOTICE,"DB pre-loaded from append only file: %s: %.3f seconds",server.preload_file+4, (float)(ustime()-start)/1000000);
+            } else {
+                serverLog(LL_NOTICE,"FATAL: pre-load from AOF failed! (%s) %s", server.preload_file+4, strerror(errno));
+                exit(1);
+            }
+            loaded = 1;
+        } else if (!strncmp(server.preload_file, "rdb:/", 5)) {
+            int rdbflags = RDBFLAGS_NONE;
+            if (iAmMaster()) {
+                /* Master may delete expired keys when loading, we should
+                 * propagate expire to replication backlog. */
+                createReplicationBacklog();
+                rdbflags |= RDBFLAGS_FEED_REPL;
+            }
+            rdb_load_ret = rdbLoad(server.preload_file + 4,&rsi,rdbflags);
+            if (rdb_load_ret == C_OK) {
+                serverLog(LL_NOTICE,"DB pre-loaded from rdb file: %s: %.3f seconds",
+                    server.preload_file+4, (float)(ustime()-start)/1000000);
+                loaded = 1;
+            } else {
+                serverLog(LL_WARNING,"FATAL: pre-loading RDB failed! (%s): %s. Exiting.", server.preload_file+4, strerror(errno));
+                redis_check_rdb(server.preload_file+4, NULL);
+                exit(1);
+            }
+        } else {
+            serverLog(LL_WARNING,"Invalid preload-file configuration: %s. Exiting.", server.preload_file);
+            exit(1);
+        }
+    }
+
+    if (loaded && server.aof_state == AOF_ON) {
+        /* On database upgrades, we store an rdb file on shutdown, and then start from it with preload-file.
+         * but we still need to convert the old AOF file (exact same content), otherwise,
+         * we'll end up doing a foreground AOFRW on startup. */
+        upgradeAofIfNeeded(server.aof_manifest);
+    } else if (!loaded && server.aof_state == AOF_ON) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
-        if (ret != AOF_NOT_EXIST)
+        if (ret != AOF_NOT_EXIST) {
             serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
+            loaded = 1;
+        }
         updateReplOffsetAndResetEndOffset();
-    } else {
-        rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
-        int rsi_is_valid = 0;
+    } else if (!loaded) {
         errno = 0; /* Prevent a stale value from affecting error checking */
         int rdb_flags = RDBFLAGS_NONE;
         if (iAmMaster()) {
@@ -7656,11 +7759,21 @@ void loadDataFromDisk(void) {
             createReplicationBacklog();
             rdb_flags |= RDBFLAGS_FEED_REPL;
         }
-        int rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
+        rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
         if (rdb_load_ret == RDB_OK) {
+            loaded = 1;
             serverLog(LL_NOTICE,"DB loaded from disk: %.3f seconds",
                 (float)(ustime()-start)/1000000);
+        } else if (rdb_load_ret != RDB_NOT_EXIST) {
+            serverLog(LL_WARNING, "Fatal error loading the DB, check server logs. Exiting.");
+            exit(1);
+        }
+    }
 
+    /* Post load actions apply to both preload and normal load. */
+    {
+        int rsi_is_valid = 0;
+        if (rdb_load_ret == RDB_OK) {
             /* Restore the replication ID / offset from the RDB file. */
             if (rsi.repl_id_is_set &&
                 rsi.repl_offset != -1 &&
@@ -7693,9 +7806,6 @@ void loadDataFromDisk(void) {
                     server.repl_no_slaves_since = time(NULL);
                 }
             }
-        } else if (rdb_load_ret != RDB_NOT_EXIST) {
-            serverLog(LL_WARNING, "Fatal error loading the DB, check server logs. Exiting.");
-            exit(1);
         }
 
         /* We always create replication backlog if server is a master, we need
@@ -8238,6 +8348,9 @@ int main(int argc, char **argv) {
         serverLog(LL_NOTICE,"Server initialized");
         aofLoadManifestFromDisk();
         loadDataFromDisk();
+        /* Make the on-disk AOF match the preloaded in-memory dataset so
+         * subsequent writes are appended to the correct local INCR. */
+        aofSetupAfterPreloadFile();
         aofOpenIfNeededOnServerStart();
         aofDelHistoryFiles();
         /* While loading data, we delay applying "appendonly" config change.

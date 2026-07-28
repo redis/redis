@@ -136,6 +136,10 @@ proc wait_for_sync r {
     if {$::tsan} {
         set maxtries 100
     }
+    # same for compression
+    if {$::compression} {
+        set maxtries 200
+    }
 
     wait_for_condition $maxtries 100 {
         [status $r master_link_status] eq "up"
@@ -149,6 +153,9 @@ proc wait_replica_online {r {replica_id 0} {maxtries 50} {delay 100}} {
     # wait time here JIC
     if {$::tsan} {
         set maxtries [expr {$maxtries * 2}]
+    }
+    if {$::compression} {
+        set maxtries [expr {$maxtries * 3}]
     }
 
     wait_for_condition $maxtries $delay {
@@ -164,6 +171,9 @@ proc wait_for_ofs_sync {r1 r2} {
     # wait time here JIC
     if {$::tsan} {
         set maxtries 100
+    }
+    if {$::compression} {
+        set maxtries 150
     }
     wait_for_condition $maxtries 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
@@ -221,6 +231,9 @@ proc verify_log_message {srv_idx pattern from_line} {
 # wait for pattern to be found in server's stdout after certain line number
 # return value is a list containing the line that matched the pattern and the line number
 proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
+    if {$::compression} {
+        set maxtries [expr {$maxtries * 3}]
+    }
     set retry $maxtries
     set next_line [expr $from_line + 1] ;# searching form the line after
     set stdout [srv $srv_idx stdout]
@@ -338,6 +351,10 @@ proc createComplexDataset {r ops {opt {}}} {
     } else {
         set tag ""
     }
+
+    # Prepare a fieldset so we can mix in template-encoded hash keys via HIMPORT SET.
+    {*}$r himport prepare fs f0 f1 f2
+
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]$tag
         set k2 [randomKey]$tag
@@ -376,6 +393,10 @@ proc createComplexDataset {r ops {opt {}}} {
                 {*}$r zadd $k $d $v
             } {
                 {*}$r hset $k $f $v
+            } {
+                # template-encoded hash. Short/long values naturally produce 
+                # both TMPL_LP and TMPL_ARRAY encodings.
+                {*}$r himport set $k fs $v [randomValue] [randomValue]
             } {
                 {*}$r del $k
             }
@@ -676,11 +697,19 @@ proc stop_bg_complex_data {handle} {
 # Write num keys with the given key prefix and value size (in bytes). If idx is
 # given, it's the index (AKA level) used with the srv procedure and it specifies
 # to which Redis instance to write the keys.
-proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
+proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0} {random false}} {
     r $idx deferred 1
     if {$num > 16} {set pipeline 16} else {set pipeline $num}
-    set val [string repeat A $size]
+    if {$random} {
+        set baseval [randstring $size $size]
+    } else {
+        set val [string repeat A $size]
+    }
     for {set j 0} {$j < $pipeline} {incr j} {
+        if {$random} {
+            set jstr [format "%08d" $j]
+            set val [string replace $baseval 0 7 $jstr]
+        }
         if {$expires > 0} {
             r $idx set $prefix$j $val ex $expires
         } else {
@@ -689,6 +718,10 @@ proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
         if {$prints} {puts $j}
     }
     for {} {$j < $num} {incr j} {
+        if {$random} {
+            set jstr [format "%08d" $j]
+            set val [string replace $baseval 0 7 $jstr]
+        }
         if {$expires > 0} {
             r $idx set $prefix$j $val ex $expires
         } else {
@@ -774,7 +807,11 @@ proc resume_process {pid} {
         after 100
     }
 
-    wait_for_condition 50 1000 {
+    set max_attempts 50
+    if {$::compression} {
+        set max_attempts 150
+    }
+    wait_for_condition $max_attempts 1000 {
         [string match "R*" [exec ps -o state= -p $pid]] ||
         [string match "S*" [exec ps -o state= -p $pid]]
     } else {

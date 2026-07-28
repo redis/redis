@@ -112,6 +112,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdint.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -1584,6 +1585,11 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         /* Count = 0 is a special case, return empty array */
         if (count == 0) {
             return RedisModule_ReplyWithEmptyArray(ctx);
+        }
+        /* Negating LLONG_MIN to get abs(count) is UB and overflows the reply length. */
+        if (count == LLONG_MIN) {
+            return RedisModule_ReplyWithError(ctx,
+                "ERR COUNT value is out of range");
         }
     }
 

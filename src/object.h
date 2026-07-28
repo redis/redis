@@ -86,6 +86,8 @@ struct RedisModuleType;
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 #define OBJ_ENCODING_LISTPACK_EX 12 /* Encoded as listpack, extended with metadata */
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
+#define OBJ_ENCODING_TMPL_LP 14 /* Hash with shared template, values in listpack */
+#define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */

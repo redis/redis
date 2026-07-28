@@ -3213,9 +3213,7 @@ int RM_ReplyWithErrorFormat(RedisModuleCtx *ctx, const char *fmt, ...) {
 int RM_ReplyWithSimpleString(RedisModuleCtx *ctx, const char *msg) {
     client *c = moduleGetReplyClient(ctx);
     if (c == NULL) return REDISMODULE_OK;
-    addReplyProto(c,"+",1);
-    addReplyProto(c,msg,strlen(msg));
-    addReplyProto(c,"\r\n",2);
+    addReplyStatusSafe(c, msg);
     return REDISMODULE_OK;
 }
 
@@ -9229,15 +9227,27 @@ void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
     moduleReleaseGIL();
 }
 
+/* Set on a thread while it holds the module GIL. */
+static __thread int threadHoldsGIL = 0;
+
+/* True if the calling thread currently holds the module GIL. */
+int moduleThreadHoldsGIL(void) {
+    return threadHoldsGIL;
+}
+
 void moduleAcquireGIL(void) {
     pthread_mutex_lock(&moduleGIL);
+    threadHoldsGIL = 1;
 }
 
 int moduleTryAcquireGIL(void) {
-    return pthread_mutex_trylock(&moduleGIL);
+    int res = pthread_mutex_trylock(&moduleGIL);
+    if (res == 0) threadHoldsGIL = 1;
+    return res;
 }
 
 void moduleReleaseGIL(void) {
+    threadHoldsGIL = 0;
     pthread_mutex_unlock(&moduleGIL);
 }
 
@@ -12344,13 +12354,8 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
  * possibly setting errno if the call failed.
  * It is also possible to restart an existing cursor using RM_ScanCursorRestart.
  *
- * NOTE: Certain operations are unsafe while iterating the object. For instance
- * while the API guarantees to return at least one time all the elements that
- * are present in the data structure consistently from the start to the end
- * of the iteration (see HSCAN and similar commands documentation), the more
- * you play with the elements, the more duplicates you may get. In general
- * deleting the current element of the data structure is safe, while removing
- * the key you are iterating is not safe. */
+ * NOTE: The scan may return an element more than once and you must not  modify
+ * the key within the callback. */
 int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) {
     if (key == NULL || key->kv == NULL) {
         errno = EINVAL;
@@ -12393,6 +12398,31 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             decrRefCount(field);
         }
         setTypeResetIterator(&si);
+        cursor->cursor = 1;
+        cursor->done = 1;
+        ret = 0;
+    } else if (kv->type == OBJ_HASH &&
+               (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+                kv->encoding == OBJ_ENCODING_TMPL_ARRAY)) {
+        /* Template-based hashes: iterate via hashTypeIterator which handles
+         * both TMPL_LP and TMPL_ARRAY encodings. */
+        hashTypeIterator hi;
+        hashTypeInitIterator(&hi, kv);
+        while (hashTypeNext(&hi, 0) != C_ERR) {
+            sds field_sds = hashTypeCurrentObjectNewSds(&hi, OBJ_HASH_KEY);
+            robj *field = createObject(OBJ_STRING, field_sds);
+            unsigned char *vstr = NULL;
+            size_t vlen;
+            long long vll;
+            hashTypeCurrentObject(&hi, OBJ_HASH_VALUE, &vstr, &vlen, &vll, NULL);
+            robj *value = (vstr != NULL) ? createStringObject((char *)vstr, vlen) :
+                                           createStringObjectFromLongLongWithSds(vll);
+            fn(key, field, value, privdata);
+
+            decrRefCount(field);
+            decrRefCount(value);
+        }
+        hashTypeResetIterator(&hi);
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;
@@ -12570,6 +12600,7 @@ static uint64_t moduleEventVersions[] = {
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM */
+    REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -12921,6 +12952,39 @@ static uint64_t moduleEventVersions[] = {
  *
  *         RedisModuleSlotRangeArray *slots;  // Slot ranges
  *
+ * * RedisModuleEvent_ClusterTopologyChange
+ *
+ *     Called, in cluster mode, when the topology of the cluster changes: when the
+ *     cluster first becomes ready, when slot ownership or node membership changes
+ *     (resharding, a node joining or leaving), and when a primary changes (a
+ *     failover or a replica being promoted). It lets modules that route to other
+ *     shards (e.g. via slot ranges) refresh their cached view of the cluster
+ *     without polling or requiring an explicit command. Fires are debounced to at
+ *     most one per event loop iteration, so a single reshuffle touching many slots
+ *     yields one event.
+ *
+ *     This event has no meaningful sub event (it is always fired with subevent 0).
+ *
+ *     The data pointer can be casted to a RedisModuleClusterTopologyChangeInfo
+ *     structure. Its `change_flags` field is a bitmask of the reasons that
+ *     contributed to this (possibly debounced) notification:
+ *
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT`:
+ *         Slot ownership changed.
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE`:
+ *         A node changed its primary/replica role (e.g. a failover).
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE`:
+ *         The cluster OK/FAIL state changed (this also covers the cluster
+ *         first becoming ready at startup).
+ *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE`:
+ *         A node joined or left the cluster, or an existing node's address
+ *         (IP, hostname, or port) changed.
+ *
+ *     More than one bit may be set. Beyond the change reasons, the module reads
+ *     whatever else it needs about the new topology via the cluster info APIs
+ *     (e.g. `CLUSTER SLOTS`, RedisModule_GetClusterNodesList /
+ *     RedisModule_GetClusterNodeInfo / RedisModule_GetClusterSize).
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -13006,6 +13070,8 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT;
     case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM:
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT;
+    case REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE:
+        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT;
     default:
         break;
     }
@@ -13096,6 +13162,8 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
             } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION) {
                 moduledata = data;
             } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM) {
+                moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE) {
                 moduledata = data;
             }
 
@@ -15560,22 +15628,32 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
 
 /* Call registered module API defrag start functions */
 void moduleDefragStart(void) {
-    dictForEach(modules, struct RedisModule, module, 
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
         if (module->defrag_start_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_start_cb(&defrag_ctx);
         }
-    );
+    }
+    dictResetIterator(&di);
 }
 
 /* Call registered module API defrag end functions */
 void moduleDefragEnd(void) {
-    dictForEach(modules, struct RedisModule, module, 
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
+        struct RedisModule *module = dictGetVal(de);
         if (module->defrag_end_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_end_cb(&defrag_ctx);
         }
-    );
+    }
+    dictResetIterator(&di);
 }
 
 /* Returns the name of the key currently being processed.
