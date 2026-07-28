@@ -59,6 +59,26 @@ static void rdbChannelCleanup(void);
  * the instance is configured to have no persistence. */
 int RDBGeneratedByReplication = 0;
 
+/* Set the replication compression level. When Redis is built without
+ * compression support (BUILD_COMPRESSION=yes enables it) the level is always
+ * forced to 0, so replication compression stays completely disabled and the
+ * negotiation code paths (which only key off server.repl_compression) never
+ * kick in. repl-compression is an immutable config, so this runs once at
+ * startup. */
+void setReplCompression(int level) {
+#ifdef USE_COMPRESSION
+    server.repl_compression = level;
+#else
+    if (level > 0) {
+        serverLog(LL_WARNING,
+                  "repl-compression is set to %d but is ignored because Redis "
+                  "was not compiled with compression support (build with "
+                  "BUILD_COMPRESSION=yes to enable it).", level);
+    }
+    server.repl_compression = 0;
+#endif
+}
+
 
 /* A reference to diskless loading rio to abort it asynchronously. It's needed
  * for rdbchannel replication. While loading from rdbchannel connection, we may
@@ -146,7 +166,8 @@ void putReplicasInPendingClientsToIOThreads(void) {
          * also send them to the IO thread. */
         if (replica->flags & CLIENT_PENDING_WRITE ||
             clientHasPendingReplies(replica) ||
-            replicaFromIOThreadHasPendingRead(replica))
+            replicaFromIOThreadHasPendingRead(replica) ||
+            clientHasPendingCompressionFlush(replica))
         {
             enqueuePendingClienstToIOThreads(replica);
         }
@@ -1482,6 +1503,37 @@ void replconfCommand(client *c) {
                      server.repl_diskless_sync) {
                 c->slave_capa |= SLAVE_CAPA_RDB_CHANNEL_REPL;
             }
+        } else if (!strcasecmp(c->argv[j]->ptr, "compression")) {
+            long level;
+
+            if ((getLongFromObjectOrReply(c,c->argv[j+1], &level,NULL) != C_OK))
+                return;
+
+            if (server.io_threads_num > 1) {
+                if (level == (long)server.repl_compression) {
+                    serverLog(LL_NOTICE, "Client #%llu request for replication "
+                            "compression with level %ld accepted",
+                            (unsigned long long)c->id, level);
+
+                    c->compression_level = level;
+                } else {
+                    serverLog(LL_NOTICE, "Client #%llu request for replication "
+                            "compression rejected. Compression levels differ.",
+                            (unsigned long long)c->id);
+                    c->compression_level = 0;
+                    addReplyErrorFormat(c, "Requested level %ld differs from master's level: %d",
+                                        level, server.repl_compression);
+                    return;
+                }
+            } else {
+                serverLog(LL_NOTICE, "Client #%llu request for replication "
+                          "compression rejected. Replication compression is only "
+                          "enabled with IO threads.",
+                          (unsigned long long)c->id);
+                c->compression_level = 0;
+                addReplyError(c, "Master has not enabled replication compression");
+                return;
+            }
         } else if (!strcasecmp(c->argv[j]->ptr,"ack")) {
             /* REPLCONF ACK is used by slave to inform the master the amount
              * of replication stream that it processed so far. It is an
@@ -2248,6 +2300,20 @@ void replicationAttachToNewMaster(void) {
     freeReplicationBacklog(); /* Don't allow our chained replicas to PSYNC. */
 }
 
+/* Enable decompression on a master client so it can read the compressed
+ * replication stream, if compression was negotiated with the master (no-op
+ * otherwise). The master already streams compressed data by the time we call
+ * this, so we can't fall back to uncompressed replication: a failure to
+ * initialize the decompressor is unrecoverable on the replica side and we panic
+ * (the only expected cause is an allocation failure inside the compression
+ * library, in which case we're in deep trouble anyway). */
+void enableMasterClientDecompressionIfNeeded(client *c) {
+    if (server.repl_master_compression_level <= 0) return;
+    if (!clientEnableCompression(c, DECOMPRESS)) {
+        serverPanic("Failed to enable decompression for the master replication stream.");
+    }
+}
+
 /* Asynchronously read the SYNC payload we receive from a master */
 #define REPL_MAX_WRITTEN_BEFORE_FSYNC (1024*1024*8) /* 8 MB */
 void readSyncBulkPayload(connection *conn) {
@@ -2701,6 +2767,11 @@ void readSyncBulkPayload(connection *conn) {
      * masters after a failover. */
     if (server.repl_backlog == NULL) createReplicationBacklog();
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Finished with success");
+
+    /* If we agreed on compression with the master then setup compression on the
+     * master client. At this point we're done reading all non compressed payload
+     * from the master */
+    enableMasterClientDecompressionIfNeeded(server.master);
 
     if (server.supervised_mode == SUPERVISED_SYSTEMD) {
         redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Finished with success. Ready to accept connections in read-write mode.\n");
@@ -3184,6 +3255,14 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
+        /* Try to setup client compression if we're configured so */
+        if (server.repl_compression > 0) {
+            sds level = sdsfromlonglong(server.repl_compression);
+            err = sendCommand(conn, "REPLCONF", "compression", level, NULL);
+            sdsfree(level);
+            if (err) goto write_error;
+        }
+
         /* Inform the master of our (slave) capabilities.
          *
          * EOF: supports EOF-style RDB transfer for diskless replication.
@@ -3252,7 +3331,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_RECEIVE_REQ_REPLY && !no_compress_checksum)
-        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_CLIENT_COMP;
 
     /* Receive REPLCONF REQUEST reply (rdb-no-compress and rdb-no-checksum). */
     if (server.repl_state == REPL_STATE_RECEIVE_REQ_REPLY) {
@@ -3265,6 +3344,30 @@ void syncWithMaster(connection *conn) {
                                 "REPLCONF rdb-no-compress/checksum: %s", err);
         }
         sdsfree(err);
+        server.repl_state = REPL_STATE_RECEIVE_CLIENT_COMP;
+        return;
+    }
+
+    if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP && server.repl_compression <= 0)
+        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+
+    if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP) {
+        err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
+
+        /* Ignore the error if any, not all the Redis versions support
+         * REPLCONF compression. */
+        if (err[0] == '-') {
+            serverLog(LL_NOTICE, "(Non critical) Replication compression not enabled: %s", err);
+            server.repl_compression = 0;
+            server.repl_master_compression_level = 0;
+        } else {
+            serverLog(LL_NOTICE, "Master agreed to compression level %d",
+                      server.repl_compression);
+            server.repl_master_compression_level = server.repl_compression;
+        }
+        sdsfree(err);
+        err = NULL;
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
         return;
     }
@@ -3336,6 +3439,7 @@ void syncWithMaster(connection *conn) {
 
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
+        enableMasterClientDecompressionIfNeeded(server.master);
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
             redisCommunicateSystemd("STATUS=MASTER <-> REPLICA sync: Partial Resynchronization accepted. Ready to accept connections in read-write mode.\n");
         }
@@ -4128,6 +4232,12 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
     int ret = C_OK;
     client *c = ctx->client;
 
+    int compressed_stream = (c->flags & CLIENT_MASTER) &&
+        !(c->flags & CLIENT_ASM_IMPORTING) &&
+        (server.repl_master_compression_level > 0);
+    if (compressed_stream)
+        serverAssert(server.master->compression_state);
+
     blockingOperationStarts();
     while ((n = listFirst(buf->blocks))) {
         replDataBufBlock *o = listNodeValue(n);
@@ -4136,30 +4246,59 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
 
         size_t processed = 0;
         while (processed < o->used) {
-            size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
-            c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
-            c->read_reploff += (long long int) bytes;
+            /* Consumed bytes from the current block in the current iteration. */
+            size_t consumed = 0;
+
+            if (compressed_stream) {
+                c->querybuf = sdsMakeRoomFor(c->querybuf, PROTO_IOBUF_LEN);
+
+                size_t qblen = sdslen(c->querybuf);
+                size_t avail = sdsavail(c->querybuf);
+                int decompressed = clientReadBufAndDecompress(c, o->buf + processed,
+                                                              o->used - processed,
+                                                              c->querybuf + qblen,
+                                                              avail,
+                                                              &consumed);
+                serverAssert(decompressed >= 0);
+                sdsIncrLen(c->querybuf, decompressed);
+                c->read_reploff += (long long) decompressed;
+                c->io_read_reploff += (long long int) decompressed;
+
+                atomicIncr(server.stat_net_repl_input_decompressed_bytes, decompressed);
+            } else {
+                size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
+                c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
+                c->read_reploff += (long long int) bytes;
+                c->io_read_reploff += (long long int) bytes;
+                consumed = bytes;
+            }
             c->lastinteraction = server.unixtime;
 
             /* We don't expect error return value but just in case. */
             ret = processInputBuffer(c);
             if (ret != C_OK) break;
 
-            processed += bytes;
-            buf->used -= bytes;
+            processed += consumed;
+            buf->used -= consumed;
 
-            if (server.repl_debug_pause & REPL_DEBUG_ON_STREAMING_REPL_BUF)
+            if (server.repl_debug_pause & REPL_DEBUG_ON_STREAMING_REPL_BUF) {
                 debugPauseProcess();
+                /* Always process events after debug break as tests may have
+                 * ran other debug commands we need to process and it's not
+                 * always possible to enter the below condition relying on
+                 * `server.loading_process_events_interval_bytes`. */
+                processEventsWhileBlocked();
+            }
 
             /* Check if we should yield back to the event loop */
             if (server.loading_process_events_interval_bytes &&
-                ((ctx->applied_offset + bytes) / server.loading_process_events_interval_bytes >
+                ((ctx->applied_offset + consumed) / server.loading_process_events_interval_bytes >
                   ctx->applied_offset / server.loading_process_events_interval_bytes))
             {
                 ctx->yield_callback(ctx);
                 processEventsWhileBlocked();
             }
-            ctx->applied_offset += bytes;
+            ctx->applied_offset += consumed;
 
             /* Check if we should continue processing */
             if (!ctx->should_continue(ctx)) {

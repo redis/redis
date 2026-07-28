@@ -85,9 +85,9 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             }
         }
         # Migrate the slots back so the cluster layout is restored.
-        wait_for_cluster_propagation
+        wait_for_asm_done
         R 0 cluster migration import 0 100
-        wait_for_cluster_propagation
+        wait_for_asm_done
         wait_for_cluster_state ok
     }
 
