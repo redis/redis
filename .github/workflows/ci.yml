@@ -50,6 +50,8 @@ jobs:
             corpus: string_commands
           - fuzzer: fuzz_bitmap_commands
             corpus: bitmap_commands
+          - fuzzer: fuzz_list_move_commands
+            corpus: list_move_commands
     steps:
       - uses: actions/checkout@v6
       - name: Install Clang
@@ -84,7 +86,8 @@ jobs:
             -max_total_time=60 \
             -timeout=30 \
             -rss_limit_mb=2048 \
-            -max_len=4096
+            -max_len=4096 \
+            -print_funcs=0
       - name: Minimize fuzz corpus
         if: always()
         run: |
@@ -93,6 +96,7 @@ jobs:
           mkdir -p "fuzz-corpus-minimized/${{ matrix.fuzzer }}"
           "fuzz/${{ matrix.fuzzer }}" \
             -merge=1 \
+            -print_funcs=0 \
             "fuzz-corpus-minimized/${{ matrix.fuzzer }}" \
             "fuzz-corpus/${{ matrix.fuzzer }}"
       - name: Collect fuzz artifacts
