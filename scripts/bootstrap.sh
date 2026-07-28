@@ -29,8 +29,8 @@ DRY=0
 _args=""
 for _a in "$@"; do
   case "$_a" in
-    list|--list) CHECK_DEPS=1 ;;
-    dry-run)     DRY=1 ;;
+    list)    CHECK_DEPS=1 ;;
+    dry-run) DRY=1 ;;
     *) _args="$_args $_a" ;;
   esac
 done
