@@ -11042,9 +11042,9 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
         return REDISMODULE_ERR;
     }
 
-    moduleNotifyUserChanged(ctx->client);
-
     ctx->client->authenticated = 1;
+    /* Fires the previous module auth callback (via moduleNotifyUserChanged)
+     * before the new one is installed below. */
     clientSetUser(ctx->client, user, 1);
 
     if (clientHasModuleAuthInProgress(ctx->client)) {

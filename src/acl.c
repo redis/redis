@@ -562,15 +562,20 @@ void ACLCopyUser(user *dst, user *src) {
  * identity is abandoned, every still-NULL Pub/Sub subscription — one whose
  * stored owner is NULL and therefore belongs to the *current* c->user — is
  * stamped with that user so its provenance survives the switch (see
- * pubsubStampCurrentUser). Pass 0 when the identity is not really changing: the
- * ACL LOAD object swap (which re-keys stamped values itself) and the initial
- * default-auth setup. */
+ * pubsubStampCurrentUser), and after the assignment the module user-changed
+ * callback is fired. The latter deliberately sits outside the pointer-equality
+ * check: a re-auth as the same user must still invoke the module auth callback
+ * (it fires exactly once and cleans up the module auth state, see
+ * moduleNotifyUserChanged). Pass 0 when the identity is not really changing:
+ * the ACL LOAD object swap (which re-keys stamped values itself) and the
+ * initial default-auth setup. */
 void clientSetUser(client *c, user *new_user, int auth_switch) {
     if (c->user != new_user) {
         if (auth_switch) pubsubStampCurrentUser(c);
         trackingBroadcastFlushClientPrefixes(c);
     }
     c->user = new_user;
+    if (auth_switch) moduleNotifyUserChanged(c);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -1548,7 +1553,6 @@ int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
         clientSetUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)), 1);
-        moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
         addACLLogEntry(c,ACL_DENIED_AUTH,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,0,username->ptr,NULL);
@@ -3384,7 +3388,6 @@ static void internalAuth(client *c) {
         /* Set the user to the unrestricted user, if it is not already set (default). */
         if (c->user != NULL) {
             clientSetUser(c, NULL, 1);
-            moduleNotifyUserChanged(c);
         }
         addReply(c, shared.ok);
     } else {
