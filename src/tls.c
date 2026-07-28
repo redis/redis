@@ -1003,8 +1003,7 @@ static int tlsApplyExpectedPeerName(tls_connection *conn, const char *addr) {
     const char *name = server.tls_ctx_config.expected_peer_name;
     if (!name || !name[0]) return C_OK;
     if (tlsSetVerifyName(conn->ssl, name) != C_OK) {
-        serverLog(LL_WARNING,
-            "Failed to set expected TLS peer name for outbound connection to %s", addr);
+        serverLog(LL_WARNING, "Failed to set expected TLS peer name for outbound connection to %s", addr);
         conn->c.state = CONN_STATE_ERROR;
         return C_ERR;
     }
