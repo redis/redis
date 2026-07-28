@@ -1300,7 +1300,7 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
          * a shared CA) cannot open a bus link and inject forged messages. No-op for
          * non-TLS connections. */
         if (server.tls_ctx_config.expected_peer_name != NULL &&
-            connSetVerifyName(conn) == C_ERR)
+            connSetVerifyName(conn, server.tls_ctx_config.expected_peer_name) == C_ERR)
         {
             serverLog(LL_VERBOSE,
                 "Error setting expected peer name on cluster node connection from %s:%d", cip, cport);

@@ -1982,10 +1982,6 @@ typedef struct redisTLSContextConfig {
     int session_cache_timeout;
     char *expected_peer_name;       /* Space-separated SAN(s) to verify on outbound
                                        server-to-server TLS connections. NULL = disabled. */
-    char **expected_peer_names;     /* expected_peer_name split into individual name
-                                       tokens, parsed once by the config apply callback
-                                       so connections don't re-parse. NULL = disabled. */
-    int expected_peer_names_count;  /* Number of entries in expected_peer_names. */
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------

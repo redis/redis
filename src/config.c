@@ -2799,11 +2799,11 @@ int updateClusterHumanNodename(const char **err) {
 static int isValidTlsExpectedPeerName(char *val, const char **err) {
     if (val[0] == '\0') return 1;
 
-    /* A non-empty value must contain at least one name token; it is split on
-     * spaces (see tlsParseExpectedPeerName in tls.c), so a whitespace-only value
-     * (e.g. a quoted line of spaces) yields no tokens and would make it reject
-     * every connection while the config still looks set. Reject such a value
-     * here; use an empty string to disable the option. */
+    /* A non-empty value must contain at least one name token; tlsSetVerifyName()
+     * splits it on spaces, so a whitespace-only value (e.g. a quoted line of
+     * spaces) yields no tokens and would make it reject every connection while
+     * the config still looks set. Reject such a value here; use an empty string
+     * to disable the option. */
     if (strspn(val, " ") == strlen(val)) {
         *err = "tls-expected-peer-name contains no usable name; "
                "use an empty string to disable it";
@@ -3472,7 +3472,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, applyTlsCfg),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
