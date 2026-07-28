@@ -12,6 +12,30 @@ proc topo_stats {node} {
     R $node cluster_topology.stats
 }
 
+# Returns whether node_id's persisted cluster entry contains the given port.
+# Persisting the config lets tests verify that an inactive TCP/TLS port was
+# learned even though module APIs intentionally hide it.
+proc cluster_config_has_port {node node_id field port} {
+    R $node cluster saveconfig
+    set dir [lindex [R $node config get dir] 1]
+    set filename [lindex [R $node config get cluster-config-file] 1]
+    set fd [open [file join $dir $filename] r]
+    set contents [read $fd]
+    close $fd
+
+    foreach line [split $contents "\n"] {
+        if {[string match "$node_id *" $line]} {
+            # nodes.conf keeps TCP in the main address field for backward
+            # compatibility and stores TLS as an auxiliary field.
+            if {$field eq "tcp-port"} {
+                return [string match "$node_id *:$port@*" $line]
+            }
+            return [expr {[string first ",$field=$port" $line] != -1}]
+        }
+    }
+    return 0
+}
+
 start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 3000]] {
     test "ClusterTopologyChange notifies modules once the cluster becomes ready" {
         # cluster_setup has already waited for the cluster to be OK on every node.
@@ -196,46 +220,115 @@ start_cluster 2 2 [list tags {external:skip cluster modules} config_lines [list 
         }
         assert_equal $before [dict get [topo_stats 1] node]
     }
+
+    test "ClusterTopologyChange does not report NODE when an inactive peer port changes" {
+        set node_id [R 0 cluster myid]
+        if {[lindex [R 0 config get tls-cluster] 1] eq "yes"} {
+            set config cluster-announce-port
+            set aux_field tcp-port
+            set default_port [lindex [R 0 config get port] 1]
+        } else {
+            set config cluster-announce-tls-port
+            set aux_field tls-port
+            set default_port [lindex [R 0 config get tls-port] 1]
+        }
+        set newport 32004
+
+        set local_before [dict get [topo_stats 0] node]
+        set peer_before [dict get [topo_stats 1] node]
+        R 0 config set $config $newport
+
+        wait_for_condition 50 100 {
+            [cluster_config_has_port 1 $node_id $aux_field $newport]
+        } else {
+            fail "Inactive announced port was not propagated via gossip"
+        }
+        assert_equal $peer_before [dict get [topo_stats 1] node]
+        assert_equal $local_before [dict get [topo_stats 0] node]
+
+        R 0 config set $config 0
+        assert_equal $local_before [dict get [topo_stats 0] node]
+        wait_for_condition 50 100 {
+            [cluster_config_has_port 1 $node_id $aux_field $default_port]
+        } else {
+            fail "Reset inactive announced port was not propagated via gossip"
+        }
+        assert_equal $peer_before [dict get [topo_stats 1] node]
+    }
 }
 
-if {$::tls} {
-    start_cluster 1 0 [list tags {external:skip cluster modules tls} config_lines [list loadmodule $testmodule]] {
-        test "ClusterTopologyChange reports the NODE reason when local announced endpoints change" {
-            foreach change {
-                {cluster-announce-ip 127.0.0.2 ""}
-                {cluster-announce-hostname node.example.test ""}
-                {cluster-announce-port 32001 0}
-                {cluster-announce-tls-port 32002 0}
-            } {
-                lassign $change config value default
+start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule]] {
+    test "ClusterTopologyChange reports the NODE reason when local announced endpoints change" {
+        if {[lindex [R 0 config get tls-cluster] 1] eq "yes"} {
+            set active_port_config cluster-announce-tls-port
+        } else {
+            set active_port_config cluster-announce-port
+        }
+        foreach change {
+            {cluster-announce-ip 127.0.0.2 ""}
+            {cluster-announce-hostname node.example.test ""}
+        } {
+            lassign $change config value default
 
-                set before [dict get [topo_stats 0] node]
-                R 0 config set $config $value
-                wait_for_condition 50 100 {
-                    [dict get [topo_stats 0] node] > $before
-                } else {
-                    fail "NODE change reason was not reported after changing $config"
-                }
+            set before [dict get [topo_stats 0] node]
+            R 0 config set $config $value
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported after changing $config"
+            }
 
-                set before [dict get [topo_stats 0] node]
-                R 0 config set $config $default
-                wait_for_condition 50 100 {
-                    [dict get [topo_stats 0] node] > $before
-                } else {
-                    fail "NODE change reason was not reported after resetting $config"
-                }
+            set before [dict get [topo_stats 0] node]
+            R 0 config set $config $default
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported after resetting $config"
             }
         }
 
-        test "ClusterTopologyChange does not report NODE for local cluster bus port changes" {
-            set before [dict get [topo_stats 0] node]
-            R 0 config set cluster-announce-bus-port 32003
-            assert_equal $before [dict get [topo_stats 0] node]
-
-            R 0 config set cluster-announce-bus-port 0
-            assert_equal $before [dict get [topo_stats 0] node]
+        set before [dict get [topo_stats 0] node]
+        R 0 config set $active_port_config 32001
+        wait_for_condition 50 100 {
+            [dict get [topo_stats 0] node] > $before
+        } else {
+            fail "NODE change reason was not reported after changing $active_port_config"
         }
 
+        set before [dict get [topo_stats 0] node]
+        R 0 config set $active_port_config 0
+        wait_for_condition 50 100 {
+            [dict get [topo_stats 0] node] > $before
+        } else {
+            fail "NODE change reason was not reported after resetting $active_port_config"
+        }
+    }
+
+    test "ClusterTopologyChange does not report NODE for an inactive local port change" {
+        if {[lindex [R 0 config get tls-cluster] 1] eq "yes"} {
+            set inactive_port_config cluster-announce-port
+        } else {
+            set inactive_port_config cluster-announce-tls-port
+        }
+
+        set before [dict get [topo_stats 0] node]
+        R 0 config set $inactive_port_config 32002
+        assert_equal $before [dict get [topo_stats 0] node]
+
+        R 0 config set $inactive_port_config 0
+        assert_equal $before [dict get [topo_stats 0] node]
+    }
+
+    test "ClusterTopologyChange does not report NODE for local cluster bus port changes" {
+        set before [dict get [topo_stats 0] node]
+        R 0 config set cluster-announce-bus-port 32003
+        assert_equal $before [dict get [topo_stats 0] node]
+
+        R 0 config set cluster-announce-bus-port 0
+        assert_equal $before [dict get [topo_stats 0] node]
+    }
+
+    if {$::tls} {
         test "ClusterTopologyChange reports the NODE reason when tls-cluster changes the preferred port" {
             set tls_port [lindex [R 0 config get tls-port] 1]
             set tcp_port [lindex [R 0 config get port] 1]

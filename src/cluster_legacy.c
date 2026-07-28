@@ -852,13 +852,10 @@ void clusterUpdateMyselfFlags(void) {
 * The option can be set at runtime via CONFIG SET. */
 void clusterUpdateMyselfAnnouncedPorts(void) {
     if (!myself) return;
-    int old_tcp_port = myself->tcp_port;
-    int old_tls_port = myself->tls_port;
+    int old_client_port = getNodeDefaultClientPort(myself);
 
     deriveAnnouncedPorts(&myself->tcp_port,&myself->tls_port,&myself->cport);
-    if (myself->tcp_port != old_tcp_port ||
-        myself->tls_port != old_tls_port)
-    {
+    if (getNodeDefaultClientPort(myself) != old_client_port) {
         clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
     }
 }
@@ -2312,10 +2309,10 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     if (node->tcp_port == tcp_port && node->cport == cport && node->tls_port == tls_port &&
         strcmp(ip,node->ip) == 0) return 0;
 
-    /* The cluster bus port is only used for internal node-to-node communication,
-     * so changing it alone is not a module-visible topology change. */
-    int topology_changed = node->tcp_port != tcp_port ||
-                           node->tls_port != tls_port ||
+    /* Inactive and cluster bus ports are not exposed by the module cluster
+     * APIs, so changing them alone is not a module-visible topology change. */
+    int topology_changed = getNodeDefaultClientPort(node) !=
+                           (server.tls_cluster ? tls_port : tcp_port) ||
                            strcmp(ip,node->ip) != 0;
 
     /* IP / port is different, update it. */
