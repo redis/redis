@@ -60,12 +60,18 @@ static int connUnixListen(connListener *listener) {
     for (int j = 0; j < listener->bindaddr_count; j++) {
         char *addr = listener->bindaddr[j];
 
+        /* anetUnixServer unlinks the path before binding, so first make sure the
+         * path does not belong to an active listener. */
         fd = anetUnixNonBlockConnect(server.neterr, addr);
         if (fd != ANET_ERR) {
             close(fd);
             serverLog(LL_WARNING, "Unix socket %s is already in use", addr);
             return C_ERR;
         }
+
+        /* ENOENT means the path is available. ECONNREFUSED means that a socket
+         * path exists without a listener and can be removed. For any other
+         * error, leave the path untouched since it may not be a stale socket. */
         if (errno != ENOENT) {
             if (errno != ECONNREFUSED) {
                 serverLog(LL_WARNING, "Failed probing Unix socket %s: %s", addr, server.neterr);
