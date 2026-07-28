@@ -4852,28 +4852,26 @@ void xautoclaimCommand(client *c) {
     void *endidptr = addReplyDeferredLen(c); /* reply[0] */
     void *arraylenptr = addReplyDeferredLen(c); /* reply[1] */
 
+    /* Open a single stream iterator and merge-join it forward across all PEL
+     * entries. The stream's entry data is never mutated during a single
+     * XAUTOCLAIM (only the group/consumer PEL and NACKs are), so this iterator
+     * stays valid for the whole command. */
+    streamID maxid = {UINT64_MAX, UINT64_MAX};
+    streamID entry_id, last_id, last_master = {0,0};
+    int64_t entry_numfields;
+    int have_entry = 0; /* 1 if entry_id is valid and its fields are unread. */
+    int have_last = 0; /* Node last-ID cache, persists across xautoclaimAdvance(). */
+    streamIterator si;
+    streamIteratorStart(&si,s,&startid,&maxid,0);
+
     unsigned char startkey[sizeof(streamID)];
     streamEncodeID(startkey,&startid);
     raxIterator ri;
     raxStart(&ri,group->pel);
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     size_t arraylen = 0;
-    mstime_t now = commandTimeSnapshot();
     int deleted_id_num = 0;
-
-    /* Open a single stream iterator and merge-join it forward across all PEL
-     * entries. The stream's entry data is never mutated during a single
-     * XAUTOCLAIM (only the group/consumer PEL and NACKs are), so this iterator
-     * stays valid for the whole command. */
-    streamID maxid = {UINT64_MAX, UINT64_MAX};
-    streamIterator si;
-    streamIteratorStart(&si,s,&startid,&maxid,0);
-    streamID entry_id;
-    int64_t entry_numfields;
-    int have_entry = 0; /* 1 if entry_id is valid and its fields are unread. */
-    /* Node last-ID cache, persists across xautoclaimAdvance() calls. */
-    streamID last_id, last_master = {0,0};
-    int have_last = 0;
+    mstime_t now = commandTimeSnapshot();
     while (attempts-- && count && raxNext(&ri)) {
         streamNACK *nack = ri.data;
 
