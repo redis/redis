@@ -12,9 +12,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CORPUS_DIR="$SCRIPT_DIR/corpus"
 STRING_DIR="$CORPUS_DIR/string_commands"
 BITMAP_DIR="$CORPUS_DIR/bitmap_commands"
+ARRAY_DIR="$CORPUS_DIR/array_commands"
 
-mkdir -p "$STRING_DIR" "$BITMAP_DIR"
-rm -f "$STRING_DIR"/seed* "$BITMAP_DIR"/seed*
+mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$ARRAY_DIR"
+rm -f "$STRING_DIR"/seed* "$BITMAP_DIR"/seed* "$ARRAY_DIR"/seed*
 
 echo "Generating Redis core fuzz seed corpora..."
 
@@ -104,6 +105,53 @@ printf '\x00\x06\x00\x00\x00\x03\x01\x05' \
 printf '\x00\x07\x00' \
     > "$BITMAP_DIR/seed15_invalid_bitop_shape"
 
+# Array command seeds.
+# ARSET k0 0 with 12 values promotes a populated slice to its dense encoding.
+printf '\x00\x00\x0b\x00\x01\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a' \
+    > "$ARRAY_DIR/seed01_dense_arset"
+
+# ARMSET k0 4095 "a" 4096 "alpha" 8388608 "abcdefgh" exercises sparse
+# slices, a slice boundary, and the first super-directory block boundary.
+printf '\x00\x01\x02\x00\x01\x13\x01\x0a\x01\x14\x01\x0b\x01\x19\x01\x10' \
+    > "$ARRAY_DIR/seed02_sparse_boundaries"
+
+# Stateful ring path: ARRING k0 5 a/alpha; ARRING k0 2 alphabet;
+# ARSEEK k0 0; ARRING k0 8 RedisArray; ARLASTITEMS k0 3 REV.
+printf '\x04\x05\x01\x00\x01\x05\x01\x0a\x01\x0b\x05\x00\x00\x01\x03\x01\x0c\x06\x00\x01\x01\x05\x00\x00\x01\x06\x01\x0d\x0b\x01\x00\x01\x04' \
+    > "$ARRAY_DIR/seed03_ring_resize_seek"
+
+# Stateful search path: ARMSET k0 0 alpha 1 alphabet 2 RedisArray;
+# ARGREP k0 - + MATCH alpha NOCASE WITHVALUES LIMIT 2.
+printf '\x01\x01\x02\x00\x01\x01\x01\x0b\x01\x02\x01\x0c\x01\x03\x01\x0d\x09\x00\x0e\x01\x00\x01\x01\x01\x0b\x01\x03' \
+    > "$ARRAY_DIR/seed04_argrep"
+
+# Stateful reduction path: ARSET k0 0 1 -1 7.9; AROP k0 0 2 SUM.
+printf '\x01\x00\x02\x00\x01\x01\x01\x02\x01\x03\x01\x04\x0a\x00\x00\x01\x01\x01\x03' \
+    > "$ARRAY_DIR/seed05_arop"
+
+# Stateful delete/demotion path: ARSET k0 0 with 12 values; ARDELRANGE k0
+# 2 10; ARSCAN k0 0 16 LIMIT 8.
+printf '\x02\x00\x0b\x00\x01\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x01\x01\x0a\x03\x00\x00\x01\x03\x01\x0a\x08\x01\x00\x01\x01\x01\x0c\x01\x06' \
+    > "$ARRAY_DIR/seed06_delete_scan"
+
+# SET k0 string followed by ARGET k0 0 exercises WRONGTYPE handling.
+printf '\x01\x0d\x01\x00\x01\x0a\x07\x00\x00\x01\x01' \
+    > "$ARRAY_DIR/seed07_wrongtype"
+
+# Malformed ARGREP command shape with arbitrary arguments.
+printf '\x00\x0e\x04\x07\x01\x0a\x01\x0b\x01\x0c\x01\x0d' \
+    > "$ARRAY_DIR/seed08_invalid_shape"
+
+# Stateful insert cursor path: ARINSERT k0 a alpha; ARNEXT k0;
+# ARSEEK k0 4096; ARINSERT k0 alphabet; ARLASTITEMS k0 3.
+printf '\x04\x04\x01\x00\x01\x0a\x01\x0b\x0c\x02\x00\x06\x00\x01\x14\x04\x00\x00\x01\x0c\x0b\x00\x00\x01\x04' \
+    > "$ARRAY_DIR/seed09_insert_cursor"
+
+# ARMSET sparse positions, delete them with ARDEL, then inspect ARCOUNT.
+printf '\x02\x01\x02\x00\x01\x01\x01\x0a\x01\x14\x01\x0b\x01\x19\x01\x10\x02\x02\x00\x01\x01\x01\x14\x01\x19\x0c\x01\x00' \
+    > "$ARRAY_DIR/seed10_ardel_metadata"
+
 echo "Seed files generated:"
 echo "  string_commands: $(find "$STRING_DIR" -type f | wc -l | tr -d ' ')"
 echo "  bitmap_commands: $(find "$BITMAP_DIR" -type f | wc -l | tr -d ' ')"
+echo "  array_commands: $(find "$ARRAY_DIR" -type f | wc -l | tr -d ' ')"
