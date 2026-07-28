@@ -1929,21 +1929,25 @@ void hnsw_unlink_node(HNSW *index, hnswNode *node) {
         index->enter_point = NULL;
         index->max_level = 0;
 
-        /* Step 1: Try to find a replacement by scanning levels
-         * from top to bottom. Under normal conditions, if there is
-         * any other node at the same level, we have a link. Anyway
-         * we descend levels to find any neighbor at the higher level
-         * possible. */
-        for (int level = node->level; level >= 0; level--) {
-            if (node->layers[level].num_links > 0) {
-                index->enter_point = node->layers[level].links[0];
-                break;
-            }
-        }
+        /* Step 1: Try to find a replacement among the links of the
+         * deleted node at its top layer. Links at a given layer only
+         * connect nodes of that level or higher, and no node can be
+         * taller than the entry point, so any link found here is
+         * guaranteed to be of the same level as the deleted node.
+         *
+         * Note that we can't just descend to lower layers looking for
+         * some link: a node found there may be shorter than other
+         * nodes elsewhere in the graph. With max_level set too low,
+         * the reconnection performed when deleting one of the taller
+         * nodes would call search_layer() with a layer greater than
+         * the level of the entry point itself, accessing layers past
+         * the end of the node allocation. */
+        if (node->layers[node->level].num_links > 0)
+            index->enter_point = node->layers[node->level].links[0];
 
-        /* Step 2: If no links were found at any level, do a full scan.
-         * This should never happen in practice if the HNSW is not
-         * empty. */
+        /* Step 2: If the deleted node top layer has no links (it can
+         * remain empty after deletions of other nodes), do a full
+         * scan to find the tallest node remaining in the graph. */
         if (!index->enter_point) {
             uint32_t new_max_level = 0;
             hnswNode *current = index->head;
