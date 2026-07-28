@@ -945,21 +945,21 @@ static int tlsSetVerifyName(SSL *ssl, const char *names) {
      * "*.example.com" still matches. */
     X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 
-    char *copy = zstrdup(names);
-    char *saveptr = NULL;
+    int count = 0;
+    sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
+    if (!tokens) return C_ERR;
+
     int first = 1, ok = 1;
-    for (char *name = strtok_r(copy, " ", &saveptr);
-         name != NULL;
-         name = strtok_r(NULL, " ", &saveptr))
-    {
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* skip empty tokens from runs of spaces */
         /* First name via set1_host (replaces), each subsequent via add1_host
          * (appends); a match against any listed name succeeds. */
-        int r = first ? X509_VERIFY_PARAM_set1_host(param, name, 0)
-                      : X509_VERIFY_PARAM_add1_host(param, name, 0);
+        int r = first ? X509_VERIFY_PARAM_set1_host(param, tokens[i], 0)
+                      : X509_VERIFY_PARAM_add1_host(param, tokens[i], 0);
         first = 0;
         if (r != 1) { ok = 0; break; }
     }
-    zfree(copy);
+    sdsfreesplitres(tokens, count);
 
     /* !ok: a name failed to apply. first still set: the value had no usable
      * token (e.g. all whitespace). Either way, fail closed. */
