@@ -637,7 +637,7 @@ static inline void croaring_refcount_inc(croaring_refcount_t *val) {
 static inline bool croaring_refcount_dec(croaring_refcount_t *val) {
     assert(*val > 0);
     *val -= 1;
-    return val == 0;
+    return *val == 0;
 }
 
 static inline uint32_t croaring_refcount_get(const croaring_refcount_t *val) {

@@ -16,6 +16,8 @@ jobs:
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
       run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+    - name: test CRoaring non-atomic refcount fallback
+      run: make -C deps/croaring test
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
