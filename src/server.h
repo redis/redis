@@ -2275,6 +2275,7 @@ struct redisServer {
     int allow_access_expired;       /* If > 0, allow access to logically expired keys */
     int allow_access_trimmed;       /* If > 0, allow access to logically trimmed keys */
     int active_defrag_enabled;
+    int active_defrag_paused;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
     int allow_keymeta_registration; /* Allow keymeta class registration outside server startup (for testing). */
