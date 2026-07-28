@@ -43,9 +43,22 @@
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2)
 #endif
 
-/* Whether this build can verify peer certificate name(s): the X509_VERIFY_PARAM
- * host API used by tlsSetVerifyName() is available since OpenSSL 1.0.2. */
-#define CONN_TLS_SUPPORTS_VERIFY_NAME (OPENSSL_VERSION_NUMBER >= 0x10002000L)
+/* Peer certificate name verification (tls-expected-peer-name) relies on the
+ * X509_VERIFY_PARAM host API, available since OpenSSL 1.0.2. Defining
+ * TLS_NO_PEER_NAME_VERIFICATION compiles the feature out on any OpenSSL version;
+ * it is also the required opt-out for building against an older OpenSSL, since
+ * building there without it is a hard error (so a build cannot accidentally lack
+ * the check). When compiled out and the option is set, each affected connection
+ * warns and proceeds (CA validation still applies). */
+#if defined(TLS_NO_PEER_NAME_VERIFICATION)
+#define CONN_TLS_SUPPORTS_VERIFY_NAME 0
+#elif OPENSSL_VERSION_NUMBER >= 0x10002000L
+#define CONN_TLS_SUPPORTS_VERIFY_NAME 1
+#else
+#error "tls-expected-peer-name requires OpenSSL 1.0.2 or newer. Build against a \
+newer OpenSSL, or define TLS_NO_PEER_NAME_VERIFICATION to build without peer \
+certificate name verification."
+#endif
 
 SSL_CTX *redis_tls_ctx = NULL;
 SSL_CTX *redis_tls_client_ctx = NULL;
@@ -928,9 +941,9 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
  * name(s) come from local configuration, never from the wire. A subsequent
  * handshake fails with X509_V_ERR_HOSTNAME_MISMATCH if no listed name matches.
  * Returns C_OK on success, C_ERR if a name could not be applied or the value
- * contained no usable name. On a build without the host-verification API
- * (OpenSSL < 1.0.2) it cannot enforce the name; it logs a warning and returns
- * C_OK so the connection still proceeds (CA validation still applies). */
+ * contained no usable name. On a TLS_NO_PEER_NAME_VERIFICATION build (OpenSSL
+ * < 1.0.2) it cannot enforce the name; it logs a warning and returns C_OK so the
+ * connection still proceeds (CA validation still applies). */
 static int tlsSetVerifyName(SSL *ssl, const char *names) {
 #if CONN_TLS_SUPPORTS_VERIFY_NAME
     /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
@@ -965,16 +978,16 @@ static int tlsSetVerifyName(SSL *ssl, const char *names) {
      * token (e.g. all whitespace). Either way, fail closed. */
     return (ok && !first) ? C_OK : C_ERR;
 #else
-    /* Certificate name verification relies on the X509_VERIFY_PARAM host API,
-     * introduced in OpenSSL 1.0.2. On older builds we cannot honor
-     * tls-expected-peer-name; warn and let the connection proceed (CA chain
-     * validation still applies) rather than refusing it. */
+    /* This build was compiled with TLS_NO_PEER_NAME_VERIFICATION (either to opt
+     * out, or because it targets OpenSSL < 1.0.2, which lacks the X509_VERIFY_PARAM
+     * host API), so we cannot honor tls-expected-peer-name. Warn and let the
+     * connection proceed (CA chain validation still applies) rather than refusing it. */
     UNUSED(ssl);
     UNUSED(names);
     serverLog(LL_WARNING,
-        "tls-expected-peer-name is set but peer certificate name verification "
-        "requires OpenSSL 1.0.2 or newer; the name is not enforced on this "
-        "connection.");
+        "tls-expected-peer-name is set but peer certificate name verification is "
+        "disabled in this build (TLS_NO_PEER_NAME_VERIFICATION); the name is not "
+        "enforced on this connection.");
     return C_OK;
 #endif
 }

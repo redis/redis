@@ -133,6 +133,14 @@ Notes:
 * It does **not** apply to ordinary client connections on the data port, whose
   identity and authorization are handled by `AUTH`/ACL (and optionally
   `tls-auth-clients-user`).
+* Peer-name verification uses the OpenSSL `X509_VERIFY_PARAM` host API, available
+  since OpenSSL 1.0.2. Building the TLS support against an older OpenSSL fails
+  with an error by default. Define `TLS_NO_PEER_NAME_VERIFICATION`
+  (e.g. `make BUILD_TLS=yes CFLAGS=-DTLS_NO_PEER_NAME_VERIFICATION`) to compile
+  the feature out — either to build against an older OpenSSL, or to disable it on
+  any OpenSSL version. When compiled out, if `tls-expected-peer-name` is set each
+  affected connection logs a warning and proceeds without the name check (CA
+  chain validation still applies).
 
 Connections
 -----------
