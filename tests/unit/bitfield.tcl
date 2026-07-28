@@ -8,6 +8,15 @@ start_server {tags {"bitops"}} {
         set results
     } {0 -100 101}
 
+    test {BITFIELD i64 SET no signed overflow on positive value} {
+        r del bits
+        # Regression test for https://github.com/redis/redis/issues/15545
+        # checkSignedBitfieldOverflow() computed INT64_MIN minus a positive value
+        # for i64 SET operations, which is undefined signed overflow.
+        # This test verifies that a deterministic positive i64 SET works.
+        set results [r bitfield bits set i64 0 42 get i64 0]
+    } {0 42}
+
     test {BITFIELD unsigned SET and GET basics} {
         r del bits
         set results {}
