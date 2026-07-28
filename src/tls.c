@@ -251,6 +251,23 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
     }
 #endif
 
+#ifdef SSL_CTX_set1_groups_list
+    if (ctx_config->curve_preferences && !SSL_CTX_set1_groups_list(ctx, ctx_config->curve_preferences)) {
+        serverLog(LL_WARNING, "Failed to configure TLS curve preferences: %s", ctx_config->curve_preferences);
+        goto error;
+    }
+#elif defined(SSL_CTX_set1_curves_list)
+    if (ctx_config->curve_preferences && !SSL_CTX_set1_curves_list(ctx, ctx_config->curve_preferences)) {
+        serverLog(LL_WARNING, "Failed to configure TLS curve preferences: %s", ctx_config->curve_preferences);
+        goto error;
+    }
+#else
+    if (ctx_config->curve_preferences) {
+        serverLog(LL_WARNING, "Failed to configure TLS curve preferences: not supported by OpenSSL");
+        goto error;
+    }
+#endif
+
     return ctx;
 
 error:

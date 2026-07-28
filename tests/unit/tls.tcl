@@ -72,6 +72,15 @@ start_server {tags {"tls"}} {
             r CONFIG SET tls-ciphers "DEFAULT"
         }
 
+        test {TLS: Verify tls-curve-preferences validates group names} {
+            assert_equal {OK} [r CONFIG SET tls-curve-preferences "prime256v1"]
+
+            catch {r CONFIG SET tls-curve-preferences "invalid-group"} e
+            assert_match {*Unable to update TLS configuration*} $e
+
+            r CONFIG SET tls-curve-preferences ""
+        }
+
         test {TLS: Verify tls-prefer-server-ciphers behaves as expected} {
             r CONFIG SET tls-protocols TLSv1.2
             r CONFIG SET tls-ciphers "AES128-SHA256:AES256-SHA256"

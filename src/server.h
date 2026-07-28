@@ -1976,6 +1976,7 @@ typedef struct redisTLSContextConfig {
     char *protocols;
     char *ciphers;
     char *ciphersuites;
+    char *curve_preferences;
     int prefer_server_ciphers;
     int session_caching;
     int session_cache_size;
