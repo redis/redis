@@ -141,6 +141,8 @@ In `include/roaring/portability.h`:
   build time when CRoaring cannot determine target endianness.
 * Added a `CROARING_ATOMIC_IMPL_GCC` fallback using `__sync` builtins for
   toolchains without C11 atomics.
+* Fixed the non-atomic fallback's refcount decrement to report when the
+  dereferenced counter reaches zero.
 * Gated `CROARING_ALLOW_UNALIGNED` to
   `defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)`.
 
