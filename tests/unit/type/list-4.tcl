@@ -231,6 +231,20 @@ foreach {type large} [array get largevalue] {
         $rd close
     }
 
+    test {BLMOVEM EXACTLY is woken by SORT STORE overwriting the source} {
+        r del src{t} dst{t} feed{t}
+        r rpush src{t} 1
+        r rpush feed{t} 3 1 2
+        set rd [redis_deferring_client]
+        $rd blmovem src{t} dst{t} left right 0 exactly 3 bulk
+        wait_for_blocked_client
+        r sort feed{t} store src{t}   ;# src overwritten -> 1 2 3, reaches 3
+        assert_equal {1 2 3} [$rd read]
+        assert_equal {1 2 3} [r lrange dst{t} 0 -1]
+        assert_equal 0 [r exists src{t}]
+        $rd close
+    }
+
     test {BLMOVEM times out with null array} {
         r del src{t} dst{t}
         set rd [redis_deferring_client]

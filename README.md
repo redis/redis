@@ -23,16 +23,7 @@ This document serves as both a quick start guide to Redis and a detailed resourc
 - [Cloud hosted Redis](#cloud-hosted-redis)
 - [Community](#community)
 - [Build Redis from source](#build-redis-from-source)
-  - [Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)](#build-and-run-redis-with-all-data-structures---ubuntu-2204-jammy)
-  - [Build and run Redis with all data structures - Ubuntu 24.04 (Noble)](#build-and-run-redis-with-all-data-structures---ubuntu-2404-noble)
-  - [Build and run Redis with all data structures - Ubuntu 26.04 (Resolute)](#build-and-run-redis-with-all-data-structures---ubuntu-2604-resolute)
-  - [Build and run Redis with all data structures - Debian 12 (Bookworm) / 13 (Trixie)](#build-and-run-redis-with-all-data-structures---debian-12-bookworm--13-trixie)
-  - [Build and run Redis with all data structures - AlmaLinux 8.10 / Rocky Linux 8.10](#build-and-run-redis-with-all-data-structures---almalinux-810--rocky-linux-810)
-  - [Build and run Redis with all data structures - AlmaLinux 9.7+ / Rocky Linux 9.7+](#build-and-run-redis-with-all-data-structures---almalinux-97--rocky-linux-97)
-  - [Build and run Redis with all data structures - AlmaLinux 10.1+ / Rocky Linux 10.1+](#build-and-run-redis-with-all-data-structures---almalinux-101--rocky-linux-101)
-  - [Build and run Redis with all data structures - Alpine 3.23+](#build-and-run-redis-with-all-data-structures---alpine-323)
-  - [Build and run Redis with all data structures - macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe)](#build-and-run-redis-with-all-data-structures---macos-14-sonoma-15-sequoia-26-tahoe)
-  - [Using the pre-built build-environment image (Docker)](#using-the-pre-built-build-environment-image-docker)
+  - [Install dependencies and build](#install-dependencies-and-build)
   - [Building Redis - flags and general notes](#building-redis---flags-and-general-notes)
   - [Fixing build problems with dependencies or cached build options](#fixing-build-problems-with-dependencies-or-cached-build-options)
   - [Fixing problems building 32 bit binaries](#fixing-problems-building-32-bit-binaries)
@@ -212,7 +203,7 @@ This section refers to building Redis from source. If you want to get up and run
 
 **These instructions apply to Redis 8.10 and above.** For versions lower than 8.10, see the [8.8 build instructions](https://github.com/redis/redis/tree/8.8#build-redis-from-source).
 
-> **Configuration files**: the OS-specific sections below tell you to run
+> **Configuration files**: the build steps below tell you to run
 > `./src/redis-server redis.conf`. Release tarballs bake the bundled modules'
 > `loadmodule` lines and per-module settings directly into `redis.conf` during
 > packaging, so an extracted release tarball is ready to run as-is. When
@@ -223,960 +214,94 @@ This section refers to building Redis from source. If you want to get up and run
 > [`redis.conf`](redis.conf). See [modules/MODULES.md](modules/MODULES.md)
 > for the full config flow.
 
-### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
+### Install dependencies and build
 
-Tested with the following Docker image:
+Building Redis with all data structures (JSON, time series, Bloom / cuckoo / count-min / top-k, t-digest, and the Query Engine) needs a build toolchain plus a few version-sensitive dependencies — GCC/Clang, **LLVM 21**, **CMake 3.25–3.31.6**, **Rust 1.94**, OpenSSL, Python 3, and assorted `-dev` libraries. Instead of a per-OS package list, the repo installs them for you with **`make bootstrap`**, which detects your OS and installs each bundled module's prerequisites.
 
-- ubuntu:20.04
+> **CMake version range matters.** The modules require **3.25 ≤ CMake ≤ 3.31.6** — CMake 4.x is *not* supported and the build will fail with it. On distros that ship CMake 4.x by default (e.g. Ubuntu 26.04), pin a supported version, e.g. `pip3 install 'cmake==3.31.6'`. Note `make bootstrap` only installs CMake when it's missing or too old; it won't downgrade a pre-installed 4.x, so remove/pin that yourself.
 
-1. Install required dependencies
+#### 1. Get the source
 
-   Update your package lists and install the necessary development tools and libraries:
+Either works — the release tarball already bundles the module sources; a git checkout needs one extra step to fetch them:
 
-   ```sh
-   apt-get update
-   apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
-   ```
+```sh
+# A) Release tarball (recommended for building/running a release).
+#    Replace <version>, e.g. 8.10.0 — extracts into redis-<version>/:
+wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
+tar xvf redis-<version>.tar.gz && cd redis-<version>
 
-2. Use GCC 11 as the default compiler
-
-   Ubuntu 20.04 packages at most GCC 10, but RediSearch's C++ code needs C++20 library features (e.g. `std::bit_cast`) that only libstdc++ 11+ provides — clang compiles against the headers of the newest GCC installed. Install GCC 11 from the ubuntu-toolchain-r PPA and make it the default:
-
-   ```sh
-   sudo apt-get install -y --no-install-recommends software-properties-common gnupg
-   sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-   sudo apt-get update
-   sudo apt-get install -y --no-install-recommends gcc-11 g++-11
-   sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 --slave /usr/bin/g++ g++ /usr/bin/g++-11
-   ```
-
-3. Install CMake
-
-   Install CMake using `pip3` and link it for system-wide access:
-
-   ```sh
-   pip3 install cmake==3.31.6
-   sudo ln -sf /usr/local/bin/cmake /usr/bin/cmake
-   cmake --version
-   ```
-
-   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
-
-4. Install the LLVM 21 toolchain
-
-   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
-
-   ```sh
-   sudo apt-get install -y --no-install-recommends lsb-release gnupg software-properties-common
-   wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-   chmod +x /tmp/llvm.sh
-   sudo /tmp/llvm.sh 21
-   sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
-   ```
-
-5. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-6. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-7. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-8. Build Redis
-
-   Set the necessary environment variables and compile Redis:
-
-   ```sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   make -j "$(nproc)" all
-   ```
-
-9. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)
-
-Tested with the following Docker image:
-
-- ubuntu:22.04
-
-1. Install required dependencies
-
-   Update your package lists and install the necessary development tools and libraries:
-
-   ```sh
-   apt-get update
-   apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
-   ```
-
-2. Install CMake
-
-   Install CMake using `pip3` and link it for system-wide access:
-
-   ```sh
-   pip3 install cmake==3.31.6
-   sudo ln -sf /usr/local/bin/cmake /usr/bin/cmake
-   cmake --version
-   ```
-
-   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
-
-3. Install the LLVM 21 toolchain
-
-   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
-
-   ```sh
-   sudo apt-get install -y --no-install-recommends lsb-release gnupg software-properties-common
-   wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-   chmod +x /tmp/llvm.sh
-   sudo /tmp/llvm.sh 21
-   sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
-   ```
-
-4. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-5. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-6. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-7. Build Redis
-
-   Set the necessary environment variables and build Redis:
-
-   ```sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   make -j "$(nproc)" all
-   ```
-
-8. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - Ubuntu 24.04 (Noble)
-
-Tested with the following Docker image:
-
-- ubuntu:24.04
-
-1. Install required dependencies
-
-   Update your package lists and install the necessary development tools and libraries:
-
-   ```sh
-   apt-get update
-   apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
-   ```
-
-2. Install the LLVM 21 toolchain
-
-   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. This release does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
-
-   ```sh
-   sudo apt-get install -y --no-install-recommends lsb-release gnupg software-properties-common
-   wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-   chmod +x /tmp/llvm.sh
-   sudo /tmp/llvm.sh 21
-   sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
-   ```
-
-3. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-4. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-5. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-6. Build Redis
-
-   Set the necessary environment variables and build Redis:
-
-   ```sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   make -j "$(nproc)" all
-   ```
-
-7. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - Ubuntu 26.04 (Resolute)
-
-Tested with the following Docker image:
-
-- ubuntu:26.04
-
-> **Note**: Ubuntu 26.04 ships CMake 4.x and clang/LLVM 21 in the default repositories. The Redis modules build requires CMake ≤ 3.31.6 and explicitly passes `-fuse-ld=lld`, so a supported CMake must be pinned via `pip3` and `lld`, `llvm`, and `libcrypt-dev` must be installed (the latter is needed to link the `redisearch` module against `libcrypt`).
-
-1. Install required dependencies
-
-   Update your package lists and install the necessary development tools and libraries. `lld` and `llvm` are required because the modules build invokes clang with `-fuse-ld=lld` and uses `llvm-ar`; `libcrypt-dev` is required to link `redisearch.so`:
-
-   ```sh
-   apt-get update
-   apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev libcrypt-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang lld llvm automake autoconf libtool
-   ```
-
-2. Install CMake
-
-   Install a supported version of CMake using `pip3` (inside a virtual environment, as Ubuntu enforces PEP 668) and link it for system-wide access:
-
-   ```sh
-   python3 -m venv /opt/cmake-venv
-   /opt/cmake-venv/bin/pip install cmake==3.31.6
-   sudo ln -sf /opt/cmake-venv/bin/cmake /usr/local/bin/cmake
-   cmake --version
-   ```
-
-   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
-
-3. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-4. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-5. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-6. Build Redis
-
-   Set the necessary environment variables and build Redis:
-
-   ```sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   make -j "$(nproc)" all
-   ```
-
-7. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - Debian 12 (Bookworm) / 13 (Trixie)
-
-Tested with the following Docker images:
-
-- debian:bookworm
-- debian:bookworm-slim
-- debian:trixie
-- debian:trixie-slim
-
-1. Install required dependencies
-
-   Update your package lists and install the necessary development tools and libraries:
-
-   ```sh
-   apt-get update
-   apt-get install -y sudo
-   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
-   ```
-
-2. Install the LLVM 21 toolchain
-
-   The bundled modules build with Rust 1.94 (installed in the "Install the Rust toolchain" step below), whose LLVM version is 21, and RediSearch builds with cross-language (C/Rust) LTO by default, which requires a clang/lld toolchain of the same LLVM major version. Debian does not package clang-21, so install it from [apt.llvm.org](https://apt.llvm.org/) (`llvm-21` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses):
-
-   ```sh
-   sudo apt-get install -y --no-install-recommends lsb-release gnupg
-   ```
-
-   On Debian 12 only, `llvm.sh` also needs `add-apt-repository` (Debian 13 neither packages nor needs it):
-
-   ```sh
-   sudo apt-get install -y --no-install-recommends software-properties-common
-   ```
-
-   Then install the toolchain:
-
-   ```sh
-   wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-   chmod +x /tmp/llvm.sh
-   sudo /tmp/llvm.sh 21
-   sudo apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-21-dev
-   ```
-
-3. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-4. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-5. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-6. Build Redis
-
-   Set the necessary environment variables and build Redis:
-
-   ```sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   make -j "$(nproc)" all
-   ```
-
-7. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - AlmaLinux 8.10 / Rocky Linux 8.10
-
-Tested with the following Docker images:
-
-- almalinux:8.10
-- almalinux:8.10-minimal
-- rockylinux/rockylinux:8.10
-- rockylinux/rockylinux:8.10-minimal
-
-1. Prepare the system
-
-   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 8.10-minimal, install `dnf` first:
-
-   ```sh
-   microdnf install dnf -y
-   ```
-
-   Enable the required repositories and install the base development tools:
-
-   ```sh
-   dnf groupinstall "Development Tools" -y
-   dnf config-manager --set-enabled powertools
-   dnf install -y epel-release
-   ```
-
-2. Install required dependencies
-
-   Update your package lists and install the necessary development tools and libraries:
-
-   ```sh
-   dnf install -y pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
-   ```
-
-   `clang` on these releases is already LLVM 21, matching the Rust toolchain installed in the "Install the Rust toolchain" step below; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
-
-   Make `python3.11` the default `python3` — the RedisJSON and RedisTimeSeries builds need a `python3` on `PATH` whose `python3 -m pip` works, and the `python3.11` package only provides `/usr/bin/python3.11`:
-
-   ```sh
-   alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1000000
-   alternatives --set python3 /usr/bin/python3.11
-   ```
-
-   Enable the GCC toolset:
-
-   ```sh
-   cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-   echo "source /etc/profile.d/gcc-toolset-13.sh" >> /etc/bashrc
-   ```
-
-3. Install CMake
-
-   Install CMake 3.25.1 manually:
-
-   ```sh
-   CMAKE_VERSION=3.25.1
-   ARCH=$(uname -m)
-   if [ "$ARCH" = "x86_64" ]; then
-     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-x86_64.sh
-   else
-     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-aarch64.sh
-   fi
-   wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/${CMAKE_FILE}
-   chmod +x ${CMAKE_FILE}
-   ./${CMAKE_FILE} --skip-license --prefix=/usr/local --exclude-subdir
-   rm ${CMAKE_FILE}
-   cmake --version
-   ```
-
-4. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-5. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-6. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-7. Build Redis
-
-   Enable the GCC toolset, set the necessary environment variables, and build Redis:
-
-   ```sh
-   source /etc/profile.d/gcc-toolset-13.sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   make -j "$(nproc)" all
-   ```
-
-8. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - AlmaLinux 9.7+ / Rocky Linux 9.7+
-
-Tested with the following Docker images:
-
-- almalinux:9.7
-- almalinux:9.7-minimal
-- rockylinux/rockylinux:9.7
-- rockylinux/rockylinux:9.7-minimal
-
-1. Prepare the system
-
-   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 9-minimal, install `dnf` first:
-
-   ```sh
-   microdnf install dnf -y
-   ```
-
-   Enable the required repositories (`epel-release` and CRB provide some of the `-devel` packages):
-
-   ```sh
-   dnf install -y epel-release
-   dnf config-manager --set-enabled crb
-   ```
-
-2. Install required dependencies
-
-   Update your package lists and install the necessary development tools and libraries:
-
-   ```sh
-   dnf install -y pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
-   ```
-
-   `clang` on these releases is already LLVM 21, matching the Rust toolchain installed in the "Install the Rust toolchain" step below; `lld` and `llvm` supply the linker and the `llvm-ar`/`llvm-ranlib` archiver that RediSearch's default cross-language (C/Rust) LTO build uses.
-
-   Enable the GCC toolset:
-
-   ```sh
-   cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-   echo "source /etc/profile.d/gcc-toolset-13.sh" >> /etc/bashrc
-   ```
-
-3. Install CMake
-
-   Install CMake 3.25.1 manually:
-
-   ```sh
-   CMAKE_VERSION=3.25.1
-   ARCH=$(uname -m)
-   if [ "$ARCH" = "x86_64" ]; then
-     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-x86_64.sh
-   else
-     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-aarch64.sh
-   fi
-   wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/${CMAKE_FILE}
-   chmod +x ${CMAKE_FILE}
-   ./${CMAKE_FILE} --skip-license --prefix=/usr/local --exclude-subdir
-   rm ${CMAKE_FILE}
-   cmake --version
-   ```
-
-4. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-5. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-6. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-7. Build Redis
-
-   Enable the GCC toolset, set the necessary environment variables, and build Redis:
-
-   ```sh
-   source /etc/profile.d/gcc-toolset-13.sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   make -j "$(nproc)" all
-   ```
-
-8. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - AlmaLinux 10.1+ / Rocky Linux 10.1+
-
-Tested with the following Docker images:
-
-- almalinux:10.1
-- almalinux:10.1-minimal
-- rockylinux/rockylinux:10.1
-- rockylinux/rockylinux:10.1-minimal
-
-1. Prepare the system
-
-   The steps below assume you are running as `root`, as in the tested container images. On AlmaLinux/Rocky 10-minimal, install `dnf` first:
-
-   ```sh
-   microdnf install dnf -y
-   ```
-
-   Enable the required repositories (`epel-release` and CRB provide some of the `-devel` packages):
-
-   ```sh
-   dnf install -y epel-release
-   dnf config-manager --set-enabled crb
-   ```
-
-2. Install required dependencies
-
-   Install the necessary development tools and libraries. AlmaLinux/Rocky 10 ship GCC 14 and CMake 3.30 in the default repositories, which are supported by the Redis build, so no separate compiler/CMake toolset is required:
-
-   ```sh
-   dnf groupinstall "Development Tools" -y
-   dnf install -y pkg-config xz wget which gcc gcc-c++ cmake git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang lld llvm libtool automake autoconf jq systemd-devel
-   ```
-
-   On AlmaLinux/Rocky 10.1 the `clang`, `lld`, and `llvm` packages above are LLVM 21, which matches the LLVM version of the Rust toolchain installed in the "Install the Rust toolchain" step below. `RediSearch`'s cross-language (C/Rust) LTO needs this match, and `llvm` provides the `llvm-ar`/`llvm-ranlib` archiver the LTO build uses, so no separate LLVM toolchain is required.
-
-3. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-gnu
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-4. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-5. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-6. Build Redis
-
-   Set the necessary environment variables and build Redis. `RediSearch` builds with cross-language LTO (the default) because the `clang`/`lld` 21 installed in step 2 match the Rust toolchain's LLVM. On AlmaLinux, `IGNORE_MISSING_DEPS=1` bypasses the `v8.7.91` dep-checker that does not yet recognize `almalinux` (fixed in `redisearch` v8.8.0; harmless on, and not required for, Rocky Linux 10):
-
-   ```sh
-   cd /usr/src/redis-<version>
-   export BUILD_TLS=yes
-   export IGNORE_MISSING_DEPS=1
-   make -j "$(nproc)" all
-   ```
-
-7. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - Alpine 3.23+
-
-Tested with the following Docker image:
-
-- alpine:3.23
-
-1. Install required dependencies
-
-   ```sh
-   apk update
-   apk add --no-cache \
-     build-base coreutils linux-headers bsd-compat-headers \
-     openssl openssl-dev cmake bash git wget curl xz unzip tar rsync which \
-     libtool automake autoconf libffi-dev libgcc ncurses-dev xsimd \
-     cargo clang21 clang21-static clang21-libclang llvm21-dev lld21 \
-     python3 py3-pip python3-dev
-   ```
-
-   Install the Python packages required by the `RedisJSON` module build:
-
-   ```sh
-   export PIP_BREAK_SYSTEM_PACKAGES=1
-   pip install --upgrade setuptools pip
-   pip install addict toml jinja2 ramp-packer
-   ```
-
-2. Install the Rust toolchain
-
-   RedisJSON and RediSearch are partly written in Rust. Download and install the pinned Rust toolchain (1.94.0) that the bundled modules build with:
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(uname -m)-unknown-linux-musl
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && ./install.sh)
-   rm -rf ${RUST_INSTALLER} ${RUST_INSTALLER}.tar.xz
-   ```
-
-3. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   mkdir -p /usr/src
-   cd /usr/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-4. Extract the source archive
-
-   ```sh
-   cd /usr/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-5. Build Redis
-
-   Set the necessary environment variables, apply the `RedisJSON` Rust-flags patch, and build Redis:
-
-   ```sh
-   cd /usr/src/redis-<version>
-
-   export BUILD_TLS=yes
-   export LTO=1
-   export RUST_DYN_CRT=1
-   export PATH="/usr/lib/llvm21/bin:$PATH"
-
-   # RedisJSON's bindgen must dlopen libclang.so; drop crt-static from its
-   # Rust flags (the tarball bundles the RedisJSON sources, so the Makefile
-   # is already on disk — do not run `make modules-update` here).
-   sed -i 's/^RUST_FLAGS=$/RUST_FLAGS += -C target-feature=-crt-static/' modules/redisjson/src/Makefile
-
-   make -j "$(nproc)" all
-   ```
-
-6. Run Redis
-
-   ```sh
-   cd /usr/src/redis-<version>
-   ./src/redis-server redis.conf
-   ```
-
-### Build and run Redis with all data structures - macOS 14 (Sonoma), 15 (Sequoia), 26 (Tahoe)
-
-The following instructions apply to both Intel and Apple Silicon (ARM) Macs.
-
-> **Note**: Three RediSearch-specific build constraints apply on macOS and are handled in the steps below:
-> - The cross-language LTO that RediSearch enables by default requires Linux; its build script aborts on macOS with `Error: LTO is only supported on Linux`. Step 6 sets `LTO=0` to disable it.
-> - RediSearch's Rust workspace uses edition 2024 and features stabilized in Rust 1.94, so the Rust toolchain in step 3 is pinned to `1.94.0`. Older Rust fails with `feature edition2024 is required`.
-> - RediSearch's CMake build calls `libtool -static` (BSD libtool syntax). Step 6's `PATH` does **not** prepend `$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin`, so macOS's `/usr/bin/libtool` is used for that step.
-
-1. Install Homebrew
-
-   If Homebrew is not already installed, follow the installation instructions on the [Homebrew home page](https://brew.sh/).
-
-2. Install required packages
-
-   ```sh
-   export HOMEBREW_NO_AUTO_UPDATE=1
-   brew update
-   brew install coreutils
-   brew install make
-   brew install openssl
-   brew install llvm@18
-   brew install cmake
-   brew install gnu-sed
-   brew install automake
-   brew install libtool
-   brew install wget
-   ```
-
-3. Install Rust
-
-   Rust is required to build the JSON package.
-
-   ```sh
-   RUST_INSTALLER=rust-1.94.0-$(if [ "$(uname -m)" = "arm64" ]; then echo "aarch64"; else echo "x86_64"; fi)-apple-darwin
-   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
-   tar -xf ${RUST_INSTALLER}.tar.xz
-   (cd ${RUST_INSTALLER} && sudo ./install.sh)
-   ```
-
-4. Download the Redis source
-
-   Download a specific version of the Redis source code archive from GitHub.
-
-   Replace `<version>` with the Redis version, for example: `8.10.0`. The archive extracts into a `redis-<version>/` directory.
-
-   ```sh
-   cd ~/src
-   # <version>, e.g. 8.10.0 — full release that bundles the modules:
-   wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-   ```
-
-5. Extract the source archive
-
-   Create a directory for the source code and extract the contents into it:
-
-   ```sh
-   cd ~/src
-   tar xvf redis-<version>.tar.gz
-   rm redis-<version>.tar.gz
-   ```
-
-6. Build Redis
-
-   ```sh
-   cd ~/src/redis-<version>
-   export HOMEBREW_PREFIX="$(brew --prefix)"
-   export BUILD_TLS=yes
-   export LTO=0
-   PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
-   export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
-   export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
-   mkdir -p build_dir/etc
-   make -j "$(nproc)" all OS=macos
-   make install PREFIX=$(pwd)/build_dir OS=macos
-   ```
-
-7. Run Redis
-
-   ```sh
-   export LC_ALL=en_US.UTF-8
-   export LANG=en_US.UTF-8
-   build_dir/bin/redis-server redis.conf
-   ```
-
-### Using the pre-built build-environment image (Docker)
-
-The per-OS sections above build Redis natively — no Docker required. As an alternative, the repo ships `docker/Dockerfile.noble` (Ubuntu 24.04), a ready-made **build environment** that installs the base Redis build prerequisites and, for any modules already cloned into `modules/<name>/src` (run `make modules-update` first on a fresh checkout), their per-module system dependencies. You mount the repo at runtime and build inside the container:
-
-```bash
-# Native architecture only:
-docker build -f docker/Dockerfile.noble -t redis-build:noble .
-
-# Multi-arch (requires `docker buildx` configured):
-docker buildx build --platform linux/amd64,linux/arm64 \
-    -f docker/Dockerfile.noble -t redis-build:noble .
-
-# Run with the working tree mounted:
-docker run --rm -it -v "$PWD":/workspace -w /workspace redis-build:noble \
-    bash -lc 'make && make run'
+# B) git checkout — clone the bundled modules once:
+git clone https://github.com/redis/redis.git && cd redis
+make modules-update
 ```
+
+#### 2. Install the build dependencies
+
+Pick whichever option fits your environment:
+
+1. **Build inside the Docker build environment — recommended.**
+   The repo ships [`docker/Dockerfile.noble`](docker/Dockerfile.noble) (Ubuntu 24.04) with every prerequisite baked in, so you build inside the container and never touch your host toolchain:
+
+   ```bash
+   docker build -f docker/Dockerfile.noble -t redis-build:noble .
+
+   # Multi-arch (requires `docker buildx` configured):
+   docker buildx build --platform linux/amd64,linux/arm64 \
+       -f docker/Dockerfile.noble -t redis-build:noble .
+
+   # Build with the working tree mounted:
+   docker run --rm -it -v "$PWD":/workspace -w /workspace redis-build:noble \
+       bash -lc 'make -j"$(nproc)" && make run'
+   ```
+
+2. **Install everything on a fresh machine or container.**
+   On a clean environment (for example a throwaway `ubuntu:24.04` container), let bootstrap install every prerequisite for Redis core and all cloned modules:
+
+   ```sh
+   make bootstrap
+   ```
+
+   > ⚠️ `make bootstrap` installs system packages and may **override existing versions** of shared tools (compiler, CMake, LLVM, …). Prefer option 1, or run it in a disposable container, if that matters on your machine.
+
+3. **See only what's missing.**
+   To inspect which prerequisites are absent *before* installing anything, print one deduped list across Redis core and all modules:
+
+   ```sh
+   make bootstrap list
+   ```
+
+   Then install just the reported packages yourself. (Version-gated deps are shown as `name (>= X)`; optional test/coverage deps are listed separately and don't fail the check.)
+
+4. **Get the exact install commands to copy-paste.**
+   To run exactly what `make bootstrap` would, but only for the missing dependencies, use dry-run — it prints the precise install command for each missing dependency and installs nothing:
+
+   ```sh
+   make bootstrap dry-run
+   ```
+
+   The commands are printed **per module**, so a dependency shared by several
+   modules appears once for each. Work through them iteratively:
+
+   1. Copy-paste the commands for a module to install its dependencies.
+   2. Re-run `make bootstrap dry-run` — the deps you just installed no longer
+      show, so you now see only what's still missing for the remaining modules.
+   3. Repeat until `make bootstrap dry-run` prints no install commands.
+
+> **Manual, per-OS install** (no Docker, and you'd rather not let `make bootstrap` touch your host): follow the per-OS dependency instructions in the 8.8 README, which still lists them explicitly — <https://github.com/redis/redis/tree/8.8#readme>.
+
+#### 3. Build and run
+
+```sh
+export BUILD_TLS=yes            # optional — TLS support (needs OpenSSL dev libs)
+make -j "$(nproc)"
+
+# Release tarball (module config is baked into redis.conf):
+./src/redis-server redis.conf
+# From a git checkout, use the auto-generated module config instead:
+./src/redis-server redis-full.conf
+```
+
+`make` (same as `make build` / `make all`) builds whatever is cloned under `modules/*/src` alongside Redis core. To build just the core data structures — even with modules cloned — use `make build redis`.
 
 ### Building Redis - flags and general notes
 
@@ -1185,7 +310,7 @@ We support big endian and little endian architectures, and both 32 bit and 64-bi
 
 It may compile on Solaris derived systems (for instance SmartOS) but our support for this platform is _best effort_ and Redis is not guaranteed to work as well as on Linux, OSX, and \*BSD.
 
-To build Redis with all the data structures (including JSON, time series, Bloom filter, cuckoo filter, count-min sketch, top-k, and t-digest) and with Redis Query Engine, make sure first that all the prerequisites are installed (see build instructions above, per operating system), then clone the bundled modules once and build:
+To build Redis with all the data structures (including JSON, time series, Bloom filter, cuckoo filter, count-min sketch, top-k, and t-digest) and with Redis Query Engine, make sure first that all the prerequisites are installed (see [Install dependencies and build](#install-dependencies-and-build) above), then clone the bundled modules once and build:
 
 ```sh
 make modules-update
@@ -1235,6 +360,12 @@ If TLS is built, running the tests with TLS enabled (you will need `tcl-tls` ins
 ```sh
 ./utils/gen-test-certs.sh
 ./runtest --tls
+```
+
+Redis supports compression of replication stream via zstd as of 8.10. To build with compression support you have to install zstd development libraries (e.g libzstd-dev on Debian/Ubuntu) and use the following flag when invoking the make command:
+
+```sh
+make BUILD_COMPRESSION=yes
 ```
 
 ### Fixing build problems with dependencies or cached build options

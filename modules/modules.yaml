@@ -80,6 +80,6 @@ modules:
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
     repo: https://github.com/redistimeseries/redistimeseries
-    ref: v8.9.90
+    ref: v8.9.91
     target_module: redistimeseries.so
     loadmodule: ./modules/redistimeseries/redistimeseries.so

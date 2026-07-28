@@ -923,6 +923,7 @@ long long hashTemplateFieldIndex(hashTemplate *tmpl, sds field) {
 /* Return the template with `field` inserted at `insert_pos` (key-ref taken). */
 static hashTemplate *hashTemplateForInsertedField(hashTemplate *tmpl, sds field,
                                                   long long insert_pos) {
+    serverAssert(insert_pos >= 0 && (unsigned long long)insert_pos <= tmpl->field_count);
     unsigned long long new_count = tmpl->field_count + 1;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
     sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
@@ -944,6 +945,7 @@ static hashTemplate *hashTemplateForInsertedField(hashTemplate *tmpl, sds field,
  * Precondition: at least one field remains. */
 static hashTemplate *hashTemplateForDeletedField(hashTemplate *tmpl, long long idx) {
     serverAssert(tmpl->field_count >= 2); /* at least one field remains after delete */
+    serverAssert(idx >= 0 && (unsigned long long)idx < tmpl->field_count);
     unsigned long long new_count = tmpl->field_count - 1;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
     sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
@@ -1005,7 +1007,9 @@ hashTemplate *hashTypeGetTemplate(robj *o) {
 unsigned char *hashTemplateLpSetTemplate(unsigned char *lp, hashTemplate *tmpl) {
     unsigned char *p = lpFirst(lp);
     serverAssert(p != NULL); /* id entry always present in a well-formed TMPL_LP */
-    return lpReplaceInteger(lp, &p, (long long)tmpl->id);
+    unsigned char *v = lpReplaceInteger(lp, &p, (long long)tmpl->id);
+    serverAssert(v != NULL);
+    return v;
 }
 
 /* Get pointer to first value entry (skip template ID). */
@@ -2028,6 +2032,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
                 unsigned char *lp = o->ptr;
                 unsigned char *p = hashTemplateLpSeekValue(lp, field_idx);
                 o->ptr = lpReplace(lp, &p, (unsigned char *)value, sdslen(value));
+                serverAssert(o->ptr != NULL);
             } else {
                 hashTemplateArray *hta = o->ptr;
                 if (hta->values[field_idx]) sdsfree(hta->values[field_idx]);
@@ -2059,6 +2064,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
                 unsigned char *p = hashTemplateLpSeekValue(lp, insert_pos);
                 lp = lpInsertString(lp, (unsigned char *)value, sdslen(value), p, LP_BEFORE, NULL);
             }
+            serverAssert(lp != NULL);
             hashTemplateDecrKeyRef(tmpl);
             o->ptr = lp;
         } else {
@@ -2512,7 +2518,7 @@ void hashTypeInitIterator(hashTypeIterator *hi, robj *subject) {
     } else if (hi->encoding == OBJ_ENCODING_TMPL_LP ||
                hi->encoding == OBJ_ENCODING_TMPL_ARRAY)
     {
-        hi->tmpl_index = -1;  /* Not started yet. */
+        hi->field_index = -1;  /* Not started yet. */
         hi->vptr = NULL;
         hi->expire_time = EB_EXPIRE_TIME_INVALID;
         hi->tmpl = hashTypeGetTemplate(subject);
@@ -2615,14 +2621,19 @@ int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
         unsigned char *lp = hi->subject->ptr;
 
         /* Advance to next field. lpNext returning NULL signals end. */
-        hi->tmpl_index++;
-        hi->vptr = (hi->tmpl_index == 0) ?
+        hi->field_index++;
+        hi->vptr = (hi->field_index == 0) ?
                    hashTemplateLpFirstValue(lp) : lpNext(lp, hi->vptr);
+
+        unsigned long long idx = hi->field_index;
+        serverAssert((hi->vptr && idx < hi->tmpl->field_count) ||
+                     (!hi->vptr && idx == hi->tmpl->field_count));
+
         if (!hi->vptr) return C_ERR;
     } else if (hi->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         /* Advance to next field. */
-        hi->tmpl_index++;
-        if ((unsigned long long)hi->tmpl_index >= hi->tmpl->field_count)
+        hi->field_index++;
+        if ((unsigned long long)hi->field_index >= hi->tmpl->field_count)
             return C_ERR;
     } else {
         serverPanic("Unknown hash encoding");
@@ -2688,7 +2699,7 @@ void hashTypeCurrentFromTmplLp(hashTypeIterator *hi, int what,
     serverAssert(hi->encoding == OBJ_ENCODING_TMPL_LP);
 
     if (what & OBJ_HASH_KEY) {
-        sds field = hi->tmpl->fields[hi->tmpl_index];
+        sds field = hi->tmpl->fields[hi->field_index];
         *vstr = (unsigned char*) field;
         *vlen = sdslen(field);
     } else {
@@ -2709,12 +2720,12 @@ void hashTypeCurrentFromTmplArray(hashTypeIterator *hi, int what,
     serverAssert(hi->encoding == OBJ_ENCODING_TMPL_ARRAY);
 
     if (what & OBJ_HASH_KEY) {
-        sds field = hi->tmpl->fields[hi->tmpl_index];
+        sds field = hi->tmpl->fields[hi->field_index];
         *str = field;
         *len = sdslen(field);
     } else {
         hashTemplateArray *hta = hi->subject->ptr;
-        sds val = hta->values[hi->tmpl_index];
+        sds val = hta->values[hi->field_index];
         *str = val;
         *len = sdslen(val);
     }
@@ -2944,6 +2955,7 @@ static void hashTypeConvertTmplLpToArray(robj *o) {
             values[i] = sdsfromlonglong(vll);
         p = lpNext(lp, p);
     }
+    serverAssert(p == NULL); /* no values beyond field_count */
 
     hashTemplateArray *hta = hashTemplateArrayCreate(tmpl, values, 1);
     zfree(values);
@@ -3358,6 +3370,7 @@ int hashTypeTryConvertToTemplate(robj *o,
     hashTypeInitIterator(&hi, o);
     size_t i = 0;
     while (hashTypeNext(&hi, 0) != C_ERR) {
+        serverAssert(i < num_fields);
         pairs[i].field = hashTypeCurrentObjectNewSds(&hi, OBJ_HASH_KEY);
         /* Keep the value as a pointer into the source (no copy); it is written
          * into the new encoding below, while the source is still alive. */
@@ -3366,6 +3379,7 @@ int hashTypeTryConvertToTemplate(robj *o,
         i++;
     }
     hashTypeResetIterator(&hi);
+    serverAssert(i == num_fields);
 
     qsort(pairs, num_fields, sizeof(*pairs), hashTypeFvPairCmp);
 
@@ -4064,6 +4078,7 @@ static dictType himportFsDictType = {
 /* Memory usage for one fieldset: the fieldset + the full template it pins. */
 static size_t himportFieldsetMemUsage(himportFieldset *fs) {
     hashTemplate *tmpl = hashTemplateGetById(fs->tmpl_id);
+    serverAssert(tmpl != NULL);
     return sizeof(*fs) + sdsZmallocSize(fs->name) +
            zmalloc_size(fs->value_order) + tmpl->mem_size;
 }

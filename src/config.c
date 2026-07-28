@@ -2399,6 +2399,32 @@ static int isValidAOFfilename(char *val, const char **err) {
     return 1;
 }
 
+/* Return true for an absolute file path without empty, ".", or ".."
+ * components. Keeping preload-file paths in this lexical form makes direct
+ * path-string comparisons unambiguous. */
+static int isNormalizedAbsoluteFilePath(char *path) {
+    if (path[0] != '/') return 0;
+
+    /* Skip the leading slash and validate each slash-delimited component. */
+    char *component = path + 1;
+    while (1) {
+        char *separator = strchr(component, '/');
+        size_t len = separator ? (size_t)(separator - component) : strlen(component);
+
+        /* An empty component means the path contains "//" or ends with "/".
+         * Also reject "." and "..", which change how the directory resolves. */
+        if (len == 0 || (len == 1 && component[0] == '.') ||
+            (len == 2 && component[0] == '.' && component[1] == '.'))
+        {
+            return 0;
+        }
+
+        /* No separator means the final filename component was valid. */
+        if (separator == NULL) return 1;
+        component = separator + 1;
+    }
+}
+
 static int isValidPreloadFile(char *val, const char **err) {
     if (val && strncmp(val, "aof:/", 5) && strncmp(val, "rdb:/", 5)) {
         *err = "argument must be in the format '[aof|rdb]:[filename]'";
@@ -2406,8 +2432,14 @@ static int isValidPreloadFile(char *val, const char **err) {
     }
 
     if (val) {
+        char *path = val + 4;
+        if (!isNormalizedAbsoluteFilePath(path)) {
+            *err = "preload-file path must be a normalized absolute file path";
+            return 0;
+        }
+
         char *ext = getFileExtension(val);
-        if (!ext) {
+        if (!ext || ext[0] == '\0') {
             *err = "preload-file must end with an extension";
             return 0;
         }
@@ -3357,6 +3389,10 @@ standardConfig static_configs[] = {
     createIntConfig("cluster-slot-migration-max-archived-tasks", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1, INT_MAX, server.asm_max_archived_tasks, 32, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("lookahead", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.lookahead, REDIS_DEFAULT_LOOKAHEAD, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("slowlog-entry-max-argc", NULL, MODIFIABLE_CONFIG, 2, INT_MAX, server.slowlog_max_argc, 32, INTEGER_CONFIG, NULL, NULL),
+#ifdef USE_COMPRESSION
+    createIntConfig("repl-compression", NULL, IMMUTABLE_CONFIG, 0, 22, server.repl_compression, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("repl-compression-max-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.compression_max_latency, 100, INTEGER_CONFIG, NULL, NULL), /* 100ms */
+#endif
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
