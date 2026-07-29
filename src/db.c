@@ -781,6 +781,16 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, db->id);
         if (oldtype != newtype)
             notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, db->id);
+
+        /* Overwriting a key with a list must wake blocked clients. Same
+         * type: only "grew" waiters (e.g. BLMOVEM EXACTLY). Type changed:
+         * treat as a fresh list (wakes BLPOP/BLMOVE/modules). */
+        if (newtype == OBJ_LIST) {
+            if (oldtype == OBJ_LIST)
+                signalKeyAsReadyNonEmptyList(db, key);
+            else
+                signalKeyAsReady(db, key, OBJ_LIST);
+        }
     } else {
         /* Add the new key to the database */
         dbAddByLink(db, key, valref, link);
@@ -1120,21 +1130,24 @@ void discardTempDb(redisDb *tempDb) {
     zfree(tempDb);
 }
 
-/* Move entries whose robj keys belong to the given slot from src dict to dst.
+/* Move entries whose robj keys belong to the given slotRangeArray from src dict to dst.
  * Matching entries are removed from src and added to dst. */
-void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
+void streamMoveIdmpKeys(dict *src, dict *dst, slotRangeArray *slots) {
     if (dictSize(src) == 0) return;
 
+    /* slots must not be NULL */
+    serverAssert(slots != NULL);
     dictIterator *di = dictGetSafeIterator(src);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        if (calculateKeySlot(key->ptr) == slot) {
-            if (dictAddRaw(dst, key, NULL)) {
-                incrRefCount(key);
-            }
-            dictDelete(src, key);
+        /* Check if key belongs to the slot range. */
+        if (!slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
+            continue;
+        if (dictAddRaw(dst, key, NULL)) {
+            incrRefCount(key);
         }
+        dictDelete(src, key);
     }
     dictReleaseIterator(di);
 }

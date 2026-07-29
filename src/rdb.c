@@ -45,21 +45,6 @@
 
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
 
-/* During an RDB save, the templates are written first, then this is set to 1 so
- * template-encoded hashes are written in ref form (id + values), referencing
- * their template. Otherwise it's 0, e.g. for DUMP, where each key is written on
- * its own with all its field names. */
-static int rdb_save_templates_as_ref = 0;
-
-/* Template hashes are normally saved in "ref" form (template id + values) into RDB.
- * If a module calls DUMP mid-rdbsave, DUMP passes 0 here to force the full form
- * (field names + values) instead. Returns the previous value to restore. */
-int rdbSaveSetRefMode(int enable) {
-    int prev = rdb_save_templates_as_ref;
-    rdb_save_templates_as_ref = enable;
-    return prev;
-}
-
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
@@ -96,6 +81,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
             rdbCheckError("Cannot check RDB that is a FIFO: %s", argv[1]);
             return;
         }
+        rdbClearHashTemplates(); /* Clear loading map if any */
         redis_check_rdb_main(2,argv,NULL);
     } else if (corruption_error) {
         /* In diskless loading, in case of corrupt file, log and exit. */
@@ -114,6 +100,12 @@ ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
+}
+
+static inline int rdbIsDumpPayload(const rio *rdb) {
+    /* A NULL rio is used by DEBUG OBJECT, which historically reports the DUMP
+     * payload serialization size. */
+    return rdb == NULL || (rdb->flags & RIO_FLAG_DUMP_PAYLOAD);
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
@@ -739,7 +731,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             /* Template encodings. RDB save: compact "ref" form storing only the
              * template id + values. DUMP/RESTORE: "full" form that includes 
              * field names. */
-            if (rdb_save_templates_as_ref) {
+            if (!rdbIsDumpPayload(rdb)) {
                 return rdbSaveType(rdb, o->encoding == OBJ_ENCODING_TMPL_LP ?
                                                             RDB_TYPE_HASH_TMPL_LP_REF :
                                                             RDB_TYPE_HASH_TMPL_ARRAY_REF);
@@ -1269,8 +1261,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             hashTemplate *tmpl = hashTypeGetTemplate(o);
             unsigned long long field_count = tmpl->field_count;
 
-            /* If this is a BGSAVE, we can use the compact format. */
-            if (rdb_save_templates_as_ref) {
+            /* If this is a BGSAVE, we can use the compact ref format.
+             * DUMP payload is self-contained (field names included). */
+            if (!rdbIsDumpPayload(rdb)) {
                 if (o->encoding == OBJ_ENCODING_TMPL_LP) {
                     /* TMPL_LP compact: raw listpack blob. The template ID is
                      * the first listpack entry, so no separate field needed. */
@@ -1316,7 +1309,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 if (fields_lp) {
                     /* Get listpack blob and skip caching in fork. */
                     int cache = (server.in_fork_child == CHILD_TYPE_NONE);
-                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, cache);
+                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, &cache);
                     n = rdbSaveRawString(rdb, blob, lpBytes(blob));
                     if (!cache) lpFree(blob);
                     if (n == -1) return -1;
@@ -2048,11 +2041,9 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     /* save functions */
     if (!(req & SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS) && rdbSaveFunctions(rdb) == -1) goto werr;
 
-    /* Save the hash template registry (id -> field names), then flag the DB
-     * hashes below to be written in compact REF form (id + values, field names
-     * referenced from the registry). Cleared after the DB save. */
+    /* Save the hash template registry (id -> field names). Template encoded
+     * hashes are then written in compact REF form (id + values) by rdbSaveKeyValuePair. */
     if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA)) {
-        rdb_save_templates_as_ref = 1;
         if (rdbSaveHashTemplates(rdb) == -1) goto werr;
     }
 
@@ -2066,9 +2057,6 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
                 dismissKvstoreBucketsMemory(server.db[j].keys);
         }
     }
-
-    /* Clear RDB saving flag. */
-    rdb_save_templates_as_ref = 0;
 
     if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA) && rdbSaveModulesAux(rdb, REDISMODULE_AUX_AFTER_RDB) == -1) goto werr;
 
@@ -2084,7 +2072,6 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
     return C_OK;
 
 werr:
-    rdb_save_templates_as_ref = 0;
     if (error) *error = errno;
     return C_ERR;
 }
@@ -2600,53 +2587,36 @@ static sds *rdbLoadSdsArray(rio *rdb, uint64_t count, const char *ctx) {
 /* ---- RDB file template section (REF-encoded hashes) ---- */
 
 /* Used during loading, mapping a saved template ID to the loaded template's
- * registry id, grown on demand by rdbEnsureHashTemplatesCap(). */
-#define RDB_TMPL_EMPTY UINT64_MAX
-static uint64_t *rdb_tmpls = NULL;
-static size_t rdb_tmpls_cap = 0;
+ * registry id. */
+static dict *rdb_tmpls = NULL;
 
-static int rdbEnsureHashTemplatesCap(uint64_t id) {
-    size_t maxcap = SIZE_MAX / sizeof(*rdb_tmpls);
-    if (id >= maxcap) {
-        rdbReportCorruptRDB("Hash template ID %llu exceeds loader capacity",
-            (unsigned long long)id);
-        return C_ERR;
-    }
-    if (id < rdb_tmpls_cap)
-        return C_OK;
-
-    size_t needed = (size_t)id + 1;
-    size_t newcap = rdb_tmpls_cap ? rdb_tmpls_cap : 16;
-    if (newcap > maxcap)
-        newcap = maxcap;
-    while (newcap < needed) {
-        if (newcap > maxcap / 2) {
-            newcap = maxcap;
-            break;
-        }
-        newcap *= 2;
-    }
-
-    /* A corrupt huge id fails. */
-    uint64_t *newarr = ztryrealloc(rdb_tmpls, sizeof(*rdb_tmpls) * newcap);
-    if (newarr == NULL) {
-        rdbReportCorruptRDB("Hash template ID %llu requires too much memory "
-            "(%zu entries)", (unsigned long long)id, newcap);
-        return C_ERR;
-    }
-    rdb_tmpls = newarr;
-    /* Set new slots with RDB_TMPL_EMPTY (UINT64_MAX). */
-    memset(rdb_tmpls + rdb_tmpls_cap, 0xFF, sizeof(*rdb_tmpls) * (newcap - rdb_tmpls_cap));
-    rdb_tmpls_cap = newcap;
-    return C_OK;
+static uint64_t rdbTmplIdHash(const void *key) {
+    uint64_t id = (uint64_t)(uintptr_t)key;
+    return dictGenHashFunction(&id, sizeof(id));
 }
+
+static int rdbTmplIdCompare(dictCmpCache *cache, const void *k1, const void *k2) {
+    UNUSED(cache);
+    return k1 == k2;
+}
+
+/* Dict for saved template ID to the loaded template's registry id. */
+static dictType rdbTmplDictType = {
+    rdbTmplIdHash,     /* hash function */
+    NULL,              /* key dup */
+    NULL,              /* val dup */
+    rdbTmplIdCompare,  /* key compare */
+    NULL,              /* key destructor (integer key) */
+    NULL,              /* val destructor (template owned by registry) */
+    NULL               /* allow to expand */
+};
 
 /* RDB-file load path (not RESTORE): load one hash template record from the RDB
  * template section (one RDB_OPCODE_HASH_TEMPLATE opcode), where templates are
  * stored once by id and REF-encoded hashes reference them. The main load loop
  * calls this once per record; the section ends when the next opcode differs.
  * Record: [id][field_count][field1][field2]...
- * Populates rdb_tmpls[id] with the loaded template. */
+ * Registers the loaded template under its saved id in rdb_tmpls. */
 int rdbLoadHashTemplate(rio *rdb) {
     uint64_t id, field_count;
 
@@ -2664,9 +2634,9 @@ int rdbLoadHashTemplate(rio *rdb) {
         return C_ERR;
     }
 
-    if (rdbEnsureHashTemplatesCap(id) != C_OK)
-        return C_ERR;
-    if (rdb_tmpls[id] != RDB_TMPL_EMPTY) {
+    if (rdb_tmpls == NULL)
+        rdb_tmpls = dictCreate(&rdbTmplDictType);
+    if (dictFind(rdb_tmpls, (void *)(uintptr_t)id) != NULL) {
         rdbReportCorruptRDB("Duplicate hash template ID %llu", (unsigned long long)id);
         return C_ERR;
     }
@@ -2686,7 +2656,10 @@ int rdbLoadHashTemplate(rio *rdb) {
     /* Get or create template. */
     hashTemplate *tmpl = hashTemplateGetOrCreate(fields, field_count);
     hashTemplateIncrHoldRef(tmpl);
-    rdb_tmpls[id] = tmpl->id;
+
+    dictEntry *de = dictAddRaw(rdb_tmpls, (void *)(uintptr_t)id, NULL);
+    serverAssert(de != NULL); /* duplicate id already rejected above */
+    dictSetUnsignedIntegerVal(de, tmpl->id);
 
     /* Free fields array */
     for (uint64_t j = 0; j < field_count; j++)
@@ -2698,20 +2671,21 @@ int rdbLoadHashTemplate(rio *rdb) {
 
 /* Get template by saved ID (for loading keys). */
 static hashTemplate *rdbGetHashTemplateById(uint64_t id) {
-    if (id >= rdb_tmpls_cap || rdb_tmpls[id] == RDB_TMPL_EMPTY) return NULL;
-    return hashTemplateGetById(rdb_tmpls[id]);
+    if (rdb_tmpls == NULL) return NULL;
+    dictEntry *de = dictFind(rdb_tmpls, (void *)(uintptr_t)id);
+    return de ? hashTemplateGetById(dictGetUnsignedIntegerVal(de)) : NULL;
 }
 
-/* Clear RDB template array after load. */
+/* Clear RDB template map after load. */
 void rdbClearHashTemplates(void) {
-    if (!rdb_tmpls) return;
-    for (size_t i = 0; i < rdb_tmpls_cap; i++) {
-        if (rdb_tmpls[i] != RDB_TMPL_EMPTY)
-            hashTemplateDecrHoldRef(hashTemplateGetById(rdb_tmpls[i]));
-    }
-    zfree(rdb_tmpls);
+    if (rdb_tmpls == NULL) return;
+    dictIterator *di = dictGetIterator(rdb_tmpls);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL)
+        hashTemplateDecrHoldRef(hashTemplateGetById(dictGetUnsignedIntegerVal(de)));
+    dictReleaseIterator(di);
+    dictRelease(rdb_tmpls);
     rdb_tmpls = NULL;
-    rdb_tmpls_cap = 0;
 }
 
 /* ---- DUMP/RESTORE self-contained payloads ---- */
@@ -2772,6 +2746,7 @@ static robj *rdbFinalizeTmplLp(unsigned char *lp, hashTemplate *tmpl) {
     unsigned char *p = lpFirst(lp);
     serverAssert(p != NULL);
     lp = lpReplaceInteger(lp, &p, (long long)tmpl->id);
+    serverAssert(lp != NULL);
 
     hashTemplateIncrKeyRef(tmpl);
     robj *o = createObject(OBJ_HASH, lp);
@@ -2895,7 +2870,8 @@ static hashTemplate *rdbCreateTemplateFromFields(rdbTmplFields *out) {
     rdbFreeSdsArray(out->fields, out->field_count);
     out->fields = NULL;
     if (out->fields_lp != NULL) {
-        hashTemplateIndexFieldsLp(tmpl, out->fields_lp); /* transfers ownership */
+        if (!hashTemplateIndexFieldsLp(tmpl, out->fields_lp))
+            lpFree(out->fields_lp);
         out->fields_lp = NULL;
     }
     return tmpl;
@@ -3295,6 +3271,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
             hashTypeConvert(NULL, o, OBJ_ENCODING_TMPL_ARRAY);
     } else if (rdbtype == RDB_TYPE_HASH_TMPL_LP_REF) {
+        /* REF form is RDB-file only (needs the template section), never a DUMP payload. */
+        if (rdbIsDumpPayload(rdb)) {
+            rdbReportCorruptRDB("Hash type %d not valid in a DUMP payload", rdbtype);
+            return NULL;
+        }
         /* TMPL_LP compact: The first listpack entry is the template ID */
         long long src_id;
         unsigned char *lp = rdbLoadTmplLpBlob(rdb, deep_integrity_validation, &src_id);
@@ -3338,6 +3319,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         o = createHashObjectFromTemplate(tmpl, values, 1);
         zfree(values);
     } else if (rdbtype == RDB_TYPE_HASH_TMPL_ARRAY_REF) {
+        /* REF form is RDB-file only (needs the template section), never a DUMP payload. */
+        if (rdbIsDumpPayload(rdb)) {
+            rdbReportCorruptRDB("Hash type %d not valid in a DUMP payload", rdbtype);
+            return NULL;
+        }
         /* TMPL_ARRAY REF form: [template_id][value1][value2]... */
         uint64_t template_id;
         if ((template_id = rdbLoadLen(rdb, NULL)) == RDB_LENERR)

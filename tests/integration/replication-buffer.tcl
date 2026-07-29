@@ -196,7 +196,7 @@ start_server {} {
 
         # revert the config
         if {$::compression} {
-            $replica2 config set repl-rdb-channel yes
+            $replica2 config set repl-rdb-channel $rdbchannel
         }
     }
 
@@ -208,6 +208,8 @@ start_server {} {
     }
 
     test "Replica could use replication buffer (beyond backlog config) for partial resynchronization rdbchannel=$rdbchannel" {
+        set old_sync_partial [s sync_partial_ok]
+
         # replica1 disconnects with master
         $replica1 replicaof [srv -1 host] [srv -1 port]
         # Write a mass of data that exceeds repl-backlog-size
@@ -223,7 +225,7 @@ start_server {} {
         # replica2 still waits for bgsave ending
         assert {[s rdb_bgsave_in_progress] eq {1} && [lindex [$replica2 role] 3] eq {sync}}
         # master accepted replica1 partial resync
-        assert_equal [s sync_partial_ok] {1}
+        assert_equal [s sync_partial_ok] [expr $old_sync_partial + 1]
         assert_equal [$master debug digest] [$replica1 debug digest]
     }
 
@@ -365,8 +367,14 @@ test "Replica client-output-buffer size is limited to backlog_limit/16 when no r
 
             assert {[status $master connected_slaves] == 1}
 
+            # With compression enabled, tot-mem also accounts for the
+            # replica client's compressionState (2 ~128Kb buffers + struct).
+            set compression_extra 0
+            if {$::compression} {
+                set compression_extra [expr {2*128*1024 + 16384}]
+            }
             wait_for_condition 50 100 {
-                [client_field $master replica tot-mem] < $keysize
+                [client_field $master replica tot-mem] < $keysize + $compression_extra
             } else {
                 fail "replica client-output-buffer usage is higher than expected."
             }
@@ -389,3 +397,73 @@ test "Replica client-output-buffer size is limited to backlog_limit/16 when no r
 }
 }
 
+# When replication compression is enabled each direction of the replication
+# link (master->replica compress, replica->master decompress) allocates its
+# own compressionState: a small struct plus two ~128Kb temp buffers (input
+# and output). This memory must be accounted for by the owning client, so
+# CLIENT LIST's tot-mem reflects it.
+if {$::compression} {
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        r config set save ""
+
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        set replica [srv -1 client]
+
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+        wait_replica_online $master
+
+        test {Replica client memory usage includes replication compression buffers} {
+            # The master-side COMPRESS-direction compressionState is created
+            # lazily once data actually starts flowing on the replication
+            # stream, not right after sync completes. Generate some write
+            # traffic and wait for it to be flushed to the replica before
+            # checking tot-mem.
+            for {set i 0} {$i < 100} {incr i} {
+                $master set k$i v$i
+            }
+            wait_for_ofs_sync $master $replica
+
+            # Two ~128Kb compression buffers alone account for more than
+            # 240Kb, well above the few Kb a replica client uses otherwise.
+            wait_for_condition 50 100 {
+                [regexp {tot-mem=(\d+)} [$master client list type replica] - tot_mem] &&
+                $tot_mem >= 240*1024
+            } else {
+                fail "tot-mem field not found or too low in master's replica client info: [$master client list type replica]"
+            }
+        }
+
+        test {Master client memory usage on replica includes replication decompression buffers} {
+            wait_for_condition 50 100 {
+                [regexp {tot-mem=(\d+)} [$replica client list type master] - tot_mem] &&
+                $tot_mem >= 240*1024
+            } else {
+                fail "tot-mem field not found or too low in replica's master client info: [$replica client list type master]"
+            }
+        }
+
+        test {mem_clients_slaves includes replication compression buffers} {
+            # Same lazy-creation caveat as above: generate write traffic and
+            # wait for it to reach the replica so the master-side
+            # compressionState exists before we sample mem_clients_slaves.
+            for {set i 0} {$i < 100} {incr i} {
+                $master set k$i v$i
+            }
+            wait_for_ofs_sync $master $replica
+
+            # With little replication traffic, repl_buffer_mem stays below
+            # repl_backlog_size, so mem_clients_slaves would be 0 unless the
+            # replica's compression buffers (~256Kb+) are also accounted for.
+            wait_for_condition 50 100 {
+                [s mem_clients_slaves] >= 240*1024
+            } else {
+                fail "mem_clients_slaves is too low, replication compression buffers not accounted: [s mem_clients_slaves]"
+            }
+        }
+    }
+}
+}

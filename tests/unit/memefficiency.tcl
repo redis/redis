@@ -53,6 +53,37 @@ start_server {tags {"memefficiency external:skip"}} {
     }
 }
 
+test "Active defrag handles equal fragmentation thresholds" {
+    start_server {tags {"defrag"} overrides {save ""}} {
+        r config set hz 100
+        r config set activedefrag no
+        r config set active-defrag-ignore-bytes 1
+        r config set active-defrag-threshold-lower 1 active-defrag-threshold-upper 1
+
+        # Leave allocated regions between freed regions so jemalloc reports
+        # fragmentation while retaining keys for active defrag to scan.
+        populate 1000 defrag-test-key 1024
+        for {set j 0} {$j < 1000} {incr j 2} {
+            r del defrag-test-key$j
+        }
+
+        # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
+        # fragmented bytes, guaranteeing that computeDefragCycles() handles
+        # the equal thresholds without reaching the interpolation.
+        catch {r config set activedefrag yes}
+
+        # The final PING verifies that the server stayed alive.
+        if {[r config get activedefrag] eq "activedefrag yes"} {
+            wait_for_condition 50 100 {
+                [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+            } else {
+                fail "defrag not started."
+            }
+        }
+        assert_equal PONG [r ping]
+    }
+} {} {defrag external:skip tsan:skip standalone}
+
 run_solo {defrag} {
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {

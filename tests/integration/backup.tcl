@@ -119,33 +119,88 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
-    test {Preload proactively rewrites the local AOF} {
-        set local_dir [tmpdir preload.rewrite.local-aof]
-        # Seed an unrelated local MP-AOF. preload-file must replace this
-        # manifest history rather than append the restored data to it.
+    test {Preload installs a self-contained local AOF without rewrite} {
+        set local_dir [tmpdir preload.install.local-aof]
+        # Seed an unrelated local MP-AOF. The preload must replace it rather
+        # than append the restored dataset to its active INCR.
         create_local_aof $local_dir
-        set aof_dir [file join $local_dir appendonlydir]
-        set old_incr [file join $aof_dir appendonly.aof.1.incr.aof]
 
+        # Capture the sealed backup files and manifest before restoring it.
         set manifest [file join $bdir appendonly.aof.manifest]
+        set backup_files [lsort [glob -tails -directory $bdir *]]
+        set fp [open $manifest r]
+        set backup_manifest_lines [split [string trim [read $fp]] "\n"]
+        close $fp
         start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"] keep_persistence true] {
             assert_equal 3 [r dbsize]
-            assert_equal 1 [s aof_rewrites]
-            waitForBgrewriteaof r
-            assert_equal ok [s aof_last_bgrewrite_status]
-            # we don't append the old incr aof, and it is deleted after AOFRW
-            assert_equal 0 [file exists $old_incr]
+            # Installing the preload files directly must not trigger an AOF rewrite.
+            assert_equal 0 [s aof_rewrites]
+            # Restoring must not modify the sealed backup directory.
+            assert_equal $backup_files [lsort [glob -tails -directory $bdir *]]
+
+            # The local manifest keeps the preload BASE and INCR, then adds a
+            # fresh INCR for writes made after startup.
+            set fp [open [file join $local_dir appendonlydir appendonly.aof.manifest] r]
+            set local_manifest_lines [split [string trim [read $fp]] "\n"]
+            close $fp
+            # Exclude the final added INCR when comparing with the preload manifest.
+            assert_equal $backup_manifest_lines [lrange $local_manifest_lines 0 end-1]
+            assert_match "file appendonly.aof.*.incr.aof seq * type i*" [lindex $local_manifest_lines end]
             assert_equal OK [r set after-preload value]
         }
 
-        # Restart without preload-file to prove the rewrite replaced the old
-        # local AOF and persisted both the preloaded data and subsequent writes.
+        # Restart without preload-file to prove the installed local manifest is
+        # self-contained and persists both preload data and subsequent writes.
         start_server [list overrides [list dir $local_dir appendonly yes]] {
             assert_equal 4 [r dbsize]
             assert_equal v1 [r get k1]
             assert_equal v2 [r get k2]
             assert_equal v3 [r get k3]
             assert_equal value [r get after-preload]
+        }
+    }
+
+    test {Preload a standalone AOF installs it as the local BASE} {
+        set preload_dir [file normalize [tmpdir preload.single-aof.source]]
+        # Use the first generated INCR name to exercise filename collision
+        # handling when Redis creates a fresh INCR after the preload.
+        set preload_aof [file join $preload_dir appendonly.aof.1.incr.aof]
+        set fp [open $preload_aof w]
+        puts -nonewline $fp [formatCommand select 9]
+        puts -nonewline $fp [formatCommand set single-aof-key value]
+        close $fp
+
+        set local_dir [file normalize [tmpdir preload.single-aof.local]]
+        # Seed the local AOF so the restart can prove it was fully replaced.
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$preload_aof"] keep_persistence true] {
+            assert_equal value [r get single-aof-key]
+            assert_equal 0 [r exists local-aof-key]
+
+            # A standalone preload becomes the BASE of the local manifest and
+            # is followed by a fresh INCR for subsequent writes.
+            set local_base [file join $aof_dir [file tail $preload_aof]]
+            assert {[file exists $local_base]}
+            assert {[file exists $preload_aof]}
+
+            # The standalone AOF occupies the first INCR candidate name, so it
+            # becomes the BASE and the fresh INCR advances to sequence 2.
+            set fp [open [file join $aof_dir appendonly.aof.manifest] r]
+            set local_manifest [read $fp]
+            close $fp
+            assert_match "*file appendonly.aof.1.incr.aof seq 1 type b*" $local_manifest
+            assert_match "*file appendonly.aof.2.incr.aof seq 2 type i*" $local_manifest
+            assert_equal OK [r set after-single-aof-preload value]
+        }
+
+        # Restart without preload-file to verify that the local AOF restores
+        # both the preloaded data and writes made after startup.
+        start_server [list overrides [list dir $local_dir appendonly yes]] {
+            assert_equal value [r get single-aof-key]
+            assert_equal value [r get after-single-aof-preload]
+            assert_equal 0 [r exists local-aof-key]
         }
     }
 
@@ -160,6 +215,44 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
             assert_equal value [r get local-aof-key]
             # Reusing the current manifest must not trigger a redundant AOFRW.
             assert_equal 0 [s aof_rewrites]
+        }
+    }
+
+    test {Preload from appendonlydir preserves its source and recreates the INCR} {
+        set local_dir [file normalize [tmpdir preload.same-aof-dir]]
+        create_local_aof $local_dir
+        set aof_dir [file join $local_dir appendonlydir]
+        # The INCR uses the same path before and after preload: the existing
+        # file is removed, then a fresh INCR is created at this path.
+        set incr_path [file join $aof_dir appendonly.aof.1.incr.aof]
+        set initial_incr_size [file size $incr_path]
+
+        # Put the preload snapshot in appendonlydir itself. Its source and
+        # target paths are identical, so installation must reuse the file
+        # while replacing the AOF files from the previous local manifest.
+        r flushall
+        r set same-dir-key value
+        set preload_rdb [file join $aof_dir preload-source.rdb]
+        create_local_rdb $preload_rdb
+
+        start_server [list overrides [list dir $local_dir appendonly yes preload-file "rdb:$preload_rdb"]] {
+            assert_equal value [r get same-dir-key]
+            assert_equal 0 [r exists local-aof-key]
+            assert {[file exists $preload_rdb]}
+
+            # Removing the obsolete INCR before selecting a new INCR name
+            # allows sequence 1 to be reused. The existing file was non-empty;
+            # the empty file at the same path is the newly created local INCR.
+            assert {$initial_incr_size > 0}
+            assert_equal 0 [file size $incr_path]
+
+            # The installed manifest references the preserved RDB as its BASE and
+            # the recreated INCR as the destination for subsequent writes.
+            set fp [open [file join $aof_dir appendonly.aof.manifest] r]
+            set local_manifest [read $fp]
+            close $fp
+            assert_match "*file preload-source.rdb seq 1 type b*" $local_manifest
+            assert_match "*file appendonly.aof.1.incr.aof seq 1 type i*" $local_manifest
         }
     }
 
@@ -183,25 +276,7 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         }
     }
 
-    test {Preload a sealed backup via preload-file manifest skips local AOF} {
-        set manifest [file join $bdir appendonly.aof.manifest]
-        set local_dir [tmpdir preload.aof.local-aof]
-
-        # Put a local AOF in the server dir; preload-file must override it.
-        create_local_aof $local_dir
-
-        start_server [list overrides [list dir $local_dir appendonly yes preload-file "aof:$manifest"]] {
-            # Only the preload manifest should be loaded.
-            assert_equal 3 [r dbsize]
-            assert_equal v1 [r get k1]
-            assert_equal v2 [r get k2]
-            assert_equal v3 [r get k3]
-            # The local AOF marker key must not appear.
-            assert_equal 0 [r exists local-aof-key]
-        }
-    }
-
-    test {Preload file validates prefix and extension} {
+    test {Preload file validates prefix, path, and extension} {
         # Reject ambiguous preload-file values before startup loading dispatches
         # to the RDB or AOF path.
         catch {exec src/redis-server --port 0 --preload-file aof:/tmp/foo} err
@@ -210,6 +285,15 @@ start_server {overrides {appendonly no auto-aof-rewrite-percentage 0}} {
         assert_match {*preload-file must end with an extension*} $err
         catch {exec src/redis-server --port 0 --preload-file invalid:/tmp/foo.rdb} err
         assert_match {*argument must be in the format*} $err
+        foreach path {
+            aof://tmp/foo.aof
+            aof:/tmp/./foo.aof
+            aof:/tmp/../foo.aof
+            aof:/tmp//foo.aof
+        } {
+            catch {exec src/redis-server --port 0 --preload-file $path} err
+            assert_match {*normalized absolute file path*} $err
+        }
     }
 
     test {BACKUP CLEANUP removes the sealed backup and returns to idle} {

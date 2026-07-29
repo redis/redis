@@ -5311,6 +5311,10 @@ size_t getClientMemoryUsage(client *c) {
     if (c->client_tracking_prefixes)
         mem += c->client_tracking_prefixes->numnodes * (sizeof(raxNode) * sizeof(raxNode*));
 
+    /* Add memory overhead of the replication compression state (temp buffers
+     * used to compress/decompress the replication stream). */
+    mem += clientCompressionMemoryUsage(c);
+
     return mem;
 }
 

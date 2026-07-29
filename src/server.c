@@ -8347,14 +8347,15 @@ int main(int argc, char **argv) {
         serverLog(LL_NOTICE,"Server initialized");
         aofLoadManifestFromDisk();
         loadDataFromDisk();
+        /* Make the on-disk AOF match the preloaded in-memory dataset so
+         * subsequent writes are appended to the correct local INCR. */
+        aofSetupAfterPreloadFile();
         aofOpenIfNeededOnServerStart();
         aofDelHistoryFiles();
         /* While loading data, we delay applying "appendonly" config change.
          * If there was a config change while we were inside loadDataFromDisk()
          * above, we'll apply it here. */
         applyAppendOnlyConfig();
-        /* Make the local AOF consistent with preloaded data if needed. */
-        aofHandlePreloadOnServerStart();
 
         if (server.cluster_enabled) {
             serverAssert(verifyClusterConfigWithData() == C_OK);

@@ -2399,6 +2399,32 @@ static int isValidAOFfilename(char *val, const char **err) {
     return 1;
 }
 
+/* Return true for an absolute file path without empty, ".", or ".."
+ * components. Keeping preload-file paths in this lexical form makes direct
+ * path-string comparisons unambiguous. */
+static int isNormalizedAbsoluteFilePath(char *path) {
+    if (path[0] != '/') return 0;
+
+    /* Skip the leading slash and validate each slash-delimited component. */
+    char *component = path + 1;
+    while (1) {
+        char *separator = strchr(component, '/');
+        size_t len = separator ? (size_t)(separator - component) : strlen(component);
+
+        /* An empty component means the path contains "//" or ends with "/".
+         * Also reject "." and "..", which change how the directory resolves. */
+        if (len == 0 || (len == 1 && component[0] == '.') ||
+            (len == 2 && component[0] == '.' && component[1] == '.'))
+        {
+            return 0;
+        }
+
+        /* No separator means the final filename component was valid. */
+        if (separator == NULL) return 1;
+        component = separator + 1;
+    }
+}
+
 static int isValidPreloadFile(char *val, const char **err) {
     if (val && strncmp(val, "aof:/", 5) && strncmp(val, "rdb:/", 5)) {
         *err = "argument must be in the format '[aof|rdb]:[filename]'";
@@ -2406,8 +2432,14 @@ static int isValidPreloadFile(char *val, const char **err) {
     }
 
     if (val) {
+        char *path = val + 4;
+        if (!isNormalizedAbsoluteFilePath(path)) {
+            *err = "preload-file path must be a normalized absolute file path";
+            return 0;
+        }
+
         char *ext = getFileExtension(val);
-        if (!ext) {
+        if (!ext || ext[0] == '\0') {
             *err = "preload-file must end with an extension";
             return 0;
         }
@@ -2791,6 +2823,41 @@ int updateClusterHumanNodename(const char **err) {
     return 1;
 }
 
+/* Validate tls-expected-peer-name at config time (startup and CONFIG SET). An
+ * empty value clears the option and is always allowed. A non-empty value must
+ * carry at least one usable name token and must not contain embedded whitespace
+ * within a name. We do not gate on the build's OpenSSL version here: the option
+ * is accepted regardless, and a build that cannot verify peer names warns once
+ * per affected connection (see tlsSetVerifyName). */
+static int isValidTlsExpectedPeerName(char *val, const char **err) {
+    if (val[0] == '\0') return 1;
+
+    /* tlsSetVerifyName() splits the value on ASCII space into individual names
+     * and passes each to X509_VERIFY_PARAM_set1_host(), which stores the string
+     * as-is without validating it. So any other whitespace (tab, newline, ...) or
+     * a whitespace-only value would be handed to OpenSSL verbatim, silently never
+     * matching any SAN and rejecting every peer while the config looks set.
+     * Require at least one name and reject any non-space whitespace; use an empty
+     * string to disable the option. */
+    int has_name = 0;
+    for (const char *p = val; *p; p++) {
+        if (*p == ' ') continue;
+        if (isspace((unsigned char)*p)) {
+            *err = "tls-expected-peer-name must not contain whitespace other than "
+                   "spaces separating names; use an empty string to disable it";
+            return 0;
+        }
+        has_name = 1;
+    }
+    if (!has_name) {
+        *err = "tls-expected-peer-name contains no usable name; "
+               "use an empty string to disable it";
+        return 0;
+    }
+
+    return 1;
+}
+
 static int applyTlsCfg(const char **err) {
     /* If TLS is enabled, try to configure OpenSSL. */
     if (server.tls_port || server.tls_replication || server.tls_cluster) {
@@ -2805,6 +2872,16 @@ static int applyTlsCfg(const char **err) {
             return 0;
         }
     }
+    return 1;
+}
+
+static int applyTlsCluster(const char **err) {
+    if (!applyTlsCfg(err)) return 0;
+
+    /* tls-cluster selects which client port is advertised by the cluster.
+     * Modules cache that topology through the cluster module APIs, so notify
+     * them when the preferred port changes. */
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
     return 1;
 }
 
@@ -3432,7 +3509,7 @@ standardConfig static_configs[] = {
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, applyTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, applyTlsCfg),
     createIntConfig("tls-session-cache-timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_timeout, 300, INTEGER_CONFIG, NULL, applyTlsCfg),
-    createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, applyTlsCfg),
+    createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, applyTlsCluster),
     createBoolConfig("tls-replication", NULL, MODIFIABLE_CONFIG, server.tls_replication, 0, NULL, applyTlsCfg),
     createEnumConfig("tls-auth-clients", NULL, MODIFIABLE_CONFIG, tls_auth_clients_enum, server.tls_auth_clients, TLS_CLIENT_AUTH_YES, NULL, NULL),
     createEnumConfig("tls-auth-clients-user", NULL, MODIFIABLE_CONFIG, tls_client_auth_user_enum, server.tls_ctx_config.client_auth_user, TLS_CLIENT_FIELD_OFF, NULL, NULL),
@@ -3450,6 +3527,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),

@@ -1470,11 +1470,20 @@ void computeDefragCycles(void) {
 
     /* Calculate the adaptive aggressiveness of the defrag based on the current
      * fragmentation and configurations. */
-    int cpu_pct = INTERPOLATE(frag_pct,
-            server.active_defrag_threshold_lower,
-            server.active_defrag_threshold_upper,
-            server.active_defrag_cycle_min,
-            server.active_defrag_cycle_max);
+    int cpu_pct;
+    if (server.active_defrag_threshold_upper <= server.active_defrag_threshold_lower) {
+        /* If upper is not greater than lower, reaching the lower threshold also
+         * means reaching the upper threshold, so use the maximum effort. This may
+         * cause an immediate jump to maximum effort, but only for an invalid
+         * threshold configuration. */
+        cpu_pct = server.active_defrag_cycle_max;
+    } else {
+        cpu_pct = INTERPOLATE(frag_pct,
+                server.active_defrag_threshold_lower,
+                server.active_defrag_threshold_upper,
+                server.active_defrag_cycle_min,
+                server.active_defrag_cycle_max);
+    }
     cpu_pct *= defrag.decay_rate;
     cpu_pct = LIMIT(cpu_pct,
             server.active_defrag_cycle_min,
@@ -1701,7 +1710,7 @@ static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
 
         hashTemplateDefrag(tmpl);
 
-        if (++iterations > 64) {
+        if (++iterations > 8) {
             iterations = 0;
             if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
         }
@@ -2020,6 +2029,8 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
  * actions. This interface allows defrag to continue running, avoiding a single long defrag step
  * after the long operation completes. */
 void defragWhileBlocked(void) {
+    if (server.active_defrag_paused) return;
+
     /* This is called infrequently, while timers are not active. We might need to start defrag. */
     if (!defragIsRunning()) activeDefragCycle();
 

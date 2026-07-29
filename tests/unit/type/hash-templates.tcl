@@ -788,6 +788,23 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         foreach f $result { assert {$f in {a b}} }
     }
 
+    test {HRANDFIELD negative count WITHVALUES on template-based hash} {
+        make_hashtmpl hrand:nwv a 1 b vb c 3
+        assert_encoding $encoding hrand:nwv
+        set res [r hrandfield hrand:nwv -6 WITHVALUES]
+        assert_equal [llength $res] 12
+        foreach {f v} $res { assert_equal $v [dict get {a 1 b vb c 3} $f] }
+    }
+
+    test {HRANDFIELD negative count WITHVALUES on template-based hash (RESP3)} {
+        make_hashtmpl hrand:nwv3 a 1 b vb
+        r hello 3
+        set res [r hrandfield hrand:nwv3 -4 WITHVALUES]
+        assert_equal [llength $res] 4
+        foreach pair $res { lassign $pair f v; assert_equal $v [dict get {a 1 b vb} $f] }
+        r hello 2
+    }
+
     # Hash Field Expiration - converts template keys to regular hash keys.
     # Applying a field TTL must deconvert the template-encoded hash to a
     # TTL-capable encoding. The target depends on hash-max-listpack-entries:
@@ -848,6 +865,18 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         set ttl [lindex [r httl hfe:setex FIELDS 1 name] 0]
         assert_range $ttl 1 100
         assert_equal [r httl hfe:setex FIELDS 1 email] {-1}
+    }
+
+    # Read-only HFE commands on a template hash reply:
+    #   - existing field -> -1 (no TTL),
+    #   - missing field -> -2 (no such field).
+    test {read-only HFE commands on template hash} {
+        make_hashtmpl hfe:ro a 1 b 2
+        assert_encoding $encoding hfe:ro
+        foreach cmd {httl hpttl hexpiretime hpexpiretime hpersist} {
+            assert_equal [r $cmd hfe:ro FIELDS 2 a missing_field] {-1 -2}
+        }
+        assert_encoding $encoding hfe:ro
     }
 
     test {HFE on template-based hash actually expires the field} {
@@ -1109,7 +1138,7 @@ start_server {tags {"hash" "rdb" "needs:debug" "cluster:skip"}
 # AOF rewrite tests
 start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
               overrides {save {} appendonly yes auto-aof-rewrite-percentage 0
-                         hash-min-template-entries 0}} {
+                         appendfsync always hash-min-template-entries 0}} {
 
     foreach rdbpre {yes no} {
         test "AOF rewrite preserves template and plain hashes (rdb-preamble=$rdbpre)" {
@@ -1423,6 +1452,16 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
         } else {
             fail "serialization cache ($mem_with_cache bytes) was not reclaimed"
         }
+
+        # A blob just below the 16 MB cap does not fit beside the small one.
+        r config set hash-max-listpack-value 17mb
+        r himport prepare bigfs [string repeat x [expr {16 * 1024 * 1024 - 8192}]]
+        r himport set bigkey bigfs v
+
+        r dump k
+        set mem_before [s used_memory_hash_templates]
+        r restore bigcopy 0 [r dump bigkey]
+        assert_equal $mem_before [s used_memory_hash_templates]
     }
 }
 
@@ -1985,28 +2024,30 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
     test {disassembly-threshold prunes single-use templates on RDB load (simple scenario)} {
         r flushall
 
-        # Field set {a b c d} is shared by two keys; {p q r s} by one.
+        # Field set {a b c d} is shared by three keys; {p q r s} by one.
         r hset shared1 a 1 b 2 c 3 d 4
         r hset shared2 a 5 b 6 c 7 d 8
+        r hset shared3 a 9 b 8 c 7 d 6
         r hset lone    p 1 q 2 r 3 s 4
         assert_equal 0 [s hash_templates]
 
-        # Convert on load (>= 4 fields) but keep only templates with >= 2 keys.
+        # Convert on load (>= 4 fields) but keep only templates with >= 3 keys.
         r config set hash-rdb-load-min-template-entries 4
-        r config set hash-rdb-load-template-disassembly-threshold 2
+        r config set hash-rdb-load-template-disassembly-threshold 3
         r config rewrite
         r save
         restart_server 0 true false
 
-        # The shared field set graduates (2 keys) and survives as a template; the
+        # The shared field set graduates (3 keys) and survives as a template; the
         # single-use one is disassembled back to a plain listpack.
         assert_equal template-listpack [r object encoding shared1]
         assert_equal template-listpack [r object encoding shared2]
+        assert_equal template-listpack [r object encoding shared3]
         assert_equal listpack          [r object encoding lone]
         assert_equal 1 [s hash_templates]
-        assert_equal 2 [s hash_template_keys]
+        assert_equal 3 [s hash_template_keys]
         assert_equal 4 [r hget shared1 d]
-        assert_equal 8 [r hget shared2 d]
+        assert_equal 6 [r hget shared3 d]
         assert_equal 4 [r hget lone s]
 
         # Exactly the one single-use template (1 key) was disassembled.
@@ -2342,37 +2383,155 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
             wait_for_log_messages 0 {"*fields not strictly sorted*"} $loglines 50 100
         }
     }
+}
 
-    # TMPL_LP-specific corruption tests: the format is [fields_lp_blob][values_lp_blob].
-    # We test that corrupted payloads are rejected (exact error messages may vary
-    # depending on where corruption is detected).
-    r config set hash-max-listpack-entries 128
-
-    test "RESTORE deep validation: TMPL_LP rejects corrupt field blob" {
-        # Corrupt a byte inside the fields_lp listpack to break its structure.
-        set dump [tmpl_dump template-listpack]
-        set bad [string replace $dump 10 10 "\xFE"]
+start_server {tags {"hash" "cluster:skip" "external:skip"} overrides {loglevel debug}} {
+    test "RESTORE rejects malformed template payload: value count != field count" {
+        # Values listpack has 2 entries (id + 1 value); needs field_count+1 = 3.
+        set bad "\x1d\x00\x17\x17\x00\x00\x00\x02\x00\x86\x66\x69\x65\x6c\x64\x31\x07\x86\x66\x69\x65\x6c\x64\x32\x07\xff\x0b\x0b\x00\x00\x00\x02\x00\x00\x01\x01\x01\xff\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        set ll [count_log_lines 0]
         assert_error "*Bad data format*" {r restore rk 0 $bad}
-        assert_equal 0 [r exists rk]
+        wait_for_log_messages 0 {"*template-listpack entry count*does not match*"} $ll 50 100
     }
 
-    # TMPL_ARRAY-specific: oversized field_count (rdbTryAllocSdsArray fail).
-    r config set hash-max-listpack-entries 0
-    test "RESTORE deep validation: TMPL_ARRAY rejects oversized field count" {
-        # The TMPL_ARRAY format is [RDB_len_count][f0][v0][f1][v1]...
-        # We inject a huge count value that triggers the allocation guard.
-        set dump [tmpl_dump template-array]
-        binary scan $dump cu* bytes
-        # Replace byte 1 (count) with a 32-bit RDB encoding of 2^32-1.
-        # RDB 32-bit: 0x80 (marker) + 4 bytes big-endian.
-        set type [lindex $bytes 0]
-        set rest [lrange $bytes 2 end]
-        set huge [list $type 0x80 0xFF 0xFF 0xFF 0xFF]
-        set bad [binary format cu* [concat $huge $rest]]
+    test "RESTORE rejects malformed template payload: empty values listpack" {
+        # Values listpack is valid but empty.
+        set bad "\x1d\x00\x17\x17\x00\x00\x00\x02\x00\x86\x66\x69\x65\x6c\x64\x31\x07\x86\x66\x69\x65\x6c\x64\x32\x07\xff\x07\x07\x00\x00\x00\x00\x00\xff\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        set ll [count_log_lines 0]
+        assert_error "*Bad data format*" {r restore rk 0 $bad}
+        wait_for_log_messages 0 {"*template-listpack is empty*"} $ll 50 100
+    }
 
-        # Expect rejection (the specific error may be "Bad data format" or similar).
-        assert_error "*" {r restore rk 0 $bad}
-        assert_equal 0 [r exists rk]
+    test "RESTORE rejects malformed template payload: non-integer template id" {
+        set bad "\x1d\x00\x17\x17\x00\x00\x00\x02\x00\x86\x66\x69\x65\x6c\x64\x31\x07\x86\x66\x69\x65\x6c\x64\x32\x07\xff\x0e\x0e\x00\x00\x00\x03\x00\x81\x78\x02\x01\x01\x02\x01\xff\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        set ll [count_log_lines 0]
+        assert_error "*Bad data format*" {r restore rk 0 $bad}
+        wait_for_log_messages 0 {"*first entry is not an integer*"} $ll 50 100
+    }
+
+    test "RESTORE rejects malformed template payload: TMPL_LP zero fields" {
+        set bad "\x1d\x00\x07\x07\x00\x00\x00\x00\x00\xff\x0d\x0d\x00\x00\x00\x03\x00\x00\x01\x01\x01\x02\x01\xff\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        set ll [count_log_lines 0]
+        assert_error "*Bad data format*" {r restore rk 0 $bad}
+        wait_for_log_messages 0 {"*template with zero fields*"} $ll 50 100
+    }
+
+    test "RESTORE rejects malformed template payload: TMPL_ARRAY zero fields" {
+        # Raw field count byte (offset 2) set to 0.
+        set bad "\x1f\x01\x00\x06\x66\x69\x65\x6c\x64\x31\x06\x66\x69\x65\x6c\x64\x32\xc0\x01\xc0\x02\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        set ll [count_log_lines 0]
+        assert_error "*Bad data format*" {r restore rk 0 $bad}
+        wait_for_log_messages 0 {"*template with zero fields*"} $ll 50 100
+    }
+
+    # The REF encodings (TMPL_LP_REF / TMPL_ARRAY_REF) only exist inside a RDB
+    # file. RESTORE must reject them.
+    test "RESTORE rejects REF-encoded template hash types" {
+        set reflp "\x1e\x0d\x0d\x00\x00\x00\x03\x00\x05\x01\x01\x01\x02\x01\xff\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        set refarr "\x20\x05\xc0\x01\xc0\x02\x0f\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        set ll [count_log_lines 0]
+        assert_error "*Bad data format*" {r restore refk1 0 $reflp}
+        assert_error "*Bad data format*" {r restore refk2 0 $refarr}
+        assert_equal 0 [r exists refk1 refk2]
+        wait_for_log_messages 0 {"*not valid in a DUMP payload*"} $ll 50 100
+    }
+}
+
+# RDB file corruption for the REF encodings (TMPL_LP_REF/TMPL_ARRAY_REF) and the
+# RDB_OPCODE_HASH_TEMPLATE section. These forms exist only in a full RDB file
+# (not DUMP/RESTORE), so we save a good template RDB, corrupt specific bytes and
+# assert the server aborts loading it with the expected corruption message.
+start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip" "debug_defrag:skip"}
+              overrides {save ""}} {
+    set server_path [lindex [r config get dir] 1]
+    set rdbfile [file join $server_path [lindex [r config get dbfilename] 1]]
+
+    # Save two keys sharing one template and return rdb bytes.
+    proc build_rdb {enc} {
+        upvar rdbfile rdbfile
+        r config set hash-max-listpack-entries [expr {$enc eq "template-listpack" ? 128 : 0}]
+        r flushall
+        r himport prepare fs field1 field2 field3 field4
+        r himport set k1 fs 1 2 3 4
+        r himport set k2 fs 5 6 7 8
+        r himport discard fs
+        assert_encoding $enc k1
+        r save
+        set f [open $rdbfile r]; fconfigure $f -translation binary
+        set bytes [read $f]; close $f
+        return $bytes
+    }
+
+    # Overwrite the on-disk RDB with $bytes, start a server that loads it, assert
+    # it aborts with a log line matching $pattern.
+    proc assert_rdb_load_fails {bytes pattern} {
+        upvar rdbfile rdbfile server_path server_path
+        set f [open $rdbfile w]; fconfigure $f -translation binary; puts -nonewline $f $bytes; close $f
+        set srv [start_server [list overrides [list dir $server_path save {}] keep_persistence true]]
+        wait_for_condition 50 100 {
+            [string match $pattern [exec tail -20 < [dict get $srv stdout]]]
+        } else {
+            fail "server did not reject RDB: [exec tail -5 < [dict get $srv stdout]]"
+        }
+        kill_server $srv
+    }
+
+    test {RDB load rejects TMPL_LP REF hash with invalid template id} {
+        set good [build_rdb template-listpack]
+        # Patch k2's template id 0 -> 5: the id is the values-lp first entry, 7 bytes
+        # (1B strlen + 4B lp-bytes + 2B lp-len) past the "\x1e\x02k2" record prefix.
+        set rec "\x1e\x02k2"
+        set pos [expr {[string first $rec $good] + [string length $rec] + 7}]
+        assert_rdb_load_fails [string replace $good $pos $pos "\x05"] "*Invalid hash template ID 5*"
+    }
+
+    test {RDB load rejects TMPL_ARRAY REF hash with invalid template id} {
+        set good [build_rdb template-array]
+        # Patch k2's template id 0 -> 5: the id is the byte right after "\x20\x02k2".
+        set rec "\x20\x02k2"
+        set pos [expr {[string first $rec $good] + [string length $rec]}]
+        assert_rdb_load_fails [string replace $good $pos $pos "\x05"] "*Invalid hash template ID 5*"
+    }
+
+    test {RDB load rejects template section with zero fields} {
+        set good [build_rdb template-listpack]
+        # Zero the template's field-count byte
+        set pos [expr {[string first "field1" $good] - 2}]
+        assert_rdb_load_fails [string replace $good $pos $pos "\x00"] "*has zero fields*"
+    }
+
+    test {RDB load rejects template section with unsorted fields} {
+        set good [build_rdb template-listpack]
+        # Rename field1 so the section's field names are no longer ascending.
+        assert_rdb_load_fails [string map {field1 fieldZ} $good] "*not strictly sorted*"
+    }
+}
+
+
+# When a template hash is freed in a background thread (async flush / lazyfree),
+# its key_refcount drop is not applied there but recorded as a pending drop and
+# collected lazily by the main thread in cron. Until that happens the template
+# still counts the key, so an RDB save can write it even though none of its keys
+# reach the RDB. On reload it then has no referencing key and must be deleted,
+# not left in the registry. Reproduced deterministically here by expiring the 
+# template's only key: reload drops the expired key and deletes the template.
+start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}} {
+    test {RDB reload prunes a template left unreferenced by an expired key} {
+        r flushall
+        r debug set-active-expire 0
+        r himport prepare fs 1000 2000 3000 4000
+        r himport set k1 fs a b c d
+        r himport discard fs
+        assert_encoding template-listpack k1
+        assert_equal 1 [s hash_templates]
+        assert_equal {a b c d} [r hmget k1 1000 2000 3000 4000]
+        # Expire k1 in the past: the save still writes the template (key_refcount 1)
+        # and k1, but reload drops k1 as expired, leaving the template unreferenced.
+        r pexpireat k1 1
+        r debug reload
+        assert_equal 0 [r dbsize]
+        assert_equal 0 [s hash_templates]
+        r debug set-active-expire 1
     }
 }
 
@@ -2419,8 +2578,8 @@ start_server {tags {"hash" "repl" "needs:repl" "needs:debug" "cluster:skip" "ext
         $replica replicaof [srv 0 host] [srv 0 port]
         wait_for_sync $replica
 
-        foreach {enc maxlp} {template-listpack 1024 template-array 0} {
-            foreach field_count {127 128 129 256 512} {
+        foreach {enc maxlp} {template-listpack 2048 template-array 0} {
+            foreach field_count {127 128 129 256 512 1024 2048} {
                 test "large template-based key: $field_count fields ($enc)" {
                     r config set hash-max-listpack-entries $maxlp
                     $replica config set hash-max-listpack-entries $maxlp

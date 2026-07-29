@@ -3111,9 +3111,10 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
             estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
-            streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slot);
         }
     }
+    /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
+    streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
 
     emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, trim_ctx);
 
