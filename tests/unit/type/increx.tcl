@@ -416,6 +416,23 @@ start_server {tags {"increx"}} {
         assert_error "*invalid expire time*" {r increx mykey BYINT 1 EX -1}
     }
 
+    test {INCREX - relative expiration overflow has no side effects} {
+        r set mykey 10 px 100000
+        set expire_at [r pexpiretime mykey]
+
+        assert_error "ERR invalid expire time in 'increx' command" {
+            r increx mykey BYINT 1 PX 9223372036854775807
+        }
+        assert_equal 10 [r get mykey]
+        assert_equal $expire_at [r pexpiretime mykey]
+
+        r del newkey
+        assert_error "ERR invalid expire time in 'increx' command" {
+            r increx newkey PX 9223372036854775807
+        }
+        assert_equal 0 [r exists newkey]
+    }
+
     # ---------------------------------------------------------------------
     # Type check
     # ---------------------------------------------------------------------

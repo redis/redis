@@ -265,6 +265,17 @@ start_server {tags {"expire"}} {
         set e
     } {ERR invalid expire time in 'getex' command}
 
+    test {GETEX rejects relative expires that overflow the absolute timestamp} {
+        r set foo old px 100000
+        set expire_at [r pexpiretime foo]
+
+        assert_error "ERR invalid expire time in 'getex' command" {
+            r getex foo EX 9223372036854775
+        }
+        assert_equal old [r get foo]
+        assert_equal $expire_at [r pexpiretime foo]
+    }
+
     test {EXPIRE with big integer overflows when converted to milliseconds} {
         r set foo bar
 
