@@ -159,6 +159,7 @@ start_server {tags {"introspection"}} {
 
     test {COMMAND GETKEYSANDFLAGS invalid args} {
         assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE zz 1443677133621497600 asdf}
+        assert_error "ERR Invalid arguments*" {r command getkeysandflags ZUNION 9223372036854775807 ""}
     }
 
     test {COMMAND GETKEYSANDFLAGS MSETEX} {

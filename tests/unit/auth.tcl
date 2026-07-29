@@ -35,6 +35,11 @@ start_server {tags {"auth external:skip"} overrides {requirepass foobar}} {
         set _ $err
     } {NOAUTH*}
 
+    test {Oversized key count is safely handled before authentication} {
+        catch {r zunion 9223372036854775807 ""} err
+        set _ $err
+    } {NOAUTH*}
+
     test {AUTH succeeds when the right password is given} {
         r auth foobar
     } {OK}
