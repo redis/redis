@@ -1309,7 +1309,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 if (fields_lp) {
                     /* Get listpack blob and skip caching in fork. */
                     int cache = (server.in_fork_child == CHILD_TYPE_NONE);
-                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, cache);
+                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, &cache);
                     n = rdbSaveRawString(rdb, blob, lpBytes(blob));
                     if (!cache) lpFree(blob);
                     if (n == -1) return -1;
@@ -2870,7 +2870,8 @@ static hashTemplate *rdbCreateTemplateFromFields(rdbTmplFields *out) {
     rdbFreeSdsArray(out->fields, out->field_count);
     out->fields = NULL;
     if (out->fields_lp != NULL) {
-        hashTemplateIndexFieldsLp(tmpl, out->fields_lp); /* transfers ownership */
+        if (!hashTemplateIndexFieldsLp(tmpl, out->fields_lp))
+            lpFree(out->fields_lp);
         out->fields_lp = NULL;
     }
     return tmpl;
