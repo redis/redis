@@ -566,7 +566,10 @@ void ACLCopyUser(user *dst, user *src) {
  * callback is fired. The latter deliberately sits outside the pointer-equality
  * check: a re-auth as the same user must still invoke the module auth callback
  * (it fires exactly once and cleans up the module auth state, see
- * moduleNotifyUserChanged). Pass 0 when the identity is not really changing:
+ * moduleNotifyUserChanged). A caller that needs the callback to run under the
+ * *outgoing* identity can invoke moduleNotifyUserChanged() itself beforehand —
+ * it self-clears, making the call here a no-op (see
+ * authenticateClientWithUser). Pass 0 when the identity is not really changing:
  * the ACL LOAD object swap (which re-keys stamped values itself) and the
  * initial default-auth setup. */
 void clientSetUser(client *c, user *new_user, int auth_switch) {
