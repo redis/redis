@@ -343,6 +343,13 @@ if {$::tls} {
             # and then refuse every connection; it must be rejected at config time.
             catch {r config set tls-expected-peer-name "   "} e
             assert_match {*no usable name*} $e
+            # Tabs/other whitespace are not name separators (only spaces are), so a
+            # tab-only value, or whitespace embedded in a name, would be passed to
+            # OpenSSL verbatim and silently match nothing. Reject those too.
+            catch {r config set tls-expected-peer-name "\t"} e
+            assert_match {*whitespace*} $e
+            catch {r config set tls-expected-peer-name "redis.local\tcluster.local"} e
+            assert_match {*whitespace*} $e
             # A real name is still accepted; clear afterwards.
             r config set tls-expected-peer-name node.cluster.local
             assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
