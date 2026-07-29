@@ -1980,6 +1980,8 @@ typedef struct redisTLSContextConfig {
     int session_caching;
     int session_cache_size;
     int session_cache_timeout;
+    char *expected_peer_name;       /* Space-separated SAN(s) to verify on outbound
+                                       server-to-server TLS connections. NULL = disabled. */
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------

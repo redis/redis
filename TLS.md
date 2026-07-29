@@ -62,6 +62,86 @@ both TCP and TLS available, but you'll need to assign different ports.
 To make a Replica connect to the master using TLS, use `--tls-replication yes`,
 and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`.
 
+Peer certificate verification
+-----------------------------
+
+By default, Redis TLS validates only that a peer certificate **chains to the
+trusted CA** (`tls-ca-cert-file` / `tls-ca-cert-dir`) and is not expired. It does
+**not** verify that the certificate belongs to the specific peer being contacted.
+
+### Trust model and the CA assumption
+
+This default is safe **only under a dedicated, per-cluster CA**: since that CA
+signs certificates exclusively for your own nodes, "chains to the CA" is
+equivalent to "is a legitimate peer". This is the recommended Redis TLS
+deployment model.
+
+If you instead use a **shared, organizational, or public CA**, that CA also signs
+certificates for machines that are not part of your deployment. In that case CA
+validation alone is insufficient:
+
+* A machine-in-the-middle holding any certificate signed by the same CA can
+  impersonate a master/peer on outbound connections (replication, cluster bus,
+  `MIGRATE`) and, for replication, capture the `AUTH <masteruser> <masterauth>`
+  credentials a replica sends.
+* Because the cluster bus has no per-message authentication (a message's sender
+  is identified only by the public node ID in its header), such a certificate can
+  also open an inbound cluster-bus connection and forge messages that impersonate
+  a real member — for example a `FAIL` message that marks a healthy node as
+  failed.
+
+### `tls-expected-peer-name`
+
+To close this gap under a shared CA, set `tls-expected-peer-name`. When set, the
+peer certificate must additionally carry one of the configured names in its
+Subject Alternative Name (SAN) field (CN is used only as a fallback), verified as
+part of CA chain validation. Issue every node's certificate with a shared
+cluster-identity SAN (e.g. `node.my-redis-cluster.example.com`) and set this
+option to that name on every node; a certificate signed by the same CA but
+lacking the name is then rejected.
+
+The expected name is taken from local configuration only — never from the address
+dialed or from any data received over the wire (such as a gossip-announced
+hostname), since the whole purpose is to distinguish a real peer from an
+impostor.
+
+The check is enforced in **both directions** of server-to-server TLS:
+
+* **Outbound** — the peer's *server* certificate is verified when this node dials
+  a master, cluster peer, or `MIGRATE` target.
+* **Inbound cluster bus** — the connecting peer's *client* certificate is verified
+  on accept, which is what blocks the impersonation/forgery described above.
+
+Because a node's outbound (client) certificate is now verified by its peers, the
+identity SAN must be present on **whichever certificate the node presents in both
+roles**. In practice this means the SAN must be on `tls-client-cert-file` (used
+for outbound cluster/replication connections) as well as on `tls-cert-file`; when
+no separate client certificate is configured, `tls-cert-file` is used for both
+roles and only needs the SAN once. If a separate client certificate without the
+SAN is configured, peers will reject this node's inbound cluster-bus connections
+and the cluster will not form.
+
+Notes:
+
+* Multiple names may be supplied as a single space-separated value (quote it in
+  the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
+  a match against any one of them succeeds.
+* Full-label wildcards (`*.example.com`) match; partial-label wildcards
+  (`f*.example.com`) do not.
+* The option is opt-in and defaults to unset (no peer-name check), preserving the
+  previous behavior.
+* It does **not** apply to ordinary client connections on the data port, whose
+  identity and authorization are handled by `AUTH`/ACL (and optionally
+  `tls-auth-clients-user`).
+* Peer-name verification uses the OpenSSL `X509_VERIFY_PARAM` host API, available
+  since OpenSSL 1.0.2. Building the TLS support against an older OpenSSL fails
+  with an error by default. Define `TLS_NO_PEER_NAME_VERIFICATION`
+  (e.g. `make BUILD_TLS=yes CFLAGS=-DTLS_NO_PEER_NAME_VERIFICATION`) to compile
+  the feature out — either to build against an older OpenSSL, or to disable it on
+  any OpenSSL version. When compiled out, if `tls-expected-peer-name` is set each
+  affected connection logs a warning and proceeds without the name check (CA
+  chain validation still applies).
+
 Connections
 -----------
 
