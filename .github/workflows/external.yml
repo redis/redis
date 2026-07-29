@@ -6,6 +6,10 @@ on:
     schedule:
       - cron: '0 0 * * *'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-external-standalone:
     runs-on: ubuntu-latest

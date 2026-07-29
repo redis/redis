@@ -64,11 +64,16 @@ int yesnotoi(char *s);
 sds getAbsolutePath(char *filename);
 long getTimeZone(void);
 int pathIsBaseName(char *path);
+char *getFileExtension(char *path);
+char *getFileBaseName(char *path);
+sds getFilePath(char *path);
 int dirCreateIfMissing(char *dname);
 int dirExists(char *dname);
+int dirIsEmpty(char *dname);
 int dirRemove(char *dname);
 int fileExist(char *filename);
 sds makePath(char *path, char *filename);
+int copyFile(char *source, char *destination);
 int fsyncFileDir(const char *filename);
 int reclaimFilePageCache(int fd, size_t offset, size_t length);
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd);
@@ -89,6 +94,12 @@ static inline int log2ceil(size_t x) {
 #else
     return 31 - __builtin_clz(x);
 #endif
+}
+
+/* Return the smallest power of 2 >= count (e.g. 5 -> 8, 8 -> 8). */
+static inline int nearestNextPowerOf2(unsigned int count) {
+    if (count <= 1) return 1;
+    return 1 << (32 - __builtin_clz(count-1));
 }
 
 /* Check for __builtin_add_overflow() */

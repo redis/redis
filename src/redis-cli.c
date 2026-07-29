@@ -66,8 +66,11 @@
 #define CLUSTER_MANAGER_SLOTS               16384
 #define CLUSTER_MANAGER_PORT_INCR           10000 /* same as CLUSTER_PORT_INCR */
 #define CLUSTER_MANAGER_MIGRATE_TIMEOUT     60000
+#define CLUSTER_MANAGER_ASM_MIGRATE_TIMEOUT 3600000 /* 60 minutes */
 #define CLUSTER_MANAGER_MIGRATE_PIPELINE    10
 #define CLUSTER_MANAGER_REBALANCE_THRESHOLD 2
+/* CLUSTER MIGRATION, used by ASM, is available starting with Redis 8.4.0. */
+#define CLUSTER_MANAGER_ASM_MIN_VERSION     "8.4.0"
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
@@ -116,6 +119,7 @@
 #define CLUSTER_MANAGER_CMD_FLAG_FIX_WITH_UNREACHABLE_MASTERS 1 << 10
 #define CLUSTER_MANAGER_CMD_FLAG_MASTERS_ONLY   1 << 11
 #define CLUSTER_MANAGER_CMD_FLAG_SLAVES_ONLY    1 << 12
+#define CLUSTER_MANAGER_CMD_FLAG_TIMEOUT        1 << 13
 
 #define CLUSTER_MANAGER_OPT_GETFRIENDS  1 << 0
 #define CLUSTER_MANAGER_OPT_COLD        1 << 1
@@ -217,6 +221,9 @@ static struct config {
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
+    double *latency_percentiles; /* Percentiles to report, e.g. 50,99,99.9. */
+    char **latency_percentiles_labels; /* Original tokens, used for display. */
+    int latency_percentiles_count;
     int lru_test_mode;
     long long lru_test_sample_size;
     int cluster_mode;
@@ -867,20 +874,16 @@ static size_t cliLegacyCountCommands(struct commandDocs *commands, sds version) 
     return numCommands;
 }
 
-/* Gets the server version string by calling INFO SERVER.
- * Stores the result in config.server_version.
- * When not connected, or not possible, returns NULL. */
-static sds cliGetServerVersion(void) {
+/* Gets the server version string from the given context by calling INFO SERVER.
+ * The caller owns the returned SDS. When not connected, or not possible,
+ * returns NULL. */
+static sds cliGetServerVersionFromContext(redisContext *ctx) {
     static const char *key = "\nredis_version:";
     redisReply *serverInfo = NULL;
     char *pos;
 
-    if (config.server_version != NULL) {
-        return config.server_version;
-    }
-
-    if (!context) return NULL;
-    serverInfo = redisCommand(context, "INFO SERVER");
+    if (!ctx) return NULL;
+    serverInfo = redisCommand(ctx, "INFO SERVER");
     if (serverInfo == NULL || serverInfo->type == REDIS_REPLY_ERROR) {
         freeReplyObject(serverInfo);
         return sdsempty();
@@ -897,12 +900,26 @@ static sds cliGetServerVersion(void) {
         if (end) {
             sds version = sdsnewlen(pos, end - pos);
             freeReplyObject(serverInfo);
-            config.server_version = version;
             return version;
         }
     }
     freeReplyObject(serverInfo);
     return NULL;
+}
+
+/* Gets the server version string by calling INFO SERVER.
+ * Stores the result in config.server_version.
+ * When not connected, or not possible, returns NULL. */
+static sds cliGetServerVersion(void) {
+    if (config.server_version != NULL) {
+        return config.server_version;
+    }
+
+    sds version = cliGetServerVersionFromContext(context);
+    if (version != NULL && sdslen(version) != 0) {
+        config.server_version = version;
+    }
+    return version;
 }
 
 static void cliLegacyInitHelp(dict *groups) {
@@ -2735,8 +2752,10 @@ static int parseOptions(int argc, char **argv) {
         } else if ((!strcmp(argv[i],"-a") || !strcmp(argv[i],"--pass"))
                    && !lastarg)
         {
+            sdsfree(config.conn_info.auth);
             config.conn_info.auth = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"--user") && !lastarg) {
+            sdsfree(config.conn_info.user);
             config.conn_info.user = sdsnew(argv[++i]);
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             parseRedisUri(argv[++i],"redis-cli",&config.conn_info,&config.tls);
@@ -2774,6 +2793,37 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--latency-history")) {
             config.latency_mode = 1;
             config.latency_history = 1;
+        } else if (!strcmp(argv[i],"--latency-percentiles") && !lastarg) {
+            /* Parse a comma separated list of percentiles, e.g. "50,99,99.9".
+             * Enables latency mode if not already requested. */
+            config.latency_mode = 1;
+            int pcount;
+            char *plist = argv[++i];
+            sds *pvec = sdssplitlen(plist,strlen(plist),",",1,&pcount);
+            if (pvec == NULL || pcount == 0) {
+                fprintf(stderr,"Invalid --latency-percentiles list.\n");
+                exit(1);
+            }
+            config.latency_percentiles = zmalloc(sizeof(double)*pcount);
+            config.latency_percentiles_labels = zmalloc(sizeof(char*)*pcount);
+            config.latency_percentiles_count = pcount;
+            for (int j = 0; j < pcount; j++) {
+                char *endptr;
+                double p = strtod(pvec[j],&endptr);
+                if (endptr == pvec[j] || *endptr != '\0' || isnan(p) ||
+                    p < 0 || p > 100)
+                {
+                    fprintf(stderr,
+                        "Invalid percentile '%s' in --latency-percentiles "
+                        "(must be a number between 0 and 100).\n", pvec[j]);
+                    exit(1);
+                }
+                config.latency_percentiles[j] = p;
+                /* Keep the original token verbatim for display so the label
+                 * is never lossy (e.g. "99.99" stays "99.99"). */
+                config.latency_percentiles_labels[j] = zstrdup(pvec[j]);
+            }
+            sdsfreesplitres(pvec,pcount);
         } else if (!strcmp(argv[i],"--vset-recall") && !lastarg) {
             config.vset_recall_mode = 1;
             config.vset_recall_key = sdsnew(argv[++i]);
@@ -2968,6 +3018,8 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.slots = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-timeout") && !lastarg) {
             config.cluster_manager_command.timeout = atoi(argv[++i]);
+            config.cluster_manager_command.flags |=
+                CLUSTER_MANAGER_CMD_FLAG_TIMEOUT;
         } else if (!strcmp(argv[i],"--cluster-pipeline") && !lastarg) {
             config.cluster_manager_command.pipeline = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"--cluster-threshold") && !lastarg) {
@@ -3198,14 +3250,21 @@ version,tls_usage);
 
     fprintf(target,
 "  --latency          Enter a special mode continuously sampling latency.\n"
-"                     If you use this mode in an interactive session it runs\n"
-"                     forever displaying real-time stats. Otherwise if --raw or\n"
-"                     --csv is specified, or if you redirect the output to a non\n"
-"                     TTY, it samples the latency for 1 second (you can use\n"
-"                     -i to change the interval), then produces a single output\n"
-"                     and exits.\n"
+"                     Stats (min/max/avg) are reported in milliseconds with\n"
+"                     sub-millisecond precision. If you use this mode in an\n"
+"                     interactive session it runs forever displaying real-time\n"
+"                     stats. Otherwise if --raw or --csv is specified, or if you\n"
+"                     redirect the output to a non TTY, it samples the latency\n"
+"                     for 1 second (you can use -i to change the interval), then\n"
+"                     produces a single output and exits.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
+"  --latency-percentiles <p1,p2,...>\n"
+"                     Also report the given latency percentiles in milliseconds\n"
+"                     (e.g. 50,99,99.9) in --latency and --latency-history modes.\n"
+"                     Resolution is limited by the sample count: a percentile\n"
+"                     finer than 100/samples resolves to the maximum, so use a\n"
+"                     longer interval (-i) for meaningful high percentiles.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --vset-recall <key> Enable VSIM recall test mode for the specified key\n"
@@ -3824,6 +3883,7 @@ typedef struct clusterManagerNode {
     int importing_count; /* Length of the importing array (importing slots*2) */
     float weight;   /* Weight used by rebalance */
     int balance;    /* Used by rebalance */
+    sds server_version;
 } clusterManagerNode;
 
 /* Data structure used to represent a sequence of cluster nodes. */
@@ -3941,11 +4001,11 @@ clusterManagerCommandDef clusterManagerCommands[] = {
     {"fix", clusterManagerCommandFix, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "search-multiple-owners,fix-with-unreachable-masters"},
     {"reshard", clusterManagerCommandReshard, -1, "<host:port> or <host> <port> - separated by either colon or space",
-     "from <arg>,to <arg>,slots <arg>,yes,timeout <arg>,pipeline <arg>,"
+     "from <arg>,to <arg>,slots <arg>,yes,timeout <ms>,pipeline <arg>,"
      "replace"},
     {"rebalance", clusterManagerCommandRebalance, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
-     "timeout <arg>,simulate,pipeline <arg>,threshold <arg>,replace"},
+     "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
      "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
@@ -4114,6 +4174,7 @@ static void freeClusterManagerNode(clusterManagerNode *node) {
         freeClusterManagerNodeFlags(node->flags_str);
         node->flags_str = NULL;
     }
+    if (node->server_version != NULL) sdsfree(node->server_version);
     zfree(node);
 }
 
@@ -4166,6 +4227,7 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port, int bus_por
     node->replicas_count = 0;
     node->weight = 1.0f;
     node->balance = 0;
+    node->server_version = NULL;
     clusterManagerNodeResetSlots(node);
     return node;
 }
@@ -5109,8 +5171,8 @@ static redisReply *clusterManagerMigrateKeysInReply(clusterManagerNode *source,
     char **argv = NULL;
     size_t *argv_len = NULL;
     int c = (replace ? 8 : 7);
-    if (config.conn_info.auth) c += 2;
-    if (config.conn_info.user) c += 1;
+    if (config.conn_info.auth)
+        c += config.conn_info.user ? 3 : 2;
     size_t argc = c + reply->elements;
     size_t i, offset = 6; // Keys Offset
     argv = zcalloc(argc * sizeof(char *));
@@ -5419,6 +5481,169 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
         target->slots[slot] = 1;
     }
     return 1;
+}
+
+static int clusterManagerSlotIntCompare(const void *s1, const void *s2) {
+    return (*(const int *)s1) - (*(const int *)s2);
+}
+
+/* CLUSTER MIGRATION task states */
+#define CLUSTER_ASM_NONE        0
+#define CLUSTER_ASM_IN_PROGRESS 1
+#define CLUSTER_ASM_CANCELED    2
+#define CLUSTER_ASM_COMPLETED   3
+
+/* Query the ASM task 'task_id' on 'node' via CLUSTER MIGRATION STATUS.
+ * Returns positive value if the task was found, 0 if not found,
+ * and -1 on other errors otherwise. */
+static int clusterManagerAsmTaskState(clusterManagerNode *node, sds task_id, char **err) {
+    redisReply *st = CLUSTER_MANAGER_COMMAND(node,
+        "CLUSTER MIGRATION STATUS ID %s", task_id);
+    if (!clusterManagerCheckRedisReply(node, st, err)) {
+        if (st) freeReplyObject(st);
+        return -1;
+    }
+
+    int state = CLUSTER_ASM_NONE;
+    if (st->type == REDIS_REPLY_ARRAY && st->elements > 0) {
+        redisReply *m = st->element[0];
+        for (size_t i = 0; i + 1 < m->elements; i += 2) {
+            redisReply *k = m->element[i], *v = m->element[i + 1];
+            if (k->type != REDIS_REPLY_STRING || v->type != REDIS_REPLY_STRING)
+                continue;
+            if (!strcmp(k->str, "state")) {
+                if (!strcmp(v->str, "canceled")) state = CLUSTER_ASM_CANCELED;
+                else if (!strcmp(v->str, "completed")) state = CLUSTER_ASM_COMPLETED;
+                else state = CLUSTER_ASM_IN_PROGRESS; /* Redis will retry even failed. */
+                break;
+            }
+        }
+    }
+    freeReplyObject(st);
+    return state;
+}
+
+/* Atomically move the given 'slots' to 'target' using ASM instead of
+ * per-key MIGRATE. The slots are merged into contiguous ranges and
+ * sent via "CLUSTER MIGRATION IMPORT <start end start end ...>".
+ * The task is then polled until both the target and the source report
+ * completion. A heartbeat dot is printed each second unless
+ * CLUSTER_MANAGER_OPT_QUIET is set in 'opts'.
+ *
+ * The source node is resolved by the target from its cluster topology.
+ * '--cluster-timeout' limits the wait; 0 means wait forever.
+ * Returns 1 on success, 0 on failure (sets '*err' if not NULL). */
+static int clusterManagerAtomicMoveSlots(clusterManagerNode *source,
+                                         clusterManagerNode *target,
+                                         int *slots, int num_slots, 
+                                         int opts, char **err)
+{
+    if (err != NULL) *err = NULL;
+    if (num_slots <= 0) return 1;
+
+    qsort(slots, num_slots, sizeof(int), clusterManagerSlotIntCompare);
+
+    /* Build "CLUSTER MIGRATION IMPORT <start end> ..." argv. */
+    char **argv = zcalloc((3 + num_slots * 2) * sizeof(char *));
+    argv[0] = "CLUSTER";
+    argv[1] = "MIGRATION";
+    argv[2] = "IMPORT";
+    int argv_idx = 3, start = slots[0];
+    for (int i = 1; i <= num_slots; i++) {
+        if (i == num_slots || slots[i] != slots[i - 1] + 1) {
+            argv[argv_idx++] = sdscatprintf(sdsempty(), "%d", start);
+            argv[argv_idx++] = sdscatprintf(sdsempty(), "%d", slots[i - 1]);
+            if (i < num_slots) start = slots[i];
+        }
+    }
+
+    /* Send CLUSTER MIGRATION IMPORT command. */
+    redisReply *reply = NULL;
+    redisAppendCommandArgv(target->context, argv_idx, (const char **)argv, NULL);
+    redisGetReply(target->context, (void **)&reply);
+    for (int i = 3; i < argv_idx; i++)
+        sdsfree(argv[i]);
+    zfree(argv);
+    /* Handle reply of CLUSTER MIGRATION IMPORT. */
+    if (!clusterManagerCheckRedisReply(target, reply, err)) {
+        if (reply) freeReplyObject(reply);
+        return 0;
+    }
+    if (reply->type != REDIS_REPLY_STRING) {
+        if (err != NULL)
+            *err = zstrdup("unexpected reply to CLUSTER MIGRATION IMPORT");
+        freeReplyObject(reply);
+        return 0;
+    }
+    sds task_id = sdsnewlen(reply->str, reply->len);
+    freeReplyObject(reply);
+
+    /* Print a message to inform the user the migration has started. */
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET))
+        printf("Waiting for migration task %s to complete", task_id);
+
+    /* Poll until completed/canceled/timeout. When the user did not explicitly
+     * set --cluster-timeout, ASM uses a larger default since a single task may
+     * migrate a large amount of data. */
+    int timeout = config.cluster_manager_command.timeout;
+    if (!(config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_TIMEOUT))
+        timeout = CLUSTER_MANAGER_ASM_MIGRATE_TIMEOUT;
+    long long start_time = mstime();
+    char errbuf[256];
+    int success = 0;
+    while (1) {
+        int dst_state = clusterManagerAsmTaskState(target, task_id, err);
+        int src_state = clusterManagerAsmTaskState(source, task_id, err);
+
+        if (src_state == -1 || dst_state == -1) {
+            if (err != NULL && *err == NULL) *err = zstrdup("reply error");
+            break;
+        }
+
+        /* The migration is only considered successful when both the target
+         * and the source report "completed" */
+        if (dst_state == CLUSTER_ASM_COMPLETED && src_state == CLUSTER_ASM_COMPLETED) {
+            success = 1;
+            break;
+        }
+
+        /* If either the target or the source reports "canceled", we stop
+         * waiting and declare the migration as failed. */
+        if (dst_state == CLUSTER_ASM_CANCELED || src_state == CLUSTER_ASM_CANCELED) {
+            if (err != NULL) *err = zstrdup("atomic slot migration is canceled");
+            break;
+        }
+
+        /* Check if timeout */
+        if (timeout > 0 && (mstime() - start_time) >= timeout) {
+            redisReply *c = CLUSTER_MANAGER_COMMAND(target, "CLUSTER MIGRATION CANCEL ID %s", task_id);
+            if (c) freeReplyObject(c);
+            if (err != NULL) {
+                snprintf(errbuf, sizeof(errbuf), "timed out after %d ms, task %s cancelled", timeout, task_id);
+                *err = zstrdup(errbuf);
+            }
+            break;
+        }
+
+        /* Heartbeat: print a dot each second so the user can see the
+         * migration is still in progress. */
+        if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) {
+            printf(".");
+            fflush(stdout);
+        }
+        sleep(1);
+    }
+    if (!(opts & CLUSTER_MANAGER_OPT_QUIET)) printf("\n");
+    sdsfree(task_id);
+
+    /* Update the node logical config. */
+    if (success && (opts & CLUSTER_MANAGER_OPT_UPDATE)) {
+        for (int i = 0; i < num_slots; i++) {
+            source->slots[slots[i]] = 0;
+            target->slots[slots[i]] = 1;
+        }
+    }
+    return success;
 }
 
 /* Flush the dirty node configuration by calling replicate for slaves or
@@ -5765,6 +5990,44 @@ invalid_friend:
             } else master->replicas_count++;
         }
     }
+    return 1;
+}
+
+/* Gets and caches the Redis server version for a cluster manager node. */
+static sds clusterManagerNodeGetServerVersion(clusterManagerNode *node) {
+    sds version = NULL;
+    if (node->server_version != NULL) return node->server_version;
+
+    if (node->context == NULL && !clusterManagerNodeConnect(node)) return NULL;
+
+    version = cliGetServerVersionFromContext(node->context);
+    if (version == NULL || sdslen(version) == 0) {
+        if (version) sdsfree(version);
+        return NULL;
+    }
+    node->server_version = version;
+    return node->server_version;
+}
+
+/* Returns true when ASM can be selected automatically for cluster slot moves. */
+static int clusterManagerShouldUseAtomicSlotMigration(void) {
+    if (cluster_manager.nodes == NULL) return 0;
+
+    sds min_version = sdsnew(CLUSTER_MANAGER_ASM_MIN_VERSION);
+    listIter li;
+    listNode *ln;
+    listRewind(cluster_manager.nodes, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterManagerNode *n = ln->value;
+        sds server_version = clusterManagerNodeGetServerVersion(n);
+        if (server_version == NULL ||
+            !versionIsSupported(server_version, min_version))
+        {
+            sdsfree(min_version);
+            return 0;
+        }
+    }
+    sdsfree(min_version);
     return 1;
 }
 
@@ -7681,7 +7944,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             } else {
                 clusterManagerNode *src =
                     clusterNodeForResharding(buf, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7698,7 +7962,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             } else {
                 clusterManagerNode *src =
                     clusterNodeForResharding(from, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7712,7 +7977,8 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             if (!all) {
                 clusterManagerNode *src =
                     clusterNodeForResharding(from, target, &raise_err);
-                if (src != NULL) listAddNodeTail(sources, src);
+                if (src != NULL && !listSearchKey(sources, src))
+                    listAddNodeTail(sources, src);
                 else if (raise_err) {
                     result = 0;
                     goto cleanup;
@@ -7768,19 +8034,55 @@ static int clusterManagerCommandReshard(int argc, char **argv) {
             goto cleanup;
         }
     }
-    int opts = CLUSTER_MANAGER_OPT_VERBOSE;
-    listRewind(table, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        clusterManagerReshardTableItem *item = ln->value;
-        char *err = NULL;
-        result = clusterManagerMoveSlot(item->source, target, item->slot,
-                                        opts, &err);
-        if (!result) {
-            if (err != NULL) {
-                clusterManagerLogErr("clusterManagerMoveSlot failed: %s\n", err);
-                zfree(err);
+    if (clusterManagerShouldUseAtomicSlotMigration()) {
+        /* For each source, collect its slots and migrate them in one atomic
+         * call. CLUSTER MIGRATION IMPORT only accepts a single source per
+         * task, so we must issue one call per source node. */
+        int *slots_arr = zmalloc(listLength(table) * sizeof(int));
+        listRewind(sources, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            /* Scan the whole table, we don't rely on its items being grouped by source. */
+            clusterManagerNode *src = ln->value;
+            int slot_num = 0;
+            listIter ti;
+            listNode *tn;
+            listRewind(table, &ti);
+            while ((tn = listNext(&ti)) != NULL) {
+                clusterManagerReshardTableItem *it = tn->value;
+                if (it->source == src)
+                    slots_arr[slot_num++] = it->slot;
             }
-            goto cleanup;
+            if (slot_num == 0) continue;
+
+            printf("Moving %d slots from %s:%d to %s:%d\n",
+                    slot_num, src->ip, src->port, target->ip, target->port);
+            char *err = NULL;
+            result = clusterManagerAtomicMoveSlots(src, target, slots_arr, slot_num, 0, &err);
+            if (!result) {
+                if (err) {
+                    clusterManagerLogErr("clusterManagerAtomicMoveSlots: %s\n", err);
+                    zfree(err);
+                }
+                break;
+            }
+        }
+        zfree(slots_arr);
+        if (!result) goto cleanup;
+    } else {
+        int opts = CLUSTER_MANAGER_OPT_VERBOSE;
+        listRewind(table, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            clusterManagerReshardTableItem *item = ln->value;
+            char *err = NULL;
+            result = clusterManagerMoveSlot(item->source, target, item->slot,
+                                            opts, &err);
+            if (!result) {
+                if (err != NULL) {
+                    clusterManagerLogErr("clusterManagerMoveSlot failed: %s\n", err);
+                    zfree(err);
+                }
+                goto cleanup;
+            }
         }
     }
 cleanup:
@@ -7920,6 +8222,7 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
     int src_idx = nodes_involved - 1;
     int simulate = config.cluster_manager_command.flags &
                    CLUSTER_MANAGER_CMD_FLAG_SIMULATE;
+    int use_asm = !simulate && clusterManagerShouldUseAtomicSlotMigration();
     while (dst_idx < src_idx) {
         clusterManagerNode *dst = weightedNodes[dst_idx];
         clusterManagerNode *src = weightedNodes[src_idx];
@@ -7944,11 +8247,35 @@ static int clusterManagerCommandRebalance(int argc, char **argv) {
                 result = 0;
                 goto end_move;
             }
+            int opts = CLUSTER_MANAGER_OPT_QUIET |
+                       CLUSTER_MANAGER_OPT_UPDATE;
             if (simulate) {
                 for (i = 0; i < table_len; i++) printf("#");
+            } else if (use_asm) {
+                /* Atomically migrate the whole batch of slots at once. */
+                int *slots = zmalloc(table_len * sizeof(int));
+                int ns = 0;
+                listRewind(table, &li);
+                while ((ln = listNext(&li)) != NULL) {
+                    clusterManagerReshardTableItem *item = ln->value;
+                    slots[ns++] = item->slot;
+                    assert(item->source == src);
+                }
+                char *err = NULL;
+                result = clusterManagerAtomicMoveSlots(src, dst, slots, ns, opts, &err);
+                if (!result) {
+                    clusterManagerLogErr("*** clusterManagerAtomicMoveSlots: "
+                                         "%s\n", err ? err : "(null)");
+                    zfree(err);
+                    zfree(slots);
+                    goto end_move;
+                }
+                zfree(slots);
+                for (i = 0; i < table_len; i++)
+                    printf("#");
+                fflush(stdout);
             } else {
-                int opts = CLUSTER_MANAGER_OPT_QUIET |
-                           CLUSTER_MANAGER_OPT_UPDATE;
+                /* Migrate slots one by one. */
                 listRewind(table, &li);
                 while ((ln = listNext(&li)) != NULL) {
                     clusterManagerReshardTableItem *item = ln->value;
@@ -8388,22 +8715,57 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
  * Latency and latency history modes
  *--------------------------------------------------------------------------- */
 
-static void latencyModePrint(long long min, long long max, double avg, long long count) {
+/* Print one latency report line. Latencies are measured in microseconds and
+ * reported in milliseconds with sub-millisecond precision. When percentiles
+ * are requested they are read from the HDR 'histogram' (also in microseconds,
+ * shares the same windowing as min/max/avg). */
+static void latencyModePrint(long long min, long long max, double avg,
+                             long long count, struct hdr_histogram *histogram)
+{
+    int npct = config.latency_percentiles_count;
+    /* Convert the microsecond accumulators to milliseconds for display. */
+    double min_ms = min/1000.0, max_ms = max/1000.0, avg_ms = avg/1000.0;
+
     if (config.output == OUTPUT_STANDARD) {
-        printf("min: %lld, max: %lld, avg: %.2f (%lld samples)",
-                min, max, avg, count);
+        printf("min: %.3f, max: %.3f, avg: %.3f (%lld samples)",
+                min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++) {
+            printf(", p%s: %.3f", config.latency_percentiles_labels[j],
+                    hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        }
         fflush(stdout);
     } else if (config.output == OUTPUT_CSV) {
-        printf("%lld,%lld,%.2f,%lld\n", min, max, avg, count);
+        printf("%.3f,%.3f,%.3f,%lld", min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++)
+            printf(",%.3f", hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        printf("\n");
     } else if (config.output == OUTPUT_RAW) {
-        printf("%lld %lld %.2f %lld\n", min, max, avg, count);
+        printf("%.3f %.3f %.3f %lld", min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++)
+            printf(" %.3f", hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        printf("\n");
     } else if (config.output == OUTPUT_JSON) {
-        printf("{\"min\": %lld, \"max\": %lld, \"avg\": %.2f, \"count\": %lld}\n", min, max, avg, count);
+        printf("{\"min\": %.3f, \"max\": %.3f, \"avg\": %.3f, \"count\": %lld",
+                min_ms, max_ms, avg_ms, count);
+        if (npct > 0 && histogram) {
+            printf(", \"percentiles\": {");
+            for (int j = 0; j < npct; j++) {
+                printf("%s\"%s\": %.3f", j ? ", " : "",
+                        config.latency_percentiles_labels[j],
+                        hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+            }
+            printf("}");
+        }
+        printf("}\n");
     }
 }
 
 #define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
+#define LATENCY_HISTOGRAM_MIN_VALUE 1L         /* >= 1 usec. */
+#define LATENCY_HISTOGRAM_MAX_VALUE 60000000L  /* <= 60 secs (usec precision) — large
+                                                * enough to track a server stalled by
+                                                * a slow command, fork or swap. */
 static void latencyMode(void) {
     redisReply *reply;
     long long start, latency, min = 0, max = 0, tot = 0, count = 0;
@@ -8412,6 +8774,16 @@ static void latencyMode(void) {
                           LATENCY_HISTORY_DEFAULT_INTERVAL;
     double avg;
     long long history_start = mstime();
+    /* HDR histogram for percentiles, only allocated when percentiles are
+     * requested. Reset (hdr_reset) at every history window so its windowing
+     * matches min/max/avg. */
+    struct hdr_histogram *histogram = NULL;
+    if (config.latency_percentiles_count > 0 &&
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE, LATENCY_HISTOGRAM_MAX_VALUE, 3, &histogram))
+    {
+        fprintf(stderr, "Failed to initialize latency histogram\n");
+        exit(1);
+    }
 
     /* Set a default for the interval in case of --latency option
      * with --raw, --csv or when it is redirected to non tty. */
@@ -8423,13 +8795,18 @@ static void latencyMode(void) {
 
     if (!context) exit(1);
     while(1) {
-        start = mstime();
+        /* Measure the round-trip in microseconds for sub-millisecond
+         * resolution; min/max/avg/percentiles are reported in milliseconds. */
+        start = ustime();
         reply = reconnectingRedisCommand(context,"PING");
         if (reply == NULL) {
             fprintf(stderr,"\nI/O error\n");
             exit(1);
         }
-        latency = mstime()-start;
+        latency = ustime()-start;
+        /* ustime() is wall-clock based, so a backward clock adjustment could
+         * yield a negative delta; clamp it to avoid skewing the stats. */
+        if (latency < 0) latency = 0;
         freeReplyObject(reply);
         count++;
         if (count == 1) {
@@ -8442,14 +8819,22 @@ static void latencyMode(void) {
             avg = (double) tot/count;
         }
 
+        /* Record the sample for percentile computation, clamping to the
+         * histogram's trackable range. */
+        if (histogram) {
+            if (latency > LATENCY_HISTOGRAM_MAX_VALUE) latency = LATENCY_HISTOGRAM_MAX_VALUE;
+            hdr_record_value(histogram, latency);
+        }
+
         if (config.output == OUTPUT_STANDARD) {
             printf("\x1b[0G\x1b[2K"); /* Clear the line. */
-            latencyModePrint(min,max,avg,count);
+            latencyModePrint(min,max,avg,count,histogram);
         } else {
             if (config.latency_history) {
-                latencyModePrint(min,max,avg,count);
+                latencyModePrint(min,max,avg,count,histogram);
             } else if (mstime()-history_start > config.interval) {
-                latencyModePrint(min,max,avg,count);
+                latencyModePrint(min,max,avg,count,histogram);
+                if (histogram) hdr_close(histogram);
                 exit(0);
             }
         }
@@ -8459,6 +8844,7 @@ static void latencyMode(void) {
             printf(" -- %.2f seconds range\n", (float)(mstime()-history_start)/1000);
             history_start = mstime();
             min = max = tot = count = 0;
+            if (histogram) hdr_reset(histogram);
         }
         usleep(LATENCY_SAMPLE_RATE * 1000);
     }
@@ -10914,6 +11300,9 @@ int main(int argc, char **argv) {
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
+    config.latency_percentiles = NULL;
+    config.latency_percentiles_labels = NULL;
+    config.latency_percentiles_count = 0;
     config.lru_test_mode = 0;
     config.lru_test_sample_size = 0;
     config.cluster_mode = 0;

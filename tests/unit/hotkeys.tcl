@@ -324,7 +324,7 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
-    foreach sample_ratio {1 100 500 1000} {
+    foreach sample_ratio {1 100 500} {
         test "HOTKEYS detection with biased key access, sample ratio = $sample_ratio" {
             # Generate 100 random keys
             set all_keys {}

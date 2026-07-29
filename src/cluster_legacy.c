@@ -47,6 +47,7 @@ void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
+static void clusterFireTopologyChangeEventIfNeeded(void);
 int clusterNodeCoversSlot(clusterNode *n, int slot);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
@@ -222,7 +223,7 @@ sds auxShardIdGetter(clusterNode *n, sds s) {
 }
 
 int auxShardIdPresent(clusterNode *n) {
-    return strlen(n->shard_id);
+    return strnlen(n->shard_id, CLUSTER_NAMELEN);
 }
 
 int auxHumanNodenameSetter(clusterNode *n, void *value, int length) {
@@ -851,7 +852,13 @@ void clusterUpdateMyselfFlags(void) {
 * The option can be set at runtime via CONFIG SET. */
 void clusterUpdateMyselfAnnouncedPorts(void) {
     if (!myself) return;
+    int old_tcp_port = myself->tcp_port;
+    int old_tls_port = myself->tls_port;
+
     deriveAnnouncedPorts(&myself->tcp_port,&myself->tls_port,&myself->cport);
+    if (myself->tcp_port != old_tcp_port || myself->tls_port != old_tls_port) {
+        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    }
 }
 
 /* We want to take myself->ip in sync with the cluster-announce-ip option.
@@ -879,6 +886,7 @@ void clusterUpdateMyselfIp(void) {
         } else {
             myself->ip[0] = '\0'; /* Force autodetection. */
         }
+        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
     }
 }
 
@@ -897,6 +905,7 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
         sdsclear(node->hostname);
     }
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
 }
 
 static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
@@ -964,6 +973,7 @@ void clusterInit(void) {
     server.cluster->currentEpoch = 0;
     server.cluster->state = CLUSTER_FAIL;
     server.cluster->size = 0;
+    server.cluster->topology_change_flags = 0;
     server.cluster->todo_before_sleep = 0;
     server.cluster->nodes = dictCreate(&clusterNodesDictType);
     server.cluster->shards = dictCreate(&clusterSdsToListType);
@@ -1538,6 +1548,7 @@ void clusterAddNode(clusterNode *node) {
     retval = dictAdd(server.cluster->nodes,
             sdsnewlen(node->name,CLUSTER_NAMELEN), node);
     serverAssert(retval == DICT_OK);
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
 }
 
 /* Remove a node from the cluster. The function performs the high level
@@ -1586,6 +1597,8 @@ void clusterDelNode(clusterNode *delnode) {
 
     /* 5) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
+
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
 }
 
 /* Node lookup by name */
@@ -2297,6 +2310,13 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     if (node->tcp_port == tcp_port && node->cport == cport && node->tls_port == tls_port &&
         strcmp(ip,node->ip) == 0) return 0;
 
+    /* Both client ports are part of the announced node configuration and may
+     * be relevant to modules. The cluster bus port is internal, so changing it
+     * alone is not a module-visible topology change. */
+    int topology_changed = node->tcp_port != tcp_port ||
+                           node->tls_port != tls_port ||
+                           strcmp(ip,node->ip) != 0;
+
     /* IP / port is different, update it. */
     memcpy(node->ip,ip,sizeof(ip));
     node->tcp_port = tcp_port;
@@ -2311,6 +2331,9 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
      * replication target as well. */
     if (nodeIsSlave(myself) && myself->slaveof == node)
         replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
+
+    if (topology_changed)
+        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
     return 1;
 }
 
@@ -2327,6 +2350,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
     n->flags &= ~CLUSTER_NODE_SLAVE;
     n->flags |= CLUSTER_NODE_MASTER;
     n->slaveof = NULL;
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
 
     /* Update config and state. */
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -2820,7 +2844,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
                 uint16_t extlen = getPingExtLength(ext);
-                if (extlen % 8 != 0) {
+                if (extlen < sizeof(clusterMsgPingExt) || extlen % 8 != 0) {
                     serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)",
                         clusterGetMessageTypeString(type), (int) extlen);
                     return 1;
@@ -2831,6 +2855,42 @@ int clusterProcessPacket(clusterLink *link) {
                         (unsigned long long) totlen);
                     return 1;
                 }
+                uint16_t exttype = ntohs(ext->type);
+                uint32_t datalen = extlen - sizeof(clusterMsgPingExt);
+                if (exttype == CLUSTERMSG_EXT_TYPE_HOSTNAME ||
+                    exttype == CLUSTERMSG_EXT_TYPE_HUMAN_NODENAME) {
+                    char *str = (char *) ext->ext;
+                    if (datalen == 0 || str[datalen - 1] != '\0') {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with missing null terminator in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
+                    if (datalen < sizeof(clusterMsgPingExtForgottenNode)) {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with truncated extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_SHARDID) {
+                    char *str = (char *) ext->ext;
+                    if (datalen < sizeof(clusterMsgPingExtShardId) ||
+                        verifyClusterNodeId(str, CLUSTER_NAMELEN) != C_OK)
+                    {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with invalid shard id in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                } else if (exttype == CLUSTERMSG_EXT_TYPE_INTERNALSECRET) {
+                    if (datalen < sizeof(clusterMsgPingExtInternalSecret)) {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with truncated extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
+                }
                 explen += extlen;
                 ext = getNextPingExt(ext);
             }
@@ -2839,11 +2899,16 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataFail);
     } else if (type == CLUSTERMSG_TYPE_PUBLISH || type == CLUSTERMSG_TYPE_PUBLISHSHARD) {
+        uint32_t ch_len = ntohl(hdr->data.publish.msg.channel_len);
+        uint32_t msg_len = ntohl(hdr->data.publish.msg.message_len);
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        explen += sizeof(clusterMsgDataPublish) -
-                8 +
-                ntohl(hdr->data.publish.msg.channel_len) +
-                ntohl(hdr->data.publish.msg.message_len);
+        explen += sizeof(clusterMsgDataPublish) - 8;
+        if (ch_len > UINT32_MAX - explen || msg_len > UINT32_MAX - explen - ch_len) {
+            serverLog(LL_WARNING, "Received invalid %s packet with overflow in length fields "
+                "(channel_len:%u, message_len:%u)", clusterGetMessageTypeString(type), ch_len, msg_len);
+            return 1;
+        }
+        explen += ch_len + msg_len;
     } else if (type == CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST ||
                type == CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK ||
                type == CLUSTERMSG_TYPE_MFSTART)
@@ -2853,9 +2918,15 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += sizeof(clusterMsgDataUpdate);
     } else if (type == CLUSTERMSG_TYPE_MODULE) {
+        uint32_t module_len = ntohl(hdr->data.module.msg.len);
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-        explen += sizeof(clusterMsgModule) -
-                3 + ntohl(hdr->data.module.msg.len);
+        explen += sizeof(clusterMsgModule) - 3;
+        if (module_len > UINT32_MAX - explen) {
+            serverLog(LL_WARNING, "Received invalid %s packet with overflow in length field "
+                "(len:%u)", clusterGetMessageTypeString(type), module_len);
+            return 1;
+        }
+        explen += module_len;
     } else {
         /* We don't know this type of packet, so we assume it's well formed. */
         explen = totlen;
@@ -3129,6 +3200,7 @@ int clusterProcessPacket(clusterLink *link) {
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
                                        CLUSTER_NODE_MIGRATE_TO);
                     sender->flags |= CLUSTER_NODE_SLAVE;
+                    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
 
                     /* Update config and state. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -3145,6 +3217,8 @@ int clusterProcessPacket(clusterLink *link) {
                     /* Update the shard_id when a replica is connected to its
                      * primary in the very first time. */
                     updateShardId(sender, master->shard_id);
+
+                    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
 
                     /* Update config. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -4973,6 +5047,13 @@ void clusterBeforeSleep(void) {
     /* Broadcast a PONG to all the nodes. */
     if (flags & CLUSTER_TODO_BROADCAST_PONG)
         clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+
+    /* Notify subscribed modules about cluster topology changes. Done here, after
+     * the state update above, so the notification reflects the current state and
+     * fires at most once per event-loop iteration regardless of how many slots
+     * or nodes changed. */
+    if (flags & CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE)
+        clusterFireTopologyChangeEventIfNeeded();
 }
 
 void clusterDoBeforeSleep(int flags) {
@@ -5075,6 +5156,7 @@ int clusterAddSlot(clusterNode *n, int slot) {
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
     clusterSlotStatReset(slot);
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT);
     return C_OK;
 }
 
@@ -5094,6 +5176,7 @@ int clusterDelSlot(int slot) {
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
     clusterSlotStatReset(slot);
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT);
     return C_OK;
 }
 
@@ -5147,6 +5230,42 @@ void clusterCloseAllSlots(void) {
 #define CLUSTER_MAX_REJOIN_DELAY 5000
 #define CLUSTER_MIN_REJOIN_DELAY 500
 #define CLUSTER_WRITABLE_DELAY 2000
+
+/* Record a pending RedisModuleEvent_ClusterTopologyChange (the change_flags are
+ * REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits) and request it to be fired
+ * from the next clusterBeforeSleep(). Called by topology mutation paths and
+ * config-driven endpoint updates. */
+void clusterNotifyTopologyChange(uint64_t change_flags) {
+    if (!server.cluster_enabled) return;
+    server.cluster->topology_change_flags |= change_flags;
+    clusterDoBeforeSleep(CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE);
+}
+
+/* Fire the cluster topology-change notification to modules, if one is pending.
+ * Called once per event-loop iteration from clusterBeforeSleep() in response to
+ * CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE, which is requested by every slot/role
+ * mutation and on the cluster's OK/FAIL transition. This debounces a reshuffle
+ * that touches many slots into a single notification, and reports every reason
+ * that contributed via the change_flags bitmask in the event data. The check
+ * here makes a redundant TODO a harmless no-op.
+ *
+ * The cluster first becoming ready is delivered through this same path: the
+ * OK/FAIL transition records a STATE reason (slot assignment at startup records
+ * a SLOT reason too), so no dedicated "startup" notification is needed. */
+static void clusterFireTopologyChangeEventIfNeeded(void) {
+    if (!server.cluster->topology_change_flags) return;
+
+    /* No data payload beyond the change reasons: a subscribing module reads
+     * whatever else it needs about the new topology via the cluster info module
+     * APIs (CLUSTER SLOTS, RedisModule_GetClusterNodesList/NodeInfo,
+     * RedisModule_GetClusterSize, ...). */
+    RedisModuleClusterTopologyChangeInfo info = {
+        .version = REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION,
+        .change_flags = server.cluster->topology_change_flags,
+    };
+    server.cluster->topology_change_flags = 0;
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
+}
 
 void clusterUpdateState(void) {
     int j, new_state;
@@ -5242,6 +5361,10 @@ void clusterUpdateState(void) {
             "Cluster state changed: %s",
             new_state == CLUSTER_OK ? "ok" : "fail");
         server.cluster->state = new_state;
+
+        /* The OK/FAIL transition (in particular the first reach of OK, i.e. the
+         * cluster becoming ready at startup) is itself a topology-change reason. */
+        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE);
     }
 }
 
@@ -5311,6 +5434,10 @@ void clusterSetMaster(clusterNode *n) {
 
     /* Cancel all ASM tasks when switching into slave */
     if (was_master) clusterAsmCancel(NULL, "switching to replica");
+
+    /* Role change is now applied (a demotion, or a replica re-pointing to a new
+     * primary); notify modules. */
+    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
 }
 
 /* -----------------------------------------------------------------------------

@@ -136,6 +136,10 @@ proc wait_for_sync r {
     if {$::tsan} {
         set maxtries 100
     }
+    # same for compression
+    if {$::compression} {
+        set maxtries 200
+    }
 
     wait_for_condition $maxtries 100 {
         [status $r master_link_status] eq "up"
@@ -149,6 +153,9 @@ proc wait_replica_online {r {replica_id 0} {maxtries 50} {delay 100}} {
     # wait time here JIC
     if {$::tsan} {
         set maxtries [expr {$maxtries * 2}]
+    }
+    if {$::compression} {
+        set maxtries [expr {$maxtries * 3}]
     }
 
     wait_for_condition $maxtries $delay {
@@ -164,6 +171,9 @@ proc wait_for_ofs_sync {r1 r2} {
     # wait time here JIC
     if {$::tsan} {
         set maxtries 100
+    }
+    if {$::compression} {
+        set maxtries 150
     }
     wait_for_condition $maxtries 100 {
         [status $r1 master_repl_offset] eq [status $r2 master_repl_offset]
@@ -221,6 +231,9 @@ proc verify_log_message {srv_idx pattern from_line} {
 # wait for pattern to be found in server's stdout after certain line number
 # return value is a list containing the line that matched the pattern and the line number
 proc wait_for_log_messages {srv_idx patterns from_line maxtries delay} {
+    if {$::compression} {
+        set maxtries [expr {$maxtries * 3}]
+    }
     set retry $maxtries
     set next_line [expr $from_line + 1] ;# searching form the line after
     set stdout [srv $srv_idx stdout]
@@ -338,6 +351,10 @@ proc createComplexDataset {r ops {opt {}}} {
     } else {
         set tag ""
     }
+
+    # Prepare a fieldset so we can mix in template-encoded hash keys via HIMPORT SET.
+    {*}$r himport prepare fs f0 f1 f2
+
     for {set j 0} {$j < $ops} {incr j} {
         set k [randomKey]$tag
         set k2 [randomKey]$tag
@@ -376,6 +393,10 @@ proc createComplexDataset {r ops {opt {}}} {
                 {*}$r zadd $k $d $v
             } {
                 {*}$r hset $k $f $v
+            } {
+                # template-encoded hash. Short/long values naturally produce 
+                # both TMPL_LP and TMPL_ARRAY encodings.
+                {*}$r himport set $k fs $v [randomValue] [randomValue]
             } {
                 {*}$r del $k
             }
@@ -627,6 +648,26 @@ proc wait_load_handlers_disconnected {{level 0}} {
 
 proc K { x y } { set x } 
 
+# Send count commands on a deferring client, draining replies in batches to
+# avoid TCP deadlock when deferred replies accumulate.
+proc deferred_batch {rd count cmd_script {batch_size 1000}} {
+    set pending 0
+    for {set idx 0} {$idx < $count} {incr idx} {
+        uplevel 1 [list set i $idx]
+        uplevel 1 $cmd_script
+        incr pending
+        if {$pending == $batch_size} {
+            for {set reply_idx 0} {$reply_idx < $pending} {incr reply_idx} {
+                $rd read
+            }
+            set pending 0
+        }
+    }
+    for {set reply_idx 0} {$reply_idx < $pending} {incr reply_idx} {
+        $rd read
+    }
+}
+
 # Shuffle a list with Fisher-Yates algorithm.
 proc lshuffle {list} {
     set n [llength $list]
@@ -656,11 +697,19 @@ proc stop_bg_complex_data {handle} {
 # Write num keys with the given key prefix and value size (in bytes). If idx is
 # given, it's the index (AKA level) used with the srv procedure and it specifies
 # to which Redis instance to write the keys.
-proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
+proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0} {random false}} {
     r $idx deferred 1
     if {$num > 16} {set pipeline 16} else {set pipeline $num}
-    set val [string repeat A $size]
+    if {$random} {
+        set baseval [randstring $size $size]
+    } else {
+        set val [string repeat A $size]
+    }
     for {set j 0} {$j < $pipeline} {incr j} {
+        if {$random} {
+            set jstr [format "%08d" $j]
+            set val [string replace $baseval 0 7 $jstr]
+        }
         if {$expires > 0} {
             r $idx set $prefix$j $val ex $expires
         } else {
@@ -669,6 +718,10 @@ proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0}} {
         if {$prints} {puts $j}
     }
     for {} {$j < $num} {incr j} {
+        if {$random} {
+            set jstr [format "%08d" $j]
+            set val [string replace $baseval 0 7 $jstr]
+        }
         if {$expires > 0} {
             r $idx set $prefix$j $val ex $expires
         } else {
@@ -754,7 +807,11 @@ proc resume_process {pid} {
         after 100
     }
 
-    wait_for_condition 50 1000 {
+    set max_attempts 50
+    if {$::compression} {
+        set max_attempts 150
+    }
+    wait_for_condition $max_attempts 1000 {
         [string match "R*" [exec ps -o state= -p $pid]] ||
         [string match "S*" [exec ps -o state= -p $pid]]
     } else {
@@ -801,8 +858,12 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM XDELEX XACKDEL XNACK}
     set vset_commands {VADD VREM}
+    set array_commands {ARSET ARGET ARDEL ARCOUNT ARMSET ARMGET ARGETRANGE ARDELRANGE ARINFO}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands]
+if 0 {
     set gcra_commands {GCRA}
-    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands gcra $gcra_commands]
+    dict set commands gcra $gcra_commands
+}
 
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
@@ -862,6 +923,49 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
             lappend cmd $key
             lappend cmd [randomValue]
             incr i 2
+        }
+        # Array commands need integer indices
+        if {$cmd == "ARSET"} {
+            lappend cmd $key
+            lappend cmd [randomInt 100000]  ;# index
+            lappend cmd [randomValue]       ;# value
+            incr i 3
+        }
+        if {$cmd == "ARGET" || $cmd == "ARDEL"} {
+            lappend cmd $key
+            lappend cmd [randomInt 100000]  ;# index
+            incr i 2
+        }
+        if {$cmd == "ARCOUNT" || $cmd == "ARINFO"} {
+            lappend cmd $key
+            incr i 1
+        }
+        if {$cmd == "ARMSET"} {
+            lappend cmd $key
+            # Add 2-4 index/value pairs
+            set npairs [expr {int(rand() * 3) + 2}]
+            for {set p 0} {$p < $npairs} {incr p} {
+                lappend cmd [randomInt 100000]
+                lappend cmd [randomValue]
+            }
+            incr i [expr {1 + $npairs * 2}]
+        }
+        if {$cmd == "ARMGET"} {
+            lappend cmd $key
+            # Add 2-4 indices
+            set nidx [expr {int(rand() * 3) + 2}]
+            for {set p 0} {$p < $nidx} {incr p} {
+                lappend cmd [randomInt 100000]
+            }
+            incr i [expr {1 + $nidx}]
+        }
+        if {$cmd == "ARGETRANGE" || $cmd == "ARDELRANGE"} {
+            lappend cmd $key
+            set idx1 [randomInt 100000]
+            set idx2 [expr {$idx1 + [randomInt 1000]}]
+            lappend cmd $idx1
+            lappend cmd $idx2
+            incr i 3
         }
 
         for {} {$i < $arity} {incr i} {

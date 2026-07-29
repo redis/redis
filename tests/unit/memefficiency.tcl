@@ -53,6 +53,37 @@ start_server {tags {"memefficiency external:skip"}} {
     }
 }
 
+test "Active defrag handles equal fragmentation thresholds" {
+    start_server {tags {"defrag"} overrides {save ""}} {
+        r config set hz 100
+        r config set activedefrag no
+        r config set active-defrag-ignore-bytes 1
+        r config set active-defrag-threshold-lower 1 active-defrag-threshold-upper 1
+
+        # Leave allocated regions between freed regions so jemalloc reports
+        # fragmentation while retaining keys for active defrag to scan.
+        populate 1000 defrag-test-key 1024
+        for {set j 0} {$j < 1000} {incr j 2} {
+            r del defrag-test-key$j
+        }
+
+        # DEBUG_DEFRAG=force reports 99% fragmentation and SIZE_MAX
+        # fragmented bytes, guaranteeing that computeDefragCycles() handles
+        # the equal thresholds without reaching the interpolation.
+        catch {r config set activedefrag yes}
+
+        # The final PING verifies that the server stayed alive.
+        if {[r config get activedefrag] eq "activedefrag yes"} {
+            wait_for_condition 50 100 {
+                [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+            } else {
+                fail "defrag not started."
+            }
+        }
+        assert_equal PONG [r ping]
+    }
+} {} {defrag external:skip tsan:skip standalone}
+
 run_solo {defrag} {
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
@@ -1112,6 +1143,275 @@ run_solo {defrag} {
             }
         } ;# standalone
         }
+    }
+
+    if {[string match {*jemalloc*} [s mem_allocator]] &&
+        [r debug mallctl arenas.page] <= 8192 &&
+        $type eq "standalone"} { ;# skip in cluster mode and non-jemalloc
+        test "Active defrag arrays: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-max-scan-fields 100
+            r config set active-defrag-threshold-lower 1
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 512kb
+            r config set maxmemory 0
+
+            # Create two large arrays with interleaved allocations. Indices are
+            # one full slice apart so the surviving array is stored as many
+            # separate slices and uses superdir mode.
+            set rd [redis_deferring_client]
+            set payload [string repeat A 500]
+            set elements 3000
+            set base 8388608
+            set count 0
+            for {set j 0} {$j < $elements} {incr j} {
+                set idx [expr {$base + $j * 4096}]
+                $rd arset bigarray1 $idx "a1:$j:$payload"
+                $rd arset bigarray2 $idx "a2:$j:$payload"
+
+                incr count
+                discard_replies_every $rd $count 1000 2000
+            }
+            set remaining [expr {($count % 1000) * 2}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
+            }
+
+            assert_equal $elements [r arcount bigarray1]
+            assert_equal $elements [r arcount bigarray2]
+            assert_morethan [dict get [r arinfo bigarray1] directory-size] 0
+
+            # Free one full array to create fragmentation around the surviving
+            # array's slices and string allocations.
+            r del bigarray2
+
+            after 120 ;# serverCron only updates the info once in 100ms
+            r config set latency-monitor-threshold 5
+            r latency reset
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # This test only needs to verify that active defrag reached the
+                # array and processed it without corrupting the value. We do
+                # not require the allocator to fully converge to a no-fragmentation
+                # state on every platform.
+                wait_for_condition 500 100 {
+                    [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "array defrag did not touch the key."
+                }
+
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+            }
+
+            # Verify the array stayed intact after active defrag touched it.
+            assert_equal $elements [r arcount bigarray1]
+            assert_equal "a1:0:$payload" [r arget bigarray1 $base]
+            assert_equal "a1:1234:$payload" [r arget bigarray1 [expr {$base + 1234 * 4096}]]
+            assert_equal "a1:2999:$payload" [r arget bigarray1 [expr {$base + 2999 * 4096}]]
+            assert_equal $digest [debug_digest]
+            assert_equal OK [r save] ;# Iterates all pointers again after defrag.
+            expr 1
+        } {1}
+
+        test "Active defrag check-cache: skip path when below threshold: $type" {
+            # threshold-lower=99 and ignore-bytes=1gb guarantee the cached
+            # value is below both skip conditions every tick, so defrag
+            # never engages and the cache is consumed each cron tick.
+            r flushdb
+            r config set hz 100
+            r config set activedefrag yes
+            r config set active-defrag-threshold-lower 99
+            r config set active-defrag-ignore-bytes 1gb
+
+            set stats1 [r debug defrag-frag-cache-stats]
+            regexp {defrag_frag_cache_hits:(\d+)} $stats1 -> hits1
+
+            wait_for_condition 50 100 {
+                [regexp {defrag_frag_cache_hits:(\d+)} [r debug defrag-frag-cache-stats] -> hits2]
+                && $hits2 > $hits1
+            } else {
+                fail "defrag_frag_cache_hits did not advance"
+            }
+        }
+    }
+
+    if {[string match {*jemalloc*} [s mem_allocator]] &&
+        [r debug mallctl arenas.page] <= 8192 &&
+        $type eq "standalone"} { ;# skip in cluster mode and non-jemalloc
+        # Active defrag relocates the per-key allocations of template-encoded
+        # hashes (the value listpack for template-listpack, the array and its
+        # value strings for template-array) without touching the shared template.
+        # Fragment many template hashes, run active defrag, and assert the data is
+        # byte-identical afterwards (debug digest) and the keys still resolve.
+        test "Active defrag template-encoded hashes: $type" {
+            r flushall
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 100kb
+            r config set maxmemory 0
+            # Field count drives the encoding: the 3-field template stays
+            # template-listpack, the 40-field template becomes template-array.
+            r config set hash-max-listpack-entries 16
+
+            # Two shared templates: small -> template-listpack, big -> template-array.
+            set big_fields {}
+            for {set f 0} {$f < 40} {incr f} { lappend big_fields field_[format %02d $f] }
+            set bigval [string repeat x 80]
+
+            set n 20000
+            # HIMPORT fieldsets are per-client, so prepare on the same
+            # (deferring) connection that issues the HIMPORT SETs.
+            set rd [redis_deferring_client]
+            $rd himport prepare small a b c       ; $rd read
+            $rd himport prepare big {*}$big_fields ; $rd read
+            set batch 200
+            for {set j 0} {$j < $n} {incr j} {
+                if {$j % 2 == 0} {
+                    $rd himport set k:$j small v${j}a v${j}b v${j}c
+                } else {
+                    set vals {}
+                    for {set f 0} {$f < 40} {incr f} { lappend vals $bigval }
+                    $rd himport set k:$j big {*}$vals
+                }
+                discard_replies_every $rd [expr {$j + 1}] $batch $batch
+            }
+            for {set j 0} {$j < [expr {$n % $batch}]} {incr j} { $rd read }
+
+            assert_equal template-listpack [r object encoding k:0]
+            assert_equal template-array    [r object encoding k:1]
+
+            # Fragment: delete half the keys (both encodings), leaving holes
+            # around the surviving template-listpack and template-array keys.
+            set deleted 0
+            for {set j 0} {$j < $n} {incr j} {
+                if {($j % 4) < 2} { $rd del k:$j; incr deleted }
+            }
+            for {set j 0} {$j < $deleted} {incr j} { $rd read }
+            $rd close
+
+            after 120
+            if {$::verbose} { puts "frag before defrag: [s allocator_frag_ratio]" }
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes}
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 100 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    fail "defrag not started."
+                }
+                wait_for_defrag_stop 500 100
+            }
+
+            # Data byte-identical after defrag moved the allocations.
+            assert_equal $digest [debug_digest]
+            # Survivors of both encodings still resolve (k:2 small, k:3 big).
+            assert_equal template-listpack [r object encoding k:2]
+            assert_equal template-array    [r object encoding k:3]
+            assert_equal v2a    [r hget k:2 a]
+            assert_equal $bigval [r hget k:3 field_00]
+            assert_equal $bigval [r hget k:3 field_39]
+            r save ;# iterate over all data / pointers
+        } {OK}
+
+        # The test above fragments per-key values (two shared templates). Here
+        # every key has its own template, so deleting half the keys frees half the
+        # templates, leaving holes around the survivors; active defrag relocates
+        # the surviving templates and the hashes stay intact.
+        test "Active defrag hash template registry: $type" {
+            r flushall
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 100kb
+            r config set maxmemory 0
+            r config set hash-min-template-entries 0
+
+            # Many distinct templates with long field names, fragmenting the
+            # registry's per-template allocations (struct, field array + strings,
+            # by_fields entries) - all relocatable.
+            set pad [string repeat _ 2000]
+            set n 1000
+            set rd [redis_deferring_client]
+            set batch 200
+            set cmds 0
+            for {set j 0} {$j < $n} {incr j} {
+                $rd himport prepare fs$j a$j$pad b$j$pad c$j$pad ; incr cmds
+                $rd himport set k:$j fs$j v${j}a v${j}b v${j}c   ; incr cmds
+                if {$cmds % $batch == 0} { for {set rc 0} {$rc < $batch} {incr rc} { $rd read } }
+            }
+            $rd close
+            assert {[s hash_templates] >= $n}
+
+            # Fragment: delete every other key so its template (and long field-name
+            # strings) is freed, leaving holes around the survivors.
+            set rd [redis_deferring_client]
+            set deleted 0
+            for {set j 0} {$j < $n} {incr j 2} { $rd del k:$j; incr deleted }
+            for {set rc 0} {$rc < $deleted} {incr rc} { $rd read }
+            $rd close
+            wait_for_condition 300 100 {
+                [s hash_templates] <= [expr {$n / 2 + 50}]
+            } else { fail "templates not drained ([s hash_templates])" }
+
+            after 120
+            if {$::verbose} { puts "registry frag before defrag: [s allocator_frag_ratio]" }
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes}
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                # Let defrag relocate the registry allocations; we only wait for
+                # progress (hits > 0), not for fragmentation to fully settle.
+                wait_for_condition 100 100 {
+                    [s active_defrag_hits] > 0
+                } else { fail "defrag made no progress" }
+                after 500 ;# let it churn the registry a bit more
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+            }
+
+            # Byte-identical after the registry field-name/array moves, and a
+            # survivor still resolves (its relocated field name reads back right).
+            assert_equal $digest [debug_digest]
+            assert_equal v1a [r hget k:1 a1$pad]
+            # After relocation, re-preparing an existing field set still finds its
+            # template instead of creating a new one.
+            set nt [s hash_templates]
+            r himport prepare chk a1$pad b1$pad c1$pad
+            assert_equal $nt [s hash_templates]
+            r save ;# iterate over all data / pointers
+        } {OK}
     }
     }
 

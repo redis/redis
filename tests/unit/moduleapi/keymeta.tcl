@@ -903,6 +903,42 @@ test "RDB: File size same with/without metadata when no rdb_save callback" {
     }
 } {} {external:skip needs:save}
 
+test "RESTORE-based AOF payload omits KeyMeta" {
+    start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
+        r module load $testmodule
+        r debug enable-keymeta-runtime-registration 1
+
+        # Class 1 can restore itself through either RDB or AOF. Class 2 is
+        # RDB-only, and class 3 is AOF-only.
+        assert_equal 1 [r keymeta.register [cname 1] 1 \
+            "ALLOWIGNORE:RDBLOAD:RDBSAVE"]
+        assert_equal 2 [r keymeta.register [cname 2] 1 \
+            "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
+        assert_equal 3 [r keymeta.register [cname 3] 1 "ALLOWIGNORE"]
+
+        r set source value
+        r keymeta.set [cname 1] source dual-path
+        r keymeta.set [cname 2] source rdb-only
+        r keymeta.set [cname 3] source aof-only
+
+        set normal_payload [r dump source]
+        set aof_payload [r debug keymeta-aof-dump source]
+
+        # Normal DUMP keeps every RDB-saveable metadata class.
+        r restore normal-copy 0 $normal_payload
+        assert_equal dual-path [r keymeta.get [cname 1] normal-copy]
+        assert_equal rdb-only [r keymeta.get [cname 2] normal-copy]
+        assert_equal "" [r keymeta.get [cname 3] normal-copy]
+
+        # The AOF payload omits all metadata. keyMetaOnAof() is the sole
+        # metadata persistence path for command-form AOF rewrites.
+        r restore aof-copy 0 $aof_payload
+        assert_equal "" [r keymeta.get [cname 1] aof-copy]
+        assert_equal "" [r keymeta.get [cname 2] aof-copy]
+        assert_equal "" [r keymeta.get [cname 3] aof-copy]
+    }
+} {} {external:skip}
+
 test "Creating key metadata not during OnLoad should fail" {
     # Start server without enabling keymeta runtime registration debug flag
     start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command no}} {
