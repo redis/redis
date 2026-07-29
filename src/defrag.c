@@ -1710,7 +1710,7 @@ static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
 
         hashTemplateDefrag(tmpl);
 
-        if (++iterations > 64) {
+        if (++iterations > 8) {
             iterations = 0;
             if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
         }
