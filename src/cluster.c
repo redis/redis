@@ -2411,3 +2411,75 @@ int verifyClusterConfigWithData(void) {
     clusterDeleteKeysInUnownedSlots();
     return C_OK;
 }
+
+/* Mark the cluster topology as changed. Changes are combined until the next
+ * beforeSleep(). */
+void clusterMarkTopologyChanged(uint64_t change_flags) {
+    if (!server.cluster_enabled) return;
+    server.cluster_topology_change_flags |= change_flags;
+}
+
+/* Fire the cluster topology-change notification to modules, if one is pending.
+ * Called once per event-loop iteration from clusterCommonBeforeSleep().
+ * Topology mutation paths record the relevant reasons, including slot, role,
+ * node, and OK/FAIL state changes. This debounces a reshuffle that touches many
+ * slots into a single notification, and reports every reason that contributed
+ * via the change_flags bitmask in the event data. The check here makes redundant
+ * calls a harmless no-op.
+ *
+ * The cluster first becoming ready is delivered through this same path: the
+ * OK/FAIL transition records a STATE reason (slot assignment at startup records
+ * a SLOT reason too), so no dedicated "startup" notification is needed. */
+static void clusterFireTopologyChangeEventIfNeeded(void) {
+    if (!server.cluster_topology_change_flags) return;
+
+    uint64_t module_flags = 0;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE;
+
+    /* No data payload beyond the change reasons: a subscribing module reads
+     * whatever else it needs about the new topology via the cluster info module
+     * APIs (CLUSTER SLOTS, RedisModule_GetClusterNodesList/NodeInfo,
+     * RedisModule_GetClusterSize, ...). */
+    RedisModuleClusterTopologyChangeInfo info = {
+        .version = REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION,
+        .change_flags = module_flags,
+    };
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
+
+    server.cluster_topology_change_flags = 0; /* Reset flags. */
+}
+
+/* Notify Redis that the cluster topology changed. (cluster impl --> redis) */
+int clusterNotifyTopologyChanged(int flags, void *arg) {
+    UNUSED(arg);
+    if (!server.cluster_enabled) return;
+
+    if (flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT) {
+        /* The cluster topology is the source of truth for per-slot state. Remove
+         * sharded Pub/Sub subscriptions and reset statistics for slots that are
+         * no longer owned by this shard. */
+        clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
+        for (int slot = 0; slot < CLUSTER_SLOTS; slot++) {
+            if (master && clusterNodeCoversSlot(master, slot)) continue;
+
+            removeChannelsInSlot(slot);
+            clusterSlotStatReset(slot);
+        }
+    }
+
+    clusterMarkTopologyChanged(flags);
+    return C_OK;
+}
+
+/* Handle common cluster work after cluster implementation-specific beforeSleep(). */
+void clusterCommonBeforeSleep(void) {
+    asmBeforeSleep();
+    clusterFireTopologyChangeEventIfNeeded();
+}
