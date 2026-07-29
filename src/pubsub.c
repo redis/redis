@@ -411,8 +411,11 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     int retval = 0;
     unsigned int slot = 0;
 
-    /* Add the channel to the client -> channels hash table */
-    if (dictFind(type.clientPubSubChannels(c), channel) == NULL) { /* Not yet subscribed */
+    /* Add the channel to the client -> channels hash table, with a single
+     * lookup: the new entry is created keyed by the caller's object and
+     * re-keyed to the canonical server-shared object below. */
+    dictEntry *client_de = dictAddRaw(type.clientPubSubChannels(c), channel, NULL);
+    if (client_de) { /* Not yet subscribed */
         retval = 1;
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
@@ -431,12 +434,16 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         }
 
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
-        /* Store the (canonical, server-shared) channel object in the client dict
-         * with a NULL value, meaning "owned by whoever c->user is now". The
-         * provenance is only stamped with a concrete user* on identity switch
-         * (see pubsubStampCurrentUser). We add with an explicit NULL value rather
-         * than via dictSetKeyAtLink because flat-lazy reads this value slot. */
-        serverAssert(dictAdd(type.clientPubSubChannels(c), channel, NULL) == DICT_OK);
+        /* Store the canonical (server-shared) channel object in the client's
+         * entry — defrag relies on the server kvstore and every subscriber
+         * sharing one robj (see defragPubsubScanCallback) — with an explicit
+         * NULL value, meaning "owned by whoever c->user is now"; provenance is
+         * stamped with a concrete user* only on identity switch (see
+         * pubsubStampCurrentUser). dictAddRaw leaves the value uninitialized
+         * and flat-lazy reads it, hence the explicit NULL. Content-equal keys
+         * hash identically, so the in-place key swap is safe. */
+        dictSetKey(type.clientPubSubChannels(c), client_de, channel);
+        dictSetVal(type.clientPubSubChannels(c), client_de, NULL);
         incrRefCount(channel);
     }
     /* Notify the client */
