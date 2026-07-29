@@ -557,7 +557,7 @@ void ACLCopyUser(user *dst, user *src) {
  * c->user changes, so they are not re-filtered by the new user's key
  * permissions in beforeSleep.
  *
- * Pass auth_switch = 1 for a *genuine identity switch* (AUTH, HELLO AUTH, TLS
+ * Pass auth_changed = 1 for a *genuine identity switch* (AUTH, HELLO AUTH, TLS
  * cert auto-auth, internal auth, module RM_Authenticate*): before the old
  * identity is abandoned, every still-NULL Pub/Sub subscription — one whose
  * stored owner is NULL and therefore belongs to the *current* c->user — is
