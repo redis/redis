@@ -572,13 +572,13 @@ void ACLCopyUser(user *dst, user *src) {
  * authenticateClientWithUser). Pass 0 when the identity is not really changing:
  * the ACL LOAD object swap (which re-keys stamped values itself) and the
  * initial default-auth setup. */
-void clientSetUser(client *c, user *new_user, int auth_switch) {
+void clientSetUser(client *c, user *new_user, int auth_changed) {
     if (c->user != new_user) {
-        if (auth_switch) pubsubStampCurrentUser(c);
+        if (auth_changed) pubsubStampCurrentUser(c);
         trackingBroadcastFlushClientPrefixes(c);
     }
     c->user = new_user;
-    if (auth_switch) moduleNotifyUserChanged(c);
+    if (auth_changed) moduleNotifyUserChanged(c);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
