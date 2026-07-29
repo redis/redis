@@ -69,7 +69,7 @@ modules:
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
     repo: https://github.com/redisearch/redisearch
-    ref: v8.9.90
+    ref: v8.10.0
     target_module: search-community/redisearch.so
     loadmodule: ./modules/redisearch/redisearch.so
     build_env: LTO=1 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
