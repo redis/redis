@@ -396,6 +396,37 @@ start_server {tags {"acl external:skip"}} {
         r ACL DELUSER provuser
     }
 
+    test {Provenance: re-auth as the same user keeps the original owner for later stamping} {
+        r ACL SETUSER provA on nopass ~* &* +@all
+        r ACL SETUSER provB on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provA provA
+        $rd read
+        $rd CLIENT SETNAME prov-same
+        $rd read
+        $rd SUBSCRIBE chan:same
+        assert_match {subscribe chan:same 1} [$rd read]
+        # Re-auth as the SAME user: c->user does not change, so the still-NULL
+        # subscription keeps resolving to provA and no stamp is needed.
+        $rd AUTH provA provA
+        $rd read
+        # Switch to another user: the subscription is stamped with provA — the
+        # pre-switch identity, i.e. its creator — not with provB.
+        $rd AUTH provB provB
+        $rd read
+        # Revoking the CURRENT user's channels must NOT kill: the subscription
+        # is owned by provA; provB owns none of the client's subscriptions.
+        r ACL SETUSER provB resetchannels
+        assert_match {*prov-same*} [r CLIENT LIST]
+        # Revoking the ORIGINATING user's channels must kill the client.
+        r ACL SETUSER provA resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-same*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER provA provB
+    }
+
     test {Provenance: many user switches with subscriptions, revoking one kills client} {
         r ACL SETUSER user1 on nopass ~* &* +@all
         r ACL SETUSER user2 on nopass ~* &* +@all
