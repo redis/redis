@@ -2051,7 +2051,8 @@ list *getUpcomingChannelList(user *new, user *original) {
 /* Return 1 if any subscription in dict `d` whose effective owner is `owner` is
  * denied by the `upcoming` channel list. */
 static int dictHasDeniedSubForOwner(client *c, dict *d, user *owner,
-                                    list *upcoming, int is_pattern) {
+                                    list *upcoming, int is_pattern)
+{
     if (dictSize(d) == 0) return 0;
     dictIterator di;
     dictEntry *de;
