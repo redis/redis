@@ -2350,13 +2350,14 @@ int ACLLoadConfiguredUsers(void) {
 
 /* Resolve `owner` (a stamped provenance user*, or a client's current user) to
  * its pre-load (*old_out) and post-load (*new_out) objects. `old_users` maps
- * every pre-load username to its old object, with "default" pointing at a
- * snapshot copy (DefaultUser is mutated in place, so its pointer is stable and
- * its post-load object is DefaultUser itself). Old objects are alive here
+ * every pre-load username to its old object. Old objects are alive here
  * (old_users is freed only after the whole client walk). */
 aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
                                              user **old_out, user **new_out)
 {
+    /* DefaultUser is mutated in place by ACL LOAD, so its pointer is stable and
+     * the post-load object is DefaultUser itself; old_users keeps the pre-load
+     * configuration under "default" as a snapshot copy. */
     if (owner == DefaultUser) {
         user *old_default = NULL;
         raxFind(old_users, (unsigned char*)"default", 7, (void**)&old_default);
