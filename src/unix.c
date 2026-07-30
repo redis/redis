@@ -62,8 +62,8 @@ static int connUnixListen(connListener *listener) {
 
         /* Make sure the path does not belong to an active listener. */
         fd = anetUnixNonBlockConnect(server.neterr, addr);
-        if (fd != ANET_ERR) {
-            close(fd);
+        if (fd != ANET_ERR || errno == EAGAIN) {
+            if (fd != ANET_ERR) close(fd);
             serverLog(LL_WARNING, "Unix socket %s is already in use", addr);
             return C_ERR;
         }
