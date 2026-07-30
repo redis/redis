@@ -14,17 +14,25 @@ static char monotonic_info_string[32];
 
 /* Using the processor clock (aka TSC on x86) can provide improved performance
  * throughout Redis wherever the monotonic clock is used.  The processor clock
- * is significantly faster than calling 'clock_getting' (POSIX).  While this is
+ * is significantly faster than calling 'clock_gettime' (POSIX).  While this is
  * generally safe on modern systems, this link provides additional information
  * about use of the x86 TSC: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage
  *
- * On ARM aarch64 systems, the hardware clock is enabled by default because the
- * ARM Generic Timer is architecturally guaranteed to be available and monotonic
- * on all ARMv8-A processors (see the “The Generic Timer in AArch64 state”
- * section of the Arm Architecture Reference Manual for Armv8-A).
+ * The hardware clock is enabled by default on x86-64 Linux and ARM aarch64:
+ *   - aarch64: the ARM Generic Timer is architecturally guaranteed to be
+ *     available and monotonic on all ARMv8-A processors (see “The Generic Timer
+ *     in AArch64 state” in the Arm Architecture Reference Manual for Armv8-A).
+ *   - x86-64: the TSC is used only when the CPU advertises an invariant TSC
+ *     (constant_tsc + nonstop_tsc); otherwise we fall back to POSIX.  That
+ *     runtime guard, plus the POSIX fallback, is what makes it safe to enable by
+ *     default and brings x86 into line with aarch64.  Previously the x86 path
+ *     was compiled in only under USE_PROCESSOR_CLOCK which, being off by
+ *     default, meant stock x86 builds never used the TSC at all — and the old
+ *     rate detection parsed the Intel-only "model name ... @ X.XGHz" brand
+ *     string, which never matched AMD CPUs regardless.
  *
- * To use the processor clock on other architectures, either uncomment this line,
- * or build with
+ * To use the processor clock on other architectures (e.g. RISC-V), either
+ * uncomment this line, or build with
  *   CFLAGS="-DUSE_PROCESSOR_CLOCK"
 #define USE_PROCESSOR_CLOCK
  */
@@ -40,37 +48,20 @@ static monotime getMonotonicUs_x86(void) {
     return __rdtsc() / mono_ticksPerMicrosecond;
 }
 
-static void monotonicInit_x86linux(void) {
-    /* Require an invariant TSC (constant_tsc + nonstop_tsc). This is vendor
-     * neutral, unlike the previous Intel-only "model name : ... @ X.XGHz"
-     * parse which never matches AMD CPUs (their model name has no GHz). */
-    int invariant = 0;
-    FILE *cpuinfo = fopen("/proc/cpuinfo", "r");
-    if (cpuinfo != NULL) {
-        char line[1024];
-        while (fgets(line, sizeof(line), cpuinfo) != NULL) {
-            if (strncmp(line, "flags", 5) == 0) {
-                invariant = (strstr(line, "constant_tsc") != NULL) &&
-                            (strstr(line, "nonstop_tsc") != NULL);
-                break;
-            }
-        }
-        fclose(cpuinfo);
-    }
-    if (!invariant) {
-        fprintf(stderr, "monotonic: x86 linux, invariant TSC not present\n");
-        return;
-    }
-
-    /* Calibrate TSC ticks-per-microsecond against CLOCK_MONOTONIC. The
-     * invariant TSC advances at a constant rate regardless of the current
-     * core frequency, so a one-time calibration is accurate. */
+/* Determine the number of TSC ticks in a micro-second by calibrating the TSC
+ * against CLOCK_MONOTONIC.  An invariant TSC advances at a constant rate
+ * regardless of the current core frequency, so a short one-time calibration is
+ * accurate.  This is vendor neutral, unlike parsing the marketed base clock out
+ * of the "model name" brand string (which is Intel-specific and biased).
+ * Returns the tick rate in ticks/us, or 0 on failure. */
+static long calibrateTscTicksPerMicrosecond(void) {
     struct timespec ts0, ts1;
     uint64_t c0, c1;
+    long elapsed_ns;
+    const long calib_ns = 20L * 1000 * 1000; /* 20 ms */
+
     clock_gettime(CLOCK_MONOTONIC, &ts0);
     c0 = __rdtsc();
-    const long calib_ns = 20L * 1000 * 1000; /* 20 ms */
-    long elapsed_ns;
     do {
         clock_gettime(CLOCK_MONOTONIC, &ts1);
         elapsed_ns = (ts1.tv_sec - ts0.tv_sec) * 1000000000L +
@@ -79,7 +70,51 @@ static void monotonicInit_x86linux(void) {
     c1 = __rdtsc();
 
     double ticks_per_ns = (double)(c1 - c0) / (double)elapsed_ns;
-    mono_ticksPerMicrosecond = (long)(ticks_per_ns * 1000.0 + 0.5);
+    return (long)(ticks_per_ns * 1000.0 + 0.5);
+}
+
+static void monotonicInit_x86linux(void) {
+    /* The /proc/cpuinfo "flags" line can be long on modern CPUs (well over 1 KB
+     * on recent x86 parts), so size the buffer generously — a truncated flags
+     * line could otherwise hide the constant_tsc/nonstop_tsc tokens. */
+    const int bufflen = 4096;
+    char buf[bufflen];
+    regex_t constTscRegex, nonstopTscRegex;
+    const size_t nmatch = 2;
+    regmatch_t pmatch[nmatch];
+    int constantTsc = 0;
+    int rc;
+
+    /* Require an invariant TSC: both the constant_tsc flag (rate does not vary
+     * with the core frequency) and the nonstop_tsc flag (TSC does not halt in
+     * deep C-states) must be present.  Unlike the previous "model name : ... @
+     * X.XGHz" parse, this is vendor neutral and matches AMD CPUs, whose brand
+     * string carries no GHz token. */
+    rc = regcomp(&constTscRegex, "^flags\\s+:.* constant_tsc", REG_EXTENDED);
+    assert(rc == 0);
+    rc = regcomp(&nonstopTscRegex, "^flags\\s+:.* nonstop_tsc", REG_EXTENDED);
+    assert(rc == 0);
+
+    FILE *cpuinfo = fopen("/proc/cpuinfo", "r");
+    if (cpuinfo != NULL) {
+        while (fgets(buf, bufflen, cpuinfo) != NULL) {
+            if (regexec(&constTscRegex, buf, nmatch, pmatch, 0) == 0 &&
+                regexec(&nonstopTscRegex, buf, nmatch, pmatch, 0) == 0) {
+                constantTsc = 1;
+                break;
+            }
+        }
+        fclose(cpuinfo);
+    }
+    regfree(&constTscRegex);
+    regfree(&nonstopTscRegex);
+
+    if (!constantTsc) {
+        fprintf(stderr, "monotonic: x86 linux, invariant TSC not present\n");
+        return;
+    }
+
+    mono_ticksPerMicrosecond = calibrateTscTicksPerMicrosecond();
     if (mono_ticksPerMicrosecond <= 0) {
         fprintf(stderr, "monotonic: x86 linux, TSC calibration failed\n");
         return;
