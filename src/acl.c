@@ -2070,7 +2070,7 @@ static int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
 
 /* Return 1 if the client holds a subscription created under `owner` that is no
  * longer in `owner`'s upcoming channel list (i.e. it must be disconnected). */
-static int clientHasDeniedSubForOwner(client *c, user *owner, list *upcoming) {
+static int ACLShouldKillPubsubClient(client *c, user *owner, list *upcoming) {
     return pubsubDictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
         || pubsubDictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
         || pubsubDictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
@@ -2102,7 +2102,7 @@ static void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         /* Skip clients that can't own anything under `original`: never re-authed
          * (all subs owned by current user) and c->user != original. */
         if (!(c->flags & CLIENT_PUBSUB_REAUTHED) && c->user != original) continue;
-        if (clientHasDeniedSubForOwner(c, original, channels))
+        if (ACLShouldKillPubsubClient(c, original, channels))
             deauthenticateAndCloseClient(c);
     }
 
