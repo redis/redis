@@ -2115,6 +2115,17 @@ void clearClientConnectionState(client *c) {
 }
 
 void deauthenticateAndCloseClient(client *c) {
+    /* The client may be owned by an IO thread that concurrently reads its
+     * flags (e.g. writeToClient), while the teardown below mutates them
+     * (clearClientPubSubState, disableTracking). Fetch the client to the main
+     * thread first, like freeClient() does — it is about to be disconnected
+     * anyway. All callers (ACL SETUSER/DELUSER/LOAD kill paths, module
+     * deauthentication) run on the main thread. */
+    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID &&
+        pthread_equal(pthread_self(), server.main_thread_id))
+    {
+        fetchClientFromIOThread(c);
+    }
     disableTracking(c);
     /* Clear all Pub/Sub subscriptions synchronously *before* dropping the ACL
      * identity. This removes any provenance-stamped user* values right now, so a
