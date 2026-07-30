@@ -2056,16 +2056,16 @@ static int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
     if (dictSize(d) == 0) return 0;
     dictIterator di;
     dictEntry *de;
-    int kill = 0;
+    int denied = 0;
     dictInitIterator(&di, d);
-    while (!kill && ((de = dictNext(&di)) != NULL)) {
+    while (!denied && ((de = dictNext(&di)) != NULL)) {
         if (pubsubEntryOwner(c, de) != owner) continue;
         robj *o = dictGetKey(de);
         int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), is_pattern);
-        kill = (res == ACL_DENIED_CHANNEL);
+        denied = (res == ACL_DENIED_CHANNEL);
     }
     dictResetIterator(&di);
-    return kill;
+    return denied;
 }
 
 /* Return 1 if the client holds a subscription created under `owner` that is no
