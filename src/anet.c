@@ -492,10 +492,8 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
             flags & ANET_CONNECT_NONBLOCK)
             return s;
 
-        int connect_errno = errno;
         anetSetError(err, "connect: %s", strerror(errno));
         close(s);
-        errno = connect_errno;
         return ANET_ERR;
     }
     return s;
