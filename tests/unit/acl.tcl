@@ -324,8 +324,6 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
-    # ─── Provenance: subscription revocation across re-auth ───
-
     # {label subscribe-command target client-name}. The expected reply verb is
     # the lowercased command, and the reply is "{verb} {target} 1".
     foreach {label subcmd target cname} {
@@ -356,8 +354,6 @@ start_server {tags {"acl external:skip"}} {
         }
     }
 
-    # ─── Provenance: ACL DELUSER on originating user ───
-
     test {Provenance: ACL DELUSER kills client that holds subscriptions from deleted user} {
         r ACL SETUSER provuser on nopass ~* &* +@all
         set rd [redis_deferring_client]
@@ -376,8 +372,6 @@ start_server {tags {"acl external:skip"}} {
         assert_no_match {*prov-deluser*} [r CLIENT LIST]
         $rd close
     } {0}
-
-    # ─── Provenance: duplicate subscribe after re-auth (first user wins) ───
 
     test {Provenance: duplicate subscribe after re-auth attributes to first user} {
         r ACL SETUSER provuser on nopass ~* &* +@all
@@ -401,8 +395,6 @@ start_server {tags {"acl external:skip"}} {
         $rd close
         r ACL DELUSER provuser
     }
-
-    # ─── Provenance: many user switches on one connection ───
 
     test {Provenance: many user switches with subscriptions, revoking one kills client} {
         r ACL SETUSER user1 on nopass ~* &* +@all
@@ -439,8 +431,6 @@ start_server {tags {"acl external:skip"}} {
         r ACL DELUSER user1 user2 user3
     }
 
-    # ─── Lifecycle: RESET after multi-user subscribe ───
-
     test {Provenance: RESET clears all per-user subscription state} {
         r ACL SETUSER provuser on nopass ~* &* +@all
         set rd [redis_deferring_client]
@@ -465,8 +455,6 @@ start_server {tags {"acl external:skip"}} {
         $rd close
         r ACL DELUSER provuser
     }
-
-    # ─── Lifecycle: unsubscribe-all after multi-user subscribe ───
 
     test {Provenance: UNSUBSCRIBE with no args clears all per-user channel entries} {
         r ACL SETUSER provuser on nopass ~* &* +@all
@@ -508,8 +496,6 @@ start_server {tags {"acl external:skip"}} {
         $rd close
         r ACL DELUSER provuser
     }
-
-    # ─── PUBSUB NUMSUB/NUMPAT correctness after provenance operations ───
 
     test {Provenance: PUBSUB NUMSUB stays correct through subscribe, re-auth, and revocation} {
         r ACL SETUSER provuser on nopass ~* &* +@all
@@ -553,8 +539,6 @@ start_server {tags {"acl external:skip"}} {
         $rd close
         r ACL DELUSER provuser
     }
-
-    # ─── End of provenance tests ───
 
     test {blocked command gets rejected when reprocessed after permission change} {
         r auth default ""
