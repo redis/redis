@@ -372,8 +372,17 @@ void unmarkClientAsPubSub(client *c) {
     }
     /* Callers only reach here once the client holds no subscriptions, so no
      * stamped provenance can remain either. Clear the fast-path hint so ACL
-     * scans can skip this client in O(1) again. */
-    c->flags &= ~CLIENT_PUBSUB_REAUTHED;
+     * scans can skip this client in O(1) again.
+     *
+     * The read-before-write guard is not an optimization: writing c->flags is
+     * only safe for main-thread-resident clients, and this function must stay
+     * safe even if reached for an IO-thread-owned victim. A client with
+     * CLIENT_PUBSUB_REAUTHED set held live subscriptions when it was stamped
+     * (pubsubStampCurrentUser), which marked it CLIENT_PUBSUB and moved it to
+     * the main thread for good (isClientMustHandledByMainThread), so the
+     * guarded write can never touch an IO-owned client. */
+    if (c->flags & CLIENT_PUBSUB_REAUTHED)
+        c->flags &= ~CLIENT_PUBSUB_REAUTHED;
 }
 
 /* Freeze provenance before an identity switch: stamp every still-NULL

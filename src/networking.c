@@ -2057,10 +2057,18 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
  * channel and pattern — without notifying the client — and clear the Pub/Sub
  * client flags (including the provenance re-auth hint). */
 static void clearClientPubSubState(client *c) {
-    pubsubUnsubscribeAllChannels(c, 0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c, 0);
-    unmarkClientAsPubSub(c);
+    /* The guard is not an optimization: this also runs on ACL-kill victims
+     * (deauthenticateAndCloseClient) that may be owned by an IO thread
+     * concurrently reading c->flags. A client with Pub/Sub state is
+     * CLIENT_PUBSUB and therefore permanently main-thread-resident (see
+     * isClientMustHandledByMainThread), so the flag writes below can never
+     * touch an IO-owned client — while running them unguarded would. */
+    if (c->flags & CLIENT_PUBSUB) {
+        pubsubUnsubscribeAllChannels(c, 0);
+        pubsubUnsubscribeShardAllChannels(c, 0);
+        pubsubUnsubscribeAllPatterns(c, 0);
+        unmarkClientAsPubSub(c);
+    }
 }
 
 /* Clear the client state to resemble a newly connected client. */
@@ -2115,17 +2123,9 @@ void clearClientConnectionState(client *c) {
 }
 
 void deauthenticateAndCloseClient(client *c) {
-    /* The client may be owned by an IO thread that concurrently reads its
-     * flags (e.g. writeToClient), while the teardown below mutates them
-     * (clearClientPubSubState, disableTracking). Fetch the client to the main
-     * thread first, like freeClient() does — it is about to be disconnected
-     * anyway. All callers (ACL SETUSER/DELUSER/LOAD kill paths, module
-     * deauthentication) run on the main thread. */
-    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID &&
-        pthread_equal(pthread_self(), server.main_thread_id))
-    {
-        fetchClientFromIOThread(c);
-    }
+    /* The victim may be owned by an IO thread that reads c->flags concurrently:
+     * all flag writes below are guarded by flags implying main-thread residency
+     * (see clearClientPubSubState); the other writes are not read by IO threads. */
     disableTracking(c);
     /* Clear all Pub/Sub subscriptions synchronously *before* dropping the ACL
      * identity. This removes any provenance-stamped user* values right now, so a
