@@ -2355,7 +2355,8 @@ int ACLLoadConfiguredUsers(void) {
  * its post-load object is DefaultUser itself). Old objects are alive here
  * (old_users is freed only after the whole client walk). */
 aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
-                                             user **old_out, user **new_out) {
+                                             user **old_out, user **new_out)
+{
     if (owner == DefaultUser) {
         user *old_default = NULL;
         raxFind(old_users, (unsigned char*)"default", 7, (void**)&old_default);
