@@ -2050,7 +2050,7 @@ list *getUpcomingChannelList(user *new, user *original) {
 
 /* Return 1 if any subscription in dict `d` whose effective owner is `owner` is
  * denied by the `upcoming` channel list. */
-static int dictHasDeniedSubForOwner(client *c, dict *d, user *owner,
+static int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
                                     list *upcoming, int is_pattern)
 {
     if (dictSize(d) == 0) return 0;
@@ -2071,9 +2071,9 @@ static int dictHasDeniedSubForOwner(client *c, dict *d, user *owner,
 /* Return 1 if the client holds a subscription created under `owner` that is no
  * longer in `owner`'s upcoming channel list (i.e. it must be disconnected). */
 static int clientHasDeniedSubForOwner(client *c, user *owner, list *upcoming) {
-    return dictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
-        || dictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
-        || dictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
+    return pubsubDictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
+        || pubsubDictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
+        || pubsubDictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
 }
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
