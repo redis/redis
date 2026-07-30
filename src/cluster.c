@@ -2451,15 +2451,14 @@ static void clusterFireTopologyChangeEventIfNeeded(void) {
         .version = REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION,
         .change_flags = module_flags,
     };
+    server.cluster_topology_change_flags = 0;
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
-
-    server.cluster_topology_change_flags = 0; /* Reset flags. */
 }
 
 /* Notify Redis that the cluster topology changed. (cluster impl --> redis) */
 int clusterNotifyTopologyChanged(int flags, void *arg) {
     UNUSED(arg);
-    if (!server.cluster_enabled) return;
+    if (!server.cluster_enabled) return C_OK;
 
     if (flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT) {
         /* The cluster topology is the source of truth for per-slot state. Remove
