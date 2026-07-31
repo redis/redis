@@ -86,6 +86,7 @@ void clusterCron(void);
 void clusterBeforeSleep(void);
 void clusterClaimUnassignedSlots(void);
 int verifyClusterConfigWithData(void);
+void clusterNotifyTopologyChange(uint64_t change_flags);
 
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 

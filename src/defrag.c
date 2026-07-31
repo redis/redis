@@ -1723,7 +1723,7 @@ static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
 
         hashTemplateDefrag(tmpl);
 
-        if (++iterations > 64) {
+        if (++iterations > 8) {
             iterations = 0;
             if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
         }
@@ -2042,6 +2042,8 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
  * actions. This interface allows defrag to continue running, avoiding a single long defrag step
  * after the long operation completes. */
 void defragWhileBlocked(void) {
+    if (server.active_defrag_paused) return;
+
     /* This is called infrequently, while timers are not active. We might need to start defrag. */
     if (!defragIsRunning()) activeDefragCycle();
 

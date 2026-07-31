@@ -21,6 +21,7 @@
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
@@ -40,6 +41,23 @@
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2|REDIS_TLS_PROTO_TLSv1_3)
 #else
 #define REDIS_TLS_PROTO_DEFAULT     (REDIS_TLS_PROTO_TLSv1_2)
+#endif
+
+/* Peer certificate name verification (tls-expected-peer-name) relies on the
+ * X509_VERIFY_PARAM host API, available since OpenSSL 1.0.2. Defining
+ * TLS_NO_PEER_NAME_VERIFICATION compiles the feature out on any OpenSSL version;
+ * it is also the required opt-out for building against an older OpenSSL, since
+ * building there without it is a hard error (so a build cannot accidentally lack
+ * the check). When compiled out and the option is set, each affected connection
+ * warns and proceeds (CA validation still applies). */
+#if defined(TLS_NO_PEER_NAME_VERIFICATION)
+#define CONN_TLS_SUPPORTS_VERIFY_NAME 0
+#elif OPENSSL_VERSION_NUMBER >= 0x10002000L
+#define CONN_TLS_SUPPORTS_VERIFY_NAME 1
+#else
+#error "tls-expected-peer-name requires OpenSSL 1.0.2 or newer. Build against a \
+newer OpenSSL, or define TLS_NO_PEER_NAME_VERIFICATION to build without peer \
+certificate name verification."
 #endif
 
 SSL_CTX *redis_tls_ctx = NULL;
@@ -916,6 +934,95 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
     return C_OK;
 }
 
+/* Configure the SSL object to verify the peer certificate's SAN/CN against the
+ * given space-separated list of expected name(s), in addition to CA chain
+ * validation. Used to bind server-to-server connections to a specific identity
+ * (tls-expected-peer-name) rather than trusting any CA-signed certificate. The
+ * name(s) come from local configuration, never from the wire. A subsequent
+ * handshake fails with X509_V_ERR_HOSTNAME_MISMATCH if no listed name matches.
+ * Returns C_OK on success, C_ERR if a name could not be applied or the value
+ * contained no usable name. On a TLS_NO_PEER_NAME_VERIFICATION build (OpenSSL
+ * < 1.0.2) it cannot enforce the name; it logs a warning and returns C_OK so the
+ * connection still proceeds (CA validation still applies). */
+static int tlsSetVerifyName(SSL *ssl, const char *names) {
+#if CONN_TLS_SUPPORTS_VERIFY_NAME
+    /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
+     * than the SSL_set1_host()/SSL_add1_host()/SSL_set_hostflags() convenience
+     * wrappers (introduced only in OpenSSL 1.1.0). This keeps certificate name
+     * verification available on every OpenSSL version that actually provides the
+     * hostname-checking machinery, matching the older versions the rest of this
+     * file still supports. */
+    X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
+
+    /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
+     * "*.example.com" still matches. */
+    X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+
+    int count = 0;
+    sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
+    if (!tokens) return C_ERR;
+
+    int first = 1, ok = 1;
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* skip empty tokens from runs of spaces */
+        /* First name via set1_host (replaces), each subsequent via add1_host
+         * (appends); a match against any listed name succeeds. */
+        int r = first ? X509_VERIFY_PARAM_set1_host(param, tokens[i], 0)
+                      : X509_VERIFY_PARAM_add1_host(param, tokens[i], 0);
+        first = 0;
+        if (r != 1) { ok = 0; break; }
+    }
+    sdsfreesplitres(tokens, count);
+
+    /* !ok: a name failed to apply. first still set: the value had no usable
+     * token (e.g. all whitespace). Either way, fail closed. */
+    return (ok && !first) ? C_OK : C_ERR;
+#else
+    /* This build was compiled with TLS_NO_PEER_NAME_VERIFICATION (either to opt
+     * out, or because it targets OpenSSL < 1.0.2, which lacks the X509_VERIFY_PARAM
+     * host API), so we cannot honor tls-expected-peer-name. Warn and let the
+     * connection proceed (CA chain validation still applies) rather than refusing it. */
+    UNUSED(ssl);
+    UNUSED(names);
+    serverLog(LL_WARNING,
+        "tls-expected-peer-name is set but peer certificate name verification is "
+        "disabled in this build (TLS_NO_PEER_NAME_VERIFICATION); the name is not "
+        "enforced on this connection.");
+    return C_OK;
+#endif
+}
+
+/* Set the expected peer name(s) to verify on an already-created SSL connection.
+ * Used on the accepting side (e.g. the cluster bus) to verify the connecting
+ * peer's client certificate. No-op when name is empty. */
+static int connTLSSetVerifyName(connection *conn_, const char *name) {
+    tls_connection *conn = (tls_connection *) conn_;
+    if (!conn->ssl || !name || !name[0]) return C_OK;
+    if (tlsSetVerifyName(conn->ssl, name) != C_OK) {
+        serverLog(LL_WARNING, "Failed to set expected TLS peer name on accepted connection");
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+/* Apply the configured tls-expected-peer-name (if any) to an outbound connection's
+ * SSL object before the handshake. Shared by the non-blocking (connTLSConnect) and
+ * blocking (connTLSBlockingConnect) connect paths so that every outbound
+ * server-to-server connection -- replication, cluster bus and MIGRATE -- is
+ * verified against the configured identity. Returns C_OK on success or when no
+ * name is configured; on failure sets the connection error state and returns
+ * C_ERR. */
+static int tlsApplyExpectedPeerName(tls_connection *conn, const char *addr) {
+    const char *name = server.tls_ctx_config.expected_peer_name;
+    if (!name || !name[0]) return C_OK;
+    if (tlsSetVerifyName(conn->ssl, name) != C_OK) {
+        serverLog(LL_WARNING, "Failed to set expected TLS peer name for outbound connection to %s", addr);
+        conn->c.state = CONN_STATE_ERROR;
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 static int connTLSConnect(connection *conn_, const char *addr, int port, const char *src_addr, ConnectionCallbackFunc connect_handler) {
     tls_connection *conn = (tls_connection *) conn_;
     unsigned char addr_buf[sizeof(struct in6_addr)];
@@ -927,6 +1034,10 @@ static int connTLSConnect(connection *conn_, const char *addr, int port, const c
     if (inet_pton(AF_INET, addr, addr_buf) != 1 && inet_pton(AF_INET6, addr, addr_buf) != 1) {
         SSL_set_tlsext_host_name(conn->ssl, addr);
     }
+
+    /* When tls-expected-peer-name is configured, verify the peer (server)
+     * certificate against the configured name(s) on this outbound connection. */
+    if (tlsApplyExpectedPeerName(conn, addr) != C_OK) return C_ERR;
 
     /* Initiate Socket connection first */
     if (connectionTypeTcp()->connect(conn_, addr, port, src_addr, connect_handler) == C_ERR) return C_ERR;
@@ -1064,6 +1175,11 @@ static int connTLSBlockingConnect(connection *conn_, const char *addr, int port,
 
     /* Initiate socket blocking connect first */
     if (connectionTypeTcp()->blocking_connect(conn_, addr, port, timeout) == C_ERR) return C_ERR;
+
+    /* When tls-expected-peer-name is configured, verify the peer (server)
+     * certificate against the configured name(s). This path is used by MIGRATE,
+     * so it must enforce the same identity check as connTLSConnect. */
+    if (tlsApplyExpectedPeerName(conn, addr) != C_OK) return C_ERR;
 
     /* Initiate TLS connection now.  We set up a send/recv timeout on the socket,
      * which means the specified timeout will not be enforced accurately. */
@@ -1243,6 +1359,7 @@ static ConnectionType CT_TLS = {
     /* TLS specified methods */
     .get_peer_cert = connTLSGetPeerCert,
     .get_peer_username = tlsGetPeerUsername,
+    .set_verify_name = connTLSSetVerifyName,
 };
 
 int RedisRegisterConnectionTypeTLS(void) {
