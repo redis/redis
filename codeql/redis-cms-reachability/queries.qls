@@ -1,0 +1,6 @@
+---
+- description: CVE-2026-28390 Redis CMS reachability queries
+- query: FindCmsDecryptCalls.ql
+- query: FindCmsDecryptReferences.ql
+- query: FindCmsApiUsage.ql
+- query: FindDynamicCmsLookup.ql

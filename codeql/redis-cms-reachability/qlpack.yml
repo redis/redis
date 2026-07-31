@@ -1,0 +1,6 @@
+---
+name: jkleinlercher/redis-cms-reachability
+version: 0.0.1
+dependencies:
+  codeql/cpp-all: "*"
+extractor: cpp
