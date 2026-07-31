@@ -437,6 +437,7 @@ void hotkeysCommand(client *c) {
                 /* Sort the slots array */
                 qsort(temp_slots, slots_count, sizeof(int), slotCompare);
 
+                /* Check for duplicates */
                 for (int i = 1; i < slots_count; ++i) {
                     if (temp_slots[i] == temp_slots[i-1]) {
                         addReplyError(c, "duplicate slot number");
