@@ -1645,6 +1645,7 @@ void clientAcceptHandler(connection *conn) {
         if (u && !(u->flags & USER_FLAG_DISABLED)) {
             c->authenticated = 1;
             clientSetUser(c, u, 1);
+            moduleNotifyUserChanged(c);
             serverLog(LL_VERBOSE, "TLS: Auto-authenticated client as %s",
                       server.hide_user_data_from_log ? "*redacted*" : u->name);
         } else {

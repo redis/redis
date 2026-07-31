@@ -11042,15 +11042,7 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
         return REDISMODULE_ERR;
     }
 
-    /* Fire the previous module auth callback while c->user still points at the
-     * identity it authenticated, so a callback that inspects the client (e.g.
-     * RM_GetClientUserNameById) observes the user it was registered under. The
-     * new callback is only installed below, after clientSetUser() returns. */
     moduleNotifyUserChanged(ctx->client);
-    /* The callback consumed itself, so the notification clientSetUser() fires
-     * after the switch has nothing left to invoke — the outgoing callback can
-     * never observe the new identity. */
-    serverAssert(ctx->client->auth_callback == NULL);
 
     ctx->client->authenticated = 1;
     clientSetUser(ctx->client, user, 1);
