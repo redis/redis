@@ -1252,11 +1252,11 @@ run_solo {defrag} {
             r config set active-defrag-ignore-bytes 512kb
             r config set maxmemory 0
 
-            # Build a template bitmap with 50 array containers of 64 values
-            # each, then COPY it under many names. Every copy creates fresh
-            # container allocations, so consecutive keys interleave inside the
-            # same jemalloc size classes and deleting every other key later
-            # produces real fragmentation there.
+            # Build a template bitmap with array, bitset, and run containers,
+            # then COPY it under many names. Every copy creates fresh container
+            # allocations, so consecutive keys interleave inside the same
+            # jemalloc size classes and deleting every other key later produces
+            # real fragmentation there.
             r config set bitmap-default-roaring yes
             set rd [redis_deferring_client]
             set count 0
@@ -1267,11 +1267,31 @@ run_solo {defrag} {
                     discard_replies_every $rd $count 1000 1000
                 }
             }
+
+            # More than 4096 alternating values force a BITSET container.
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bitmap:template [expr {50 * 65536 + $b * 2}] 1
+                incr count
+                discard_replies_every $rd $count 1000 1000
+            }
+
+            # A second dense container becomes a compact RUN container when
+            # DUMP/RESTORE performs the same optimization used by RDB loading.
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bitmap:template [expr {51 * 65536 + $b}] 1
+                incr count
+                discard_replies_every $rd $count 1000 1000
+            }
             for {set j 0} {$j < [expr {$count % 1000}]} {incr j} {
                 $rd read
             }
             r config set bitmap-default-roaring no
             assert_equal bitmap [r type bitmap:template]
+            assert_equal 11400 [r bitcount bitmap:template]
+
+            set template_payload [r dump bitmap:template]
+            r restore bitmap:template 0 $template_payload replace
+            assert_equal 11400 [r bitcount bitmap:template]
             # GET returns WRONGTYPE on a native bitmap, so snapshot the baseline
             # bytes with DEBUG BITMAP-RAW for the post-defrag content checks.
             set template_raw [r debug bitmap-raw bitmap:template]
@@ -1286,15 +1306,26 @@ run_solo {defrag} {
                 $rd read
             }
 
-            # Build the big bitmap that exercises the incremental defrag
-            # path: 2000 containers exceed active-defrag-max-scan-fields, so
-            # it goes through defragLater() with a container cursor, while
-            # the 50-container frag keys defrag in one shot.
+            # Build the big bitmap that exercises the incremental defrag path.
+            # Its first two containers are BITSET and RUN, followed by 2000
+            # ARRAY containers, so its first incremental batch covers every
+            # container type. The 52-container frag keys defrag in one shot.
             set containers 2000
             set bigcount 0
+
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bigbitmap1 [expr {$b * 2}] 1
+                incr bigcount
+                discard_replies_every $rd $bigcount 1000 1000
+            }
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bigbitmap1 [expr {65536 + $b}] 1
+                incr bigcount
+                discard_replies_every $rd $bigcount 1000 1000
+            }
             for {set j 0} {$j < $containers} {incr j} {
                 for {set b 0} {$b < 16} {incr b} {
-                    $rd setbit bigbitmap1 [expr {$j * 65536 + $b * 97}] 1
+                    $rd setbit bigbitmap1 [expr {($j + 2) * 65536 + $b * 97}] 1
                     incr bigcount
                     discard_replies_every $rd $bigcount 1000 1000
                 }
@@ -1303,7 +1334,7 @@ run_solo {defrag} {
                 $rd read
             }
 
-            set expected_bits [expr {$containers * 16}]
+            set expected_bits [expr {$containers * 16 + 8200}]
             assert_equal $expected_bits [r bitcount bigbitmap1]
             set expected_raw [r get bigbitmap1]
 
@@ -1342,8 +1373,11 @@ run_solo {defrag} {
                 # bitmap containers without corrupting the value. We do not
                 # require the allocator to fully converge to a
                 # no-fragmentation state on every platform.
+                # The initial scan can queue the large key without walking its
+                # containers. A second attempt guarantees either a mixed key's
+                # one-shot walk or the large key's first incremental batch.
                 wait_for_condition 500 100 {
-                    [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+                    [s active_defrag_key_hits] + [s active_defrag_key_misses] > 1
                 } else {
                     after 120 ;# serverCron only updates the info once in 100ms
                     puts [r info memory]
