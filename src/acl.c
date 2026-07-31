@@ -2378,11 +2378,6 @@ aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
     return ACL_LOAD_OWNER_MANAGED;
 }
 
-/* Per-client ACL LOAD reconciliation of Pub/Sub subscriptions lives in pubsub.c
- * (pubsubACLLoadReconcileClient): it validates each subscription against the new
- * ACL and re-keys surviving stamps, calling back into pubsubACLLoadResolveOwner()
- * / getUpcomingChannelList() / ACLCheckChannelAgainstList() exported above. */
-
 /* This function loads the ACL from the specified filename: every line
  * is validated and should be either empty, a comment, or in the format
  * used to specify users in the redis.conf configuration or in the ACL file,
