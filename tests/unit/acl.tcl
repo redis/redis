@@ -267,28 +267,47 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
-    # {label subscribe-command target}. The user is granted &$target, subscribes,
-    # then has the grant revoked and must be disconnected. Normal channels,
-    # shard channels, and patterns all share the same flow.
-    foreach {label subcmd target} {
-        channel         SUBSCRIBE  foo:1
-        {shard channel} SSUBSCRIBE foo:1
-        pattern         PSUBSCRIBE bar:*
-    } {
-        test "Subscribers are killed when revoked of $label permission" {
-            set rd [redis_deferring_client]
-            r ACL setuser psuser resetchannels &$target
-            $rd AUTH psuser pspass
-            $rd read
-            $rd CLIENT SETNAME deathrow
-            $rd read
-            $rd $subcmd $target
-            $rd read
-            r ACL setuser psuser resetchannels
-            assert_no_match {*deathrow*} [r CLIENT LIST]
-            $rd close
-        } {0}
-    }
+    test {Subscribers are killed when revoked of channel permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd SUBSCRIBE foo:1
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    test {Subscribers are killed when revoked of shard channel permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &foo:1
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd SSUBSCRIBE foo:1
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    test {Subscribers are killed when revoked of pattern permission} {
+        set rd [redis_deferring_client]
+        r ACL setuser psuser resetchannels &bar:*
+        $rd AUTH psuser pspass
+        $rd read
+        $rd CLIENT SETNAME deathrow
+        $rd read
+        $rd PSUBSCRIBE bar:*
+        $rd read
+        r ACL setuser psuser resetchannels
+        assert_no_match {*deathrow*} [r CLIENT LIST]
+        $rd close
+    } {0}
 
     test {Subscribers are killed when revoked of allchannels permission} {
         set rd [redis_deferring_client]
