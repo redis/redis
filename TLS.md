@@ -68,10 +68,10 @@ Connections
 All socket operations now go through a connection abstraction layer that hides
 I/O and read/write event handling from the caller.
 
-Multi-threading I/O is supported for TLS since Redis 8.0. TLS connections are assigned to I/O
-threads like plain TCP connections, and each I/O thread's event loop drains any
-connection-level pending data (typical for TLS) via the connection abstraction
-layer.
+Multi-threading I/O is supported for TLS since Redis 8.0. TLS connections are
+assigned to I/O threads like plain TCP connections, and each I/O thread's
+event loop drains any connection-level pending data (typical for TLS) via the
+connection abstraction layer.
 
 Sync IO for TLS is currently implemented in a hackish way, i.e. making the
 socket blocking and configuring socket-level timeout.  This means the timeout
