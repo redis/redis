@@ -4152,7 +4152,8 @@ int pubsubTotalSubscriptions(void);
 int clientTotalPubSubSubscriptionCount(client *c);
 dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
-user *pubsubEntryOwner(client *c, dictEntry *de);
+int pubsubClientHasStampedOwner(client *c, user *u);
+int ACLShouldKillPubsubClient(client *c, user *owner, list *upcoming);
 void pubsubStampCurrentUser(client *c);
 int pubsubACLLoadReconcileClient(client *c, rax *old_users, rax *user_channels);
 

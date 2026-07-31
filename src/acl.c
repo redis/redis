@@ -482,31 +482,6 @@ void ACLFreeUserGeneric(void *u) {
     ACLFreeUser((user *)u);
 }
 
-/* Return 1 if the client holds any Pub/Sub subscription whose provenance was
- * stamped with user `u` (i.e. created while authenticated as `u`, before the
- * client switched identity). Subscriptions owned by the *current* user are
- * caught separately via c->user == u, so this only scans stamped values. Uses
- * the CLIENT_PUBSUB_REAUTHED hint: with no stamps there is nothing to scan. */
-static int pubsubClientHasStampedOwner(client *c, user *u) {
-    if (!(c->flags & CLIENT_PUBSUB_REAUTHED)) return 0;
-    dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
-    for (int i = 0; i < 3; i++) {
-        dict *d = dicts[i];
-        if (dictSize(d) == 0) continue;
-        dictIterator di;
-        dictEntry *de;
-        dictInitIterator(&di, d);
-        while ((de = dictNext(&di)) != NULL) {
-            if (dictGetVal(de) == u) {
-                dictResetIterator(&di);
-                return 1;
-            }
-        }
-        dictResetIterator(&di);
-    }
-    return 0;
-}
-
 /* When a user is deleted we need to cycle the active
  * connections in order to kill all the pending ones that
  * are authenticated with such user. */
@@ -2039,34 +2014,6 @@ list *getUpcomingChannelList(user *new, user *original) {
     }
 
     return upcoming;
-}
-
-/* Return 1 if any subscription in dict `d` whose effective owner is `owner` is
- * denied by the `upcoming` channel list. */
-static int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
-                                    list *upcoming, int is_pattern)
-{
-    if (dictSize(d) == 0) return 0;
-    dictIterator di;
-    dictEntry *de;
-    int denied = 0;
-    dictInitIterator(&di, d);
-    while (!denied && ((de = dictNext(&di)) != NULL)) {
-        if (pubsubEntryOwner(c, de) != owner) continue;
-        robj *o = dictGetKey(de);
-        int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), is_pattern);
-        denied = (res == ACL_DENIED_CHANNEL);
-    }
-    dictResetIterator(&di);
-    return denied;
-}
-
-/* Return 1 if the client holds a subscription created under `owner` that is no
- * longer in `owner`'s upcoming channel list (i.e. it must be disconnected). */
-static int ACLShouldKillPubsubClient(client *c, user *owner, list *upcoming) {
-    return pubsubDictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
-        || pubsubDictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
-        || pubsubDictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
 }
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
