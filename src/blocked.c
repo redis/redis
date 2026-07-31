@@ -625,15 +625,28 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 
     if (de) {
         list *clients = dictGetVal(de);
+        /* Snapshot the client pointers and protect them to avoid use-after-free
+         * if a client gets evicted during command processing (nested eviction). */
+        long count = listLength(clients);
+        client **client_ptrs = zmalloc(sizeof(client*) * count);
         listNode *ln;
         listIter li;
-        listRewind(clients,&li);
+        listRewind(clients, &li);
+        long i = 0;
+        while ((ln = listNext(&li)) && i < count) {
+            client *receiver = listNodeValue(ln);
+            protectClient(receiver);
+            client_ptrs[i++] = receiver;
+        }
 
         /* Avoid processing more than the initial count so that we're not stuck
          * in an endless loop in case the reprocessing of the command blocks again. */
-        long count = listLength(clients);
-        while ((ln = listNext(&li)) && count--) {
-            client *receiver = listNodeValue(ln);
+        for (long j = 0; j < i; j++) {
+            client *receiver = client_ptrs[j];
+
+            /* Check if the client is still blocked on this key. */
+            if (dictFind(receiver->bstate.keys, rl->key) == NULL) continue;
+
             kvobj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
              *    blocked type, since we might process the wrong key type.
@@ -662,6 +675,10 @@ static void handleClientsBlockedOnKey(readyList *rl) {
                     moduleUnblockClientOnKey(receiver, rl->key);
             }
         }
+        for (long j = 0; j < i; j++) {
+            unprotectClient(client_ptrs[j]);
+        }
+        zfree(client_ptrs);
     }
 }
 
