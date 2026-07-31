@@ -2016,6 +2016,14 @@ list *getUpcomingChannelList(user *new, user *original) {
     return upcoming;
 }
 
+/* Return 1 if the client holds a subscription created under `owner` that is no
+ * longer in `owner`'s upcoming channel list (i.e. it must be disconnected). */
+static int ACLShouldKillPubsubClient(client *c, user *owner, list *upcoming) {
+    return pubsubDictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
+        || pubsubDictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
+        || pubsubDictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
+}
+
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
  * permissions specified via the upcoming argument, and kill them if so. */
 static void ACLKillPubsubClientsIfNeeded(user *new, user *original) {

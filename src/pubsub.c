@@ -108,7 +108,7 @@ int pubsubClientHasStampedOwner(client *c, user *u) {
 
 /* Return 1 if any subscription in dict `d` whose effective owner is `owner` is
  * denied by the `upcoming` channel list. */
-static int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
+int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
                                     list *upcoming, int is_pattern)
 {
     if (dictSize(d) == 0) return 0;
@@ -124,15 +124,6 @@ static int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
     }
     dictResetIterator(&di);
     return denied;
-}
-
-/* Return 1 if the client holds a subscription created under `owner` that is no
- * longer in `owner`'s upcoming channel list (i.e. it must be disconnected).
- * Used by ACL SETUSER revocation (ACLKillPubsubClientsIfNeeded). */
-int ACLShouldKillPubsubClient(client *c, user *owner, list *upcoming) {
-    return pubsubDictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
-        || pubsubDictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
-        || pubsubDictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
 }
 
 /* ACL LOAD phase 1 (read-only): validate a client's Pub/Sub subscriptions
