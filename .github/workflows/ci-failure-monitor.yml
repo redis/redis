@@ -14,7 +14,8 @@ jobs:
   record-failure:
     if: >-
       github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.event != 'pull_request'
+      github.event.workflow_run.event == 'schedule' &&
+      github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
