@@ -3287,6 +3287,13 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
 
             first += spec->fk.keynum.firstkey;
+            if (numkeys > 0) {
+                if (first >= argc) goto invalid_spec;
+                int available = argc - first;
+                if (step > 0 && numkeys > (available / step) + 1) {
+                    goto invalid_spec;
+                }
+            }
             last = first + ((long)numkeys - 1) * step;
         } else {
             /* unknown spec */
