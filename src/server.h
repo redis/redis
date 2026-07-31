@@ -1982,6 +1982,8 @@ typedef struct redisTLSContextConfig {
     int session_caching;
     int session_cache_size;
     int session_cache_timeout;
+    char *expected_peer_name;       /* Space-separated SAN(s) to verify on outbound
+                                       server-to-server TLS connections. NULL = disabled. */
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------
@@ -2277,6 +2279,7 @@ struct redisServer {
     int allow_access_expired;       /* If > 0, allow access to logically expired keys */
     int allow_access_trimmed;       /* If > 0, allow access to logically trimmed keys */
     int active_defrag_enabled;
+    int active_defrag_paused;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
     int allow_keymeta_registration; /* Allow keymeta class registration outside server startup (for testing). */
@@ -3994,6 +3997,7 @@ typedef struct hashTemplateRegistry {
     size_t by_id_chunks;        /* How many chunks are currently allocated. */
     size_t by_id_next;          /* The next id that has never been used. */
     size_t total_key_refs;      /* Sum of key_refcount across all templates. */
+    size_t fields_lp_cache_bytes; /* Total lpBytes() of cached fields listpack blobs. */
     size_t total_mem_size;      /* Sum of every live template's mem_size, plus any
                                  * attached fields_lp blobs. */
 } hashTemplateRegistry;
@@ -4098,8 +4102,8 @@ hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);
 void hashTemplateIncrHoldRef(hashTemplate *tmpl);
 void hashTemplateDecrHoldRef(hashTemplate *tmpl);
-unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int cache);
-void hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp);
+unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int *cache);
+int hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp);
 void hashTemplatesCron(void);
 robj *createHashObjectFromTemplate(hashTemplate *tmpl, sds *values, int take);
 int hashTemplateValidateFields(sds *fields, unsigned long long field_count);
