@@ -2351,10 +2351,14 @@ int ACLLoadConfiguredUsers(void) {
 /* Resolve `owner` (a stamped provenance user*, or a client's current user) to
  * its pre-load (*old_out) and post-load (*new_out) objects. `old_users` maps
  * every pre-load username to its old object. Old objects are alive here
- * (old_users is freed only after the whole client walk). */
+ * (old_users is freed only after the whole client walk). The out parameters
+ * are always written: they carry the resolved objects for
+ * ACL_LOAD_OWNER_MANAGED and are NULL otherwise. */
 aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
                                              user **old_out, user **new_out)
 {
+    *old_out = NULL;
+    *new_out = NULL;
     /* DefaultUser is mutated in place by ACL LOAD, so its pointer is stable and
      * the post-load object is DefaultUser itself; old_users keeps the pre-load
      * configuration under "default" as a snapshot copy. */
@@ -2619,7 +2623,7 @@ sds ACLLoadFromFile(const char *filename) {
              * same-named ACL user. A registry user that disappeared is a kill. */
             if (c->user == NULL)
                 continue;
-            user *old_current, *new_current;
+            user *old_current = NULL, *new_current = NULL;
             aclLoadOwnerStatus st =
                 pubsubACLLoadResolveOwner(c->user, old_users, &old_current, &new_current);
             if (st == ACL_LOAD_OWNER_UNMANAGED)

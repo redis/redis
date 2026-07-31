@@ -104,7 +104,7 @@ static int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_chan
             /* No-auth-origin subscriptions are never ACL channel-restricted. */
             if (pubsubUserIsNoAuth(owner)) continue;
 
-            user *old_owner, *new_owner;
+            user *old_owner = NULL, *new_owner = NULL;
             aclLoadOwnerStatus st =
                 pubsubACLLoadResolveOwner(owner, old_users, &old_owner, &new_owner);
             /* Module/external users are not governed by ACL LOAD; skip them. */
@@ -153,7 +153,7 @@ static void pubsubACLLoadRekeyDict(dict *d, rax *old_users) {
     while ((de = dictNext(&di)) != NULL) {
         user *stamped = dictGetVal(de);
         if (stamped == NULL || pubsubUserIsNoAuth(stamped)) continue;
-        user *old_owner, *new_owner;
+        user *old_owner = NULL, *new_owner = NULL;
         aclLoadOwnerStatus st =
             pubsubACLLoadResolveOwner(stamped, old_users, &old_owner, &new_owner);
         if (st == ACL_LOAD_OWNER_UNMANAGED) continue; /* module/external: leave as-is */
