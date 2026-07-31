@@ -933,7 +933,8 @@ static robj *bitmapObjectFromStringObject(robj *o) {
  * suppression of the triggering command so callers cannot queue both the
  * original write and the replacement payload. */
 static void bitmapPropagateRestore(client *c, robj *key, robj *bitmap,
-                                   long long expire, int keepmetadata) {
+                                   long long expire, int keepmetadata)
+{
     rio payload;
     robj *argv[7];
     int has_expire = expire != -1;

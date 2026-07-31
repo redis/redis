@@ -1188,8 +1188,7 @@ static void bitmapObjectMaterializeContainer(unsigned char *raw,
 static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
                                           size_t byte_len, int try_alloc)
 {
-    sds raw = try_alloc ? sdstrynewlen(NULL, byte_len)
-                        : sdsnewlen(NULL, byte_len);
+    sds raw = try_alloc ? sdstrynewlen(NULL, byte_len) : sdsnewlen(NULL, byte_len);
     if (raw == NULL) return NULL;
 
     art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
@@ -1204,14 +1203,12 @@ static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
     return raw;
 }
 
-static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited,
-                                      int try_alloc) {
+static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited, int try_alloc) {
     bitmapObject *bitmap = getBitmapObject(o);
     if (proto_limited &&
         bitmap->byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
     if (bitmap->byte_len > (uint64_t)SIZE_MAX) return NULL;
-    return bitmapObjectMaterializeRoaring(bitmap->roaring,
-                                          (size_t)bitmap->byte_len, try_alloc);
+    return bitmapObjectMaterializeRoaring(bitmap->roaring, (size_t)bitmap->byte_len, try_alloc);
 }
 
 /* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
