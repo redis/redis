@@ -450,7 +450,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
         return C_ERR;
     }
 
-    if (deny_write_type != DISK_ERROR_TYPE_NONE) {
+    if (deny_write_type != DISK_ERROR_TYPE_NONE && !mustObeyClient(run_ctx->original_client)) {
         *err = writeCommandsGetDiskErrorMessage(deny_write_type);
         return C_ERR;
     }

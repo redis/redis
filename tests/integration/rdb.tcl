@@ -431,6 +431,51 @@ start_server {} {
         # server is writable again
         r set x y
     } {OK}
+
+    test "failed bgsave does not prevent master writes on replica" {
+        start_server {} {
+            set replica [srv 0 client]
+            set replica_host [srv 0 host]
+            set replica_port [srv 0 port]
+            
+            start_server {} {
+                set master [srv 0 client]
+                $replica replicaof [srv 0 host] [srv 0 port]
+                wait_for_sync $replica
+
+                # Make sure the replica saves an RDB on shutdown
+                $replica config set save "900 1"
+
+                $replica config set rdb-key-save-delay 10000000
+                populate 1000 "" 100
+                $master set x x
+                
+                # Wait for sync so that x is on replica
+                wait_for_condition 50 100 {
+                    [$replica get x] eq "x"
+                } else {
+                    fail "Replica didn't sync"
+                }
+
+                $replica bgsave
+                set pid1 [get_child_pid -1]
+                catch {exec kill -9 $pid1}
+                waitForBgsave $replica
+
+                # Ensure replica doesn't crash on subsequent writes from master
+                $master set y y
+                wait_for_condition 50 100 {
+                    [$replica get y] eq "y"
+                } else {
+                    fail "Replica didn't apply write after failed bgsave"
+                }
+
+                $replica config set rdb-key-save-delay 0
+                $replica bgsave
+                waitForBgsave $replica
+            }
+        }
+    }
 }
 
 start_server {overrides {save "900 1"}} {

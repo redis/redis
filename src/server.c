@@ -4689,7 +4689,11 @@ int processCommand(client *c) {
         (is_write_command || c->cmd->proc == pingCommand))
     {
         if (obey_client) {
-            if (!server.repl_ignore_disk_write_error && c->cmd->proc != pingCommand) {
+            if (deny_write_type == DISK_ERROR_TYPE_RDB) {
+                /* A failed BGSAVE shouldn't cause a replica to panic or drop
+                 * master commands, since it doesn't affect command persistence 
+                 * directly like an AOF error does. */
+            } else if (!server.repl_ignore_disk_write_error && c->cmd->proc != pingCommand) {
                 serverPanic("Replica was unable to write command to disk.");
             } else {
                 static mstime_t last_log_time_ms = 0;
