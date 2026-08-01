@@ -5261,12 +5261,7 @@ error:
  * DISK_ERROR_TYPE_RDB:     Don't accept writes: RDB errors.
  */
 int writeCommandsDeniedByDiskError(void) {
-    if (server.stop_writes_on_bgsave_err &&
-        server.saveparamslen > 0 &&
-        server.lastbgsave_status == C_ERR)
-    {
-        return DISK_ERROR_TYPE_RDB;
-    } else if (server.aof_state != AOF_OFF) {
+    if (server.aof_state != AOF_OFF) {
         if (server.aof_last_write_status == C_ERR) {
             return DISK_ERROR_TYPE_AOF;
         }
@@ -5277,6 +5272,13 @@ int writeCommandsDeniedByDiskError(void) {
             atomicGet(server.aof_bio_fsync_errno,server.aof_last_write_errno);
             return DISK_ERROR_TYPE_AOF;
         }
+    }
+
+    if (server.stop_writes_on_bgsave_err &&
+        server.saveparamslen > 0 &&
+        server.lastbgsave_status == C_ERR)
+    {
+        return DISK_ERROR_TYPE_RDB;
     }
 
     return DISK_ERROR_TYPE_NONE;
