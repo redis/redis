@@ -256,7 +256,13 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int relative_tt
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if (relative_ttl) {
-        *milliseconds += commandTimeSnapshot();
+        long long now = commandTimeSnapshot();
+        if (*milliseconds > LLONG_MAX - now) {
+            /* Overflow detected. */
+            addReplyErrorExpireTime(c);
+            return C_ERR;
+        }
+        *milliseconds += now;
     }
 
     if (*milliseconds <= 0) {

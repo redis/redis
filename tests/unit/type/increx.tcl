@@ -416,6 +416,10 @@ start_server {tags {"increx"}} {
         assert_error "*invalid expire time*" {r increx mykey BYINT 1 EX -1}
     }
 
+    test {INCREX - PX overflow is rejected} {
+        assert_error "*invalid expire time*" {r increx mykey BYINT 1 PX 9223372036854775807}
+    }
+
     # ---------------------------------------------------------------------
     # Type check
     # ---------------------------------------------------------------------
