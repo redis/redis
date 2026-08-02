@@ -293,7 +293,7 @@ start_server {} {
         }
         $rr close
         r debug reply-copy-avoidance 1
-    }
+    } {OK} {needs:debug}
 
     foreach {no_evict} {on off} {
         test "client no-evict $no_evict" {
