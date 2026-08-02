@@ -1736,7 +1736,7 @@ unsigned char *lpValidateFirst(unsigned char *lp) {
  *  the data pointed to by 'lp' will not be modified by the function.
  * Returns 1 if valid, 0 if invalid. */
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
-#define OUT_OF_RANGE(p) ( \
+#define OUT_OF_RANGE(p) unlikely( \
         (p) < lp + LP_HDR_SIZE || \
         (p) > lp + lpbytes - 1)
     unsigned char *p = *pp;
@@ -1763,7 +1763,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 
     /* get the entry length and encoded backlen. */
     unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
-    unsigned long encodedBacklen = lpEncodeBacklenBytes(entrylen);
+    uint8_t encodedBacklen = lpEncodeBacklenBytes(entrylen);
     entrylen += encodedBacklen;
 
     /* make sure the entry doesn't reach outside the edge of the listpack */
