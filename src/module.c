@@ -7433,7 +7433,7 @@ const char *moduleNameFromCommand(struct redisCommand *cmd) {
 /* Duplicate a module-type value without a client (no error replies). Prefers the
  * v4 copy2 callback, falls back to the v1 copy callback. Returns a new OBJ_MODULE
  * robj, or NULL if the type registered neither callback or the copy failed. */
-robj *moduleTypeDup(robj *fromkey, robj *tokey, int fromdb, int todb, robj *value) {
+static robj *moduleTypeDup(robj *fromkey, robj *tokey, int fromdb, int todb, robj *value) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
     void *newval = NULL;
