@@ -1644,15 +1644,18 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         abs_count = set_size;
 
     /* Prepare reply. */
-    RedisModule_ReplyWithArray(ctx, abs_count);
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    long long replied = 0;
 
     if (allow_duplicates) {
         /* Simple case: With duplicates, just pick random nodes
          * abs_count times. */
         for (long long i = 0; i < abs_count; i++) {
             hnswNode *random_node = hnsw_random_node(vset->hnsw,0);
+            if (!random_node) break;
             struct vsetNodeVal *nv = random_node->value;
             RedisModule_ReplyWithString(ctx, nv->item);
+            replied++;
         }
     } else {
         /* Case where count is positive: we need unique elements.
@@ -1667,9 +1670,9 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         if (use_dict) {
             RedisModuleDict *returned = RedisModule_CreateDict(ctx);
 
-            long long returned_count = 0;
-            while (returned_count < abs_count) {
+            while (replied < abs_count) {
                 hnswNode *random_node = hnsw_random_node(vset->hnsw, 0);
+                if (!random_node) break;
                 struct vsetNodeVal *nv = random_node->value;
 
                 /* Check if we've already returned this element. */
@@ -1677,7 +1680,7 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
                     /* Mark as returned and add to results. */
                     RedisModule_DictSet(returned, nv->item, (void*)1);
                     RedisModule_ReplyWithString(ctx, nv->item);
-                    returned_count++;
+                    replied++;
                 }
             }
             RedisModule_FreeDict(ctx, returned);
@@ -1694,19 +1697,23 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
             hnswNode *start_node = hnsw_random_node(vset->hnsw, 0);
             hnswNode *current = start_node;
 
-            long long returned_count = 0;
-            while (returned_count < abs_count) {
+            int wrapped = 0;
+            while (replied < abs_count) {
                 if (current == NULL) {
+                    if (wrapped) break; /* Avoid infinite loop if head is also NULL */
                     /* Restart from head if we hit the end. */
                     current = vset->hnsw->head;
+                    wrapped = 1;
+                    if (current == NULL) break;
                 }
                 struct vsetNodeVal *nv = current->value;
                 RedisModule_ReplyWithString(ctx, nv->item);
-                returned_count++;
+                replied++;
                 current = current->next;
             }
         }
     }
+    RedisModule_ReplySetArrayLength(ctx, replied);
     return REDISMODULE_OK;
 }
 
