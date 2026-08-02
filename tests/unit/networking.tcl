@@ -31,6 +31,7 @@ start_server {tags {"unixsocket external:skip"}} {
         assert_equal PONG [exec {*}[rediscli_unixsocket [srv unixsocket]] PING]
     }
 
+    if {!$::valgrind} {
     test {A stale Unix socket is replaced and accepts connections} {
         set stale_socket [file normalize [tmpfile stale.sock]]
 
@@ -51,6 +52,7 @@ start_server {tags {"unixsocket external:skip"}} {
         start_server [list overrides [list unixsocket $stale_socket]] {
             assert_equal PONG [exec {*}[rediscli_unixsocket $stale_socket] PING]
         }
+    }
     }
 }
 
