@@ -1767,7 +1767,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
     entrylen += encodedBacklen;
 
     /* make sure the entry doesn't reach outside the edge of the listpack */
-    if (OUT_OF_RANGE(p + entrylen))
+    if (unlikely(OUT_OF_RANGE(p + entrylen)))
         return 0;
 
     /* move to the next entry */
