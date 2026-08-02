@@ -625,14 +625,13 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 
     if (de) {
         list *clients = dictGetVal(de);
-        listNode *ln;
-        listIter li;
-        listRewind(clients,&li);
 
         /* Avoid processing more than the initial count so that we're not stuck
          * in an endless loop in case the reprocessing of the command blocks again. */
         long count = listLength(clients);
-        while ((ln = listNext(&li)) && count--) {
+        while (count--) {
+            listNode *ln = listFirst(clients);
+            if (ln == NULL) break;
             client *receiver = listNodeValue(ln);
             kvobj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
@@ -660,6 +659,12 @@ static void handleClientsBlockedOnKey(readyList *rl) {
                      * (RM_SignalKeyAsReady, key (re)creation, deletion/swap),
                      * not by plain writes to a pre-existing key. */
                     moduleUnblockClientOnKey(receiver, rl->key);
+            }
+            
+            /* If the client is still in the list, we need to rotate it to the tail
+             * to process the next client. */
+            if (listFirst(clients) == ln) {
+                listRotateHeadToTail(clients);
             }
         }
     }
