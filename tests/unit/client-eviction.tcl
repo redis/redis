@@ -265,7 +265,8 @@ start_server {} {
 
     test "client evicted due to output buf" {
         r flushdb
-        r setrange k 15000 v
+        r debug reply-copy-avoidance 0
+        r setrange k 200000 v
         set rr [redis_deferring_client]
         $rr client setname test_client
         $rr flush
@@ -273,7 +274,7 @@ start_server {} {
         # Attempt a large response under eviction limit
         $rr get k
         $rr flush
-        assert {[string length [$rr read]] == 15001}
+        assert {[string length [$rr read]] == 200001}
         set mem [client_field test_client tot-mem]
         assert {$mem < $maxmemory_clients}
 
@@ -291,6 +292,7 @@ start_server {} {
             }
         }
         $rr close
+        r debug reply-copy-avoidance 1
     }
 
     foreach {no_evict} {on off} {
