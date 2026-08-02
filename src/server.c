@@ -5201,8 +5201,8 @@ int finishShutdown(void) {
     /* Fire the shutdown modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_SHUTDOWN,0,NULL);
 
-    /* Free any keyspace value-MVCC snapshots the module left open, so their
-     * module-owned subvalues run through their free callbacks. */
+    /* Free any keyspace value-MVCC snapshots the module left open, so the leak
+     * checker sees a clean shutdown. */
     kvsnapshotFreeAll();
 
     /* Remove the pid file if possible and needed. */
@@ -6821,7 +6821,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
             "hash_template_keys:%zu\r\n", hashTemplateKeyCount(),
             "hash_snapshots_open:%d\r\n", server.snapshots_open,
-            "hash_snapshot_deltas:%lld\r\n", server.stat_snapshot_hash_deltas));
+            "hash_snapshot_deltas:%lld\r\n", server.stat_snapshot_hash_deltas,
+            "hash_snapshot_preserved_bytes:%lld\r\n", server.stat_snapshot_preserved_bytes,
+            "hash_snapshot_evicted_drops:%lld\r\n", server.stat_snapshot_evicted_drops));
         info = genRedisInfoStringACLStats(info);
         if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);

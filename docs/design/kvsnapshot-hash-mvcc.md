@@ -35,9 +35,10 @@ Four module functions (`src/module.c`, declared in `src/redismodule.h`):
 Snapshots are also reachable from a worker thread under the GIL
 (`RM_ThreadSafeContextLock`), which is the intended query-worker usage.
 
-Observability: `INFO` exposes `hash_snapshots_open` and `hash_snapshot_deltas`.
-`DEBUG KVSNAPSHOT {create|free|hget|len|stats}` drives the mechanism directly
-from tests without a module.
+Observability: `INFO` exposes `hash_snapshots_open`, `hash_snapshot_deltas`,
+`hash_snapshot_preserved_bytes` (chains plus frozen hashes) and
+`hash_snapshot_evicted_drops`. `DEBUG KVSNAPSHOT {create|free|hget|len|stats}`
+drives the mechanism directly from tests without a module.
 
 ## 3. Mechanism (shared, version-stamped store)
 
@@ -67,6 +68,9 @@ Key properties:
   ```c
   if (unlikely(server.snapshots_open)) snapshotHashCapture(db, o, field);
   ```
+  That gate is global, so `snapshotHashCapture()` re-checks a per-DB open-snapshot
+  count (`gSnapOpenDb`) inside the out-of-line function: a snapshot on one DB must
+  not make another DB's writes record chains nothing can resolve.
 - **Read resolves by epoch.** A read as-of a snapshot finds the first chain
   record with `epoch > base_epoch` (binary search). If none exists the field is
   unchanged since the snapshot and is read straight from the live hash.
@@ -108,9 +112,9 @@ typedef struct { snapHRec *r; int n, cap; } snapHChain;
 ```
 
 Statics: `gEpoch` (bumped per snapshot creation), `gHStore` (per-DB keystores,
-lazily allocated), `nextSnapshotId`, `inMaterialize` (re-entrancy guard so
-materialization does not re-enter capture). Open snapshots are tracked in
-`server.keyspace_snapshots`.
+lazily allocated), `gSnapOpenDb` (per-DB open-snapshot counts, the DB-scope gate),
+`nextSnapshotId`, `inMaterialize` (re-entrancy guard so materialization does not
+re-enter capture). Open snapshots are tracked in `server.keyspace_snapshots`.
 
 ## 6. Performance
 
@@ -121,6 +125,7 @@ materialization does not re-enter capture). Open snapshots are tracked in
 - **Memory:** proportional to the number of *distinct changed fields* since the
   oldest open snapshot, not to the number of snapshots. Whole-value reads
   additionally hold a materialized copy per read key for the snapshot's lifetime.
+  Both are counted in `hash_snapshot_preserved_bytes`.
 
 ## 7. Limitations / scope
 
@@ -128,8 +133,18 @@ materialization does not re-enter capture). Open snapshots are tracked in
   other types are out of scope for this change.
 - No cross-field / cross-key version journal: the per-field index is sufficient
   for point reads, whole-hash materialization, and reclamation.
-- `SWAPDB` swaps two DBs' contents wholesale without per-key removal, so it is not
-  currently reflected in open snapshots (out of scope; `DEL`/overwrite/flush are).
+- `SWAPDB` retargets open snapshots (`snapshotOnSwapDb`) so they follow the
+  keyspace they snapshotted to its new index. A diskless full-sync swap
+  (`swapMainDbWithTempDb`) discards that keyspace instead, so it invalidates every
+  open snapshot (`snapshotInvalidateAll`): reads return absent and the held memory
+  is released at once, without waiting for the module to free the handle.
+- A key **evicted** under `maxmemory` while a snapshot is open is dropped from the
+  snapshot rather than preserved, since preserving it would copy the value the
+  eviction is reclaiming. This holds whether or not the snapshot had already
+  materialized the key — an existing frozen copy is dropped too. The drop is
+  all-or-nothing (the pre-image chain goes with it, so a reader sees an absent key,
+  never a partial hash) and is counted in `hash_snapshot_evicted_drops`. Expiry
+  still preserves.
 - TTLs (both hash-field HFE and whole-key) are frozen as-of-V: a field or key
   alive at snapshot time stays readable regardless of how much wall-clock time
   later passes. All read paths use `ACCESS_EXPIRED` for this — captured

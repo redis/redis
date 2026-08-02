@@ -127,6 +127,49 @@ start_server {tags {"modules external:skip"}} {
         foreach sn $snaps { r debug kvsnapshot free $sn }
     }
 
+    test {hash snapshot: writes to a DB with no open snapshot are not captured} {
+        r flushall
+        r hset sc f1 a
+        set s [r debug kvsnapshot create]
+        set d0 [dict get [r debug kvsnapshot stats] hash_deltas]
+        set b0 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        r select 1
+        r hset other f1 a f2 b
+        r hset other f1 X
+        r hdel other f2
+        r del other
+        assert_equal $d0 [dict get [r debug kvsnapshot stats] hash_deltas]
+        assert_equal $b0 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        r flushdb
+        r select 9
+        r hset sc f1 X          ;# the in-scope DB still captures
+        assert {[dict get [r debug kvsnapshot stats] hash_deltas] > $d0}
+        assert_equal a [r debug kvsnapshot hget $s sc f1]
+        r debug kvsnapshot free $s
+    } {OK} {singledb:skip}
+
+    test {hash snapshot: preserved-bytes accounting grows and returns to zero} {
+        r flushall
+        assert_equal 0 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        set v [string repeat a 300]
+        r hset ab f1 $v f2 $v
+        set s1 [r debug kvsnapshot create]
+        r hset ab f1 [string repeat b 300]   ;# one pre-image chain record
+        set b1 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        assert {$b1 > 300}
+        set s2 [r debug kvsnapshot create]
+        r del ab                             ;# freezes a whole hash into both
+        set b2 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        assert {$b2 > $b1}
+        assert_equal $b2 [s hash_snapshot_preserved_bytes]
+        r debug kvsnapshot free $s1
+        set b3 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        assert {$b3 > 0 && $b3 < $b2}
+        r debug kvsnapshot free $s2
+        assert_equal 0 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        assert_equal 0 [s hash_snapshot_preserved_bytes]
+    }
+
     test {hash snapshot: FLUSHALL preserves as-of-V and clears stale store} {
         r flushall
         r hset fk a 1 b 2
@@ -144,6 +187,116 @@ start_server {tags {"modules external:skip"}} {
         assert_equal 100 [r hget fk a]
         r debug kvsnapshot free $s
     }
+
+    test {hash snapshot: evicted key is dropped entirely, never partially} {
+        r flushall
+        set big [string repeat x 4096]
+        r hset ev f1 $big f2 $big f3 $big
+        r expire ev 10000            ;# the only volatile key => the only evict candidate
+        set s [r debug kvsnapshot create]
+        r hset ev f1 [string repeat y 4096]   ;# delta chain for f1 ONLY
+        # Per-field reads only, so the key is never materialized; the already-frozen
+        # case is covered by the next test.
+        assert_equal $big [r debug kvsnapshot hget $s ev f1]
+        assert_equal $big [r debug kvsnapshot hget $s ev f2]
+        set drops0 [dict get [r debug kvsnapshot stats] evicted_drops]
+
+        # Eviction driver as in moduleapi/hooks.tcl.
+        set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
+        set old_policy [lindex [r config get maxmemory-policy] 1]
+        r config set maxmemory [expr {$used+100*1024}]
+        r config set maxmemory-policy volatile-random
+        r setbit big-key 1600000 0   ;# ~200kb, pushes past the cap
+        r getbit big-key 0           ;# this command triggers the eviction
+        r config set maxmemory-policy $old_policy
+        r config set maxmemory 0
+
+        assert_equal 0 [r exists ev]
+        assert_equal 1 [expr {[dict get [r debug kvsnapshot stats] evicted_drops] - $drops0}]
+        assert_equal {} [r debug kvsnapshot hget $s ev f1] ;# must NOT resurrect
+        assert_equal {} [r debug kvsnapshot hget $s ev f2]
+        assert_equal {} [r debug kvsnapshot hget $s ev f3]
+        assert_equal -1 [r debug kvsnapshot len $s ev]     ;# absent, not a short hash
+        r debug kvsnapshot free $s
+        r del big-key
+    } {1}
+
+    test {hash snapshot: eviction drops an already-materialized frozen copy} {
+        r flushall
+        set big [string repeat x 4096]
+        r hset mv f1 $big f2 $big f3 $big
+        r expire mv 10000
+        set s [r debug kvsnapshot create]
+        r hset mv f1 [string repeat y 4096]   ;# chain for f1
+        set b0 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        assert_equal 3 [r debug kvsnapshot len $s mv] ;# materializes into `preserved`
+        set b1 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        assert {$b1 > $b0}
+        set drops0 [dict get [r debug kvsnapshot stats] evicted_drops]
+
+        set used [expr {[s used_memory] - [s mem_not_counted_for_evict]}]
+        set old_policy [lindex [r config get maxmemory-policy] 1]
+        r config set maxmemory [expr {$used+100*1024}]
+        r config set maxmemory-policy volatile-random
+        r setbit big-key 1600000 0
+        r getbit big-key 0
+        r config set maxmemory-policy $old_policy
+        r config set maxmemory 0
+
+        assert_equal 0 [r exists mv]
+        assert_equal 1 [expr {[dict get [r debug kvsnapshot stats] evicted_drops] - $drops0}]
+        assert_equal -1 [r debug kvsnapshot len $s mv]     ;# frozen copy dropped too
+        assert_equal {} [r debug kvsnapshot hget $s mv f1] ;# must NOT resurrect
+        assert_equal {} [r debug kvsnapshot hget $s mv f2]
+        # The frozen copy AND the chain are both released, so this lands below $b0.
+        assert_equal 0 [dict get [r debug kvsnapshot stats] preserved_bytes]
+        r debug kvsnapshot free $s
+        r del big-key
+    } {1}
+
+    test {hash snapshot: SWAPDB retargets open snapshots to follow the keyspace} {
+        r flushall
+        r select 1
+        r hset sw f1 other1 f2 other2 f3 other3   ;# same key name, other keyspace
+        r select 9
+        r hset sw f1 a f2 b f3 c
+        set s [r debug kvsnapshot create]
+        r hset sw f1 X               ;# chain for f1 only
+        set d0 [dict get [r debug kvsnapshot stats] hash_deltas]
+
+        r swapdb 9 1                 ;# the snapshotted keyspace is now at index 1
+
+        assert_equal a [r debug kvsnapshot hget $s sw f1] ;# chain still resolves
+        assert_equal b [r debug kvsnapshot hget $s sw f2] ;# live fallback followed it
+        r select 1
+        r hset sw f3 Z               ;# writes there are still captured
+        assert {[dict get [r debug kvsnapshot stats] hash_deltas] > $d0}
+        assert_equal c [r debug kvsnapshot hget $s sw f3]
+        r del sw                     ;# and a DEL there still materializes
+        assert_equal b [r debug kvsnapshot hget $s sw f2]
+        assert_equal 3 [r debug kvsnapshot len $s sw]
+        r select 9
+        assert_equal other1 [r hget sw f1] ;# the swapped-in keyspace never bled through
+        r debug kvsnapshot free $s
+        r flushall
+    } {OK} {singledb:skip}
+
+    test {hash snapshot: an EXPIRED key is still preserved (only eviction is exempt)} {
+        r flushall
+        r hset xp f1 a f2 b
+        r pexpire xp 40
+        set s [r debug kvsnapshot create]
+        set drops0 [dict get [r debug kvsnapshot stats] evicted_drops]
+        wait_for_condition 50 20 {
+            [r dbsize] == 0
+        } else {
+            fail "key xp was not expired"
+        }
+        assert_equal a [r debug kvsnapshot hget $s xp f1]
+        assert_equal 2 [r debug kvsnapshot len $s xp]
+        assert_equal $drops0 [dict get [r debug kvsnapshot stats] evicted_drops]
+        r debug kvsnapshot free $s
+    } {OK}
 
     test {snapshot read from a background thread (no concurrent write)} {
         r del doc
@@ -164,5 +317,61 @@ start_server {tags {"modules external:skip"}} {
         assert_equal original [$rd read]   ;# the worker saw the pre-write value
         assert_equal changed [r hget doc f];# live reflects the write
         $rd close
+    }
+}
+
+# A diskless full-sync swap discards the snapshotted keyspace, so open snapshots
+# are invalidated rather than retargeted. Driven through DEBUG KVSNAPSHOT with no
+# module loaded: repl-diskless-load swapdb is disabled unless every loaded module
+# declares REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD.
+start_server {tags {"modules external:skip"}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test {hash snapshot: diskless full-sync swap invalidates open snapshots} {
+            $master config set repl-diskless-sync yes
+            $master config set repl-diskless-sync-delay 0
+            $replica config set repl-diskless-load swapdb
+            $master hset onmaster f1 m1
+
+            $replica hset local f1 a f2 b
+            set s [$replica debug kvsnapshot create]
+            $replica hset local f1 X    ;# chain for f1
+            assert_equal a [$replica debug kvsnapshot hget $s local f1]
+            assert_equal 2 [$replica debug kvsnapshot len $s local] ;# also freeze a copy
+            assert {[dict get [$replica debug kvsnapshot stats] preserved_bytes] > 0}
+            assert_equal 1 [dict get [$replica debug kvsnapshot stats] snapshots_open]
+
+            set loglines [count_log_lines -1]
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+            # Assert the swap path actually ran, so this can't pass vacuously.
+            wait_for_log_messages -1 {"*Swapping active DB with loaded DB*"} $loglines 50 100
+
+            assert_equal 0 [$replica exists local]
+            assert_equal m1 [$replica hget onmaster f1]
+            # Invalidated: reads are absent, held memory released, write gate at zero.
+            assert_equal {} [$replica debug kvsnapshot hget $s local f1]
+            assert_equal -1 [$replica debug kvsnapshot len $s local]
+            assert_equal 0 [dict get [$replica debug kvsnapshot stats] preserved_bytes]
+            assert_equal 0 [dict get [$replica debug kvsnapshot stats] snapshots_open]
+
+            # A second swap must not decrement the already-invalid snapshot again.
+            set loglines [count_log_lines -1]
+            $replica replicaof no one
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+            wait_for_log_messages -1 {"*Swapping active DB with loaded DB*"} $loglines 50 100
+            assert_equal 0 [dict get [$replica debug kvsnapshot stats] snapshots_open]
+            # Nor may freeing an already-invalidated snapshot.
+            $replica debug kvsnapshot free $s
+            assert_equal 0 [dict get [$replica debug kvsnapshot stats] snapshots_open]
+            $replica replicaof no one
+        } {OK}
     }
 }

@@ -39,6 +39,7 @@
 struct keyspaceSnapshot {
     uint64_t id;         /* handle for the DEBUG command */
     int dbid;            /* the DB this snapshot is for */
+    int invalid;         /* snapshotted keyspace was discarded; all reads are absent */
     uint64_t base_epoch; /* reads resolve chain records with epoch > base_epoch */
     dict *preserved;     /* keyname(sds, borrowed from kvobj) -> frozen as-of-V hash
                             kvobj, materialized on whole-key delete/overwrite. */
@@ -54,27 +55,53 @@ typedef struct { snapHRec *r; int n, cap; } snapHChain;
 
 static uint64_t gEpoch = 1;    /* bumped at each snapshot creation */
 static dict **gHStore = NULL;  /* [server.dbnum] keystore dicts, lazily created */
+static int *gSnapOpenDb = NULL; /* [server.dbnum] open snapshots per DB */
 static uint64_t nextSnapshotId = 1;
 static int inMaterialize = 0;  /* guard: materialization must not re-enter capture */
 
+/* Bytes held by chains, store names and frozen kvobjs. Added at the allocation
+ * site, subtracted in the dict destructors (plus the trim in hstoreReclaim). */
+static void snapBytesAdd(size_t n) { server.stat_snapshot_preserved_bytes += (long long) n; }
+static void snapBytesSub(size_t n) {
+    server.stat_snapshot_preserved_bytes -= (long long) n;
+    debugServerAssert(server.stat_snapshot_preserved_bytes >= 0);
+}
+
+static size_t snapHChainBytes(snapHChain *c) {
+    size_t sz = zmalloc_usable_size(c);
+    if (c->r) sz += zmalloc_usable_size(c->r);
+    for (int i = 0; i < c->n; i++) if (c->r[i].old) sz += sdsAllocSize(c->r[i].old);
+    return sz;
+}
+
 static void snapHChainFree(snapHChain *c) {
+    snapBytesSub(snapHChainBytes(c));
     for (int i = 0; i < c->n; i++) if (c->r[i].old) sdsfree(c->r[i].old);
     zfree(c->r); zfree(c);
 }
+static void hstoreNameDtor(dict *d, void *name) { UNUSED(d); snapBytesSub(sdsAllocSize(name)); sdsfree(name); }
+static sds hstoreNameDup(sds name) { sds s = sdsdup(name); snapBytesAdd(sdsAllocSize(s)); return s; }
+
 static void hstoreFieldDtor(dict *d, void *v) { UNUSED(d); snapHChainFree(v); }
 static dictType hstoreFieldDictType = {
     .hashFunction = dictSdsHash, .keyCompare = dictSdsKeyCompare,
-    .keyDestructor = dictSdsDestructor, .valDestructor = hstoreFieldDtor,
+    .keyDestructor = hstoreNameDtor, .valDestructor = hstoreFieldDtor,
 };
 static void hstoreKeyDtor(dict *d, void *v) { UNUSED(d); dictRelease(v); }
 static dictType hstoreKeyDictType = {
     .hashFunction = dictSdsHash, .keyCompare = dictSdsKeyCompare,
-    .keyDestructor = dictSdsDestructor, .valDestructor = hstoreKeyDtor,
+    .keyDestructor = hstoreNameDtor, .valDestructor = hstoreKeyDtor,
 };
 
 /* preserved dict: key is the sds embedded in the frozen kvobj (borrowed); the
- * entry holds a reference on the kvobj and drops it on removal. */
-static void preservedValDtor(dict *d, void *v) { UNUSED(d); if (v) decrRefCount(v); }
+ * entry holds a reference on the kvobj and drops it on removal. Frozen kvobjs are
+ * never mutated, so kvobjAllocSize() here matches the size accounted on add. */
+static void preservedValDtor(dict *d, void *v) {
+    UNUSED(d);
+    if (!v) return;
+    snapBytesSub(kvobjAllocSize(v));
+    decrRefCount(v);
+}
 static dictType preservedDictType = {
     .hashFunction = dictSdsHash, .keyCompare = dictSdsKeyCompare,
     .keyDestructor = NULL, .valDestructor = preservedValDtor,
@@ -94,8 +121,11 @@ static dict *hstoreFields(int dbid, sds keyname) {
 }
 static void snapHChainPush(snapHChain *c, uint64_t epoch, sds old) {
     if (c->n == c->cap) { c->cap = c->cap ? c->cap * 2 : 2;
-        c->r = zrealloc(c->r, c->cap * sizeof(snapHRec)); }
+        size_t was = c->r ? zmalloc_usable_size(c->r) : 0;
+        c->r = zrealloc(c->r, c->cap * sizeof(snapHRec));
+        snapBytesAdd(zmalloc_usable_size(c->r) - was); }
     c->r[c->n].epoch = epoch; c->r[c->n].old = old; c->n++;
+    if (old) snapBytesAdd(sdsAllocSize(old));
 }
 /* First record with epoch > base (records are epoch-ascending), or NULL. */
 static snapHRec *snapHChainResolve(snapHChain *c, uint64_t base) {
@@ -110,18 +140,23 @@ void kvsnapshotInit(void) {
     server.keyspace_snapshots = listCreate();
     server.snapshots_open = 0;
     server.stat_snapshot_hash_deltas = 0;
+    server.stat_snapshot_preserved_bytes = 0;
+    server.stat_snapshot_evicted_drops = 0;
     gEpoch = 1; gHStore = NULL; nextSnapshotId = 1;
+    gSnapOpenDb = zcalloc(sizeof(int) * server.dbnum);
 }
 
 keyspaceSnapshot *kvSnapshotCreate(int dbid) {
     keyspaceSnapshot *s = zmalloc(sizeof(*s));
     s->id = nextSnapshotId++;
     s->dbid = dbid;
+    s->invalid = 0;
     s->base_epoch = gEpoch;   /* records with epoch > base_epoch are as-of-V */
     gEpoch++;                 /* separate this baseline from later writes */
     s->preserved = dictCreate(&preservedDictType);
     listAddNodeTail(server.keyspace_snapshots, s);
     server.snapshots_open++;
+    gSnapOpenDb[dbid]++;
     return s;
 }
 
@@ -132,6 +167,7 @@ static void hstoreReclaim(void) {
     uint64_t wm = gEpoch; /* no open snapshot => drop everything */
     listIter li; listNode *ln; listRewind(server.keyspace_snapshots, &li);
     while ((ln = listNext(&li))) { keyspaceSnapshot *x = listNodeValue(ln);
+        if (x->invalid) continue;   /* can resolve nothing, must not hold the watermark */
         if (x->base_epoch < wm) wm = x->base_epoch; }
     for (int db = 0; db < server.dbnum; db++) {
         if (!gHStore[db]) continue;
@@ -145,7 +181,8 @@ static void hstoreReclaim(void) {
                 for (int i = 0; i < c->n; i++) if (c->r[i].epoch > wm) { keep = i; break; }
                 if (keep == c->n) dictDelete(fs, dictGetKey(fe));
                 else if (keep > 0) {
-                    for (int i = 0; i < keep; i++) if (c->r[i].old) sdsfree(c->r[i].old);
+                    for (int i = 0; i < keep; i++) if (c->r[i].old) {
+                        snapBytesSub(sdsAllocSize(c->r[i].old)); sdsfree(c->r[i].old); }
                     memmove(c->r, c->r + keep, (c->n - keep) * sizeof(snapHRec));
                     c->n -= keep;
                 }
@@ -158,12 +195,44 @@ static void hstoreReclaim(void) {
 }
 
 void kvSnapshotFree(keyspaceSnapshot *s) {
+    int dbid = s->dbid, invalid = s->invalid;
     listNode *ln = listSearchKey(server.keyspace_snapshots, s);
     if (ln) listDelNode(server.keyspace_snapshots, ln);
     dictRelease(s->preserved);
     zfree(s);
-    server.snapshots_open--;
+    /* An invalidated snapshot already gave up its counts at invalidation time. */
+    if (!invalid) { server.snapshots_open--; gSnapOpenDb[dbid]--; }
     hstoreReclaim();
+}
+
+/* SWAPDB moved a keyspace to another index, so the snapshots of its values follow
+ * it. Unconditional: a few assignments and a short walk on a cold admin path. */
+void snapshotOnSwapDb(int id1, int id2) {
+    if (gHStore) { dict *t = gHStore[id1]; gHStore[id1] = gHStore[id2]; gHStore[id2] = t; }
+    int t = gSnapOpenDb[id1]; gSnapOpenDb[id1] = gSnapOpenDb[id2]; gSnapOpenDb[id2] = t;
+    listIter li; listNode *ln; listRewind(server.keyspace_snapshots, &li);
+    while ((ln = listNext(&li))) {
+        keyspaceSnapshot *s = listNodeValue(ln);
+        if (s->dbid == id1) s->dbid = id2;
+        else if (s->dbid == id2) s->dbid = id1;
+    }
+}
+
+/* A diskless full-sync swap discards the snapshotted keyspace entirely, so there
+ * is nothing to retarget to: mark every open snapshot invalid (its reads become
+ * absent) and release what it holds now rather than at the module's leisure. */
+void snapshotInvalidateAll(void) {
+    listIter li; listNode *ln; listRewind(server.keyspace_snapshots, &li);
+    while ((ln = listNext(&li))) {
+        keyspaceSnapshot *s = listNodeValue(ln);
+        if (s->invalid) continue;
+        s->invalid = 1;
+        dictEmpty(s->preserved, NULL);
+        server.snapshots_open--;
+        gSnapOpenDb[s->dbid]--;
+    }
+    if (gHStore) for (int i = 0; i < server.dbnum; i++)
+        if (gHStore[i]) { dictRelease(gHStore[i]); gHStore[i] = NULL; }
 }
 
 /* Free every still-open snapshot (graceful shutdown; leak-checker clean). */
@@ -181,10 +250,11 @@ void kvsnapshotFreeAll(void) {
 void snapshotHashCapture(redisDb *db, kvobj *o, sds field) {
     if (inMaterialize) return;
     if (server.snapshots_open == 0) return;      /* zero cost when idle */
+    if (gSnapOpenDb[db->id] == 0) return;        /* the gate above is not per-DB */
     sds keyname = kvobjGetKey(o);
     dict *ks = hstoreDb(db->id);
     dict *fs = dictFetchValue(ks, keyname);
-    if (!fs) { fs = dictCreate(&hstoreFieldDictType); dictAdd(ks, sdsdup(keyname), fs); }
+    if (!fs) { fs = dictCreate(&hstoreFieldDictType); dictAdd(ks, hstoreNameDup(keyname), fs); }
     snapHChain *c = dictFetchValue(fs, field);
     if (c && c->n && c->r[c->n-1].epoch == gEpoch) return; /* already captured this epoch */
     robj *oldval = NULL;
@@ -196,24 +266,40 @@ void snapshotHashCapture(redisDb *db, kvobj *o, sds field) {
     sds old = NULL;
     if (oldval) { robj *dec = getDecodedObject(oldval);
         old = sdsdup(dec->ptr); decrRefCount(dec); decrRefCount(oldval); }
-    if (!c) { c = zcalloc(sizeof(*c)); dictAdd(fs, sdsdup(field), c); }
+    if (!c) { c = zcalloc(sizeof(*c)); snapBytesAdd(zmalloc_usable_size(c));
+              dictAdd(fs, hstoreNameDup(field), c); }
     snapHChainPush(c, gEpoch, old);   /* old==NULL => tombstone */
     server.stat_snapshot_hash_deltas++;
 }
 
 /* Called from dbGenericDelete / dbSetValue before a HASH key's value is freed or
  * replaced wholesale: materialize the as-of-V hash into every open snapshot in
- * scope so untouched fields (only in `kv`) survive, then drop the shared entry. */
-void snapshotHashPreserveOnRemove(redisDb *db, robj *key, kvobj *kv) {
+ * scope so untouched fields (only in `kv`) survive, then drop the shared entry.
+ * A key evicted (DB_FLAG_KEY_EVICTED) while a snapshot is open is absent as-of-V,
+ * full stop: it is dropped from the snapshots instead of preserved, and an
+ * already-frozen copy is dropped too, so eviction actually frees memory. */
+void snapshotHashPreserveOnRemove(redisDb *db, robj *key, kvobj *kv, int flags) {
     if (kv->type != OBJ_HASH) return;
     sds keyname = key->ptr;
-    listIter li; listNode *ln; listRewind(server.keyspace_snapshots, &li);
-    while ((ln = listNext(&li))) {
-        keyspaceSnapshot *s = listNodeValue(ln);
-        if (s->dbid != db->id) continue;
-        if (dictFind(s->preserved, keyname) != NULL) continue; /* already frozen */
-        snapshotMaterializeHash(s, key, kv);
+    int preserve = !(flags & DB_FLAG_KEY_EVICTED);
+
+    if (gSnapOpenDb[db->id]) {
+        int dropped = 0;
+        listIter li; listNode *ln; listRewind(server.keyspace_snapshots, &li);
+        while ((ln = listNext(&li))) {
+            keyspaceSnapshot *s = listNodeValue(ln);
+            if (s->invalid || s->dbid != db->id) continue;
+            if (!preserve) {
+                dictDelete(s->preserved, keyname);  /* dtor drops the bytes */
+                dropped = 1;
+            } else if (dictFind(s->preserved, keyname) == NULL) {
+                snapshotMaterializeHash(s, key, kv);
+            }
+        }
+        if (dropped) server.stat_snapshot_evicted_drops++;
     }
+
+    /* Runs on the evict path too, so a dropped key never reads back as a partial hash. */
     if (gHStore && gHStore[db->id]) dictDelete(gHStore[db->id], keyname);
 }
 
@@ -226,13 +312,8 @@ void snapshotHashPreserveOnFlush(redisDb *db) {
     if (server.snapshots_open == 0) return;      /* zero cost when idle */
 
     /* Only iterate the keyspace if some open snapshot targets this DB. */
-    int inScope = 0;
-    listIter li; listNode *ln; listRewind(server.keyspace_snapshots, &li);
-    while ((ln = listNext(&li))) {
-        if (((keyspaceSnapshot *) listNodeValue(ln))->dbid == db->id) { inScope = 1; break; }
-    }
-
-    if (inScope) {
+    if (gSnapOpenDb[db->id]) {
+        listIter li; listNode *ln;
         kvstoreIterator kvs_it;
         kvstoreIteratorInit(&kvs_it, db->keys);
         dictEntry *de;
@@ -244,7 +325,7 @@ void snapshotHashPreserveOnFlush(redisDb *db) {
             listRewind(server.keyspace_snapshots, &li);
             while ((ln = listNext(&li))) {
                 keyspaceSnapshot *s = listNodeValue(ln);
-                if (s->dbid != db->id) continue;
+                if (s->invalid || s->dbid != db->id) continue;
                 if (dictFind(s->preserved, keyname) != NULL) continue; /* already frozen */
                 snapshotMaterializeHash(s, keyobj, kv);
             }
@@ -282,6 +363,7 @@ static kvobj *snapshotMaterializeHash(keyspaceSnapshot *s, robj *key, kvobj *liv
     kvobj *frozen = kvobjSet(key->ptr, h, 0);
     incrRefCount(frozen);
     dictAdd(s->preserved, kvobjGetKey(frozen), frozen);
+    snapBytesAdd(kvobjAllocSize(frozen));
     decrRefCount(frozen);
     return dictFetchValue(s->preserved, key->ptr);
 }
@@ -289,6 +371,7 @@ static kvobj *snapshotMaterializeHash(keyspaceSnapshot *s, robj *key, kvobj *liv
 /* Read one hash field as-of the snapshot. Returns a new robj (caller frees), or
  * NULL if the field is absent as-of-V. No whole-hash materialize on this path. */
 robj *kvSnapshotHashField(keyspaceSnapshot *s, robj *key, sds field) {
+    if (s->invalid) return NULL;
     redisDb *db = &server.db[s->dbid];
     robj *val = NULL;
     kvobj *frozen = dictFetchValue(s->preserved, key->ptr);
@@ -331,6 +414,7 @@ robj *kvSnapshotHashField(keyspaceSnapshot *s, robj *key, sds field) {
  * `preserved`, materializing on first access if the key has recorded changes),
  * else the live value. Non-hash keys fall through to live (the caller rejects). */
 kvobj *kvSnapshotView(keyspaceSnapshot *s, robj *keyobj) {
+    if (s->invalid) return NULL;
     kvobj *o = dictFetchValue(s->preserved, keyobj->ptr);
     if (o) return o;
     redisDb *db = &server.db[s->dbid];
@@ -371,10 +455,12 @@ void debugKvSnapshotCommand(client *c) {
         kvobj *o = kvSnapshotView(s, c->argv[4]);
         addReplyLongLong(c, (!o || o->type != OBJ_HASH) ? -1 : (long long)getObjectLength(o));
     } else if (c->argc == 3 && !strcasecmp(c->argv[2]->ptr, "stats")) {
-        addReplyMapLen(c, 3);
-        addReplyBulkCString(c, "epoch");          addReplyLongLong(c, (long long)gEpoch);
+        addReplyMapLen(c, 5);
+        addReplyBulkCString(c, "epoch");           addReplyLongLong(c, (long long)gEpoch);
         addReplyBulkCString(c, "snapshots_open");  addReplyLongLong(c, server.snapshots_open);
         addReplyBulkCString(c, "hash_deltas");     addReplyLongLong(c, server.stat_snapshot_hash_deltas);
+        addReplyBulkCString(c, "preserved_bytes"); addReplyLongLong(c, server.stat_snapshot_preserved_bytes);
+        addReplyBulkCString(c, "evicted_drops");   addReplyLongLong(c, server.stat_snapshot_evicted_drops);
     } else {
         addReplySubcommandSyntaxError(c);
     }

@@ -589,7 +589,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     /* Hash snapshots: a HASH value about to be replaced wholesale is materialized
      * into open snapshots before it's freed (no-op for non-hash types). */
     if (unlikely(server.snapshots_open))
-        snapshotHashPreserveOnRemove(db, key, old);
+        snapshotHashPreserveOnRemove(db, key, old, DB_FLAG_KEY_OVERWRITE);
 
     int64_t oldlen = (int64_t) getObjectLength(old);
     int oldtype = old->type;
@@ -884,9 +884,9 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         kv = dictGetKV(*link);
 
         /* Hash snapshots: materialize the as-of-snapshot HASH into open snapshots
-         * before it is freed (DEL/UNLINK/expiry/eviction); no-op for non-hash. */
+         * before it is freed (DEL/UNLINK/expiry); no-op for non-hash. */
         if (unlikely(server.snapshots_open))
-            snapshotHashPreserveOnRemove(db, key, kv);
+            snapshotHashPreserveOnRemove(db, key, kv, flags);
 
         /* if expirable, delete an entry from the expires dict is not decrRefCount of kvobj */
         if (kvobjGetExpire(kv) != -1)
@@ -2646,6 +2646,9 @@ int dbSwapDatabases(int id1, int id2) {
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
 
+    /* Hash snapshots are of values, so retarget them to follow their keyspace. */
+    snapshotOnSwapDb(id1, id2);
+
     /* Now we need to handle clients blocked on lists: as an effect
      * of swapping the two DBs, a client that was waiting for list
      * X in a given DB, may now actually be unblocked if X happens
@@ -2664,6 +2667,9 @@ int dbSwapDatabases(int id1, int id2) {
  * database (temp) as the main (active) database, the actual freeing of old database
  * (which will now be placed in the temp one) is done later. */
 void swapMainDbWithTempDb(redisDb *tempDb) {
+    /* The snapshotted keyspace is discarded here, so it cannot be retargeted. */
+    snapshotInvalidateAll();
+
     for (int i=0; i<server.dbnum; i++) {
         redisDb aux = server.db[i];
         redisDb *activedb = &server.db[i], *newdb = &tempDb[i];

@@ -2363,6 +2363,8 @@ struct redisServer {
     /* Keyspace value-MVCC snapshots. See src/kvsnapshot.c */
     int snapshots_open;             /* # of open hash snapshots (write-path gate) */
     long long stat_snapshot_hash_deltas; /* # of hash field pre-images recorded */
+    long long stat_snapshot_preserved_bytes; /* Bytes held by chains + frozen kvobjs */
+    long long stat_snapshot_evicted_drops;   /* # of keys dropped on eviction */
     list *keyspace_snapshots;       /* Open keyspaceSnapshot objects */
 
     /* RDB persistence */
@@ -4290,8 +4292,10 @@ void kvsnapshotFreeAll(void);
 keyspaceSnapshot *kvSnapshotCreate(int dbid);
 void kvSnapshotFree(keyspaceSnapshot *s);
 void snapshotHashCapture(redisDb *db, kvobj *o, sds field);
-void snapshotHashPreserveOnRemove(redisDb *db, robj *key, kvobj *kv);
+void snapshotHashPreserveOnRemove(redisDb *db, robj *key, kvobj *kv, int flags);
 void snapshotHashPreserveOnFlush(redisDb *db);
+void snapshotOnSwapDb(int id1, int id2);
+void snapshotInvalidateAll(void);
 robj *kvSnapshotHashField(keyspaceSnapshot *s, robj *key, sds field);
 kvobj *kvSnapshotView(keyspaceSnapshot *s, robj *keyobj);
 void debugKvSnapshotCommand(client *c);
