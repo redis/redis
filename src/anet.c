@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stddef.h>
 
 #include "anet.h"
 #include "config.h"
@@ -471,6 +472,54 @@ int anetTcpNonBlockBestEffortBindConnect(char *err, const char *addr, int port,
             ANET_CONNECT_NONBLOCK|ANET_CONNECT_BE_BINDING);
 }
 
+/* Fill in a sockaddr_un for `path` and return the address length to use with
+ * bind()/connect(). On Linux, a leading '@' maps to the abstract socket
+ * namespace, following the convention established by socat and systemd:
+ * sun_path[0] becomes a NUL byte and the returned length covers EXACTLY the
+ * NUL plus the name. The exact length matters: for pathname sockets trailing
+ * padding is ignored, but for abstract sockets every byte up to the given
+ * length is part of the name, so passing sizeof(sa) would quietly create or
+ * dial a different (NUL-padded) name. */
+/* Is `path` an abstract-namespace name? Only ever true on Linux: elsewhere '@' is an ordinary
+ * pathname byte and must keep behaving like one (including unlink/chmod lifecycle). */
+static int anetUnixIsAbstract(const char *path) {
+#ifdef __linux__
+    return path[0] == '@';
+#else
+    (void)path;
+    return 0;
+#endif
+}
+
+/* Returns 0 (with err set) if the name does not fit -- the caller must fail the operation. This is the
+ * SINGLE length authority: the two forms have different budgets (an abstract name spends one sun_path
+ * byte on the leading NUL but none on the '@', and needs no trailing NUL; a pathname needs its
+ * terminator), so any '@'-inclusive check in a caller is wrong for one form or the other. The bound
+ * matters most on the CONNECT path, which historically relied on strlcpy's implicit truncation and so
+ * never length-checked; an unchecked memcpy here would be a stack buffer overflow on an oversized
+ * name. */
+static socklen_t anetUnixAddr(char *err, struct sockaddr_un *sa, const char *path) {
+    memset(sa,0,sizeof(*sa));
+    sa->sun_family = AF_LOCAL;
+    if (anetUnixIsAbstract(path)) {
+        size_t namelen = strlen(path+1);
+        if (namelen > sizeof(sa->sun_path)-1) {
+            anetSetError(err,"abstract socket name too long (%zu), must be at most %zu",
+                namelen, sizeof(sa->sun_path)-1);
+            return 0;
+        }
+        memcpy(sa->sun_path+1,path+1,namelen);
+        return offsetof(struct sockaddr_un,sun_path) + 1 + namelen;
+    }
+    if (strlen(path) > sizeof(sa->sun_path)-1) {
+        anetSetError(err,"unix socket path too long (%zu), must be under %zu",
+            strlen(path), sizeof(sa->sun_path));
+        return 0;
+    }
+    redis_strlcpy(sa->sun_path,path,sizeof(sa->sun_path));
+    return sizeof(*sa);
+}
+
 int anetUnixGenericConnect(char *err, const char *path, int flags)
 {
     int s;
@@ -479,15 +528,18 @@ int anetUnixGenericConnect(char *err, const char *path, int flags)
     if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
         return ANET_ERR;
 
-    sa.sun_family = AF_LOCAL;
-    redis_strlcpy(sa.sun_path,path,sizeof(sa.sun_path));
+    socklen_t len = anetUnixAddr(err,&sa,path);
+    if (len == 0) {
+        close(s);
+        return ANET_ERR;
+    }
     if (flags & ANET_CONNECT_NONBLOCK) {
         if (anetNonBlock(err,s) != ANET_OK) {
             close(s);
             return ANET_ERR;
         }
     }
-    if (connect(s,(struct sockaddr*)&sa,sizeof(sa)) == -1) {
+    if (connect(s,(struct sockaddr*)&sa,len) == -1) {
         if (errno == EINPROGRESS &&
             flags & ANET_CONNECT_NONBLOCK)
             return s;
@@ -512,7 +564,10 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len, int 
         return ANET_ERR;
     }
 
-    if (sa->sa_family == AF_LOCAL && perm)
+    /* Abstract-namespace sockets (sun_path[0] == NUL) have no filesystem
+     * presence, so there is nothing to chmod and permissions do not apply. */
+    if (sa->sa_family == AF_LOCAL && perm &&
+        ((struct sockaddr_un *) sa)->sun_path[0] != '\0')
         chmod(((struct sockaddr_un *) sa)->sun_path, perm);
 
     if (listen(s, backlog) == -1) {
@@ -587,19 +642,18 @@ int anetTcp6Server(char *err, int port, char *bindaddr, int backlog)
 int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
 {
     int s;
+    socklen_t len;
     struct sockaddr_un sa;
 
-    if (strlen(path) > sizeof(sa.sun_path)-1) {
-        anetSetError(err,"unix socket path too long (%zu), must be under %zu", strlen(path), sizeof(sa.sun_path));
-        return ANET_ERR;
-    }
     if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
         return ANET_ERR;
 
-    memset(&sa,0,sizeof(sa));
-    sa.sun_family = AF_LOCAL;
-    redis_strlcpy(sa.sun_path,path,sizeof(sa.sun_path));
-    if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa),backlog,perm) == ANET_ERR)
+    len = anetUnixAddr(err,&sa,path);
+    if (len == 0) {
+        close(s);
+        return ANET_ERR;
+    }
+    if (anetListen(err,s,(struct sockaddr*)&sa,len,backlog,perm) == ANET_ERR)
         return ANET_ERR;
     return s;
 }

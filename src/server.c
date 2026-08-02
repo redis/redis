@@ -4958,7 +4958,11 @@ void closeListeningSockets(int unlink_unix_socket) {
 
     if (server.cluster_enabled)
         for (j = 0; j < server.clistener.count; j++) close(server.clistener.fd[j]);
-    if (unlink_unix_socket && server.unixsocket) {
+    int unixsocket_abstract = 0;
+#ifdef __linux__
+    unixsocket_abstract = server.unixsocket && server.unixsocket[0] == '@';
+#endif
+    if (unlink_unix_socket && server.unixsocket && !unixsocket_abstract) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         if (unlink(server.unixsocket) != 0)
             serverLog(LL_WARNING,"Error removing the unix socket file: %s",strerror(errno));

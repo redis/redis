@@ -484,3 +484,31 @@ test {Pending command pool expansion and shrinking} {
         $rd2 close
     }
 }
+
+# Abstract-namespace Unix sockets are Linux-only ('@' prefix; see anetUnixAddr).
+if {[get_system_name] eq "linux"} {
+    test {Abstract Unix socket (@name) accepts connections and has no filesystem presence} {
+        set abs_name "@redis-test-abs-[pid]"
+        start_server [list overrides [list unixsocket $abs_name] tags {"unixsocket external:skip"}] {
+            assert_equal PONG [exec {*}[rediscli_unixsocket $abs_name] PING]
+            # The whole point of the abstract namespace: nothing on the filesystem, nothing to clean up.
+            assert_equal 0 [file exists $abs_name]
+        }
+    }
+
+    test {A second server does not replace an active abstract socket} {
+        set abs_name "@redis-test-abs2-[pid]"
+        start_server [list overrides [list unixsocket $abs_name] tags {"unixsocket external:skip"}] {
+            set second_port [find_available_port $::baseport $::portcount]
+            assert_equal 1 [catch {
+                exec src/redis-server [srv config_file] \
+                    --port $second_port --tls-port 0 \
+                    --unixsocket $abs_name
+            } second_error]
+            assert_match {*Unix socket * is already in use*} $second_error
+
+            # The failed second startup must not disturb the original listener.
+            assert_equal PONG [exec {*}[rediscli_unixsocket $abs_name] PING]
+        }
+    }
+}
