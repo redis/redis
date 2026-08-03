@@ -5114,7 +5114,7 @@ void xdelexCommand(client *c) {
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XDELEX_NO_ID;
-        int id_modified = 0;
+        int modified = 0;
         streamID *id = &ids[j];
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
@@ -5125,7 +5125,7 @@ void xdelexCommand(client *c) {
             if (streamEntryIsReferenced(s, id))
                 can_delete = 0;
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
-            id_modified = streamCleanupEntryCGroupRefs(s, id);
+            modified = streamCleanupEntryCGroupRefs(s, id);
         }
 
         if (can_delete) { /* can_delete being true doesn't guarantee the ID exists */
@@ -5140,7 +5140,7 @@ void xdelexCommand(client *c) {
                     s->max_deleted_entry_id = *id;
                 }
                 deleted++;
-                id_modified = 1;
+                modified = 1;
                 res = XDELEX_DELETED;
             } else {
                 /* This id doesn't exist. */
@@ -5149,14 +5149,14 @@ void xdelexCommand(client *c) {
             res = XDELEX_STILL_REFERENCED;
         }
 
-        if (id_modified)
-            server.dirty++;
+        if (modified) server.dirty++;
         addReplyLongLong(c, res);
     }
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
 
+    /* Update the stream's first ID. */
     if (deleted) {
         if (s->length == 0) {
             s->first_id.ms = 0;
@@ -5165,6 +5165,7 @@ void xdelexCommand(client *c) {
             streamGetEdgeID(s,1,1,&s->first_id);
         }
 
+        /* Propagate the write. */
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
     } else if (server.dirty > dirty) {
