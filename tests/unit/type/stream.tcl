@@ -3882,7 +3882,10 @@ start_server {tags {"stream"}} {
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
         # Verify the message was removed from both groups' PELs when with DELREF
+        set dirty [s rdb_changes_since_last_save]
         assert_equal {1 1} [r XDELEX mystream DELREF IDS 2 1-0 2-0]
+        # Count each ID once even though both its PEL references and stream entry are removed.
+        assert_equal [expr {$dirty + 2}] [s rdb_changes_since_last_save]
         assert_equal 0 [r XLEN mystream] 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
         assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
