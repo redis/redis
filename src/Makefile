@@ -37,7 +37,7 @@ endif
 ifneq ($(OPTIMIZATION),-O0)
 	OPTIMIZATION+=-fno-omit-frame-pointer
 endif
-DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv xxhash tre
+DEPENDENCY_TARGETS=hiredis linenoise lua hdr_histogram fpconv xxhash tre croaring
 NODEPS:=clean distclean
 
 # Default settings
@@ -444,7 +444,6 @@ persist-settings: distclean
 	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
 	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
 	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS) ENABLE_LTO="$(ENABLE_LTO)")
-	-(cd ../deps && $(MAKE) croaring ENABLE_LTO=)
 
 .PHONY: persist-settings
 
