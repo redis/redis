@@ -1001,10 +1001,15 @@ static int bitmapResolveRoaringTarget(client *c, kvobj *o, uint64_t maxbit,
     *created = 0;
     *converted = 0;
 
-    int is_roaring = o != NULL && o->type == OBJ_BITMAP;
-    int default_roaring = !is_roaring && bitmapDefaultRoaringEnabled(c) &&
-                         (o == NULL || o->type == OBJ_STRING);
-    if (!is_roaring && !default_roaring) return C_OK;
+    int is_roaring = (o != NULL && o->type == OBJ_BITMAP);
+    if (!is_roaring) {
+        /* Only missing keys or existing strings can transition to Roaring,
+         * and only when bitmap-default-roaring is on (never on a replica/AOF).
+         * Any other case (other types, feature off) stays on the string path,
+         * which also handles the WRONGTYPE reply. */
+        int can_default = bitmapDefaultRoaringEnabled(c) && (o == NULL || o->type == OBJ_STRING);
+        if (!can_default) return C_OK;
+    }
 
     /* Parsing already enforced proto-max-bulk-len. Keep writes inside the
      * internal range used by bitmap length arithmetic as well. */
