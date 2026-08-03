@@ -265,6 +265,7 @@ start_server {} {
 
     test "client evicted due to output buf" {
         r flushdb
+        r debug reply-copy-avoidance 0
         r setrange k 200000 v
         set rr [redis_deferring_client]
         $rr client setname test_client
@@ -291,7 +292,8 @@ start_server {} {
             }
         }
         $rr close
-    }
+        r debug reply-copy-avoidance 1
+    } {OK} {needs:debug}
 
     foreach {no_evict} {on off} {
         test "client no-evict $no_evict" {
