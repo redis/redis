@@ -138,7 +138,7 @@ EbucketsType hashFieldExpireBucketsType = {
 
 /* OnFieldExpireCtx passed to OnFieldExpire() */
 typedef struct OnFieldExpireCtx {
-    robj *hashObj;
+    kvobj *hashObj;
     redisDb *db;
     int activeEx; /* 1 for active expire, 0 for lazy expire */
     vec *vexpired; /* Expired fields vector */
@@ -207,7 +207,8 @@ typedef struct HashTypeSetEx {
     /*** metadata ***/
     uint64_t minExpire;                 /* if uninit EB_EXPIRE_TIME_INVALID */
     redisDb *db;
-    robj *key, *hashObj;
+    robj *key;
+    kvobj *hashObj;
     uint64_t minExpireFields;           /* Trace updated fields and their previous/new
                                          * minimum expiration time. If minimum recorded
                                          * is above minExpire of the hash, then we don't
@@ -3056,9 +3057,12 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         listpackEx *lpt = o->ptr;
 
         if (db && lpt->meta.trash != 1) {
+            /* A non-NULL 'db' means 'o' is registered in the keyspace, and is
+             * therefore a kvobj. RDB load passes db=NULL with a plain robj. */
+            kvobj *kv = (kvobj *) o;
             minExpire = hashTypeGetMinExpire(o, 0);
-            slot = getKeySlot(kvobjGetKey(o));
-            estoreRemove(db->subexpires, slot, o);
+            slot = getKeySlot(kvobjGetKey(kv));
+            estoreRemove(db->subexpires, slot, kv);
         }
 
         dict = dictCreate(&entryHashDictTypeWithHFE);
@@ -3898,7 +3902,7 @@ void hsetnxCommand(client *c) {
     unsigned long hlen;
     int isHashDeleted;
     size_t oldsize = 0;
-    robj *kv = hashTypeLookupWriteOrCreate(c,c->argv[1]);
+    kvobj *kv = hashTypeLookupWriteOrCreate(c,c->argv[1]);
     if (kv == NULL) return;
 
     if (hashTypeExists(c->db, kv, c->argv[2]->ptr, HFE_LAZY_EXPIRE, &isHashDeleted)) {
@@ -4591,8 +4595,8 @@ void hsetexCommand(client *c) {
             addReplyLongLong(c, 0);
             return;
         }
-        o = createHashObject();
-        dbAddByLink(c->db, c->argv[1], &o, &link);
+        robj *newo = createHashObject();
+        o = dbAddByLink(c->db, c->argv[1], &newo, &link);
     }
     oldlen = (int64_t) hashTypeLength(o, 0);
     if (server.memory_tracking_enabled)
@@ -4764,8 +4768,8 @@ void hincrbyCommand(client *c) {
         updateKeysizesHist(c->db, OBJ_HASH, l, l + 1);
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
-        o = createHashObject();
-        dbAdd(c->db,c->argv[1],&o);
+        robj *newo = createHashObject();
+        o = dbAdd(c->db,c->argv[1],&newo);
         value = 0;
         updateKeysizesHist(c->db, OBJ_HASH, 0, 1);
     }
@@ -4827,8 +4831,8 @@ void hincrbyfloatCommand(client *c) {
         updateKeysizesHist(c->db, OBJ_HASH, l, l + 1);
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
-        o = createHashObject();
-        dbAdd(c->db, c->argv[1], &o);
+        robj *newo = createHashObject();
+        o = dbAdd(c->db, c->argv[1], &newo);
         value = 0;
         updateKeysizesHist(c->db, OBJ_HASH, 0, 1);
     }

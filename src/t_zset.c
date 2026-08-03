@@ -1866,7 +1866,7 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
  * has the same encoding as the original one.
  *
  * The resulting object always has refcount set to 1 */
-robj *zsetDup(robj *o) {
+robj *zsetDup(kvobj *o) {
     robj *zobj;
     zset *zs;
     zset *new_zs;
@@ -1962,7 +1962,7 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
 void zaddGenericCommand(client *c, int flags) {
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
-    robj *zobj;
+    kvobj *zobj;
     sds ele;
     size_t oldsize = 0;
     double score = 0, *scores = NULL;
@@ -2299,7 +2299,7 @@ void zremrangebylexCommand(client *c) {
 /* Unified iterator source for set operations (ZUNION/ZINTER/ZDIFF).
  * Provides polymorphic iteration over sets and sorted sets with different encodings. */
 typedef struct {
-    robj *subject;
+    kvobj *subject;
     int type; /* Set, sorted set */
     int encoding;
     double weight;
@@ -3136,7 +3136,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     }
     if (server.memory_tracking_enabled) {
         for (i = 0; i < setnum; i++) {
-            robj *obj = src[i].subject;
+            kvobj *obj = src[i].subject;
             if (obj == NULL) continue;
             updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)), obj,
                                 src[i].oldsize, kvobjAllocSize(obj));
@@ -4228,7 +4228,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
                         long count, int use_nested_array, int reply_nil_when_empty, int *deleted) {
     int idx;
     robj *key = NULL;
-    robj *zobj = NULL;
+    kvobj *zobj = NULL;
     sds ele;
     double score;
     size_t oldsize = 0;
@@ -4414,7 +4414,7 @@ void zpopmaxCommand(client *c) {
  * */
 void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
                                 int timeout_idx, long count, int use_nested_array, int reply_nil_when_empty) {
-    robj *o;
+    kvobj *o;
     robj *key;
     mstime_t timeout;
     int j;

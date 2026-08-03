@@ -795,7 +795,7 @@ static void moduleFreeListIterator(void *data) {
 int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     if (!(key->mode & REDISMODULE_WRITE) || key->kv == NULL) return 0;
     int isempty;
-    robj *o = key->kv;
+    kvobj *o = key->kv;
 
     switch(o->type) {
     case OBJ_LIST: isempty = listTypeLength(o) == 0; break;

@@ -275,7 +275,7 @@ void gcraSetValueCommand(client *c) {
     addReply(c, shared.ok);
 }
 
-robj *gcraDup(robj *o) {
+robj *gcraDup(kvobj *o) {
     long long val;
     getLongLongFromGCRAObject(o, &val);
     return createGCRAObject(val);

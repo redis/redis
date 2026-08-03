@@ -662,7 +662,7 @@ void decrRefCount(robj *o) {
         
         if (o->iskvobj) {
             /* eval real allocation pointer */
-            alloc = kvobjGetAllocPtr(o);
+            alloc = kvobjGetAllocPtr((kvobj *)o);
             /* if kvobj has metadata attached. */
             if (getModuleMetaBits(o->metabits))
                 keyMetaOnFree((kvobj *)o);

@@ -850,7 +850,7 @@ void msetexCommand(client *c) {
         /* Check NX/XX conditions for each key - pattern from setGenericCommand */
         for (int j = 0; j < kv_count; j++) {
             int key_idx = (j * 2) + 2;
-            robj *found = lookupKeyWrite(c->db, c->argv[key_idx]);
+            kvobj *found = lookupKeyWrite(c->db, c->argv[key_idx]);
 
             if ((args.flags & OBJ_SET_NX && found) ||
                 (args.flags & OBJ_SET_XX && !found))
@@ -1423,21 +1423,22 @@ void lcsCommand(client *c) {
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
 
-    kvobj *obja = lookupKeyRead(c->db, c->argv[1]);
-    kvobj *objb = lookupKeyRead(c->db, c->argv[2]);
-    if ((obja && obja->type != OBJ_STRING) ||
-        (objb && objb->type != OBJ_STRING))
+    kvobj *kva = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *kvb = lookupKeyRead(c->db, c->argv[2]);
+    /* Objects we own and have to release at cleanup, as opposed to the kvobjs
+     * above which belong to the keyspace. */
+    robj *obja = NULL, *objb = NULL;
+    if ((kva && kva->type != OBJ_STRING) ||
+        (kvb && kvb->type != OBJ_STRING))
     {
         addReplyError(c,
             "The specified keys must contain string values");
         /* Don't cleanup the objects, we need to do that
          * only after calling getDecodedObject(). */
-        obja = NULL;
-        objb = NULL;
         goto cleanup;
     }
-    obja = obja ? getDecodedObject(obja) : createStringObject("",0);
-    objb = objb ? getDecodedObject(objb) : createStringObject("",0);
+    obja = kva ? getDecodedObject(kva) : createStringObject("",0);
+    objb = kvb ? getDecodedObject(kvb) : createStringObject("",0);
     a = obja->ptr;
     b = objb->ptr;
 
