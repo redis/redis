@@ -88,13 +88,6 @@ void clusterCommonBeforeSleep(void);
 void clusterClaimUnassignedSlots(void);
 int verifyClusterConfigWithData(void);
 
-#define CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1 << 0)
-#define CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1 << 1)
-#define CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1 << 2)
-#define CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1 << 3)
-
-void clusterMarkTopologyChanged(uint64_t change_flags);
-
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 
 void clusterUpdateMyselfFlags(void);
@@ -363,6 +356,11 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err);
  *  ASM_EVENT_MIGRATE_PREP, operation will not start.
  **/
 int clusterAsmOnEvent(const char *task_id, int event, void *arg);
+
+#define CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1 << 0)
+#define CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1 << 1)
+#define CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1 << 2)
+#define CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1 << 3)
 
 /* Notify Redis that the cluster topology changed. (cluster impl --> redis) */
 int clusterNotifyTopologyChanged(int flags, void *arg);

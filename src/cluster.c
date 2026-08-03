@@ -2412,11 +2412,50 @@ int verifyClusterConfigWithData(void) {
     return C_OK;
 }
 
-/* Mark the cluster topology as changed. Changes are combined until the next
- * beforeSleep(). */
-void clusterMarkTopologyChanged(uint64_t change_flags) {
-    if (!server.cluster_enabled) return;
-    server.cluster_topology_change_flags |= change_flags;
+/* Notify Redis that the cluster topology changed. (cluster impl --> redis)
+ *
+ * When CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT is set, arg points to a
+ * slotRangeArray identifying the changed slots. If arg is NULL,
+ * all slots are checked against the current topology.
+ */
+int clusterNotifyTopologyChanged(int flags, void *arg) {
+    if (!server.cluster_enabled) return C_OK;
+    server.cluster_topology_change_flags |= flags;
+
+    if (flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT) {
+        clusterNode *myself = getMyClusterNode();
+        if (!myself) return C_OK; /* The local cluster node is not initialized. */
+        clusterNode *master = clusterNodeGetMaster(myself);
+        slotRangeArray *changed_slots = arg;
+        int num_ranges = changed_slots ? changed_slots->num_ranges : 1;
+
+        for (int i = 0; i < num_ranges; i++) {
+            /* Without a changed-slot list, check every slot. */
+            int start = changed_slots ? changed_slots->ranges[i].start : 0;
+            int end = changed_slots ? changed_slots->ranges[i].end : CLUSTER_SLOTS-1;
+
+            for (int slot = start; slot <= end; slot++) {
+                int owned = master && clusterNodeCoversSlot(master, slot);
+
+                /* Per-slot state remains valid while this shard owns the slot. */
+                if (owned) continue;
+
+                /* Statistics and subscriptions are stale once this shard no longer
+                 * owns the slot. */
+                clusterSlotStatReset(slot);
+                removeChannelsInSlot(slot);
+            }
+        }
+    }
+
+    /* Cancel ASM tasks that are no longer valid in the updated topology. */
+    if (flags & (CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE |
+                 CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE))
+    {
+        clusterAsmCancelInvalidTasks();
+    }
+
+    return C_OK;
 }
 
 /* Fire the cluster topology-change notification to modules, if one is pending.
@@ -2453,28 +2492,6 @@ static void clusterFireTopologyChangeEventIfNeeded(void) {
     };
     server.cluster_topology_change_flags = 0;
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
-}
-
-/* Notify Redis that the cluster topology changed. (cluster impl --> redis) */
-int clusterNotifyTopologyChanged(int flags, void *arg) {
-    UNUSED(arg);
-    if (!server.cluster_enabled) return C_OK;
-
-    if (flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT) {
-        /* The cluster topology is the source of truth for per-slot state. Remove
-         * sharded Pub/Sub subscriptions and reset statistics for slots that are
-         * no longer owned by this shard. */
-        clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
-        for (int slot = 0; slot < CLUSTER_SLOTS; slot++) {
-            if (master && clusterNodeCoversSlot(master, slot)) continue;
-
-            removeChannelsInSlot(slot);
-            clusterSlotStatReset(slot);
-        }
-    }
-
-    clusterMarkTopologyChanged(flags);
-    return C_OK;
 }
 
 /* Handle common cluster work after cluster implementation-specific beforeSleep(). */

@@ -50,6 +50,17 @@ static inline kvstoreDictMetadata *getSlotMeta(int slot, int createIfNeeded) {
     return kvstoreGetDictMeta(server.db->keys, slot, createIfNeeded);
 }
 
+/* Do not count commands that apply imported data. */
+static int canTrackSlotStats(client *c) {
+    if (c->slot == INVALID_CLUSTER_SLOT) return 0;
+
+    clusterNode *myself = getMyClusterNode();
+    /* Import clients are marked directly on a master */
+    if (clusterNodeIsMaster(myself)) return !(c->flags & CLIENT_ASM_IMPORTING);
+    /* A replica only tracks slots its master owns. */
+    return clusterNodeCoversSlot(clusterNodeGetMaster(myself), c->slot);
+}
+
 static uint64_t getSlotStat(int slot, slotStatType stat_type) {
     kvstoreDictMetadata *meta = getSlotMeta(slot, 0);
     switch (stat_type) {
@@ -150,7 +161,7 @@ static void addReplySortedSlotStats(client *c, slotStatForSort slot_stats[], lon
 }
 
 static int canAddNetworkBytesOut(client *c) {
-    return clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_NET) && c->slot != INVALID_CLUSTER_SLOT;
+    return clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_NET) && canTrackSlotStats(c);
 }
 
 /* Accumulates egress bytes upon sending RESP responses back to user clients. */
@@ -243,7 +254,7 @@ void clusterSlotStatResetAll(void) {
  */
 static int canAddCpuDuration(client *c) {
     return clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_CPU) && /* CPU tracking should be enabled. */
-           c->slot != INVALID_CLUSTER_SLOT &&    /* Command should be slot specific. */
+           canTrackSlotStats(c) &&               /* Command should be tracked for its slot. */
            (!server.execution_nesting ||         /* Either command should not be nested, */
             (c->realcmd->flags & CMD_BLOCKING)); /* or it must be due to unblocking. */
 }
@@ -270,7 +281,7 @@ static int canAddNetworkBytesIn(client *c) {
      * Third, blocked client is not aggregated, to avoid duplicate aggregation upon unblocking.
      * Fourth, the server is not under a MULTI/EXEC transaction, to avoid duplicate aggregation of
      * EXEC's 14 bytes RESP upon nested call()'s afterCommand(). */
-    return clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_NET) && c->slot != INVALID_CLUSTER_SLOT &&
+    return clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_NET) && canTrackSlotStats(c) &&
         !(c->flags & CLIENT_BLOCKED) && !server.in_exec;
 }
 

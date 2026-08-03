@@ -856,7 +856,7 @@ void clusterUpdateMyselfAnnouncedPorts(void) {
 
     deriveAnnouncedPorts(&myself->tcp_port,&myself->tls_port,&myself->cport);
     if (myself->tcp_port != old_tcp_port || myself->tls_port != old_tls_port) {
-        clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
     }
 }
 
@@ -885,7 +885,7 @@ void clusterUpdateMyselfIp(void) {
         } else {
             myself->ip[0] = '\0'; /* Force autodetection. */
         }
-        clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
     }
 }
 
@@ -904,7 +904,7 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
         sdsclear(node->hostname);
     }
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
-    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 }
 
 static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
@@ -1546,7 +1546,7 @@ void clusterAddNode(clusterNode *node) {
     retval = dictAdd(server.cluster->nodes,
             sdsnewlen(node->name,CLUSTER_NAMELEN), node);
     serverAssert(retval == DICT_OK);
-    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 }
 
 /* Remove a node from the cluster. The function performs the high level
@@ -1557,10 +1557,10 @@ void clusterAddNode(clusterNode *node) {
  * 2) Remove all the failure reports sent by this node and referenced by
  *    other nodes.
  * 3) Remove the node from the owning shard
- * 4) Cancel all ASM tasks that involve the node.
- * 5) Free the node with freeClusterNode() that will in turn remove it
+ * 4) Free the node with freeClusterNode() that will in turn remove it
  *    from the hash table and from the list of slaves of its master, if
  *    it is a slave node.
+ * 5) Notify Redis of the topology change.
  */
 void clusterDelNode(clusterNode *delnode) {
     int j;
@@ -1590,13 +1590,11 @@ void clusterDelNode(clusterNode *delnode) {
     /* 3) Remove the node from the owning shard */
     clusterRemoveNodeFromShard(delnode);
 
-    /* 4) Cancel all ASM tasks that involve the node. */
-    clusterAsmCancelByNode(delnode, "node deleted");
-
-    /* 5) Free the node, unlinking it from the cluster. */
+    /* 4) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 
-    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    /* 5) Notify Redis of the topology change. */
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 }
 
 /* Node lookup by name */
@@ -2331,7 +2329,7 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
         replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
 
     if (topology_changed)
-        clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
     return 1;
 }
 
@@ -2348,7 +2346,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
     n->flags &= ~CLUSTER_NODE_SLAVE;
     n->flags |= CLUSTER_NODE_MASTER;
     n->slaveof = NULL;
-    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 
     /* Update config and state. */
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -3198,7 +3196,7 @@ int clusterProcessPacket(clusterLink *link) {
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
                                        CLUSTER_NODE_MIGRATE_TO);
                     sender->flags |= CLUSTER_NODE_SLAVE;
-                    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+                    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 
                     /* Update config and state. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -3216,7 +3214,7 @@ int clusterProcessPacket(clusterLink *link) {
                      * primary in the very first time. */
                     updateShardId(sender, master->shard_id);
 
-                    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+                    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 
                     /* Update config. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
@@ -5137,6 +5135,16 @@ int clusterNodeCoversSlot(clusterNode *n, int slot) {
     return bitmapTestBit(n->slots,slot);
 }
 
+/* Notify Redis about a topology change affecting a single slot without
+ * allocating a slotRangeArray for every call. */
+static int clusterNotifyTopologyChangedForSingleSlot(int slot) {
+    static slotRangeArray *slots = NULL;
+    if (slots == NULL) slots = slotRangeArrayCreate(1);
+
+    slotRangeArraySet(slots, 0, slot, slot);
+    return clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT, slots);
+}
+
 /* Add the specified slot to the list of slots that node 'n' will
  * serve. Return C_OK if the operation ended with success.
  * If the slot is already assigned to another instance this is considered
@@ -5147,8 +5155,9 @@ int clusterAddSlot(clusterNode *n, int slot) {
     server.cluster->slots[slot] = n;
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
+    /* Reset statistics while the slot was being imported by legacy slot migration. */
     clusterSlotStatReset(slot);
-    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT);
+    clusterNotifyTopologyChangedForSingleSlot(slot);
     return C_OK;
 }
 
@@ -5160,15 +5169,12 @@ int clusterDelSlot(int slot) {
 
     if (!n) return C_ERR;
 
-    /* Cleanup the channels in master/replica as part of slot deletion. */
-    removeChannelsInSlot(slot);
     /* Clear the slot bit. */
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
-    clusterSlotStatReset(slot);
-    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT);
+    clusterNotifyTopologyChangedForSingleSlot(slot);
     return C_OK;
 }
 
@@ -5320,7 +5326,7 @@ void clusterUpdateState(void) {
 
         /* The OK/FAIL transition (in particular the first reach of OK, i.e. the
          * cluster becoming ready at startup) is itself a topology-change reason. */
-        clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE);
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE, NULL);
     }
 }
 
@@ -5388,12 +5394,9 @@ void clusterSetMaster(clusterNode *n) {
     removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
 
-    /* Cancel all ASM tasks when switching into slave */
-    if (was_master) clusterAsmCancel(NULL, "switching to replica");
-
     /* Role change is now applied (a demotion, or a replica re-pointing to a new
-     * primary); notify modules. */
-    clusterMarkTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+     * primary). */
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 }
 
 /* -----------------------------------------------------------------------------
