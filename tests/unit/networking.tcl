@@ -31,6 +31,8 @@ start_server {tags {"unixsocket external:skip"}} {
         assert_equal PONG [exec {*}[rediscli_unixsocket [srv unixsocket]] PING]
     }
 
+    # SIGKILL prevents Valgrind from writing its leak summary, causing the test
+    # harness to report an error even when no memory error occurred.
     if {!$::valgrind} {
     test {A stale Unix socket is replaced and accepts connections} {
         set stale_socket [file normalize [tmpfile stale.sock]]
