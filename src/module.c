@@ -10328,6 +10328,45 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
  * there will 'period' milliseconds gaps between events.
  * (If the time it takes to execute 'callback' is negligible the two
  * statements above mean the same) */
+
+/* Deferred ae operations from non-main threads to avoid GIL races. */
+typedef struct DeferredAeOp {
+    int type; /* AE_DEFER_DELETE or AE_DEFER_CREATE */
+    long long id;
+    mstime_t period;
+} DeferredAeOp;
+
+#define AE_DEFER_DELETE 1
+#define AE_DEFER_CREATE 2
+
+static list *deferredAeOps = NULL;
+static pthread_mutex_t deferredAeOpsMutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Helper: process deferred ae operations on the main thread. */
+static void processDeferredAeOps(void) {
+    if (!deferredAeOps) return;
+
+    pthread_mutex_lock(&deferredAeOpsMutex);
+    while (listLength(deferredAeOps)) {
+        listNode *ln = listFirst(deferredAeOps);
+        DeferredAeOp *op = ln->value;
+        listDelNode(deferredAeOps, ln);
+        pthread_mutex_unlock(&deferredAeOpsMutex);
+
+        if (op->type == AE_DEFER_DELETE) {
+            aeDeleteTimeEvent(server.el, op->id);
+            aeTimer = -1;
+        } else if (op->type == AE_DEFER_CREATE) {
+            aeTimer = aeCreateTimeEvent(server.el, op->period, moduleTimerHandler, NULL, NULL);
+        }
+        zfree(op);
+
+        /* Lock again for the next iteration */
+        pthread_mutex_lock(&deferredAeOpsMutex);
+    }
+    pthread_mutex_unlock(&deferredAeOpsMutex);
+}
+
 RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisModuleTimerProc callback, void *data) {
     RedisModuleTimer *timer = zmalloc(sizeof(*timer));
     timer->module = ctx->module;
@@ -10360,16 +10399,45 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
         if (memcmp(ri.key,&key,sizeof(key)) == 0) {
             /* This is the first key, we need to re-install the timer according
              * to the just added event. */
-            aeDeleteTimeEvent(server.el,aeTimer);
-            aeTimer = -1;
+            if (!pthread_equal(server.main_thread_id, pthread_self())) {
+                /* Defer ae mutation to main thread to avoid GIL race. */
+                DeferredAeOp *op = zmalloc(sizeof(*op));
+                op->type = AE_DEFER_DELETE;
+                op->id = aeTimer;
+                pthread_mutex_lock(&deferredAeOpsMutex);
+                if (!deferredAeOps) deferredAeOps = listCreate();
+                listAddNodeTail(deferredAeOps, op);
+                pthread_mutex_unlock(&deferredAeOpsMutex);
+                if (write(server.module_pipe[1],"A",1) != 1) {
+                    /* Ignore error, best-effort. */
+                }
+            } else {
+                aeDeleteTimeEvent(server.el,aeTimer);
+                aeTimer = -1;
+            }
         }
         raxStop(&ri);
     }
 
     /* If we have no main timer (the old one was invalidated, or this is the
      * first module timer we have), install one. */
-    if (aeTimer == -1)
-        aeTimer = aeCreateTimeEvent(server.el,period,moduleTimerHandler,NULL,NULL);
+    if (aeTimer == -1) {
+        if (!pthread_equal(server.main_thread_id, pthread_self())) {
+            /* Defer ae mutation to main thread to avoid GIL race. */
+            DeferredAeOp *op = zmalloc(sizeof(*op));
+            op->type = AE_DEFER_CREATE;
+            op->period = period;
+            pthread_mutex_lock(&deferredAeOpsMutex);
+            if (!deferredAeOps) deferredAeOps = listCreate();
+            listAddNodeTail(deferredAeOps, op);
+            pthread_mutex_unlock(&deferredAeOpsMutex);
+            if (write(server.module_pipe[1],"A",1) != 1) {
+                /* Ignore error, best-effort. */
+            }
+        } else {
+            aeTimer = aeCreateTimeEvent(server.el,period,moduleTimerHandler,NULL,NULL);
+        }
+    }
 
     return key;
 }
@@ -10621,6 +10689,7 @@ int RM_EventLoopAddOneShot(RedisModuleEventLoopOneShotFunc func, void *user_data
 /* This function will check the moduleEventLoopOneShots queue in order to
  * call the callback for the registered oneshot events. */
 static void eventLoopHandleOneShotEvents(void) {
+    processDeferredAeOps();
     pthread_mutex_lock(&moduleEventLoopMutex);
     if (moduleEventLoopOneShots) {
         while (listLength(moduleEventLoopOneShots)) {
