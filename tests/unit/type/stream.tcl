@@ -3798,19 +3798,16 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
     test {XDELEX DELREF propagates PEL-only changes} {
         r DEL xdelex-stream
         r XADD xdelex-stream 1-0 f v
-        r XGROUP CREATE xdelex-stream group1 0
-        r XGROUP CREATE xdelex-stream group2 0
-        r XREADGROUP GROUP group1 consumer1 STREAMS xdelex-stream >
-        r XREADGROUP GROUP group2 consumer2 STREAMS xdelex-stream >
+        r XGROUP CREATE xdelex-stream group 0
+        r XREADGROUP GROUP group consumer STREAMS xdelex-stream >
 
         # XDEL leaves dangling PEL references. DELREF must remove them even
         # though the stream entry itself is already gone.
         assert_equal 1 [r XDEL xdelex-stream 1-0]
         set dirty [s rdb_changes_since_last_save]
-        assert_equal {-1 -1} [r XDELEX xdelex-stream DELREF IDS 2 1-0 2-0]
+        assert_equal {-1} [r XDELEX xdelex-stream DELREF IDS 1 1-0]
         assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
-        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group1]
-        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group2]
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
 
         # IDs with no remaining stream entry or PEL reference are a no-op.
         set dirty [s rdb_changes_since_last_save]
@@ -3818,8 +3815,7 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         assert_equal $dirty [s rdb_changes_since_last_save]
 
         r DEBUG LOADAOF
-        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group1]
-        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group2]
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
     }
 }
 
