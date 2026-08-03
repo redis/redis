@@ -5110,7 +5110,7 @@ void xdelexCommand(client *c) {
     stream *s = kv->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
     int first_entry = 0;
-    int deleted = 0, modified = 0;
+    int deleted = 0, dirty = server.dirty;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XDELEX_NO_ID;
@@ -5149,30 +5149,27 @@ void xdelexCommand(client *c) {
             res = XDELEX_STILL_REFERENCED;
         }
 
-        modified += id_modified;
+        if (id_modified)
+            server.dirty++;
         addReplyLongLong(c, res);
     }
 
-    /* Apply bookkeeping for stream entries or PEL references that changed. */
-    if (modified) {
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
 
-        if (deleted) {
-            if (s->length == 0) {
-                s->first_id.ms = 0;
-                s->first_id.seq = 0;
-            } else if (first_entry) {
-                streamGetEdgeID(s,1,1,&s->first_id);
-            }
-
-            keyModified(c,c->db,c->argv[1],kv,1);
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
-        } else {
-            /* Only PEL references were removed, update LRM without signaling. */
-            keyModified(c,c->db,c->argv[1],kv,0);
+    if (deleted) {
+        if (s->length == 0) {
+            s->first_id.ms = 0;
+            s->first_id.seq = 0;
+        } else if (first_entry) {
+            streamGetEdgeID(s,1,1,&s->first_id);
         }
-        server.dirty += modified;
+
+        keyModified(c,c->db,c->argv[1],kv,1);
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
+    } else if (server.dirty > dirty) {
+        /* Only PEL references were removed, update LRM without signaling. */
+        keyModified(c,c->db,c->argv[1],kv,0);
     }
 
 cleanup:
