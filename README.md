@@ -211,6 +211,8 @@ This section refers to building Redis from source. If you want to get up and run
 
 **These instructions apply to Redis 8.10 and above.** For versions lower than 8.10, see the [8.8 build instructions](https://github.com/redis/redis/tree/8.8#build-redis-from-source).
 
+> **Ubuntu 20.04 (focal) is not supported as of 8.10** — its toolchain is too old for the bundled modules. Build on Ubuntu 22.04 (jammy) or newer.
+
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
 We support big endian and little endian architectures, and both 32 bit and 64-bit systems.
 
