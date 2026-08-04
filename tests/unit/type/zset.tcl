@@ -102,7 +102,7 @@ start_server {tags {"zset"}} {
         if {$encoding == "listpack"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
-        } elseif {$encoding == "skiplist"} {
+        } elseif {$encoding == "btree"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
         } else {
@@ -550,6 +550,10 @@ start_server {tags {"zset"}} {
             assert_equal {f e d} [r zrevrangebyscore zset 6 3]
             assert_equal {g f e} [r zrevrangebyscore zset +inf 4]
             assert_equal 3 [r zcount zset 0 3]
+            assert_equal 7 [r zcount zset -inf +inf]
+            assert_equal 6 [r zcount zset (-inf +inf]
+            assert_equal 6 [r zcount zset -inf (+inf]
+            assert_equal 5 [r zcount zset (-inf (+inf]
 
             # exclusive range
             assert_equal {b}   [r zrangebyscore zset (-inf (2]
@@ -1338,7 +1342,192 @@ start_server {tags {"zset"}} {
     }
 
     basics listpack
-    basics skiplist
+    basics btree
+
+    test {ZSET with a large member stays in the B+ tree encoding} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del large-member-zset
+        r zadd large-member-zset 1 short
+        assert_encoding btree large-member-zset
+
+        set large [string repeat x 4096]
+        r zadd large-member-zset 2 $large
+        assert_encoding btree large-member-zset
+        assert_equal {short 1} [r zrange large-member-zset 0 0 withscores]
+        assert_equal 2 [r zscore large-member-zset $large]
+
+        # Exercise lookup, ordering, score changes, and scans while the long
+        # member is stored outside its score leaf.
+        r zadd large-member-zset 1.5 middle 3 tail
+        assert_equal 2 [r zrank large-member-zset $large]
+        assert_equal 1 [r zrevrank large-member-zset $large]
+        assert_equal {middle 1.5} \
+            [r zrange large-member-zset 1.5 1.5 byscore withscores]
+        assert_equal 0 [r zadd large-member-zset 0 $large]
+        assert_equal $large [r zrange large-member-zset 0 0]
+
+        set scanned [lindex [r zscan large-member-zset 0 count 100] 1]
+        set scanned_members {}
+        foreach {member score} $scanned {
+            lappend scanned_members $member
+        }
+        assert_equal [lsort [list short middle tail $large]] \
+                     [lsort $scanned_members]
+
+        r del large-member-other
+        r zadd large-member-other 5 $large 7 other
+        assert_encoding btree large-member-other
+        assert_equal [list $large 5] \
+            [r zinter 2 large-member-zset large-member-other withscores]
+
+        r del large-member-copy
+        assert_equal 1 [r copy large-member-zset large-member-copy]
+        assert_encoding btree large-member-copy
+        assert_equal [r zrange large-member-zset 0 -1 withscores] \
+                     [r zrange large-member-copy 0 -1 withscores]
+        assert_equal 1 [r zrem large-member-zset middle]
+        assert_equal 1 [r zremrangebyscore large-member-zset 3 3]
+        assert_equal [list $large 0] [r zpopmin large-member-zset]
+        assert_equal 0 [r zscore large-member-copy $large]
+
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZSET B+ tree handles members at the external storage boundary} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del member-storage-boundary
+
+        set members {}
+        for {set j 0} {$j < 400} {incr j} {
+            set len [lindex {319 320 321} [expr {$j % 3}]]
+            set prefix [format "%04d:" $j]
+            set member "$prefix[string repeat x [expr {$len-[string length $prefix]}]]"
+            assert_equal $len [string length $member]
+            lappend members $member
+            r zadd member-storage-boundary $j $member
+        }
+        assert_encoding btree member-storage-boundary
+        assert_equal 400 [r zcard member-storage-boundary]
+
+        # Move inline and external members across many leaves, then remove
+        # ranges which force leaves to be rebuilt and joined.
+        for {set j 0} {$j < 400} {incr j 17} {
+            assert_equal 0 [r zadd member-storage-boundary [expr {1000-$j}] \
+                                [lindex $members $j]]
+        }
+        assert_equal 1000 [r zscore member-storage-boundary [lindex $members 0]]
+        assert_equal 1 [r zrem member-storage-boundary [lindex $members 319]]
+        assert_equal 100 [r zremrangebyrank member-storage-boundary 50 149]
+        assert_equal 299 [r zcard member-storage-boundary]
+
+        foreach j {1 2 202 398 399} {
+            set member [lindex $members $j]
+            if {$j != 319} {
+                assert_equal $j [r zscore member-storage-boundary $member]
+            }
+        }
+
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {RDB preserves a B+ tree containing a large member} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del large-member-rdb
+        set large [string repeat x 4096]
+        r zadd large-member-rdb 1 short 2 $large
+        assert_encoding btree large-member-rdb
+
+        r debug reload
+        assert_encoding btree large-member-rdb
+        assert_equal [list short 1 $large 2] \
+                     [r zrange large-member-rdb 0 -1 withscores]
+        r config set zset-max-listpack-entries $original_max
+    } {OK} {needs:debug}
+
+    test {ZSET btree byte-full edge pages preserve order} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del edge-right edge-left
+
+        for {set j 0} {$j < 200} {incr j} {
+            set member [format "%04d%s" $j [string repeat x 296]]
+            r zadd edge-right $j $member
+            r zadd edge-left [expr {-$j}] $member
+        }
+
+        set first [format "%04d%s" 0 [string repeat x 296]]
+        set last [format "%04d%s" 199 [string repeat x 296]]
+        assert_encoding btree edge-right
+        assert_encoding btree edge-left
+        assert_equal $first [r zrange edge-right 0 0]
+        assert_equal $last [r zrange edge-right -1 -1]
+        assert_equal $last [r zrange edge-left 0 0]
+        assert_equal $first [r zrange edge-left -1 -1]
+
+        assert_equal 150 [r zremrangebyrank edge-right 25 174]
+        assert_equal [r zrange edge-right 0 -1] \
+                     [lreverse [r zrevrange edge-right 0 -1]]
+
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZSET btree large range deletion rebuilds a usable member index} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del delete-rank delete-score
+
+        set args {}
+        for {set j 0} {$j < 2048} {incr j} {
+            set member [format "member:%04d:%s" $j [string repeat x 372]]
+            lappend args $j $member
+        }
+        assert_equal 2048 [r zadd delete-rank {*}$args]
+        assert_equal 1 [r copy delete-rank delete-score]
+
+        assert_equal 1025 [r zremrangebyrank delete-rank 512 1536]
+        assert_equal 1025 [r zremrangebyscore delete-score 512 1536]
+        assert_equal [r zrange delete-rank 0 -1 withscores] \
+                     [r zrange delete-score 0 -1 withscores]
+        assert_equal 1023 [r zcard delete-rank]
+        set member511 [format "member:%04d:%s" 511 [string repeat x 372]]
+        set member512 [format "member:%04d:%s" 512 [string repeat x 372]]
+        set member1537 [format "member:%04d:%s" 1537 [string repeat x 372]]
+        assert_equal 511 [r zrank delete-rank $member511]
+        assert_equal 512 [r zrank delete-rank $member1537]
+        assert_equal {} [r zscore delete-rank $member512]
+
+        set member0 [format "member:%04d:%s" 0 [string repeat x 372]]
+        set member2047 [format "member:%04d:%s" 2047 [string repeat x 372]]
+        foreach key {delete-rank delete-score} {
+            assert_equal 1 [r zadd $key 1000 new-member]
+            assert_equal 0 [r zadd $key 3000 $member0]
+            assert_equal 1 [r zrem $key $member2047]
+        }
+        assert_equal [r zrange delete-rank 0 -1 withscores] \
+                     [r zrange delete-score 0 -1 withscores]
+
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZSET btree range deletion can empty a medium-sized index} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del delete-all
+
+        set args {}
+        for {set j 0} {$j < 500} {incr j} {
+            lappend args $j member:$j
+        }
+        assert_equal 500 [r zadd delete-all {*}$args]
+        assert_encoding btree delete-all
+        assert_equal 500 [r zremrangebyrank delete-all 0 -1]
+        assert_equal 0 [r exists delete-all]
+
+        r config set zset-max-listpack-entries $original_max
+    }
 
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
@@ -1700,7 +1889,7 @@ start_server {tags {"zset"}} {
             r config set zset-max-ziplist-entries 256
             r config set zset-max-ziplist-value 64
             set elements 128
-        } elseif {$encoding == "skiplist"} {
+        } elseif {$encoding == "btree"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
             if {$::accurate} {set elements 1000} else {set elements 100}
@@ -1764,7 +1953,7 @@ start_server {tags {"zset"}} {
         test "ZSCORE 17-19 significant digit mantissas (widened fast path) - $encoding" {
             # Exercise the widened fast_float_strtod path that handles
             # mantissas > 2^53 (via __uint128_t arithmetic). ZADD/ZSCORE
-            # must round-trip bit-exactly through the listpack/skiplist
+            # must round-trip bit-exactly through both zset encodings
             # encoding (parse on ingest, parse again on retrieval). Each
             # input string below parses to a specific IEEE double whose
             # canonical string representation is itself, so `expr` in Tcl
@@ -2028,7 +2217,7 @@ start_server {tags {"zset"}} {
             }
         }
 
-        test "ZSETs skiplist implementation backlink consistency test - $encoding" {
+        test "ZSET forward/reverse consistency test - $encoding" {
             set diff 0
             for {set j 0} {$j < $elements} {incr j} {
                 r zadd myzset [expr rand()] "Element-$j"
@@ -2046,7 +2235,7 @@ start_server {tags {"zset"}} {
             assert_equal 0 $diff
         }
 
-        test "ZSETs ZRANK augmented skip list stress testing - $encoding" {
+        test "ZSET ZRANK stress testing - $encoding" {
             set err {}
             r del myzset
             for {set k 0} {$k < 2000} {incr k} {
@@ -2214,7 +2403,7 @@ start_server {tags {"zset"}} {
 
     tags {"slow"} {
         stresses listpack
-        stresses skiplist
+        stresses btree
     }
 
     test "BZPOP/BZMPOP against wrong type" {
@@ -2362,7 +2551,7 @@ start_server {tags {"zset"}} {
         $rd2 close
     } {0} {cluster:skip}
 
-    test {ZSET skiplist order consistency when elements are moved} {
+    test {ZSET order consistency when elements are moved} {
         set original_max [lindex [r config get zset-max-ziplist-entries] 1]
         r config set zset-max-ziplist-entries 0
         for {set times 0} {$times < 10} {incr times} {
@@ -2489,13 +2678,13 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries 0
         r del z1{t} z2{t}
         r zadd z1{t} 1 a
-        assert_encoding skiplist z1{t}
+        assert_encoding btree z1{t}
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
-        assert_encoding skiplist z2{t}
+        assert_encoding btree z2{t}
         r config set zset-max-listpack-entries $original_max
     }
 
-    test {ZRANGESTORE with zset-max-listpack-entries 1 dst key should use skiplist encoding} {
+    test {ZRANGESTORE with zset-max-listpack-entries 1 dst key should use btree encoding} {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 1
         r del z1{t} z2{t} z3{t}
@@ -2503,7 +2692,7 @@ start_server {tags {"zset"}} {
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 0]
         assert_encoding listpack z2{t}
         assert_equal 2 [r zrangestore z3{t} z1{t} 0 1]
-        assert_encoding skiplist z3{t}
+        assert_encoding btree z3{t}
         r config set zset-max-listpack-entries $original_max
     }
 
@@ -2540,7 +2729,7 @@ start_server {tags {"zset"}} {
         }
     }
 
-    foreach {type contents} "listpack {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
+    foreach {type contents} "listpack {1 a 2 b 3 c} btree {1 a 2 b 3 [randstring 70 90 alpha]}" {
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         r config set zset-max-ziplist-value 10
         create_zset myzset $contents
@@ -2599,7 +2788,7 @@ start_server {tags {"zset"}} {
     r readraw 0
 
     foreach {type contents} "
-        skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
+        btree {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
         listpack {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
         test "ZRANDMEMBER with <count> - $type" {
             set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
@@ -2776,7 +2965,7 @@ start_server {tags {"zset"}} {
                 assert_encoding hashtable set_big{t}
             }
 
-            foreach zset_type {listpack skiplist} {
+            foreach zset_type {listpack btree} {
                 r del zset_small{t} zset_big{t}
 
                 if {$zset_type == "listpack"} {
@@ -2784,12 +2973,12 @@ start_server {tags {"zset"}} {
                     r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
                     assert_encoding listpack zset_small{t}
                     assert_encoding listpack zset_big{t}
-                } elseif {$zset_type == "skiplist"} {
+                } elseif {$zset_type == "btree"} {
                     r config set zset-max-listpack-entries 0
                     r zadd zset_small{t} 1 1 2 2 3 3
                     r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
-                    assert_encoding skiplist zset_small{t}
-                    assert_encoding skiplist zset_big{t}
+                    assert_encoding btree zset_small{t}
+                    assert_encoding btree zset_big{t}
                 }
 
                 # Test one key is big and one key is small separately.
@@ -2850,9 +3039,98 @@ start_server {tags {"zset"}} {
             assert_encoding listpack myzset
             assert_equal $max_entries [r zcard myzset]
             assert_equal 1 [r zadd myzset 1 b]
-            assert_encoding skiplist myzset
+            assert_encoding btree myzset
+            assert_equal [expr {$max_entries + 1}] [r zcard myzset]
+            assert {[r zscore myzset 1] ne {}}
 
             r config set zset-max-listpack-entries $original_max
+        }
+    }
+
+    if {$::debug_defrag} {
+        test "Active defrag relocates all B+ tree zset pages" {
+            r config set activedefrag no
+            r config set hz 100
+            r config set active-defrag-threshold-lower 0
+            r config set active-defrag-threshold-upper 1
+            r config set active-defrag-ignore-bytes 1
+            r config set active-defrag-cycle-min 75
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-max-scan-fields 10
+            r config set zset-max-listpack-entries 0
+            r del defrag-zset
+
+            # The last insertion starts an index resize and leaves both hash
+            # table allocations alive for the forced defrag pass.
+            set elements 7937
+            set args {}
+            for {set i 0} {$i < $elements} {incr i} {
+                set member [format "member:%05d" $i]
+                if {$i >= 5000 && $i % 100 == 0} {
+                    append member [string repeat x 512]
+                }
+                lappend args $i $member
+            }
+            assert_equal $elements [r zadd defrag-zset {*}$args]
+            assert_encoding btree defrag-zset
+            set digest [debug_digest]
+
+            r config resetstat
+            r config set activedefrag yes
+            wait_for_condition 1000 10 {
+                [s active_defrag_hits] > 1000
+            } else {
+                fail "Active defrag did not relocate the B+ tree pages"
+            }
+            r config set activedefrag no
+            wait_for_condition 1000 10 {
+                [s active_defrag_running] == 0
+            } else {
+                fail "Active defrag did not stop"
+            }
+
+            assert_equal $elements [r zcard defrag-zset]
+            assert_equal 1234 [r zscore defrag-zset member:01234]
+            assert_equal 1234 [r zrank defrag-zset member:01234]
+            assert_equal {member:00000 member:00001 member:00002} \
+                [r zrange defrag-zset 0 2]
+
+            # Exercise the tree and member index after their allocations move.
+            assert_equal 0 [r zadd defrag-zset 99999 member:01234]
+            assert_equal [expr {$elements - 1}] \
+                         [r zrank defrag-zset member:01234]
+            assert_equal 0 [r zadd defrag-zset 1234 member:01234]
+            assert_equal 1 [r zrem defrag-zset member:04321]
+            assert_equal 1 [r zadd defrag-zset 4321 member:04321]
+            assert_equal $digest [debug_digest]
+            assert_equal OK [r save]
+
+            # Small trees are moved immediately instead of being queued.
+            r del defrag-zset
+            r config set active-defrag-max-scan-fields 100
+            assert_equal 5 [r zadd defrag-zset 1 one 2 two 3 three 4 four 5 five]
+            assert_encoding btree defrag-zset
+            set digest [debug_digest]
+
+            r config resetstat
+            r config set activedefrag yes
+            wait_for_condition 1000 10 {
+                [s active_defrag_hits] > 4
+            } else {
+                fail "Active defrag did not relocate the small B+ tree"
+            }
+            r config set activedefrag no
+            wait_for_condition 1000 10 {
+                [s active_defrag_running] == 0
+            } else {
+                fail "Active defrag did not stop"
+            }
+
+            assert_equal {one two three four five} \
+                [r zrange defrag-zset 0 -1]
+            assert_equal 3 [r zscore defrag-zset three]
+            assert_equal $digest [debug_digest]
+            assert_equal OK [r save]
         }
     }
 }

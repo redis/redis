@@ -77,7 +77,7 @@ struct RedisModuleType;
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
 #define OBJ_ENCODING_ZIPMAP 3  /* No longer used: old hash encoding. */
 #define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
-#define OBJ_ENCODING_ZIPLIST 5 /* No longer used: old list/hash/zset encoding. */
+#define OBJ_ENCODING_BTREE 5   /* Sorted set as a packed B+ tree */
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
@@ -162,6 +162,7 @@ robj *createIntsetObject(void);
 robj *createSetListpackObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
+robj *createZsetBtreeObject(void);
 robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
 robj *createGCRAObject(long long value);
