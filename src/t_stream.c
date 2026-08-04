@@ -4849,7 +4849,12 @@ void xclaimCommand(client *c) {
     }
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
+        /* Advancing the group's read position lowers its lag, just like XGROUP
+         * SETID. Nothing stream-wide changes here, so the same 's' computes both
+         * the old and the new sample. */
+        int64_t old_lag = streamCGLagSample(o->ptr, group);
         streamUpdateCGroupLastId(o->ptr, group, &last_id);
+        streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_LAG, old_lag, streamCGLagSample(o->ptr, group));
         propagate_last_id = 1;
     }
 

@@ -333,6 +333,37 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_lag {$server xgroup destroy st g} {}
     }
 
+    test "STREAM-STATS - XCLAIM LASTID moves the lag sample $suffix" {
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 8
+        verify_lag {$server xgroup create st g 0} {db0_LAG:8=1}
+        # LASTID advances the group's read position, so it shifts the lag on its
+        # own -- even here, where nothing is claimed because 8-1 isn't in the PEL.
+        # Read position at the tail -> lag 0.
+        verify_lag {$server xclaim st g c 0 8-1 JUSTID LASTID 8-1} {db0_LAG:0=1}
+        verify_lag {$server xgroup setid st g 0} {db0_LAG:8=1}
+        # A read position in mid-stream can't be turned into a logical read
+        # counter, so the lag becomes unavailable (XINFO NULL) and the group
+        # leaves the histogram.
+        verify_lag {$server xclaim st g c 0 5-1 JUSTID LASTID 5-1} {}
+        # Same path, but with an entry that really transfers. Only then does
+        # XCLAIM propagate verbatim, as XCLAIM ... LASTID -- the shape XAUTOCLAIM
+        # and XREADGROUP history reads also emit -- rather than the XGROUP SETID
+        # emitted when nothing is claimed. In replicaMode that is what the replica
+        # replays back into this branch. The lag reaches 0 either way, so assert
+        # the claim happened instead of trusting the setup silently.
+        # The previous step left the read position at 5-1, so this delivers 6-1 --
+        # the only entry the test ever puts in the PEL, and so the only one the
+        # claim below can transfer.
+        assert_equal 6-1 [lindex [$server xreadgroup group g c count 1 streams st >] 0 1 0 0]
+        # Still no sample: the read position stays mid-stream, so the lag remains
+        # unavailable. It is the LASTID below, not this read, that brings the group back.
+        verify_lag {} {}
+        assert_equal {6-1} [$server xclaim st g c2 0 6-1 JUSTID LASTID 8-1]
+        verify_lag {} {db0_LAG:0=1}
+        verify_lag {} {__EVAL__ 0}
+    }
+
     test "STREAM-STATS - lag bin is clamped for out-of-range values $suffix" {
         verify_lag {$server FLUSHALL} {}
         seed_stream $server st 3
