@@ -10357,6 +10357,11 @@ static void processDeferredAeOps(void) {
             aeDeleteTimeEvent(server.el, op->id);
             aeTimer = -1;
         } else if (op->type == AE_DEFER_CREATE) {
+            /* If we already have a timer, delete it first to avoid leaking.
+             * Only the last CREATE matters since we maintain a single main timer. */
+            if (aeTimer != -1) {
+                aeDeleteTimeEvent(server.el, aeTimer);
+            }
             aeTimer = aeCreateTimeEvent(server.el, op->period, moduleTimerHandler, NULL, NULL);
         }
         zfree(op);
@@ -10411,6 +10416,8 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
                 if (write(server.module_pipe[1],"A",1) != 1) {
                     /* Ignore error, best-effort. */
                 }
+                /* Set aeTimer to -1 so the subsequent CREATE path is taken. */
+                aeTimer = -1;
             } else {
                 aeDeleteTimeEvent(server.el,aeTimer);
                 aeTimer = -1;
