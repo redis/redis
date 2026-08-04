@@ -655,6 +655,7 @@ start_server {} {
 
         # Block two clients on the same key in a known order.
         $rd1 BLPOP mylist 0
+        wait_for_blocked_clients_count 1
         $rd2 BLPOP mylist 0
         wait_for_blocked_clients_count 2
 
