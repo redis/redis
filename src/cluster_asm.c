@@ -2835,11 +2835,9 @@ int clusterAsmCancelBySlot(int slot, const char *reason) {
 /* Cancel all tasks if this node is no longer a primary, and cancel tasks
  * whose source or destination no longer exists in the current topology. */
 int clusterAsmCancelInvalidTasks(void) {
-    if (asmManager == NULL) return 0;
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
-    clusterNode *myself = getMyClusterNode();
-    if (myself == NULL) return 0;
-    if (clusterNodeIsSlave(myself))
+    if (clusterNodeIsSlave(getMyClusterNode()))
         return clusterAsmCancel(NULL, "switching to replica");
 
     int num_cancelled = 0;

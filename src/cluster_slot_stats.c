@@ -51,14 +51,11 @@ static inline kvstoreDictMetadata *getSlotMeta(int slot, int createIfNeeded) {
 }
 
 /* Do not count commands that apply imported data. */
-static int canTrackSlotStats(client *c) {
+static inline int canTrackSlotStats(client *c) {
     if (c->slot == INVALID_CLUSTER_SLOT) return 0;
 
-    clusterNode *myself = getMyClusterNode();
-    /* Import clients are marked directly on a master */
-    if (clusterNodeIsMaster(myself)) return !(c->flags & CLIENT_ASM_IMPORTING);
-    /* A replica only tracks slots its master owns. */
-    return clusterNodeCoversSlot(clusterNodeGetMaster(myself), c->slot);
+    /* Only track statistics for slots owned by the local shard. */
+    return clusterNodeCoversSlot(clusterNodeGetMaster(getMyClusterNode()), c->slot);
 }
 
 static uint64_t getSlotStat(int slot, slotStatType stat_type) {

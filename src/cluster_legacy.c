@@ -5155,7 +5155,7 @@ int clusterAddSlot(clusterNode *n, int slot) {
     server.cluster->slots[slot] = n;
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
-    /* Reset statistics while the slot was being imported by legacy slot migration. */
+    /* Reset statistics separately while the slot may be imported by legacy slot migration. */
     clusterSlotStatReset(slot);
     clusterNotifyTopologyChangedForSingleSlot(slot);
     return C_OK;
