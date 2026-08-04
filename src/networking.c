@@ -1950,8 +1950,9 @@ void unlinkClient(client *c) {
 
     /* Remove from the list of pending writes if needed. */
     if (c->flags & CLIENT_PENDING_WRITE) {
-        serverAssert(&c->clients_pending_write_node.next != NULL || 
-                     &c->clients_pending_write_node.prev != NULL);
+        serverAssert(listNextNode(&c->clients_pending_write_node) != NULL ||
+                     listPrevNode(&c->clients_pending_write_node) != NULL ||
+                     listFirst(server.clients_pending_write) == &c->clients_pending_write_node);
         listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
         c->flags &= ~CLIENT_PENDING_WRITE;
     }
