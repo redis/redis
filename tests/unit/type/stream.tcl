@@ -3794,6 +3794,29 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         assert {[dict get [r xinfo stream mystream] length] == 1}
         assert_equal [dict get [r xinfo stream mystream] last-generated-id] "2-2"
     }
+
+    test {XDELEX DELREF propagates PEL-only changes} {
+        r DEL xdelex-stream
+        r XADD xdelex-stream 1-0 f v
+        r XGROUP CREATE xdelex-stream group 0
+        r XREADGROUP GROUP group consumer STREAMS xdelex-stream >
+
+        # XDEL leaves dangling PEL references. DELREF must remove them even
+        # though the stream entry itself is already gone.
+        assert_equal 1 [r XDEL xdelex-stream 1-0]
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal {-1} [r XDELEX xdelex-stream DELREF IDS 1 1-0]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
+
+        # IDs with no remaining stream entry or PEL reference are a no-op.
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal {-1} [r XDELEX xdelex-stream DELREF IDS 1 1-0]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+
+        r DEBUG LOADAOF
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
+    }
 }
 
 start_server {tags {"stream"}} {
@@ -3855,11 +3878,31 @@ start_server {tags {"stream"}} {
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
         # Verify the message was removed from both groups' PELs when with DELREF
+        set dirty [s rdb_changes_since_last_save]
         assert_equal {1 1} [r XDELEX mystream DELREF IDS 2 1-0 2-0]
+        # Count each ID once even though both its PEL references and stream entry are removed.
+        assert_equal [expr {$dirty + 2}] [s rdb_changes_since_last_save]
         assert_equal 0 [r XLEN mystream] 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
         assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
     }
+
+    test "XDELEX with DELREF propagates PEL-only changes to replicas" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream group 0
+        r XREADGROUP GROUP group consumer STREAMS mystream >
+        assert_equal 1 [r XDEL mystream 1-0]
+
+        set repl [attach_to_replication_stream]
+        assert_equal {-1} [r XDELEX mystream DELREF IDS 1 1-0]
+        assert_replication_stream $repl {
+            {select *}
+            {xdelex mystream DELREF IDS 1 1-0}
+        }
+        close_replication_stream $repl
+        assert_equal {0 {} {} {}} [r XPENDING mystream group]
+    } {} {needs:repl}
 
     test "XDELEX with ACKED option only deletes messages acknowledged by all groups" {
         r DEL mystream
