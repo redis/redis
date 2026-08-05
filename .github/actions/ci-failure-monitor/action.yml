@@ -14,11 +14,13 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Read and parse failed jobs
+    - name: Report CI failures
       env:
         GH_TOKEN: ${{ inputs.token }}
         REPOSITORY: ${{ inputs.repository }}
         RUN_ID: ${{ inputs.run-id }}
+        RUN_URL: ${{ inputs.run-url }}
+        SHA: ${{ inputs.commit }}
         ACTION_PATH: ${{ github.action_path }}
       shell: bash
       run: |
@@ -26,21 +28,7 @@ runs:
         gh run view "$RUN_ID" --repo "$REPOSITORY" --log-failed > failed.log
         gh api "/repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
           --jq '.jobs' > jobs.json
-        python3 "$ACTION_PATH/parse_ci_failures.py" failed.log failures.json
-
-    - name: Create or update failure issues
-      env:
-        GH_TOKEN: ${{ inputs.token }}
-        REPOSITORY: ${{ inputs.repository }}
-        RUN_URL: ${{ inputs.run-url }}
-        SHA: ${{ inputs.commit }}
-        ACTION_PATH: ${{ github.action_path }}
-        FAILURES_FILE: failures.json
-        JOBS_FILE: jobs.json
-      shell: bash
-      run: |
-        set -euo pipefail
         gh label create ci-failure --repo "$REPOSITORY" \
           --color B60205 --description "Automatically tracked CI failures" 2>/dev/null || true
         ISSUE_TEMPLATE="$ACTION_PATH/ci-failure.md" \
-          python3 "$ACTION_PATH/report_ci_failures.py"
+          python3 "$ACTION_PATH/ci_failure_monitor.py" failed.log jobs.json
