@@ -103,7 +103,7 @@ void linkClient(client *c) {
 static void clientSetDefaultAuth(client *c) {
     /* If the default user does not require authentication, the user is
      * directly authenticated. */
-    clientSetUser(c, DefaultUser);
+    clientSetUser(c, DefaultUser, 0);
     c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
                        !(c->user->flags & USER_FLAG_DISABLED);
 }
@@ -1644,7 +1644,7 @@ void clientAcceptHandler(connection *conn) {
         user *u = ACLGetUserByName(username, sdslen(username));
         if (u && !(u->flags & USER_FLAG_DISABLED)) {
             c->authenticated = 1;
-            clientSetUser(c, u);
+            clientSetUser(c, u, 1);
             moduleNotifyUserChanged(c);
             serverLog(LL_VERBOSE, "TLS: Auto-authenticated client as %s",
                       server.hide_user_data_from_log ? "*redacted*" : u->name);
@@ -2055,6 +2055,24 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
     }
 }
 
+/* Drop all of the client's Pub/Sub state: unsubscribe every channel, shard
+ * channel and pattern — without notifying the client — and clear the Pub/Sub
+ * client flags (including the provenance re-auth hint). */
+static void clearClientPubSubState(client *c) {
+    /* The guard is not an optimization: this also runs on ACL-kill victims
+     * (deauthenticateAndCloseClient) that may be owned by an IO thread
+     * concurrently reading c->flags. A client with Pub/Sub state is
+     * CLIENT_PUBSUB and therefore permanently main-thread-resident (see
+     * isClientMustHandledByMainThread), so the flag writes below can never
+     * touch an IO-owned client — while running them unguarded would. */
+    if (c->flags & CLIENT_PUBSUB) {
+        pubsubUnsubscribeAllChannels(c, 0);
+        pubsubUnsubscribeShardAllChannels(c, 0);
+        pubsubUnsubscribeAllPatterns(c, 0);
+        unmarkClientAsPubSub(c);
+    }
+}
+
 /* Clear the client state to resemble a newly connected client. */
 void clearClientConnectionState(client *c) {
     listNode *ln;
@@ -2080,15 +2098,18 @@ void clearClientConnectionState(client *c) {
     c->resp = 2;
 #endif
 
+    /* Clear Pub/Sub state before resetting the ACL identity below. A still-NULL
+     * subscription is "owned by the current user", so once clientSetDefaultAuth()
+     * switches c->user to DefaultUser (it does not stamp) those entries would be
+     * momentarily attributed to DefaultUser — and moduleNotifyUserChanged() runs
+     * inside that window. Unsubscribing first removes them, so no callback ever
+     * observes a subscription under the wrong effective owner. */
+    clearClientPubSubState(c);
+
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
     discardTransaction(c);
     himportFieldsetsFree(c);
-
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
-    unmarkClientAsPubSub(c);
 
     if (c->name) {
         decrRefCount(c->name);
@@ -2104,7 +2125,17 @@ void clearClientConnectionState(client *c) {
 }
 
 void deauthenticateAndCloseClient(client *c) {
+    /* The victim may be owned by an IO thread that reads c->flags concurrently:
+     * all flag writes below are guarded by flags implying main-thread residency
+     * (see clearClientPubSubState); the other writes are not read by IO threads. */
     disableTracking(c);
+    /* Clear all Pub/Sub subscriptions synchronously *before* dropping the ACL
+     * identity. This removes any provenance-stamped user* values right now, so a
+     * subsequent synchronous ACLFreeUser() (e.g. the DELUSER that triggered this
+     * kill) can never leave a dangling stamped pointer for a later ACL scan to
+     * dereference. It also prevents still-NULL subscriptions from being
+     * misattributed to DefaultUser once c->user changes below. */
+    clearClientPubSubState(c);
     c->user = DefaultUser;
     c->authenticated = 0;
     /* We will write replies to this client later, so we can't
@@ -2273,10 +2304,7 @@ void freeClient(client *c) {
     listRelease(c->watched_keys);
 
     /* Unsubscribe from all the pubsub channels */
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
-    unmarkClientAsPubSub(c);
+    clearClientPubSubState(c);
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
