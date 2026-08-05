@@ -85,7 +85,7 @@ jobs:
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
 
       - name: Upload tarball as artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: redis-full-tarball
           path: /tmp/redis-full.tar.gz
