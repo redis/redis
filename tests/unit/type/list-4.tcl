@@ -98,6 +98,25 @@ foreach {type large} [array get largevalue] {
     }
 }
 
+    test {LMOVEM same-key notifications match LMOVE order} {
+        set orig_notify [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events El
+        r del k{t}
+        r rpush k{t} a b
+
+        set rd [redis_deferring_client]
+        set pattern __keyevent@*__:*
+        assert_equal {1} [psubscribe $rd $pattern]
+
+        assert_equal {a} [r lmovem k{t} k{t} left right]
+        assert_match "pmessage $pattern __keyevent@*__:rpush k{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:lpop k{t}" [$rd read]
+        assert_equal {b a} [r lrange k{t} 0 -1]
+
+        $rd close
+        r config set notify-keyspace-events $orig_notify
+    }
+
     test {LMOVEM missing or empty source} {
         r del src{t} dst{t}
         assert_equal {} [r lmovem src{t} dst{t} left right]
