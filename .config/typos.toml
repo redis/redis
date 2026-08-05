@@ -21,6 +21,10 @@ extend-ignore-re = [
     # ANSI escape sequences inside redis-cli reverse-search test regexes
     # (e.g. `k\x1B[1mey\x1B[0m`).
     '\[1mey',
+    # Time zone abbreviations in release note timestamps.
+    '\d{2}:\d{2}:\d{2} [A-Z]{3}',
+    # JSONPath 'nin' (not in) operator name.
+    '`nin`',
 ]
 
 [default.extend-words]

@@ -1624,8 +1624,8 @@ typedef struct client {
     void *auth_module;      /* The module that owns the callback, which is used
                              * to disconnect the client if the module is
                              * unloaded for cleanup. Opaque for Redis Core.*/
-    compressionState *compression_state; /* Opauqe handle to compression state */
-    int compression_level;  /* Compression level (0 means no compresison).
+    compressionState *compression_state; /* Opaque handle to compression state */
+    int compression_level;  /* Compression level (0 means no compression).
                              * Currently not relevant for non-replication
                              * connections. */
     /* If this client is in tracking mode and this field is non zero,
