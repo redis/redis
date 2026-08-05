@@ -42,6 +42,15 @@ start_server {tags {"bitops"}} {
         r get bits
     } {ABC}
 
+    test {BITFIELD #<idx> form rejects offsets that overflow when scaled by type width} {
+        assert_error {*ERR bit offset is not an integer or out of range*} {
+            r bitfield_ro bits get i64 #144115188075855872
+        }
+        assert_error {*ERR bit offset is not an integer or out of range*} {
+            r bitfield bits get i64 #144115188075855872
+        }
+    }
+
     test {BITFIELD basic INCRBY form} {
         r del bits
         set results {}

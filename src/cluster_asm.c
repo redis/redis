@@ -94,6 +94,7 @@ typedef struct asmTask {
     mstime_t dest_accum_applied_time;       /* The time when the destination finishes applying the accumulated buffer */
     sds error;                              /* Error message for this task */
     redisOpArray *pre_snapshot_module_cmds; /* Module commands to be propagated at the beginning of slot migration */
+    redisOpArray *post_stream_module_cmds;  /* Module commands to be propagated at the end of slot migration, just before STREAM-EOF */
 } asmTask;
 
 typedef struct activeTrimJob {
@@ -184,7 +185,7 @@ ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 /* cluster.c */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
 static void asmTaskCancel(asmTask *task, const char *reason);
@@ -384,6 +385,7 @@ void asmTaskReset(asmTask *task) {
     task->dest_slots_snapshot_time = 0;
     task->dest_accum_applied_time = 0;
     task->pre_snapshot_module_cmds = NULL;
+    task->post_stream_module_cmds = NULL;
 }
 
 asmTask *asmTaskCreate(const char *task_id) {
@@ -1628,7 +1630,7 @@ void asmSyncWithSource(connection *conn) {
         /* Create RDB channel connection */
         clusterNode *source_node = clusterLookupNode(task->source, CLUSTER_NAMELEN);
         if (!source_node) {
-            task_error_msg = sdscatfmt(sdsempty(), "Source node %.40s was not found", task->source);
+            task_error_msg = sdscatprintf(sdsempty(), "Source node %.40s was not found", task->source);
             goto error;
         }
         char *ip = clusterNodeIp(source_node);
@@ -2251,8 +2253,13 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
      * use RESTORE command (RDB format) to migrate data.
      * Generally RDB binary format is more efficient, but it may cause
      * block in the destination if the object is too large, so fall back
-     * to AOF format if necessary. */
-    if ((o->type == OBJ_MODULE) ||
+     * to AOF format if necessary. Templated hashes always use RESTORE
+     * regardless of size: the DUMP payload is self-contained (full
+     * RDB_TYPE_HASH_TMPL_LP/ARRAY with fields inlined). */
+    int isTmplHash = (o->type == OBJ_HASH &&
+                      (o->encoding == OBJ_ENCODING_TMPL_LP ||
+                       o->encoding == OBJ_ENCODING_TMPL_ARRAY));
+    if ((o->type == OBJ_MODULE) || isTmplHash ||
         (o->type != OBJ_STRING && getObjectLength(o) <= ASM_AOF_MIN_ITEMS_PER_KEY))
     {
         if (rioWriteBulkCount(rdb, '*', 5) == 0) return C_ERR;
@@ -2262,7 +2269,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Create the DUMP encoded representation. */
         rio payload;
-        createDumpPayload(&payload, o, &key, dbid, 1);
+        createDumpPayload(&payload, o, &key, dbid, DUMP_PAYLOAD_SKIP_CHECKSUM, 0);
         sds buf = payload.io.buffer.ptr;
         if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
             sdsfree(payload.io.buffer.ptr);
@@ -2314,9 +2321,49 @@ static int propagateModuleCommands(asmTask *task, rio *rdb) {
             }
     }
     redisOpArrayFree(task->pre_snapshot_module_cmds);
+    zfree(task->pre_snapshot_module_cmds->ops);
     zfree(task->pre_snapshot_module_cmds);
     task->pre_snapshot_module_cmds = NULL;
     return ret;
+}
+
+/* Modules can use RM_ClusterPropagateForSlotMigration() during the
+ * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END event to propagate
+ * commands that should be delivered to the destination at the end of the
+ * migration. This function fires the event, collects the commands and feeds
+ * them to the main channel client. It is called once when entering the handoff
+ * phase, where writes are already paused, so the commands are queued behind the
+ * migration stream and delivered last, right before the STREAM-EOF. */
+static void propagateModuleCommandsAtEnd(asmTask *task) {
+    RedisModuleClusterSlotMigrationInfo info = {
+            .version = REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION,
+            .task_id = task->id,
+            .slots = (RedisModuleSlotRangeArray *) task->slots
+    };
+    memcpy(info.source_node_id, task->source, CLUSTER_NAMELEN);
+    memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
+
+    task->post_stream_module_cmds = zcalloc(sizeof(*task->post_stream_module_cmds));
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION,
+                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END,
+                          &info
+    );
+
+    /* Feed the collected commands to the main channel client. */
+    client *c = task->main_channel_client;
+    for (int i = 0; i < task->post_stream_module_cmds->numops; i++) {
+        redisOp *op = &task->post_stream_module_cmds->ops[i];
+        size_t prev_bytes = getNormalClientPendingReplyBytes(c);
+        addReplyArrayLen(c, op->argc);
+        for (int j = 0; j < op->argc; j++)
+            addReplyBulk(c, op->argv[j]);
+        /* Update the task's source offset to reflect the bytes sent. */
+        task->source_offset += (getNormalClientPendingReplyBytes(c) - prev_bytes);
+    }
+    redisOpArrayFree(task->post_stream_module_cmds);
+    zfree(task->post_stream_module_cmds->ops);
+    zfree(task->post_stream_module_cmds);
+    task->post_stream_module_cmds = NULL;
 }
 
 /* Save the slot ranges snapshot to the file. It generates the DUMP encoded
@@ -2868,6 +2915,12 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
     task->state = ASM_HANDOFF;
     task->paused_time = server.mstime;
 
+    /* Now that writes are paused and no more user commands will be fed to the
+     * main channel, give modules a chance to propagate commands at the end of
+     * the migration. The commands are queued behind the migration stream, so
+     * they are delivered last, right before the STREAM-EOF. */
+    propagateModuleCommandsAtEnd(task);
+
     return C_OK;
 }
 
@@ -3058,9 +3111,10 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
             estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
-            streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slot);
         }
     }
+    /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
+    streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
 
     emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, trim_ctx);
 
@@ -3764,25 +3818,37 @@ int asmIsKeyInTrimJob(sds keyname) {
     return 1;
 }
 
-/* Modules can use RM_ClusterPropagateForSlotMigration() during the
- * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event to propagate commands
- * that should be delivered just before the slot snapshot delivery starts. */
-int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc) {
-    /* This API is only called in the fork child. */
-    if (server.cluster_enabled == 0 ||
-        server.in_fork_child != CHILD_TYPE_RDB ||
-        listLength(asmManager->tasks) == 0)
-    {
+/* Modules can use RM_ClusterPropagateForSlotMigration() to propagate commands
+ * along with a slot migration. It is valid in two contexts:
+ *
+ * - During the CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event, in the
+ *   RDB fork child, to propagate commands delivered just before the slot
+ *   snapshot delivery starts.
+ * - During the CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END event, in
+ *   the main process, to propagate commands delivered at the very end of the
+ *   migration, just before the STREAM-EOF is sent.
+ *
+ * The collected commands are appended to the buffer associated with the active
+ * context. */
+int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, int argc) {
+    if (server.cluster_enabled == 0 || listLength(asmManager->tasks) == 0) {
         errno = EBADF;
         return C_ERR;
     }
 
-    /* Check if the task state is right. */
+    /* Determine the propagation context and the target buffer. */
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
-    if (task->operation != ASM_MIGRATE ||
-        task->state != ASM_SEND_BULK_AND_STREAM ||
-        task->pre_snapshot_module_cmds == NULL)
-    {
+    redisOpArray *target = NULL;
+    if (task->operation == ASM_MIGRATE) {
+        if (server.in_fork_child == CHILD_TYPE_RDB && task->state == ASM_SEND_BULK_AND_STREAM) {
+            /* Pre-snapshot context: in the RDB fork child. */
+            target = task->pre_snapshot_module_cmds;
+        } else if (server.in_fork_child == CHILD_TYPE_NONE && task->state == ASM_HANDOFF) {
+            /* End-of-migration context: in the main process. */
+            target = task->post_stream_module_cmds;
+        }
+    }
+    if (target == NULL) {
         errno = EBADF;
         return C_ERR;
     }
@@ -3818,6 +3884,6 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
         incrRefCount(argv[i]);
     }
 
-    redisOpArrayAppend(task->pre_snapshot_module_cmds, 0, argvcopy, argc, 0);
+    redisOpArrayAppend(target, 0, argvcopy, argc, 0);
     return C_OK;
 }

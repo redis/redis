@@ -31,7 +31,8 @@ static size_t dels = 0;
 
 /* Subkey notification log */
 #define SUBKEY_LOG_MAX 256
-static char subkey_log[SUBKEY_LOG_MAX][512];
+#define SUBKEY_LOG_LINE 2048  /* wide enough to log a large subkey count */
+static char subkey_log[SUBKEY_LOG_MAX][SUBKEY_LOG_LINE];
 static int subkey_log_count = 0;
 
 static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
@@ -314,7 +315,7 @@ static void KeySpace_NotificationSubkeys(RedisModuleCtx *ctx, int type, const ch
     const char *key_str = RedisModule_StringPtrLen(key, NULL);
 
     /* Format: "<event> <key> <count> <subkey1> <subkey2> ..." or "<event> <key> 0" */
-    char buf[512];
+    char buf[SUBKEY_LOG_LINE];
     int off = snprintf(buf, sizeof(buf), "%s %s %d", event, key_str, count);
     for (int i = 0; i < count && (size_t)off < sizeof(buf) - 1; i++) {
         const char *sk = RedisModule_StringPtrLen(subkeys[i], NULL);

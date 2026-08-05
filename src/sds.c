@@ -105,7 +105,14 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     int hdrlen = sdsHdrSize(type);
     size_t bufsize;
 
-    assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
+    if (trymalloc) {
+        /* protect against size_t overflow */
+        if (initlen + hdrlen + 1 <= initlen) 
+            return NULL;
+    } else {
+        assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
+    }
+    
     sh = trymalloc?
         s_trymalloc_usable(hdrlen+initlen+1, &bufsize) :
         s_malloc_usable(hdrlen+initlen+1, &bufsize);
@@ -870,6 +877,16 @@ int sdscmp(const sds s1, const sds s2) {
     cmp = memcmp(s1,s2,minlen);
     if (cmp == 0) return l1>l2? 1: (l1<l2? -1: 0);
     return cmp;
+}
+
+/* Compare two sds strings by length first, then content.
+ * Faster than sdscmp when strings often have different lengths.
+ * Returns: negative if s1 < s2, positive if s1 > s2, 0 if equal. */
+int sdscmplen(const sds s1, const sds s2) {
+    size_t l1 = sdslen(s1);
+    size_t l2 = sdslen(s2);
+    if (l1 != l2) return (l1 > l2) ? 1 : -1;
+    return memcmp(s1, s2, l1);
 }
 
 /* Split 's' with separator in 'sep'. An array

@@ -158,6 +158,19 @@ start_server {tags {"dump"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test {RESTORE fail with invalid payload size} {
+        # Payload with mismatched size: claims 0xFFFFFFFFFFFFFFF7 bytes (max uint64 - 8) but provides no data
+        # \x00 = String type
+        # \x81 = 64-bit length marker
+        # \xFF\xFF\xFF\xFF\xFF\xFF\xFF\xF7 = 18446744073709551607 in big-endian
+        # \x0c\x00 = RDB version
+        # \x00... = fake CRC64
+        set encoded "\x00\x81\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xF7\x0c\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        r del test
+        catch {r restore test 0 $encoded} e
+        set e
+    } {*Bad data format*}
+
     test {DUMP of non existing key returns nil} {
         r dump nonexisting_key
     } {}
@@ -305,6 +318,56 @@ start_server {tags {"dump"}} {
             assert {[$first exists key] == 0}
             assert {[$second exists key] == 1}
             assert {[$second ttl key] == -1}
+        }
+    } {} {external:skip}
+
+    test {MIGRATE can correctly transfer template-encoded hashes} {
+        set first [srv 0 client]
+        r flushdb
+        r config set hash-min-template-entries 0
+
+        r himport prepare fs_short  f1 f2 f3
+        r himport prepare fs_long f1 f2 [string repeat q 70]
+        r himport set lp_short_fields fs_short v1 v2 v3
+        r himport set arr_short_fields fs_short v1 [string repeat x 100] v3
+        r himport set lp_long_fields fs_long v1 v2 v3
+        r himport set arr_long_fields fs_long v1 v2 [string repeat x 100]
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+            $second config set hash-min-template-entries 0
+
+            set ret [r -1 migrate $second_host $second_port "" 9 10000 keys lp_short_fields arr_short_fields lp_long_fields arr_long_fields]
+            assert {$ret eq {OK}}
+            assert {[$first exists lp_short_fields] == 0}
+            assert {[$first exists arr_short_fields] == 0}
+            assert {[$first exists lp_long_fields] == 0}
+            assert {[$first exists arr_long_fields] == 0}
+
+            # verify keys are migrated with the correct content and encoding
+            assert_equal {f1 v1 f2 v2 f3 v3} [$second hgetall lp_short_fields]
+            assert_equal "f1 v1 f2 [string repeat x 100] f3 v3" [$second hgetall arr_short_fields]
+            assert_equal "f1 v1 f2 v2 [string repeat q 70] v3" [$second hgetall lp_long_fields]
+            assert_equal "f1 v1 f2 v2 [string repeat q 70] [string repeat x 100]" [$second hgetall arr_long_fields]
+            assert_equal {template-listpack} [$second object encoding lp_short_fields]
+            assert_equal {template-array} [$second object encoding arr_short_fields]
+            assert_equal {template-listpack} [$second object encoding lp_long_fields]
+            assert_equal {template-array} [$second object encoding arr_long_fields]
+
+            # The two distinct field sets rebuild as two templates on the
+            # destination registry, holding four keys in total.
+            assert_equal 2 [status $second hash_templates]
+            assert_equal 4 [status $second hash_template_keys]
+
+            # Source has no template keys..
+            $first himport discardall
+            wait_for_condition 50 100 {
+                [status $first hash_templates] == 0 &&
+                [status $first hash_template_keys] == 0
+            } else {
+                fail "source registry not drained"
+            }
         }
     } {} {external:skip}
 

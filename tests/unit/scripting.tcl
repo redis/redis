@@ -2606,6 +2606,14 @@ start_server {tags {"scripting"}} {
         assert_equal [errorrstat ERR r] {count=1}
     }
 
+    test "LUA redis.error_reply API with CRLF injection attempt" {
+        catch {
+            r eval {error(redis.error_reply("X\r\n+INJECTED"))} 0
+        } err
+        # The error message should have CRLF replaced with spaces
+        assert_match {ERR X  +INJECTED*} $err
+    }
+
     test "LUA redis.status_reply API" {
         r config resetstat
         r readraw 1

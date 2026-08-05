@@ -38,6 +38,8 @@ jobs:
   create-tarball:
     needs: extract-release-info
     runs-on: ubuntu-latest
+    permissions:
+      contents: write          # required for `gh release upload`
     env:
       TAG_NAME: ${{ needs.extract-release-info.outputs.tag_name }}
     outputs:
@@ -52,17 +54,23 @@ jobs:
           fetch-depth: 0
 
       - name: Create tarball
+        env:
+          OUT_PATH: /tmp/redis-full.tar.gz
         run: ./utils/releasetools/01_create_tarball.sh "$TAG_NAME"
 
       - name: Verify tarball size
         id: size
         run: |
-          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
+          TARBALL="/tmp/redis-full.tar.gz"
           SIZE_MB=$(du -m "$TARBALL" | cut -f1)
           echo "Tarball size: ${SIZE_MB} MB"
           echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
-          if [ "$SIZE_MB" -lt 3 ] || [ "$SIZE_MB" -gt 5 ]; then
-            echo "::warning::Tarball size ${SIZE_MB} MB is outside expected range (3-5 MB)"
+          # Bundled modules + Redis core are much larger than legacy core-only archives (~3–5 MB).
+          if [ "$SIZE_MB" -lt 20 ]; then
+            echo "::warning::Tarball size ${SIZE_MB} MB is unexpectedly small for redis+modules source bundle"
+            echo "size_warning=true" >> $GITHUB_OUTPUT
+          elif [ "$SIZE_MB" -gt 8000 ]; then
+            echo "::warning::Tarball size ${SIZE_MB} MB is unexpectedly large"
             echo "size_warning=true" >> $GITHUB_OUTPUT
           else
             echo "size_warning=false" >> $GITHUB_OUTPUT
@@ -71,7 +79,7 @@ jobs:
       - name: Calculate SHA256 checksum
         id: checksum
         run: |
-          TARBALL="/tmp/redis-${TAG_NAME}.tar.gz"
+          TARBALL="/tmp/redis-full.tar.gz"
           SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
           echo "SHA256: $SHA256"
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
@@ -79,9 +87,31 @@ jobs:
       - name: Upload tarball as artifact
         uses: actions/upload-artifact@v6
         with:
-          name: redis-${{ env.TAG_NAME }}-tarball
-          path: /tmp/redis-${{ env.TAG_NAME }}.tar.gz
+          name: redis-full-tarball
+          path: /tmp/redis-full.tar.gz
           compression-level: 0
+
+      - name: Upload tarball as release asset
+        # Release asset: public, permanent, attached to the GitHub Release page
+        # alongside the auto-generated "Source code (zip|tar.gz)" entries.
+        # `--clobber` overwrites if the asset already exists (re-running workflow).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$TAG_NAME" \
+            /tmp/redis-full.tar.gz \
+            --clobber
+
+  # ---------------------------------------------------------------------------
+  # Jobs below are intentionally commented out — placeholders for the rest of
+  # the post-release pipeline (approval gate, public download upload, release
+  # smoke-test, hash file update). They're blocked on:
+  #   - approval-gate:        GitHub Environment with required reviewers
+  #   - upload-tarball:       SSH credentials for download.redis.io
+  #   - test-release-tarball: clean-room build of the uploaded tarball
+  #   - update-release-hashes: write access to the redis-hashes repository
+  # Enable each when its prerequisites are in place.
+  # ---------------------------------------------------------------------------
 
   # approval-gate:
   #   needs: [extract-release-info, create-tarball]

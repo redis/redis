@@ -86,6 +86,7 @@ void clusterCron(void);
 void clusterBeforeSleep(void);
 void clusterClaimUnassignedSlots(void);
 int verifyClusterConfigWithData(void);
+void clusterNotifyTopologyChange(uint64_t change_flags);
 
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
 
@@ -154,6 +155,7 @@ int getSlotOrReply(client *c, robj *o);
 int clusterIsMySlot(int slot);
 int clusterCanAccessKeysInSlot(int slot);
 struct slotRangeArray *clusterGetLocalSlotRanges(void);
+struct slotRangeArray *clusterGetNodeSlotRanges(clusterNode *node);
 
 /* functions with shared implementations */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot,

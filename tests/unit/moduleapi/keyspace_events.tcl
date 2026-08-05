@@ -131,6 +131,51 @@ tags "modules external:skip" {
             r del myhash
         }
 
+        test "Subkey notification: HIMPORT SET triggers module subkey callback" {
+            # HIMPORT SET emits an "hset" event with the template's fields,
+            # matching plain HSET semantics. Single-field template.
+            r himport prepare fieldset1 f1
+            r keyspace.reset_subkey_events
+            r himport set myhash fieldset1 v1
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 1 f1" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset1
+
+            # Multi-field template fires the same event with all of its fields.
+            r himport prepare fieldset4 f1 f2 f3 f4
+            r keyspace.reset_subkey_events
+            r himport set myhash fieldset4 v1 v2 v3 v4
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 4 f1 f2 f3 f4" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset4
+
+            # Large field count: many fields all delivered as subkeys. Fixed-width
+            # names so the sorted template order matches numeric order.
+            set nfields 129
+            set fields {}
+            set vals {}
+            for {set i 1} {$i <= $nfields} {incr i} {
+                lappend fields [format f%03d $i]
+                lappend vals v$i
+            }
+            r himport prepare bigfs {*}$fields
+            r keyspace.reset_subkey_events
+            r himport set myhash bigfs {*}$vals
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            set ev [lindex $events 0]
+            assert_equal "hset" [lindex $ev 0]
+            assert_equal "myhash" [lindex $ev 1]
+            assert_equal $nfields [lindex $ev 2]
+            assert_equal $fields [lrange $ev 3 end]
+            r del myhash
+            r himport discard bigfs
+        }
+
         test "Subkey notification: HDEL triggers module subkey callback" {
             r hset myhash f1 v1 f2 v2
             r keyspace.reset_subkey_events
