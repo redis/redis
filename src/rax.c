@@ -409,7 +409,7 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
 }
 
 /* ------------------------ FIXED-LENGTH helpers --------------------------- */
-/* Layout of nodes leafs is unchanged; only slot interpretation differs. Depth 
+/* Layout of nodes leaves is unchanged; only slot interpretation differs. Depth 
  * is tracked implicitly: either by raxLowWalk or raxIterator.
  *
  * The child-pointer slots hold inlined values of the key instead of a pointer 

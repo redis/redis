@@ -481,7 +481,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * various issues that can occur while reading or parsing data from a client. */
 #define CLIENT_READ_TOO_BIG_INLINE_REQUEST 1
 #define CLIENT_READ_UNBALANCED_QUOTES 2
-#define CLIENT_READ_MASTER_USING_INLINE_PROTOCAL 3
+#define CLIENT_READ_MASTER_USING_INLINE_PROTOCOL 3
 #define CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING 4
 #define CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING 5
 #define CLIENT_READ_EXPECTED_DOLLAR 6
@@ -1632,8 +1632,8 @@ typedef struct client {
     void *auth_module;      /* The module that owns the callback, which is used
                              * to disconnect the client if the module is
                              * unloaded for cleanup. Opaque for Redis Core.*/
-    compressionState *compression_state; /* Opauqe handle to compression state */
-    int compression_level;  /* Compression level (0 means no compresison).
+    compressionState *compression_state; /* Opaque handle to compression state */
+    int compression_level;  /* Compression level (0 means no compression).
                              * Currently not relevant for non-replication
                              * connections. */
     /* If this client is in tracking mode and this field is non zero,
@@ -1782,7 +1782,7 @@ struct sharedObjectsStruct {
     *hdel, *hpexpireat, *hpersist, *hsetex, *restore, *replace,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields,
-    *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *getack, *special_asterisk, *special_equals, *default_username, *redacted,
     *ssubscribebulk,*sunsubscribebulk, *smessagebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
@@ -2098,7 +2098,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
-    redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
+    redisAtomic int module_gil_acquiring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
@@ -2616,7 +2616,7 @@ struct redisServer {
                                    xor of NOTIFY_... flags. */
     kvstore *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
     unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
-    unsigned int watching_clients; /* # of clients are wathcing keys */
+    unsigned int watching_clients; /* # of clients are watching keys */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -4466,7 +4466,7 @@ void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numloca
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
-void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey, unsigned long *watched_keys);
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blocking_keys_on_nokey, unsigned long *watched_keys);
 void blockedBeforeSleep(void);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */

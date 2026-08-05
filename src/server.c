@@ -1143,7 +1143,7 @@ int updateClientMemUsageAndBucket(client *c) {
      * that special case we assert that at least the updated client's
      * running_tid is the main thread. The true main thread is allowed to call
      * this function on clients handled by IO-threads as it makes sure the
-     * IO-threads are paused, f.e see cleintsCron() and evictClients(). */
+     * IO-threads are paused, f.e see clientsCron() and evictClients(). */
     serverAssert((pthread_equal(pthread_self(), server.main_thread_id) ||
                   c->running_tid == IOTHREAD_MAIN_THREAD_ID) && c->conn);
     int allow_eviction = clientEvictionAllowed(c);
@@ -1924,7 +1924,7 @@ static void sendGetackToReplicas(void) {
     robj *argv[3];
     argv[0] = shared.replconf;
     argv[1] = shared.getack;
-    argv[2] = shared.special_asterick; /* Not used argument. */
+    argv[2] = shared.special_asterisk; /* Not used argument. */
     replicationFeedSlaves(server.slaves, -1, argv, 3);
 }
 
@@ -2170,9 +2170,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             mstime_t latency;
             latencyStartMonitor(latency);
 
-            atomicSet(server.module_gil_acquring, 1);
+            atomicSet(server.module_gil_acquiring, 1);
             moduleAcquireGIL();
-            atomicSet(server.module_gil_acquring, 0);
+            atomicSet(server.module_gil_acquiring, 0);
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
@@ -2350,7 +2350,7 @@ void createSharedObjects(void) {
     shared.load = createStringObject("LOAD",4);
     shared.createconsumer = createStringObject("CREATECONSUMER",14);
     shared.getack = createStringObject("GETACK",6);
-    shared.special_asterick = createStringObject("*",1);
+    shared.special_asterisk = createStringObject("*",1);
     shared.special_equals = createStringObject("=",1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
     shared.fields = createStringObject("FIELDS",6);
@@ -2989,7 +2989,7 @@ void resetServerStats(void) {
 }
 
 /* Make the thread killable at any time, so that kill threads functions
- * can work reliably (default cancelability type is PTHREAD_CANCEL_DEFERRED).
+ * can work reliably (default cancellability type is PTHREAD_CANCEL_DEFERRED).
  * Needed for pthread_cancel used by the fast memory test used by the crash report. */
 void makeThreadKillable(void) {
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
@@ -7640,7 +7640,7 @@ void dismissKvstoreBucketsMemory(kvstore *kvs) {
 /* In the child process, we don't need some buffers anymore, and these are
  * likely to change in the parent when there's heavy write traffic.
  * We dismiss them right away, to avoid CoW.
- * see dismissMemeory(). */
+ * see dismissMemory(). */
 void dismissMemoryInChild(void) {
     /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
     if (server.thp_enabled) return;

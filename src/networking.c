@@ -2595,15 +2595,15 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
         } else {
             /* BULK_STR_REF - release object references */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
-            formatBulkStrRefPrefix(str_ref); /* ensure prefix_cnt is set for writen_len */
+            formatBulkStrRefPrefix(str_ref); /* ensure prefix_cnt is set for written_len */
 
-            size_t writen_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
-            if (*remaining < (ssize_t)(writen_len - *sentlen)) {
+            size_t written_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
+            if (*remaining < (ssize_t)(written_len - *sentlen)) {
                 *sentlen += *remaining;
                 *remaining = 0;
                 return head;
             }
-            *remaining -= (writen_len - *sentlen);
+            *remaining -= (written_len - *sentlen);
             c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
@@ -3209,7 +3209,7 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
-        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCAL;
+        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCOL;
         return C_ERR;
     }
 
@@ -3644,7 +3644,7 @@ void handleClientReadError(client *c) {
             addReplyError(c,"Protocol error: unbalanced quotes in request");
             setProtocolError("unbalanced quotes in request",c);
             break;
-        case CLIENT_READ_MASTER_USING_INLINE_PROTOCAL:
+        case CLIENT_READ_MASTER_USING_INLINE_PROTOCOL:
             serverLog(LL_WARNING,"WARNING: Receiving inline protocol from master, master stream corruption? Closing the master connection and discarding the cached master.");
             setProtocolError("Master using the inline protocol. Desync?",c);
             break;

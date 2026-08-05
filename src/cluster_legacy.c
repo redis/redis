@@ -4846,7 +4846,7 @@ void clusterCron(void) {
     dictInitSafeIterator(&di, server.cluster->nodes);
     while((de = dictNext(&di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-        /* We free the inbound or outboud link to the node if the link has an
+        /* We free the inbound or outbound link to the node if the link has an
          * oversized message send queue and immediately try reconnecting. */
         clusterNodeCronFreeLinkOnBufferLimitReached(node);
         /* The protocol is that function(s) below return non-zero if the node was
