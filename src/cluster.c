@@ -72,6 +72,10 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
+int clusterDefaultClientPortIsTLS(void) {
+    return server.tls_cluster;
+}
+
 ConnectionType *connTypeOfCluster(void) {
     if (server.tls_cluster) {
         return connectionTypeTls();

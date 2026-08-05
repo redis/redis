@@ -100,10 +100,6 @@ void freeClusterLink(clusterLink *link);
 int verifyClusterNodeId(const char *name, int length);
 static void updateShardId(clusterNode *node, const char *shard_id);
 
-int clusterDefaultClientPortIsTLS(void) {
-    return server.tls_cluster;
-}
-
 int getNodeDefaultClientPort(clusterNode *n) {
     return clusterDefaultClientPortIsTLS() ? n->tls_port : n->tcp_port;
 }
