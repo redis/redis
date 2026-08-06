@@ -110,9 +110,11 @@ xxhash: .make-prerequisites
 .PHONY: xxhash
 
 CROARING_CFLAGS = $(DEPS_CFLAGS) -DROARING_DISABLE_X64=1 -DDISABLENEON=1
+# LLVM bitcode archives require an archiver plugin compatible with the compiler.
+# Keep the vendored CRoaring archive portable by building it without LTO.
 croaring: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd croaring && $(MAKE) CFLAGS="$(CROARING_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO="$(ENABLE_LTO)" AR="$(AR)"
+	cd croaring && $(MAKE) CFLAGS="$(CROARING_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO= AR="$(AR)"
 
 .PHONY: croaring
 
