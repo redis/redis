@@ -1185,7 +1185,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
 
         test {Roaring bitmap public creation replicates deterministic type transitions} {
             # The replica stays in bitmap-default-roaring no: type decisions must arrive
-            # from the master as explicit RESTOREs, never be re-derived from
+            # from the master as explicit RESTORE commands, never be re-derived from
             # replica-local configuration.
             $master config set bitmap-default-roaring yes
             $replica config set bitmap-default-roaring no
