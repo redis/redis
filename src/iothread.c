@@ -708,7 +708,7 @@ int processClientsFromIOThread(IOThread *t) {
 
     /* Send the clients to io thread without pending size check, since main thread
      * may process clients from other io threads, so we need to send them to the
-     * io thread to process in prallel. */
+     * io thread to process in parallel. */
     sendPendingClientsToIOThreadIfNeeded(t, 0);
 
     return processed;
@@ -970,7 +970,7 @@ int IOThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData) 
     return 1000/IO_DEFAULT_HZ;
 }
 
-/* The main function of IO thread, it will run an event loop. The mian thread
+/* The main function of IO thread, it will run an event loop. The main thread
  * and IO thread will communicate through event notifier. */
 void *IOThreadMain(void *ptr) {
     IOThread *t = ptr;

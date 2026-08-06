@@ -1845,7 +1845,7 @@ static void test_reclaimFilePageCache(void) {
     assert(!cache_exist(fd));
 
     unlink(tmpfile);
-    printf("reclaimFilePageCach test is ok\n");
+    printf("reclaimFilePageCache test is ok\n");
 }
 #endif
 

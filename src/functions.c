@@ -40,11 +40,11 @@ struct functionsLibCtx {
     dict *engines_stats; /* Per engine statistics */
 };
 
-typedef struct functionsLibMataData {
+typedef struct functionsLibMetaData {
     sds engine;
     sds name;
     sds code;
-} functionsLibMataData;
+} functionsLibMetaData;
 
 dictType engineDictType = {
         dictSdsCaseHash,       /* hash function */
@@ -894,7 +894,7 @@ static int functionsVerifyName(sds name) {
     return C_OK;
 }
 
-int functionExtractLibMetaData(sds payload, functionsLibMataData *md, sds *err) {
+int functionExtractLibMetaData(sds payload, functionsLibMetaData *md, sds *err) {
     sds name = NULL;
     sds engine = NULL;
     if (strncmp(payload, "#!", 2) != 0) {
@@ -953,7 +953,7 @@ error:
     return C_ERR;
 }
 
-void functionFreeLibMetaData(functionsLibMataData *md) {
+void functionFreeLibMetaData(functionsLibMetaData *md) {
     if (md->code) sdsfree(md->code);
     if (md->name) sdsfree(md->name);
     if (md->engine) sdsfree(md->engine);
@@ -966,7 +966,7 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     dictEntry *entry = NULL;
     functionLibInfo *new_li = NULL;
     functionLibInfo *old_li = NULL;
-    functionsLibMataData md = {0};
+    functionsLibMetaData md = {0};
     if (functionExtractLibMetaData(code, &md, err) != C_OK) {
         return NULL;
     }

@@ -2563,7 +2563,7 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one.
  * tuple_len indicates what is a logical entry tuple size.
- * Whether tuple is of size 1 (set), 2 (feild-value) or 3 (field-value[-ttl]),
+ * Whether tuple is of size 1 (set), 2 (field-value) or 3 (field-value[-ttl]),
  * first element in the tuple must be unique */
 int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
     if (!deep)

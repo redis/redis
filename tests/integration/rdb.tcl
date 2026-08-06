@@ -404,7 +404,7 @@ start_server {} {
         # make sure a write command fails
         assert_error {MISCONF *} {r set x y}
 
-        # repeate with script
+        # repeat with script
         assert_error {MISCONF *} {r eval {
             return redis.call('set','x',1)
             } 1 x

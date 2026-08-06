@@ -625,14 +625,25 @@ static void handleClientsBlockedOnKey(readyList *rl) {
 
     if (de) {
         list *clients = dictGetVal(de);
-        listNode *ln;
-        listIter li;
-        listRewind(clients,&li);
-
         /* Avoid processing more than the initial count so that we're not stuck
          * in an endless loop in case the reprocessing of the command blocks again. */
         long count = listLength(clients);
-        while ((ln = listNext(&li)) && count--) {
+        while (count-- > 0) {
+            /* Processing the previous client may have removed all blocked
+             * clients and freed the list, so look it up again each time. */
+            de = dictFind(rl->db->blocking_keys, rl->key);
+            if (!de) break;
+            list *clients = dictGetVal(de);
+            listNode *ln = listFirst(clients);
+            serverAssert(ln);
+
+            /* Rotate before reprocessing because unblocking may remove this
+             * client, and command reprocessing may evict other blocked clients
+             * and free the list. If the client remains blocked or blocks again,
+             * keeping it at the tail lets us advance to the next client while
+             * preserving the order of the other waiters. */
+            listRotateHeadToTail(clients);
+
             client *receiver = listNodeValue(ln);
             kvobj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the

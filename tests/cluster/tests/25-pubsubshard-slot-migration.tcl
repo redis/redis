@@ -189,6 +189,44 @@ test "Delete a slot, verify sunsubscribe message" {
     $subscribeclient close
 }
 
+test "Migrate a slot with multi-user shard subscriptions, verify sunsubscribe is delivered correctly" {
+    set channelname ch5
+    set slot [$cluster cluster keyslot $channelname]
+    array set nodefrom [$cluster masternode_for_slot $slot]
+    array set nodeto [$cluster masternode_notfor_slot $slot]
+
+    $nodefrom(link) ACL SETUSER slotuser on nopass ~* &* +@all
+
+    set subscribeclient [redis_deferring_client_by_addr $nodefrom(host) $nodefrom(port)]
+    $subscribeclient deferred 1
+
+    $subscribeclient hello 3 AUTH slotuser slotuser
+    $subscribeclient read
+
+    $subscribeclient ssubscribe $channelname
+    $subscribeclient read
+
+    $subscribeclient auth default ""
+    $subscribeclient read
+
+    $nodefrom(link) spublish $channelname pre-migrate
+    assert_equal "smessage $channelname pre-migrate" [$subscribeclient read]
+
+    assert_equal {OK} [$nodefrom(link) cluster setslot $slot migrating $nodeto(id)]
+    assert_equal {OK} [$nodeto(link) cluster setslot $slot importing $nodefrom(id)]
+    assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
+
+    set msg [$subscribeclient read]
+    assert {"sunsubscribe" eq [lindex $msg 0]}
+    assert {$channelname eq [lindex $msg 1]}
+    assert {"0" eq [lindex $msg 2]}
+
+    assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
+
+    $subscribeclient close
+    $nodefrom(link) ACL DELUSER slotuser
+}
+
 test "Reset cluster, verify sunsubscribe message" {
     set channelname ch4
     set slot [$cluster cluster keyslot $channelname]

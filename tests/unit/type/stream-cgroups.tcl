@@ -1387,7 +1387,7 @@ start_server {
             set n_consumers [lindex $grpinfo 3]
 
             # All consumers are created via XREADGROUP, regardless of whether they managed
-            # to read any entries ot not
+            # to read any entries or not
             assert_equal $n_consumers 3
             $rd close
         }

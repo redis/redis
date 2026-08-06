@@ -8,6 +8,11 @@ start_server {tags {"bitops"}} {
         set results
     } {0 -100 101}
 
+    test {BITFIELD signed i64 SET handles positive values} {
+        r del bits
+        r bitfield bits set i64 0 32 get i64 0
+    } {0 32}
+
     test {BITFIELD unsigned SET and GET basics} {
         r del bits
         set results {}

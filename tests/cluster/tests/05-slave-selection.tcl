@@ -112,7 +112,7 @@ test "Node #10 should eventually replicate node #5" {
 source "../tests/includes/init-tests.tcl"
 
 # Create a cluster with 3 master and 15 slaves, so that we have 5
-# slaves for eatch master.
+# slaves for each master.
 test "Create a 3 nodes cluster" {
     create_cluster 3 15
 }

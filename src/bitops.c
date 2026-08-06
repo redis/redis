@@ -681,10 +681,10 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
 
     /* Note that maxincr and minincr could overflow, but we use the values
      * only after checking 'value' range, so when we use it no overflow
-     * happens. 'uint64_t' cast is there just to prevent undefined behavior on
+     * happens. 'uint64_t' casts are there just to prevent undefined behavior on
      * overflow */
     int64_t maxincr = (uint64_t)max-value;
-    int64_t minincr = min-value;
+    int64_t minincr = (uint64_t)min-value;
 
     if (value > max || (bits != 64 && incr > maxincr) || (value >= 0 && incr > 0 && incr > maxincr))
     {

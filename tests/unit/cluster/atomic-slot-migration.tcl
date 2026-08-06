@@ -948,7 +948,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "ASM task did not start"
         }
 
-        # update expire time during mirgration
+        # update expire time during migration
         R 1 setex $slot0_key 100 "a"
         R 1 expire $slot1_key 80
         R 1 expire $slot2_key 60
