@@ -780,6 +780,7 @@ start_server {} {
     test_all_keysizes 0
 
     test "KEYSIZES - BITFIELD OVERFLOW FAIL growth updates histogram" {
+        r select 0
         run_cmd_verify_hist {r FLUSHALL} {}
         run_cmd_verify_hist {r SET b0 ""} {db0_STR:0=1}
         run_cmd_verify_hist {r BITFIELD b0 OVERFLOW FAIL SET u8 72 256} {db0_STR:8=1}
