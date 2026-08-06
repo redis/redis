@@ -12,11 +12,11 @@ proc wait_for_bitmap_defrag_stop {maxtries delay} {
     }
 }
 
-# Extract the raw string payload from a bitmap DUMP. Bitmap DUMPs start with
-# the RDB type byte followed by the logical byte length and the portable blob
-# length. Tests using this helper disable RDB compression, so both lengths use
-# ordinary RDB length encodings and the payload ends before the two-byte RDB
-# version and eight-byte checksum.
+# Extract the raw string payload from a bitmap DUMP. It starts with the RDB
+# type byte followed by the logical byte length and the portable blob length.
+# Tests using this helper disable RDB compression, so both lengths use ordinary
+# RDB length encodings and the payload ends before the two-byte RDB version and
+# eight-byte checksum.
 proc roaring_portable_payload {dump} {
     set offset 1
     foreach field {byte-length payload-length} {
