@@ -510,7 +510,14 @@ int32_t array_container_number_of_runs(const array_container_t *ac) {
  *
  */
 int32_t array_container_write(const array_container_t *container, char *buf) {
+#if CROARING_IS_BIG_ENDIAN
+    for (int32_t i = 0; i < container->cardinality; ++i) {
+        uint16_t v_le = croaring_htole16(container->array[i]);
+        memcpy(buf + i * sizeof(uint16_t), &v_le, sizeof(uint16_t));
+    }
+#else
     memcpy(buf, container->array, container->cardinality * sizeof(uint16_t));
+#endif
     return array_container_size_in_bytes(container);
 }
 
@@ -543,7 +550,15 @@ int32_t array_container_read(int32_t cardinality, array_container_t *container,
         array_container_grow(container, cardinality, false);
     }
     container->cardinality = cardinality;
+#if CROARING_IS_BIG_ENDIAN
+    for (int32_t i = 0; i < cardinality; ++i) {
+        uint16_t v_le;
+        memcpy(&v_le, buf + i * sizeof(uint16_t), sizeof(uint16_t));
+        container->array[i] = croaring_letoh16(v_le);
+    }
+#else
     memcpy(container->array, buf, container->cardinality * sizeof(uint16_t));
+#endif
 
     return array_container_size_in_bytes(container);
 }

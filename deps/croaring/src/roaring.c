@@ -1519,9 +1519,18 @@ size_t roaring_bitmap_serialize(const roaring_bitmap_t *r, char *buf) {
         return roaring_bitmap_portable_serialize(r, buf + 1) + 1;
     } else {
         buf[0] = CROARING_SERIALIZATION_ARRAY_UINT32;
-        memcpy(buf + 1, &cardinality, sizeof(uint32_t));
-        roaring_bitmap_to_uint32_array(
-            r, (uint32_t *)(buf + 1 + sizeof(uint32_t)));
+        uint32_t card_le = croaring_htole32((uint32_t)cardinality);
+        memcpy(buf + 1, &card_le, sizeof(uint32_t));
+        uint32_t *out = (uint32_t *)(buf + 1 + sizeof(uint32_t));
+        roaring_bitmap_to_uint32_array(r, out);
+#if CROARING_IS_BIG_ENDIAN
+        for (uint64_t i = 0; i < cardinality; ++i) {
+            uint32_t v;
+            memcpy(&v, out + i, sizeof(uint32_t));
+            v = croaring_htole32(v);
+            memcpy(out + i, &v, sizeof(uint32_t));
+        }
+#endif
         return 1 + (size_t)sizeasarray;
     }
 }
@@ -1580,6 +1589,7 @@ roaring_bitmap_t *roaring_bitmap_deserialize(const void *buf) {
         uint32_t card;
 
         memcpy(&card, bufaschar + 1, sizeof(uint32_t));
+        card = croaring_letoh32(card);
 
         const uint32_t *elems =
             (const uint32_t *)(bufaschar + 1 + sizeof(uint32_t));
@@ -1593,6 +1603,7 @@ roaring_bitmap_t *roaring_bitmap_deserialize(const void *buf) {
             // elems may not be aligned, read with memcpy
             uint32_t elem;
             memcpy(&elem, elems + i, sizeof(elem));
+            elem = croaring_letoh32(elem);
             roaring_bitmap_add_bulk(bitmap, &context, elem);
         }
         return bitmap;
@@ -1618,6 +1629,7 @@ roaring_bitmap_t *roaring_bitmap_deserialize_safe(const void *buf,
         /* This looks like a compressed set of uint32_t elements */
         uint32_t card;
         memcpy(&card, bufaschar + 1, sizeof(uint32_t));
+        card = croaring_letoh32(card);
 
         // Check the buffer is big enough to contain card uint32_t elements
         if (maxbytes < 1 + sizeof(uint32_t) + card * sizeof(uint32_t)) {
@@ -1636,6 +1648,7 @@ roaring_bitmap_t *roaring_bitmap_deserialize_safe(const void *buf,
             // elems may not be aligned, read with memcpy
             uint32_t elem;
             memcpy((char *)&elem, (char *)(elems + i), sizeof(elem));
+            elem = croaring_letoh32(elem);
             roaring_bitmap_add_bulk(bitmap, &context, elem);
         }
         return bitmap;

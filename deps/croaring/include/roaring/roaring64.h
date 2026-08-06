@@ -25,8 +25,14 @@ namespace roaring {
 namespace api {
 #endif
 
+/** An opaque 64-bit Roaring bitmap. Create one with `roaring64_bitmap_create()`
+ * and release it with `roaring64_bitmap_free()`. */
 typedef struct roaring64_bitmap_s roaring64_bitmap_t;
+/** Internal leaf type, exposed only for use inside `roaring64_bulk_context_t`.
+ * Callers should treat it as opaque. */
 typedef uint64_t roaring64_leaf_t;
+/** An opaque iterator over a 64-bit bitmap. See `roaring64_iterator_create()`.
+ */
 typedef struct roaring64_iterator_s roaring64_iterator_t;
 
 /**
@@ -250,6 +256,12 @@ bool roaring64_bitmap_contains(const roaring64_bitmap_t *r, uint64_t val);
  */
 bool roaring64_bitmap_contains_range(const roaring64_bitmap_t *r, uint64_t min,
                                      uint64_t max);
+
+/**
+ * Returns true if all values in the range [min, max] are present.
+ */
+bool roaring64_bitmap_contains_range_closed(const roaring64_bitmap_t *r,
+                                            uint64_t min, uint64_t max);
 
 /**
  * Check if an item is present using context from a previous insert or search
@@ -583,10 +595,6 @@ size_t roaring64_bitmap_portable_size_in_bytes(const roaring64_bitmap_t *r);
  * This is meant to be compatible with other languages:
  * https://github.com/RoaringBitmap/RoaringFormatSpec#extension-for-64-bit-implementations
  *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
- *
  * When serializing data to a file, we recommend that you also use
  * checksums so that, at deserialization, you can be confident
  * that you are recovering the correct data.
@@ -631,10 +639,6 @@ size_t roaring64_bitmap_portable_deserialize_size(const char *buf,
  * We also recommend that you use checksums to check that serialized data
  * corresponds to the serialized bitmap. The CRoaring library does not provide
  * checksumming.
- *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
  */
 roaring64_bitmap_t *roaring64_bitmap_portable_deserialize_safe(const char *buf,
                                                                size_t maxbytes);
@@ -663,7 +667,8 @@ size_t roaring64_bitmap_frozen_size_in_bytes(const roaring64_bitmap_t *r);
  *
  * This function is endian-sensitive. If you have a big-endian system (e.g., a
  * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
+ * compatible with little-endian systems. This is not a bug, it is by design,
+ * since the format imitates C memory layout of roaring64_bitmap_t.
  */
 size_t roaring64_bitmap_frozen_serialize(const roaring64_bitmap_t *r,
                                          char *buf);
@@ -681,7 +686,8 @@ size_t roaring64_bitmap_frozen_serialize(const roaring64_bitmap_t *r,
  *
  * This function is endian-sensitive. If you have a big-endian system (e.g., a
  * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
+ * compatible with little-endian systems. This is not a bug, it is by design,
+ * since the format imitates C memory layout of roaring64_bitmap_t.
  */
 roaring64_bitmap_t *roaring64_bitmap_frozen_view(const char *buf,
                                                  size_t maxbytes);

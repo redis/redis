@@ -576,6 +576,7 @@ const uint8_t vbmi2_table[64] = {
 size_t bitset_extract_setbits_avx512(const uint64_t *words, size_t length,
                                      uint32_t *vout, size_t outcapacity,
                                      uint32_t base) {
+    if (outcapacity == 0) return 0;
     uint32_t *out = (uint32_t *)vout;
     uint32_t *initout = out;
     uint32_t *safeout = out + outcapacity;
@@ -632,6 +633,7 @@ size_t bitset_extract_setbits_avx512(const uint64_t *words, size_t length,
 size_t bitset_extract_setbits_avx512_uint16(const uint64_t *array,
                                             size_t length, uint16_t *vout,
                                             size_t capacity, uint16_t base) {
+    if (capacity == 0) return 0;
     uint16_t *out = (uint16_t *)vout;
     uint16_t *initout = out;
     uint16_t *safeout = vout + capacity;
@@ -683,6 +685,7 @@ CROARING_TARGET_AVX2
 size_t bitset_extract_setbits_avx2(const uint64_t *words, size_t length,
                                    uint32_t *out, size_t outcapacity,
                                    uint32_t base) {
+    if (outcapacity == 0) return 0;
     uint32_t *initout = out;
     __m256i baseVec = _mm256_set1_epi32(base - 1);
     __m256i incVec = _mm256_set1_epi32(64);
@@ -786,6 +789,7 @@ CROARING_TARGET_AVX2
 size_t bitset_extract_setbits_sse_uint16(const uint64_t *words, size_t length,
                                          uint16_t *out, size_t outcapacity,
                                          uint16_t base) {
+    if (outcapacity == 0) return 0;
     uint16_t *initout = out;
     __m128i baseVec = _mm_set1_epi16(base - 1);
     __m128i incVec = _mm_set1_epi16(64);
