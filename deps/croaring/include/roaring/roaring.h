@@ -636,10 +636,6 @@ size_t roaring_bitmap_shrink_to_fit(roaring_bitmap_t *r);
  *
  * Returns how many bytes written, should be `roaring_bitmap_size_in_bytes(r)`.
  *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
- *
  * When serializing data to a file, we recommend that you also use
  * checksums so that, at deserialization, you can be confident
  * that you are recovering the correct data.
@@ -652,27 +648,34 @@ size_t roaring_bitmap_serialize(const roaring_bitmap_t *r, char *buf);
  * (See `roaring_bitmap_portable_deserialize()` if you want a format that's
  * compatible with Java and Go implementations).
  *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
- *
  * The returned pointer may be NULL in case of errors.
  */
 roaring_bitmap_t *roaring_bitmap_deserialize(const void *buf);
 
 /**
+ * Load a bitmap from a serialized buffer safely (reading up to maxbytes).
+ *
  * Use with `roaring_bitmap_serialize()`.
  *
  * (See `roaring_bitmap_portable_deserialize_safe()` if you want a format that's
  * compatible with Java and Go implementations).
  *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
- *
  * The difference with `roaring_bitmap_deserialize()` is that this function
- * checks that the input buffer is a valid bitmap.  If the buffer is too small,
- * NULL is returned.
+ * is guaranteed to not read beyond the provided buffer. If the buffer is too
+ * small, NULL is returned.
+ *
+ * The function itself is safe in the sense that it will not cause buffer
+ * overflows: it will not read beyond the scope of the provided buffer
+ * (buf,maxbytes).
+ *
+ * However, for correct operations, it is assumed that the bitmap
+ * read was once serialized from a valid bitmap (i.e., it follows the format
+ * specification). If you provided an incorrect input (garbage), then the bitmap
+ * read may not be in a valid state and following operations may not lead to
+ * sensible results (using it may cause crashes, or it may just give incoherent
+ * answers). You can call roaring_bitmap_internal_validate to check the validity
+ * of the bitmap if the source is untrusted. Only after calling
+ * roaring_bitmap_internal_validate is the bitmap considered safe for use.
  *
  * The returned pointer may be NULL in case of errors.
  */
@@ -704,10 +707,6 @@ size_t roaring_bitmap_size_in_bytes(const roaring_bitmap_t *r);
  *
  * This is meant to be compatible with the Java and Go versions:
  * https://github.com/RoaringBitmap/RoaringFormatSpec
- *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
  *
  * The returned pointer may be NULL in case of errors.
  */
@@ -742,10 +741,6 @@ roaring_bitmap_t *roaring_bitmap_portable_deserialize(const char *buf);
  * corresponds to the serialized bitmap. The CRoaring library does not provide
  * checksumming.
  *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
- *
  * The returned pointer may be NULL in case of errors.
  */
 roaring_bitmap_t *roaring_bitmap_portable_deserialize_safe(const char *buf,
@@ -769,7 +764,8 @@ roaring_bitmap_t *roaring_bitmap_portable_deserialize_safe(const char *buf,
  *
  * This function is endian-sensitive. If you have a big-endian system (e.g., a
  * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
+ * compatible with little-endian systems. It is not a bug, it is by design,
+ * since the format imitates C memory layout of roaring_bitmap_t.
  *
  * The returned pointer may be NULL in case of errors.
  */
@@ -802,10 +798,6 @@ size_t roaring_bitmap_portable_size_in_bytes(const roaring_bitmap_t *r);
  *
  * This is meant to be compatible with the Java and Go versions:
  * https://github.com/RoaringBitmap/RoaringFormatSpec
- *
- * This function is endian-sensitive. If you have a big-endian system (e.g., a
- * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
  *
  * When serializing data to a file, we recommend that you also use
  * checksums so that, at deserialization, you can be confident
@@ -843,7 +835,8 @@ size_t roaring_bitmap_frozen_size_in_bytes(const roaring_bitmap_t *r);
  *
  * This function is endian-sensitive. If you have a big-endian system (e.g., a
  * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
+ * compatible with little-endian systems. This is not a bug, it is by design,
+ *since the format imitates C memory layout
  *
  * When serializing data to a file, we recommend that you also use
  * checksums so that, at deserialization, you can be confident
@@ -864,7 +857,8 @@ void roaring_bitmap_frozen_serialize(const roaring_bitmap_t *r, char *buf);
  *
  * This function is endian-sensitive. If you have a big-endian system (e.g., a
  * mainframe IBM s390x), the data format is going to be big-endian and not
- * compatible with little-endian systems.
+ * compatible with little-endian systems. This is not a bug, it is by design,
+ *since the format imitates C memory layout of roaring_bitmap_t.
  */
 const roaring_bitmap_t *roaring_bitmap_frozen_view(const char *buf,
                                                    size_t length);
@@ -885,6 +879,16 @@ const roaring_bitmap_t *roaring_bitmap_frozen_view(const char *buf,
 bool roaring_iterate(const roaring_bitmap_t *r, roaring_iterator iterator,
                      void *ptr);
 
+/**
+ * Like `roaring_iterate`, but the 32-bit values are widened to 64 bits by
+ * adding `high_bits` (shifted into the upper 32 bits) before being passed to
+ * the iterator. This is used to build 64-bit iteration on top of 32-bit
+ * bitmaps. `ptr` (can be NULL) is forwarded as the second argument of each
+ * call.
+ *
+ * Returns true if the iterator returned true throughout (so that all values
+ * were necessarily visited).
+ */
 bool roaring_iterate64(const roaring_bitmap_t *r, roaring_iterator64 iterator,
                        uint64_t high_bits, void *ptr);
 

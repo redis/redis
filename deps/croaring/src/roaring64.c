@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <stdalign.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
@@ -562,12 +561,20 @@ bool roaring64_bitmap_contains_range(const roaring64_bitmap_t *r, uint64_t min,
     if (min >= max) {
         return true;
     }
+    return roaring64_bitmap_contains_range_closed(r, min, max - 1);
+}
+
+bool roaring64_bitmap_contains_range_closed(const roaring64_bitmap_t *r,
+                                            uint64_t min, uint64_t max) {
+    if (min > max) {
+        return true;
+    }
 
     uint8_t min_high48[ART_KEY_BYTES];
     uint16_t min_low16 = split_key(min, min_high48);
     uint8_t max_high48[ART_KEY_BYTES];
     uint16_t max_low16 = split_key(max, max_high48);
-    uint64_t max_high48_bits = (max - 1) & 0xFFFFFFFFFFFF0000;  // Inclusive
+    uint64_t max_high48_bits = max & 0xFFFFFFFFFFFF0000;
 
     art_iterator_t it = art_lower_bound((art_t *)&r->art, min_high48);
     if (it.value == NULL || combine_key(it.key, 0) > min) {
@@ -593,7 +600,7 @@ bool roaring64_bitmap_contains_range(const roaring64_bitmap_t *r, uint64_t min,
         }
         uint32_t container_max = 0xFFFF + 1;  // Exclusive
         if (compare_high48(it.key, max_high48) == 0) {
-            container_max = max_low16;
+            container_max = (uint32_t)max_low16 + 1;
         }
 
         // For the first and last containers we use container_contains_range,
@@ -2175,7 +2182,8 @@ size_t roaring64_bitmap_portable_serialize(const roaring64_bitmap_t *r,
     // Write as uint64 the distinct number of "buckets", where a bucket is
     // defined as the most significant 32 bits of an element.
     uint64_t high32_count = count_high32(r);
-    memcpy(buf, &high32_count, sizeof(high32_count));
+    uint64_t high32_count_le = croaring_htole64(high32_count);
+    memcpy(buf, &high32_count_le, sizeof(high32_count_le));
     buf += sizeof(high32_count);
 
     art_iterator_t it = art_init_iterator((art_t *)&r->art, /*first=*/true);
@@ -2190,7 +2198,8 @@ size_t roaring64_bitmap_portable_serialize(const roaring64_bitmap_t *r,
             if (bitmap32 != NULL) {
                 // Write as uint32 the most significant 32 bits of the
                 // bucket.
-                memcpy(buf, &prev_high32, sizeof(prev_high32));
+                uint32_t prev_high32_le = croaring_htole32(prev_high32);
+                memcpy(buf, &prev_high32_le, sizeof(prev_high32_le));
                 buf += sizeof(prev_high32);
 
                 // Write the 32-bit Roaring bitmaps representing the least
@@ -2221,7 +2230,8 @@ size_t roaring64_bitmap_portable_serialize(const roaring64_bitmap_t *r,
 
     if (bitmap32 != NULL) {
         // Write as uint32 the most significant 32 bits of the bucket.
-        memcpy(buf, &prev_high32, sizeof(prev_high32));
+        uint32_t prev_high32_le = croaring_htole32(prev_high32);
+        memcpy(buf, &prev_high32_le, sizeof(prev_high32_le));
         buf += sizeof(prev_high32);
 
         // Write the 32-bit Roaring bitmaps representing the least
@@ -2248,6 +2258,7 @@ size_t roaring64_bitmap_portable_deserialize_size(const char *buf,
         return 0;
     }
     memcpy(&buckets, buf, sizeof(buckets));
+    buckets = croaring_letoh64(buckets);
     buf += sizeof(buckets);
     read_bytes += sizeof(buckets);
 
@@ -2294,6 +2305,7 @@ roaring64_bitmap_t *roaring64_bitmap_portable_deserialize_safe(
         return NULL;
     }
     memcpy(&buckets, buf, sizeof(buckets));
+    buckets = croaring_letoh64(buckets);
     buf += sizeof(buckets);
     read_bytes += sizeof(buckets);
 
@@ -2313,6 +2325,7 @@ roaring64_bitmap_t *roaring64_bitmap_portable_deserialize_safe(
             return NULL;
         }
         memcpy(&high32, buf, sizeof(high32));
+        high32 = croaring_letoh32(high32);
         buf += sizeof(high32);
         read_bytes += sizeof(high32);
         // High 32 bits must be strictly increasing.

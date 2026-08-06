@@ -464,15 +464,17 @@ size_t ra_portable_size_in_bytes(const roaring_array_t *ra) {
     return count;
 }
 
-// This function is endian-sensitive.
+// The portable serialization format is little-endian. On big-endian hosts we
+// byte-swap multi-byte fields before writing them to the buffer.
 size_t ra_portable_serialize(const roaring_array_t *ra, char *buf) {
     char *initbuf = buf;
     uint32_t startOffset = 0;
     bool hasrun = ra_has_run_container(ra);
     if (hasrun) {
         uint32_t cookie = SERIAL_COOKIE | ((uint32_t)(ra->size - 1) << 16);
-        memcpy(buf, &cookie, sizeof(cookie));
-        buf += sizeof(cookie);
+        uint32_t cookie_le = croaring_htole32(cookie);
+        memcpy(buf, &cookie_le, sizeof(cookie_le));
+        buf += sizeof(cookie_le);
         uint32_t s = (ra->size + 7) / 8;
         memset(buf, 0, s);
         for (int32_t i = 0; i < ra->size; ++i) {
@@ -489,30 +491,34 @@ size_t ra_portable_serialize(const roaring_array_t *ra, char *buf) {
         }
     } else {  // backwards compatibility
         uint32_t cookie = SERIAL_COOKIE_NO_RUNCONTAINER;
-
-        memcpy(buf, &cookie, sizeof(cookie));
-        buf += sizeof(cookie);
-        memcpy(buf, &ra->size, sizeof(ra->size));
-        buf += sizeof(ra->size);
+        uint32_t cookie_le = croaring_htole32(cookie);
+        memcpy(buf, &cookie_le, sizeof(cookie_le));
+        buf += sizeof(cookie_le);
+        uint32_t size_le = croaring_htole32((uint32_t)ra->size);
+        memcpy(buf, &size_le, sizeof(size_le));
+        buf += sizeof(size_le);
 
         startOffset = 4 + 4 + 4 * ra->size + 4 * ra->size;
     }
     for (int32_t k = 0; k < ra->size; ++k) {
-        memcpy(buf, &ra->keys[k], sizeof(ra->keys[k]));
-        buf += sizeof(ra->keys[k]);
+        uint16_t key_le = croaring_htole16(ra->keys[k]);
+        memcpy(buf, &key_le, sizeof(key_le));
+        buf += sizeof(key_le);
         // get_cardinality returns a value in [1,1<<16], subtracting one
         // we get [0,1<<16 - 1] which fits in 16 bits
         uint16_t card = (uint16_t)(container_get_cardinality(ra->containers[k],
                                                              ra->typecodes[k]) -
                                    1);
-        memcpy(buf, &card, sizeof(card));
-        buf += sizeof(card);
+        uint16_t card_le = croaring_htole16(card);
+        memcpy(buf, &card_le, sizeof(card_le));
+        buf += sizeof(card_le);
     }
     if ((!hasrun) || (ra->size >= NO_OFFSET_THRESHOLD)) {
         // writing the containers offsets
         for (int32_t k = 0; k < ra->size; k++) {
-            memcpy(buf, &startOffset, sizeof(startOffset));
-            buf += sizeof(startOffset);
+            uint32_t off_le = croaring_htole32(startOffset);
+            memcpy(buf, &off_le, sizeof(off_le));
+            buf += sizeof(off_le);
             startOffset =
                 startOffset +
                 container_size_in_bytes(ra->containers[k], ra->typecodes[k]);
@@ -536,6 +542,7 @@ size_t ra_portable_deserialize_size(const char *buf, const size_t maxbytes) {
     if (bytestotal > maxbytes) return 0;
     uint32_t cookie;
     memcpy(&cookie, buf, sizeof(int32_t));
+    cookie = croaring_letoh32(cookie);
     buf += sizeof(uint32_t);
     if ((cookie & 0xFFFF) != SERIAL_COOKIE &&
         cookie != SERIAL_COOKIE_NO_RUNCONTAINER) {
@@ -548,7 +555,9 @@ size_t ra_portable_deserialize_size(const char *buf, const size_t maxbytes) {
     else {
         bytestotal += sizeof(int32_t);
         if (bytestotal > maxbytes) return 0;
-        memcpy(&size, buf, sizeof(int32_t));
+        uint32_t size_le;
+        memcpy(&size_le, buf, sizeof(int32_t));
+        size = (int32_t)croaring_letoh32(size_le);
         buf += sizeof(uint32_t);
     }
     if (size > (1 << 16) || size < 0) {
@@ -577,6 +586,7 @@ size_t ra_portable_deserialize_size(const char *buf, const size_t maxbytes) {
     for (int32_t k = 0; k < size; ++k) {
         uint16_t tmp;
         memcpy(&tmp, keyscards + 4 * k + 2, sizeof(tmp));
+        tmp = croaring_letoh16(tmp);
         uint32_t thiscard = tmp + 1;
         bool isbitmap = (thiscard > DEFAULT_MAX_SIZE);
         bool isrun = false;
@@ -597,6 +607,7 @@ size_t ra_portable_deserialize_size(const char *buf, const size_t maxbytes) {
             if (bytestotal > maxbytes) return 0;
             uint16_t n_runs;
             memcpy(&n_runs, buf, sizeof(uint16_t));
+            n_runs = croaring_letoh16(n_runs);
             buf += sizeof(uint16_t);
             size_t containersize = n_runs * sizeof(rle16_t);
             bytestotal += containersize;
@@ -617,7 +628,8 @@ size_t ra_portable_deserialize_size(const char *buf, const size_t maxbytes) {
 // cannot be found. If it returns true, readbytes is populated by how many bytes
 // were read, we have that *readbytes <= maxbytes.
 //
-// This function is endian-sensitive.
+// The portable serialization format is little-endian. On big-endian hosts we
+// byte-swap multi-byte fields after reading them from the buffer.
 bool ra_portable_deserialize(roaring_array_t *answer, const char *buf,
                              const size_t maxbytes, size_t *readbytes) {
     *readbytes = sizeof(int32_t);  // for cookie
@@ -627,6 +639,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf,
     }
     uint32_t cookie;
     memcpy(&cookie, buf, sizeof(int32_t));
+    cookie = croaring_letoh32(cookie);
     buf += sizeof(uint32_t);
     if ((cookie & 0xFFFF) != SERIAL_COOKIE &&
         cookie != SERIAL_COOKIE_NO_RUNCONTAINER) {
@@ -643,7 +656,9 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf,
             // Ran out of bytes while reading second part of the cookie.
             return false;
         }
-        memcpy(&size, buf, sizeof(int32_t));
+        uint32_t size_le;
+        memcpy(&size_le, buf, sizeof(int32_t));
+        size = (int32_t)croaring_letoh32(size_le);
         buf += sizeof(uint32_t);
     }
     if (size < 0) {
@@ -685,7 +700,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf,
     for (int32_t k = 0; k < size; ++k) {
         uint16_t tmp;
         memcpy(&tmp, keyscards + 4 * k, sizeof(tmp));
-        answer->keys[k] = tmp;
+        answer->keys[k] = croaring_letoh16(tmp);
     }
     if ((!hasrun) || (size >= NO_OFFSET_THRESHOLD)) {
         *readbytes += size * 4;
@@ -703,6 +718,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf,
     for (int32_t k = 0; k < size; ++k) {
         uint16_t tmp;
         memcpy(&tmp, keyscards + 4 * k + 2, sizeof(tmp));
+        tmp = croaring_letoh16(tmp);
         uint32_t thiscard = tmp + 1;
         bool isbitmap = (thiscard > DEFAULT_MAX_SIZE);
         bool isrun = false;
@@ -746,6 +762,7 @@ bool ra_portable_deserialize(roaring_array_t *answer, const char *buf,
             }
             uint16_t n_runs;
             memcpy(&n_runs, buf, sizeof(uint16_t));
+            n_runs = croaring_letoh16(n_runs);
             size_t containersize = n_runs * sizeof(rle16_t);
             *readbytes += containersize;
             if (*readbytes > maxbytes) {  // data is corrupted?

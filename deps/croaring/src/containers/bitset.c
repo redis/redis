@@ -1048,7 +1048,14 @@ int bitset_container_number_of_runs(bitset_container_t *bc) {
 
 int32_t bitset_container_write(const bitset_container_t *container,
                                   char *buf) {
+#if CROARING_IS_BIG_ENDIAN
+	for (int32_t i = 0; i < BITSET_CONTAINER_SIZE_IN_WORDS; ++i) {
+		uint64_t w_le = croaring_htole64(container->words[i]);
+		memcpy(buf + i * sizeof(uint64_t), &w_le, sizeof(uint64_t));
+	}
+#else
 	memcpy(buf, container->words, BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t));
+#endif
 	return bitset_container_size_in_bytes(container);
 }
 
@@ -1056,7 +1063,15 @@ int32_t bitset_container_write(const bitset_container_t *container,
 int32_t bitset_container_read(int32_t cardinality, bitset_container_t *container,
 		const char *buf)  {
 	container->cardinality = cardinality;
+#if CROARING_IS_BIG_ENDIAN
+	for (int32_t i = 0; i < BITSET_CONTAINER_SIZE_IN_WORDS; ++i) {
+		uint64_t w_le;
+		memcpy(&w_le, buf + i * sizeof(uint64_t), sizeof(uint64_t));
+		container->words[i] = croaring_letoh64(w_le);
+	}
+#else
 	memcpy(container->words, buf, BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t));
+#endif
 	return bitset_container_size_in_bytes(container);
 }
 
