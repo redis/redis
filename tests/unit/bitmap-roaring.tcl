@@ -12,6 +12,31 @@ proc wait_for_bitmap_defrag_stop {maxtries delay} {
     }
 }
 
+# Extract the raw string payload from a bitmap DUMP. Bitmap DUMPs start with
+# the RDB type byte followed by the logical byte length and the portable blob
+# length. Tests using this helper disable RDB compression, so both lengths use
+# ordinary RDB length encodings and the payload ends before the two-byte RDB
+# version and eight-byte checksum.
+proc roaring_portable_payload {dump} {
+    set offset 1
+    foreach field {byte-length payload-length} {
+        binary scan [string index $dump $offset] cu first
+        set type [expr {$first >> 6}]
+        if {$type == 0} {
+            incr offset
+        } elseif {$type == 1} {
+            incr offset 2
+        } elseif {$first == 0x80} {
+            incr offset 5
+        } elseif {$first == 0x81} {
+            incr offset 9
+        } else {
+            fail "unexpected encoded $field in bitmap DUMP"
+        }
+    }
+    return [string range $dump $offset end-10]
+}
+
 start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     test {bitmap-default-roaring defaults to no} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
@@ -772,7 +797,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal $raw [r get bitmap:restore:target]
     }
 
-    test {Roaring bitmap raw RDB restores run containers without capacity bloat} {
+    test {Roaring bitmap portable RDB restores run containers without capacity bloat} {
         set raw ""
         for {set i 0} {$i < 32} {incr i} {
             append raw [string repeat [binary format H* ff] 600]
@@ -810,7 +835,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-frag:a bitmap:rdb-frag:b
     }
 
-    test {Roaring bitmap raw RDB payload keeps sparse bitmaps compact with compression} {
+    test {Roaring bitmap portable RDB payload keeps sparse bitmaps compact} {
         set oldcomp [config_get_set rdbcompression yes]
 
         r del bitmap:rdb-sparse:string bitmap:rdb-sparse:roaring \
@@ -836,7 +861,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set rdbcompression $oldcomp
     }
 
-    test {Roaring bitmap raw RDB payload round-trips across internal shapes} {
+    test {Roaring bitmap portable RDB payload round-trips across internal shapes} {
         set dense [string repeat [binary format H* ff] 8192]
 
         set trailing_zero [binary format H* 80]
@@ -875,6 +900,113 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r restore bitmap:endian:restored:$name 0 [r dump bitmap:endian:$name]
             assert_equal bitmap [r type bitmap:endian:restored:$name]
             assert_equal [r debug bitmap-raw bitmap:endian:restored:$name] $raw
+        }
+    }
+
+    test {Roaring bitmap RDB uses the canonical little-endian portable format} {
+        set old_compression [config_get_set rdbcompression no]
+        r del bitmap:rdb:portable-wire
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:rdb:portable-wire 0 1
+        r config set bitmap-default-roaring no
+
+        # The portable fields are all little-endian, independent of the host
+        # architecture. Keep this fixture independent of the Redis RDB
+        # version and checksum surrounding the blob.
+        binary scan [roaring_portable_payload \
+            [r dump bitmap:rdb:portable-wire]] H* wire
+        assert_equal \
+            0100000000000000000000003a3000000100000000000000100000000000 \
+            $wire
+        r config set rdbcompression $old_compression
+    }
+
+    test {Roaring portable RDB fields have canonical byte order across container types} {
+        set old_compression [config_get_set rdbcompression no]
+
+        # A run container covers its cookie, cardinality, run count, start,
+        # and length fields with non-palindromic values.
+        set run_raw [string repeat [binary format H* 00] 576]
+        append run_raw [string repeat [binary format H* ff] 32]
+        r set bitmap:rdb:wire-run $run_raw
+        convert_string_bitmap_to_roaring r bitmap:rdb:wire-run
+        binary scan [roaring_portable_payload \
+            [r dump bitmap:rdb:wire-run]] H* run_wire
+        assert_equal \
+            0100000000000000000000003b300000010000ff0001000012ff00 \
+            $run_wire
+
+        # Force a bitset container and check its multi-byte cardinality,
+        # offset, and first 64-bit word without embedding the full 8 KiB blob.
+        r set bitmap:rdb:wire-bitset [string repeat [binary format H* aa] 8192]
+        convert_string_bitmap_to_roaring r bitmap:rdb:wire-bitset
+        set bitset_blob [roaring_portable_payload \
+            [r dump bitmap:rdb:wire-bitset]]
+        binary scan [string range $bitset_blob 0 35] H* bitset_prefix
+        assert_equal \
+            0100000000000000000000003a300000010000000000ff7f100000005555555555555555 \
+            $bitset_prefix
+
+        # Use two high-32 buckets, a nonzero container key, and nonzero uint16
+        # array values so both the 64-bit extension and array byte order are
+        # covered. This logical length remains valid on 32-bit builds.
+        set high_bit [expr {(1 << 32) + 0x16000}]
+        set byte_len [expr {($high_bit >> 3) + 1}]
+        set old_limit [config_get_set proto-max-bulk-len $byte_len]
+        create_roaring_bitmap_from_bits r bitmap:rdb:wire-array \
+            [list [expr {0x1234}] $high_bit]
+        binary scan [roaring_portable_payload \
+            [r dump bitmap:rdb:wire-array]] H* array_wire
+        assert_equal \
+            0200000000000000000000003a3000000100000000000000100000003412010000003a3000000100000001000000100000000060 \
+            $array_wire
+        r config set proto-max-bulk-len $old_limit
+
+        r config set rdbcompression $old_compression
+    }
+
+    test {Roaring bitmap RDB rejects invalid portable payloads} {
+        set one_bit 0100000000000000000000003a3000000100000000000000100000000000
+        set checksum 0000000000000000
+
+        # The blob sets bit 0, which cannot fit a zero-byte logical length.
+        set invalid_len [binary format H* "21001e${one_bit}1000${checksum}"]
+        assert_error {*Bad data format*} {
+            r restore bitmap:rdb:invalid-len 0 $invalid_len
+        }
+
+        # A valid portable bitmap must consume the entire RDB string payload.
+        set trailing [binary format H* "21011f${one_bit}001000${checksum}"]
+        assert_error {*Bad data format*} {
+            r restore bitmap:rdb:trailing 0 $trailing
+        }
+        assert_equal 0 [r exists bitmap:rdb:invalid-len bitmap:rdb:trailing]
+    }
+
+    if {[s arch_bits] == 64} {
+        test {Roaring bitmap DUMP stays compact at a 2^40 bit offset} {
+            set high_bit [expr {(1 << 40) - 1}]
+            set byte_len [expr {($high_bit >> 3) + 1}]
+            set old_limit [config_get_set proto-max-bulk-len $byte_len]
+
+            r config set bitmap-default-roaring yes
+            r del bitmap:rdb:high bitmap:rdb:high:restored
+            assert_equal 0 [r setbit bitmap:rdb:high $high_bit 1]
+            r config set bitmap-default-roaring no
+
+            r config set proto-max-bulk-len 1048576
+            set payload [r dump bitmap:rdb:high]
+            assert_lessthan [string length $payload] 256
+            r restore bitmap:rdb:high:restored 0 $payload
+            assert_equal bitmap [r type bitmap:rdb:high:restored]
+            assert_lessthan [r memory usage bitmap:rdb:high:restored] 65536
+
+            r config set proto-max-bulk-len $byte_len
+            assert_equal 1 [r getbit bitmap:rdb:high:restored $high_bit]
+            assert_equal 1 [r bitcount bitmap:rdb:high:restored]
+
+            r del bitmap:rdb:high bitmap:rdb:high:restored
+            r config set proto-max-bulk-len $old_limit
         }
     }
 
@@ -1066,6 +1198,16 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         r setbit bitmap:public:aof:zero 0 0
         r set bitmap:public:aof:auto ""
         r setbit bitmap:public:aof:auto $::sparse_public_offset 1
+
+        set test_high_offset [expr {[s arch_bits] == 64}]
+        if {$test_high_offset} {
+            set high_bit [expr {(1 << 40) - 1}]
+            set byte_len [expr {($high_bit >> 3) + 1}]
+            set old_limit [config_get_set proto-max-bulk-len $byte_len]
+            r setbit bitmap:public:aof:high $high_bit 1
+            r config set proto-max-bulk-len 1048576
+            assert_lessthan [string length [r dump bitmap:public:aof:high]] 256
+        }
         set digest_before [debug_digest]
 
         r bgrewriteaof
@@ -1076,9 +1218,19 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal bitmap [r type bitmap:public:aof:direct]
         assert_equal bitmap [r type bitmap:public:aof:zero]
         assert_equal bitmap [r type bitmap:public:aof:auto]
+        if {$test_high_offset} {
+            assert_equal bitmap [r type bitmap:public:aof:high]
+        }
         assert_equal 1 [r getbit bitmap:public:aof:direct $::sparse_public_offset]
         assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:aof:zero]
         assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
+
+        if {$test_high_offset} {
+            r config set proto-max-bulk-len $byte_len
+            assert_equal 1 [r getbit bitmap:public:aof:high $high_bit]
+            assert_equal 1 [r bitcount bitmap:public:aof:high]
+            r config set proto-max-bulk-len $old_limit
+        }
         r config set bitmap-default-roaring no
     }
 
@@ -1215,6 +1367,40 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
 
             assert_equal bitmap [$replica type bitmap:public:repl:direct]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
+        }
+
+        if {[s 0 arch_bits] == 64} {
+            test {replicated sparse high offsets remain compact on a lower-limit replica} {
+                set high_bit [expr {(1 << 40) - 1}]
+                set byte_len [expr {($high_bit >> 3) + 1}]
+                set master_limit [lindex [$master config get proto-max-bulk-len] 1]
+                set replica_limit [lindex [$replica config get proto-max-bulk-len] 1]
+
+                $master config set proto-max-bulk-len $byte_len
+                $replica config set proto-max-bulk-len 536870912
+                $master config set bitmap-default-roaring yes
+                $master setbit bitmap:repl:high 0 1
+                wait_for_ofs_sync $master $replica
+
+                # This write is propagated as SETBIT. Replication obeys the
+                # master's accepted command even though the replica's local
+                # protocol limit is lower.
+                $master setbit bitmap:repl:high $high_bit 1
+                wait_for_ofs_sync $master $replica
+                assert_equal bitmap [$replica type bitmap:repl:high]
+                assert_lessthan [$replica memory usage bitmap:repl:high] 65536
+
+                # DUMP exercises persistence on the lower-limit replica without
+                # materializing its 128 GiB logical string length.
+                set payload [$replica dump bitmap:repl:high]
+                assert_lessthan [string length $payload] 256
+
+                $replica config set proto-max-bulk-len $byte_len
+                assert_equal 1 [$replica getbit bitmap:repl:high $high_bit]
+                assert_equal 2 [$replica bitcount bitmap:repl:high]
+                $master config set proto-max-bulk-len $master_limit
+                $replica config set proto-max-bulk-len $replica_limit
+            }
         }
 
         test {BITOP destinations replicate deterministically across modes} {
@@ -2751,8 +2937,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
         r config set bitmap-default-roaring no
         assert_equal bitmap [r type bitmap:proto:shrink]
 
-        # The RDB writer materializes logical bytes internally and must not be
-        # bounded by the client protocol limit.
+        # Persistence is independent of the current client protocol limit.
         set old [config_get_set proto-max-bulk-len 1048576]
         r debug reload
         assert_equal bitmap [r type bitmap:proto:shrink]
@@ -2762,6 +2947,29 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
         r config set proto-max-bulk-len $old
         assert_equal 1 [r getbit bitmap:proto:shrink 16777215]
         r del bitmap:proto:shrink
+    }
+
+    if {[s arch_bits] == 64} {
+        test {Roaring bitmap RDB reload stays compact at a 2^40 bit offset} {
+            set high_bit [expr {(1 << 40) - 1}]
+            set byte_len [expr {($high_bit >> 3) + 1}]
+            set old_limit [config_get_set proto-max-bulk-len $byte_len]
+
+            r config set bitmap-default-roaring yes
+            r del bitmap:rdb:reload-high
+            r setbit bitmap:rdb:reload-high $high_bit 1
+            r config set bitmap-default-roaring no
+            r config set proto-max-bulk-len 1048576
+
+            r debug reload
+            assert_equal bitmap [r type bitmap:rdb:reload-high]
+            assert_lessthan [r memory usage bitmap:rdb:reload-high] 65536
+
+            r config set proto-max-bulk-len $byte_len
+            assert_equal 1 [r getbit bitmap:rdb:reload-high $high_bit]
+            r del bitmap:rdb:reload-high
+            r config set proto-max-bulk-len $old_limit
+        }
     }
 
     test {Roaring bitmap RDB round-trip with rdbcompression no} {

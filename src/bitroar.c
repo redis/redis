@@ -316,6 +316,44 @@ robj *bitroarCreateFromString(const unsigned char *buf, size_t len) {
     return o;
 }
 
+/* Rebuild a bitmap from the RoaringFormatSpec 64-bit portable format. The
+ * serialized containers do not encode Redis' logical byte length because
+ * trailing zero bytes contain no set bits, so the RDB payload stores it
+ * separately. The portable format is little-endian on every architecture. */
+robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len,
+                                uint64_t byte_len)
+{
+    roaring64_bitmap_t *roaring;
+
+    if (byte_len > BITROAR_MAX_BYTES) return NULL;
+#if SIZE_MAX < UINT64_MAX
+    if (byte_len > (uint64_t)SIZE_MAX) return NULL;
+#endif
+    if (roaring64_bitmap_portable_deserialize_size((const char *)buf, len) != len)
+        return NULL;
+
+    roaring = roaring64_bitmap_portable_deserialize_safe((const char *)buf, len);
+    if (roaring == NULL) return NULL;
+
+    const char *reason = NULL;
+    if (!roaring64_bitmap_internal_validate(roaring, &reason) ||
+        (!roaring64_bitmap_is_empty(roaring) &&
+         (roaring64_bitmap_maximum(roaring) >> 3) >= byte_len))
+    {
+        roaring64_bitmap_free(roaring);
+        return NULL;
+    }
+
+    bitroar *bitmap = zmalloc(sizeof(*bitmap));
+    bitmap->byte_len = byte_len;
+    bitmap->roaring = roaring;
+    bitroarRefreshAllocSize(bitmap);
+
+    robj *o = createObject(OBJ_BITMAP, bitmap);
+    o->encoding = OBJ_ENCODING_BITMAP_ROARING;
+    return o;
+}
+
 robj *bitroarDup(const robj *o) {
     bitroar *src = bitroarGet(o);
     bitroar *dst = zmalloc(sizeof(*dst));
@@ -1177,10 +1215,17 @@ sds bitroarMaterialize(const robj *o) {
     return bitroarMaterializeRaw(o, 1, 0);
 }
 
-/* RDB raw payloads are persisted data, not client protocol bulk strings.
- * DUMP serialization cannot fail, so Redis' allocator owns OOM handling. */
-sds bitroarMaterializeForRDB(const robj *o) {
-    return bitroarMaterializeRaw(o, 0, 0);
+/* Serialize the internal containers in the RoaringFormatSpec 64-bit portable
+ * format. Its size is proportional to resident bitmap data rather than the
+ * logical byte length, so sparse bitmaps with high offsets remain cheap to
+ * persist. */
+sds bitroarSerializePortable(const robj *o) {
+    bitroar *bitmap = bitroarGet(o);
+    size_t len = roaring64_bitmap_portable_size_in_bytes(bitmap->roaring);
+    sds payload = sdsnewlen(SDS_NOINIT, len);
+    size_t written = roaring64_bitmap_portable_serialize(bitmap->roaring, payload);
+    serverAssert(written == len);
+    return payload;
 }
 
 typedef struct bitroarOpSource {

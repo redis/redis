@@ -1139,38 +1139,42 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
 }
 
 static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
-    ssize_t n;
+    ssize_t n, nwritten = 0;
     uint64_t byte_len = bitroarLen(o);
-    sds raw;
+    sds payload;
 
-    raw = bitroarMaterializeForRDB(o);
-    if (raw == NULL) return -1;
-    serverAssert((uint64_t)sdslen(raw) == byte_len);
+    if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
+    nwritten += n;
 
-    if ((n = rdbSaveRawString(rdb, (unsigned char *)raw, sdslen(raw))) == -1) {
-        sdsfree(raw);
+    payload = bitroarSerializePortable(o);
+    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload,
+                              sdslen(payload))) == -1) {
+        sdsfree(payload);
         return -1;
     }
-    sdsfree(raw);
+    nwritten += n;
+    sdsfree(payload);
 
-    return n;
+    return nwritten;
 }
 
 static robj *rdbLoadBitmapObject(rio *rdb) {
-    sds raw;
+    uint64_t byte_len;
+    size_t payload_len;
+    sds payload;
     robj *o;
 
-    raw = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
-    if (raw == NULL) return NULL;
-#if SIZE_MAX > BITROAR_MAX_BYTES_RAW
-    if ((uint64_t)sdslen(raw) > BITROAR_MAX_BYTES) {
-        sdsfree(raw);
-        return NULL;
-    }
+    byte_len = rdbLoadLen(rdb, NULL);
+    if (byte_len == RDB_LENERR || byte_len > BITROAR_MAX_BYTES) return NULL;
+#if SIZE_MAX < UINT64_MAX
+    if (byte_len > (uint64_t)SIZE_MAX) return NULL;
 #endif
-    o = bitroarCreateFromString((unsigned char *)raw, sdslen(raw));
-    serverAssert(o != NULL);
-    sdsfree(raw);
+
+    payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
+    if (payload == NULL) return NULL;
+    o = bitroarCreateFromPortable((unsigned char *)payload, payload_len,
+                                  byte_len);
+    sdsfree(payload);
     return o;
 }
 
