@@ -105,6 +105,20 @@ tags "modules external:skip" {
             assert_equal $before_unsub $after_unsub
         }
 
+        test "Keyspace notifications: bit writes update keysizes before module callbacks" {
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+
+            r set stringdel_setbit x
+            r setbit stringdel_setbit 16 1
+            assert_equal 0 [r exists stringdel_setbit]
+
+            r set stringdel_bitfield x
+            r bitfield stringdel_bitfield set u8 16 1
+            assert_equal 0 [r exists stringdel_bitfield]
+
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        } {} {needs:debug}
+
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
             r set exp 1 PX 10

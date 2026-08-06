@@ -703,11 +703,17 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server BITOP XOR b5 b1 b2} {db0_STR:8=5}        
         # SETBIT
         run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET b0 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server SETBIT b0 72 1} {db0_STR:8=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server setbit b1 71 1} {db0_STR:8=1}
         run_cmd_verify_hist {$server setbit b1 72 1} {db0_STR:8=1}
         run_cmd_verify_hist {$server setbit b2 72 1} {db0_STR:8=2}
         run_cmd_verify_hist {$server setbit b2 640 0} {db0_STR:8=1,64=1}
         # BITFIELD
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET b0 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server BITFIELD b0 SET u8 72 255} {db0_STR:8=1}
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server bitfield b3 set u8 6 255} {db0_STR:2=1}
         run_cmd_verify_hist {$server bitfield b3 set u8 65 255} {db0_STR:8=1}
