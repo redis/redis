@@ -68,7 +68,7 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         assert_equal bitmap [r type bigbitmap]
 
         # Keep the bitmap payload above the per-container page threshold used
-        # by dismissBitmapObject(). Otherwise LZF compresses these regular
+        # by bitroarDismiss(). Otherwise LZF compresses these regular
         # patterns enough that the fork child skips the container walk.
         set old_rdbcompression [config_get_set rdbcompression no]
 

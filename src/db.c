@@ -13,7 +13,7 @@
  */
 
 #include "server.h"
-#include "bitmap_roaring.h"
+#include "bitroar.h"
 #include "vector.h"
 #include "cluster.h"
 #include "atomicvar.h"
@@ -2510,7 +2510,7 @@ void copyCommand(client *c) {
             if (!newobj) return;
             break;
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
-        case OBJ_BITMAP: newobj = bitmapTypeDup(o); break;
+        case OBJ_BITMAP: newobj = bitroarDup(o); break;
         default:
             addReplyError(c, "unknown type object");
             return;
