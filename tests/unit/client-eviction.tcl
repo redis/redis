@@ -611,5 +611,46 @@ start_server {} {
     }
 }
 
+start_server {} {
+    test "Evicting the next client while serving blocked clients is safe" {
+        r flushall
+        r client no-evict on
+        r config set maxmemory-clients 0
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        $rd2 CLIENT SETNAME client-to-evict
+        assert_equal OK [$rd2 read]
+
+        # Block two clients on the same key in a known order.
+        $rd1 BLPOP mylist 0
+        wait_for_blocked_clients_count 1
+        $rd2 BLPOP mylist 0
+        wait_for_blocked_clients_count 2
+
+        # Queue a large request behind the second client's blocking command so
+        # it will be selected for eviction while the first client is processed.
+        $rd2 get [string repeat Q [kb 2048]]
+        wait_for_condition 50 100 {
+            [client_field client-to-evict tot-mem] > [mb 1]
+        } else {
+            fail "Failed to increase the second blocked client's memory usage"
+        }
+
+        # Apply the client-memory limit and make the key ready in one transaction.
+        # Eviction then runs while rd1 is being reprocessed, selecting rd2 while
+        # it is still in the blocked-client list.
+        r MULTI
+        r CONFIG SET MAXMEMORY-CLIENTS [kb 128]
+        r LPUSH mylist x
+        r EXEC
+
+        assert_equal {mylist x} [$rd1 read]
+        assert {![client_exists client-to-evict]} ;# rd2 is evicted
+        $rd1 close
+        $rd2 close
+    }
+}
+
 } ;# tags
 
