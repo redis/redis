@@ -786,10 +786,10 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     if (entityId == 0) return 0;
 
     /* Check for name conflicts using 4-char name. Allow reuse of RELEASED; forbid if INUSE. */
-    int alreayReleased;
-    int keyMetaId = keyMetaClassLookupByName(name, &alreayReleased);
+    int alreadyReleased;
+    int keyMetaId = keyMetaClassLookupByName(name, &alreadyReleased);
 
-    if (alreayReleased) {
+    if (alreadyReleased) {
         /* If already released, then reuse the keyMetaId. */
     } else {
         /* Assert class is registered for first time */

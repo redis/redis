@@ -3097,7 +3097,7 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
     }
 
     printf("Total connected nodes: %llu\n", (unsigned long long)*connected_nodes);
-    printf("All links are bi-directiona? %s\n", (*reciprocal_links)?"yes":"no");
+    printf("All links are bi-directional? %s\n", (*reciprocal_links)?"yes":"no");
     return 0;
 }
 

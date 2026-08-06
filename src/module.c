@@ -2508,7 +2508,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                  * loop (ae.c) and avoid potential race conditions. */
 
                 int acquiring;
-                atomicGet(server.module_gil_acquring, acquiring);
+                atomicGet(server.module_gil_acquiring, acquiring);
                 if (!acquiring) {
                     /* If the main thread has not yet entered the acquiring GIL state,
                      * we attempt to wake it up and exit without waiting for it to
@@ -6909,6 +6909,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
             goto cleanup;
         }
+        /* Fresh temp client from the pool — it holds no Pub/Sub subscriptions,
+         * so this direct identity assignment needs no provenance stamping. */
+        serverAssert(clientTotalPubSubSubscriptionCount(c) == 0);
         c->user = user;
     }
 
@@ -11062,7 +11065,7 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
     moduleNotifyUserChanged(ctx->client);
 
     ctx->client->authenticated = 1;
-    clientSetUser(ctx->client, user);
+    clientSetUser(ctx->client, user, 1);
 
     if (clientHasModuleAuthInProgress(ctx->client)) {
         ctx->client->flags |= CLIENT_MODULE_AUTH_HAS_RESULT;
@@ -13362,7 +13365,7 @@ void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
     server.module_configs_queue = dictCreate(&sdsKeyValueHashDictType);
-    server.module_gil_acquring = 0;
+    server.module_gil_acquiring = 0;
     modules = dictCreate(&modulesDictType);
     moduleAuthCallbacks = listCreate();
 

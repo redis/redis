@@ -456,6 +456,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
 #define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
 #define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
+#define CLIENT_PUBSUB_REAUTHED (1ULL<<55) /* Client re-authenticated while holding Pub/Sub
+                                             subscriptions, so a subscription value may carry a
+                                             provenance stamp (see pubsubStampCurrentUser). Fast-path
+                                             hint: while unset, every subscription is owned by
+                                             c->user, so ACL scans can skip the client in O(1). */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -476,7 +481,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * various issues that can occur while reading or parsing data from a client. */
 #define CLIENT_READ_TOO_BIG_INLINE_REQUEST 1
 #define CLIENT_READ_UNBALANCED_QUOTES 2
-#define CLIENT_READ_MASTER_USING_INLINE_PROTOCAL 3
+#define CLIENT_READ_MASTER_USING_INLINE_PROTOCOL 3
 #define CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING 4
 #define CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING 5
 #define CLIENT_READ_EXPECTED_DOLLAR 6
@@ -1602,9 +1607,12 @@ typedef struct client {
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
-    dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE) */
-    dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
+    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE). The dict value
+                             * holds the subscription's originating ACL user*: NULL means
+                             * "owned by whoever c->user is now", a non-NULL user* is a
+                             * provenance stamp frozen when the client switched identity. */
+    dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE); value as above */
+    dict *pubsubshard_channels;  /* shard level channels (SSUBSCRIBE); value as above */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1626,8 +1634,8 @@ typedef struct client {
     void *auth_module;      /* The module that owns the callback, which is used
                              * to disconnect the client if the module is
                              * unloaded for cleanup. Opaque for Redis Core.*/
-    compressionState *compression_state; /* Opauqe handle to compression state */
-    int compression_level;  /* Compression level (0 means no compresison).
+    compressionState *compression_state; /* Opaque handle to compression state */
+    int compression_level;  /* Compression level (0 means no compression).
                              * Currently not relevant for non-replication
                              * connections. */
     /* If this client is in tracking mode and this field is non zero,
@@ -1776,7 +1784,7 @@ struct sharedObjectsStruct {
     *hdel, *hpexpireat, *hpersist, *hsetex, *restore, *replace,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields,
-    *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *getack, *special_asterisk, *special_equals, *default_username, *redacted,
     *ssubscribebulk,*sunsubscribebulk, *smessagebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
@@ -2092,7 +2100,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
-    redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
+    redisAtomic int module_gil_acquiring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
@@ -2611,7 +2619,7 @@ struct redisServer {
                                    xor of NOTIFY_... flags. */
     kvstore *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
     unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
-    unsigned int watching_clients; /* # of clients are wathcing keys */
+    unsigned int watching_clients; /* # of clients are watching keys */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -3499,7 +3507,7 @@ uint64_t trackingGetTotalKeys(void);
 uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(user *u);
 void trackingBroadcastFlushClientPrefixes(client *c);
-void clientSetUser(client *c, user *new_user);
+void clientSetUser(client *c, user *new_user, int auth_changed);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */
@@ -3711,6 +3719,17 @@ void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
+/* ACL LOAD owner-resolution, exported for the Pub/Sub provenance reconciliation
+ * that lives in pubsub.c (pubsubACLLoadReconcileClient). */
+typedef enum {
+    ACL_LOAD_OWNER_UNMANAGED = 0, /* module/external user: leave the stamp as-is */
+    ACL_LOAD_OWNER_MANAGED,       /* registered ACL user (including default) */
+    ACL_LOAD_OWNER_GONE,          /* registered ACL user removed by the reload */
+} aclLoadOwnerStatus;
+aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
+                                             user **old_out, user **new_out);
+list *getUpcomingChannelList(user *new, user *original);
+int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern);
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
 int ACLUserHasUnrestrictedKeyAccess(user *u, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
@@ -4137,8 +4156,13 @@ int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
 void unmarkClientAsPubSub(client *c);
 int pubsubTotalSubscriptions(void);
+int clientTotalPubSubSubscriptionCount(client *c);
 dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
+int pubsubClientHasStampedOwner(client *c, user *u);
+int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner, list *upcoming, int is_pattern);
+void pubsubStampCurrentUser(client *c);
+int pubsubACLLoadReconcileClient(client *c, rax *old_users, rax *user_channels);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
@@ -4445,7 +4469,7 @@ void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numloca
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
-void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey, unsigned long *watched_keys);
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blocking_keys_on_nokey, unsigned long *watched_keys);
 void blockedBeforeSleep(void);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */

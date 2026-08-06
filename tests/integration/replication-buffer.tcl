@@ -156,12 +156,15 @@ start_server {} {
 
     # Executing 'debug digest' on master which has many keys costs much time
     # (especially in valgrind), this causes that replica1 and replica2 disconnect
-    # with master.
-    $master config set repl-timeout 1000
-    $replica1 config set repl-timeout 1000
+    # with master. Under TLS (especially rdbchannel=no) the large populate below
+    # can take >16 minutes, so keep repl-timeout well above that: if replica2
+    # times out while stuck in the delayed RDB transfer, the master trims the
+    # backlog and the later histlen / PSYNC assertions fail.
+    $master config set repl-timeout 10000
+    $replica1 config set repl-timeout 10000
     $replica1 config set repl-rdb-channel $rdbchannel
     $replica1 config set client-output-buffer-limit "replica 1024 0 0"
-    $replica2 config set repl-timeout 1000
+    $replica2 config set repl-timeout 10000
     $replica2 config set client-output-buffer-limit "replica 1024 0 0"
     $replica2 config set repl-rdb-channel $rdbchannel
 
@@ -169,8 +172,13 @@ start_server {} {
     wait_for_sync $replica1
 
     test "Replication backlog size can outgrow the backlog limit config rdbchannel=$rdbchannel" {
-        # Generating RDB will take 1000 seconds
-        $master config set rdb-key-save-delay 1000000
+        # Generating RDB will take many hours: the delay is per-key
+        # (~1000 keys in the DB), so replica2's full-sync bgsave cannot
+        # complete within any test run. This keeps replica2 stuck holding the
+        # replication buffer for the whole test, which the backlog assertions
+        # below (and in the following test) rely on. If replica2 ever caught
+        # up, the master would trim the backlog and those asserts would fail.
+        $master config set rdb-key-save-delay 100000000
         populate 1000 master 10000
 
         # When compression is enabled the repl buffer may be consumed by the
