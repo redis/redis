@@ -335,6 +335,30 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "Keyspace notifications: bitmap events test" {
+        r config set bitmap-default-roaring yes
+        r config set notify-keyspace-events KEb
+        r del mybitmap mybitmap-copy
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        r setbit mybitmap 0 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap" [$rd1 read]
+
+        r bitfield mybitmap SET u1 1 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap" [$rd1 read]
+
+        r bitop or mybitmap-copy mybitmap
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap-copy set" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set mybitmap-copy" [$rd1 read]
+
+        $rd1 close
+        r config set bitmap-default-roaring no
+        r config set notify-keyspace-events {}
+    }
+
     test "Keyspace notifications: set events test" {
         r config set notify-keyspace-events Ks
         r del myset
