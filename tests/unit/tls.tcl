@@ -2,6 +2,31 @@ start_server {tags {"tls"}} {
     if {$::tls} {
         package require tls
 
+        proc tls_s_client {host port groups} {
+            set crt [format "%s/tests/tls/client.crt" [pwd]]
+            set key [format "%s/tests/tls/client.key" [pwd]]
+            set ca [format "%s/tests/tls/ca.crt" [pwd]]
+            set group_arg [tls_s_client_group_arg]
+            return [exec openssl s_client \
+                -connect [format "%s:%s" $host $port] \
+                -tls1_2 \
+                $group_arg $groups \
+                -cert $crt \
+                -key $key \
+                -CAfile $ca 2>@1 < /dev/null]
+        }
+
+        proc tls_s_client_group_arg {} {
+            set help [exec openssl s_client -help 2>@1]
+            if {[string match {* -groups *} $help]} {
+                return -groups
+            }
+            if {[string match {* -curves *} $help]} {
+                return -curves
+            }
+            fail "openssl s_client does not support -groups or -curves"
+        }
+
         test {TLS: Not accepting non-TLS connections on a TLS port} {
             set s [redis [srv 0 host] [srv 0 port]]
             catch {$s PING} e
@@ -79,6 +104,39 @@ start_server {tags {"tls"}} {
             assert_match {*Unable to update TLS configuration*} $e
 
             r CONFIG SET tls-curve-preferences ""
+        }
+
+        test {TLS: Verify tls-curve-preferences with a common group} {
+            set curve_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $curve_ciphers
+            r CONFIG SET tls-curve-preferences prime256v1
+
+            # The client and server both allow prime256v1, so the handshake
+            # should complete and negotiate that curve.
+            set out [tls_s_client [srv 0 host] [srv 0 port] prime256v1]
+            assert_match {*TLSv1.2*} $out
+            assert_match {*prime256v1*} $out
+
+            r CONFIG SET tls-curve-preferences ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
+        }
+
+        test {TLS: Verify tls-curve-preferences with disjoint groups} {
+            set curve_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $curve_ciphers
+            r CONFIG SET tls-curve-preferences prime256v1
+
+            # The client and server expose disjoint group lists, so the TLS
+            # handshake must fail.
+            assert_equal 1 [catch {tls_s_client [srv 0 host] [srv 0 port] secp384r1} e]
+            assert_match {*handshake failure*} $e
+
+            r CONFIG SET tls-curve-preferences ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
         }
 
         test {TLS: Verify tls-prefer-server-ciphers behaves as expected} {

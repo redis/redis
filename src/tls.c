@@ -60,6 +60,18 @@ newer OpenSSL, or define TLS_NO_PEER_NAME_VERIFICATION to build without peer \
 certificate name verification."
 #endif
 
+/* TLS group/curve preferences rely on SSL_CTX_set1_groups_list(), or on the
+ * older SSL_CTX_set1_curves_list() name. Build failure is intentional when the
+ * OpenSSL headers expose neither API, so Redis does not silently ignore this
+ * TLS policy option. Define TLS_NO_CURVE_PREFERENCES to compile the feature out. */
+#if defined(TLS_NO_CURVE_PREFERENCES)
+#define REDIS_TLS_SUPPORTS_CURVE_PREFERENCES 0
+#elif defined(SSL_CTX_set1_groups_list) || defined(SSL_CTX_set1_curves_list)
+#define REDIS_TLS_SUPPORTS_CURVE_PREFERENCES 1
+#else
+#error "tls-curve-preferences requires OpenSSL with SSL_CTX_set1_groups_list or SSL_CTX_set1_curves_list. Define TLS_NO_CURVE_PREFERENCES to build without TLS group/curve preferences."
+#endif
+
 SSL_CTX *redis_tls_ctx = NULL;
 SSL_CTX *redis_tls_client_ctx = NULL;
 
@@ -269,22 +281,21 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
     }
 #endif
 
-#ifdef SSL_CTX_set1_groups_list
-    if (ctx_config->curve_preferences && !SSL_CTX_set1_groups_list(ctx, ctx_config->curve_preferences)) {
-        serverLog(LL_WARNING, "Failed to configure TLS curve preferences: %s", ctx_config->curve_preferences);
-        goto error;
-    }
-#elif defined(SSL_CTX_set1_curves_list)
-    if (ctx_config->curve_preferences && !SSL_CTX_set1_curves_list(ctx, ctx_config->curve_preferences)) {
-        serverLog(LL_WARNING, "Failed to configure TLS curve preferences: %s", ctx_config->curve_preferences);
-        goto error;
-    }
-#else
     if (ctx_config->curve_preferences) {
-        serverLog(LL_WARNING, "Failed to configure TLS curve preferences: not supported by OpenSSL");
-        goto error;
-    }
+#if REDIS_TLS_SUPPORTS_CURVE_PREFERENCES
+#ifdef SSL_CTX_set1_groups_list
+        if (!SSL_CTX_set1_groups_list(ctx, ctx_config->curve_preferences)) {
+#else
+        if (!SSL_CTX_set1_curves_list(ctx, ctx_config->curve_preferences)) {
 #endif
+            serverLog(LL_WARNING, "Failed to configure TLS curve preferences: %s", ctx_config->curve_preferences);
+            goto error;
+        }
+#else
+        serverLog(LL_WARNING, "Failed to configure TLS curve preferences: not supported by this build");
+        goto error;
+#endif
+    }
 
     return ctx;
 
