@@ -19,7 +19,7 @@
  */
 
 #include "server.h"
-#include "bitmap_roaring.h"
+#include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -783,10 +783,10 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
 
 void defragBitmapObject(defragKeysCtx *ctx, kvobj *ob) {
     serverAssert(ob->type == OBJ_BITMAP);
-    if (bitmapObjectContainerCount(ob) > server.active_defrag_max_scan_fields)
+    if (bitroarContainerCount(ob) > server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
     else
-        bitmapObjectDefrag(ob);
+        bitroarDefrag(ob);
 }
 
 /* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
@@ -1378,7 +1378,7 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
             ob->ptr = ar;
         } else if (ob->type == OBJ_BITMAP) {
-            *cursor = bitmapObjectDefragIncremental(ob, *cursor);
+            *cursor = bitroarDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
         }

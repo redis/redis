@@ -150,7 +150,7 @@ In `src/roaring64.c` and the added `include/roaring/roaring64_internal.h`:
 
 * Moved the private `struct roaring64_bitmap_s` definition out of
   `roaring64.c` into the new shared internal header (plus small leaf-decoding
-  helpers) so `src/bitmap_roaring.c` can walk every allocation behind a
+  helpers) so `src/bitroar.c` can walk every allocation behind a
   64-bit bitmap for MEMORY USAGE accounting, fork-child page dismissal and
   active defragmentation, exactly like it does for the 32-bit
   `roaring_bitmap_t` whose layout upstream exposes publicly. The long-term

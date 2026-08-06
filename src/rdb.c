@@ -13,7 +13,7 @@
  */
 
 #include "server.h"
-#include "bitmap_roaring.h"
+#include "bitroar.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
@@ -1140,10 +1140,10 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
 
 static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     ssize_t n;
-    uint64_t byte_len = bitmapObjectLen(o);
+    uint64_t byte_len = bitroarLen(o);
     sds raw;
 
-    raw = bitmapObjectMaterializeForRDB(o);
+    raw = bitroarMaterializeForRDB(o);
     if (raw == NULL) return -1;
     serverAssert((uint64_t)sdslen(raw) == byte_len);
 
@@ -1162,13 +1162,13 @@ static robj *rdbLoadBitmapObject(rio *rdb) {
 
     raw = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
     if (raw == NULL) return NULL;
-#if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
-    if ((uint64_t)sdslen(raw) > BITMAP_OBJECT_MAX_BYTES) {
+#if SIZE_MAX > BITROAR_MAX_BYTES_RAW
+    if ((uint64_t)sdslen(raw) > BITROAR_MAX_BYTES) {
         sdsfree(raw);
         return NULL;
     }
 #endif
-    o = createBitmapObjectFromString((unsigned char *)raw, sdslen(raw));
+    o = bitroarCreateFromString((unsigned char *)raw, sdslen(raw));
     serverAssert(o != NULL);
     sdsfree(raw);
     return o;

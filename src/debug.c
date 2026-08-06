@@ -13,7 +13,7 @@
  */
 
 #include "server.h"
-#include "bitmap_roaring.h"
+#include "bitroar.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
@@ -139,9 +139,9 @@ void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
      * This avoids materializing sparse high-offset bitmaps and keeps the
      * digest independent from CRoaring's history-dependent container choices. */
     char buf[LONG_STR_SIZE];
-    int len = ull2string(buf, sizeof(buf), bitmapObjectLen(o));
+    int len = ull2string(buf, sizeof(buf), bitroarLen(o));
     mixDigest(digest, buf, len);
-    bitmapObjectVisitSetBitRanges(o, mixBitmapObjectRangeDigest, digest);
+    bitroarVisitSetBitRanges(o, mixBitmapObjectRangeDigest, digest);
 }
 
 #ifdef ENABLE_GCRA
@@ -1004,7 +1004,7 @@ NULL
         kvobj *kv = lookupKeyReadOrReply(c, c->argv[2], shared.nokeyerr);
         if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
 
-        sds raw = bitmapObjectMaterialize(kv);
+        sds raw = bitroarMaterialize(kv);
         if (raw == NULL) {
             addReplyError(c, "bitmap length exceeds proto-max-bulk-len, cannot materialize");
             return;
@@ -1378,9 +1378,9 @@ void serverLogObjectDebugInfo(const robj *o) {
         }
     } else if (o->type == OBJ_BITMAP) {
         serverLog(LL_WARNING,"Bitmap logical byte length: %llu",
-                  (unsigned long long)bitmapObjectLen(o));
+                  (unsigned long long)bitroarLen(o));
         serverLog(LL_WARNING,"Bitmap allocation size: %zu",
-                  bitmapObjectAllocSize(o));
+                  bitroarAllocSize(o));
     } else if (o->type == OBJ_LIST) {
         serverLog(LL_WARNING,"List length: %d", (int) listTypeLength(o));
     } else if (o->type == OBJ_SET) {

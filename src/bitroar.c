@@ -34,7 +34,7 @@
 #endif
 
 #include "server.h"
-#include "bitmap_roaring.h"
+#include "bitroar.h"
 #include "lzf.h"
 #include "rdb.h"
 
@@ -42,47 +42,43 @@
  * operands have been materialized. Their scalar tail remains local below. */
 #ifdef HAVE_AVX2
 unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
-                              bitmapBitop op, unsigned long numkeys,
+                              bitroarOp op, unsigned long numkeys,
                               unsigned long minlen);
 #endif
 #ifdef HAVE_AVX512
 unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
-                                 bitmapBitop op, unsigned long numkeys,
+                                 bitroarOp op, unsigned long numkeys,
                                  unsigned long minlen);
 #endif
 
-/* Derived from the byte bound in bitmap_roaring.h; only this file needs the
+/* Derived from the byte bound in bitroar.h; only this file needs the
  * bit-offset form. */
-#define BITMAP_OBJECT_MAX_BITOFFSET (BITMAP_OBJECT_MAX_BYTES * 8 - 1)
+#define BITROAR_MAX_BITOFFSET (BITROAR_MAX_BYTES * 8 - 1)
 
 /* Bitmap objects use Roaring internally. Client-visible command limits are
  * enforced by command handlers; the internal bound protects arithmetic
  * invariants. */
-typedef struct bitmapObject {
+typedef struct bitroar {
     uint64_t byte_len;
     size_t alloc_size;          /* Total memory used by this bitmap object. */
     roaring64_bitmap_t *roaring;
-} bitmapObject;
+} bitroar;
 
-static size_t bitmapRoaringAllocSize(const roaring64_bitmap_t *r);
-static size_t bitmapRoaringRangeAllocSize(const roaring64_bitmap_t *r,
-                                          uint64_t start, uint64_t end);
-static void bitmapObjectRefreshAllocSize(bitmapObject *bitmap);
-static void bitmapObjectRefreshRangeAllocSize(bitmapObject *bitmap,
-                                              uint64_t start, uint64_t end,
-                                              size_t old_size);
-static void bitmapArtKeyFromHigh48(uint64_t high48,
-                                   art_key_chunk_t key[ART_KEY_BYTES]);
+static size_t bitroarRoaringAllocSize(const roaring64_bitmap_t *r);
+static size_t bitroarRangeAllocSize(const roaring64_bitmap_t *r,
+                                    uint64_t start, uint64_t end);
+static void bitroarRefreshAllocSize(bitroar *bitmap);
+static void bitroarRefreshRangeAllocSize(bitroar *bitmap, uint64_t start,
+                                         uint64_t end, size_t old_size);
+static void bitroarArtKeyFromHigh48(uint64_t high48, art_key_chunk_t key[ART_KEY_BYTES]);
 
-static bitmapObject *getBitmapObject(const robj *o) {
+static bitroar *bitroarGet(const robj *o) {
     serverAssert(o->type == OBJ_BITMAP);
     serverAssert(o->encoding == OBJ_ENCODING_BITMAP_ROARING);
     return o->ptr;
 }
 
-static void bitmapObjectAdjustAllocSize(size_t *alloc_size, size_t old_size,
-                                        size_t new_size)
-{
+static void bitroarAdjustAllocSize(size_t *alloc_size, size_t old_size, size_t new_size) {
     if (new_size >= old_size) {
         serverAssert(SIZE_MAX - *alloc_size >= new_size - old_size);
         *alloc_size += new_size - old_size;
@@ -92,10 +88,8 @@ static void bitmapObjectAdjustAllocSize(size_t *alloc_size, size_t old_size,
     }
 }
 
-static void bitmapObjectRoaringAppendContainer(roaring64_bitmap_t *roaring,
-                                               uint64_t high48,
-                                               container_t *container,
-                                               uint8_t typecode)
+static void bitroarAppendContainer(roaring64_bitmap_t *roaring, uint64_t high48,
+                                   container_t *container, uint8_t typecode)
 {
     if (roaring->first_free == roaring->capacity) {
         uint64_t new_capacity;
@@ -120,35 +114,18 @@ static void bitmapObjectRoaringAppendContainer(roaring64_bitmap_t *roaring,
     roaring->containers[index] = container;
 
     art_key_chunk_t key[ART_KEY_BYTES];
-    bitmapArtKeyFromHigh48(high48, key);
+    bitroarArtKeyFromHigh48(high48, key);
     art_insert(&roaring->art, key, (art_val_t)((index << 8) | typecode));
 }
 
-static void *bitmapRoaringMalloc(size_t size) {
-    return zmalloc(size);
-}
-
-static void *bitmapRoaringRealloc(void *ptr, size_t size) {
-    return zrealloc(ptr, size);
-}
-
-static void *bitmapRoaringCalloc(size_t nmemb, size_t size) {
-    return zcalloc_num(nmemb, size);
-}
-
-static void bitmapRoaringFree(void *ptr) {
-    if (ptr == NULL) return;
-    zfree(ptr);
-}
-
-static unsigned char bitmapReverseByte(unsigned char value) {
+static unsigned char bitroarReverseByte(unsigned char value) {
     value = (unsigned char)(((value & 0xf0) >> 4) | ((value & 0x0f) << 4));
     value = (unsigned char)(((value & 0xcc) >> 2) | ((value & 0x33) << 2));
     value = (unsigned char)(((value & 0xaa) >> 1) | ((value & 0x55) << 1));
     return value;
 }
 
-static int bitmapRawChunkFitsArray(const unsigned char *buf, size_t len,
+static int bitroarRawChunkFitsArray(const unsigned char *buf, size_t len,
                                    int *cardinality)
 {
     int count = 0;
@@ -161,14 +138,10 @@ static int bitmapRawChunkFitsArray(const unsigned char *buf, size_t len,
     return 1;
 }
 
-static void bitmapObjectAppendRawArrayContainer(roaring64_bitmap_t *roaring,
-                                                const unsigned char *buf,
-                                                size_t len,
-                                                int cardinality,
-                                                uint64_t high48)
+static void bitroarAppendRawArrayContainer(roaring64_bitmap_t *roaring, const unsigned char *buf,
+                                           size_t len, int cardinality, uint64_t high48)
 {
-    array_container_t *array =
-        array_container_create_given_capacity(cardinality);
+    array_container_t *array = array_container_create_given_capacity(cardinality);
     serverAssert(array != NULL);
     array->cardinality = cardinality;
 
@@ -182,14 +155,12 @@ static void bitmapObjectAppendRawArrayContainer(roaring64_bitmap_t *roaring,
     }
     serverAssert(out == cardinality);
 
-    bitmapObjectRoaringAppendContainer(roaring, high48, (container_t *)array,
-                                       ARRAY_CONTAINER_TYPE);
+    bitroarAppendContainer(roaring, high48, (container_t *)array, ARRAY_CONTAINER_TYPE);
 }
 
-static void bitmapObjectAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
-                                                 const unsigned char *buf,
-                                                 size_t len,
-                                                 uint64_t high48)
+static void bitroarAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
+                                            const unsigned char *buf,
+                                            size_t len, uint64_t high48)
 {
     bitset_container_t *bitset = bitset_container_create();
     serverAssert(bitset != NULL);
@@ -202,14 +173,13 @@ static void bitmapObjectAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
         for (int lane = 0; lane < 8 && byte < len; lane++, byte++) {
             unsigned char value = buf[byte];
             cardinality += __builtin_popcount(value);
-            bits |= (uint64_t)bitmapReverseByte(value) << (lane * 8);
+            bits |= (uint64_t)bitroarReverseByte(value) << (lane * 8);
         }
         bitset->words[word] = bits;
     }
     bitset->cardinality = cardinality;
 
-    bitmapObjectRoaringAppendContainer(roaring, high48, (container_t *)bitset,
-                                       BITSET_CONTAINER_TYPE);
+    bitroarAppendContainer(roaring, high48, (container_t *)bitset, BITSET_CONTAINER_TYPE);
 }
 
 /* Build a Roaring bitmap from raw bitmap string bytes by constructing one
@@ -219,33 +189,31 @@ static void bitmapObjectAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
  * The optimize pass is only worth paying for bitmaps that are kept
  * (run_optimize/shrink_to_fit walk every container); BITOP operand temporaries
  * are freed within the command, so their callers pass optimize=0. */
-static roaring64_bitmap_t *bitmapObjectRoaringFromString(const unsigned char *buf,
-                                                         size_t len, int optimize)
+static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, int optimize)
 {
     roaring64_bitmap_t *roaring = roaring64_bitmap_create();
 
-#define BITMAP_ROARING_CONTAINER_BYTES \
+#define BITROAR_CONTAINER_BYTES \
     (BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t))
     for (size_t offset = 0; offset < len;
-         offset += BITMAP_ROARING_CONTAINER_BYTES)
+         offset += BITROAR_CONTAINER_BYTES)
     {
         size_t chunk_len = len - offset;
-        if (chunk_len > BITMAP_ROARING_CONTAINER_BYTES)
-            chunk_len = BITMAP_ROARING_CONTAINER_BYTES;
+        if (chunk_len > BITROAR_CONTAINER_BYTES)
+            chunk_len = BITROAR_CONTAINER_BYTES;
 
-        uint64_t high48 = offset / BITMAP_ROARING_CONTAINER_BYTES;
+        uint64_t high48 = offset / BITROAR_CONTAINER_BYTES;
         int cardinality;
-        if (bitmapRawChunkFitsArray(buf + offset, chunk_len, &cardinality)) {
+        if (bitroarRawChunkFitsArray(buf + offset, chunk_len, &cardinality)) {
             if (cardinality == 0) continue;
-            bitmapObjectAppendRawArrayContainer(roaring, buf + offset,
-                                                chunk_len, cardinality,
-                                                high48);
+            bitroarAppendRawArrayContainer(roaring, buf + offset,
+                                           chunk_len, cardinality, high48);
         } else {
-            bitmapObjectAppendRawBitsetContainer(roaring, buf + offset,
-                                                 chunk_len, high48);
+            bitroarAppendRawBitsetContainer(roaring, buf + offset,
+                                            chunk_len, high48);
         }
     }
-#undef BITMAP_ROARING_CONTAINER_BYTES
+#undef BITROAR_CONTAINER_BYTES
 
     if (optimize) {
         roaring64_bitmap_run_optimize(roaring);
@@ -254,7 +222,7 @@ static roaring64_bitmap_t *bitmapObjectRoaringFromString(const unsigned char *bu
     return roaring;
 }
 
-static int bitmapRoaringNormalizeAlignment(size_t *alignment) {
+static int bitroarNormalizeAlignment(size_t *alignment) {
     size_t normalized;
 
     if (*alignment < sizeof(void *)) {
@@ -272,12 +240,12 @@ static int bitmapRoaringNormalizeAlignment(size_t *alignment) {
     return C_OK;
 }
 
-static void *bitmapRoaringAlignedMalloc(size_t alignment, size_t size) {
+static void *bitroarAlignedMalloc(size_t alignment, size_t size) {
     void *base;
     uintptr_t raw, aligned;
     size_t extra;
 
-    if (bitmapRoaringNormalizeAlignment(&alignment) != C_OK) return NULL;
+    if (bitroarNormalizeAlignment(&alignment) != C_OK) return NULL;
     if (alignment - 1 > SIZE_MAX - sizeof(void *)) return NULL;
     extra = alignment - 1 + sizeof(void *);
     if (size > SIZE_MAX - extra) return NULL;
@@ -289,85 +257,85 @@ static void *bitmapRoaringAlignedMalloc(size_t alignment, size_t size) {
     return (void *)aligned;
 }
 
-static void *bitmapRoaringAlignedAllocBase(void *ptr) {
+static void *bitroarAlignedAllocBase(void *ptr) {
     if (ptr == NULL) return NULL;
     return ((void **)ptr)[-1];
 }
 
-static void bitmapRoaringAlignedFree(void *ptr) {
+static void bitroarAlignedFree(void *ptr) {
     if (ptr == NULL) return;
-    void *base = bitmapRoaringAlignedAllocBase(ptr);
+    void *base = bitroarAlignedAllocBase(ptr);
     zfree(base);
 }
 
-static size_t bitmapRoaringMallocSize(const void *ptr) {
+static size_t bitroarMallocSize(const void *ptr) {
     return ptr == NULL ? 0 : zmalloc_usable_size((void *)ptr);
 }
 
-static size_t bitmapRoaringAlignedMallocSize(void *ptr) {
-    void *base = bitmapRoaringAlignedAllocBase(ptr);
+static size_t bitroarAlignedMallocSize(void *ptr) {
+    void *base = bitroarAlignedAllocBase(ptr);
     return base == NULL ? 0 : zmalloc_usable_size(base);
 }
 
-void bitmapRoaringInit(void) {
+void bitroarInit(void) {
     roaring_memory_t memory_hook = {
-        .malloc = bitmapRoaringMalloc,
-        .realloc = bitmapRoaringRealloc,
-        .calloc = bitmapRoaringCalloc,
-        .free = bitmapRoaringFree,
-        .aligned_malloc = bitmapRoaringAlignedMalloc,
-        .aligned_free = bitmapRoaringAlignedFree,
+        .malloc = zmalloc,
+        .realloc = zrealloc,
+        .calloc = zcalloc_num,
+        .free = zfree,
+        .aligned_malloc = bitroarAlignedMalloc,
+        .aligned_free = bitroarAlignedFree,
     };
 
     roaring_init_memory_hook(memory_hook);
 }
 
-robj *createBitmapObject(void) {
-    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
+robj *bitroarCreate(void) {
+    bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = 0;
     bitmap->roaring = roaring64_bitmap_create();
-    bitmapObjectRefreshAllocSize(bitmap);
+    bitroarRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
 }
 
-robj *createBitmapObjectFromString(const unsigned char *buf, size_t len) {
-#if SIZE_MAX > BITMAP_OBJECT_MAX_BYTES_RAW
-    if ((uint64_t)len > BITMAP_OBJECT_MAX_BYTES) return NULL;
+robj *bitroarCreateFromString(const unsigned char *buf, size_t len) {
+#if SIZE_MAX > BITROAR_MAX_BYTES_RAW
+    if ((uint64_t)len > BITROAR_MAX_BYTES) return NULL;
 #endif
 
-    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
+    bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
-    bitmap->roaring = bitmapObjectRoaringFromString(buf, len, 1);
-    bitmapObjectRefreshAllocSize(bitmap);
+    bitmap->roaring = bitroarFromRaw(buf, len, 1);
+    bitroarRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
 }
 
-robj *bitmapTypeDup(const robj *o) {
-    bitmapObject *src = getBitmapObject(o);
-    bitmapObject *dst = zmalloc(sizeof(*dst));
+robj *bitroarDup(const robj *o) {
+    bitroar *src = bitroarGet(o);
+    bitroar *dst = zmalloc(sizeof(*dst));
     dst->byte_len = src->byte_len;
     dst->roaring = roaring64_bitmap_copy(src->roaring);
-    bitmapObjectRefreshAllocSize(dst);
+    bitroarRefreshAllocSize(dst);
 
     robj *copy = createObject(OBJ_BITMAP, dst);
     copy->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return copy;
 }
 
-void freeBitmapObject(robj *o) {
-    bitmapObject *bitmap = getBitmapObject(o);
+void bitroarFree(robj *o) {
+    bitroar *bitmap = bitroarGet(o);
     roaring64_bitmap_free(bitmap->roaring);
     zfree(bitmap);
 }
 
-uint64_t bitmapObjectLen(const robj *o) {
-    return getBitmapObject(o)->byte_len;
+uint64_t bitroarLen(const robj *o) {
+    return bitroarGet(o)->byte_len;
 }
 
 /* --- ART walk helpers ---
@@ -381,72 +349,72 @@ uint64_t bitmapObjectLen(const robj *o) {
  * art_t.nodes[] is indexed by node typecode 1..5 (leaf, node4, node16,
  * node48, node256); slot 0 belongs to the null typecode and is deliberately
  * left uninitialized by art_init_cleared(), so walks must never touch it. */
-#define BITMAP_ART_MIN_NODE_TYPE 1
-#define BITMAP_ART_MAX_NODE_TYPE 5
+#define BITROAR_ART_MIN_NODE_TYPE 1
+#define BITROAR_ART_MAX_NODE_TYPE 5
 /* Keep Roaring BITOP latency competitive for small steady-state results without
  * letting skipped run compression create unbounded memory growth. */
-#define BITMAP_BITOP_FAST_RESULT_MAX_BYTES (1024 * 1024)
+#define BITROAR_BITOP_FAST_RESULT_MAX_BYTES (1024 * 1024)
 
-static void bitmapArtKeyFromHigh48(uint64_t high48, art_key_chunk_t key[ART_KEY_BYTES]) {
+static void bitroarArtKeyFromHigh48(uint64_t high48, art_key_chunk_t key[ART_KEY_BYTES]) {
     for (int i = 0; i < ART_KEY_BYTES; i++)
         key[i] = (art_key_chunk_t)(high48 >> (8 * (ART_KEY_BYTES - 1 - i)));
 }
 
-static uint64_t bitmapArtKeyToHigh48(const art_key_chunk_t key[ART_KEY_BYTES]) {
+static uint64_t bitroarArtKeyToHigh48(const art_key_chunk_t key[ART_KEY_BYTES]) {
     uint64_t v = 0;
     for (int i = 0; i < ART_KEY_BYTES; i++) v = (v << 8) | key[i];
     return v;
 }
 
-static int bitmapRoaringIsFrozen(const roaring64_bitmap_t *r) {
+static int bitroarIsFrozen(const roaring64_bitmap_t *r) {
     return r->flags & ROARING_FLAG_FROZEN;
 }
 
-static size_t bitmapRoaringContainerAllocSize(const roaring64_bitmap_t *r,
-                                              const container_t *container,
-                                              uint8_t typecode)
+static size_t bitroarContainerAllocSize(const roaring64_bitmap_t *r,
+                                        const container_t *container,
+                                        uint8_t typecode)
 {
     if (container == NULL) return 0;
 
-    size_t size = bitmapRoaringMallocSize(container);
-    if (bitmapRoaringIsFrozen(r)) return size;
+    size_t size = bitroarMallocSize(container);
+    if (bitroarIsFrozen(r)) return size;
 
     switch (typecode) {
     case ARRAY_CONTAINER_TYPE: {
         const array_container_t *array = const_CAST_array(container);
-        return size + bitmapRoaringMallocSize(array->array);
+        return size + bitroarMallocSize(array->array);
     }
     case BITSET_CONTAINER_TYPE: {
         const bitset_container_t *bitset = const_CAST_bitset(container);
-        return size + bitmapRoaringAlignedMallocSize(bitset->words);
+        return size + bitroarAlignedMallocSize(bitset->words);
     }
     case RUN_CONTAINER_TYPE: {
         const run_container_t *run = const_CAST_run(container);
-        return size + bitmapRoaringMallocSize(run->runs);
+        return size + bitroarMallocSize(run->runs);
     }
     case SHARED_CONTAINER_TYPE: {
         const shared_container_t *shared = const_CAST_shared(container);
-        return size + bitmapRoaringContainerAllocSize(r, shared->container,
-                                                      shared->typecode);
+        return size + bitroarContainerAllocSize(r, shared->container,
+                                                shared->typecode);
     }
     default:
         serverPanic("Unknown Roaring bitmap container type");
     }
 }
 
-static size_t bitmapRoaringAllocSize(const roaring64_bitmap_t *r) {
-    size_t size = bitmapRoaringMallocSize(r);
+static size_t bitroarRoaringAllocSize(const roaring64_bitmap_t *r) {
+    size_t size = bitroarMallocSize(r);
 
-    if (!bitmapRoaringIsFrozen(r)) {
-        for (int i = BITMAP_ART_MIN_NODE_TYPE; i <= BITMAP_ART_MAX_NODE_TYPE; i++)
-            size += bitmapRoaringMallocSize(r->art.nodes[i]);
+    if (!bitroarIsFrozen(r)) {
+        for (int i = BITROAR_ART_MIN_NODE_TYPE; i <= BITROAR_ART_MAX_NODE_TYPE; i++)
+            size += bitroarMallocSize(r->art.nodes[i]);
     }
-    size += bitmapRoaringMallocSize(r->containers);
+    size += bitroarMallocSize(r->containers);
 
     art_iterator_t it = art_init_iterator((art_t *)&r->art, true);
     while (it.value != NULL) {
         roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
-        size += bitmapRoaringContainerAllocSize(
+        size += bitroarContainerAllocSize(
             r, r->containers[roaring64_leaf_index(leaf)],
             roaring64_leaf_typecode(leaf));
         art_iterator_next(&it);
@@ -454,14 +422,14 @@ static size_t bitmapRoaringAllocSize(const roaring64_bitmap_t *r) {
     return size;
 }
 
-static size_t bitmapRoaringTopLevelAllocSize(const roaring64_bitmap_t *r) {
-    size_t size = bitmapRoaringMallocSize(r);
+static size_t bitroarTopLevelAllocSize(const roaring64_bitmap_t *r) {
+    size_t size = bitroarMallocSize(r);
 
-    if (!bitmapRoaringIsFrozen(r)) {
-        for (int i = BITMAP_ART_MIN_NODE_TYPE; i <= BITMAP_ART_MAX_NODE_TYPE; i++)
-            size += bitmapRoaringMallocSize(r->art.nodes[i]);
+    if (!bitroarIsFrozen(r)) {
+        for (int i = BITROAR_ART_MIN_NODE_TYPE; i <= BITROAR_ART_MAX_NODE_TYPE; i++)
+            size += bitroarMallocSize(r->art.nodes[i]);
     }
-    size += bitmapRoaringMallocSize(r->containers);
+    size += bitroarMallocSize(r->containers);
     return size;
 }
 
@@ -469,23 +437,23 @@ static size_t bitmapRoaringTopLevelAllocSize(const roaring64_bitmap_t *r) {
  * the containers whose high 48 bits fall inside that range. Keep hot
  * accounting updates proportional to the mutation instead of walking every
  * bitmap container. */
-static size_t bitmapRoaringRangeAllocSize(const roaring64_bitmap_t *r,
-                                          uint64_t start, uint64_t end)
+static size_t bitroarRangeAllocSize(const roaring64_bitmap_t *r,
+                                    uint64_t start, uint64_t end)
 {
-    size_t size = bitmapRoaringTopLevelAllocSize(r);
+    size_t size = bitroarTopLevelAllocSize(r);
 
     if (start >= end) return size;
 
     uint64_t last_high48 = (end - 1) >> 16;
     art_key_chunk_t key[ART_KEY_BYTES];
-    bitmapArtKeyFromHigh48(start >> 16, key);
+    bitroarArtKeyFromHigh48(start >> 16, key);
     art_iterator_t it = art_lower_bound((art_t *)&r->art, key);
     while (it.value != NULL) {
-        uint64_t high48 = bitmapArtKeyToHigh48(it.key);
+        uint64_t high48 = bitroarArtKeyToHigh48(it.key);
         if (high48 > last_high48) break;
 
         roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
-        size += bitmapRoaringContainerAllocSize(
+        size += bitroarContainerAllocSize(
             r, r->containers[roaring64_leaf_index(leaf)],
             roaring64_leaf_typecode(leaf));
         art_iterator_next(&it);
@@ -496,25 +464,25 @@ static size_t bitmapRoaringRangeAllocSize(const roaring64_bitmap_t *r,
 /* Whole-object refreshes walk all containers and must stay off per-update hot
  * paths. Construction, load/dup, BITOP result materialization and explicit
  * optimization use it after replacing or compacting the entire Roaring value. */
-static void bitmapObjectRefreshAllocSize(bitmapObject *bitmap) {
-    bitmap->alloc_size = bitmapRoaringMallocSize(bitmap) +
-                         bitmapRoaringAllocSize(bitmap->roaring);
+static void bitroarRefreshAllocSize(bitroar *bitmap) {
+    bitmap->alloc_size = bitroarMallocSize(bitmap) +
+                         bitroarRoaringAllocSize(bitmap->roaring);
 }
 
-static void bitmapObjectRefreshRangeAllocSize(bitmapObject *bitmap,
-                                              uint64_t start, uint64_t end,
-                                              size_t old_size)
+static void bitroarRefreshRangeAllocSize(bitroar *bitmap,
+                                         uint64_t start, uint64_t end,
+                                         size_t old_size)
 {
-    size_t new_size = bitmapRoaringRangeAllocSize(bitmap->roaring, start, end);
-    bitmapObjectAdjustAllocSize(&bitmap->alloc_size, old_size, new_size);
+    size_t new_size = bitroarRangeAllocSize(bitmap->roaring, start, end);
+    bitroarAdjustAllocSize(&bitmap->alloc_size, old_size, new_size);
 }
 
-size_t bitmapObjectAllocSize(const robj *o) {
-    return getBitmapObject(o)->alloc_size;
+size_t bitroarAllocSize(const robj *o) {
+    return bitroarGet(o)->alloc_size;
 }
 
-size_t bitmapObjectContainerCount(const robj *o) {
-    bitmapObject *bitmap = getBitmapObject(o);
+size_t bitroarContainerCount(const robj *o) {
+    bitroar *bitmap = bitroarGet(o);
     size_t count = 0;
 
     art_iterator_t it = art_init_iterator((art_t *)&bitmap->roaring->art, true);
@@ -525,7 +493,7 @@ size_t bitmapObjectContainerCount(const robj *o) {
     return count;
 }
 
-static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
+static void bitroarDismissContainer(container_t *container, uint8_t type) {
     if (container == NULL) return;
 
     switch (type) {
@@ -537,7 +505,7 @@ static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
     }
     case BITSET_CONTAINER_TYPE: {
         bitset_container_t *bitset = CAST_bitset(container);
-        dismissMemory(bitmapRoaringAlignedAllocBase(bitset->words), 0);
+        dismissMemory(bitroarAlignedAllocBase(bitset->words), 0);
         dismissMemory(bitset, sizeof(*bitset));
         break;
     }
@@ -552,10 +520,10 @@ static void bitmapObjectDismissContainer(container_t *container, uint8_t type) {
     }
 }
 
-void dismissBitmapObject(robj *o, size_t size_hint) {
-    bitmapObject *bitmap = getBitmapObject(o);
+void bitroarDismiss(robj *o, size_t size_hint) {
+    bitroar *bitmap = bitroarGet(o);
     roaring64_bitmap_t *r = bitmap->roaring;
-    size_t count = bitmapObjectContainerCount(o);
+    size_t count = bitroarContainerCount(o);
 
     /* Iterate the containers only when the average container payload is
      * likely to span whole pages, like the other complex types (see
@@ -564,14 +532,14 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
         art_iterator_t it = art_init_iterator((art_t *)&r->art, true);
         while (it.value != NULL) {
             roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
-            bitmapObjectDismissContainer(
+            bitroarDismissContainer(
                 r->containers[roaring64_leaf_index(leaf)],
                 roaring64_leaf_typecode(leaf));
             art_iterator_next(&it);
         }
     }
 
-    for (int i = BITMAP_ART_MIN_NODE_TYPE; i <= BITMAP_ART_MAX_NODE_TYPE; i++) {
+    for (int i = BITROAR_ART_MIN_NODE_TYPE; i <= BITROAR_ART_MAX_NODE_TYPE; i++) {
         if (r->art.nodes[i] != NULL) dismissMemory(r->art.nodes[i], 0);
     }
     dismissMemory(r->containers, 0);
@@ -582,8 +550,8 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
 /* --- Active defrag support ---
  *
  * Every allocation CRoaring makes for a bitmap goes through the zmalloc-backed
- * memory hook installed in bitmapRoaringInit(), so active defrag can relocate
- * each one with activeDefragAlloc(). The walk mirrors dismissBitmapObject():
+ * memory hook installed in bitroarInit(), so active defrag can relocate
+ * each one with activeDefragAlloc(). The walk mirrors bitroarDismiss():
  * the wrapper struct, the Roaring bitmap struct, the per-type ART node arrays
  * (which hold indices, not pointers, so relocating them needs no fixups), the
  * flat container pointer array, and every container with its payload buffer.
@@ -593,49 +561,48 @@ void dismissBitmapObject(robj *o, size_t size_hint) {
 /* CRoaring requests this alignment for bitset container word buffers in the
  * portable build Redis uses (see align_size in CRoaring's
  * bitset_container_create(); the SIMD-gated 64-byte case is compiled out by
- * ROARING_DISABLE_X64). bitmapRoaringAlignedMalloc() over-allocates by
+ * ROARING_DISABLE_X64). bitroarAlignedMalloc() over-allocates by
  * alignment - 1 + sizeof(void *), so re-deriving an aligned offset inside a
  * relocated block always fits. */
-#define BITMAP_ROARING_BITSET_WORDS_ALIGNMENT 32
+#define BITROAR_BITSET_WORDS_ALIGNMENT 32
 
-static void *bitmapObjectActiveDefragAlloc(bitmapObject *bitmap, void *ptr) {
+static void *bitroarActiveDefragAlloc(bitroar *bitmap, void *ptr) {
     size_t old_size = zmalloc_usable_size(ptr);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr != NULL)
-        bitmapObjectAdjustAllocSize(&bitmap->alloc_size, old_size,
-                                    zmalloc_usable_size(newptr));
+        bitroarAdjustAllocSize(&bitmap->alloc_size, old_size,
+                               zmalloc_usable_size(newptr));
     return newptr;
 }
 
-static bitmapObject *bitmapObjectActiveDefragSelf(bitmapObject *bitmap) {
+static bitroar *bitroarActiveDefragSelf(bitroar *bitmap) {
     size_t old_size = zmalloc_usable_size(bitmap);
-    bitmapObject *newbitmap = activeDefragAlloc(bitmap);
+    bitroar *newbitmap = activeDefragAlloc(bitmap);
     if (newbitmap != NULL)
-        bitmapObjectAdjustAllocSize(&newbitmap->alloc_size, old_size,
-                                    zmalloc_usable_size(newbitmap));
+        bitroarAdjustAllocSize(&newbitmap->alloc_size, old_size,
+                               zmalloc_usable_size(newbitmap));
     return newbitmap;
 }
 
-static void bitmapObjectDefragBitsetWords(bitmapObject *bitmap,
-                                          bitset_container_t *bitset) {
+static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset) {
     void *base, *newbase;
     uintptr_t aligned;
     size_t old_off, new_off;
 
     if (bitset->words == NULL) return;
-    base = bitmapRoaringAlignedAllocBase(bitset->words);
+    base = bitroarAlignedAllocBase(bitset->words);
     /* activeDefragAlloc() may free base. Capture every relationship to the old
      * allocation before calling it. */
     old_off = (size_t)((char *)bitset->words - (char *)base);
-    newbase = bitmapObjectActiveDefragAlloc(bitmap, base);
+    newbase = bitroarActiveDefragAlloc(bitmap, base);
     if (newbase == NULL) return;
 
     /* The relocation copied the block verbatim, so the words still sit at
      * their old offset; re-derive the aligned offset for the new base address
      * and slide the words when the two differ. */
     aligned = ((uintptr_t)newbase + sizeof(void *) +
-               (BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1)) &
-              ~((uintptr_t)BITMAP_ROARING_BITSET_WORDS_ALIGNMENT - 1);
+               (BITROAR_BITSET_WORDS_ALIGNMENT - 1)) &
+              ~((uintptr_t)BITROAR_BITSET_WORDS_ALIGNMENT - 1);
     new_off = (size_t)(aligned - (uintptr_t)newbase);
     if (new_off != old_off)
         memmove((char *)newbase + new_off, (char *)newbase + old_off,
@@ -646,9 +613,8 @@ static void bitmapObjectDefragBitsetWords(bitmapObject *bitmap,
 
 /* Defrag one container; returns the moved container pointer, or NULL if the
  * container struct itself did not move (its payload may still have moved). */
-static container_t *bitmapObjectDefragContainer(container_t *container,
-                                                bitmapObject *bitmap,
-                                                uint8_t type) {
+static container_t *bitroarDefragContainer(container_t *container,
+                                           bitroar *bitmap, uint8_t type) {
     void *new_container;
 
     if (container == NULL) return NULL;
@@ -657,27 +623,27 @@ static container_t *bitmapObjectDefragContainer(container_t *container,
     case ARRAY_CONTAINER_TYPE: {
         array_container_t *array = CAST_array(container);
         uint16_t *values;
-        if ((new_container = bitmapObjectActiveDefragAlloc(bitmap, array)) != NULL)
+        if ((new_container = bitroarActiveDefragAlloc(bitmap, array)) != NULL)
             array = (array_container_t *)new_container;
         if (array->array != NULL &&
-            (values = bitmapObjectActiveDefragAlloc(bitmap, array->array)) != NULL)
+            (values = bitroarActiveDefragAlloc(bitmap, array->array)) != NULL)
             array->array = values;
         return (container_t *)new_container;
     }
     case BITSET_CONTAINER_TYPE: {
         bitset_container_t *bitset = CAST_bitset(container);
-        if ((new_container = bitmapObjectActiveDefragAlloc(bitmap, bitset)) != NULL)
+        if ((new_container = bitroarActiveDefragAlloc(bitmap, bitset)) != NULL)
             bitset = (bitset_container_t *)new_container;
-        bitmapObjectDefragBitsetWords(bitmap, bitset);
+        bitroarDefragBitsetWords(bitmap, bitset);
         return (container_t *)new_container;
     }
     case RUN_CONTAINER_TYPE: {
         run_container_t *run = CAST_run(container);
         rle16_t *runs;
-        if ((new_container = bitmapObjectActiveDefragAlloc(bitmap, run)) != NULL)
+        if ((new_container = bitroarActiveDefragAlloc(bitmap, run)) != NULL)
             run = (run_container_t *)new_container;
         if (run->runs != NULL &&
-            (runs = bitmapObjectActiveDefragAlloc(bitmap, run->runs)) != NULL)
+            (runs = bitroarActiveDefragAlloc(bitmap, run->runs)) != NULL)
             run->runs = runs;
         return (container_t *)new_container;
     }
@@ -689,47 +655,47 @@ static container_t *bitmapObjectDefragContainer(container_t *container,
 /* Relocate the wrapper struct, roaring struct, ART node arrays and container
  * pointer array, and refresh o->ptr. Container payloads are handled
  * separately so the walk can be split into incremental steps. */
-static roaring64_bitmap_t *bitmapObjectDefragTopLevel(robj *o) {
-    bitmapObject *bitmap = getBitmapObject(o), *newbitmap;
+static roaring64_bitmap_t *bitroarDefragTopLevel(robj *o) {
+    bitroar *bitmap = bitroarGet(o), *newbitmap;
     roaring64_bitmap_t *r, *newroaring;
 
-    if ((newbitmap = bitmapObjectActiveDefragSelf(bitmap)) != NULL)
+    if ((newbitmap = bitroarActiveDefragSelf(bitmap)) != NULL)
         o->ptr = bitmap = newbitmap;
-    if ((newroaring = bitmapObjectActiveDefragAlloc(bitmap, bitmap->roaring)) != NULL)
+    if ((newroaring = bitroarActiveDefragAlloc(bitmap, bitmap->roaring)) != NULL)
         bitmap->roaring = newroaring;
     r = bitmap->roaring;
 
-    for (int i = BITMAP_ART_MIN_NODE_TYPE; i <= BITMAP_ART_MAX_NODE_TYPE; i++) {
+    for (int i = BITROAR_ART_MIN_NODE_TYPE; i <= BITROAR_ART_MAX_NODE_TYPE; i++) {
         void *moved;
         if (r->art.nodes[i] != NULL &&
-            (moved = bitmapObjectActiveDefragAlloc(bitmap, r->art.nodes[i])) != NULL)
+            (moved = bitroarActiveDefragAlloc(bitmap, r->art.nodes[i])) != NULL)
             r->art.nodes[i] = moved;
     }
     if (r->containers != NULL) {
-        container_t **moved = bitmapObjectActiveDefragAlloc(bitmap, r->containers);
+        container_t **moved = bitroarActiveDefragAlloc(bitmap, r->containers);
         if (moved != NULL) r->containers = moved;
     }
     return r;
 }
 
-static void bitmapObjectDefragLeafContainer(roaring64_bitmap_t *r, bitmapObject *bitmap,
-                                            roaring64_leaf_t leaf)
+static void bitroarDefragLeafContainer(roaring64_bitmap_t *r, bitroar *bitmap,
+                                       roaring64_leaf_t leaf)
 {
     uint64_t index = roaring64_leaf_index(leaf);
-    container_t *moved = bitmapObjectDefragContainer(
+    container_t *moved = bitroarDefragContainer(
         r->containers[index], bitmap, roaring64_leaf_typecode(leaf));
     if (moved != NULL) r->containers[index] = moved;
     server.stat_active_defrag_scanned++;
 }
 
-void bitmapObjectDefrag(robj *o) {
-    bitmapObject *bitmap;
-    roaring64_bitmap_t *r = bitmapObjectDefragTopLevel(o);
-    bitmap = getBitmapObject(o);
+void bitroarDefrag(robj *o) {
+    bitroar *bitmap;
+    roaring64_bitmap_t *r = bitroarDefragTopLevel(o);
+    bitmap = bitroarGet(o);
 
     art_iterator_t it = art_init_iterator(&r->art, true);
     while (it.value != NULL) {
-        bitmapObjectDefragLeafContainer(r, bitmap, (roaring64_leaf_t)*it.value);
+        bitroarDefragLeafContainer(r, bitmap, (roaring64_leaf_t)*it.value);
         art_iterator_next(&it);
     }
 }
@@ -742,27 +708,27 @@ void bitmapObjectDefrag(robj *o) {
  * defrag. On builds where unsigned long is 32 bits the cursor truncates,
  * which can only cause the same harmless skip/revisit. Returns the new
  * cursor, 0 when done. */
-unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor) {
-    bitmapObject *bitmap;
+unsigned long bitroarDefragIncremental(robj *o, unsigned long cursor) {
+    bitroar *bitmap;
     roaring64_bitmap_t *r;
     art_iterator_t it;
     long iterations = 0;
 
     if (cursor == 0) {
-        r = bitmapObjectDefragTopLevel(o);
-        bitmap = getBitmapObject(o);
+        r = bitroarDefragTopLevel(o);
+        bitmap = bitroarGet(o);
         it = art_init_iterator(&r->art, true);
     } else {
         art_key_chunk_t key[ART_KEY_BYTES];
-        bitmap = getBitmapObject(o);
+        bitmap = bitroarGet(o);
         r = bitmap->roaring;
-        bitmapArtKeyFromHigh48((uint64_t)cursor, key);
+        bitroarArtKeyFromHigh48((uint64_t)cursor, key);
         it = art_lower_bound(&r->art, key);
     }
 
     while (it.value != NULL) {
-        bitmapObjectDefragLeafContainer(r, bitmap, (roaring64_leaf_t)*it.value);
-        uint64_t high48 = bitmapArtKeyToHigh48(it.key);
+        bitroarDefragLeafContainer(r, bitmap, (roaring64_leaf_t)*it.value);
+        uint64_t high48 = bitroarArtKeyToHigh48(it.key);
         art_iterator_next(&it);
         if (++iterations >= 128 && it.value != NULL)
             return (unsigned long)(high48 + 1);
@@ -770,15 +736,15 @@ unsigned long bitmapObjectDefragIncremental(robj *o, unsigned long cursor) {
     return 0;
 }
 
-uint64_t bitmapObjectCardinality(const robj *o) {
-    bitmapObject *bitmap = getBitmapObject(o);
+uint64_t bitroarCardinality(const robj *o) {
+    bitroar *bitmap = bitroarGet(o);
     return roaring64_bitmap_get_cardinality(bitmap->roaring);
 }
 
-uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start,
-                                      uint64_t end)
+uint64_t bitroarRangeCardinality(const robj *o, uint64_t start,
+                                 uint64_t end)
 {
-    bitmapObject *bitmap = getBitmapObject(o);
+    bitroar *bitmap = bitroarGet(o);
     uint64_t bit_len = bitmap->byte_len * 8;
 
     if (start >= end || start >= bit_len) return 0;
@@ -786,11 +752,11 @@ uint64_t bitmapObjectRangeCardinality(const robj *o, uint64_t start,
     return roaring64_bitmap_range_cardinality(bitmap->roaring, start, end);
 }
 
-void bitmapObjectVisitSetBitRanges(const robj *o,
-                                   bitmapObjectRangeCallback *callback,
-                                   void *privdata)
+void bitroarVisitSetBitRanges(const robj *o,
+                              bitroarRangeCallback *callback,
+                              void *privdata)
 {
-    bitmapObject *bitmap = getBitmapObject(o);
+    bitroar *bitmap = bitroarGet(o);
     roaring64_iterator_t *it = roaring64_iterator_create(bitmap->roaring);
     roaring64_range_closed_t ranges[128];
     size_t count;
@@ -805,19 +771,19 @@ void bitmapObjectVisitSetBitRanges(const robj *o,
     roaring64_iterator_free(it);
 }
 
-static long long bitmapObjectFirstSetBit(bitmapObject *bitmap, uint64_t start,
-                                         uint64_t end)
+static long long bitroarFirstSetBit(bitroar *bitmap, uint64_t start,
+                                    uint64_t end)
 {
     roaring64_bitmap_t *r = bitmap->roaring;
 
     if (start >= end) return -1;
 
     art_key_chunk_t key[ART_KEY_BYTES];
-    bitmapArtKeyFromHigh48(start >> 16, key);
+    bitroarArtKeyFromHigh48(start >> 16, key);
     art_iterator_t it = art_lower_bound(&r->art, key);
 
     while (it.value != NULL) {
-        uint64_t high48 = bitmapArtKeyToHigh48(it.key);
+        uint64_t high48 = bitroarArtKeyToHigh48(it.key);
         uint64_t container_base = high48 << 16;
         uint16_t low16;
 
@@ -847,8 +813,8 @@ static long long bitmapObjectFirstSetBit(bitmapObject *bitmap, uint64_t start,
 
 /* First clear bit in [from, 1<<16) within one container, or -1 if every bit
  * from 'from' to the end of the container is set. */
-static int32_t bitmapContainerFirstClearBit(const container_t *container,
-                                            uint8_t type, uint32_t from)
+static int32_t bitroarContainerFirstClearBit(const container_t *container,
+                                             uint8_t type, uint32_t from)
 {
     switch (type) {
     case ARRAY_CONTAINER_TYPE: {
@@ -898,9 +864,9 @@ static int32_t bitmapContainerFirstClearBit(const container_t *container,
  * its first absent bit directly. This stays proportional to the containers
  * spanned by set bits, never to the number of set bits, so dense runs spanning
  * billions of bits do not degrade BITPOS. */
-static long long bitmapObjectFirstClearBit(bitmapObject *bitmap,
-                                           uint64_t start, uint64_t end,
-                                           int end_given)
+static long long bitroarFirstClearBit(bitroar *bitmap,
+                                      uint64_t start, uint64_t end,
+                                      int end_given)
 {
     roaring64_bitmap_t *r = bitmap->roaring;
     uint64_t pos = start;
@@ -908,17 +874,17 @@ static long long bitmapObjectFirstClearBit(bitmapObject *bitmap,
     if (start >= end) return -1;
 
     art_key_chunk_t key[ART_KEY_BYTES];
-    bitmapArtKeyFromHigh48(pos >> 16, key);
+    bitroarArtKeyFromHigh48(pos >> 16, key);
     art_iterator_t it = art_lower_bound(&r->art, key);
 
     while (pos < end) {
         if (it.value == NULL) return (long long)pos;
 
-        uint64_t container_base = bitmapArtKeyToHigh48(it.key) << 16;
+        uint64_t container_base = bitroarArtKeyToHigh48(it.key) << 16;
         if (container_base > pos) return (long long)pos;
 
         roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
-        int32_t clear = bitmapContainerFirstClearBit(
+        int32_t clear = bitroarContainerFirstClearBit(
             r->containers[roaring64_leaf_index(leaf)],
             roaring64_leaf_typecode(leaf),
             (uint32_t)(pos - container_base));
@@ -937,57 +903,57 @@ static long long bitmapObjectFirstClearBit(bitmapObject *bitmap,
     return end_given ? -1 : (long long)end;
 }
 
-long long bitmapObjectBitpos(const robj *o, int bit, uint64_t start,
-                             uint64_t end, int end_given)
+long long bitroarBitpos(const robj *o, int bit, uint64_t start,
+                        uint64_t end, int end_given)
 {
-    bitmapObject *bitmap = getBitmapObject(o);
+    bitroar *bitmap = bitroarGet(o);
     uint64_t bit_len = bitmap->byte_len * 8;
 
     if (start >= end || start >= bit_len) return -1;
     if (end > bit_len) end = bit_len;
 
-    return bit ? bitmapObjectFirstSetBit(bitmap, start, end) :
-                 bitmapObjectFirstClearBit(bitmap, start, end, end_given);
+    return bit ? bitroarFirstSetBit(bitmap, start, end) :
+                 bitroarFirstClearBit(bitmap, start, end, end_given);
 }
 
-int bitmapObjectCanRepresentBit(uint64_t bitoffset) {
-    return bitoffset <= BITMAP_OBJECT_MAX_BITOFFSET;
+int bitroarCanRepresentBit(uint64_t bitoffset) {
+    return bitoffset <= BITROAR_MAX_BITOFFSET;
 }
 
-int bitmapObjectGetBit(const robj *o, uint64_t bitoffset) {
-    bitmapObject *bitmap = getBitmapObject(o);
+int bitroarGetBit(const robj *o, uint64_t bitoffset) {
+    bitroar *bitmap = bitroarGet(o);
 
-    if (!bitmapObjectCanRepresentBit(bitoffset)) return 0;
+    if (!bitroarCanRepresentBit(bitoffset)) return 0;
     if ((bitoffset >> 3) >= bitmap->byte_len) return 0;
     return roaring64_bitmap_contains(bitmap->roaring, bitoffset);
 }
 
-int bitmapObjectSetBit(robj *o, uint64_t bitoffset, int on) {
-    bitmapObject *bitmap = getBitmapObject(o);
+int bitroarSetBit(robj *o, uint64_t bitoffset, int on) {
+    bitroar *bitmap = bitroarGet(o);
     uint64_t byte = bitoffset >> 3;
     size_t old_size;
 
-    if (!bitmapObjectCanRepresentBit(bitoffset))
+    if (!bitroarCanRepresentBit(bitoffset))
         return C_ERR;
 
     if (byte + 1 > bitmap->byte_len)
         bitmap->byte_len = byte + 1;
 
-    old_size = bitmapRoaringRangeAllocSize(bitmap->roaring, bitoffset,
-                                           bitoffset + 1);
+    old_size = bitroarRangeAllocSize(bitmap->roaring, bitoffset,
+                                     bitoffset + 1);
     if (on)
         roaring64_bitmap_add(bitmap->roaring, bitoffset);
     else
         roaring64_bitmap_remove(bitmap->roaring, bitoffset);
-    bitmapObjectRefreshRangeAllocSize(bitmap, bitoffset, bitoffset + 1,
-                                      old_size);
+    bitroarRefreshRangeAllocSize(bitmap, bitoffset, bitoffset + 1,
+                                 old_size);
 
     return C_OK;
 }
 
-uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
-                                         uint64_t bits) {
-    bitmapObject *bitmap = getBitmapObject(o);
+uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset,
+                                    uint64_t bits) {
+    bitroar *bitmap = bitroarGet(o);
     uint64_t bit_len = bitmap->byte_len * 8;
     uint64_t last_bit;
     uint64_t value = 0;
@@ -996,15 +962,14 @@ uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
     uint8_t typecode = 0;
 
     if (bits == 0) return 0;
-    if (!bitmapObjectCanRepresentBit(offset) || offset >= bit_len) return 0;
+    if (!bitroarCanRepresentBit(offset) || offset >= bit_len) return 0;
     if (offset <= UINT64_MAX - (bits - 1)) {
         last_bit = offset + bits - 1;
         if (last_bit < bit_len && (offset >> 16) == (last_bit >> 16)) {
             uint64_t high48 = offset >> 16;
             art_key_chunk_t key[ART_KEY_BYTES];
-            bitmapArtKeyFromHigh48(high48, key);
-            roaring64_leaf_t *leaf =
-                (roaring64_leaf_t *)art_find(&bitmap->roaring->art, key);
+            bitroarArtKeyFromHigh48(high48, key);
+            roaring64_leaf_t *leaf = (roaring64_leaf_t *)art_find(&bitmap->roaring->art, key);
 
             if (leaf == NULL) return 0;
 
@@ -1012,8 +977,8 @@ uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
             container =
                 bitmap->roaring->containers[roaring64_leaf_index(*leaf)];
             if (container_contains_range(container, (uint16_t)offset,
-                                         (uint32_t)(uint16_t)last_bit + 1,
-                                         typecode)) {
+                                         (uint32_t)(uint16_t)last_bit + 1, typecode))
+            {
                 return bits == 64 ? UINT64_MAX : ((UINT64_C(1) << bits) - 1);
             }
             cached_high48 = high48;
@@ -1027,7 +992,7 @@ uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
         }
 
         uint64_t bitoffset = offset + j;
-        if (!bitmapObjectCanRepresentBit(bitoffset) || bitoffset >= bit_len) {
+        if (!bitroarCanRepresentBit(bitoffset) || bitoffset >= bit_len) {
             value <<= bits - j;
             break;
         }
@@ -1035,9 +1000,8 @@ uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
         uint64_t high48 = bitoffset >> 16;
         if (high48 != cached_high48) {
             art_key_chunk_t key[ART_KEY_BYTES];
-            bitmapArtKeyFromHigh48(high48, key);
-            roaring64_leaf_t *leaf =
-                (roaring64_leaf_t *)art_find(&bitmap->roaring->art, key);
+            bitroarArtKeyFromHigh48(high48, key);
+            roaring64_leaf_t *leaf = (roaring64_leaf_t *)art_find(&bitmap->roaring->art, key);
             if (leaf != NULL) {
                 typecode = roaring64_leaf_typecode(*leaf);
                 container =
@@ -1057,9 +1021,9 @@ uint64_t bitmapObjectGetUnsignedBitfield(const robj *o, uint64_t offset,
     return value;
 }
 
-int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
-                                    uint64_t value) {
-    bitmapObject *bitmap = getBitmapObject(o);
+int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
+                               uint64_t value) {
+    bitroar *bitmap = bitroarGet(o);
     uint64_t positions_to_add[64];
     uint64_t positions_to_remove[64];
     size_t add_count = 0, remove_count = 0;
@@ -1069,7 +1033,7 @@ int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
     if (offset > UINT64_MAX - (bits - 1)) return C_ERR;
 
     uint64_t last_bit = offset + bits - 1;
-    if (!bitmapObjectCanRepresentBit(last_bit)) return C_ERR;
+    if (!bitroarCanRepresentBit(last_bit)) return C_ERR;
 
     uint64_t byte = last_bit >> 3;
     if (byte + 1 > bitmap->byte_len)
@@ -1084,8 +1048,8 @@ int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
             positions_to_remove[remove_count++] = bitoffset;
     }
 
-    old_size = bitmapRoaringRangeAllocSize(bitmap->roaring, offset,
-                                           last_bit + 1);
+    old_size = bitroarRangeAllocSize(bitmap->roaring, offset,
+                                     last_bit + 1);
     if (add_count)
         roaring64_bitmap_add_many(bitmap->roaring, add_count,
                                   positions_to_add);
@@ -1096,21 +1060,20 @@ int bitmapObjectSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
         for (size_t j = 0; j < remove_count; j++)
             roaring64_bitmap_remove(bitmap->roaring, positions_to_remove[j]);
     }
-    bitmapObjectRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
+    bitroarRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
 
     return C_OK;
 }
 
-void bitmapObjectOptimize(robj *o) {
-    bitmapObject *bitmap = getBitmapObject(o);
+void bitroarOptimize(robj *o) {
+    bitroar *bitmap = bitroarGet(o);
     roaring64_bitmap_run_optimize(bitmap->roaring);
     roaring64_bitmap_shrink_to_fit(bitmap->roaring);
-    bitmapObjectRefreshAllocSize(bitmap);
+    bitroarRefreshAllocSize(bitmap);
 }
 
-static void bitmapObjectMaterializeRawRange(unsigned char *raw,
-                                            size_t chunk_len,
-                                            uint32_t start, uint32_t end)
+static void bitroarMaterializeRawRange(unsigned char *raw, size_t chunk_len,
+                                      uint32_t start, uint32_t end)
 {
     uint32_t bit = start;
 
@@ -1131,11 +1094,8 @@ static void bitmapObjectMaterializeRawRange(unsigned char *raw,
     }
 }
 
-static void bitmapObjectMaterializeContainer(unsigned char *raw,
-                                             size_t byte_len,
-                                             uint64_t high48,
-                                             const container_t *container,
-                                             uint8_t typecode)
+static void bitroarMaterializeContainer(unsigned char *raw, size_t byte_len, uint64_t high48,
+                                        const container_t *container, uint8_t typecode)
 {
     const size_t container_bytes =
         BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
@@ -1157,7 +1117,7 @@ static void bitmapObjectMaterializeContainer(unsigned char *raw,
         {
             uint64_t bits = bitset->words[word];
             for (int lane = 0; lane < 8 && byte < chunk_len; lane++, byte++)
-                chunk[byte] = bitmapReverseByte((bits >> (lane * 8)) & 0xff);
+                chunk[byte] = bitroarReverseByte((bits >> (lane * 8)) & 0xff);
         }
         break;
     }
@@ -1176,7 +1136,7 @@ static void bitmapObjectMaterializeContainer(unsigned char *raw,
         for (int32_t i = 0; i < run->n_runs; i++) {
             uint32_t start = run->runs[i].value;
             uint32_t end = start + run->runs[i].length;
-            bitmapObjectMaterializeRawRange(chunk, chunk_len, start, end);
+            bitroarMaterializeRawRange(chunk, chunk_len, start, end);
         }
         break;
     }
@@ -1185,8 +1145,8 @@ static void bitmapObjectMaterializeContainer(unsigned char *raw,
     }
 }
 
-static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
-                                          size_t byte_len, int try_alloc)
+static sds bitroarMaterializeRoaring(const roaring64_bitmap_t *roaring,
+                                     size_t byte_len, int try_alloc)
 {
     sds raw = try_alloc ? sdstrynewlen(NULL, byte_len) : sdsnewlen(NULL, byte_len);
     if (raw == NULL) return NULL;
@@ -1194,8 +1154,8 @@ static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
     art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
     while (it.value != NULL) {
         roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
-        bitmapObjectMaterializeContainer(
-            (unsigned char *)raw, byte_len, bitmapArtKeyToHigh48(it.key),
+        bitroarMaterializeContainer(
+            (unsigned char *)raw, byte_len, bitroarArtKeyToHigh48(it.key),
             roaring->containers[roaring64_leaf_index(leaf)],
             roaring64_leaf_typecode(leaf));
         art_iterator_next(&it);
@@ -1203,48 +1163,48 @@ static sds bitmapObjectMaterializeRoaring(const roaring64_bitmap_t *roaring,
     return raw;
 }
 
-static sds bitmapObjectMaterializeRaw(const robj *o, int proto_limited, int try_alloc) {
-    bitmapObject *bitmap = getBitmapObject(o);
+static sds bitroarMaterializeRaw(const robj *o, int proto_limited, int try_alloc) {
+    bitroar *bitmap = bitroarGet(o);
     if (proto_limited &&
         bitmap->byte_len > (uint64_t)server.proto_max_bulk_len) return NULL;
     if (bitmap->byte_len > (uint64_t)SIZE_MAX) return NULL;
-    return bitmapObjectMaterializeRoaring(bitmap->roaring, (size_t)bitmap->byte_len, try_alloc);
+    return bitroarMaterializeRoaring(bitmap->roaring, (size_t)bitmap->byte_len, try_alloc);
 }
 
 /* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
  * logical length exceeds proto-max-bulk-len. */
-sds bitmapObjectMaterialize(const robj *o) {
-    return bitmapObjectMaterializeRaw(o, 1, 0);
+sds bitroarMaterialize(const robj *o) {
+    return bitroarMaterializeRaw(o, 1, 0);
 }
 
 /* RDB raw payloads are persisted data, not client protocol bulk strings.
  * DUMP serialization cannot fail, so Redis' allocator owns OOM handling. */
-sds bitmapObjectMaterializeForRDB(const robj *o) {
-    return bitmapObjectMaterializeRaw(o, 0, 0);
+sds bitroarMaterializeForRDB(const robj *o) {
+    return bitroarMaterializeRaw(o, 0, 0);
 }
 
-typedef struct bitmapBitopSource {
+typedef struct bitroarOpSource {
     const roaring64_bitmap_t *roaring;
     roaring64_bitmap_t *owned;
-} bitmapBitopSource;
+} bitroarOpSource;
 
-typedef struct bitmapRawBitopSource {
+typedef struct bitroarRawOpSource {
     const unsigned char *raw;
     sds owned;
     size_t len;
-} bitmapRawBitopSource;
+} bitroarRawOpSource;
 
 /* Dense mixed operands are cheaper to flatten and combine as machine words
  * than to convert every string source into a temporary Roaring bitmap. Keep
  * this path deliberately narrow: Roaring-only and sparse workloads retain
  * Roaring algebra, while the size cap bounds all temporary raw buffers. */
-static int bitmapObjectsUseMixedRawBitop(robj **objects, size_t numkeys,
-                                         uint64_t maxlen)
+static int bitroarUseMixedRawOp(robj **objects, size_t numkeys,
+                                uint64_t maxlen)
 {
     int has_string = 0;
     int has_roaring = 0;
 
-    if (maxlen > BITMAP_BITOP_FAST_RESULT_MAX_BYTES) return 0;
+    if (maxlen > BITROAR_BITOP_FAST_RESULT_MAX_BYTES) return 0;
 
     for (size_t i = 0; i < numkeys; i++) {
         robj *o = objects[i];
@@ -1271,19 +1231,18 @@ static int bitmapObjectsUseMixedRawBitop(robj **objects, size_t numkeys,
         robj *o = objects[i];
         if (o == NULL || o->type != OBJ_BITMAP) continue;
 
-        uint64_t logical_len = bitmapObjectLen(o);
-        if (logical_len > BITMAP_BITOP_FAST_RESULT_MAX_BYTES -
-                          materialized_bytes)
+        uint64_t logical_len = bitroarLen(o);
+        if (logical_len > BITROAR_BITOP_FAST_RESULT_MAX_BYTES - materialized_bytes)
             return 0;
         materialized_bytes += logical_len;
-        if (bitmapObjectCardinality(o) < logical_len) return 0;
+        if (bitroarCardinality(o) < logical_len) return 0;
     }
 
     return 1;
 }
 
-static uint64_t bitmapRawBitopLoadWord(const bitmapRawBitopSource *source,
-                                       size_t offset)
+static uint64_t bitroarRawOpLoadWord(const bitroarRawOpSource *source,
+                                     size_t offset)
 {
     uint64_t word = 0;
     if (offset >= source->len) return 0;
@@ -1294,24 +1253,24 @@ static uint64_t bitmapRawBitopLoadWord(const bitmapRawBitopSource *source,
     return word;
 }
 
-static uint64_t bitmapRawBitopWord(bitmapBitop op,
-                                   bitmapRawBitopSource *sources,
-                                   size_t numkeys, size_t offset)
+static uint64_t bitroarRawOpWord(bitroarOp op,
+                                 bitroarRawOpSource *sources,
+                                 size_t numkeys, size_t offset)
 {
-    uint64_t output = bitmapRawBitopLoadWord(&sources[0], offset);
+    uint64_t output = bitroarRawOpLoadWord(&sources[0], offset);
 
     switch (op) {
     case BITOP_AND:
         for (size_t i = 1; i < numkeys; i++)
-            output &= bitmapRawBitopLoadWord(&sources[i], offset);
+            output &= bitroarRawOpLoadWord(&sources[i], offset);
         break;
     case BITOP_OR:
         for (size_t i = 1; i < numkeys; i++)
-            output |= bitmapRawBitopLoadWord(&sources[i], offset);
+            output |= bitroarRawOpLoadWord(&sources[i], offset);
         break;
     case BITOP_XOR:
         for (size_t i = 1; i < numkeys; i++)
-            output ^= bitmapRawBitopLoadWord(&sources[i], offset);
+            output ^= bitroarRawOpLoadWord(&sources[i], offset);
         break;
     case BITOP_NOT:
         output = ~output;
@@ -1321,7 +1280,7 @@ static uint64_t bitmapRawBitopWord(bitmapBitop op,
     case BITOP_ANDOR: {
         uint64_t disjunction = 0;
         for (size_t i = 1; i < numkeys; i++)
-            disjunction |= bitmapRawBitopLoadWord(&sources[i], offset);
+            disjunction |= bitroarRawOpLoadWord(&sources[i], offset);
         if (op == BITOP_DIFF)
             output &= ~disjunction;
         else if (op == BITOP_DIFF1)
@@ -1333,7 +1292,7 @@ static uint64_t bitmapRawBitopWord(bitmapBitop op,
     case BITOP_ONE: {
         uint64_t common = 0;
         for (size_t i = 1; i < numkeys; i++) {
-            uint64_t word = bitmapRawBitopLoadWord(&sources[i], offset);
+            uint64_t word = bitroarRawOpLoadWord(&sources[i], offset);
             common |= output & word;
             output ^= word;
             output &= ~common;
@@ -1347,12 +1306,12 @@ static uint64_t bitmapRawBitopWord(bitmapBitop op,
     return output;
 }
 
-static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
-                                                       robj **objects,
-                                                       size_t numkeys,
-                                                       size_t maxlen)
+static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op,
+                                                  robj **objects,
+                                                  size_t numkeys,
+                                                  size_t maxlen)
 {
-    bitmapRawBitopSource *sources = zcalloc(sizeof(*sources) * numkeys);
+    bitroarRawOpSource *sources = zcalloc(sizeof(*sources) * numkeys);
     unsigned char **raw_sources = zmalloc(sizeof(*raw_sources) * numkeys);
     size_t minlen = maxlen;
 
@@ -1365,11 +1324,11 @@ static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
         }
 
         if (o->type == OBJ_BITMAP) {
-            sources[i].len = (size_t)bitmapObjectLen(o);
+            sources[i].len = (size_t)bitroarLen(o);
             /* The mixed-path cap, rather than proto-max-bulk-len, bounds this
              * internal temporary so lowering the protocol limit cannot change
              * whether an otherwise valid Roaring BITOP succeeds. */
-            sources[i].owned = bitmapObjectMaterializeRaw(o, 0, 1);
+            sources[i].owned = bitroarMaterializeRaw(o, 0, 1);
             if (sources[i].owned == NULL) {
                 for (size_t j = 0; j < i; j++) sdsfree(sources[j].owned);
                 zfree(raw_sources);
@@ -1414,15 +1373,15 @@ static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
     UNUSED(used_vector);
 #endif
     for (; offset + sizeof(uint64_t) <= maxlen; offset += sizeof(uint64_t)) {
-        uint64_t output = bitmapRawBitopWord(op, sources, numkeys, offset);
+        uint64_t output = bitroarRawOpWord(op, sources, numkeys, offset);
         memcpy(raw_result + offset, &output, sizeof(output));
     }
     if (offset < maxlen) {
-        uint64_t output = bitmapRawBitopWord(op, sources, numkeys, offset);
+        uint64_t output = bitroarRawOpWord(op, sources, numkeys, offset);
         memcpy(raw_result + offset, &output, maxlen - offset);
     }
 
-    roaring64_bitmap_t *result = bitmapObjectRoaringFromString(
+    roaring64_bitmap_t *result = bitroarFromRaw(
         (unsigned char *)raw_result, maxlen, 0);
     sdsfree(raw_result);
     for (size_t i = 0; i < numkeys; i++) sdsfree(sources[i].owned);
@@ -1431,7 +1390,7 @@ static roaring64_bitmap_t *bitmapObjectsMixedRawBitop(bitmapBitop op,
     return result;
 }
 
-static int bitmapRoaringHasRunContainers(const roaring64_bitmap_t *roaring) {
+static int bitroarHasRunContainers(const roaring64_bitmap_t *roaring) {
     art_iterator_t it = art_init_iterator((art_t *)&roaring->art, true);
     while (it.value != NULL) {
         roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
@@ -1447,31 +1406,24 @@ static int bitmapRoaringHasRunContainers(const roaring64_bitmap_t *roaring) {
     return 0;
 }
 
-static int bitmapBitopSourcesBorrowedWithoutRuns(bitmapBitopSource *sources,
-                                                 size_t numkeys)
-{
+static int bitroarOpSourcesBorrowedWithoutRuns(bitroarOpSource *sources, size_t numkeys) {
     for (size_t i = 0; i < numkeys; i++) {
         if (sources[i].owned != NULL) return 0;
         if (sources[i].roaring != NULL &&
-            bitmapRoaringHasRunContainers(sources[i].roaring))
+            bitroarHasRunContainers(sources[i].roaring))
             return 0;
     }
     return 1;
 }
 
-static void bitmapObjectReleaseBitopSources(bitmapBitopSource *sources,
-                                            size_t numkeys)
-{
+static void bitroarReleaseOpSources(bitroarOpSource *sources, size_t numkeys) {
     for (size_t i = 0; i < numkeys; i++) {
         if (sources[i].owned != NULL)
             roaring64_bitmap_free(sources[i].owned);
     }
 }
 
-static void bitmapObjectPrepareBitopSources(robj **objects,
-                                            bitmapBitopSource *sources,
-                                            size_t numkeys)
-{
+static void bitroarPrepareOpSources(robj **objects, bitroarOpSource *sources, size_t numkeys) {
     for (size_t i = 0; i < numkeys; i++) {
         robj *o = objects[i];
 
@@ -1480,18 +1432,17 @@ static void bitmapObjectPrepareBitopSources(robj **objects,
         if (o == NULL) continue;
 
         if (o->type == OBJ_BITMAP) {
-            sources[i].roaring = getBitmapObject(o)->roaring;
+            sources[i].roaring = bitroarGet(o)->roaring;
         } else {
             serverAssert(o->type == OBJ_STRING);
             sources[i].owned =
-                bitmapObjectRoaringFromString((unsigned char *)o->ptr,
-                                              sdslen(o->ptr), 0);
+                bitroarFromRaw((unsigned char *)o->ptr, sdslen(o->ptr), 0);
             sources[i].roaring = sources[i].owned;
         }
     }
 }
 
-static roaring64_bitmap_t *bitmapObjectCopyBitopSource(bitmapBitopSource *source) {
+static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSource *source) {
     /* Roarings built from string sources are owned temporaries that no later
      * operand reads again (every caller seeds the accumulator from this
      * source exactly once), so steal them instead of deep-copying. */
@@ -1508,9 +1459,8 @@ static roaring64_bitmap_t *bitmapObjectCopyBitopSource(bitmapBitopSource *source
     return copy;
 }
 
-static roaring64_bitmap_t *bitmapObjectUnionBitopSources(bitmapBitopSource *sources,
-                                                         size_t start,
-                                                         size_t numkeys)
+static roaring64_bitmap_t *bitroarUnionOpSources(bitroarOpSource *sources,
+                                                 size_t start, size_t numkeys)
 {
     roaring64_bitmap_t *result = roaring64_bitmap_create();
     serverAssert(result != NULL);
@@ -1522,10 +1472,10 @@ static roaring64_bitmap_t *bitmapObjectUnionBitopSources(bitmapBitopSource *sour
     return result;
 }
 
-static roaring64_bitmap_t *bitmapObjectExactlyOneBitopSources(bitmapBitopSource *sources,
-                                                              size_t numkeys)
+static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources,
+                                                       size_t numkeys)
 {
-    roaring64_bitmap_t *result = bitmapObjectCopyBitopSource(&sources[0]);
+    roaring64_bitmap_t *result = bitroarCopyOpSource(&sources[0]);
     roaring64_bitmap_t *multiple = roaring64_bitmap_create();
     serverAssert(multiple != NULL);
 
@@ -1554,20 +1504,20 @@ static roaring64_bitmap_t *bitmapObjectExactlyOneBitopSources(bitmapBitopSource 
  * bounded dense mixed operands use the raw-word path above. The BITOP NOT
  * length guard lives at the command layer because complementing is inherently
  * dense. */
-robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
-                         uint64_t maxlen)
+robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys,
+                     uint64_t maxlen)
 {
-    bitmapBitopSource *sources;
+    bitroarOpSource *sources;
     roaring64_bitmap_t *result = NULL;
     int optimize_result = 1;
     int shrink_result = 1;
 
     serverAssert(numkeys > 0);
-    serverAssert(maxlen <= BITMAP_OBJECT_MAX_BYTES);
+    serverAssert(maxlen <= BITROAR_MAX_BYTES);
 
-    if (bitmapObjectsUseMixedRawBitop(objects, numkeys, maxlen)) {
-        result = bitmapObjectsMixedRawBitop(op, objects, numkeys,
-                                            (size_t)maxlen);
+    if (bitroarUseMixedRawOp(objects, numkeys, maxlen)) {
+        result = bitroarApplyMixedRawOp(op, objects, numkeys,
+                                        (size_t)maxlen);
         if (result == NULL) return NULL;
         optimize_result = 0;
         shrink_result = 0;
@@ -1576,14 +1526,13 @@ robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
     }
 
     sources = zcalloc(sizeof(*sources) * numkeys);
-    bitmapObjectPrepareBitopSources(objects, sources, numkeys);
+    bitroarPrepareOpSources(objects, sources, numkeys);
 
     switch (op) {
     case BITOP_AND: {
-        int skip_optimize =
-            maxlen <= BITMAP_BITOP_FAST_RESULT_MAX_BYTES &&
-            bitmapBitopSourcesBorrowedWithoutRuns(sources, numkeys);
-        result = bitmapObjectCopyBitopSource(&sources[0]);
+        int skip_optimize = maxlen <= BITROAR_BITOP_FAST_RESULT_MAX_BYTES &&
+            bitroarOpSourcesBorrowedWithoutRuns(sources, numkeys);
+        result = bitroarCopyOpSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_and_inplace(result, sources[i].roaring);
@@ -1597,14 +1546,14 @@ robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
         break;
     }
     case BITOP_OR:
-        result = bitmapObjectCopyBitopSource(&sources[0]);
+        result = bitroarCopyOpSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_or_inplace(result, sources[i].roaring);
         }
         break;
     case BITOP_XOR:
-        result = bitmapObjectCopyBitopSource(&sources[0]);
+        result = bitroarCopyOpSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_xor_inplace(result, sources[i].roaring);
@@ -1612,40 +1561,40 @@ robj *bitmapObjectsBitop(bitmapBitop op, robj **objects, size_t numkeys,
         break;
     case BITOP_NOT:
         if (sources[0].owned == NULL && sources[0].roaring != NULL &&
-            maxlen <= BITMAP_BITOP_FAST_RESULT_MAX_BYTES) {
+            maxlen <= BITROAR_BITOP_FAST_RESULT_MAX_BYTES) {
             optimize_result = 0;
             shrink_result = 0;
         }
-        result = bitmapObjectCopyBitopSource(&sources[0]);
+        result = bitroarCopyOpSource(&sources[0]);
         roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
         break;
     case BITOP_DIFF:
-        result = bitmapObjectCopyBitopSource(&sources[0]);
+        result = bitroarCopyOpSource(&sources[0]);
         for (size_t i = 1; i < numkeys; i++) {
             if (sources[i].roaring != NULL)
                 roaring64_bitmap_andnot_inplace(result, sources[i].roaring);
         }
         break;
     case BITOP_DIFF1:
-        result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
+        result = bitroarUnionOpSources(sources, 1, numkeys);
         if (sources[0].roaring != NULL)
             roaring64_bitmap_andnot_inplace(result, sources[0].roaring);
         break;
     case BITOP_ANDOR:
-        result = bitmapObjectUnionBitopSources(sources, 1, numkeys);
+        result = bitroarUnionOpSources(sources, 1, numkeys);
         if (sources[0].roaring != NULL)
             roaring64_bitmap_and_inplace(result, sources[0].roaring);
         else
             roaring64_bitmap_clear(result);
         break;
     case BITOP_ONE:
-        result = bitmapObjectExactlyOneBitopSources(sources, numkeys);
+        result = bitroarExactlyOneOpSources(sources, numkeys);
         break;
     default:
         serverPanic("Unknown Roaring bitmap BITOP");
     }
 
-    bitmapObjectReleaseBitopSources(sources, numkeys);
+    bitroarReleaseOpSources(sources, numkeys);
 
 bitop_result:
     /* Large or potentially run-friendly results still pay the conversion and
@@ -1655,10 +1604,10 @@ bitop_result:
     if (shrink_result) roaring64_bitmap_shrink_to_fit(result);
     zfree(sources);
 
-    bitmapObject *bitmap = zmalloc(sizeof(*bitmap));
+    bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = maxlen;
     bitmap->roaring = result;
-    bitmapObjectRefreshAllocSize(bitmap);
+    bitroarRefreshAllocSize(bitmap);
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;

@@ -12,7 +12,7 @@
  */
 
 #include "server.h"
-#include "bitmap_roaring.h"
+#include "bitroar.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "cluster_asm.h"
@@ -682,7 +682,7 @@ void decrRefCount(robj *o) {
             case OBJ_GCRA: freeGCRAObject(o); break;
 #endif
             case OBJ_ARRAY: freeArrayObject(o); break;
-            case OBJ_BITMAP: freeBitmapObject(o); break;
+            case OBJ_BITMAP: bitroarFree(o); break;
             default: serverPanic("Unknown object type"); break;
             }
         }
@@ -889,7 +889,7 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
 #endif
         case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
-        case OBJ_BITMAP: dismissBitmapObject(o, size_hint); break;
+        case OBJ_BITMAP: bitroarDismiss(o, size_hint); break;
         default: break;
     }
 #else
@@ -1023,7 +1023,7 @@ size_t getObjectLength(robj *o) {
         case OBJ_GCRA: return gcraObjectLength(o);
 #endif
         case OBJ_ARRAY: return arCount(o->ptr);
-        case OBJ_BITMAP: return bitmapObjectLen(o);
+        case OBJ_BITMAP: return bitroarLen(o);
         default: return 0;
     }
 }
@@ -1397,7 +1397,7 @@ size_t kvobjAllocSize(kvobj *o) {
         redisArray *ar = o->ptr;
         asize += ar->alloc_size;
     } else if (o->type == OBJ_BITMAP) {
-        asize += bitmapObjectAllocSize(o);
+        asize += bitroarAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
         /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
     }
