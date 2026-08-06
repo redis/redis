@@ -32,6 +32,8 @@ typedef enum bitroarOp {
 void bitroarInit(void);
 robj *bitroarCreate(void);
 robj *bitroarCreateFromString(const unsigned char *buf, size_t len);
+robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len,
+                                uint64_t byte_len);
 robj *bitroarDup(const robj *o);
 void bitroarFree(robj *o);
 void bitroarDismiss(robj *o, size_t size_hint);
@@ -53,7 +55,7 @@ uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bit
 int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t value);
 void bitroarOptimize(robj *o);
 sds bitroarMaterialize(const robj *o);
-sds bitroarMaterializeForRDB(const robj *o);
+sds bitroarSerializePortable(const robj *o);
 robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen);
 
 #endif /* __BITROAR_H */

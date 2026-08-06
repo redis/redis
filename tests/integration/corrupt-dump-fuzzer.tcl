@@ -74,15 +74,23 @@ if 0 {
     r gcra gcra 10 5 60000
 }
 
-    # create Roaring bitmap keys: a small sparse one (array encoded),
-    # container) and a bigger one mixing a dense run with a sparse tail in a
-    # second 64K chunk (run + array containers)
+    # Create Roaring bitmap keys spanning empty, array, bitset, run, and
+    # multiple high-32 buckets so corruption reaches each portable-format
+    # structural layer.
+    r restore bitmapempty 0 [empty_roaring_bitmap_dump_payload]
     r config set bitmap-default-roaring yes
     r setbit bitmap 7 1
     r setbit bitmap 100 1
     r setbit bitmap 4095 1
+    r set bitmapbitset [string repeat "\xaa" 8192]
+    r setbit bitmapbitset 0 1 ;# converts the dense string to roaring
     r setrange bitmapbig 0 [string repeat "\xff" 1024]
     r setbit bitmapbig 100000 1 ;# converts the dense string to roaring
+
+    set old_proto_max_bulk_len [config_get_set proto-max-bulk-len 536870913]
+    r setbit bitmap64 1 1
+    r setbit bitmap64 4294967296 1
+    r config set proto-max-bulk-len $old_proto_max_bulk_len
     r config set bitmap-default-roaring no
 
     # create bigger objects with 10 items (more than a single ziplist / listpack)
@@ -118,6 +126,40 @@ proc corrupt_payload {payload} {
     while { $count > 0 } {
         set idx [expr {int(rand() * $len)}]
         set ch [binary format c [expr {int(rand()*255)}]]
+        set payload [string replace $payload $idx $idx $ch]
+        incr count -1
+    }
+    return $payload
+}
+
+# Corrupt bytes inside an uncompressed bitmap's portable Roaring blob rather
+# than spending the deterministic seed passes on its RDB wrapper or checksum.
+proc corrupt_roaring_payload {payload} {
+    set offset 1 ;# Skip RDB_TYPE_BITMAP.
+    foreach field {byte-length payload-length} {
+        binary scan [string index $payload $offset] cu first
+        set type [expr {$first >> 6}]
+        if {$type == 0} {
+            incr offset
+        } elseif {$type == 1} {
+            incr offset 2
+        } elseif {$first == 0x80} {
+            incr offset 5
+        } elseif {$first == 0x81} {
+            incr offset 9
+        } else {
+            error "unexpected encoded $field in bitmap DUMP"
+        }
+    }
+
+    set len [expr {[string length $payload] - $offset - 10}]
+    if {$len <= 0} { error "missing portable bitmap payload" }
+    set count 1
+    if {rand() > 0.9} { set count 2 }
+    while {$count > 0} {
+        set idx [expr {$offset + int(rand() * $len)}]
+        binary scan [string index $payload $idx] cu old
+        set ch [binary format c [expr {($old + 1 + int(rand() * 255)) & 0xff}]]
         set payload [string replace $payload $idx $idx $ch]
         incr count -1
     }
@@ -162,11 +204,22 @@ foreach sanitize_dump {no yes} {
             set stat_successful_restore 0
             set stat_rejected_restore 0
             set stat_traffic_commands_sent 0
-            # repeatedly DUMP a random key, corrupt it and try RESTORE into a new key
+            # Exercise every Roaring portable shape once before returning to
+            # random key selection, then repeatedly corrupt DUMP payloads and
+            # try RESTORE into a new key.
+            set roaring_keys {bitmapempty bitmap bitmapbitset bitmapbig bitmap64}
             while true {
-                set k [r randomkey]
-                set dump [r dump $k]
-                set dump [corrupt_payload $dump]
+                if {$cycle < [llength $roaring_keys]} {
+                    set k [lindex $roaring_keys $cycle]
+                    set old_compression [config_get_set rdbcompression no]
+                    set dump [r dump $k]
+                    r config set rdbcompression $old_compression
+                    set dump [corrupt_roaring_payload $dump]
+                } else {
+                    set k [r randomkey]
+                    set dump [r dump $k]
+                    set dump [corrupt_payload $dump]
+                }
                 set printable_dump [string2printable $dump]
                 set restore_failed false
                 set report_and_restart false
