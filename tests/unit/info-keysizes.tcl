@@ -778,6 +778,13 @@ proc test_all_keysizes { {replMode 0} } {
 start_server {} {
     r select 0
     test_all_keysizes 0
+
+    test "KEYSIZES - BITFIELD OVERFLOW FAIL growth updates histogram" {
+        run_cmd_verify_hist {r FLUSHALL} {}
+        run_cmd_verify_hist {r SET b0 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {r BITFIELD b0 OVERFLOW FAIL SET u8 72 256} {db0_STR:8=1}
+    } {} {cluster:skip}
+
     # Start another server to test replication of KEYSIZES
     start_server {tags {needs:repl external:skip}} {
         # Set the outer layer server as primary
