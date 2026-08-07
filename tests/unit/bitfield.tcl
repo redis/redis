@@ -165,6 +165,52 @@ start_server {tags {"bitops"}} {
         }
     }
 
+    test {BITFIELD OVERFLOW FAIL accounts for eager string growth} {
+        r del bitfield-fail-created bitfield-fail-grown bitfield-fail-marker
+        set old_notify_config [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events {E$}
+
+        set rd [redis_deferring_client]
+        set event_pattern {__keyevent@*__:setbit}
+        assert_equal {1} [psubscribe $rd $event_pattern]
+
+        # A failed write still creates enough zero-filled storage for the
+        # requested bit. That allocation is a mutation even though the result
+        # contains a null entry.
+        set dirty [s rdb_changes_since_last_save]
+        set result [r bitfield bitfield-fail-created overflow fail set u1 0 2]
+        assert_equal 1 [llength $result]
+        assert_equal {} [lindex $result 0]
+        assert_equal 1 [r exists bitfield-fail-created]
+        assert_equal 1 [r strlen bitfield-fail-created]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+        assert_equal bitfield-fail-created [lindex [$rd read] 3]
+
+        # The same applies when an existing string is extended.
+        r set bitfield-fail-grown {}
+        set dirty [s rdb_changes_since_last_save]
+        set result [r bitfield bitfield-fail-grown overflow fail set u1 63 2]
+        assert_equal 1 [llength $result]
+        assert_equal {} [lindex $result 0]
+        assert_equal 8 [r strlen bitfield-fail-grown]
+        assert_equal [string repeat "\x00" 8] [r get bitfield-fail-grown]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+        assert_equal bitfield-fail-grown [lindex [$rd read] 3]
+
+        # If no storage grows, an all-failed command remains a no-op. The
+        # marker event proves that no notification was queued for it.
+        set dirty [s rdb_changes_since_last_save]
+        set result [r bitfield bitfield-fail-grown overflow fail set u1 0 2]
+        assert_equal 1 [llength $result]
+        assert_equal {} [lindex $result 0]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+        r setbit bitfield-fail-marker 0 1
+        assert_equal bitfield-fail-marker [lindex [$rd read] 3]
+
+        $rd close
+        r config set notify-keyspace-events $old_notify_config
+    }
+
     test {BITFIELD overflow wrap fuzzing} {
         for {set j 0} {$j < 1000} {incr j} {
             set bits [expr {[randomInt 64]+1}]
@@ -264,6 +310,23 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 100 [$slave bitfield_ro bits get u8 0]
         }
 
+        test {BITFIELD OVERFLOW FAIL growth is replicated} {
+            $master del bitfield-fail-created bitfield-fail-grown
+            $master set bitfield-fail-grown {}
+            wait_for_ofs_sync $master $slave
+
+            set created_result [$master bitfield bitfield-fail-created overflow fail set u1 0 2]
+            set grown_result [$master bitfield bitfield-fail-grown overflow fail set u1 63 2]
+            assert_equal {} [lindex $created_result 0]
+            assert_equal {} [lindex $grown_result 0]
+            wait_for_ofs_sync $master $slave
+
+            assert_equal 1 [$slave strlen bitfield-fail-created]
+            assert_equal "\x00" [$slave get bitfield-fail-created]
+            assert_equal 8 [$slave strlen bitfield-fail-grown]
+            assert_equal [string repeat "\x00" 8] [$slave get bitfield-fail-grown]
+        }
+
         test {BITFIELD_RO with only key as argument on read-only replica} {
             set res [$slave bitfield_ro bits]
             assert {$res eq {}}
@@ -273,5 +336,25 @@ start_server {tags {"repl external:skip"}} {
             catch {$slave bitfield_ro bits set u8 0 100 get u8 0} err
             assert_match {*ERR BITFIELD_RO only supports the GET subcommand*} $err
         }
+    }
+}
+
+start_server {tags {"bitops aof external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save {}}} {
+    test {BITFIELD OVERFLOW FAIL growth is persisted to AOF} {
+        r flushall
+        r set bitfield-fail-grown {}
+
+        set created_result [r bitfield bitfield-fail-created overflow fail set u1 0 2]
+        set grown_result [r bitfield bitfield-fail-grown overflow fail set u1 63 2]
+        assert_equal {} [lindex $created_result 0]
+        assert_equal {} [lindex $grown_result 0]
+        assert_equal {1 0} [r waitaof 1 0 0]
+
+        restart_server 0 true false true nosave
+
+        assert_equal 1 [r strlen bitfield-fail-created]
+        assert_equal "\x00" [r get bitfield-fail-created]
+        assert_equal 8 [r strlen bitfield-fail-grown]
+        assert_equal [string repeat "\x00" 8] [r get bitfield-fail-grown]
     }
 }
