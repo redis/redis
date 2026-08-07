@@ -865,7 +865,7 @@ dictEntryLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntryLi
 
 /* Like kvstoreDictFindLink(), but reuses a caller-supplied precomputed hash
  * (see dictFindLinkWithHash()). Used by the command-batch prefetch hash-reuse
- * path (AMD). */
+ * path. */
 dictEntryLink kvstoreDictFindLinkWithHash(kvstore *kvs, int didx, void *key, uint64_t hash, dictEntryLink *bucket) {
     if (bucket) *bucket = NULL;
     dict *d = kvstoreGetDict(kvs, didx);

@@ -875,7 +875,7 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
  * calling the dict's hash function. The caller MUST guarantee that 'hash' was
  * produced by this dict's hash function for exactly the same key bytes as
  * 'key'; otherwise the lookup result is undefined. Used by the command-batch
- * prefetcher to avoid hashing the same key twice (AMD). */
+ * prefetcher to avoid hashing the same key twice. */
 dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
     if (bucket) *bucket = NULL;
     if (unlikely(dictSize(d) == 0))

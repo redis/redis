@@ -2800,13 +2800,13 @@ struct pendingCommand {
                        * if no slot is being used or if the command has a cross slot error */
     uint8_t read_error;
 
-    /* Batch prefetch hash reuse (AMD): when the cross-command prefetch batch
-     * computes the key hash for a single-key command, it is cached here so the
+    /* Batch prefetch hash reuse: when the cross-command prefetch batch computes
+     * the key hash for a single-key command, it is cached here so the
      * execution-time dict lookup can skip recomputing SipHash. Reused only when
-     * key_hash_obj matches the exact key object being looked up. Cleared on
-     * every pendingCommand (re)acquire, so it can never refer to a stale key. */
-    uint64_t key_hash;        /* Precomputed hash of key_hash_obj->ptr. */
-    robj *key_hash_obj;       /* Key object the hash was computed for. */
+     * key_hash_obj matches the exact key being looked up. Cleared on every
+     * pendingCommand (re)acquire, so it can never refer to a stale key. */
+    uint64_t key_hash;        /* Precomputed hash of the key sds bytes. */
+    sds key_hash_obj;         /* Key sds (argv[..]->ptr) the hash was computed for. */
 
     struct pendingCommand *next;
     struct pendingCommand *prev;
