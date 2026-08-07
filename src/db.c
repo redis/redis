@@ -3067,10 +3067,10 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     return KEY_DELETED;
 }
 
-/* Callback passed to kvstoreExpand. Skip expansion for slots whose keys cannot
- * be accessed by this node, the slot is not owned by this node or its master. */
+/* Callback passed to kvstoreExpand. Skip expansion for slots not owned by this
+ * node, or by its master when this node is a replica. */
 static int dbExpandSkipSlot(int slot) {
-    return !clusterCanAccessKeysInSlot(slot);
+    return !clusterNodeCoversSlot(clusterNodeGetMaster(getMyClusterNode()), slot);
 }
 
 /*

@@ -1305,9 +1305,11 @@ void clientsCron(void) {
 }
 
 static int resizeShouldSkip(int didx) {
-    /* ASM resizes importing slot dictionaries using the size hint. Skip cron
-     * resizing until the slot becomes accessible. */
-    return !clusterCanAccessKeysInSlot(didx);
+    if (!server.cluster_enabled) return 0;
+
+    /* ASM resizes importing slot dict using the size hint. Skip cron
+     * resizing until this node, or its master, owns the slot. */
+    return !clusterNodeCoversSlot(clusterNodeGetMaster(getMyClusterNode()), didx);
 }
 
 /* This function handles 'background' operations we are required to do
