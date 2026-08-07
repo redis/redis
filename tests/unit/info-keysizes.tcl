@@ -862,6 +862,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
     test "KEY-MEMORY-STATS - BITFIELD Roaring transitions keep histograms consistent" {
         r FLUSHALL
         assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
         assert_equal OK [r config set bitmap-default-roaring yes]
 
         assert_equal {0} [r bitfield "bitmap:keymem:bf:new" SET u1 65536 1]
@@ -871,6 +872,20 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         assert_equal {0} [r bitfield "bitmap:keymem:bf:convert" SET u1 65536 1]
         assert_equal bitmap [r type "bitmap:keymem:bf:convert"]
 
+        assert_equal 1 [r copy "bitmap:keymem:bf:new" "bitmap:keymem:copy"]
+        r restore "bitmap:keymem:restore" 0 [r dump "bitmap:keymem:bf:new"]
+        r bitop or "bitmap:keymem:bitop" "bitmap:keymem:bf:new"
+
+        foreach key {
+            bitmap:keymem:bf:new
+            bitmap:keymem:copy
+            bitmap:keymem:restore
+            bitmap:keymem:bitop
+        } {
+            assert_equal 0 [r setbit $key 131072 1]
+        }
+
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 0]
         assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
         assert_equal OK [r config set bitmap-default-roaring no]
         r FLUSHALL

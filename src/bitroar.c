@@ -55,12 +55,17 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * bit-offset form. */
 #define BITROAR_MAX_BITOFFSET (BITROAR_MAX_BYTES * 8 - 1)
 
+/* Full allocation accounting is only needed for per-key/slot memory tracking
+ * or MEMORY USAGE. New objects start unknown so default hot paths can defer
+ * the O(containers) allocation walk until a caller actually needs it. */
+#define BITROAR_ALLOC_SIZE_UNKNOWN SIZE_MAX
+
 /* Bitmap objects use Roaring internally. Client-visible command limits are
  * enforced by command handlers; the internal bound protects arithmetic
  * invariants. */
 typedef struct bitroar {
     uint64_t byte_len;
-    size_t alloc_size;          /* Total memory used by this bitmap object. */
+    size_t alloc_size;          /* Total memory, or BITROAR_ALLOC_SIZE_UNKNOWN. */
     roaring64_bitmap_t *roaring;
 } bitroar;
 
@@ -79,6 +84,8 @@ static bitroar *bitroarGet(const robj *o) {
 }
 
 static void bitroarAdjustAllocSize(size_t *alloc_size, size_t old_size, size_t new_size) {
+    if (*alloc_size == BITROAR_ALLOC_SIZE_UNKNOWN) return;
+
     if (new_size >= old_size) {
         serverAssert(SIZE_MAX - *alloc_size >= new_size - old_size);
         *alloc_size += new_size - old_size;
@@ -294,7 +301,7 @@ robj *bitroarCreate(void) {
     bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = 0;
     bitmap->roaring = roaring64_bitmap_create();
-    bitroarRefreshAllocSize(bitmap);
+    bitmap->alloc_size = BITROAR_ALLOC_SIZE_UNKNOWN;
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -309,7 +316,7 @@ robj *bitroarCreateFromString(const unsigned char *buf, size_t len) {
     bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = len;
     bitmap->roaring = bitroarFromRaw(buf, len, 1);
-    bitroarRefreshAllocSize(bitmap);
+    bitmap->alloc_size = BITROAR_ALLOC_SIZE_UNKNOWN;
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -345,7 +352,7 @@ robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t b
     bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = byte_len;
     bitmap->roaring = roaring;
-    bitroarRefreshAllocSize(bitmap);
+    bitmap->alloc_size = BITROAR_ALLOC_SIZE_UNKNOWN;
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -357,7 +364,7 @@ robj *bitroarDup(const robj *o) {
     bitroar *dst = zmalloc(sizeof(*dst));
     dst->byte_len = src->byte_len;
     dst->roaring = roaring64_bitmap_copy(src->roaring);
-    bitroarRefreshAllocSize(dst);
+    dst->alloc_size = BITROAR_ALLOC_SIZE_UNKNOWN;
 
     robj *copy = createObject(OBJ_BITMAP, dst);
     copy->encoding = OBJ_ENCODING_BITMAP_ROARING;
@@ -493,9 +500,9 @@ static size_t bitroarRangeAllocSize(const roaring64_bitmap_t *r,
     return size;
 }
 
-/* Whole-object refreshes walk all containers and must stay off per-update hot
- * paths. Construction, load/dup, BITOP result materialization and explicit
- * optimization use it after replacing or compacting the entire Roaring value. */
+/* Whole-object refreshes walk all containers and are therefore performed only
+ * when allocation data is requested. Servers with memory tracking enabled ask
+ * for it while inserting an object; otherwise the first MEMORY USAGE does. */
 static void bitroarRefreshAllocSize(bitroar *bitmap) {
     bitmap->alloc_size = bitroarMallocSize(bitmap) + bitroarRoaringAllocSize(bitmap->roaring);
 }
@@ -508,7 +515,11 @@ static void bitroarRefreshRangeAllocSize(bitroar *bitmap, uint64_t start,
 }
 
 size_t bitroarAllocSize(const robj *o) {
-    return bitroarGet(o)->alloc_size;
+    bitroar *bitmap = bitroarGet(o);
+
+    if (bitmap->alloc_size == BITROAR_ALLOC_SIZE_UNKNOWN)
+        bitroarRefreshAllocSize(bitmap);
+    return bitmap->alloc_size;
 }
 
 size_t bitroarContainerCount(const robj *o) {
@@ -961,7 +972,8 @@ int bitroarGetBit(const robj *o, uint64_t bitoffset) {
 int bitroarSetBit(robj *o, uint64_t bitoffset, int on) {
     bitroar *bitmap = bitroarGet(o);
     uint64_t byte = bitoffset >> 3;
-    size_t old_size;
+    size_t old_size = 0;
+    int track_alloc_size = bitmap->alloc_size != BITROAR_ALLOC_SIZE_UNKNOWN;
 
     if (!bitroarCanRepresentBit(bitoffset))
         return C_ERR;
@@ -969,12 +981,14 @@ int bitroarSetBit(robj *o, uint64_t bitoffset, int on) {
     if (byte + 1 > bitmap->byte_len)
         bitmap->byte_len = byte + 1;
 
-    old_size = bitroarRangeAllocSize(bitmap->roaring, bitoffset, bitoffset + 1);
+    if (track_alloc_size)
+        old_size = bitroarRangeAllocSize(bitmap->roaring, bitoffset, bitoffset + 1);
     if (on)
         roaring64_bitmap_add(bitmap->roaring, bitoffset);
     else
         roaring64_bitmap_remove(bitmap->roaring, bitoffset);
-    bitroarRefreshRangeAllocSize(bitmap, bitoffset, bitoffset + 1, old_size);
+    if (track_alloc_size)
+        bitroarRefreshRangeAllocSize(bitmap, bitoffset, bitoffset + 1, old_size);
 
     return C_OK;
 }
@@ -1055,7 +1069,8 @@ int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
     uint64_t positions_to_add[64];
     uint64_t positions_to_remove[64];
     size_t add_count = 0, remove_count = 0;
-    size_t old_size;
+    size_t old_size = 0;
+    int track_alloc_size = bitmap->alloc_size != BITROAR_ALLOC_SIZE_UNKNOWN;
 
     if (bits == 0) return C_OK;
     if (offset > UINT64_MAX - (bits - 1)) return C_ERR;
@@ -1076,8 +1091,9 @@ int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
             positions_to_remove[remove_count++] = bitoffset;
     }
 
-    old_size = bitroarRangeAllocSize(bitmap->roaring, offset,
-                                     last_bit + 1);
+    if (track_alloc_size)
+        old_size = bitroarRangeAllocSize(bitmap->roaring, offset,
+                                         last_bit + 1);
     if (add_count)
         roaring64_bitmap_add_many(bitmap->roaring, add_count,
                                   positions_to_add);
@@ -1088,7 +1104,8 @@ int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
         for (size_t j = 0; j < remove_count; j++)
             roaring64_bitmap_remove(bitmap->roaring, positions_to_remove[j]);
     }
-    bitroarRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
+    if (track_alloc_size)
+        bitroarRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
 
     return C_OK;
 }
@@ -1097,7 +1114,8 @@ void bitroarOptimize(robj *o) {
     bitroar *bitmap = bitroarGet(o);
     roaring64_bitmap_run_optimize(bitmap->roaring);
     roaring64_bitmap_shrink_to_fit(bitmap->roaring);
-    bitroarRefreshAllocSize(bitmap);
+    if (bitmap->alloc_size != BITROAR_ALLOC_SIZE_UNKNOWN)
+        bitroarRefreshAllocSize(bitmap);
 }
 
 static void bitroarMaterializeRawRange(unsigned char *raw, size_t chunk_len,
@@ -1638,7 +1656,7 @@ bitop_result:
     bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = maxlen;
     bitmap->roaring = result;
-    bitroarRefreshAllocSize(bitmap);
+    bitmap->alloc_size = BITROAR_ALLOC_SIZE_UNKNOWN;
 
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
