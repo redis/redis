@@ -1304,6 +1304,12 @@ void clientsCron(void) {
     }
 }
 
+static int resizeShouldSkip(int didx) {
+    /* ASM resizes importing slot dictionaries using the size hint. Skip cron
+     * resizing until the slot becomes accessible. */
+    return !clusterCanAccessKeysInSlot(didx);
+}
+
 /* This function handles 'background' operations we are required to do
  * incrementally in Redis databases, such as active key expiring, resizing,
  * rehashing. */
@@ -1342,8 +1348,8 @@ void databasesCron(void) {
 
         for (j = 0; j < dbs_per_call; j++) {
             redisDb *db = &server.db[resize_db % server.dbnum];
-            kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB);
-            kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB);
+            kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB, resizeShouldSkip);
+            kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB, resizeShouldSkip);
             resize_db++;
         }
 

@@ -3067,11 +3067,10 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     return KEY_DELETED;
 }
 
-/* CB passed to kvstoreExpand.
- * The purpose is to skip expansion of unused dicts in cluster mode (all
- * dicts not mapped to *my* slots) */
+/* Callback passed to kvstoreExpand. Skip expansion for slots whose keys cannot
+ * be accessed by this node, the slot is not owned by this node or its master. */
 static int dbExpandSkipSlot(int slot) {
-    return !clusterNodeCoversSlot(getMyClusterNode(), slot);
+    return !clusterCanAccessKeysInSlot(slot);
 }
 
 /*
