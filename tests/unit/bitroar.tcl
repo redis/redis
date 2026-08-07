@@ -1072,7 +1072,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     } {} {needs:config-resetstat}
 
     if {$::debug_defrag} {
-        test {forced active defrag relocates dense bitmap BITSET storage safely} {
+        test {forced active defrag relocates BITSET storage with known and unknown allocation sizes} {
             r flushdb
             set old_bitmap_default_roaring [config_get_set bitmap-default-roaring no]
             set old_activedefrag [config_get_set activedefrag no]
@@ -1085,9 +1085,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             set dense [string repeat [binary format H* aa] 8192]
             r set bitmap:defrag:dense $dense
             convert_string_bitmap_to_roaring r bitmap:defrag:dense
+            r set bitmap:defrag:lazy $dense
+            convert_string_bitmap_to_roaring r bitmap:defrag:lazy
             assert_equal bitmap [r type bitmap:defrag:dense]
             assert_equal 32768 [r bitcount bitmap:defrag:dense]
             assert_morethan [r memory usage bitmap:defrag:dense] 8192
+            # Leave this object's allocation cache unmaterialized until after
+            # defrag to cover relocation of an unknown cached size.
+            assert_equal bitmap [r type bitmap:defrag:lazy]
+            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
 
             set old_hz [config_get_set hz 100]
             set old_threshold [config_get_set active-defrag-threshold-lower 1]
@@ -1097,11 +1103,11 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r config set activedefrag yes
 
             wait_for_condition 500 10 {
-                [s active_defrag_key_hits] > 0
+                [s active_defrag_key_hits] >= 2
             } else {
                 puts [r info memory]
                 puts [r info stats]
-                fail "forced defrag did not relocate the dense bitmap"
+                fail "forced defrag did not relocate both dense bitmaps"
             }
 
             r config set activedefrag no
@@ -1117,7 +1123,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             assert_equal bitmap [r type bitmap:defrag:dense]
             assert_equal 32768 [r bitcount bitmap:defrag:dense]
             assert_equal $dense [r debug bitmap-raw bitmap:defrag:dense]
-            assert_equal 1 [r del bitmap:defrag:dense]
+            assert_morethan [r memory usage bitmap:defrag:lazy] 8192
+            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
+            assert_equal $dense [r debug bitmap-raw bitmap:defrag:lazy]
+            assert_equal 2 [r del bitmap:defrag:dense bitmap:defrag:lazy]
             r config set bitmap-default-roaring $old_bitmap_default_roaring
             assert_equal OK [r config set activedefrag $old_activedefrag]
         } {} {needs:config-resetstat}
@@ -1840,6 +1849,54 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         r config set bitmap-default-roaring no
         r del bitmap:roaring:memory bitmap:roaring:memory:same-container
+    }
+
+    test {Roaring bitmap whole-object operations keep lazy memory accounting accurate} {
+        r config set bitmap-default-roaring yes
+        set source bitmap:roaring:lazy:a
+        set copy bitmap:roaring:lazy:b
+        set restored bitmap:roaring:lazy:c
+        set bitop bitmap:roaring:lazy:d
+        set bitop_reference bitmap:roaring:lazy:e
+        r del $source $copy $restored $bitop $bitop_reference
+
+        foreach offset {0 65536 131072} {
+            assert_equal 0 [r setbit $source $offset 1]
+        }
+        assert_equal 1 [r copy $source $copy]
+        r restore $restored 0 [r dump $source]
+        r bitop or $bitop $source
+        r bitop or $bitop_reference $source
+
+        set equivalent_keys [list $source $copy $restored]
+        set before [r memory usage $source]
+        assert_morethan $before 0
+        foreach key $equivalent_keys {
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal 3 [r bitcount $key]
+            assert_equal $before [r memory usage $key] \
+                "key=$key before_mutation"
+        }
+        set bitop_before [r memory usage $bitop]
+        assert_morethan $bitop_before 0
+        assert_equal $bitop_before [r memory usage $bitop_reference]
+
+        foreach key [concat $equivalent_keys $bitop $bitop_reference] {
+            assert_equal 0 [r setbit $key 196608 1]
+            assert_equal 4 [r bitcount $key]
+        }
+        set after [r memory usage $source]
+        assert_morethan $after $before
+        foreach key $equivalent_keys {
+            assert_equal $after [r memory usage $key] \
+                "key=$key after_mutation"
+        }
+        set bitop_after [r memory usage $bitop]
+        assert_morethan $bitop_after $bitop_before
+        assert_equal $bitop_after [r memory usage $bitop_reference]
+
+        r config set bitmap-default-roaring no
+        r del $source $copy $restored $bitop $bitop_reference
     }
 
     test {bitmap commands operate on legacy and Roaring representations with default Roaring creation disabled} {
