@@ -923,9 +923,8 @@ void configSetCommand(client *c) {
         else config_changed[i] = 0;
     }
 
-    int num_changes = 0;
-
     /* Apply all configs that need it */
+    int num_changes = 0;
     for (i = 0; i < config_count; i++) {
         if (!config_changed[i]) continue;
         config_names[num_changes++] = set_configs[i]->name;
