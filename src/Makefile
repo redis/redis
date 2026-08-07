@@ -26,6 +26,7 @@ CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
 # explicitly without any defaults added, pass the OPT variable instead.
 OPTIMIZATION?=-O3
 ENABLE_LTO?=
+CROARING_ENABLE_LTO?=
 ifeq ($(OPTIMIZATION),-O3)
 	ifeq (clang,$(CLANG))
 		ENABLE_LTO=-flto
@@ -441,9 +442,10 @@ persist-settings: distclean
 	echo LDFLAGS=$(LDFLAGS) >> .make-settings
 	echo REDIS_CFLAGS=$(REDIS_CFLAGS) >> .make-settings
 	echo REDIS_LDFLAGS=$(REDIS_LDFLAGS) >> .make-settings
+	echo PREV_CROARING_ENABLE_LTO=$(CROARING_ENABLE_LTO) >> .make-settings
 	echo PREV_FINAL_CFLAGS=$(FINAL_CFLAGS) >> .make-settings
 	echo PREV_FINAL_LDFLAGS=$(FINAL_LDFLAGS) >> .make-settings
-	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS) ENABLE_LTO="$(ENABLE_LTO)")
+	-(cd ../deps && $(MAKE) $(DEPENDENCY_TARGETS) ENABLE_LTO="$(ENABLE_LTO)" CROARING_ENABLE_LTO="$(CROARING_ENABLE_LTO)")
 
 .PHONY: persist-settings
 
@@ -457,6 +459,10 @@ ifneq ($(strip $(PREV_FINAL_CFLAGS)), $(strip $(FINAL_CFLAGS)))
 endif
 
 ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
+.make-prerequisites: persist-settings
+endif
+
+ifneq ($(strip $(PREV_CROARING_ENABLE_LTO)), $(strip $(CROARING_ENABLE_LTO)))
 .make-prerequisites: persist-settings
 endif
 

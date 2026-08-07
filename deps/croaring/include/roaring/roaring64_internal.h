@@ -6,7 +6,7 @@
  * Upstream defines `struct roaring64_bitmap_s` privately inside
  * src/roaring64.c. Redis needs the layout to walk every allocation behind a
  * 64-bit bitmap for MEMORY USAGE accounting, fork-child page dismissal and
- * active defragmentation (see src/bitmap_roaring.c), exactly like it already
+ * active defragmentation (see src/bitroar.c), exactly like it already
  * does for the 32-bit `roaring_bitmap_t` whose layout upstream does expose.
  * This header moves the struct definition verbatim out of roaring64.c so both
  * files share one definition.

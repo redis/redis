@@ -536,6 +536,7 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
     int robjFlag = !(plainFlag || sdsFlag); /* not plain/sds */
+
     int isencoded;
     unsigned long long len;
 
@@ -1147,8 +1148,7 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     nwritten += n;
 
     payload = bitroarSerializePortable(o);
-    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload,
-                              sdslen(payload))) == -1) {
+    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload, sdslen(payload))) == -1) {
         sdsfree(payload);
         return -1;
     }

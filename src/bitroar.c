@@ -320,9 +320,7 @@ robj *bitroarCreateFromString(const unsigned char *buf, size_t len) {
  * serialized containers do not encode Redis' logical byte length because
  * trailing zero bytes contain no set bits, so the RDB payload stores it
  * separately. The portable format is little-endian on every architecture. */
-robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len,
-                                uint64_t byte_len)
-{
+robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t byte_len) {
     roaring64_bitmap_t *roaring;
 
     if (byte_len > BITROAR_MAX_BYTES) return NULL;
@@ -413,6 +411,7 @@ static size_t bitroarContainerAllocSize(const roaring64_bitmap_t *r,
                                         uint8_t typecode)
 {
     if (container == NULL) return 0;
+    serverAssert(typecode != SHARED_CONTAINER_TYPE);
 
     size_t size = bitroarMallocSize(container);
     if (bitroarIsFrozen(r)) return size;
@@ -429,11 +428,6 @@ static size_t bitroarContainerAllocSize(const roaring64_bitmap_t *r,
     case RUN_CONTAINER_TYPE: {
         const run_container_t *run = const_CAST_run(container);
         return size + bitroarMallocSize(run->runs);
-    }
-    case SHARED_CONTAINER_TYPE: {
-        const shared_container_t *shared = const_CAST_shared(container);
-        return size + bitroarContainerAllocSize(r, shared->container,
-                                                shared->typecode);
     }
     default:
         serverPanic("Unknown Roaring bitmap container type");
@@ -503,13 +497,11 @@ static size_t bitroarRangeAllocSize(const roaring64_bitmap_t *r,
  * paths. Construction, load/dup, BITOP result materialization and explicit
  * optimization use it after replacing or compacting the entire Roaring value. */
 static void bitroarRefreshAllocSize(bitroar *bitmap) {
-    bitmap->alloc_size = bitroarMallocSize(bitmap) +
-                         bitroarRoaringAllocSize(bitmap->roaring);
+    bitmap->alloc_size = bitroarMallocSize(bitmap) + bitroarRoaringAllocSize(bitmap->roaring);
 }
 
-static void bitroarRefreshRangeAllocSize(bitroar *bitmap,
-                                         uint64_t start, uint64_t end,
-                                         size_t old_size)
+static void bitroarRefreshRangeAllocSize(bitroar *bitmap, uint64_t start,
+                                         uint64_t end, size_t old_size)
 {
     size_t new_size = bitroarRangeAllocSize(bitmap->roaring, start, end);
     bitroarAdjustAllocSize(&bitmap->alloc_size, old_size, new_size);
@@ -977,14 +969,12 @@ int bitroarSetBit(robj *o, uint64_t bitoffset, int on) {
     if (byte + 1 > bitmap->byte_len)
         bitmap->byte_len = byte + 1;
 
-    old_size = bitroarRangeAllocSize(bitmap->roaring, bitoffset,
-                                     bitoffset + 1);
+    old_size = bitroarRangeAllocSize(bitmap->roaring, bitoffset, bitoffset + 1);
     if (on)
         roaring64_bitmap_add(bitmap->roaring, bitoffset);
     else
         roaring64_bitmap_remove(bitmap->roaring, bitoffset);
-    bitroarRefreshRangeAllocSize(bitmap, bitoffset, bitoffset + 1,
-                                 old_size);
+    bitroarRefreshRangeAllocSize(bitmap, bitoffset, bitoffset + 1, old_size);
 
     return C_OK;
 }
@@ -1440,12 +1430,8 @@ static int bitroarHasRunContainers(const roaring64_bitmap_t *roaring) {
     while (it.value != NULL) {
         roaring64_leaf_t leaf = (roaring64_leaf_t)*it.value;
         uint8_t typecode = roaring64_leaf_typecode(leaf);
+        serverAssert(typecode != SHARED_CONTAINER_TYPE);
         if (typecode == RUN_CONTAINER_TYPE) return 1;
-        if (typecode == SHARED_CONTAINER_TYPE) {
-            const shared_container_t *shared = const_CAST_shared(
-                roaring->containers[roaring64_leaf_index(leaf)]);
-            if (shared->typecode == RUN_CONTAINER_TYPE) return 1;
-        }
         art_iterator_next(&it);
     }
     return 0;

@@ -958,8 +958,9 @@ static void bitroarPropagateRestore(client *c, robj *key, robj *bitmap,
  * the TTL and module key metadata and does not run key-unlink callbacks. The
  * installed value is serialized before any notification callback can mutate
  * it, then watchers are signaled and modules observe the bitmap from the
- * type_changed callback. The caller emits the triggering bitmap command event
- * after this helper returns. */
+ * type_changed callback. Direct execution emits type_changed before the
+ * caller's bitmap event; replicas and AOF replay observe restore followed by
+ * type_changed. */
 static void bitroarInstallConvertedValue(client *c, robj *key, robj **bitmapref,
                                          long long expire, dictEntryLink link) {
     serverAssert(link != NULL);

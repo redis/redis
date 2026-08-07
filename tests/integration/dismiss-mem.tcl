@@ -55,21 +55,20 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
             r arset sparse_array [expr {$i * 5000}] $bigstr
         }
 
-        # bitmap: cover all three roaring container types. The first 64K-bit
-        # chunk holds alternating bits (bitset container), the second chunk is
-        # all ones and collapses into a run container when the conversion
+        # bitmap: cover all three roaring container types. Six 64K-bit chunks
+        # hold alternating bits (bitset containers), the next chunk is all
+        # ones and collapses into a run container when the conversion
         # run-optimizes, and the distant bit lands alone in a later chunk
-        # (sparse array container).
+        # (sparse array container). Multiple bitsets keep the compact portable
+        # payload's average above the per-container page threshold.
         r set bigbitmap [binary format H* \
-            "[string repeat aa 8192][string repeat ff 8192]"]
+            "[string repeat aa 49152][string repeat ff 8192]"]
         r config set bitmap-default-roaring yes
-        r setbit bigbitmap 200000 1 ;# converts the dense string to roaring
+        r setbit bigbitmap 600000 1 ;# converts the dense string to roaring
         r config set bitmap-default-roaring no
         assert_equal bitmap [r type bigbitmap]
 
-        # Keep the bitmap payload above the per-container page threshold used
-        # by bitroarDismiss(). Otherwise LZF compresses these regular
-        # patterns enough that the fork child skips the container walk.
+        # Disable LZF so the size hint tracks the portable container payload.
         set old_rdbcompression [config_get_set rdbcompression no]
 
         set digest [debug_digest]
