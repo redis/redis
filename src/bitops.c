@@ -2285,6 +2285,91 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
+/* Execute BITFIELD operations against a Roaring bitmap. The separate branch
+ * keeps the legacy string implementation independent of the encoding. */
+static int bitfieldExecuteRoaringOps(client *c, robj *o, struct bitfieldOp *ops,
+                                     int numops, uint64_t growSize)
+{
+    int changes = 0;
+
+    for (int j = 0; j < numops; j++) {
+        struct bitfieldOp *thisop = ops+j;
+
+        if (thisop->opcode == BITFIELDOP_SET ||
+            thisop->opcode == BITFIELDOP_INCRBY)
+        {
+            if (thisop->sign) {
+                int64_t oldval, newval, wrapped, retval;
+                int overflow;
+
+                oldval = getSignedBitfieldFromValue(o,thisop->offset,thisop->bits);
+
+                if (thisop->opcode == BITFIELDOP_INCRBY) {
+                    overflow = checkSignedBitfieldOverflow(oldval,
+                            thisop->i64,thisop->bits,thisop->owtype,&wrapped);
+                    newval = overflow ? wrapped : oldval + thisop->i64;
+                    retval = newval;
+                } else {
+                    newval = thisop->i64;
+                    overflow = checkSignedBitfieldOverflow(newval,
+                            0,thisop->bits,thisop->owtype,&wrapped);
+                    if (overflow) newval = wrapped;
+                    retval = oldval;
+                }
+
+                if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
+                    addReplyLongLong(c,retval);
+                    if (growSize || (oldval != newval)) {
+                        int ret = setSignedBitfieldInValue(o,thisop->offset,thisop->bits,newval);
+                        serverAssert(ret == C_OK);
+                        changes++;
+                    }
+                } else {
+                    addReplyNull(c);
+                }
+            } else {
+                uint64_t oldval, newval, retval, wrapped = 0;
+                int overflow;
+
+                oldval = getUnsignedBitfieldFromValue(o,thisop->offset,thisop->bits);
+
+                if (thisop->opcode == BITFIELDOP_INCRBY) {
+                    newval = oldval + thisop->i64;
+                    overflow = checkUnsignedBitfieldOverflow(oldval,
+                            thisop->i64,thisop->bits,thisop->owtype,&wrapped);
+                    if (overflow) newval = wrapped;
+                    retval = newval;
+                } else {
+                    newval = thisop->i64;
+                    overflow = checkUnsignedBitfieldOverflow(newval,
+                            0,thisop->bits,thisop->owtype,&wrapped);
+                    if (overflow) newval = wrapped;
+                    retval = oldval;
+                }
+
+                if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
+                    addReplyLongLong(c,retval);
+                    if (growSize || (oldval != newval)) {
+                        int ret = setUnsignedBitfieldInValue(o,thisop->offset,thisop->bits,newval);
+                        serverAssert(ret == C_OK);
+                        changes++;
+                    }
+                } else {
+                    addReplyNull(c);
+                }
+            }
+        } else if (thisop->sign) {
+            int64_t val = getSignedBitfieldFromValue(o,thisop->offset,thisop->bits);
+            addReplyLongLong(c,val);
+        } else {
+            uint64_t val = getUnsignedBitfieldFromValue(o,thisop->offset,thisop->bits);
+            addReplyLongLong(c,val);
+        }
+    }
+
+    return changes;
+}
+
 /* This implements both the BITFIELD command and the BITFIELD_RO command
  * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
  * GET subcommand is allowed, other subcommands will return an error. */
@@ -2292,8 +2377,8 @@ void bitfieldGeneric(client *c, int flags) {
     kvobj *o;
     uint64_t bitoffset;
     int j, numops = 0, changes = 0;
-    uint64_t strOldSize = 0, strGrowSize = 0;
-    size_t sOldSize = 0, sGrowSize = 0;
+    size_t strOldSize = 0, strGrowSize = 0;
+    uint64_t roaringOldSize = 0, roaringGrowSize = 0;
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
     int string_created = 0;
     int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
@@ -2383,6 +2468,7 @@ void bitfieldGeneric(client *c, int flags) {
             zfree(ops);
             return;
         }
+        roaring_bitmap_write = o != NULL && o->type == OBJ_BITMAP;
     } else {
         if (flags & BITFIELD_FLAG_READONLY) {
             zfree(ops);
@@ -2411,24 +2497,72 @@ void bitfieldGeneric(client *c, int flags) {
         if (o != NULL && o->type == OBJ_BITMAP) {
             uint64_t byte = highest_write_offset >> 3;
 
-            strOldSize = bitroarLen(o);
-            strGrowSize = byte + 1 > strOldSize ? byte + 1 - strOldSize : 0;
+            roaringOldSize = bitroarLen(o);
+            roaringGrowSize = byte + 1 > roaringOldSize ? byte + 1 - roaringOldSize : 0;
             roaring_bitmap_write = 1;
             if (!roaring_target.transition && server.memory_tracking_enabled)
                 oldAllocSize = kvobjAllocSize(o);
         } else {
             if ((o = lookupStringForBitCommand(c, highest_write_offset,o,roaring_bitmap_link,
-                &sOldSize,&sGrowSize,&string_created)) == NULL)
+                &strOldSize,&strGrowSize,&string_created)) == NULL)
             {
                 zfree(ops);
                 return;
             }
-            strOldSize = sOldSize;
-            strGrowSize = sGrowSize;
         }
     }
 
     addReplyArrayLen(c,numops);
+
+    if (roaring_bitmap_write) {
+        changes = bitfieldExecuteRoaringOps(c,o,ops,numops,roaringGrowSize);
+
+        if (roaringGrowSize) {
+            uint64_t oldlen = bitroarLen(o);
+            int bit = bitroarGetBit(o, highest_write_offset);
+            int ret = bitroarSetBit(o, highest_write_offset, bit);
+            serverAssert(ret == C_OK);
+            roaring_len_extended = oldlen != bitroarLen(o);
+        }
+
+        /* A created or converted Roaring value must reach replicas and the AOF
+         * even when every op failed or wrote nothing: the transition itself
+         * (and the string-parity length growth above) already happened.
+         * Creation is serialized before dbAddByLink() emits "new"; conversion
+         * is installed first so preserved metadata is serialized, then emits
+         * type_changed. */
+        if (roaring_target.transition) {
+            if (roaring_target.created) {
+                bitroarPropagateRestore(c, c->argv[1], o, roaring_target.expire, 0);
+                robj *created_bitmap = o;
+                dbAddByLink(c->db, c->argv[1], &created_bitmap, &roaring_bitmap_link);
+            } else {
+                bitroarInstallConvertedValue(c, c->argv[1], &o,
+                    roaring_target.expire, roaring_bitmap_link);
+            }
+        }
+
+        if (changes || roaring_len_extended || roaring_target.transition) {
+            if (!roaring_target.transition) {
+                if (roaringOldSize != bitroarLen(o))
+                    updateKeysizesHist(c->db, OBJ_BITMAP, roaringOldSize, bitroarLen(o));
+                if (server.memory_tracking_enabled)
+                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
+                                        oldAllocSize, kvobjAllocSize(o));
+            }
+
+            /* Converted values were already signaled before type_changed. A newly
+             * created value still needs the normal command modification signal. */
+            if (!roaring_target.transition || roaring_target.created) {
+                keyModified(c,c->db,c->argv[1], roaring_target.transition ?
+                    lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS) : o, 1);
+            }
+            notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+            server.dirty += changes ? changes : 1;
+        }
+        zfree(ops);
+        return;
+    }
 
     /* Actually process the operations. */
     for (j = 0; j < numops; j++) {
@@ -2449,7 +2583,8 @@ void bitfieldGeneric(client *c, int flags) {
                 int64_t oldval, newval, wrapped, retval;
                 int overflow;
 
-                oldval = getSignedBitfieldFromValue(o,thisop->offset,thisop->bits);
+                oldval = getSignedBitfield(o->ptr,thisop->offset,
+                        thisop->bits);
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
                     overflow = checkSignedBitfieldOverflow(oldval,
@@ -2468,11 +2603,11 @@ void bitfieldGeneric(client *c, int flags) {
                  * NULL to signal the condition. */
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
-                    if (strGrowSize || (oldval != newval)) {
-                        int ret = setSignedBitfieldInValue(o,thisop->offset,thisop->bits,newval);
-                        serverAssert(ret == C_OK);
+                    setSignedBitfield(o->ptr,thisop->offset,
+                                      thisop->bits,newval);
+
+                    if (strGrowSize || (oldval != newval))
                         changes++;
-                    }
                 } else {
                     addReplyNull(c);
                 }
@@ -2482,7 +2617,8 @@ void bitfieldGeneric(client *c, int flags) {
                 uint64_t oldval, newval, retval, wrapped = 0;
                 int overflow;
 
-                oldval = getUnsignedBitfieldFromValue(o,thisop->offset,thisop->bits);
+                oldval = getUnsignedBitfield(o->ptr,thisop->offset,
+                        thisop->bits);
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {
                     newval = oldval + thisop->i64;
@@ -2501,28 +2637,17 @@ void bitfieldGeneric(client *c, int flags) {
                  * NULL to signal the condition. */
                 if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
                     addReplyLongLong(c,retval);
-                    if (strGrowSize || (oldval != newval)) {
-                        int ret = setUnsignedBitfieldInValue(o,thisop->offset,thisop->bits,newval);
-                        serverAssert(ret == C_OK);
+                    setUnsignedBitfield(o->ptr,thisop->offset,
+                                        thisop->bits,newval);
+
+                    if (strGrowSize || (oldval != newval))
                         changes++;
-                    }
                 } else {
                     addReplyNull(c);
                 }
             }
         } else {
             /* GET */
-            if (o != NULL && o->type == OBJ_BITMAP) {
-                if (thisop->sign) {
-                    int64_t val = getSignedBitfieldFromValue(o,thisop->offset,thisop->bits);
-                    addReplyLongLong(c,val);
-                } else {
-                    uint64_t val = getUnsignedBitfieldFromValue(o,thisop->offset,thisop->bits);
-                    addReplyLongLong(c,val);
-                }
-                continue;
-            }
-
             unsigned char buf[9];
             long strlen = 0;
             unsigned char *src = NULL;
@@ -2546,66 +2671,29 @@ void bitfieldGeneric(client *c, int flags) {
             /* Now operate on the copied buffer which is guaranteed
              * to be zero-padded. */
             if (thisop->sign) {
-                int64_t val = getSignedBitfield(buf,thisop->offset-(byte*8),thisop->bits);
+                int64_t val = getSignedBitfield(buf,thisop->offset-(byte*8),
+                                            thisop->bits);
                 addReplyLongLong(c,val);
             } else {
-                uint64_t val = getUnsignedBitfield(buf,thisop->offset-(byte*8),thisop->bits);
+                uint64_t val = getUnsignedBitfield(buf,thisop->offset-(byte*8),
+                                            thisop->bits);
                 addReplyLongLong(c,val);
             }
         }
     }
 
-    if (roaring_bitmap_write && strGrowSize) {
-        uint64_t oldlen = bitroarLen(o);
-        int bit = bitroarGetBit(o, highest_write_offset);
-        int ret = bitroarSetBit(o, highest_write_offset, bit);
-        serverAssert(ret == C_OK);
-        roaring_len_extended = oldlen != bitroarLen(o);
-    }
+    int string_len_extended = strGrowSize != 0;
+    if (changes || string_len_extended) {
+        /* If this is not a new key and size changed, then update the
+         * keysizes histogram. Otherwise, the histogram already updated
+         * in lookupStringForBitCommand() by calling dbAdd(). "Not
+         * created" rather than "old size not 0": see the same guard in
+         * setbitCommand() and aviggiano/redis#168. */
+        if (!string_created && strGrowSize != 0)
+            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
 
-    /* A created or converted Roaring value must reach replicas and the AOF
-     * even when every op failed or wrote nothing: the transition itself (and
-     * the string-parity length growth above) already happened. Creation is
-     * serialized before dbAddByLink() emits "new"; conversion is installed
-     * first so preserved metadata is serialized, then emits type_changed. */
-    if (roaring_target.transition) {
-        if (roaring_target.created) {
-            bitroarPropagateRestore(c, c->argv[1], o, roaring_target.expire, 0);
-            robj *created_bitmap = o;
-            dbAddByLink(c->db, c->argv[1], &created_bitmap, &roaring_bitmap_link);
-        } else {
-            bitroarInstallConvertedValue(c, c->argv[1], &o,
-                roaring_target.expire, roaring_bitmap_link);
-        }
-    }
-
-    int string_len_extended = !roaring_bitmap_write && strGrowSize != 0;
-
-    if (changes || roaring_len_extended || string_len_extended || roaring_target.transition) {
-        if (roaring_bitmap_write && !roaring_target.transition) {
-            if (strOldSize != bitroarLen(o))
-                updateKeysizesHist(c->db, OBJ_BITMAP, strOldSize, bitroarLen(o));
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
-                                    oldAllocSize, kvobjAllocSize(o));
-        } else if (!roaring_target.transition) {
-            /* If this is not a new key and size changed, then update the
-             * keysizes histogram. Otherwise, the histogram already updated
-             * in lookupStringForBitCommand() by calling dbAdd(). "Not
-             * created" rather than "old size not 0": see the same guard in
-             * setbitCommand() and aviggiano/redis#168. */
-            if (!string_created && strGrowSize != 0)
-                updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
-        }
-        
-        /* Converted values were already signaled before type_changed. A newly
-         * created value still needs the normal command modification signal. */
-        if (!roaring_target.transition || roaring_target.created) {
-            keyModified(c,c->db,c->argv[1], roaring_target.transition ?
-                lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS) : o, 1);
-        }
-        notifyKeyspaceEvent(roaring_bitmap_write ? NOTIFY_BITMAP : NOTIFY_STRING,
-                            "setbit",c->argv[1],c->db->id);
+        keyModified(c,c->db,c->argv[1],o,1);
+        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes ? changes : 1;
     }
     zfree(ops);
