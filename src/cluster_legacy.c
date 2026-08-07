@@ -1298,6 +1298,21 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         connEnableTcpNoDelay(conn);
         connKeepAlive(conn,server.cluster_node_timeout / 1000 * 2);
 
+        /* When tls-expected-peer-name is configured, verify the connecting peer's
+         * certificate SAN/CN against it before completing the TLS handshake. This
+         * closes the cluster-bus node-ID impersonation vector: a certificate that
+         * chains to the CA but lacks the cluster identity (e.g. a sibling cert from
+         * a shared CA) cannot open a bus link and inject forged messages. No-op for
+         * non-TLS connections. */
+        if (server.tls_ctx_config.expected_peer_name != NULL &&
+            connSetVerifyName(conn, server.tls_ctx_config.expected_peer_name) == C_ERR)
+        {
+            serverLog(LL_VERBOSE,
+                "Error setting expected peer name on cluster node connection from %s:%d", cip, cport);
+            connClose(conn);
+            continue;
+        }
+
         /* Use non-blocking I/O for cluster messages. */
         serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
 
@@ -4827,7 +4842,7 @@ void clusterCron(void) {
     dictInitSafeIterator(&di, server.cluster->nodes);
     while((de = dictNext(&di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-        /* We free the inbound or outboud link to the node if the link has an
+        /* We free the inbound or outbound link to the node if the link has an
          * oversized message send queue and immediately try reconnecting. */
         clusterNodeCronFreeLinkOnBufferLimitReached(node);
         /* The protocol is that function(s) below return non-zero if the node was

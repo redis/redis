@@ -103,7 +103,7 @@ void linkClient(client *c) {
 static void clientSetDefaultAuth(client *c) {
     /* If the default user does not require authentication, the user is
      * directly authenticated. */
-    clientSetUser(c, DefaultUser);
+    clientSetUser(c, DefaultUser, 0);
     c->authenticated = (c->user->flags & USER_FLAG_NOPASS) &&
                        !(c->user->flags & USER_FLAG_DISABLED);
 }
@@ -1644,7 +1644,7 @@ void clientAcceptHandler(connection *conn) {
         user *u = ACLGetUserByName(username, sdslen(username));
         if (u && !(u->flags & USER_FLAG_DISABLED)) {
             c->authenticated = 1;
-            clientSetUser(c, u);
+            clientSetUser(c, u, 1);
             moduleNotifyUserChanged(c);
             serverLog(LL_VERBOSE, "TLS: Auto-authenticated client as %s",
                       server.hide_user_data_from_log ? "*redacted*" : u->name);
@@ -1950,8 +1950,9 @@ void unlinkClient(client *c) {
 
     /* Remove from the list of pending writes if needed. */
     if (c->flags & CLIENT_PENDING_WRITE) {
-        serverAssert(&c->clients_pending_write_node.next != NULL || 
-                     &c->clients_pending_write_node.prev != NULL);
+        serverAssert(listNextNode(&c->clients_pending_write_node) != NULL ||
+                     listPrevNode(&c->clients_pending_write_node) != NULL ||
+                     listFirst(server.clients_pending_write) == &c->clients_pending_write_node);
         listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
         c->flags &= ~CLIENT_PENDING_WRITE;
     }
@@ -2054,6 +2055,24 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
     }
 }
 
+/* Drop all of the client's Pub/Sub state: unsubscribe every channel, shard
+ * channel and pattern — without notifying the client — and clear the Pub/Sub
+ * client flags (including the provenance re-auth hint). */
+static void clearClientPubSubState(client *c) {
+    /* The guard is not an optimization: this also runs on ACL-kill victims
+     * (deauthenticateAndCloseClient) that may be owned by an IO thread
+     * concurrently reading c->flags. A client with Pub/Sub state is
+     * CLIENT_PUBSUB and therefore permanently main-thread-resident (see
+     * isClientMustHandledByMainThread), so the flag writes below can never
+     * touch an IO-owned client — while running them unguarded would. */
+    if (c->flags & CLIENT_PUBSUB) {
+        pubsubUnsubscribeAllChannels(c, 0);
+        pubsubUnsubscribeShardAllChannels(c, 0);
+        pubsubUnsubscribeAllPatterns(c, 0);
+        unmarkClientAsPubSub(c);
+    }
+}
+
 /* Clear the client state to resemble a newly connected client. */
 void clearClientConnectionState(client *c) {
     listNode *ln;
@@ -2079,15 +2098,18 @@ void clearClientConnectionState(client *c) {
     c->resp = 2;
 #endif
 
+    /* Clear Pub/Sub state before resetting the ACL identity below. A still-NULL
+     * subscription is "owned by the current user", so once clientSetDefaultAuth()
+     * switches c->user to DefaultUser (it does not stamp) those entries would be
+     * momentarily attributed to DefaultUser — and moduleNotifyUserChanged() runs
+     * inside that window. Unsubscribing first removes them, so no callback ever
+     * observes a subscription under the wrong effective owner. */
+    clearClientPubSubState(c);
+
     clientSetDefaultAuth(c);
     moduleNotifyUserChanged(c);
     discardTransaction(c);
     himportFieldsetsFree(c);
-
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
-    unmarkClientAsPubSub(c);
 
     if (c->name) {
         decrRefCount(c->name);
@@ -2103,7 +2125,17 @@ void clearClientConnectionState(client *c) {
 }
 
 void deauthenticateAndCloseClient(client *c) {
+    /* The victim may be owned by an IO thread that reads c->flags concurrently:
+     * all flag writes below are guarded by flags implying main-thread residency
+     * (see clearClientPubSubState); the other writes are not read by IO threads. */
     disableTracking(c);
+    /* Clear all Pub/Sub subscriptions synchronously *before* dropping the ACL
+     * identity. This removes any provenance-stamped user* values right now, so a
+     * subsequent synchronous ACLFreeUser() (e.g. the DELUSER that triggered this
+     * kill) can never leave a dangling stamped pointer for a later ACL scan to
+     * dereference. It also prevents still-NULL subscriptions from being
+     * misattributed to DefaultUser once c->user changes below. */
+    clearClientPubSubState(c);
     c->user = DefaultUser;
     c->authenticated = 0;
     /* We will write replies to this client later, so we can't
@@ -2272,10 +2304,7 @@ void freeClient(client *c) {
     listRelease(c->watched_keys);
 
     /* Unsubscribe from all the pubsub channels */
-    pubsubUnsubscribeAllChannels(c,0);
-    pubsubUnsubscribeShardAllChannels(c, 0);
-    pubsubUnsubscribeAllPatterns(c,0);
-    unmarkClientAsPubSub(c);
+    clearClientPubSubState(c);
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
@@ -2566,15 +2595,15 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
         } else {
             /* BULK_STR_REF - release object references */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
-            formatBulkStrRefPrefix(str_ref); /* ensure prefix_cnt is set for writen_len */
+            formatBulkStrRefPrefix(str_ref); /* ensure prefix_cnt is set for written_len */
 
-            size_t writen_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
-            if (*remaining < (ssize_t)(writen_len - *sentlen)) {
+            size_t written_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
+            if (*remaining < (ssize_t)(written_len - *sentlen)) {
                 *sentlen += *remaining;
                 *remaining = 0;
                 return head;
             }
-            *remaining -= (writen_len - *sentlen);
+            *remaining -= (written_len - *sentlen);
             c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
@@ -3180,7 +3209,7 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
-        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCAL;
+        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCOL;
         return C_ERR;
     }
 
@@ -3615,7 +3644,7 @@ void handleClientReadError(client *c) {
             addReplyError(c,"Protocol error: unbalanced quotes in request");
             setProtocolError("unbalanced quotes in request",c);
             break;
-        case CLIENT_READ_MASTER_USING_INLINE_PROTOCAL:
+        case CLIENT_READ_MASTER_USING_INLINE_PROTOCOL:
             serverLog(LL_WARNING,"WARNING: Receiving inline protocol from master, master stream corruption? Closing the master connection and discarding the cached master.");
             setProtocolError("Master using the inline protocol. Desync?",c);
             break;
