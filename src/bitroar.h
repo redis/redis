@@ -1,9 +1,27 @@
+/*
+ * Copyright Redis Ltd. 2026 - present
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ *
+ * WHAT IS BITROAR?
+ * ----------------
+ * bitroar backs the OBJ_ENCODING_BITMAP_ROARING encoding of bitmap objects
+ * with a 64-bit Roaring bitmap (CRoaring). It exposes the operations the
+ * bitmap commands (SETBIT, GETBIT, BITCOUNT, BITPOS, BITFIELD, BITOP, ...)
+ * and the object machinery (dup, free, defrag, dismiss, RDB persistence)
+ * need, while keeping the string-bitmap semantics: a logical byte length,
+ * bit offsets addressed from the most significant bit of byte 0, and
+ * materialization back to a flat string when required.
+ */
+
 #ifndef __BITROAR_H
 #define __BITROAR_H
 
-#include "sds.h"
-#include "object.h"
-#include "rio.h"
+#include "sds.h"    /* sds */
+#include "object.h" /* robj */
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -14,6 +32,7 @@
 #define BITROAR_MAX_BYTES_RAW (INT64_MAX >> 3)
 #define BITROAR_MAX_BYTES ((uint64_t)BITROAR_MAX_BYTES_RAW)
 
+/* Bitwise operations supported by bitroarApplyOp() (the BITOP command). */
 typedef enum bitroarOp {
     BITOP_AND = 0,
     BITOP_OR,
@@ -29,33 +48,47 @@ typedef enum bitroarOp {
     BITOP_ONE
 } bitroarOp;
 
+/* Called on invocation, per-bit visitor for bitroarVisitSetBitRanges().
+ * Reports one maximal run of set bits as [start, end) bit offsets. */
+typedef void bitroarRangeCallback(uint64_t start, uint64_t end, void *privdata);
+
+/* Initialization (once at server startup: plugs zmalloc into CRoaring) */
 void bitroarInit(void);
+
+/* Object lifecycle */
 robj *bitroarCreate(void);
 robj *bitroarCreateFromString(const unsigned char *buf, size_t len);
-robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len,
-                                uint64_t byte_len);
+robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t byte_len);
 robj *bitroarDup(const robj *o);
 void bitroarFree(robj *o);
+
+/* Memory management (fork-child dismissal, active defrag, accounting) */
 void bitroarDismiss(robj *o, size_t size_hint);
 void bitroarDefrag(robj *o);
 unsigned long bitroarDefragIncremental(robj *o, unsigned long cursor);
+size_t bitroarAllocSize(const robj *o);
 size_t bitroarContainerCount(const robj *o);
 
+/* Read operations */
 uint64_t bitroarLen(const robj *o);
-size_t bitroarAllocSize(const robj *o);
 uint64_t bitroarCardinality(const robj *o);
 uint64_t bitroarRangeCardinality(const robj *o, uint64_t start, uint64_t end);
-typedef void bitroarRangeCallback(uint64_t start, uint64_t end, void *privdata);
 void bitroarVisitSetBitRanges(const robj *o, bitroarRangeCallback *callback, void *privdata);
 long long bitroarBitpos(const robj *o, int bit, uint64_t start, uint64_t end, int end_given);
 int bitroarCanRepresentBit(uint64_t bitoffset);
 int bitroarGetBit(const robj *o, uint64_t bitoffset);
-int bitroarSetBit(robj *o, uint64_t bitoffset, int on);
 uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bits);
+
+/* Write operations */
+int bitroarSetBit(robj *o, uint64_t bitoffset, int on);
 int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t value);
 void bitroarOptimize(robj *o);
+robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen);
+
+/* Serialization. Materialize flattens to the logical raw string bytes;
+ * SerializePortable emits the RoaringFormatSpec 64-bit portable format,
+ * whose size tracks resident data rather than the logical length. */
 sds bitroarMaterialize(const robj *o);
 sds bitroarSerializePortable(const robj *o);
-robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen);
 
 #endif /* __BITROAR_H */
