@@ -141,7 +141,6 @@ Notes:
   any OpenSSL version. When compiled out, if `tls-expected-peer-name` is set each
   affected connection logs a warning and proceeds without the name check (CA
   chain validation still applies).
-=======
 
 TLS group/curve preferences
 ---------------------------
