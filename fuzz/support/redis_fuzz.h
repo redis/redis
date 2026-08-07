@@ -19,7 +19,6 @@ void redisFuzzRunResp(sds resp);
 
 uint8_t redisFuzzByte(RedisFuzzInput *in);
 long long redisFuzzChoice(RedisFuzzInput *in, long long count);
-long long redisFuzzNumber(RedisFuzzInput *in, long long min, long long max);
 sds redisFuzzSlice(RedisFuzzInput *in, size_t maxlen);
 
 void redisFuzzAppendArray(sds *resp, int argc);
