@@ -188,6 +188,24 @@ typedef struct streamReplyRangeArgs {
     size_t emitted_before;      /* Entries already emitted before this call. */
 } streamReplyRangeArgs;
 
+/* The scalar stream fields that feed a consumer group's lag (the only ones
+ * streamCGLag reads). Snapshotting these lets us compute a group's "old" lag
+ * after a mutation without keeping the whole pre-mutation stream around. */
+typedef struct streamLagInputs {
+    uint64_t entries_added;
+    uint64_t length;
+    streamID first_id;
+    streamID last_id;
+    streamID max_deleted_entry_id;
+} streamLagInputs;
+
+/* Guard for operations that change stream-wide lag inputs and so shift the lag
+ * of every consumer group at once. See streamLagGuardBegin(). */
+typedef struct streamLagGuard {
+    streamLagInputs pre;   /* the stream's scalar lag inputs before the mutation */
+    int active;
+} streamLagGuard;
+
 /* Prototypes of exported APIs. */
 struct client;
 
@@ -235,6 +253,8 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 int streamCGLag(stream *s, streamCG *cg, long long *lag);
 int streamDistribBin(int64_t value);
+void streamLagGuardBegin(streamLagGuard *g, stream *s);
+void streamLagGuardEnd(streamLagGuard *g, redisDb *db, stream *s);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 

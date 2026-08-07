@@ -1947,17 +1947,9 @@ static void streamUpdateCGroupsLagAll(redisDb *db, stream *s, int adding) {
     raxStop(&ri);
 }
 
-/* The scalar stream fields that feed a consumer group's lag (the only ones
- * streamCGLag reads). Snapshotting these lets us compute a group's "old" lag
- * after a mutation without keeping the whole pre-mutation stream around. */
-typedef struct {
-    uint64_t entries_added;
-    uint64_t length;
-    streamID first_id;
-    streamID last_id;
-    streamID max_deleted_entry_id;
-} streamLagInputs;
-
+/* streamLagInputs (the scalar stream fields streamCGLag reads) and
+ * streamLagGuard are declared in stream.h, so module.c can guard the stream
+ * mutations its API exposes. */
 static void streamLagInputsSnapshot(streamLagInputs *in, stream *s) {
     in->entries_added = s->entries_added;
     in->length = s->length;
@@ -1979,25 +1971,27 @@ static stream streamFromLagInputs(streamLagInputs *in) {
     };
 }
 
-/* Guard for commands that change stream-wide lag inputs (entries_added, length,
- * first_id, max_deleted_entry_id) and so shift the lag of every consumer group
- * at once: XADD, XTRIM, XDEL, XACKDEL, XDELEX, XSETID. Call streamLagGuardBegin()
- * before the mutation to snapshot those inputs, then streamLagGuardEnd() after
- * to move each group's sample from its old lag (computed from the snapshot) to
- * its new lag. The group's own last_id/entries_read are unchanged by these ops,
- * so the same 'cg' is used for both. Gated on stream-stats; O(groups) only when
- * enabled. */
-typedef struct {
-    streamLagInputs pre;   /* the stream's scalar lag inputs before the mutation */
-    int active;
-} streamLagGuard;
-
-static void streamLagGuardBegin(streamLagGuard *g, stream *s) {
+/* Guard for operations that change stream-wide lag inputs (entries_added,
+ * length, first_id, max_deleted_entry_id) and so shift the lag of every consumer
+ * group at once: the XADD, XTRIM, XDEL, XACKDEL, XDELEX and XSETID commands, and
+ * the equivalent module APIs (RM_StreamAdd, RM_StreamDelete,
+ * RM_StreamIteratorDelete, RM_StreamTrimByLength, RM_StreamTrimByID). Call
+ * streamLagGuardBegin() before the mutation to snapshot those inputs, then
+ * streamLagGuardEnd() after to move each group's sample from its old lag
+ * (computed from the snapshot) to its new lag. The group's own
+ * last_id/entries_read are unchanged by these ops, so the same 'cg' is used for
+ * both. Gated on stream-stats; O(groups) only when enabled.
+ *
+ * The guard belongs at the entry point (command handler or module API), not
+ * inside the shared helpers those paths call -- streamAppendItem and
+ * streamDeleteItem are reached from both, so a guard pushed down into them would
+ * double-count against the command-level guards. */
+void streamLagGuardBegin(streamLagGuard *g, stream *s) {
     g->active = server.stream_stats && s->cgroups && raxSize(s->cgroups);
     if (g->active) streamLagInputsSnapshot(&g->pre, s);
 }
 
-static void streamLagGuardEnd(streamLagGuard *g, redisDb *db, stream *s) {
+void streamLagGuardEnd(streamLagGuard *g, redisDb *db, stream *s) {
     if (!g->active) return;
     stream pre = streamFromLagInputs(&g->pre); /* old lag computed against this */
     raxIterator ri;
