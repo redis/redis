@@ -316,6 +316,31 @@ start_server {tags {"string"}} {
         assert_morethan [r pttl pxat:key1{t}] 0
     }
 
+    test {MSETEX - keyspace notifications emit set before expire for each key} {
+        set orig_notify [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events EA
+        r del msetex:k1{t} msetex:k2{t}
+
+        set rd [redis_deferring_client]
+        set pattern __keyevent@*__:*
+        assert_equal {1} [psubscribe $rd $pattern]
+
+        assert_equal 1 [
+            r msetex 2 \
+                msetex:k1{t} v1 \
+                msetex:k2{t} v2 \
+                px 60000
+        ]
+
+        assert_match "pmessage $pattern __keyevent@*__:set msetex:k1{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:expire msetex:k1{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:set msetex:k2{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:expire msetex:k2{t}" [$rd read]
+
+        $rd close
+        r config set notify-keyspace-events $orig_notify
+    }
+
     test {MSETEX - KEEPTTL preserves existing TTL} {
         r setex keepttl:key{t} 100 oldval
         set old_ttl [r ttl keepttl:key{t}]
