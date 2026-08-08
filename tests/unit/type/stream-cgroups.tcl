@@ -4841,31 +4841,34 @@ start_server {tags {"stream external:skip needs:debug"}} {
     # negative lag, and the resulting RDB fails to load ("Stream cgroup
     # entries_read inconsistent with entries_added"). XGROUP CREATE/SETID
     # already clamp entries_read; XSETID must clamp it too.
-    test "XSETID ENTRIESADDED clamps group entries_read and never yields negative lag" {
-        r DEL mystream
-        for {set i 1} {$i <= 10} {incr i} { r XADD mystream * f v$i }
-        r XGROUP CREATE mystream grp 0
-        r XREADGROUP GROUP grp c COUNT 10 STREAMS mystream >
-        set top [dict get [r XINFO STREAM mystream] last-generated-id]
+    proc setup_xsetid_shrunk_stream {key} {
+        r DEL $key
+        for {set i 1} {$i <= 10} {incr i} { r XADD $key * f v$i }
+        r XGROUP CREATE $key grp 0
+        r XREADGROUP GROUP grp c COUNT 10 STREAMS $key >
+        set top [dict get [r XINFO STREAM $key] last-generated-id]
 
         # Shrink the stream so entries_added can be lowered below entries_read.
-        r XTRIM mystream MAXLEN 2
-        r XSETID mystream $top ENTRIESADDED 2
+        r XTRIM $key MAXLEN 2
+        r XSETID $key $top ENTRIESADDED 2
+    }
+
+    test "XSETID ENTRIESADDED clamps group entries_read and never yields negative lag" {
+        setup_xsetid_shrunk_stream mystream
 
         set ginfo [lindex [r XINFO GROUPS mystream] 0]
         assert_equal [dict get $ginfo entries-read] 2
-        assert {[dict get $ginfo lag] >= 0}
         assert_equal [dict get $ginfo lag] 0
     }
 
     test "XSETID inconsistency does not produce an unloadable RDB" {
-        # Reuse the state from the previous test; a reload must succeed and
-        # keep the counters consistent.
+        setup_xsetid_shrunk_stream mystream
+
         r DEBUG RELOAD
         assert_equal [r XLEN mystream] 2
         set ginfo [lindex [r XINFO GROUPS mystream] 0]
-        assert {[dict get $ginfo lag] >= 0}
         assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
     }
 
     test "XSETID raising entries_added leaves group entries_read untouched" {
