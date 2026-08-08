@@ -4027,6 +4027,7 @@ typedef struct hashTemplateRegistry {
 typedef struct hashTemplateArray {
     uint64_t tmpl_id;    /* Template id; resolve via hashTemplateGetById. */
     unsigned long long field_count;
+    size_t alloc_size;   /* Usable struct/array bytes plus value SDS alloc sizes. */
     sds values[];       /* Flexible array: values in template field order. */
 } hashTemplateArray;
 
