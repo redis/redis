@@ -1717,19 +1717,16 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     list *pending_clients;                      /* List of clients with pending writes. */
     list *processing_clients;                   /* List of clients being processed. */
     eventNotifier *pending_clients_notifier;    /* Used to wake up the loop when write should be performed. */
-    pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
     redisAtomic long long io_reads_processed;   /* Number of read events processed */
     redisAtomic long long io_writes_processed;  /* Number of write events processed */
-    /* Byte counters live here for the same reason the event counters do:
-     * they are incremented on every read/write event by the owning thread,
-     * and as shared globals every IO thread would ping-pong one cache line
-     * per network syscall. Totals are summed at read time (INFO / cron). */
     redisAtomic long long net_input_bytes;      /* Bytes read from network. */
     redisAtomic long long net_output_bytes;     /* Bytes written to network. */
     list *compression_clients;                  /* Clients that write/read compressed data */
     size_t cronloops;
+    /* Kept after the counters so all four share one cache line. */
+    pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
 } IOThread;
 
 extern IOThread IOThreads[IO_THREADS_MAX_NUM];
