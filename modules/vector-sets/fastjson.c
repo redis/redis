@@ -68,6 +68,9 @@ static int jsonSkipString(const char **p, const char *end) {
     (*p)++; /* Skip opening quote. */
     while (*p < end) {
         if (**p == '\\') {
+            /* Check there is a byte after the escape char; advancing two
+             * positions past `end` at once is undefined behavior. */
+            if (*p + 1 >= end) return 0; /* unterminated escape */
             (*p) += 2;
             continue;
         }
@@ -439,3 +442,4 @@ exprtoken *jsonExtractField(const char *json, size_t json_len,
      * Convert it into an expression token object. */
     return jsonParseValueToken(&valptr,end);
 }
+
