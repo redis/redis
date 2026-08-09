@@ -1744,7 +1744,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
         return 0;
 
     /* Before accessing p, make sure it's valid. */
-    if (OUT_OF_RANGE(p))
+    if (unlikely(OUT_OF_RANGE(p)))
         return 0;
 
     if (*p == LP_EOF) {
@@ -1758,7 +1758,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
         return 0;
 
     /* make sure the encoded entry length doesn't reach outside the edge of the listpack */
-    if (OUT_OF_RANGE(p + lenbytes))
+    if (unlikely(OUT_OF_RANGE(p + lenbytes)))
         return 0;
 
     /* get the entry length and encoded backlen. */
