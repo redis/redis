@@ -12499,7 +12499,9 @@ int RM_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
         /* Child */
         redisSetProcTitle("redis-module-fork");
     } else if (childpid == -1) {
-        serverLog(LL_WARNING,"Can't fork for module: %s", strerror(errno));
+        int fork_errno = errno;
+        serverLog(LL_WARNING,"Can't fork for module: %s", strerror(fork_errno));
+        errno = fork_errno;
     } else {
         /* Parent */
         moduleForkInfo.done_handler = cb;
