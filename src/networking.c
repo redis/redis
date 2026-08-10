@@ -191,6 +191,7 @@ client *createClient(connection *conn) {
     c->slot = -1;
     c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
+    c->lastrequest = 0;
     c->io_lastinteraction = 0;
     c->duration = 0;
     c->user = DefaultUser; /* Set a safe default value: clientSetDefaultAuth reads c->user. */
@@ -3829,6 +3830,18 @@ int processInputBuffer(client *c) {
     return C_OK;
 }
 
+/* Skip reads while throttling, except a client's first command. */
+int handleRequestThrottling(client *c) {
+    if (!server.throttle_resume_time_ms) return C_OK;
+    if (mstime() >= server.throttle_resume_time_ms) {
+        server.throttle_resume_time_ms = 0;
+        return C_OK;
+    }
+    if (c != NULL && c->lastcmd == NULL) return C_OK;
+
+    return C_ERR;
+}
+
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;
@@ -3842,6 +3855,9 @@ void readQueryFromClient(connection *conn) {
     }
 
     c->read_error = 0;
+
+    /* Pause existing clients while throttling (new client, first command still allowed). */
+    if (handleRequestThrottling(c) != C_OK) return;
 
     c->stat_total_read_events++;
 
@@ -3933,6 +3949,7 @@ void readQueryFromClient(connection *conn) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
+    c->lastrequest = server.unixtime;
     if (!(c->flags & CLIENT_MASTER) || c->running_tid == IOTHREAD_MAIN_THREAD_ID)
         c->lastinteraction = server.unixtime;
     else
@@ -5287,6 +5304,60 @@ char *getClientTypeName(int class) {
     }
 }
 
+/* If a syncing replica's output buffer is growing too fast, briefly pause
+ * accepting requests from existing clients. */
+static void handleReplicaOutputBufferThrottling(client *c, int class, size_t used_mem) {
+    static time_t last_log_msg = 0;
+
+    if (!server.replica_obuf_throttle_threshold ||
+        !server.replica_obuf_throttle_repl_rate ||
+        !server.replica_obuf_throttle_limit ||
+        class != CLIENT_TYPE_SLAVE ||
+        server.throttle_resume_time_ms ||
+        used_mem <= server.replica_obuf_throttle_threshold ||
+        c->replstate == SLAVE_STATE_ONLINE)
+    {
+        return;
+    }
+
+    size_t dataset_bytes = zmalloc_used_memory();
+    if (dataset_bytes > used_mem) dataset_bytes -= used_mem;
+    else dataset_bytes = 0;
+
+    unsigned long estimated_repl_time =
+        dataset_bytes / server.replica_obuf_throttle_repl_rate;
+    size_t obuf_bytes_per_sec =
+        server.replica_obuf_throttle_limit /
+        (estimated_repl_time ? estimated_repl_time : 1);
+    time_t elapsed_repl_time = time(NULL) - c->lastrequest;
+
+    if (!obuf_bytes_per_sec ||
+        used_mem <= (unsigned long)elapsed_repl_time * obuf_bytes_per_sec)
+    {
+        return;
+    }
+
+    size_t bytes_exceeding =
+        used_mem - ((unsigned long)elapsed_repl_time * obuf_bytes_per_sec);
+    unsigned long throttle_time_ms =
+        bytes_exceeding * 1000 / obuf_bytes_per_sec;
+
+    if (server.replica_obuf_throttle_max_delay_ms &&
+        throttle_time_ms > server.replica_obuf_throttle_max_delay_ms)
+    {
+        throttle_time_ms = server.replica_obuf_throttle_max_delay_ms;
+    }
+
+    server.throttle_resume_time_ms = mstime() + throttle_time_ms;
+    if (time(NULL) - last_log_msg > 10) {
+        sds client = catClientInfoString(sdsempty(), c);
+        serverLog(LL_WARNING,
+                  "Replica %s triggered request throttling.", client);
+        sdsfree(client);
+        last_log_msg = time(NULL);
+    }
+}
+
 /* The function checks if the client reached output buffer soft or hard
  * limit, and also update the state needed to check the soft limit as
  * a side effect.
@@ -5323,6 +5394,8 @@ int checkClientOutputBufferLimits(client *c) {
     if (server.client_obuf_limits[class].soft_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
         soft = 1;
+
+    handleReplicaOutputBufferThrottling(c, class, used_mem);
 
     /* We need to check if the soft limit is reached continuously for the
      * specified amount of seconds. */

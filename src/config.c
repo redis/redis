@@ -2924,6 +2924,73 @@ static sds getConfigClientOutputBufferLimitOption(standardConfig *config) {
     return buf;
 }
 
+static int setConfigReplicaOutputBufferThrottlingOption(standardConfig *config, sds *argv, int argc, const char **err) {
+    UNUSED(config);
+    int threshold_err, limit_err, rate_err;
+    char *eptr;
+
+    if (argc != 4) {
+        if (err) *err = "wrong number of arguments";
+        return 0;
+    }
+
+    unsigned long long threshold = memtoull(argv[0], &threshold_err);
+    unsigned long long limit = memtoull(argv[1], &limit_err);
+    unsigned long long rate = memtoull(argv[2], &rate_err);
+    /* Reject a leading '-' so negatives don't become huge unsigned values. */
+    if (argv[3][0] == '-') {
+        if (err) *err = "Error in threshold, limit, repl-rate or max-delay setting";
+        return 0;
+    }
+    errno = 0;
+    unsigned long max_delay_ms = strtoul(argv[3], &eptr, 10);
+    if (threshold_err || limit_err || rate_err || errno == ERANGE ||
+        max_delay_ms > UINT_MAX || eptr == argv[3] || *eptr != '\0')
+    {
+        if (err) *err = "Error in threshold, limit, repl-rate or max-delay setting";
+        return 0;
+    }
+
+    server.replica_obuf_throttle_threshold = threshold;
+    server.replica_obuf_throttle_limit = limit;
+    server.replica_obuf_throttle_repl_rate = rate;
+    server.replica_obuf_throttle_max_delay_ms = (unsigned int) max_delay_ms;
+
+    return 1;
+}
+
+static sds getConfigReplicaOutputBufferThrottlingOption(standardConfig *config) {
+    UNUSED(config);
+    return sdscatprintf(sdsempty(), "%llu %llu %llu %u",
+                        server.replica_obuf_throttle_threshold,
+                        server.replica_obuf_throttle_limit,
+                        server.replica_obuf_throttle_repl_rate,
+                        server.replica_obuf_throttle_max_delay_ms);
+}
+
+void rewriteConfigReplicaOutputBufferThrottlingOption(standardConfig *config, const char *name, struct rewriteConfigState *state) {
+    UNUSED(config);
+    int force = server.replica_obuf_throttle_threshold !=
+                CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_THRESHOLD ||
+                server.replica_obuf_throttle_limit !=
+                CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_LIMIT ||
+                server.replica_obuf_throttle_repl_rate !=
+                CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_REPL_RATE ||
+                server.replica_obuf_throttle_max_delay_ms !=
+                CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_MAX_DELAY_MS;
+    char threshold[64], limit[64], rate[64];
+    rewriteConfigFormatMemory(threshold, sizeof(threshold),
+                              server.replica_obuf_throttle_threshold);
+    rewriteConfigFormatMemory(limit, sizeof(limit),
+                              server.replica_obuf_throttle_limit);
+    rewriteConfigFormatMemory(rate, sizeof(rate),
+                              server.replica_obuf_throttle_repl_rate);
+    sds line = sdscatprintf(sdsempty(), "%s %s %s %s %u",
+                            name, threshold, limit, rate,
+                            server.replica_obuf_throttle_max_delay_ms);
+    rewriteConfigRewriteLine(state, name, line, force);
+}
+
 /* Parse an array of CONFIG_OOM_COUNT sds strings, validate and populate
  * server.oom_score_adj_values if valid.
  */
@@ -3414,6 +3481,7 @@ standardConfig static_configs[] = {
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
     createSpecialConfig("save", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSaveOption, getConfigSaveOption, rewriteConfigSaveOption, NULL),
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption, NULL),
+    createSpecialConfig("replica-output-buffer-throttling", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOutputBufferThrottlingOption, getConfigReplicaOutputBufferThrottlingOption, rewriteConfigReplicaOutputBufferThrottlingOption, NULL),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption, updateOOMScoreAdj),
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),

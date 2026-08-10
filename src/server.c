@@ -2488,6 +2488,13 @@ void initServerConfig(void) {
     server.repl_backlog = NULL;
     server.repl_no_slaves_since = time(NULL);
 
+    /* Replica output buffer throttling */
+    server.replica_obuf_throttle_threshold = CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_THRESHOLD;
+    server.replica_obuf_throttle_limit = CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_LIMIT;
+    server.replica_obuf_throttle_repl_rate = CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_REPL_RATE;
+    server.replica_obuf_throttle_max_delay_ms = CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_MAX_DELAY_MS;
+    server.throttle_resume_time_ms = 0;
+
     /* Failover related */
     server.failover_end_time = 0;
     server.force_failover = 0;

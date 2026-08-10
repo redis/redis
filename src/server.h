@@ -136,6 +136,10 @@ struct hdr_histogram;
 #define CONFIG_DEFAULT_PID_FILE "/var/run/redis.pid"
 #define CONFIG_DEFAULT_BINDADDR_COUNT 2
 #define CONFIG_DEFAULT_BINDADDR { "*", "-::*" }
+#define CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_THRESHOLD 0
+#define CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_LIMIT 0
+#define CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_REPL_RATE (30*1024*1024)
+#define CONFIG_DEFAULT_REPLICA_OBUF_THROTTLE_MAX_DELAY_MS 500
 #define NET_HOST_STR_LEN 256 /* Longest valid hostname */
 #define NET_IP_STR_LEN 46 /* INET6_ADDRSTRLEN is 46, but we need to be sure */
 #define NET_ADDR_STR_LEN (NET_IP_STR_LEN+32) /* Must be enough for ip:port */
@@ -1542,6 +1546,7 @@ typedef struct client {
                                            * any positive number means we found a slot and no violation yet. */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
+    time_t lastrequest;     /* Time of last client request (bytes read) */
     time_t io_lastinteraction; /* Time of the last interaction as seen from
                                 * IO thread. When the client is moved to main
                                 * it updates its `lastinteraction` value from
@@ -2273,6 +2278,12 @@ struct redisServer {
     int set_proc_title;             /* True if change proc title */
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
+    /* Replica output buffer throttling (pause accepting requests during sync) */
+    unsigned long long replica_obuf_throttle_threshold; /* Trigger when replica obuf exceeds this */
+    unsigned long long replica_obuf_throttle_limit;     /* Target max replica obuf while throttling */
+    unsigned long long replica_obuf_throttle_repl_rate; /* Assumed full-sync rate (bytes/sec) */
+    unsigned int replica_obuf_throttle_max_delay_ms;    /* Cap on pause duration */
+    long long throttle_resume_time_ms;                  /* Pause reads until this time (0 = off) */
     int pause_cron;                 /* Don't run cron tasks (debug) */
     int dict_resizing;              /* Whether to allow main dict and expired dict to be resized (debug) */
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
@@ -3253,6 +3264,7 @@ int processInputBuffer(client *c);
 void statsUpdateActiveClients(client *c);
 int getActiveClientsInWindow(void);
 void acceptCommonHandler(connection *conn, int flags, char *ip);
+int handleRequestThrottling(client *c);
 void readQueryFromClient(connection *conn);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
