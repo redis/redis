@@ -814,6 +814,20 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STREAM:2=1}
     } {} {cluster:skip needs:debug}
 
+    test "KEYSIZES - Untracked types stay out of the histogram $suffixRepl" {
+        # Only strings, the four collections and streams own a histogram row.
+        # A key of any other type (here an array) must not be counted into some
+        # other type's row, neither when created nor when modified in place.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ARSET arr 0 a b c d} {}
+        assert_equal {array} [$server TYPE arr]
+        assert_equal 4 [$server ARLEN arr]
+        run_cmd_verify_hist {$server SET s1 1234} {db0_STR:4=1}
+        run_cmd_verify_hist {$server ARSET arr 4 e f g h} {db0_STR:4=1}
+        assert_equal 8 [$server ARLEN arr]
+        run_cmd_verify_hist {$server DEL arr} {db0_STR:4=1}
+    }
+
     test "KEYSIZES - Test RDB $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         # Write list, set and zset to db0

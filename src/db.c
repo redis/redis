@@ -31,14 +31,6 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-/* keysizesHist is a pointer table indexed by object type (see server.h). It
- * must be wide enough to index OBJ_STREAM directly, streams take the backing
- * row right after the basic types, and there is exactly one backing row per
- * tracked type. */
-static_assert(MAX_KEYSIZES_TYPES == OBJ_STREAM + 1, "pointer table must be indexed by object type through OBJ_STREAM");
-static_assert(KEYSIZES_IDX_STREAM == OBJ_TYPE_BASIC_MAX, "stream row must follow the basic types");
-static_assert(MAX_KEYSIZES_HIST_SLOTS == OBJ_TYPE_BASIC_MAX + 1, "one backing row per tracked type");
-
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
@@ -92,34 +84,35 @@ void updateLRM(robj *o) {
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
-    if (unlikely(!keysizesHistTracked(kvstoreHist, type)))
+    int64_t *hist = keysizesHistRow(kvstoreHist, type);
+    if (unlikely(hist == NULL)) /* untracked type, e.g. OBJ_MODULE */
         return;
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
         debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[type][old_bin]--;
-        debugServerAssert(kvstoreHist[type][old_bin] >= 0);
+        hist[old_bin]--;
+        debugServerAssert(hist[old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
             /* Only strings and streams can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[type][0]--;
-            debugServerAssert(kvstoreHist[type][0] >= 0);
+            hist[0]--;
+            debugServerAssert(hist[0] >= 0);
         }
     }
 
     if (newLen > 0) {
         int new_bin = log2ceil(newLen) + 1;
         debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[type][new_bin]++;
+        hist[new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
             /* Only strings and streams can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[type][0]++;
+            hist[0]++;
         }
     }
 }
@@ -154,37 +147,40 @@ void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int6
 
 static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
                           size_t (*fn)(kvobj *), const char *name) {
-    /* Scan DB and build expected histogram by scanning all keys. scanHist is
-     * indexed by object type to match hist[]; untracked types stay 0. */
-    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
+    /* Scan DB and build expected histogram by scanning all keys. Rows are
+     * addressed like hist[]'s, via keysizesHistRow(); untracked types stay 0. */
+    keysizesHist scanHist = {{0}};
     dictEntry *de;
     kvstoreIterator kvs_it;
     kvstoreIteratorInit(&kvs_it, kvs);
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
-        if (keysizesHistTracked(hist, kv->type)) {
+        int64_t *scanRow = keysizesHistRow(scanHist, kv->type);
+        if (scanRow) {
             int64_t len = fn(kv);
-            scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
+            scanRow[(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
-    for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
-        if (!keysizesHistTracked(hist, type)) continue; /* untracked type: no backing row */
-        volatile int64_t *keysizesHist = hist[type];
+    /* Iterate object types rather than rows, to report the mismatching type. */
+    for (int type = 0; type < OBJ_TYPE_MAX; type++) {
+        int64_t *scanRow = keysizesHistRow(scanHist, type);
+        if (!scanRow) continue; /* untracked type: no histogram row */
+        volatile int64_t *histRow = keysizesHistRow(hist, type);
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-            if (scanHist[type][i] == keysizesHist[i])
+            if (scanRow[i] == histRow[i])
                 continue;
 
             /* print scanStr vs. expected histograms for debugging */
             char scanStr[500] = {0}, keysizesStr[500] = {0};
             int l1 = 0, l2 = 0;
             for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
-                if (scanHist[type][j])
+                if (scanRow[j])
                     l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1,
-                                        "[%d]=%"PRId64" ", j, scanHist[type][j]);
-                if (keysizesHist[j])
+                                        "[%d]=%"PRId64" ", j, scanRow[j]);
+                if (histRow[j])
                     l2 += snprintf(keysizesStr + l2, sizeof(keysizesStr) - l2,
-                                            "[%d]=%"PRId64" ", j, keysizesHist[j]);
+                                            "[%d]=%"PRId64" ", j, histRow[j]);
             }
             serverPanic("%s: type=%d\nscanStr=%s\nkeysizes=%s\n",
                         name, type, scanStr, keysizesStr);
@@ -1299,15 +1295,12 @@ void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
         kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
         /* Apply histogram delta only if target_kvstore hasn't changed */
         if (ctx->target_kvstore == server.db[0].keys && meta) {
-            /* Subtract the delta from the live histogram through the pointer
-             * tables. The keysizes and allocsizes tables share the same NULL
-             * pattern (untracked types, e.g. OBJ_MODULE), so a single guard
-             * covers both. */
-            for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
-                if (!keysizesHistTracked(meta->keysizes_hist, type)) continue;
+            /* Subtract the delta from the live histogram. Both histograms have
+             * the same shape, so plain row-by-row subtraction is enough. */
+            for (int row = 0; row < MAX_KEYSIZES_TYPES; row++) {
                 for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                    meta->keysizes_hist[type][bin]  -= ctx->delta_keysizes_hist[type][bin];
-                    meta->allocsizes_hist[type][bin] -= ctx->delta_allocsizes_hist[type][bin];
+                    meta->keysizes_hist[row][bin]   -= ctx->delta_keysizes_hist[row][bin];
+                    meta->allocsizes_hist[row][bin] -= ctx->delta_allocsizes_hist[row][bin];
                 }
             }
         }

@@ -3169,9 +3169,7 @@ asmTrimCtx *asmTrimCtxCreate(slotRangeArray *slots, kvstore *target_kvstore) {
     ctx->refcount = 1;
     ctx->slots = slots;
     ctx->target_kvstore = target_kvstore;
-    /* zcalloc only zeroes; wire the delta histograms' pointer tables to rows */
-    keysizesHistInit(ctx->delta_keysizes_hist, ctx->delta_keysizes_rows);
-    keysizesHistInit(ctx->delta_allocsizes_hist, ctx->delta_allocsizes_rows);
+    /* delta histograms are zero-initialized by zcalloc */
     return ctx;
 }
 
