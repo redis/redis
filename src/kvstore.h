@@ -132,7 +132,9 @@ dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx);
 unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, unsigned int count);
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size);
 unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
-typedef dict *(kvstoreDictLUTDefragFunction)(dict *d);
+/* defrag_dict is false when the dict header is embedded in its kvstore and
+ * cannot be moved independently. The callback may still move its tables. */
+typedef dict *(kvstoreDictLUTDefragFunction)(dict *d, int defrag_dict);
 unsigned long kvstoreDictLUTDefrag(kvstore *kvs, unsigned long cursor, kvstoreDictLUTDefragFunction *defragfn);
 void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key);
