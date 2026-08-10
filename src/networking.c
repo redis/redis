@@ -3830,16 +3830,30 @@ int processInputBuffer(client *c) {
     return C_OK;
 }
 
-/* Skip reads while throttling, except a client's first command. */
-int handleRequestThrottling(client *c) {
+/* Return C_ERR when a parsed command should be postponed by replica output
+ * buffer throttling. Replication traffic and handshake commands must flow. */
+int handleRequestThrottling(client *c, int first_command) {
     if (!server.throttle_resume_time_ms) return C_OK;
-    if (mstime() >= server.throttle_resume_time_ms) {
-        server.throttle_resume_time_ms = 0;
+    if (first_command ||
+        (c->flags & (CLIENT_SLAVE | CLIENT_MASTER)) ||
+        c->cmd->proc == pingCommand ||
+        c->cmd->proc == authCommand ||
+        c->cmd->proc == replconfCommand ||
+        c->cmd->proc == syncCommand)
+    {
         return C_OK;
     }
-    if (c != NULL && c->lastcmd == NULL) return C_OK;
 
     return C_ERR;
+}
+
+void updateRequestThrottling(void) {
+    if (server.throttle_resume_time_ms &&
+        server.mstime >= server.throttle_resume_time_ms)
+    {
+        server.throttle_resume_time_ms = 0;
+        unblockPostponedClients();
+    }
 }
 
 void readQueryFromClient(connection *conn) {
@@ -3855,9 +3869,6 @@ void readQueryFromClient(connection *conn) {
     }
 
     c->read_error = 0;
-
-    /* Pause existing clients while throttling (new client, first command still allowed). */
-    if (handleRequestThrottling(c) != C_OK) return;
 
     c->stat_total_read_events++;
 

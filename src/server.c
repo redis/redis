@@ -1759,6 +1759,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Clear the paused actions state if needed. */
     updatePausedActions();
+    updateRequestThrottling();
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. 
@@ -4434,6 +4435,7 @@ int processCommand(client *c) {
     /* in case we are starting to ProcessCommand and we already have a command we assume
      * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
+    int first_command = c->lastcmd == NULL;
 
     /* only run command filter if not reprocessing command */
     if (!client_reprocessing_command) {
@@ -4771,6 +4773,11 @@ int processCommand(client *c) {
      * from which replicas are exempt. */
     if ((c->flags & CLIENT_SLAVE) && (is_may_replicate_command || is_write_command || is_read_command)) {
         rejectCommandFormat(c, "Replica can't interact with the keyspace");
+        return C_OK;
+    }
+
+    if (handleRequestThrottling(c, first_command) != C_OK) {
+        blockPostponeClient(c);
         return C_OK;
     }
 
