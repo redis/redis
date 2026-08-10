@@ -137,9 +137,8 @@ start_server {tags {"tls"}} {
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
             set out [tls_s_client [srv 0 host] [srv 0 port] secp384r1]
-            assert_no_match {*TLSv1.2*} $out
-            assert_no_match {*prime256v1*} $out
-            assert_no_match {*P-256*} $out
+            assert_match {*handshake failure*} $out
+            assert_match {*no peer certificate available*} $out
 
             r CONFIG SET tls-curve-preferences ""
             r CONFIG SET tls-protocols ""
