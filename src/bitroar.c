@@ -993,8 +993,7 @@ int bitroarSetBit(robj *o, uint64_t bitoffset, int on) {
     return C_OK;
 }
 
-uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset,
-                                    uint64_t bits) {
+uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bits) {
     bitroar *bitmap = bitroarGet(o);
     uint64_t bit_len = bitmap->byte_len * 8;
     uint64_t last_bit;
