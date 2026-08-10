@@ -86,6 +86,80 @@ test "Active defrag handles equal fragmentation thresholds" {
     }
 } {} {defrag external:skip tsan:skip standalone}
 
+if {$::debug_defrag} {
+    start_server {tags {"defrag bitmap bitmap-roaring needs:debug external:skip cluster:skip"} overrides {save ""}} {
+        test {forced active defrag relocates Roaring BITSET storage with known and unknown allocation sizes} {
+            r flushdb
+            set old_bitmap_default_roaring [config_get_set bitmap-default-roaring no]
+            set old_activedefrag [config_get_set activedefrag no]
+            wait_for_condition 500 10 {
+                [s active_defrag_running] eq 0
+            } else {
+                fail "bitmap defrag did not stop"
+            }
+            r config resetstat
+
+            # Alternating bits exceed ARRAY capacity and cannot be compressed
+            # usefully as runs, forcing a BITSET container with an independently
+            # aligned words allocation.
+            set dense [string repeat [binary format H* aa] 8192]
+            r set bitmap:defrag:dense $dense
+            convert_string_bitmap_to_roaring r bitmap:defrag:dense
+            r set bitmap:defrag:lazy $dense
+            convert_string_bitmap_to_roaring r bitmap:defrag:lazy
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_morethan [r memory usage bitmap:defrag:dense] 8192
+            # Leave this object's allocation cache unmaterialized until after
+            # defrag to cover relocation of an unknown cached size.
+            assert_equal bitmap [r type bitmap:defrag:lazy]
+            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
+
+            set old_hz [config_get_set hz 100]
+            set old_threshold [config_get_set active-defrag-threshold-lower 1]
+            set old_cycle_min [config_get_set active-defrag-cycle-min 65]
+            set old_cycle_max [config_get_set active-defrag-cycle-max 75]
+            set old_ignore_bytes [config_get_set active-defrag-ignore-bytes 1]
+            r config set activedefrag yes
+
+            # DEBUG_DEFRAG=force moves every eligible allocation, so two key
+            # hits prove both BITSET-backed fixtures and their cache states
+            # were exercised without depending on jemalloc fragmentation.
+            wait_for_condition 500 10 {
+                [s active_defrag_key_hits] >= 2
+            } else {
+                puts [r info memory]
+                puts [r info stats]
+                fail "forced defrag did not relocate both dense bitmaps"
+            }
+
+            r config set activedefrag no
+            wait_for_condition 500 10 {
+                [s active_defrag_running] eq 0
+            } else {
+                fail "bitmap defrag did not stop"
+            }
+            r config set hz $old_hz
+            r config set active-defrag-threshold-lower $old_threshold
+            # Lower min first so restoring an old max below the test's min
+            # cannot transiently violate the min <= max constraint.
+            r config set active-defrag-cycle-min 1
+            r config set active-defrag-cycle-max $old_cycle_max
+            r config set active-defrag-cycle-min $old_cycle_min
+            r config set active-defrag-ignore-bytes $old_ignore_bytes
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_equal $dense [r debug bitmap-raw bitmap:defrag:dense]
+            assert_morethan [r memory usage bitmap:defrag:lazy] 8192
+            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
+            assert_equal $dense [r debug bitmap-raw bitmap:defrag:lazy]
+            assert_equal 2 [r del bitmap:defrag:dense bitmap:defrag:lazy]
+            r config set bitmap-default-roaring $old_bitmap_default_roaring
+            assert_equal OK [r config set activedefrag $old_activedefrag]
+        } {} {needs:config-resetstat}
+    }
+}
+
 run_solo {defrag} {
     source tests/support/bitmap.tcl
 

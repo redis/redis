@@ -1,3 +1,5 @@
+source tests/support/bitmap.tcl
+
 set testmodule [file normalize tests/modules/misc.so]
 
 start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
@@ -60,6 +62,21 @@ start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
         r del x
         assert_equal 0 [r test.keyexists x]
     }
+
+    test {module key API exposes bitmap without string access} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:module-boundary $raw
+        r set bitmap:module-string $raw
+        convert_string_bitmap_to_roaring r bitmap:module-boundary
+        assert_equal {bitmap 7 0 0} [r test.key_string_api bitmap:module-boundary]
+        assert_equal {string 7 1 1} [r test.key_string_api bitmap:module-string]
+        assert_equal bitmap [r type bitmap:module-boundary]
+        assert_equal $raw [r debug bitmap-raw bitmap:module-boundary]
+        assert_equal string [r type bitmap:module-string]
+        assert_equal $raw [r get bitmap:module-string]
+        assert_equal 2 [r del bitmap:module-boundary bitmap:module-string]
+    } {} {bitmap bitmap-roaring needs:debug cluster:skip}
 
     test {test module lru api} {
         r config set maxmemory-policy allkeys-lru
