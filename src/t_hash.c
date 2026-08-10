@@ -1246,14 +1246,19 @@ static int tmplNewFieldCmp(const void *a, const void *b) {
     return cmp ? cmp : x->arg_idx - y->arg_idx;
 }
 
-/* Add new fields to a template hash with a single template switch.
- * `new_fields` must be sorted by field name and have no duplicates. The
- * caller must have converted the encoding to its final form. Values are copied. */
-static void hashTypeTmplAddFields(robj *o, hashTemplate *tmpl,
-                                  tmplNewField *new_fields, 
-                                  int num_new_fields)
+/* Add new fields to a template hash with a single template switch. `new_fields`
+ * must be sorted by field name and have no duplicates. Values are copied. */
+static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
+                                  tmplNewField *new_fields, int num_new_fields)
 {
     unsigned long long old_count = tmpl->field_count;
+
+    /* Check if the listpack needs to be converted to array */
+    if (o->encoding == OBJ_ENCODING_TMPL_LP &&
+        old_count + num_new_fields > server.hash_max_listpack_entries)
+    {
+        hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
+    }
 
     /* Build the new template's field array: old and new names merged in sorted order. */
     unsigned long long new_count = old_count + num_new_fields;
@@ -1362,28 +1367,24 @@ static int hashTypeTmplSetFields(redisDb *db, robj *o, robj **argv, int n) {
 
     if (num_new_fields > 0) {
         /* Sort and drop duplicates, keeping the last occurrence of a field
-         * given more than once, so its last value wins. */
-        qsort(new_fields, num_new_fields, sizeof(*new_fields), tmplNewFieldCmp);
-        int uniq = 0;
-        for (int i = 0; i < num_new_fields; i++) {
-            /* Skip the entry if the next one is the same field. */
-            if (i + 1 < num_new_fields &&
-                sdscmplen(new_fields[i].field, new_fields[i + 1].field) == 0)
-            {
-                continue;
+         * given more than once, so its last value wins. A single field needs
+         * neither. */
+        if (num_new_fields > 1) {
+            qsort(new_fields, num_new_fields, sizeof(*new_fields), tmplNewFieldCmp);
+            int uniq = 0;
+            for (int i = 0; i < num_new_fields; i++) {
+                /* Skip the entry if the next one is the same field. */
+                if (i + 1 < num_new_fields &&
+                    sdscmplen(new_fields[i].field, new_fields[i + 1].field) == 0)
+                {
+                    continue;
+                }
+                new_fields[uniq++] = new_fields[i];
             }
-            new_fields[uniq++] = new_fields[i];
+            num_new_fields = uniq;
         }
-        num_new_fields = uniq;
 
-        /* Check if the listpack needs to be converted to array */
-        if (o->encoding == OBJ_ENCODING_TMPL_LP &&
-            tmpl->field_count + num_new_fields > server.hash_max_listpack_entries) 
-        {
-            hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
-        }
- 
-        hashTypeTmplAddFields(o, tmpl, new_fields, num_new_fields);
+        hashTypeTmplAddFields(db, o, tmpl, new_fields, num_new_fields);
     }
 
     if (new_fields != stack_new_fields) zfree(new_fields);
@@ -1410,14 +1411,25 @@ static void addTmplValueToReply(client *c, robj *o, long long idx) {
     }
 }
 
-/* Delete fields from a template hash with a single template switch. `del_indexes` 
- * holds the template indexes of the fields to delete in ascending order. */
+/* qsort comparator for template field indexes. */
+static int tmplIdxCmp(const void *a, const void *b) {
+    long long x = *(const long long *)a;
+    long long y = *(const long long *)b;
+    return (x > y) - (x < y);
+}
+
+/* Delete fields from a template hash with a single template switch. `del_indexes`
+ * holds the template indexes of the fields to delete, in any order. */
 static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
                                    long long *del_indexes,
                                    unsigned long long num_del_fields)
 {
     unsigned long long old_count = tmpl->field_count;
     serverAssert(num_del_fields > 0 && num_del_fields <= old_count);
+
+    /* The walks below expect ascending indexes. */
+    if (num_del_fields > 1)
+        qsort(del_indexes, num_del_fields, sizeof(*del_indexes), tmplIdxCmp);
 
     if (num_del_fields == old_count) {
         /* Losing the last field turns the hash into a plain empty listpack. */
@@ -1460,14 +1472,13 @@ static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
         unsigned char *stack_ps[HASH_TMPL_STACK_ENTRIES];
         unsigned char **ps = (num_del_fields <= HASH_TMPL_STACK_ENTRIES) ? stack_ps :
                              zmalloc(sizeof(unsigned char *) * num_del_fields);
-        unsigned char *p = hashTemplateLpFirstValue(lp);
-        unsigned long long collected = 0;
-        /* Walk the values in order, stop once every dropped entry is collected. */
-        for (unsigned long long i = 0; collected < num_del_fields; i++) {
-            serverAssert(p != NULL); /* value entry always present per field */
-            if (del_indexes[collected] == (long long)i)
-                ps[collected++] = p;
-            p = lpNext(lp, p);
+        /* Seek the first dropped entry; each next one is `distance` entries
+         * after the previous, so step forward instead of a fresh seek. */
+        ps[0] = hashTemplateLpSeekValue(lp, del_indexes[0]);
+        for (unsigned long long i = 1; i < num_del_fields; i++) {
+            unsigned long long distance = del_indexes[i] - del_indexes[i - 1];
+            ps[i] = lpNextN(lp, ps[i - 1], distance);
+            serverAssert(ps[i] != NULL);
         }
         o->ptr = lpBatchDelete(lp, ps, num_del_fields);
         if (ps != stack_ps) zfree(ps);
@@ -1488,13 +1499,6 @@ static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
         o->ptr = hashTemplateArrayResize(hta, new_count);
     }
     hashTypeTmplSwitch(o, tmpl, new_tmpl);
-}
-
-/* qsort comparator for template field indexes. */
-static int tmplIdxCmp(const void *a, const void *b) {
-    long long x = *(const long long *)a;
-    long long y = *(const long long *)b;
-    return (x > y) - (x < y);
 }
 
 /* Delete the `n` fields in argv[] from a template hash in a single template
@@ -1537,10 +1541,8 @@ static void hashTypeTmplDeleteFields(robj *o, robj **argv, int n, vec *vdeleted,
     }
     
     /* Delete the fields */
-    if (num_del_fields > 0) {
-        qsort(del_indexes, num_del_fields, sizeof(*del_indexes), tmplIdxCmp);
+    if (num_del_fields > 0)
         hashTypeTmplDropFields(o, tmpl, del_indexes, num_del_fields);
-    }
 
     if (delmark && delmark != stack_delmark) zfree(delmark);
     if (del_indexes != stack_del_indexes) zfree(del_indexes);
@@ -2366,12 +2368,6 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
         long long field_idx = hashTemplateFieldIndex(tmpl, field);
         int is_new = field_idx < 0;
 
-        /* Convert TMPL_LP -> TMPL_ARRAY up front if adding a field would cross
-         * the listpack entry limit. The template (and field_idx) is unchanged. */
-        if (o->encoding == OBJ_ENCODING_TMPL_LP && is_new &&
-            tmpl->field_count + 1 > server.hash_max_listpack_entries)
-            hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
-
         if (!is_new) {
             /* Field exists - update value in place. */
             if (hashTypeTmplWriteValueAt(o, field_idx, value, flags & HASH_SET_TAKE_VALUE))
@@ -2386,7 +2382,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             .value = value,
             .insert_pos = -field_idx - 1 
         };
-        hashTypeTmplAddFields(o, tmpl, &new_field, 1);
+        hashTypeTmplAddFields(db, o, tmpl, &new_field, 1);
     } else {
         serverPanic("Unknown hash encoding");
     }
