@@ -940,48 +940,6 @@ long long hashTemplateFieldIndex(hashTemplate *tmpl, sds field) {
     return -(lo + 1);
 }
 
-/* Return the template with `field` inserted at `insert_pos` (key-ref taken). */
-static hashTemplate *hashTemplateForInsertedField(hashTemplate *tmpl, sds field,
-                                                  long long insert_pos) {
-    serverAssert(insert_pos >= 0 && (unsigned long long)insert_pos <= tmpl->field_count);
-    unsigned long long new_count = tmpl->field_count + 1;
-    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
-    sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
-                      stack_fields : zmalloc(sizeof(sds) * new_count);
-    memcpy(new_fields, tmpl->fields, sizeof(sds) * insert_pos);
-    new_fields[insert_pos] = field;
-    memcpy(&new_fields[insert_pos + 1], &tmpl->fields[insert_pos],
-           sizeof(sds) * (tmpl->field_count - insert_pos));
-
-    /* Incremental hash: add the new field's hash. */
-    uint64_t new_hash = tmpl->hash + computeFieldHash(field);
-    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(new_hash, new_fields, new_count);
-    hashTemplateIncrKeyRef(new_tmpl);
-    if (new_fields != stack_fields) zfree(new_fields);
-    return new_tmpl;
-}
-
-/* Return the template with the field at `idx` deleted (key-ref taken).
- * Precondition: at least one field remains. */
-static hashTemplate *hashTemplateForDeletedField(hashTemplate *tmpl, long long idx) {
-    serverAssert(tmpl->field_count >= 2); /* at least one field remains after delete */
-    serverAssert(idx >= 0 && (unsigned long long)idx < tmpl->field_count);
-    unsigned long long new_count = tmpl->field_count - 1;
-    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
-    sds *new_fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ?
-                      stack_fields : zmalloc(sizeof(sds) * new_count);
-    unsigned long long j = 0;
-    for (unsigned long long i = 0; i < tmpl->field_count; i++)
-        if ((long long)i != idx) new_fields[j++] = tmpl->fields[i];
-
-    /* Incremental hash: subtract the removed field's hash. */
-    uint64_t new_hash = tmpl->hash - computeFieldHash(tmpl->fields[idx]);
-    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(new_hash, new_fields, new_count);
-    hashTemplateIncrKeyRef(new_tmpl);
-    if (new_fields != stack_fields) zfree(new_fields);
-    return new_tmpl;
-}
-
 /* Return 1 if fields are strictly ascending (sorted, no duplicates), else 0. */
 int hashTemplateValidateFields(sds *fields, unsigned long long field_count) {
     for (unsigned long long i = 1; i < field_count; i++)
@@ -1235,6 +1193,357 @@ robj *createHashObjectFromTemplate(hashTemplate *tmpl, sds *values, int take) {
         o->encoding = OBJ_ENCODING_TMPL_ARRAY;
     }
     return o;
+}
+
+/* Move a template hash to `new_tmpl` whose field set must already match the
+ * values held by the key. */
+static void hashTypeTmplSwitch(robj *o, hashTemplate *old_tmpl, hashTemplate *new_tmpl) {
+    hashTemplateIncrKeyRef(new_tmpl);
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        o->ptr = hashTemplateLpSetTemplate(o->ptr, new_tmpl);
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        hta->tmpl_id = new_tmpl->id;
+        hta->field_count = new_tmpl->field_count;
+    }
+    hashTemplateDecrKeyRef(old_tmpl);
+}
+
+/* Overwrite the value of the field at template index `idx`. Returns 1 if
+ * `value` was adopted. */
+static int hashTypeTmplWriteValueAt(robj *o, long long idx, sds value, int take) {
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned char *lp = o->ptr;
+        unsigned char *p = hashTemplateLpSeekValue(lp, idx);
+        o->ptr = lpReplace(lp, &p, (unsigned char *)value, sdslen(value));
+        serverAssert(o->ptr != NULL);
+        return 0;
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        serverAssert((unsigned long long)idx < hta->field_count);
+        hta->alloc_size -= sdsAllocSize(hta->values[idx]);
+        sdsfree(hta->values[idx]);
+        hta->values[idx] = take ? value : sdsdup(value);
+        hta->alloc_size += sdsAllocSize(hta->values[idx]);
+        return take;
+    }
+}
+
+/* A field an HSET-style command adds to a template hash. */
+typedef struct {
+    sds field;
+    sds value;
+    long long insert_pos; /* insert position in the old template's index space */
+    int arg_idx;          /* argv order, so the last of duplicate fields wins */
+} tmplNewField;
+
+/* qsort comparator: field name ascending, then argv position. */
+static int tmplNewFieldCmp(const void *a, const void *b) {
+    const tmplNewField *x = a, *y = b;
+    int cmp = sdscmplen(x->field, y->field);
+    return cmp ? cmp : x->arg_idx - y->arg_idx;
+}
+
+/* Add new fields to a template hash with a single template switch.
+ * `new_fields` must be sorted by field name and have no duplicates. The
+ * caller must have converted the encoding to its final form. Values are copied. */
+static void hashTypeTmplAddFields(robj *o, hashTemplate *tmpl,
+                                  tmplNewField *new_fields, 
+                                  int num_new_fields)
+{
+    unsigned long long old_count = tmpl->field_count;
+
+    /* Build the new template's field array: old and new names merged in sorted order. */
+    unsigned long long new_count = old_count + num_new_fields;
+    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
+    sds *fields_arr = (new_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
+                                                              zmalloc(sizeof(sds) * new_count);
+    uint64_t hash = tmpl->hash;
+    unsigned long long old_pos = 0, new_pos = 0;
+
+    for (int i = 0; i < num_new_fields; i++) {
+        serverAssert((unsigned long long)new_fields[i].insert_pos >= old_pos &&
+                     (unsigned long long)new_fields[i].insert_pos <= old_count);
+        /* Copy the old fields that come before this new field, then add the
+         * new field itself. */
+        unsigned long long ncopy = new_fields[i].insert_pos - old_pos;
+        memcpy(&fields_arr[new_pos], &tmpl->fields[old_pos], sizeof(sds) * ncopy);
+        new_pos += ncopy;
+        old_pos += ncopy;
+        fields_arr[new_pos++] = new_fields[i].field;
+        hash += computeFieldHash(new_fields[i].field); /* incremental set hash */
+    }
+    /* Copy the old fields after the last new one. */
+    memcpy(&fields_arr[new_pos], &tmpl->fields[old_pos], sizeof(sds) * (old_count - old_pos));
+    new_pos += old_count - old_pos;
+    serverAssert(new_pos == new_count);
+
+    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, fields_arr, new_count);
+    if (fields_arr != stack_fields) zfree(fields_arr);
+    
+    /* Update the values */
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned char *lp = o->ptr;
+
+        /* Fields going past the old values: append them in ascending order. */
+        int tail = num_new_fields;
+        while (tail > 0 && (unsigned long long)new_fields[tail - 1].insert_pos == old_count)
+            tail--;
+        for (int i = tail; i < num_new_fields; i++) {
+            sds v = new_fields[i].value;
+            lp = lpAppend(lp, (unsigned char *)v, sdslen(v));
+            serverAssert(lp != NULL);
+        }
+
+        /* The rest go in front of an old value. insert_pos values refer to
+         * the old layout, walking backwards so they stay correct as is. */
+        for (int i = tail - 1; i >= 0; i--) {
+            sds v = new_fields[i].value;
+            unsigned char *p = hashTemplateLpSeekValue(lp, new_fields[i].insert_pos);
+            lp = lpInsertString(lp, (unsigned char *)v, sdslen(v), p, LP_BEFORE, NULL);
+            serverAssert(lp != NULL);
+        }
+        o->ptr = lp;
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        /* The resize will put the empty slots at the end of the array, so fill 
+         * it from the end: shift each block of old values right to its final
+         * place and drop the new value into the gap that opens.  */
+        hashTemplateArray *hta = hashTemplateArrayResize(o->ptr, new_count);
+
+        old_pos = old_count;
+        new_pos = new_count;
+        for (int i = num_new_fields - 1; i >= 0; i--) {
+            unsigned long long insert_pos = new_fields[i].insert_pos;
+            unsigned long long move_count = old_pos - insert_pos; /* old values after this new field */
+            new_pos -= move_count;
+            if (move_count)
+                memmove(&hta->values[new_pos], &hta->values[insert_pos], sizeof(sds) * move_count);
+            old_pos = insert_pos;
+            hta->values[--new_pos] = sdsdup(new_fields[i].value);
+            hta->alloc_size += sdsAllocSize(hta->values[new_pos]);
+        }
+        serverAssert(new_pos == old_pos);
+        o->ptr = hta;
+    }
+    hashTypeTmplSwitch(o, tmpl, new_tmpl);
+}
+
+/* Set the `n` field-value pairs at argv[i * 2] and argv[i * 2 + 1] on a template
+ * hash: an existing field's value is overwritten in place and the fields the
+ * template lacks are all added in a single template switch.
+ * Returns the number of fields added. */
+static int hashTypeTmplSetFields(redisDb *db, robj *o, robj **argv, int n) {
+    hashTemplate *tmpl = hashTypeGetTemplate(o);
+    tmplNewField stack_new_fields[HASH_TMPL_STACK_ENTRIES];
+    tmplNewField *new_fields = (n <= HASH_TMPL_STACK_ENTRIES) ? stack_new_fields :
+                               zmalloc(sizeof(tmplNewField) * n);
+    int num_new_fields = 0;
+
+    /* One pass: overwrite the fields that exist, collect the ones that do not.
+     * Binary searching here is the only field lookup the command does. */
+    for (int i = 0; i < n; i++) {
+        sds field = argv[i * 2]->ptr;
+        sds value = argv[i * 2 + 1]->ptr;
+
+        long long idx = hashTemplateFieldIndex(tmpl, field);
+        if (idx >= 0) {
+            hashTypeTmplWriteValueAt(o, idx, value, 0);
+            continue;
+        }
+        new_fields[num_new_fields].field = field;
+        new_fields[num_new_fields].value = value;
+        new_fields[num_new_fields].insert_pos = -idx - 1; /* ascends with the field name */
+        new_fields[num_new_fields].arg_idx = i;
+        num_new_fields++;
+    }
+
+    if (num_new_fields > 0) {
+        /* Sort and drop duplicates, keeping the last occurrence of a field
+         * given more than once, so its last value wins. */
+        qsort(new_fields, num_new_fields, sizeof(*new_fields), tmplNewFieldCmp);
+        int uniq = 0;
+        for (int i = 0; i < num_new_fields; i++) {
+            /* Skip the entry if the next one is the same field. */
+            if (i + 1 < num_new_fields &&
+                sdscmplen(new_fields[i].field, new_fields[i + 1].field) == 0)
+            {
+                continue;
+            }
+            new_fields[uniq++] = new_fields[i];
+        }
+        num_new_fields = uniq;
+
+        /* Check if the listpack needs to be converted to array */
+        if (o->encoding == OBJ_ENCODING_TMPL_LP &&
+            tmpl->field_count + num_new_fields > server.hash_max_listpack_entries) 
+        {
+            hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
+        }
+ 
+        hashTypeTmplAddFields(o, tmpl, new_fields, num_new_fields);
+    }
+
+    if (new_fields != stack_new_fields) zfree(new_fields);
+    return num_new_fields;
+}
+
+/* Reply with the value of the field at template index `idx`. */
+static void addTmplValueToReply(client *c, robj *o, long long idx) {
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned int vlen;
+        long long vll;
+        unsigned char *p = hashTemplateLpSeekValue(o->ptr, idx);
+        unsigned char *vstr = lpGetValue(p, &vlen, &vll);
+        if (vstr)
+            addReplyBulkCBuffer(c, vstr, vlen);
+        else
+            addReplyBulkLongLong(c, vll);
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        serverAssert((unsigned long long)idx < hta->field_count);
+        sds value = hta->values[idx];
+        addReplyBulkCBuffer(c, value, sdslen(value));
+    }
+}
+
+/* Delete fields from a template hash with a single template switch. `del_indexes` 
+ * holds the template indexes of the fields to delete in ascending order. */
+static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
+                                   long long *del_indexes,
+                                   unsigned long long num_del_fields)
+{
+    unsigned long long old_count = tmpl->field_count;
+    serverAssert(num_del_fields > 0 && num_del_fields <= old_count);
+
+    if (num_del_fields == old_count) {
+        /* Losing the last field turns the hash into a plain empty listpack. */
+        if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+            hashTemplateLpFree(o->ptr);
+        } else {
+            serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+            hashTemplateArrayFree(o->ptr);
+        }
+        o->ptr = lpNew(0);
+        o->encoding = OBJ_ENCODING_LISTPACK;
+        return;
+    }
+
+    /* The surviving fields, in order, are the new field set. */
+    unsigned long long new_count = old_count - num_del_fields;
+    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
+    sds *fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
+                                                           zmalloc(sizeof(sds) * new_count);
+    uint64_t hash = tmpl->hash;
+    unsigned long long kept = 0, dropped = 0;
+
+    for (unsigned long long i = 0; i < old_count; i++) {
+        if (dropped < num_del_fields && del_indexes[dropped] == (long long)i) {
+            hash -= computeFieldHash(tmpl->fields[i]); /* incremental set hash */
+            dropped++;
+        } else {
+            fields[kept++] = tmpl->fields[i];
+        }
+    }
+    serverAssert(kept == new_count && dropped == num_del_fields);
+
+    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, fields, new_count);
+    if (fields != stack_fields) zfree(fields);
+
+    /* Update the values */
+    if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        /* Collect the dropped entries in one walk, then delete them in one pass. */
+        unsigned char *lp = o->ptr;
+        unsigned char *stack_ps[HASH_TMPL_STACK_ENTRIES];
+        unsigned char **ps = (num_del_fields <= HASH_TMPL_STACK_ENTRIES) ? stack_ps :
+                             zmalloc(sizeof(unsigned char *) * num_del_fields);
+        unsigned char *p = hashTemplateLpFirstValue(lp);
+        unsigned long long collected = 0;
+        /* Walk the values in order, stop once every dropped entry is collected. */
+        for (unsigned long long i = 0; collected < num_del_fields; i++) {
+            serverAssert(p != NULL); /* value entry always present per field */
+            if (del_indexes[collected] == (long long)i)
+                ps[collected++] = p;
+            p = lpNext(lp, p);
+        }
+        o->ptr = lpBatchDelete(lp, ps, num_del_fields);
+        if (ps != stack_ps) zfree(ps);
+    } else {
+        serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+        hashTemplateArray *hta = o->ptr;
+        /* Same walk as the field loop above, this time over the values. */
+        kept = dropped = 0;
+        for (unsigned long long i = 0; i < old_count; i++) {
+            if (dropped < num_del_fields && del_indexes[dropped] == (long long)i) {
+                hta->alloc_size -= sdsAllocSize(hta->values[i]);
+                sdsfree(hta->values[i]);
+                dropped++;
+            } else {
+                hta->values[kept++] = hta->values[i];
+            }
+        }
+        o->ptr = hashTemplateArrayResize(hta, new_count);
+    }
+    hashTypeTmplSwitch(o, tmpl, new_tmpl);
+}
+
+/* qsort comparator for template field indexes. */
+static int tmplIdxCmp(const void *a, const void *b) {
+    long long x = *(const long long *)a;
+    long long y = *(const long long *)b;
+    return (x > y) - (x < y);
+}
+
+/* Delete the `n` fields in argv[] from a template hash in a single template
+ * switch, pushing the fields actually deleted into `vdeleted` in argv order.
+ * With `c`, each value is replied first (HGETDEL), null for a miss or repeat. */
+static void hashTypeTmplDeleteFields(robj *o, robj **argv, int n, vec *vdeleted, client *c) {
+    hashTemplate *tmpl = hashTypeGetTemplate(o);
+    unsigned long long old_count = tmpl->field_count;
+    unsigned long long num_del_fields = 0;
+    /* Fields are collected first and dropped all at once at the end. Since the 
+     * hash stays untouched during the scan, a field given twice in argv would be 
+     * found twice: delmark[] marks the fields seen in an earlier argv position. */
+    unsigned char stack_delmark[HASH_TMPL_STACK_ENTRIES] = {0};
+    unsigned char *delmark = NULL;
+    long long stack_del_indexes[HASH_TMPL_STACK_ENTRIES];
+    long long *del_indexes = (n <= HASH_TMPL_STACK_ENTRIES) ? stack_del_indexes :
+                                                              zmalloc(sizeof(long long) * n);
+    for (int i = 0; i < n; i++) {
+        long long idx = hashTemplateFieldIndex(tmpl, argv[i]->ptr);
+        /* Skip missing fields or if a field given twice in argv. */
+        if (idx < 0 || (delmark && delmark[idx])) {
+            if (c) addReplyNull(c);
+            continue;
+        }
+        /* Reply while the values are still in place. */
+        if (c) addTmplValueToReply(c, o, idx);
+        
+        /* Mark the field as deleted */
+        if (n > 1) {
+            if (delmark == NULL) {
+                delmark = (old_count <= HASH_TMPL_STACK_ENTRIES) ?
+                          stack_delmark : zcalloc(old_count);
+            }
+            delmark[idx] = 1;
+        }
+        
+        /* Mark field idx to delete */
+        del_indexes[num_del_fields++] = idx;
+        vecPush(vdeleted, argv[i]);
+    }
+    
+    /* Delete the fields */
+    if (num_del_fields > 0) {
+        qsort(del_indexes, num_del_fields, sizeof(*del_indexes), tmplIdxCmp);
+        hashTypeTmplDropFields(o, tmpl, del_indexes, num_del_fields);
+    }
+
+    if (delmark && delmark != stack_delmark) zfree(delmark);
+    if (del_indexes != stack_del_indexes) zfree(del_indexes);
 }
 
 /*-----------------------------------------------------------------------------
@@ -2057,79 +2366,27 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
         long long field_idx = hashTemplateFieldIndex(tmpl, field);
         int is_new = field_idx < 0;
 
-        /* Promote TMPL_LP -> TMPL_ARRAY up front if the value or field count no
-         * longer fits a listpack. The template (and field_idx) is unchanged. */
-        if (o->encoding == OBJ_ENCODING_TMPL_LP &&
-            (sdslen(value) > server.hash_max_listpack_value ||
-             !lpSafeToAdd(o->ptr, sdslen(value)) ||
-             (is_new && tmpl->field_count + 1 > server.hash_max_listpack_entries)))
-        {
+        /* Convert TMPL_LP -> TMPL_ARRAY up front if adding a field would cross
+         * the listpack entry limit. The template (and field_idx) is unchanged. */
+        if (o->encoding == OBJ_ENCODING_TMPL_LP && is_new &&
+            tmpl->field_count + 1 > server.hash_max_listpack_entries)
             hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
-        }
 
         if (!is_new) {
             /* Field exists - update value in place. */
-            if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-                unsigned char *lp = o->ptr;
-                unsigned char *p = hashTemplateLpSeekValue(lp, field_idx);
-                o->ptr = lpReplace(lp, &p, (unsigned char *)value, sdslen(value));
-                serverAssert(o->ptr != NULL);
-            } else {
-                hashTemplateArray *hta = o->ptr;
-                hta->alloc_size -= sdsAllocSize(hta->values[field_idx]);
-                sdsfree(hta->values[field_idx]);
-                if (flags & HASH_SET_TAKE_VALUE) {
-                    hta->values[field_idx] = value;  /* adopt, don't copy */
-                    value = NULL;
-                } else {
-                    hta->values[field_idx] = sdsdup(value);
-                }
-                hta->alloc_size += sdsAllocSize(hta->values[field_idx]);
-            }
+            if (hashTypeTmplWriteValueAt(o, field_idx, value, flags & HASH_SET_TAKE_VALUE))
+                value = NULL; /* adopted */
             update = 1;
             goto cleanup;
         }
 
-        /* Field not in tmpl - switch to the template that adds it at insert_pos. */
-        long long insert_pos = -field_idx - 1;
-        unsigned long long new_field_count = tmpl->field_count + 1;
-        hashTemplate *new_tmpl = hashTemplateForInsertedField(tmpl, field, insert_pos);
-
-        /* Insert value at insert_pos in existing structure. */
-        if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-            unsigned char *lp = o->ptr;
-            /* Update template ID. */
-            lp = hashTemplateLpSetTemplate(lp, new_tmpl);
-            /* Insert value at position (offset +1 for template ID). */
-            if ((unsigned long long)insert_pos == tmpl->field_count) {
-                lp = lpAppend(lp, (unsigned char *)value, sdslen(value));
-            } else {
-                unsigned char *p = hashTemplateLpSeekValue(lp, insert_pos);
-                lp = lpInsertString(lp, (unsigned char *)value, sdslen(value), p, LP_BEFORE, NULL);
-            }
-            serverAssert(lp != NULL);
-            hashTemplateDecrKeyRef(tmpl);
-            o->ptr = lp;
-        } else {
-            hashTemplateArray *hta = o->ptr;
-            /* Expand struct and shift elements to make room. */
-            hta = hashTemplateArrayResize(hta, new_field_count);
-            if ((unsigned long long)insert_pos < tmpl->field_count) {
-                memmove(&hta->values[insert_pos + 1], &hta->values[insert_pos],
-                        sizeof(sds) * (tmpl->field_count - insert_pos));
-            }
-            if (flags & HASH_SET_TAKE_VALUE) {
-                hta->values[insert_pos] = value;  /* adopt, don't copy */
-                value = NULL;
-            } else {
-                hta->values[insert_pos] = sdsdup(value);
-            }
-            hta->alloc_size += sdsAllocSize(hta->values[insert_pos]);
-            hashTemplateDecrKeyRef(tmpl);
-            hta->tmpl_id = new_tmpl->id;
-            hta->field_count = new_tmpl->field_count;
-            o->ptr = hta;
-        }
+        /* Field not in tmpl. Adding it will switch the template holding it. */
+        tmplNewField new_field = { 
+            .field = field, 
+            .value = value,
+            .insert_pos = -field_idx - 1 
+        };
+        hashTypeTmplAddFields(o, tmpl, &new_field, 1);
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -2419,40 +2676,7 @@ int hashTypeDelete(robj *o, void *field) {
         hashTemplate *tmpl = hashTypeGetTemplate(o);
         long long idx = hashTemplateFieldIndex(tmpl, field);
         if (idx >= 0) {
-            long long old_count = tmpl->field_count;
-            long long new_count = old_count - 1;
-
-            if (new_count == 0) {
-                /* Last field deleted - convert to empty listpack. */
-                if (o->encoding == OBJ_ENCODING_TMPL_LP)
-                    hashTemplateLpFree(o->ptr);
-                else
-                    hashTemplateArrayFree(o->ptr);
-                o->ptr = lpNew(0);
-                o->encoding = OBJ_ENCODING_LISTPACK;
-            } else {
-                hashTemplate *new_tmpl = hashTemplateForDeletedField(tmpl, idx);
-
-                if (o->encoding == OBJ_ENCODING_TMPL_LP) {
-                    /* Delete value at idx. */
-                    unsigned char *lp = o->ptr;
-                    unsigned char *p = hashTemplateLpSeekValue(lp, idx);
-                    lp = lpDeleteRangeWithEntry(lp, &p, 1);
-                    lp = hashTemplateLpSetTemplate(lp, new_tmpl);
-                    o->ptr = lp;
-                } else {
-                    hashTemplateArray *hta = o->ptr;
-                    hta->alloc_size -= sdsAllocSize(hta->values[idx]);
-                    sdsfree(hta->values[idx]);
-                    memmove(&hta->values[idx], &hta->values[idx + 1],
-                            sizeof(sds) * (old_count - idx - 1));
-                    hta->tmpl_id = new_tmpl->id;
-                    hta->field_count = new_count;
-                    hta = hashTemplateArrayResize(hta, new_count);
-                    o->ptr = hta;
-                }
-                hashTemplateDecrKeyRef(tmpl);
-            }
+            hashTypeTmplDropFields(o, tmpl, &idx, 1);
             deleted = 1;
         }
     } else {
@@ -4020,6 +4244,12 @@ void hsetCommand(client *c) {
     if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields >= 5 && lpLength(kv->ptr) == 0) {
         /* Fresh wide build: single dict pass (last-wins) + one batch append. */
         created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
+    } else if (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+               kv->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
+        /* Template hash: existing fields are overwritten in place and the
+         * missing ones are added in a single template switch. */
+        created = hashTypeTmplSetFields(c->db, kv, c->argv + 2, numfields);
     } else {
         for (i = 2; i < c->argc; i += 2)
             created += !hashTypeSet(c->db, kv, c->argv[i]->ptr, c->argv[i+1]->ptr, HASH_SET_COPY | HASH_SET_NO_TEMPLATE_CONVERT);
@@ -4662,25 +4892,35 @@ void hsetexCommand(client *c) {
     if (set_expiry)
         hashTypeSetExInit(c->argv[1], o, c, c->db, 0, &setex);
 
-    for (int i = 0; i < field_count; i++) {
-        sds field = c->argv[first_field_pos + (i * 2)]->ptr;
-        sds value = c->argv[first_field_pos + (i * 2) + 1]->ptr;
+    if (o->encoding == OBJ_ENCODING_TMPL_LP ||
+        o->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
+        /* Template hash: set every field at once in a single template switch. */
+        serverAssert(!set_expiry);
+        hashTypeTmplSetFields(c->db, o, c->argv + first_field_pos, field_count);
+        for (int i = 0; i < field_count; i++)
+            vecPush(vset, c->argv[first_field_pos + (i * 2)]);
+    } else {
+        for (int i = 0; i < field_count; i++) {
+            sds field = c->argv[first_field_pos + (i * 2)]->ptr;
+            sds value = c->argv[first_field_pos + (i * 2) + 1]->ptr;
 
-        int opt = HASH_SET_COPY | HASH_SET_NO_TEMPLATE_CONVERT;
-        /* If we are going to set the expiration time later, no need to discard
-         * it as part of set operation now. */
-        if (flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT | HFE_KEEPTTL))
-            opt |= HASH_SET_KEEP_TTL;
+            int opt = HASH_SET_COPY | HASH_SET_NO_TEMPLATE_CONVERT;
+            /* If we are going to set the expiration time later, no need to discard
+             * it as part of set operation now. */
+            if (flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT | HFE_KEEPTTL))
+                opt |= HASH_SET_KEEP_TTL;
 
-        hashTypeSet(c->db, o, field, value, opt);
-        vecPush(vset, c->argv[first_field_pos + (i * 2)]);
-        /* Update the expiration time. */
-        if (set_expiry) {
-            int ret = hashTypeSetEx(o, field, expire_time, &setex);
-            if (ret == HSETEX_OK) {
-                vecPush(vupdated, c->argv[first_field_pos + (i * 2)]);
-            } else if (ret == HSETEX_DELETED) {
-                vecPush(vdeleted, c->argv[first_field_pos + (i * 2)]);
+            hashTypeSet(c->db, o, field, value, opt);
+            vecPush(vset, c->argv[first_field_pos + (i * 2)]);
+            /* Update the expiration time. */
+            if (set_expiry) {
+                int ret = hashTypeSetEx(o, field, expire_time, &setex);
+                if (ret == HSETEX_OK) {
+                    vecPush(vupdated, c->argv[first_field_pos + (i * 2)]);
+                } else if (ret == HSETEX_DELETED) {
+                    vecPush(vdeleted, c->argv[first_field_pos + (i * 2)]);
+                }
             }
         }
     }
@@ -5003,20 +5243,28 @@ void hgetdelCommand(client *c) {
     vec *vdeleted = fieldvecInit(&fvdeleted, num_fields);
 
     addReplyArrayLen(c, num_fields);
-    for (int i = 4; i < c->argc; i++) {
-        const int flags = HFE_LAZY_NO_NOTIFICATION |
-                          HFE_LAZY_NO_SIGNAL |
-                          HFE_LAZY_AVOID_HASH_DEL |
-                          HFE_LAZY_NO_UPDATE_KEYSIZES |
-                          HFE_LAZY_NO_UPDATE_ALLOCSIZES;
-        res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
-        if (res == GETF_EXPIRED) {
-            vecPush(vexpired, c->argv[i]);
-        }
-        /* Try to delete only if it's found and not expired lazily. */
-        if (res == GETF_OK) {
-            vecPush(vdeleted, c->argv[i]);
-            serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
+    if (o && (o->encoding == OBJ_ENCODING_TMPL_LP ||
+              o->encoding == OBJ_ENCODING_TMPL_ARRAY))
+    {
+        /* Template hash: reply every value, then drop all the fields in one
+         * template switch. */
+        hashTypeTmplDeleteFields(o, c->argv + 4, c->argc - 4, vdeleted, c);
+    } else {
+        for (int i = 4; i < c->argc; i++) {
+            const int flags = HFE_LAZY_NO_NOTIFICATION |
+                              HFE_LAZY_NO_SIGNAL |
+                              HFE_LAZY_AVOID_HASH_DEL |
+                              HFE_LAZY_NO_UPDATE_KEYSIZES |
+                              HFE_LAZY_NO_UPDATE_ALLOCSIZES;
+            res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
+            if (res == GETF_EXPIRED) {
+                vecPush(vexpired, c->argv[i]);
+            }
+            /* Try to delete only if it's found and not expired lazily. */
+            if (res == GETF_OK) {
+                vecPush(vdeleted, c->argv[i]);
+                serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
+            }
         }
     }
 
@@ -5261,12 +5509,21 @@ void hdelCommand(client *c) {
 
     if (o->encoding == OBJ_ENCODING_HT)
         dictPauseAutoResize((dict*)o->ptr);
-    for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr)) {
-            vecPush(vdeleted, c->argv[j]);
-            if (hashTypeLength(o, 0) == 0) {
-                keyremoved = 1;
-                break;
+
+    /* Template hash: drop all the fields in one template switch. */
+    if (o->encoding == OBJ_ENCODING_TMPL_LP ||
+        o->encoding == OBJ_ENCODING_TMPL_ARRAY)
+    {
+        hashTypeTmplDeleteFields(o, c->argv + 2, c->argc - 2, vdeleted, NULL);
+        keyremoved = (hashTypeLength(o, 0) == 0);
+    } else {
+        for (j = 2; j < c->argc; j++) {
+            if (hashTypeDelete(o,c->argv[j]->ptr)) {
+                vecPush(vdeleted, c->argv[j]);
+                if (hashTypeLength(o, 0) == 0) {
+                    keyremoved = 1;
+                    break;
+                }
             }
         }
     }

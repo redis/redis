@@ -176,6 +176,18 @@ tags "modules external:skip" {
             r himport discard bigfs
         }
 
+        test "Subkey notification: HSETEX on a template hash triggers hset" {
+            r himport prepare fieldset2 f1 f2
+            r himport set myhash fieldset2 v1 v2
+            r keyspace.reset_subkey_events
+            r hsetex myhash FIELDS 2 f1 v9 f3 v3
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f3" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset2
+        }
+
         test "Subkey notification: HDEL triggers module subkey callback" {
             r hset myhash f1 v1 f2 v2
             r keyspace.reset_subkey_events
@@ -184,6 +196,18 @@ tags "modules external:skip" {
             assert_equal 1 [llength $events]
             assert_equal "hdel myhash 1 f1" [lindex $events 0]
             r del myhash
+        }
+
+        test "Subkey notification: HDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset3 f1 f2 f3
+            r himport set myhash fieldset3 v1 v2 v3
+            r keyspace.reset_subkey_events
+            r hdel myhash f1 f1 f2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset3
         }
 
         test "Subkey notification: non-subkey event calls subkey callback with count=0" {

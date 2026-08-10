@@ -11,6 +11,17 @@ proc make_hashtmpl {key args} {
     r himport set $key $fsname {*}$values
 }
 
+# Assert two hashes hold exactly the same field/value pairs. Order-insensitive:
+# the two keys may use different encodings.
+proc assert_same_hash_content {key1 key2} {
+    set a {}
+    foreach {f v} [r hgetall $key1] { lappend a [list $f $v] }
+    set b {}
+    foreach {f v} [r hgetall $key2] { lappend b [list $f $v] }
+    assert_equal [lsort $a] [lsort $b]
+    assert_equal [r exists $key1] [r exists $key2]
+}
+
 # A key ref released by a BIO lazyfree thread (flushall etc.) is
 # dropped on that background thread, so num_template_keys is eventually
 # consistent: it settles once the BIO free job runs.
@@ -564,6 +575,12 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r exists hdel:all] 0
     }
 
+    test {HDEL counts a repeated field once} {
+        make_hashtmpl hdel:dup a 1 b 2 c 3
+        assert_equal [r hdel hdel:dup a a b zzz] 2
+        assert_equal [r hgetall hdel:dup] {c 3}
+    }
+
     test {HGETDEL returns value and keeps template encoding} {
         make_hashtmpl hgetdel:test a 1 b 2 c 3 d 4
         assert_encoding $encoding hgetdel:test
@@ -591,6 +608,12 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         make_hashtmpl hgetdel:all a 1 b 2
         assert_equal [r hgetdel hgetdel:all FIELDS 2 a b] {1 2}
         assert_equal [r exists hgetdel:all] 0
+    }
+
+    test {HGETDEL replies a repeated field once, then nil} {
+        make_hashtmpl hgetdel:dup a 1 b 2 c 3
+        assert_equal [r hgetdel hgetdel:dup FIELDS 4 a a b zzz] {1 {} 2 {}}
+        assert_equal [r hgetall hgetdel:dup] {c 3}
     }
 
     test {HGETEX without options returns values and keeps template encoding} {
@@ -656,6 +679,28 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal {a 1 b 2 c 3 d 4} [r hgetall hset:multi]
     }
 
+    test {HSET on template-based hash returns number of new fields} {
+        make_hashtmpl hset:count a 1 b 2
+        # Updating existing fields creates nothing.
+        assert_equal 0 [r hset hset:count a 10 b 20]
+        # A mixed update and add counts only the added field.
+        assert_equal 1 [r hset hset:count a 11 c 3]
+        assert_equal 3 [r hlen hset:count]
+        assert_encoding $encoding hset:count
+    }
+
+    test {HSET with a field repeated in one command: last value wins} {
+        make_hashtmpl hset:repeat a 1
+        # A repeated new field is created once and keeps the last value.
+        assert_equal 1 [r hset hset:repeat b 1 b 2 b 3]
+        assert_equal 3 [r hget hset:repeat b]
+        # Also when another new field sits between the repeats.
+        assert_equal 2 [r hset hset:repeat c 1 d 4 c 3]
+        assert_equal 3 [r hget hset:repeat c]
+        assert_equal 4 [r hget hset:repeat d]
+        assert_encoding $encoding hset:repeat
+    }
+
     test {HSETNX on existing field in template-based hash} {
         make_hashtmpl hsetnx:test name alice
         assert_equal [r hsetnx hsetnx:test name bob] 0
@@ -667,6 +712,39 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r hsetnx hsetnx:new email alice@example.com] 1
         assert_encoding $encoding hsetnx:new
         assert_equal [r hget hsetnx:new email] alice@example.com
+    }
+
+    # One command mutating more than 128 fields spills the batch bookkeeping
+    # from stack buffers to the heap. Exercise that path with HSET/HGETDEL/HDEL
+    test {wide batch HSET/HGETDEL/HDEL on template-based hash} {
+        make_hashtmpl wide:batch a 1 b 2 c 3 d 4
+
+        # Add 200 new fields (f0 v0 .. f199 v199) in a single HSET.
+        set pairs {}
+        for {set i 0} {$i < 200} {incr i} { lappend pairs f$i v$i }
+        assert_equal 200 [r hset wide:batch {*}$pairs]
+        assert_equal 204 [r hlen wide:batch]
+        assert_encoding $encoding wide:batch
+
+        # Take back the first 150 (f0 .. f149) in a single HGETDEL; it must
+        # reply their values in argument order (v0 .. v149).
+        set fields {}
+        set values {}
+        for {set i 0} {$i < 150} {incr i} {
+            lappend fields f$i
+            lappend values v$i
+        }
+        assert_equal $values [r hgetdel wide:batch FIELDS 150 {*}$fields]
+        assert_equal 54 [r hlen wide:batch]
+
+        # Drop the remaining 50 (f150 .. f199) in a single HDEL.
+        set fields {}
+        for {set i 150} {$i < 200} {incr i} { lappend fields f$i }
+        assert_equal 50 [r hdel wide:batch {*}$fields]
+
+        # Only the four seed fields are left, untouched.
+        assert_equal [r hgetall wide:batch] {a 1 b 2 c 3 d 4}
+        assert_encoding $encoding wide:batch
     }
 
     # HSCAN on template-based hash
@@ -845,10 +923,12 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
     test {HSETEX without expiration keeps template encoding} {
         make_hashtmpl hfe:noexp name alice
         # HSETEX with no expiration token only sets fields, so the hash must
-        # stay template-encoded just like a plain HSET.
-        assert_equal [r hsetex hfe:noexp FIELDS 1 email alice@example.com] 1
+        # stay template-encoded just like a plain HSET. One command may both
+        # update an existing field and add a new one.
+        assert_equal [r hsetex hfe:noexp FIELDS 2 email alice@example.com name bob] 1
         assert_encoding $encoding hfe:noexp
         assert_equal [r hget hfe:noexp email] alice@example.com
+        assert_equal [r hget hfe:noexp name] bob
     }
 
     test {HSETEX with expiration converts template key to regular hash} {
@@ -1010,6 +1090,74 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         r copy copy:replace:src copy:replace:dst REPLACE
         assert_equal [r type copy:replace:dst] hash
         assert_encoding $encoding copy:replace:dst
+    }
+
+    # Differential fuzz for the batch mutation paths: feed the same random
+    # multi-field HSET/HDEL/HGETDEL commands to a template hash and to a
+    # regular hash and require identical replies and identical content after
+    # every command.
+    test "random batch HSET/HDEL/HGETDEL match a regular hash ($encoding)" {
+        # A random field from a pool of 30 (f0 .. f29). The pool is small so
+        # commands hit a mix of existing, new, missing and repeated fields.
+        proc rand_field {} { return f[expr {int(rand()*30)}] }
+        
+        for {set round 0} {$round < 300} {incr round} {
+            # Start each round with both keys holding the same 4..11 fields.
+            r del fuzz:tmpl fuzz:plain
+            unset -nocomplain seed
+            set nseed [expr {4 + int(rand()*8)}]
+            for {set i 0} {$i < $nseed} {incr i} { set seed([rand_field]) seed$i }
+            set pairs {}
+            foreach f [array names seed] { lappend pairs $f $seed($f) }
+
+            make_hashtmpl fuzz:tmpl {*}$pairs
+            r hset fuzz:plain {*}$pairs
+            assert_encoding $encoding fuzz:tmpl
+
+            # 25 random commands of 1..6 fields each, HSET twice as likely as
+            # each other command. Both keys are compared after every command.
+            for {set op 0} {$op < 25} {incr op} {
+                set n [expr {1 + int(rand()*6)}]
+                set cmd [lindex {hset hset hsetex hdel hgetdel} [expr {int(rand()*5)}]]
+                switch $cmd {
+                    hset - hsetex {
+                        # Values are unique per command ("v<round>.<op>.<i>")
+                        # so a stale value can never match.
+                        set args {}
+                        for {set i 0} {$i < $n} {incr i} {
+                            set v v$round.$op.$i
+                            if {rand() < 0.1} { append v [string repeat x 100] }
+                            lappend args [rand_field] $v
+                        }
+                        if {$cmd eq "hset"} {
+                            assert_equal [r hset fuzz:plain {*}$args] \
+                                         [r hset fuzz:tmpl {*}$args] "hset $args"
+                        } else {
+                            assert_equal [r hsetex fuzz:plain FIELDS $n {*}$args] \
+                                         [r hsetex fuzz:tmpl FIELDS $n {*}$args] \
+                                         "hsetex $args"
+                        }
+                    }
+                    hdel {
+                        set fields {}
+                        for {set i 0} {$i < $n} {incr i} { lappend fields [rand_field] }
+                        assert_equal [r hdel fuzz:plain {*}$fields] \
+                                     [r hdel fuzz:tmpl {*}$fields] "hdel $fields"
+                    }
+                    hgetdel {
+                        set fields {}
+                        for {set i 0} {$i < $n} {incr i} { lappend fields [rand_field] }
+                        assert_equal [r hgetdel fuzz:plain FIELDS $n {*}$fields] \
+                                     [r hgetdel fuzz:tmpl FIELDS $n {*}$fields] \
+                                     "hgetdel $fields"
+                    }
+                }
+                assert_same_hash_content fuzz:tmpl fuzz:plain
+
+                # Deleting the last field deletes the key; start a new round.
+                if {![r exists fuzz:tmpl]} break
+            }
+        }
     }
 }
 
@@ -1698,6 +1846,24 @@ start_server {tags {"hash" "convert" "needs:debug" "cluster:skip"}
         assert_encoding template-array key
         assert_equal [r hlen key] 9
         for {set i 0} {$i < 9} {incr i} { assert_equal [r hget key f$i] v$i }
+
+        r del key
+        r himport discard fieldset
+    }
+
+    test {convert: TMPL_LP -> TMPL_ARRAY when one HSET crosses hash-max-listpack-entries mid-batch} {
+        # Start below the limit of 8 and cross it in the middle of a single
+        # multi field HSET: the conversion happens while some of the command's
+        # values are still waiting to be stored.
+        r himport prepare fieldset a b c d
+        r himport set key fieldset 1 2 3 4
+        assert_encoding template-listpack key
+
+        r hset key n0 0 n1 1 n2 2 n3 3 n4 4 n5 5
+        assert_encoding template-array key
+        assert_equal [r hlen key] 10
+        assert_equal [r hget key a] 1
+        assert_equal [r hget key n5] 5
 
         r del key
         r himport discard fieldset
