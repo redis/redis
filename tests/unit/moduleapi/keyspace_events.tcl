@@ -490,6 +490,8 @@ tags "modules external:skip" {
             set bitmap_bitfield bitmap:transition:delete-bitmap:aof-bitfield
             set bitop_dest bitmap:transition:delete-type
             set bitop_source bitmap:transition:aof-bitop-source
+            set replay_keys [list $type_setbit $type_bitfield \
+                $bitmap_setbit $bitmap_bitfield $bitop_dest $bitop_source]
 
             r flushall
             r config set bitmap-default-roaring no
@@ -516,13 +518,17 @@ tags "modules external:skip" {
             assert_equal bitmap [r type $bitop_dest]
             assert_equal [binary format H* f0] [r debug bitmap-raw $bitop_dest]
             assert_equal 0 [r exists $bitmap_setbit $bitmap_bitfield]
-            set digest_before [r debug digest]
+            # Expanded propagation is atomically wrapped in MULTI/EXEC. The
+            # module's generic DEL fixture deliberately increments an unrelated
+            # "multi" key when replay callbacks run in that context, so compare
+            # only the values whose ordering this test covers.
+            set digests_before [r debug digest-value {*}$replay_keys]
 
             r config rewrite
             restart_server 0 true false
             wait_done_loading r
 
-            assert_equal $digest_before [r debug digest]
+            assert_equal $digests_before [r debug digest-value {*}$replay_keys]
             foreach {key raw} [list \
                 $type_setbit 80 $type_bitfield ff] {
                 assert_equal string [r type $key]
