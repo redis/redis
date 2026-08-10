@@ -3876,7 +3876,7 @@ void replyToClientsBlockedOnShutdown(void);
 int abortShutdown(void);
 void afterCommand(client *c);
 int mustObeyClient(client *c);
-bool commandVisibleForClient(client *c, struct redisCommand *cmd);
+int commandVisibleForClient(client *c, struct redisCommand *cmd);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
