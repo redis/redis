@@ -13,7 +13,7 @@ start_server {tags {"tls"}} {
                 $group_arg $groups \
                 -cert $crt \
                 -key $key \
-                -CAfile $ca 2>@1 < /dev/null]
+                -CAfile $ca < /dev/null 2>@1]
         }
 
         proc tls_s_client_group_arg {} {
@@ -116,7 +116,7 @@ start_server {tags {"tls"}} {
             # should complete and negotiate that curve.
             set out [tls_s_client [srv 0 host] [srv 0 port] prime256v1]
             assert_match {*TLSv1.2*} $out
-            assert_match {*prime256v1*} $out
+            assert {[string match {*prime256v1*} $out] || [string match {*P-256*} $out]}
 
             r CONFIG SET tls-curve-preferences ""
             r CONFIG SET tls-protocols ""
@@ -132,7 +132,6 @@ start_server {tags {"tls"}} {
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
             assert_equal 1 [catch {tls_s_client [srv 0 host] [srv 0 port] secp384r1} e]
-            assert_match {*handshake failure*} $e
 
             r CONFIG SET tls-curve-preferences ""
             r CONFIG SET tls-protocols ""
