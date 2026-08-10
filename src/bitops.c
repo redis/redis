@@ -912,6 +912,18 @@ static robj *bitroarFromStringObject(robj *o) {
     return bitmap;
 }
 
+/* A 32-bit size_t cannot exceed the signed Roaring length bound. Keep the
+ * comparison out of those builds so -Wtype-limits does not flag an
+ * intentionally impossible condition. */
+static int bitroarStringTooLarge(robj *o) {
+#if SIZE_MAX > BITROAR_MAX_BYTES_RAW
+    return (uint64_t)stringObjectLen(o) > BITROAR_MAX_BYTES;
+#else
+    UNUSED(o);
+    return 0;
+#endif
+}
+
 /* Return the propagation targets enabled for this invocation of call(). This
  * matters for Lua redis.set_repl() and selective RM_Call propagation: an
  * explicitly queued transition must never escape to a target suppressed for
@@ -1006,7 +1018,7 @@ void bitconvertCommand(client *c) {
         addReply(c, shared.ok);
         return;
     }
-    if (o != NULL && (uint64_t)stringObjectLen(o) > BITROAR_MAX_BYTES) {
+    if (o != NULL && bitroarStringTooLarge(o)) {
         addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
         return;
     }
@@ -1060,7 +1072,7 @@ static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit,
     if (is_roaring) {
         target->value = o;
     } else {
-        if (o != NULL && (uint64_t)stringObjectLen(o) > BITROAR_MAX_BYTES) {
+        if (o != NULL && bitroarStringTooLarge(o)) {
             addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
             return C_ERR;
         }
