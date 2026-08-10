@@ -5317,8 +5317,10 @@ char *getClientTypeName(int class) {
 
 /* If a syncing replica's output buffer is growing too fast, briefly pause
  * accepting requests from existing clients. */
-static void handleReplicaOutputBufferThrottling(client *c, int class, size_t used_mem) {
+static void handleReplicaOutputBufferThrottling(client *c) {
     static time_t last_log_msg = 0;
+    int class = getClientType(c);
+    size_t used_mem = getClientOutputBufferLogicalSize(c);
 
     if (!server.replica_obuf_throttle_threshold ||
         !server.replica_obuf_throttle_repl_rate ||
@@ -5348,10 +5350,8 @@ static void handleReplicaOutputBufferThrottling(client *c, int class, size_t use
         return;
     }
 
-    size_t bytes_exceeding =
-        used_mem - ((unsigned long)elapsed_repl_time * obuf_bytes_per_sec);
-    unsigned long throttle_time_ms =
-        bytes_exceeding * 1000 / obuf_bytes_per_sec;
+    size_t bytes_exceeding = used_mem - ((unsigned long)elapsed_repl_time * obuf_bytes_per_sec);
+    unsigned long throttle_time_ms = bytes_exceeding * 1000 / obuf_bytes_per_sec;
 
     if (server.replica_obuf_throttle_max_delay_ms &&
         throttle_time_ms > server.replica_obuf_throttle_max_delay_ms)
@@ -5361,10 +5361,10 @@ static void handleReplicaOutputBufferThrottling(client *c, int class, size_t use
 
     server.throttle_resume_time_ms = mstime() + throttle_time_ms;
     if (time(NULL) - last_log_msg > 10) {
-        sds client = catClientInfoString(sdsempty(), c);
+        sds cinfo = catClientInfoString(sdsempty(), c);
         serverLog(LL_WARNING,
-                  "Replica %s triggered request throttling.", client);
-        sdsfree(client);
+                  "Replica %s triggered request throttling.", cinfo);
+        sdsfree(cinfo);
         last_log_msg = time(NULL);
     }
 }
@@ -5406,8 +5406,6 @@ int checkClientOutputBufferLimits(client *c) {
         used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
         soft = 1;
 
-    handleReplicaOutputBufferThrottling(c, class, used_mem);
-
     /* We need to check if the soft limit is reached continuously for the
      * specified amount of seconds. */
     if (soft) {
@@ -5448,6 +5446,12 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
      * (they use the global repl buffers). */
     if ((c->reply_bytes == 0 && c->reply_bytes_shared == 0 && !clientTypeIsSlave(c)) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
+
+    /* Arm request throttling when a syncing replica's buffer grows too fast.
+     * Kept here (not in checkClientOutputBufferLimits) so that helper stays a
+     * pure soft/hard limit check. */
+    handleReplicaOutputBufferThrottling(c);
+
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
 
