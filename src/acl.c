@@ -2902,6 +2902,8 @@ void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
     dictInitIterator(&di, commands);
     while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
+        if (!commandVisibleForClient(c, cmd))
+            continue;
         if (cmd->acl_categories & cflag) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             (*arraylen)++;
@@ -3248,7 +3250,8 @@ void aclCommand(client *c) {
             return;
         }
 
-        if ((cmd = lookupCommand(c->argv + 3, c->argc - 3)) == NULL) {
+        if ((cmd = lookupCommand(c->argv + 3, c->argc - 3)) == NULL ||
+            !commandVisibleForClient(c, cmd)) {
             addReplyErrorFormat(c, "Command '%s' not found", (char *)c->argv[3]->ptr);
             return;
         }
