@@ -806,7 +806,7 @@ void bitroarVisitSetBitRanges(const robj *o,
         count = roaring64_iterator_read_ranges(
             it, ranges, sizeof(ranges) / sizeof(ranges[0]));
         for (size_t i = 0; i < count; i++)
-            callback(ranges[i].min, ranges[i].max, privdata);
+            callback(ranges[i].min, ranges[i].max + 1, privdata);
     } while (count == sizeof(ranges) / sizeof(ranges[0]));
 
     roaring64_iterator_free(it);
@@ -1108,14 +1108,6 @@ int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
         bitroarRefreshRangeAllocSize(bitmap, offset, last_bit + 1, old_size);
 
     return C_OK;
-}
-
-void bitroarOptimize(robj *o) {
-    bitroar *bitmap = bitroarGet(o);
-    roaring64_bitmap_run_optimize(bitmap->roaring);
-    roaring64_bitmap_shrink_to_fit(bitmap->roaring);
-    if (bitmap->alloc_size != BITROAR_ALLOC_SIZE_UNKNOWN)
-        bitroarRefreshAllocSize(bitmap);
 }
 
 static void bitroarMaterializeRawRange(unsigned char *raw, size_t chunk_len,
