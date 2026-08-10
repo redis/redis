@@ -7,17 +7,22 @@ start_server {tags {"tls"}} {
             set key [format "%s/tests/tls/client.key" [pwd]]
             set ca [format "%s/tests/tls/ca.crt" [pwd]]
             set group_arg [tls_s_client_group_arg]
-            return [exec openssl s_client \
-                -connect [format "%s:%s" $host $port] \
-                -tls1_2 \
-                $group_arg $groups \
-                -cert $crt \
-                -key $key \
-                -CAfile $ca < /dev/null 2>@1]
+            set out {}
+            catch {
+                exec openssl s_client \
+                    -connect [format "%s:%s" $host $port] \
+                    -tls1_2 \
+                    $group_arg $groups \
+                    -cert $crt \
+                    -key $key \
+                    -CAfile $ca < /dev/null 2>@1
+            } out
+            return $out
         }
 
         proc tls_s_client_group_arg {} {
-            set help [exec openssl s_client -help 2>@1]
+            set help {}
+            catch {exec openssl s_client -help 2>@1} help
             if {[string match {* -groups *} $help]} {
                 return -groups
             }
@@ -131,7 +136,10 @@ start_server {tags {"tls"}} {
 
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
-            assert_equal 1 [catch {tls_s_client [srv 0 host] [srv 0 port] secp384r1} e]
+            set out [tls_s_client [srv 0 host] [srv 0 port] secp384r1]
+            assert_no_match {*TLSv1.2*} $out
+            assert_no_match {*prime256v1*} $out
+            assert_no_match {*P-256*} $out
 
             r CONFIG SET tls-curve-preferences ""
             r CONFIG SET tls-protocols ""
