@@ -85,7 +85,7 @@
 #define RDB_TYPE_HASH_TMPL_LP_REF 30          /* TMPL_LP, with template ref (RDB save): raw lp blob, first entry is tid */
 #define RDB_TYPE_HASH_TMPL_ARRAY 31           /* TMPL_ARRAY, self-contained (DUMP): [count][f0][v0]...[fN-1][vN-1] */
 #define RDB_TYPE_HASH_TMPL_ARRAY_REF 32       /* TMPL_ARRAY, with template ref (RDB save): [tid][v0]...[vN-1] */
-#define RDB_TYPE_BITMAP 33                    /* Bitmap object */
+#define RDB_TYPE_BITMAP 33                    /* [logical byte length][RDB string with CRoaring64 portable blob] */
 #ifdef ENABLE_GCRA
 #define RDB_TYPE_GCRA 34                      /* GCRA object */
 #endif

@@ -997,6 +997,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r config set proto-max-bulk-len 1048576
             set payload [r dump bitmap:rdb:high]
             assert_lessthan [string length $payload] 256
+            assert_error {*bitmap length exceeds proto-max-bulk-len*} {
+                r debug bitmap-raw bitmap:rdb:high
+            }
             r restore bitmap:rdb:high:restored 0 $payload
             assert_equal bitmap [r type bitmap:rdb:high:restored]
             assert_lessthan [r memory usage bitmap:rdb:high:restored] 65536

@@ -1217,9 +1217,10 @@ static sds bitroarMaterializeRaw(const robj *o, int proto_limited, int try_alloc
     return bitroarMaterializeRoaring(bitmap->roaring, (size_t)bitmap->byte_len, try_alloc);
 }
 
-/* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
- * logical length exceeds proto-max-bulk-len. */
-sds bitroarMaterialize(const robj *o) {
+/* Flatten the bitmap for DEBUG BITMAP-RAW. This is deliberately not a general
+ * production serialization API: it returns NULL when the logical length
+ * exceeds proto-max-bulk-len. */
+sds bitroarMaterializeForDebug(const robj *o) {
     return bitroarMaterializeRaw(o, 1, 0);
 }
 
@@ -1248,9 +1249,10 @@ typedef struct bitroarRawOpSource {
 } bitroarRawOpSource;
 
 /* Dense mixed operands are cheaper to flatten and combine as machine words
- * than to convert every string source into a temporary Roaring bitmap. Keep
- * this path deliberately narrow: Roaring-only and sparse workloads retain
- * Roaring algebra, while the size cap bounds all temporary raw buffers. */
+ * than to convert every string source into a temporary Roaring bitmap. This is
+ * the only non-debug raw materialization path. Keep it deliberately narrow:
+ * Roaring-only and sparse workloads retain Roaring algebra, while the 1 MiB
+ * result and aggregate-input caps bound all temporary raw buffers. */
 static int bitroarUseMixedRawOp(robj **objects, size_t numkeys,
                                 uint64_t maxlen)
 {
