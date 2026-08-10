@@ -995,7 +995,6 @@ static int bitroarConvertKey(client *c, robj *key) {
         notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
     }
 
-    server.dirty++;
     return BITROAR_CONVERT_OK;
 }
 
@@ -1033,6 +1032,7 @@ void bitconvertCommand(client *c) {
         addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
         return;
     }
+    server.dirty++;
     addReply(c, shared.ok);
 }
 
@@ -1085,7 +1085,8 @@ static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit,
 
 /* SETBIT against an already installed Roaring bitmap target. */
 static void setbitCommandBitmap(client *c, robj *roaring,
-                                uint64_t bitoffset, long on) {
+                                uint64_t bitoffset, long on,
+                                int transitioned) {
     uint64_t oldlen = bitroarLen(roaring);
     uint64_t byte = bitoffset >> 3;
     int changed = 0;
@@ -1114,6 +1115,10 @@ static void setbitCommandBitmap(client *c, robj *roaring,
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), roaring, oldAllocSize, kvobjAllocSize(roaring));
         keyModified(c,c->db,c->argv[1],roaring,1);
         notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    } else if (transitioned) {
+        /* The representation transition itself changed the key even though
+         * SETBIT left its logical value and length unchanged. */
         server.dirty++;
     }
 
@@ -1166,13 +1171,14 @@ void setbitCommand(client *c) {
              * type. Replay stops at the same error, so suppress the automatic
              * SETBIT that dirty accounting for BITCONVERT would otherwise add. */
             preventCommandPropagation(c);
+            server.dirty++;
             return;
         }
         bitroarPropagateCurrentCommand(c);
     }
 
     if (o != NULL && o->type == OBJ_BITMAP) {
-        setbitCommandBitmap(c, o, bitoffset, on);
+        setbitCommandBitmap(c, o, bitoffset, on, target.transition);
         return;
     }
 
@@ -1191,7 +1197,8 @@ void setbitCommand(client *c) {
     /* Either it is newly created, changed length, or the bit changes before and after.
      * Note that the bitval here is actually a decimal number.
      * So we need to use `!!` to convert it to 0 or 1 for comparison. */
-    if (strGrowSize || (!!bitval != on)) {
+    int changed = strGrowSize || (!!bitval != on);
+    if (changed) {
         /* Update byte with new bit value. */
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
@@ -1212,6 +1219,8 @@ void setbitCommand(client *c) {
 
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    } else if (target.transition) {
         server.dirty++;
     }
 
@@ -2591,6 +2600,7 @@ void bitfieldGeneric(client *c, int flags) {
 
             if (o != NULL && checkStringOrBitmapType(c, o)) {
                 preventCommandPropagation(c);
+                server.dirty++;
                 zfree(ops);
                 return;
             }
@@ -2645,6 +2655,8 @@ void bitfieldGeneric(client *c, int flags) {
             keyModified(c,c->db,c->argv[1],o,1);
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
             server.dirty += changes ? changes : 1;
+        } else if (roaring_target.transition) {
+            server.dirty++;
         }
         zfree(ops);
         return;
@@ -2781,6 +2793,8 @@ void bitfieldGeneric(client *c, int flags) {
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes ? changes : 1;
+    } else if (roaring_target.transition) {
+        server.dirty++;
     }
     zfree(ops);
 }
