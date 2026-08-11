@@ -214,14 +214,14 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
             .now = commandTimeSnapshot(),
             .itemsExpired = 0};
 
-    /* Wrap the batch in an execution unit, as whole-key expiry does in
-     * activeExpireCycleTryExpire(), so module post-notification jobs queued from
-     * the "hexpired"/"del" events are drained before the cycle returns. The unit
-     * spans the batch rather than each hash to keep the drain outside the estore
-     * iteration, which a job writing to the keyspace could otherwise mutate. */
-    enterExecutionUnit(1, 0);
     estoreActiveExpire(db->subexpires, slot, &info);
-    exitExecutionUnit();
+
+    /* Drain module post-notification jobs queued by the "hexpired"/"del" events.
+     * The per-field propagation in propagateHashFieldDeletion() runs before those
+     * notifications fire, so its own drain cannot pick them up and they would
+     * otherwise linger until the tail of the next command's call(). No execution
+     * unit is wrapped around the walk: that would suppress the per-field drains
+     * and batch the HDELs into a single MULTI/EXEC. */
     postExecutionUnitOperations();
 
     /* Return number of fields active-expired */
