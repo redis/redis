@@ -21,6 +21,8 @@ typedef struct cliSSLconfig {
     char* ciphers;
     /* Preferred ciphersuites list, or NULL (applies only to TLSv1.3) */
     char* ciphersuites;
+    /* Preferred group/curve list, or NULL */
+    char* curve_preferences;
 } cliSSLconfig;
 
 

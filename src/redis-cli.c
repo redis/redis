@@ -3075,6 +3075,8 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
             config.sslconfig.ciphersuites = argv[++i];
         #endif
+        } else if (!strcmp(argv[i],"--tls-curve-preferences") && !lastarg) {
+            config.sslconfig.curve_preferences = argv[++i];
 #endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
             sds version = cliVersion();
@@ -3193,6 +3195,8 @@ static void usage(int err) {
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                     and specifically for TLSv1.3 ciphersuites.\n"
 #endif
+"  --tls-curve-preferences <list> Sets the list of preferred TLS groups/curves\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
 #endif
 "";
 

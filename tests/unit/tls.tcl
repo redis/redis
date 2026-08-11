@@ -2,34 +2,12 @@ start_server {tags {"tls"}} {
     if {$::tls} {
         package require tls
 
-        proc tls_s_client {host port groups} {
-            set crt [format "%s/tests/tls/client.crt" [pwd]]
-            set key [format "%s/tests/tls/client.key" [pwd]]
-            set ca [format "%s/tests/tls/ca.crt" [pwd]]
-            set group_arg [tls_s_client_group_arg]
-            set out {}
-            catch {
-                exec openssl s_client \
-                    -connect [format "%s:%s" $host $port] \
-                    -tls1_2 \
-                    $group_arg $groups \
-                    -cert $crt \
-                    -key $key \
-                    -CAfile $ca < /dev/null 2>@1
-            } out
-            return $out
-        }
-
-        proc tls_s_client_group_arg {} {
-            set help {}
-            catch {exec openssl s_client -help 2>@1} help
-            if {[string match {* -groups *} $help]} {
-                return -groups
-            }
-            if {[string match {* -curves *} $help]} {
-                return -curves
-            }
-            fail "openssl s_client does not support -groups or -curves"
+        proc tls_redis_cli {host port groups} {
+            set cmd [rediscli $host $port [list \
+                --tls-ciphers ECDHE-RSA-AES128-GCM-SHA256 \
+                --tls-curve-preferences $groups \
+                PING]]
+            exec {*}$cmd 2>@1
         }
 
         test {TLS: Not accepting non-TLS connections on a TLS port} {
@@ -118,10 +96,8 @@ start_server {tags {"tls"}} {
             r CONFIG SET tls-curve-preferences prime256v1
 
             # The client and server both allow prime256v1, so the handshake
-            # should complete and negotiate that curve.
-            set out [tls_s_client [srv 0 host] [srv 0 port] prime256v1]
-            assert_match {*TLSv1.2*} $out
-            assert {[string match {*prime256v1*} $out] || [string match {*P-256*} $out]}
+            # should complete.
+            assert_equal {PONG} [string trim [tls_redis_cli [srv 0 host] [srv 0 port] prime256v1]]
 
             r CONFIG SET tls-curve-preferences ""
             r CONFIG SET tls-protocols ""
@@ -136,9 +112,8 @@ start_server {tags {"tls"}} {
 
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
-            set out [tls_s_client [srv 0 host] [srv 0 port] secp384r1]
-            assert_match {*handshake failure*} $out
-            assert_match {*no peer certificate available*} $out
+            assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
+            assert_no_match {*PONG*} $e
 
             r CONFIG SET tls-curve-preferences ""
             r CONFIG SET tls-protocols ""

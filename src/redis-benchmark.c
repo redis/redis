@@ -1538,6 +1538,9 @@ int parseOptions(int argc, char **argv) {
             if (lastarg) goto invalid;
             config.sslconfig.ciphersuites = strdup(argv[++i]);
         #endif
+        } else if (!strcmp(argv[i],"--tls-curve-preferences")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.curve_preferences = strdup(argv[++i]);
         #endif
         } else {
             /* Assume the user meant to provide an option when the arg starts
@@ -1574,6 +1577,8 @@ usage:
 "                    See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                    and specifically for TLSv1.3 ciphersuites.\n"
 #endif
+" --tls-curve-preferences <list> Sets the list of preferred TLS groups/curves\n"
+"                    in order of preference from highest to lowest separated by colon (\":\").\n"
 #endif
 "";
 

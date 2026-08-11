@@ -65,12 +65,12 @@ certificate name verification."
  * OpenSSL headers expose neither API, so Redis does not silently ignore this
  * TLS policy option. Define TLS_NO_CURVE_PREFERENCES to compile the feature out. */
 #if defined(TLS_NO_CURVE_PREFERENCES)
-#define REDIS_TLS_SUPPORTS_CURVE_PREFERENCES 0
+#define CONN_TLS_SUPPORTS_CURVE_PREFERENCES 0
 #elif defined(SSL_CTX_set1_groups_list)
-#define REDIS_TLS_SUPPORTS_CURVE_PREFERENCES 1
+#define CONN_TLS_SUPPORTS_CURVE_PREFERENCES 1
 #define redisTlsCtxSetCurvesList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
 #elif defined(SSL_CTX_set1_curves_list)
-#define REDIS_TLS_SUPPORTS_CURVE_PREFERENCES 1
+#define CONN_TLS_SUPPORTS_CURVE_PREFERENCES 1
 #define redisTlsCtxSetCurvesList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
 #else
 #error "tls-curve-preferences requires OpenSSL with SSL_CTX_set1_groups_list or SSL_CTX_set1_curves_list. Define TLS_NO_CURVE_PREFERENCES to build without TLS group/curve preferences."
@@ -286,7 +286,7 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
 #endif
 
     if (ctx_config->curve_preferences) {
-#if REDIS_TLS_SUPPORTS_CURVE_PREFERENCES
+#if CONN_TLS_SUPPORTS_CURVE_PREFERENCES
         if (!redisTlsCtxSetCurvesList(ctx, ctx_config->curve_preferences)) {
             serverLog(LL_WARNING, "Failed to configure TLS curve preferences: %s", ctx_config->curve_preferences);
             goto error;
