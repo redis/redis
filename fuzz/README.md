@@ -6,7 +6,9 @@ command parser and executor, using a local socketpair-backed client.
 
 The targets are intentionally independent from native bitmap work. Once this
 infrastructure lands upstream, native bitmap targets can extend it in the
-feature branch.
+feature branch. The stream target establishes consumer-group pending entries
+before mutating `XNACK`, `XCLAIM`, `XACK`, `XREAD`, and `XREADGROUP` sequences,
+including the `MAXCOUNT` and `MAXSIZE` reply limits.
 
 ## Build
 
@@ -32,6 +34,7 @@ fuzz/generate-seeds.sh
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -runs=1
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
+fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -runs=1
 ```
 
 ## Run a short campaign
@@ -39,6 +42,7 @@ fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -max_total_time=300
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -max_total_time=300
+fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -max_total_time=300
 ```
 
 ## Reproduce a crash
