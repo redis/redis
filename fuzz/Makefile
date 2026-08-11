@@ -18,4 +18,4 @@ all:
 	$(MAKE) -C ../src fuzz CC="$(CC)" MALLOC=libc BUILD_COMPRESSION="$(BUILD_COMPRESSION)" OPTIMIZATION=-O1 REDIS_CFLAGS="$(FUZZ_CFLAGS)" REDIS_LDFLAGS="$(FUZZ_LDFLAGS)"
 
 clean:
-	rm -f fuzz_string_commands fuzz_bitmap_commands fuzz_replication_compression fuzz_list_move_commands fuzz_stream_commands *.o *.d support/*.o support/*.d
+	rm -f fuzz_string_commands fuzz_bitmap_commands fuzz_array_commands fuzz_replication_compression fuzz_list_move_commands fuzz_stream_commands *.o *.d support/*.o support/*.d

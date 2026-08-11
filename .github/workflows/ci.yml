@@ -50,6 +50,8 @@ jobs:
             corpus: string_commands
           - fuzzer: fuzz_bitmap_commands
             corpus: bitmap_commands
+          - fuzzer: fuzz_array_commands
+            corpus: array_commands
           - fuzzer: fuzz_replication_compression
             corpus: replication_compression
           - fuzzer: fuzz_list_move_commands
