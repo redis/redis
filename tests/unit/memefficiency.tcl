@@ -1259,6 +1259,8 @@ run_solo {defrag} {
             # real fragmentation there.
             r config set bitmap-default-roaring yes
             set rd [redis_deferring_client]
+            # This counter spans all three construction batches. Each drain at
+            # a 1000-command boundary consumes any remainder from the prior batch.
             set count 0
             for {set j 0} {$j < 50} {incr j} {
                 for {set b 0} {$b < 64} {incr b} {
@@ -1285,6 +1287,8 @@ run_solo {defrag} {
             for {set j 0} {$j < [expr {$count % 1000}]} {incr j} {
                 $rd read
             }
+            $rd ping
+            assert_equal PONG [$rd read] ;# Proves no SETBIT replies remain queued.
             r config set bitmap-default-roaring no
             assert_equal bitmap [r type bitmap:template]
             assert_equal 11400 [r bitcount bitmap:template]
@@ -1399,8 +1403,7 @@ run_solo {defrag} {
             assert_equal $template_raw [r debug bitmap-raw bitmap:frag:0]
             assert_equal $digest [debug_digest]
             assert_equal OK [r save] ;# Iterates all pointers again after defrag.
-            expr 1
-        } {1}
+        }
 
         test "Active defrag check-cache: skip path when below threshold: $type" {
             # threshold-lower=99 and ignore-bytes=1gb guarantee the cached
