@@ -68,7 +68,7 @@ static int jsonSkipString(const char **p, const char *end) {
     (*p)++; /* Skip opening quote. */
     while (*p < end) {
         if (**p == '\\') {
-			if (*p + 1 >= end) return 0; /* Unterminated escape sequence. */
+            if (*p + 1 >= end) return 0; /* Unterminated escape sequence. */
             (*p) += 2;
             continue;
         }
