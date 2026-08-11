@@ -109,14 +109,6 @@ long long redisFuzzChoice(RedisFuzzInput *in, long long count) {
     return redisFuzzByte(in) % count;
 }
 
-long long redisFuzzNumber(RedisFuzzInput *in, long long min, long long max) {
-    if (max <= min) return min;
-    unsigned long long value = 0;
-    for (int i = 0; i < 8; i++)
-        value = (value << 8) | redisFuzzByte(in);
-    return min + (long long)(value % (unsigned long long)(max - min + 1));
-}
-
 sds redisFuzzSlice(RedisFuzzInput *in, size_t maxlen) {
     size_t len = redisFuzzByte(in);
     size_t remaining = in->size - in->pos;

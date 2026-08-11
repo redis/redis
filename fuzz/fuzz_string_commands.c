@@ -1,10 +1,10 @@
 #include "redis_fuzz.h"
 
 static void append_set(sds *resp, RedisFuzzInput *in) {
-    sds value = redisFuzzSlice(in, 64);
     redisFuzzAppendArray(resp, 3);
     redisFuzzAppendBulkCString(resp, "SET");
     redisFuzzAppendKey(resp, in);
+    sds value = redisFuzzSlice(in, 64);
     redisFuzzAppendBulkSds(resp, value);
     sdsfree(value);
 }
@@ -16,20 +16,20 @@ static void append_get(sds *resp, RedisFuzzInput *in) {
 }
 
 static void append_append(sds *resp, RedisFuzzInput *in) {
-    sds value = redisFuzzSlice(in, 64);
     redisFuzzAppendArray(resp, 3);
     redisFuzzAppendBulkCString(resp, "APPEND");
     redisFuzzAppendKey(resp, in);
+    sds value = redisFuzzSlice(in, 64);
     redisFuzzAppendBulkSds(resp, value);
     sdsfree(value);
 }
 
 static void append_setrange(sds *resp, RedisFuzzInput *in) {
-    sds value = redisFuzzSlice(in, 64);
     redisFuzzAppendArray(resp, 4);
     redisFuzzAppendBulkCString(resp, "SETRANGE");
     redisFuzzAppendKey(resp, in);
     redisFuzzAppendSmallNumber(resp, in);
+    sds value = redisFuzzSlice(in, 64);
     redisFuzzAppendBulkSds(resp, value);
     sdsfree(value);
 }
