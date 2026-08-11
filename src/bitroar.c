@@ -806,7 +806,7 @@ void bitroarVisitSetBitRanges(const robj *o,
         count = roaring64_iterator_read_ranges(
             it, ranges, sizeof(ranges) / sizeof(ranges[0]));
         for (size_t i = 0; i < count; i++)
-            callback(ranges[i].min, ranges[i].max, privdata);
+            callback(ranges[i].min, ranges[i].max + 1, privdata);
     } while (count == sizeof(ranges) / sizeof(ranges[0]));
 
     roaring64_iterator_free(it);
@@ -993,8 +993,7 @@ int bitroarSetBit(robj *o, uint64_t bitoffset, int on) {
     return C_OK;
 }
 
-uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset,
-                                    uint64_t bits) {
+uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bits) {
     bitroar *bitmap = bitroarGet(o);
     uint64_t bit_len = bitmap->byte_len * 8;
     uint64_t last_bit;
@@ -1110,14 +1109,6 @@ int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
     return C_OK;
 }
 
-void bitroarOptimize(robj *o) {
-    bitroar *bitmap = bitroarGet(o);
-    roaring64_bitmap_run_optimize(bitmap->roaring);
-    roaring64_bitmap_shrink_to_fit(bitmap->roaring);
-    if (bitmap->alloc_size != BITROAR_ALLOC_SIZE_UNKNOWN)
-        bitroarRefreshAllocSize(bitmap);
-}
-
 static void bitroarMaterializeRawRange(unsigned char *raw, size_t chunk_len,
                                       uint32_t start, uint32_t end)
 {
@@ -1217,9 +1208,10 @@ static sds bitroarMaterializeRaw(const robj *o, int proto_limited, int try_alloc
     return bitroarMaterializeRoaring(bitmap->roaring, (size_t)bitmap->byte_len, try_alloc);
 }
 
-/* Flatten the bitmap into its logical raw string bytes. Returns NULL when the
- * logical length exceeds proto-max-bulk-len. */
-sds bitroarMaterialize(const robj *o) {
+/* Flatten the bitmap for DEBUG BITMAP-RAW. This is deliberately not a general
+ * production serialization API: it returns NULL when the logical length
+ * exceeds proto-max-bulk-len. */
+sds bitroarMaterializeForDebug(const robj *o) {
     return bitroarMaterializeRaw(o, 1, 0);
 }
 
@@ -1248,9 +1240,10 @@ typedef struct bitroarRawOpSource {
 } bitroarRawOpSource;
 
 /* Dense mixed operands are cheaper to flatten and combine as machine words
- * than to convert every string source into a temporary Roaring bitmap. Keep
- * this path deliberately narrow: Roaring-only and sparse workloads retain
- * Roaring algebra, while the size cap bounds all temporary raw buffers. */
+ * than to convert every string source into a temporary Roaring bitmap. This is
+ * the only non-debug raw materialization path. Keep it deliberately narrow:
+ * Roaring-only and sparse workloads retain Roaring algebra, while the 1 MiB
+ * result and aggregate-input caps bound all temporary raw buffers. */
 static int bitroarUseMixedRawOp(robj **objects, size_t numkeys,
                                 uint64_t maxlen)
 {
