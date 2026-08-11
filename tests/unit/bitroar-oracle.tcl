@@ -1,324 +1,264 @@
-# Helpers for comparing legacy string bitmap behavior with Roaring bitmap
-# behavior. Each registered mode replays the same scenario steps in its own
-# keyspace and the replies must match exactly. The roaring mode runs the server
-# in bitmap-default-roaring yes so every bitmap write creates or converts to
-# Roaring bitmaps; scenarios observe only bitmap-level behavior (never TYPE or
-# OBJECT ENCODING), which is exactly the parity the exposure gate demands.
-
-namespace eval bitmap_oracle {
-    variable modes {legacy-string roaring}
-}
-
-proc bitmap_oracle::modes {} {
-    variable modes
-    return $modes
-}
-
-proc bitmap_oracle::set_modes {new_modes} {
-    variable modes
-    set modes $new_modes
-}
-
-proc bitmap_oracle::mode_setup {client mode} {
-    switch -- $mode {
-        legacy-string {
-            $client config set bitmap-default-roaring no
-            return
-        }
-        roaring {
-            $client config set bitmap-default-roaring yes
-            return
-        }
-        default {
-            error "unknown bitmap oracle mode '$mode'"
-        }
-    }
-}
-
-proc bitmap_oracle::keyspace_name {scenario mode} {
-    set safe_scenario [string map {" " "_" ":" "_" "/" "_"} $scenario]
-    set safe_mode [string map {" " "_" ":" "_" "/" "_"} $mode]
-    return "bitmap-oracle:{$safe_scenario:$safe_mode}"
-}
-
-proc bitmap_oracle::expand_step {step keyspace} {
-    set expanded {}
-    foreach arg $step {
-        lappend expanded [string map [list %NS% $keyspace] $arg]
-    }
-    return $expanded
-}
-
-proc bitmap_oracle::call {client command} {
-    set invocation [linsert $command 0 $client]
-    set status [catch {uplevel #0 $invocation} reply]
-    if {$status == 0} {
-        return [list ok $reply]
-    }
-    return [list err $reply]
-}
-
-proc bitmap_oracle::run_steps {client mode scenario steps} {
-    bitmap_oracle::mode_setup $client $mode
-
-    set keyspace [bitmap_oracle::keyspace_name $scenario $mode]
-    set results {}
-    foreach step $steps {
-        set command [bitmap_oracle::expand_step $step $keyspace]
-        lappend results [bitmap_oracle::call $client $command]
-    }
-    return $results
-}
-
-proc bitmap_oracle::assert_mode_equivalence {client scenario steps} {
-    set baseline {}
-    set baseline_mode {}
-    foreach mode [bitmap_oracle::modes] {
-        set results [bitmap_oracle::run_steps $client $mode $scenario $steps]
-        if {$baseline_mode eq {}} {
-            set baseline $results
-            set baseline_mode $mode
-        } elseif {$results ne $baseline} {
-            error "bitmap oracle mismatch between '$baseline_mode' and '$mode': expected '$baseline', got '$results'"
-        }
-    }
-    return $baseline
-}
+# Exercise the same bitmap scenarios directly with legacy strings and Roaring
+# bitmaps. Keeping the mode in every test name makes parity failures identify
+# both the representation and the exact command assertion that failed.
 
 start_server {tags {"bitmap" "bitmap-oracle"}} {
-    test {bitmap roaring oracle exposes legacy and roaring modes} {
-        assert_equal [bitmap_oracle::modes] {legacy-string roaring}
-    }
+    foreach {mode bitmap_default expected_type} {
+        legacy-string no string
+        roaring yes bitmap
+    } {
+        r config set bitmap-default-roaring $bitmap_default
 
-    test {bitmap roaring oracle records sparse SETBIT behavior} {
-        set steps {
-            {del %NS%:bitmap}
-            {setbit %NS%:bitmap 0 1}
-            {setbit %NS%:bitmap 2 1}
-            {setbit %NS%:bitmap 65536 1}
-            {getbit %NS%:bitmap 65536}
-            {bitcount %NS%:bitmap}
-            {bitpos %NS%:bitmap 1}
-            {bitpos %NS%:bitmap 0}
-            {bitfield %NS%:bitmap GET u1 0 GET u1 2 GET u1 65536}
+        test "bitmap oracle sparse SETBIT behavior ($mode)" {
+            set bitmap bitmap:oracle:sparse{t}
+            r del $bitmap
+
+            assert_equal 0 [r setbit $bitmap 0 1]
+            assert_equal 0 [r setbit $bitmap 2 1]
+            assert_equal 0 [r setbit $bitmap 65536 1]
+            assert_equal $expected_type [r type $bitmap]
+            assert_equal 1 [r getbit $bitmap 65536]
+            assert_equal 3 [r bitcount $bitmap]
+            assert_equal 0 [r bitpos $bitmap 1]
+            assert_equal 1 [r bitpos $bitmap 0]
+            assert_equal {1 1 1} [r bitfield $bitmap \
+                GET u1 0 GET u1 2 GET u1 65536]
         }
 
-        set got [bitmap_oracle::assert_mode_equivalence r sparse-setbit $steps]
-        set expected [list \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 1] \
-            [list ok 3] \
-            [list ok 0] \
-            [list ok 1] \
-            [list ok {1 1 1}]]
-        assert_equal $got $expected
-    }
+        test "bitmap oracle BITFIELD and range reads ($mode)" {
+            set bitmap bitmap:oracle:bitfield{t}
+            r del $bitmap
 
-    test {bitmap roaring oracle covers BITFIELD and range read parity} {
-        set steps {
-            {del %NS%:bitmap}
-            {setbit %NS%:bitmap 0 1}
-            {setbit %NS%:bitmap 9 1}
-            {setbit %NS%:bitmap 31 1}
-            {bitcount %NS%:bitmap}
-            {bitcount %NS%:bitmap 4 24 bit}
-            {bitpos %NS%:bitmap 1 8 -1 bit}
-            {bitfield %NS%:bitmap GET u10 0 SET u5 20 17 GET u8 16}
-            {bitfield_ro %NS%:bitmap GET u5 20 GET u1 31}
-            {getbit %NS%:bitmap 24}
-            {bitcount %NS%:bitmap}
+            assert_equal 0 [r setbit $bitmap 0 1]
+            assert_equal 0 [r setbit $bitmap 9 1]
+            assert_equal 0 [r setbit $bitmap 31 1]
+            assert_equal $expected_type [r type $bitmap]
+            assert_equal 3 [r bitcount $bitmap]
+            assert_equal 1 [r bitcount $bitmap 4 24 bit]
+            assert_equal 9 [r bitpos $bitmap 1 8 -1 bit]
+            assert_equal {513 0 8} [r bitfield $bitmap \
+                GET u10 0 SET u5 20 17 GET u8 16]
+            assert_equal {17 1} [r bitfield_ro $bitmap GET u5 20 GET u1 31]
+            assert_equal 1 [r getbit $bitmap 24]
+            assert_equal 5 [r bitcount $bitmap]
         }
 
-        set got [bitmap_oracle::assert_mode_equivalence r bitfield-ranges $steps]
-        set expected [list \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 3] \
-            [list ok 1] \
-            [list ok 9] \
-            [list ok {513 0 8}] \
-            [list ok {17 1}] \
-            [list ok 1] \
-            [list ok 5]]
-        assert_equal $got $expected
-    }
+        test "bitmap oracle BITOP aliasing and missing sources ($mode)" {
+            set a bitmap:oracle:bitop:a{t}
+            set b bitmap:oracle:bitop:b{t}
+            set c bitmap:oracle:bitop:c{t}
+            set missing bitmap:oracle:bitop:missing{t}
+            set out bitmap:oracle:bitop:out{t}
+            set inverted bitmap:oracle:bitop:not{t}
+            r del $a $b $c $missing $out $inverted
 
-    test {bitmap roaring oracle covers BITOP aliasing and missing sources} {
-        set steps {
-            {del %NS%:a %NS%:b %NS%:c %NS%:out %NS%:not}
-            {setbit %NS%:a 0 1}
-            {setbit %NS%:a 2 1}
-            {setbit %NS%:a 9 1}
-            {setbit %NS%:a 16 1}
-            {setbit %NS%:b 1 1}
-            {setbit %NS%:b 2 1}
-            {setbit %NS%:b 16 1}
-            {setbit %NS%:b 17 1}
-            {bitop xor %NS%:a %NS%:a %NS%:b}
-            {bitcount %NS%:a}
-            {bitop or %NS%:out %NS%:a %NS%:missing %NS%:c}
-            {bitcount %NS%:out}
-            {bitop not %NS%:not %NS%:out}
-            {bitcount %NS%:not}
-            {bitpos %NS%:not 0}
+            assert_equal none [r type $missing]
+            assert_equal 0 [r getbit $missing 65536]
+            assert_equal 0 [r bitcount $missing]
+            assert_equal -1 [r bitpos $missing 1]
+
+            assert_equal 0 [r setbit $a 0 1]
+            assert_equal 0 [r setbit $a 2 1]
+            assert_equal 0 [r setbit $a 9 1]
+            assert_equal 0 [r setbit $a 16 1]
+            assert_equal 0 [r setbit $b 1 1]
+            assert_equal 0 [r setbit $b 2 1]
+            assert_equal 0 [r setbit $b 16 1]
+            assert_equal 0 [r setbit $b 17 1]
+
+            assert_equal 3 [r bitop xor $a $a $b]
+            assert_equal $expected_type [r type $a]
+            assert_equal 4 [r bitcount $a]
+
+            assert_equal 3 [r bitop or $out $a $missing $c]
+            assert_equal $expected_type [r type $out]
+            assert_equal 4 [r bitcount $out]
+
+            assert_equal 3 [r bitop not $inverted $out]
+            assert_equal $expected_type [r type $inverted]
+            assert_equal 20 [r bitcount $inverted]
+            assert_equal 0 [r bitpos $inverted 0]
         }
 
-        set got [bitmap_oracle::assert_mode_equivalence r bitop-alias-missing $steps]
-        set expected [list \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 0] \
-            [list ok 3] \
-            [list ok 4] \
-            [list ok 3] \
-            [list ok 4] \
-            [list ok 3] \
-            [list ok 20] \
-            [list ok 0]]
-        assert_equal $got $expected
-    }
+        test "bitmap oracle reports missing keys and command errors ($mode)" {
+            set bitmap bitmap:oracle:errors:bitmap{t}
+            set missing bitmap:oracle:errors:missing{t}
+            set wrongtype bitmap:oracle:errors:list{t}
+            set out bitmap:oracle:errors:out{t}
+            r del $bitmap $missing $wrongtype $out
 
-    test {bitmap roaring oracle ports deterministic redis-roaring fuzz seed cases} {
-        set scenarios {
-            {seed1_setbit {
-                {del %NS%:bitmap}
-                {setbit %NS%:bitmap 1 1}
-                {setbit %NS%:bitmap 64 1}
-                {setbit %NS%:bitmap 4096 1}
-                {getbit %NS%:bitmap 64}
-                {bitcount %NS%:bitmap}
-                {bitpos %NS%:bitmap 1}
-                {bitfield_ro %NS%:bitmap GET u1 1 GET u1 2 GET u1 4096}
-            } {
-                {ok 0}
-                {ok 0}
-                {ok 0}
-                {ok 0}
-                {ok 1}
-                {ok 3}
-                {ok 1}
-                {ok {1 0 1}}
-            }}
-            {seed4_diff_alias {
-                {del %NS%:a %NS%:b %NS%:out}
-                {setbit %NS%:a 0 1}
-                {setbit %NS%:a 2 1}
-                {setbit %NS%:b 2 1}
-                {setbit %NS%:b 3 1}
-                {bitop diff %NS%:a %NS%:a %NS%:b}
-                {bitcount %NS%:a}
-                {bitop one %NS%:out %NS%:a %NS%:b}
-                {bitcount %NS%:out}
-            } {
-                {ok 0}
-                {ok 0}
-                {ok 0}
-                {ok 0}
-                {ok 0}
-                {ok 1}
-                {ok 1}
-                {ok 1}
-                {ok 3}
-            }}
-            {seed5_setfull_bounded {
-                {del %NS%:bitmap}
-                {bitfield %NS%:bitmap SET u8 0 255}
-                {bitcount %NS%:bitmap}
-                {bitpos %NS%:bitmap 0}
-                {bitfield %NS%:bitmap SET u5 8 31}
-                {bitcount %NS%:bitmap}
-                {bitpos %NS%:bitmap 0}
-            } {
-                {ok 0}
-                {ok 0}
-                {ok 8}
-                {ok 8}
-                {ok 0}
-                {ok 13}
-                {ok 13}
-            }}
+            assert_equal none [r type $missing]
+            assert_equal 0 [r getbit $missing 99]
+            assert_equal 0 [r bitcount $missing]
+            assert_equal -1 [r bitpos $missing 1]
+            assert_equal {0} [r bitfield_ro $missing GET u4 12]
+
+            assert_equal 1 [r rpush $wrongtype value]
+            assert_equal list [r type $wrongtype]
+            assert_error {WRONGTYPE*} {r setbit $wrongtype 0 1}
+            assert_error {WRONGTYPE*} {r bitcount $wrongtype}
+            assert_error {WRONGTYPE*} {r bitpos $wrongtype 1}
+            assert_error {WRONGTYPE*} {r bitfield_ro $wrongtype GET u1 0}
+            assert_error {WRONGTYPE*} {r bitop or $out $wrongtype $missing}
+            assert_equal none [r type $out]
+
+            assert_error {*out of range*} {r setbit $bitmap 0 2}
+            assert_equal none [r type $bitmap]
+            assert_error {ERR *syntax*} {r bitcount $missing 0}
         }
 
-        foreach scenario $scenarios {
-            lassign $scenario name steps expected
-            set expected [lrange $expected 0 end]
-            set got [bitmap_oracle::assert_mode_equivalence r "redis-roaring:$name" $steps]
-            assert_equal $got $expected
-        }
-    }
+        test "bitmap oracle converts existing strings according to config ($mode)" {
+            set bitmap bitmap:oracle:conversion{t}
+            set original [binary format H* a55a]
+            set changed [binary format H* 255a]
+            r del $bitmap
 
-    test {legacy bitmap strings keep string command behavior} {
-        bitmap_oracle::mode_setup r legacy-string
-        set key bitmap:legacy-boundary{t}
-        r del $key
+            assert_equal OK [r set $bitmap $original]
+            assert_equal string [r type $bitmap]
+            assert_equal 1 [r setbit $bitmap 0 0]
+            assert_equal $expected_type [r type $bitmap]
+            assert_equal 0 [r getbit $bitmap 0]
+            assert_equal 1 [r getbit $bitmap 2]
+            assert_equal 7 [r bitcount $bitmap]
+            assert_equal 2 [r bitpos $bitmap 1]
+            assert_equal {37 90} [r bitfield_ro $bitmap GET u8 0 GET u8 8]
 
-        assert_equal 0 [r setbit $key 9 1]
-        assert_equal string [r type $key]
-        assert_equal 2 [r strlen $key]
-        assert_equal [binary format B* 0000000001000000] [r get $key]
-        assert_equal 3 [r append $key Z]
-        assert_equal 3 [r strlen $key]
-        assert_equal 3 [r setrange $key 0 abc]
-        assert_equal abc [r get $key]
-    }
-
-    test {legacy bitmap corpus covers sparse and boundary offsets} {
-        bitmap_oracle::mode_setup r legacy-string
-        set corpus {
-            {single-zero {0}}
-            {byte-boundaries {0 7 8 15}}
-            {word-boundaries {15 16 31 32 63 64 127 128}}
-            {container-boundaries {4095 4096 65535 65536 131071}}
-            {large-sparse {1 1000 100000 1000000}}
-        }
-
-        foreach fixture $corpus {
-            lassign $fixture name offsets
-            set key "bitmap:corpus:$name{t}"
-            r del $key
-
-            foreach offset $offsets {
-                assert_equal 0 [r setbit $key $offset 1]
-                assert_equal 1 [r getbit $key $offset]
+            if {$mode eq "legacy-string"} {
+                assert_equal $changed [r get $bitmap]
+            } else {
+                assert_error {WRONGTYPE*} {r get $bitmap}
             }
-
-            set sorted [lsort -integer $offsets]
-            set max [lindex $sorted end]
-            assert_equal [llength $offsets] [r bitcount $key]
-            assert_equal [lindex $sorted 0] [r bitpos $key 1]
-            assert_equal [expr {$max / 8 + 1}] [r strlen $key]
-            assert_equal string [r type $key]
         }
-    }
 
-    test {legacy bitmap deterministic sparse fuzz corpus} {
-        bitmap_oracle::mode_setup r legacy-string
-        for {set j 0} {$j < 16} {incr j} {
-            set key "bitmap:fuzz:$j{t}"
-            r del $key
-            catch {unset seen}
-            array set seen {}
+        test "bitmap oracle deterministic sparse seed ($mode)" {
+            set bitmap bitmap:oracle:seed:sparse{t}
+            r del $bitmap
 
-            for {set i 0} {$i < 64} {incr i} {
-                set offset [expr {(($j + 1) * 97 + ($i * $i * 131)) % 250000}]
-                set seen($offset) 1
-                r setbit $key $offset 1
-                assert_equal 1 [r getbit $key $offset]
+            assert_equal 0 [r setbit $bitmap 1 1]
+            assert_equal 0 [r setbit $bitmap 64 1]
+            assert_equal 0 [r setbit $bitmap 4096 1]
+            assert_equal $expected_type [r type $bitmap]
+            assert_equal 1 [r getbit $bitmap 64]
+            assert_equal 3 [r bitcount $bitmap]
+            assert_equal 1 [r bitpos $bitmap 1]
+            assert_equal {1 0 1} [r bitfield_ro $bitmap \
+                GET u1 1 GET u1 2 GET u1 4096]
+        }
+
+        test "bitmap oracle deterministic DIFF and ONE alias seed ($mode)" {
+            set a bitmap:oracle:seed:diff:a{t}
+            set b bitmap:oracle:seed:diff:b{t}
+            set out bitmap:oracle:seed:diff:out{t}
+            r del $a $b $out
+
+            assert_equal 0 [r setbit $a 0 1]
+            assert_equal 0 [r setbit $a 2 1]
+            assert_equal 0 [r setbit $b 2 1]
+            assert_equal 0 [r setbit $b 3 1]
+
+            assert_equal 1 [r bitop diff $a $a $b]
+            assert_equal $expected_type [r type $a]
+            assert_equal 1 [r bitcount $a]
+            assert_equal 1 [r getbit $a 0]
+            assert_equal 0 [r getbit $a 2]
+
+            assert_equal 1 [r bitop one $out $a $b]
+            assert_equal $expected_type [r type $out]
+            assert_equal 3 [r bitcount $out]
+            assert_equal 1 [r getbit $out 0]
+            assert_equal 1 [r getbit $out 2]
+            assert_equal 1 [r getbit $out 3]
+        }
+
+        test "bitmap oracle deterministic adjacent full ranges seed ($mode)" {
+            set bitmap bitmap:oracle:seed:full{t}
+            r del $bitmap
+
+            assert_equal {0} [r bitfield $bitmap SET u8 0 255]
+            assert_equal $expected_type [r type $bitmap]
+            assert_equal 8 [r bitcount $bitmap]
+            assert_equal 8 [r bitpos $bitmap 0]
+
+            assert_equal {0} [r bitfield $bitmap SET u5 8 31]
+            assert_equal 13 [r bitcount $bitmap]
+            assert_equal 13 [r bitpos $bitmap 0]
+        }
+
+        test "bitmap oracle string command boundary ($mode)" {
+            set bitmap bitmap:oracle:string-boundary{t}
+            r del $bitmap
+
+            assert_equal 0 [r setbit $bitmap 9 1]
+            assert_equal $expected_type [r type $bitmap]
+            assert_equal 1 [r getbit $bitmap 9]
+            assert_equal 1 [r bitcount $bitmap]
+
+            if {$mode eq "legacy-string"} {
+                assert_equal 2 [r strlen $bitmap]
+                assert_equal [binary format B* 0000000001000000] [r get $bitmap]
+                assert_equal 3 [r append $bitmap Z]
+                assert_equal 3 [r strlen $bitmap]
+                assert_equal 3 [r setrange $bitmap 0 abc]
+                assert_equal abc [r get $bitmap]
+            } else {
+                assert_error {WRONGTYPE*} {r strlen $bitmap}
+                assert_error {WRONGTYPE*} {r get $bitmap}
+                assert_error {WRONGTYPE*} {r append $bitmap Z}
+                assert_error {WRONGTYPE*} {r setrange $bitmap 0 abc}
+                assert_equal 1 [r getbit $bitmap 9]
+                assert_equal 1 [r bitcount $bitmap]
             }
+        }
 
-            assert_equal [array size seen] [r bitcount $key]
-            assert_equal string [r type $key]
+        foreach {scenario offsets} {
+            single-zero {0}
+            byte-boundaries {0 7 8 15}
+            word-boundaries {15 16 31 32 63 64 127 128}
+            container-boundaries {4095 4096 65535 65536 131071}
+            large-sparse {1 1000 100000 1000000}
+        } {
+            test "bitmap oracle $scenario offset corpus ($mode)" {
+                set bitmap "bitmap:oracle:corpus:${scenario}{t}"
+                r del $bitmap
+
+                foreach offset $offsets {
+                    assert_equal 0 [r setbit $bitmap $offset 1]
+                    assert_equal 1 [r getbit $bitmap $offset]
+                }
+
+                set sorted [lsort -integer $offsets]
+                set first [lindex $sorted 0]
+                set last [lindex $sorted end]
+                assert_equal $expected_type [r type $bitmap]
+                assert_equal [llength $offsets] [r bitcount $bitmap]
+                assert_equal $first [r bitpos $bitmap 1]
+                assert_equal 1 [r getbit $bitmap $last]
+
+                if {$mode eq "legacy-string"} {
+                    assert_equal [expr {$last / 8 + 1}] [r strlen $bitmap]
+                }
+            }
+        }
+
+        test "bitmap oracle deterministic sparse fuzz corpus ($mode)" {
+            for {set j 0} {$j < 16} {incr j} {
+                set bitmap "bitmap:oracle:fuzz:$j{t}"
+                r del $bitmap
+                catch {unset seen}
+                array set seen {}
+
+                for {set i 0} {$i < 64} {incr i} {
+                    set offset [expr {(($j + 1) * 97 + ($i * $i * 131)) % 250000}]
+                    set seen($offset) 1
+                    r setbit $bitmap $offset 1
+                    assert_equal 1 [r getbit $bitmap $offset]
+                }
+
+                assert_equal $expected_type [r type $bitmap]
+                assert_equal [array size seen] [r bitcount $bitmap]
+            }
         }
     }
+
+    r config set bitmap-default-roaring no
 }
