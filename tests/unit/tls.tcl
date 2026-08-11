@@ -3,10 +3,17 @@ start_server {tags {"tls"}} {
         package require tls
 
         proc tls_redis_cli {host port groups} {
-            set cmd [rediscli $host $port [list \
+            set tlsdir [file join [pwd] tests tls]
+            set cmd [list src/redis-cli \
+                -h $host \
+                -p $port \
+                --tls \
+                --cert [file join $tlsdir client.crt] \
+                --key [file join $tlsdir client.key] \
+                --cacert [file join $tlsdir ca.crt] \
                 --tls-ciphers ECDHE-RSA-AES128-GCM-SHA256 \
                 --tls-curve-preferences $groups \
-                PING]]
+                PING]
             exec {*}$cmd 2>@1
         }
 
