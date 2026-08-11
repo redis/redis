@@ -1,9 +1,8 @@
 # Redis fuzzing
 
 This directory contains opt-in libFuzzer targets for Redis core. The targets
-exercise Redis string, string-backed bitmap, stream, and focused command
-extensions through the real command parser and executor, using a local
-socketpair-backed client.
+exercise Redis commands through the real command parser and executor, using a
+local socketpair-backed client.
 
 The command-extension target covers `INCREX`, `SUNIONCARD`, `SDIFFCARD`, and
 the `AGGREGATE COUNT` mode of sorted-set union/intersection commands. It
@@ -11,10 +10,36 @@ generates stateful option, encoding, aliasing, and wrong-type combinations.
 Reserved keys provide exact post-execution oracles for integer saturation, set
 cardinality, and weighted COUNT scores.
 
-Its initial corpus also preserves two minimized UBSan findings: a relative
-`INCREX` TTL overflow and malformed sorted-set key-count arithmetic. The draft
-command-extension CI job is expected to remain red on those seeds until the
-corresponding production fixes land.
+Its initial corpus also preserves minimized UBSan regressions for a relative
+`INCREX` TTL overflow and malformed sorted-set key-count arithmetic.
+
+The shared harness is data-structure agnostic. Feature branches can add focused
+targets without changing normal Redis builds.
+
+`fuzz_list_move_commands` is a stateful target for Redis 8.10 `LMOVEM` and
+`BLMOVEM`. Its generated pipelines grow, shrink, rotate, delete, and change the
+types of source and destination keys. It covers both directions, `COUNT` and
+`EXACTLY`, `OBO` and `BULK`, missing and aliased keys, listpack/quicklist-sized
+binary values, and malformed command shapes. A bounded in-memory list model is
+checked directly against the Redis database, including move count, destination
+ordering, same-key rotation, and the all-or-nothing behavior of `EXACTLY`. A
+`BLMOVEM` with insufficient input registers the real blocked-client state; the
+harness checks that state, then destroys the socket-backed client immediately,
+exercising unblock and key-wait cleanup without waiting on wall-clock time.
+
+`fuzz_replication_compression` exercises the client-level replication
+compression implementation through real socket-backed clients. It independently
+varies plaintext write chunks, compressor frame flushes, compressed input
+chunks, and decompressed output buffer sizes. It checks exact round trips across
+single, empty, duplicated, and concatenated Zstd frames, and feeds truncated,
+corrupted, prefixed, suffixed, and fully arbitrary compressed streams through
+the decompressor. Every input creates and destroys fresh compression and
+decompression state to cover lifecycle cleanup.
+
+The Array target generates bounded, stateful command sequences. It covers
+contiguous and sparse writes, sparse-to-dense slice transitions, range deletion,
+ring resize and wraparound, cursor movement, scanning, textual search,
+reductions, wrong types, boundary indices, and malformed command shapes.
 
 The targets are intentionally independent from native bitmap work. Once this
 infrastructure lands upstream, native bitmap targets can extend it in the
@@ -35,8 +60,9 @@ make fuzz CC=clang
 ```
 
 The fuzz build uses libFuzzer with AddressSanitizer and UndefinedBehaviorSanitizer
-and forces `MALLOC=libc`, matching Redis sanitizer builds. Normal Redis builds are
-unchanged.
+and forces `MALLOC=libc`, matching Redis sanitizer builds. It also enables
+replication compression with `BUILD_COMPRESSION=yes` and links libzstd. Normal
+Redis builds are unchanged.
 
 ## Seed corpora
 
@@ -53,6 +79,10 @@ fuzz/generate-seeds.sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -runs=1
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
 fuzz/fuzz_command_extensions fuzz/corpus/command_extensions -runs=1
+fuzz/fuzz_hash_templates fuzz/corpus/hash_templates -runs=1
+fuzz/fuzz_array_commands fuzz/corpus/array_commands -runs=1
+fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -runs=1
+fuzz/fuzz_list_move_commands fuzz/corpus/list_move_commands -runs=1
 fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -runs=1
 ```
 
@@ -62,6 +92,10 @@ fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -runs=1
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -max_total_time=300
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -max_total_time=300
 fuzz/fuzz_command_extensions fuzz/corpus/command_extensions -max_total_time=300
+fuzz/fuzz_hash_templates fuzz/corpus/hash_templates -max_total_time=300
+fuzz/fuzz_array_commands fuzz/corpus/array_commands -max_total_time=300
+fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -max_total_time=300
+fuzz/fuzz_list_move_commands fuzz/corpus/list_move_commands -max_total_time=300
 fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -max_total_time=300
 ```
 
@@ -102,3 +136,13 @@ fuzz/fuzz_bitmap_commands -minimize_crash=1 crash-1234
 Minimized crash inputs should be added to the relevant corpus directory. If a
 crash captures an important semantic regression, add a deterministic Redis test
 for it as well.
+
+## Compact hashes and `HIMPORT`
+
+`fuzz_hash_templates` always prepares the same schema in two different field
+orders and creates two keys backed by the shared template. It then mutates a
+bounded model with `HIMPORT PREPARE`, `SET`, `DISCARD`, and `DISCARDALL`, ordinary
+hash commands, `COPY`, `DUMP`, `RESET`, deletion, wrong-type values, and invalid
+command shapes. The target varies listpack thresholds to exercise both
+`template-listpack` and `template-array`, and checks the resulting database
+against its in-memory field/value model after every generated command stream.

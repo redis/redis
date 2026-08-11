@@ -1,6 +1,7 @@
 #include "redis_fuzz.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -38,7 +39,23 @@ static connection *redisFuzzCreateConnection(int *peer_fd) {
 void redisFuzzInit(void) {
     if (redis_fuzz_initialized) return;
 
+    static const int redis_fuzz_signals[] = {
+        SIGTERM, SIGINT, SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT
+    };
+    struct sigaction saved_actions[
+        sizeof(redis_fuzz_signals) / sizeof(redis_fuzz_signals[0])];
     struct timeval tv;
+
+    /* initServer installs Redis's production crash and shutdown handlers.
+     * Preserve the libFuzzer/sanitizer handlers so failures produce artifacts
+     * instead of entering Redis's interactive crash-memory test. */
+    for (size_t i = 0;
+         i < sizeof(redis_fuzz_signals) / sizeof(redis_fuzz_signals[0]);
+         i++)
+    {
+        sigaction(redis_fuzz_signals[i], NULL, &saved_actions[i]);
+    }
+
     tzset();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     gettimeofday(&tv, NULL);
@@ -65,6 +82,13 @@ void redisFuzzInit(void) {
     keyMetaInit();
     initServer();
 
+    for (size_t i = 0;
+         i < sizeof(redis_fuzz_signals) / sizeof(redis_fuzz_signals[0]);
+         i++)
+    {
+        sigaction(redis_fuzz_signals[i], &saved_actions[i], NULL);
+    }
+
     redis_fuzz_initialized = 1;
 }
 
@@ -73,7 +97,8 @@ void redisFuzzReset(void) {
     server.dirty += emptyData(-1, EMPTYDB_NO_FLAGS | EMPTYDB_NOFUNCTIONS, NULL);
 }
 
-void redisFuzzRunRespWithPostHook(sds resp, RedisFuzzPostHook hook, void *ctx) {
+static void redisFuzzRunRespWithHooks(sds resp, RedisFuzzInspectFunc inspect,
+                                     RedisFuzzPostHook hook, void *ctx) {
     redisFuzzInit();
     updateCachedTime(0);
 
@@ -87,6 +112,7 @@ void redisFuzzRunRespWithPostHook(sds resp, RedisFuzzPostHook hook, void *ctx) {
     c->querybuf = resp;
     c->querybuf_peak = sdslen(resp);
     if (processInputBuffer(c) == C_OK) {
+        if (inspect) inspect(c, ctx);
         freeClient(c);
     }
     close(peer_fd);
@@ -95,8 +121,16 @@ void redisFuzzRunRespWithPostHook(sds resp, RedisFuzzPostHook hook, void *ctx) {
     redisFuzzReset();
 }
 
+void redisFuzzRunRespWithInspect(sds resp, RedisFuzzInspectFunc inspect, void *ctx) {
+    redisFuzzRunRespWithHooks(resp, inspect, NULL, ctx);
+}
+
+void redisFuzzRunRespWithPostHook(sds resp, RedisFuzzPostHook hook, void *ctx) {
+    redisFuzzRunRespWithHooks(resp, NULL, hook, ctx);
+}
+
 void redisFuzzRunResp(sds resp) {
-    redisFuzzRunRespWithPostHook(resp, NULL, NULL);
+    redisFuzzRunRespWithHooks(resp, NULL, NULL, NULL);
 }
 
 uint8_t redisFuzzByte(RedisFuzzInput *in) {

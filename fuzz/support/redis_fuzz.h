@@ -14,10 +14,12 @@ typedef struct RedisFuzzInput {
 } RedisFuzzInput;
 
 typedef void (*RedisFuzzPostHook)(void *ctx);
+typedef void (*RedisFuzzInspectFunc)(client *c, void *ctx);
 
 void redisFuzzInit(void);
 void redisFuzzReset(void);
 void redisFuzzRunResp(sds resp);
+void redisFuzzRunRespWithInspect(sds resp, RedisFuzzInspectFunc inspect, void *ctx);
 void redisFuzzRunRespWithPostHook(sds resp, RedisFuzzPostHook hook, void *ctx);
 
 uint8_t redisFuzzByte(RedisFuzzInput *in);
