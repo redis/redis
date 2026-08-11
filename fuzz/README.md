@@ -15,6 +15,15 @@ ordering, same-key rotation, and the all-or-nothing behavior of `EXACTLY`. A
 harness checks that state, then destroys the socket-backed client immediately,
 exercising unblock and key-wait cleanup without waiting on wall-clock time.
 
+`fuzz_replication_compression` exercises the client-level replication
+compression implementation through real socket-backed clients. It independently
+varies plaintext write chunks, compressor frame flushes, compressed input
+chunks, and decompressed output buffer sizes. It checks exact round trips across
+single, empty, duplicated, and concatenated Zstd frames, and feeds truncated,
+corrupted, prefixed, suffixed, and fully arbitrary compressed streams through
+the decompressor. Every input creates and destroys fresh compression and
+decompression state to cover lifecycle cleanup.
+
 The targets are intentionally independent from native bitmap work. Once this
 infrastructure lands upstream, native bitmap targets can extend it in the
 feature branch. The stream target establishes consumer-group pending entries
@@ -34,8 +43,9 @@ make fuzz CC=clang
 ```
 
 The fuzz build uses libFuzzer with AddressSanitizer and UndefinedBehaviorSanitizer
-and forces `MALLOC=libc`, matching Redis sanitizer builds. Normal Redis builds are
-unchanged.
+and forces `MALLOC=libc`, matching Redis sanitizer builds. It also enables
+replication compression with `BUILD_COMPRESSION=yes` and links libzstd. Normal
+Redis builds are unchanged.
 
 ## Seed corpora
 
@@ -51,6 +61,7 @@ fuzz/generate-seeds.sh
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -runs=1
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
+fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -runs=1
 fuzz/fuzz_list_move_commands fuzz/corpus/list_move_commands -runs=1
 fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -runs=1
 ```
@@ -60,6 +71,7 @@ fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -runs=1
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -max_total_time=300
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -max_total_time=300
+fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -max_total_time=300
 fuzz/fuzz_list_move_commands fuzz/corpus/list_move_commands -max_total_time=300
 fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -max_total_time=300
 ```
