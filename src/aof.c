@@ -1181,13 +1181,13 @@ void updateReplOffsetAndResetEndOffset(void) {
  * AOFRW, which may be that we have reached the 'next_rewrite_time' or the number of INCR
  * AOFs has not reached the limit threshold.
  * */
-#define AOF_REWRITE_LIMITE_THRESHOLD    3
-#define AOF_REWRITE_LIMITE_MAX_MINUTES  60 /* 1 hour */
+#define AOF_REWRITE_LIMIT_THRESHOLD    3
+#define AOF_REWRITE_LIMIT_MAX_MINUTES  60 /* 1 hour */
 int aofRewriteLimited(void) {
     static int next_delay_minutes = 0;
     static time_t next_rewrite_time = 0;
 
-    if (server.stat_aofrw_consecutive_failures < AOF_REWRITE_LIMITE_THRESHOLD) {
+    if (server.stat_aofrw_consecutive_failures < AOF_REWRITE_LIMIT_THRESHOLD) {
         /* We may be recovering from limited state, so reset all states. */
         next_delay_minutes = 0;
         next_rewrite_time = 0;
@@ -1205,8 +1205,8 @@ int aofRewriteLimited(void) {
     }
 
     next_delay_minutes = (next_delay_minutes == 0) ? 1 : (next_delay_minutes * 2);
-    if (next_delay_minutes > AOF_REWRITE_LIMITE_MAX_MINUTES) {
-        next_delay_minutes = AOF_REWRITE_LIMITE_MAX_MINUTES;
+    if (next_delay_minutes > AOF_REWRITE_LIMIT_MAX_MINUTES) {
+        next_delay_minutes = AOF_REWRITE_LIMIT_MAX_MINUTES;
     }
 
     next_rewrite_time = server.unixtime + next_delay_minutes * 60;
@@ -1865,7 +1865,14 @@ int loadSingleAppendOnlyFile(char *filename) {
 
         if (fseek(fp,0,SEEK_SET) == -1) goto readerr;
         rioInitWithFile(&rdb,fp);
-        if (rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL) != C_OK) {
+
+        /* Active defrag doesn't run during regular RDB loading. Pause it
+         * while loading an RDB preamble from AOF as well. */
+        server.active_defrag_paused++;
+        int rdb_ret = rdbLoadRio(&rdb,RDBFLAGS_AOF_PREAMBLE,NULL);
+        server.active_defrag_paused--;
+
+        if (rdb_ret != C_OK) {
             if (old_style)
                 serverLog(LL_WARNING, "Error reading the RDB preamble of the AOF file %s, AOF loading aborted", filename);
             else

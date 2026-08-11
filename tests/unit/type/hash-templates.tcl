@@ -1452,6 +1452,16 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
         } else {
             fail "serialization cache ($mem_with_cache bytes) was not reclaimed"
         }
+
+        # A blob just below the 16 MB cap does not fit beside the small one.
+        r config set hash-max-listpack-value 17mb
+        r himport prepare bigfs [string repeat x [expr {16 * 1024 * 1024 - 8192}]]
+        r himport set bigkey bigfs v
+
+        r dump k
+        set mem_before [s used_memory_hash_templates]
+        r restore bigcopy 0 [r dump bigkey]
+        assert_equal $mem_before [s used_memory_hash_templates]
     }
 }
 
