@@ -46,7 +46,7 @@ typedef enum GetFieldRes {
 
 typedef listpackEntry CommonEntry; /* extend usage beyond lp */
 
-#define FIELDS_STACK_SIZE 16
+#define FIELDS_STACK_SIZE 64
 
 /* A vec with an embedded stack buffer, used to collect field robj pointers
  * for subkey notifications without heap allocation in the common case. */
@@ -371,6 +371,12 @@ static int hashTypeSdsArrayFitsLp(sds *arr, unsigned long long n) {
     if (n > server.hash_max_listpack_entries) return 0;
     ssize_t sum = hashTypeSdsArrayLpBytes(arr, n);
     return sum >= 0 && lpSafeToAdd(NULL, sum);
+}
+
+/* True if the hash uses one of the template encodings. */
+static inline int hashTypeIsTemplate(const robj *o) {
+    return o->encoding == OBJ_ENCODING_TMPL_LP ||
+           o->encoding == OBJ_ENCODING_TMPL_ARRAY;
 }
 
 /* by_id is a chunked array: fixed-size chunks of template pointers. */
@@ -969,13 +975,13 @@ static hashTemplate *hashTemplateLpGetTemplate(unsigned char *lp) {
     hashTemplate *tmpl = hashTemplateGetById(hashTemplateLpGetTemplateId(lp));
     if (tmpl == NULL)
         serverPanic("TMPL_LP listpack references unknown template ID");
+    serverAssert(lpLength(lp) == tmpl->field_count + 1); /* +1 for template-id entry */
     return tmpl;
 }
 
 /* Return the shared template of a template-encoded hash (TMPL_LP or TMPL_ARRAY). */
 hashTemplate *hashTypeGetTemplate(robj *o) {
-    serverAssert(o->encoding == OBJ_ENCODING_TMPL_LP ||
-                 o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    serverAssert(hashTypeIsTemplate(o));
     return (o->encoding == OBJ_ENCODING_TMPL_LP) ?
         hashTemplateLpGetTemplate(o->ptr) :
         hashTemplateArrayGetTemplate(o->ptr);
@@ -1446,9 +1452,8 @@ static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
 
     /* The surviving fields, in order, are the new field set. */
     unsigned long long new_count = old_count - num_del_fields;
-    sds stack_fields[HASH_TMPL_STACK_ENTRIES];
-    sds *fields = (new_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
-                                                           zmalloc(sizeof(sds) * new_count);
+    fieldvec fvfields;
+    vec *vfields = fieldvecInit(&fvfields, new_count);
     uint64_t hash = tmpl->hash;
     unsigned long long kept = 0, dropped = 0;
 
@@ -1457,31 +1462,31 @@ static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
             hash -= computeFieldHash(tmpl->fields[i]); /* incremental set hash */
             dropped++;
         } else {
-            fields[kept++] = tmpl->fields[i];
+            vecPush(vfields, tmpl->fields[i]);
         }
     }
-    serverAssert(kept == new_count && dropped == num_del_fields);
+    serverAssert(vecSize(vfields) == new_count && dropped == num_del_fields);
 
-    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, fields, new_count);
-    if (fields != stack_fields) zfree(fields);
+    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, (sds *)vecData(vfields), new_count);
+    vecRelease(vfields);
 
     /* Update the values */
     if (o->encoding == OBJ_ENCODING_TMPL_LP) {
         /* Collect the dropped entries in one walk, then delete them in one pass. */
         unsigned char *lp = o->ptr;
-        unsigned char *stack_ps[HASH_TMPL_STACK_ENTRIES];
-        unsigned char **ps = (num_del_fields <= HASH_TMPL_STACK_ENTRIES) ? stack_ps :
-                             zmalloc(sizeof(unsigned char *) * num_del_fields);
+        fieldvec fvps;
+        vec *vps = fieldvecInit(&fvps, num_del_fields);
         /* Seek the first dropped entry; each next one is `distance` entries
          * after the previous, so step forward instead of a fresh seek. */
-        ps[0] = hashTemplateLpSeekValue(lp, del_indexes[0]);
+        vecPush(vps, hashTemplateLpSeekValue(lp, del_indexes[0]));
         for (unsigned long long i = 1; i < num_del_fields; i++) {
             unsigned long long distance = del_indexes[i] - del_indexes[i - 1];
-            ps[i] = lpNextN(lp, ps[i - 1], distance);
-            serverAssert(ps[i] != NULL);
+            unsigned char *p = lpNextN(lp, vecGet(vps, i - 1), distance);
+            serverAssert(p != NULL);
+            vecPush(vps, p);
         }
-        o->ptr = lpBatchDelete(lp, ps, num_del_fields);
-        if (ps != stack_ps) zfree(ps);
+        o->ptr = lpBatchDelete(lp, (unsigned char **)vecData(vps), num_del_fields);
+        vecRelease(vps);
     } else {
         serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
         hashTemplateArray *hta = o->ptr;
@@ -3096,8 +3101,7 @@ static kvobj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
 
 /* Can a TMPL_LP / TMPL_ARRAY hash be re-encoded as a plain listpack? */
 static int hashTypeCanConvertTmplToListpack(robj *o) {
-    serverAssert(o->encoding == OBJ_ENCODING_TMPL_LP ||
-                 o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    serverAssert(hashTypeIsTemplate(o));
     hashTemplate *tmpl = hashTypeGetTemplate(o);
 
     if (tmpl->field_count > server.hash_max_listpack_entries)
@@ -3122,8 +3126,7 @@ static int hashTypeCanConvertTmplToListpack(robj *o) {
  * abstracts over both template encodings, so one body covers every
  * source/target pair. 'with_hfe' implies 'HT with hfe'. */
 static void hashTypeConvertTmplToListpackOrHT(robj *o, int lp_enc, int with_hfe) {
-    serverAssert(o->encoding == OBJ_ENCODING_TMPL_LP ||
-                 o->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    serverAssert(hashTypeIsTemplate(o));
     int target_enc = hashTypeCanConvertTmplToListpack(o) ? lp_enc : OBJ_ENCODING_HT;
     int src_enc = o->encoding;
     void *old_ptr = o->ptr;
@@ -4240,9 +4243,7 @@ void hsetCommand(client *c) {
     if (kv->encoding == OBJ_ENCODING_LISTPACK && numfields >= 5 && lpLength(kv->ptr) == 0) {
         /* Fresh wide build: single dict pass (last-wins) + one batch append. */
         created = hashTypeBuildFreshListpack(kv, c->argv + 2, numfields);
-    } else if (kv->encoding == OBJ_ENCODING_TMPL_LP ||
-               kv->encoding == OBJ_ENCODING_TMPL_ARRAY)
-    {
+    } else if (hashTypeIsTemplate(kv)) {
         /* Template hash: existing fields are overwritten in place and the
          * missing ones are added in a single template switch. */
         created = hashTypeTmplSetFields(c->db, kv, c->argv + 2, numfields);
@@ -4888,9 +4889,7 @@ void hsetexCommand(client *c) {
     if (set_expiry)
         hashTypeSetExInit(c->argv[1], o, c, c->db, 0, &setex);
 
-    if (o->encoding == OBJ_ENCODING_TMPL_LP ||
-        o->encoding == OBJ_ENCODING_TMPL_ARRAY)
-    {
+    if (hashTypeIsTemplate(o)) {
         /* Template hash: set every field at once in a single template switch. */
         serverAssert(!set_expiry);
         hashTypeTmplSetFields(c->db, o, c->argv + first_field_pos, field_count);
@@ -5239,9 +5238,7 @@ void hgetdelCommand(client *c) {
     vec *vdeleted = fieldvecInit(&fvdeleted, num_fields);
 
     addReplyArrayLen(c, num_fields);
-    if (o && (o->encoding == OBJ_ENCODING_TMPL_LP ||
-              o->encoding == OBJ_ENCODING_TMPL_ARRAY))
-    {
+    if (o && hashTypeIsTemplate(o)) {
         /* Template hash: reply every value, then drop all the fields in one
          * template switch. */
         hashTypeTmplDeleteFields(o, c->argv + 4, c->argc - 4, vdeleted, c);
@@ -5507,9 +5504,7 @@ void hdelCommand(client *c) {
         dictPauseAutoResize((dict*)o->ptr);
 
     /* Template hash: drop all the fields in one template switch. */
-    if (o->encoding == OBJ_ENCODING_TMPL_LP ||
-        o->encoding == OBJ_ENCODING_TMPL_ARRAY)
-    {
+    if (hashTypeIsTemplate(o)) {
         hashTypeTmplDeleteFields(o, c->argv + 2, c->argc - 2, vdeleted, NULL);
         keyremoved = (hashTypeLength(o, 0) == 0);
     } else {
@@ -6406,9 +6401,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
     }
 
     /* Template encodings don't support HFE. */
-    if (hashObj->encoding == OBJ_ENCODING_TMPL_LP ||
-        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY)
-    {
+    if (hashTypeIsTemplate(hashObj)) {
         hashTemplate *tmpl = hashTypeGetTemplate(hashObj);
 
         addReplyArrayLen(c, numFields);
@@ -6751,9 +6744,7 @@ void hpersistCommand(client *c) {
     }
 
     /* Template encodings don't support HFE. */
-    if (hashObj->encoding == OBJ_ENCODING_TMPL_LP ||
-        hashObj->encoding == OBJ_ENCODING_TMPL_ARRAY)
-    {
+    if (hashTypeIsTemplate(hashObj)) {
         hashTemplate *tmpl = hashTypeGetTemplate(hashObj);
 
         addReplyArrayLen(c, numFields);
