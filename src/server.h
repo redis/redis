@@ -866,8 +866,8 @@ typedef enum {
  * deadline and its actual deletion is bounded by how often the sampler happens
  * to draw that key, not by command execution time, so it needs a much wider
  * range than the per command histograms above. */
-#define EXPIRE_LAG_HISTOGRAM_MIN_VALUE 1000L          /* >= 1 microsec */
-#define EXPIRE_LAG_HISTOGRAM_MAX_VALUE 3600000000000L /* <= 1 hour */
+#define EXPIRE_LAG_HISTOGRAM_MIN_VALUE 1000LL          /* >= 1 microsec */
+#define EXPIRE_LAG_HISTOGRAM_MAX_VALUE 3600000000000LL /* <= 1 hour */
 #define EXPIRE_LAG_HISTOGRAM_PRECISION 2              /* 2 significant digits, as above. */
 
 /* Busy module flags, see busy_module_yield_flags */
