@@ -3,7 +3,7 @@
         "summary": "Converts a string bitmap to the native bitmap representation.",
         "complexity": "O(N) where N is the length of the string value.",
         "group": "bitmap",
-        "since": "8.10.0",
+        "since": "8.12.0",
         "arity": 3,
         "function": "bitconvertCommand",
         "doc_flags": [
