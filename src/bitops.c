@@ -962,27 +962,21 @@ static void bitroarPropagateConvert(client *c, robj *key) {
     decrRefCount(argv[2]);
 }
 
-#define BITROAR_CONVERT_OK 0
-#define BITROAR_CONVERT_WRONGTYPE 1
-#define BITROAR_CONVERT_TOO_LARGE 2
-
 /* Apply BITCONVERT's local state transition without producing a command reply.
  * SETBIT and BITFIELD call this before their logical write so primary event and
  * module-callback order is identical to replaying BITCONVERT followed by the
- * original command. Callers must re-lookup the key afterwards: NOTIFY_NEW and
- * NOTIFY_TYPE_CHANGED callbacks may replace or delete it synchronously. */
-static int bitroarConvertKey(client *c, robj *key) {
-    dictEntryLink link = NULL;
-    kvobj *o = lookupKeyWriteWithLink(c->db, key, &link);
-
-    if (o != NULL && o->type != OBJ_STRING && o->type != OBJ_BITMAP)
-        return BITROAR_CONVERT_WRONGTYPE;
-    if (o != NULL && o->type == OBJ_BITMAP)
-        return BITROAR_CONVERT_OK;
+ * original command. o and link are the caller's fresh lookupKeyWriteWithLink()
+ * result for key; the caller must already have rejected other value types and
+ * strings beyond the Roaring bound, so the transition itself cannot fail. This
+ * matters because callers queue the conversion for propagation first: nothing
+ * may error between queueing and applying it. Callers must re-lookup the key
+ * afterwards: NOTIFY_NEW and NOTIFY_TYPE_CHANGED callbacks may replace or
+ * delete it synchronously. */
+static void bitroarConvertKey(client *c, robj *key, kvobj *o, dictEntryLink link) {
+    serverAssert(o == NULL || o->type == OBJ_STRING);
 
     robj *bitmap = o == NULL ? bitroarCreate() : bitroarFromStringObject(o);
-    if (bitmap == NULL)
-        return BITROAR_CONVERT_TOO_LARGE;
+    serverAssert(bitmap != NULL);
 
     if (o == NULL) {
         dbAddByLink(c->db, key, &bitmap, &link);
@@ -994,8 +988,6 @@ static int bitroarConvertKey(client *c, robj *key) {
         keyModified(c, c->db, key, bitmap, 1);
         notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
     }
-
-    return BITROAR_CONVERT_OK;
 }
 
 /* BITCONVERT is an internal propagation primitive. It changes only the value
@@ -1008,7 +1000,8 @@ void bitconvertCommand(client *c) {
         return;
     }
 
-    kvobj *o = lookupKeyWrite(c->db, c->argv[1]);
+    dictEntryLink link = NULL;
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (o != NULL && o->type != OBJ_STRING && o->type != OBJ_BITMAP) {
         addReplyErrorObject(c, shared.wrongtypeerr);
         return;
@@ -1026,12 +1019,7 @@ void bitconvertCommand(client *c) {
      * callbacks there as well; automatic propagation would append it after
      * callback-generated writes and invert the replay order. */
     bitroarPropagateCurrentCommand(c);
-    int result = bitroarConvertKey(c, c->argv[1]);
-    serverAssert(result != BITROAR_CONVERT_WRONGTYPE);
-    if (result == BITROAR_CONVERT_TOO_LARGE) {
-        addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
-        return;
-    }
+    bitroarConvertKey(c, c->argv[1], o, link);
     server.dirty++;
     addReply(c, shared.ok);
 }
@@ -1157,8 +1145,7 @@ void setbitCommand(client *c) {
          * locally. The triggering SETBIT is queued after conversion callbacks
          * but before its own notifications below. */
         bitroarPropagateConvert(c, c->argv[1]);
-        int result = bitroarConvertKey(c, c->argv[1]);
-        serverAssert(result == BITROAR_CONVERT_OK);
+        bitroarConvertKey(c, c->argv[1], o, link);
 
         /* Conversion callbacks may replace or delete the key. Replay observes
          * those effects before SETBIT too, so continue from a fresh lookup and
@@ -2589,8 +2576,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
         if (roaring_target.transition) {
             bitroarPropagateConvert(c, c->argv[1]);
-            int result = bitroarConvertKey(c, c->argv[1]);
-            serverAssert(result == BITROAR_CONVERT_OK);
+            bitroarConvertKey(c, c->argv[1], o, roaring_bitmap_link);
 
             /* Resume from the state left by synchronous conversion callbacks.
              * Do not apply the local default again: replay executes BITFIELD
