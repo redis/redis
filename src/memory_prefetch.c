@@ -226,15 +226,20 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
     p->nkeys = nkeys;
     p->cur_idx = 0;
 
-    /* Collect the sds-keyed lookups so their SipHash can be computed together
-     * with the AVX-512 8-wide batch hasher (AMD Zen 5). Every dict whose hash
-     * function is dictSdsHash hashes an sds key via siphash(key, sdslen, seed),
-     * so they can all share one batched call. Other dict types (or non-sds
-     * keys) fall back to the per-key scalar hash below. */
+    /* On x86 we collect the sds-keyed lookups so their SipHash can be computed
+     * together with the AVX-512 8-wide batch hasher (dictGenHashFunctionBatch),
+     * which itself falls back to scalar when the CPU lacks AVX-512. Every dict
+     * whose hash function is dictSdsHash hashes an sds key via
+     * siphash(key, sdslen, seed), so they can all share one batched call; other
+     * dict types (or non-sds keys) use the per-key scalar hash. On non-x86
+     * platforms there is no batch hasher, so each key is hashed inline and the
+     * batch arrays are never allocated or populated. */
+#if defined(__x86_64__) || defined(__i386__)
     const void *bkeys[PREFETCH_BATCH_MAX_SIZE * 2];
     size_t blens[PREFETCH_BATCH_MAX_SIZE * 2];
     unsigned int bpos[PREFETCH_BATCH_MAX_SIZE * 2];
     unsigned int bn = 0;
+#endif
 
     size_t remaining = 0;
     for (size_t i = 0; i < nkeys; i++) {
@@ -253,6 +258,7 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
         lk->state = PREFETCH_BUCKET;
         remaining++;
 
+#if defined(__x86_64__) || defined(__i386__)
         if (dicts[i]->type->hashFunction == dictSdsHash) {
             bkeys[bn] = keys[i];
             blens[bn] = sdslen((sds)keys[i]);
@@ -261,14 +267,19 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
         } else {
             lk->key_hash = dictGetHash(dicts[i], keys[i]);
         }
+#else
+        lk->key_hash = dictGetHash(dicts[i], keys[i]);
+#endif
     }
 
+#if defined(__x86_64__) || defined(__i386__)
     if (bn) {
         uint64_t bhash[PREFETCH_BATCH_MAX_SIZE * 2];
         dictGenHashFunctionBatch(bkeys, blens, bhash, bn);
         for (unsigned int j = 0; j < bn; j++)
             p->lookups[bpos[j]].key_hash = bhash[j];
     }
+#endif
 
     p->remaining = remaining;
 }

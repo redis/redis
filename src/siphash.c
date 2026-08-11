@@ -244,13 +244,13 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
 #endif
 }
 
-/* --------- AVX-512 lane-parallel SipHash-1-2 (AMD Zen 5 "Turin") ----------- *
+/* --------- AVX-512 lane-parallel SipHash-1-2 (any CPU with AVX-512 support) ----------- *
  *
  * siphash_x8() computes eight independent SipHash-1-2 digests at once and is
  * bit-exact with the scalar siphash() above. It targets the case where Redis
- * already needs a batch of key hashes together ΓÇö the cross-command prefetcher
+ * already needs a batch of key hashes together -- the cross-command prefetcher
  * (dictPrefetcherReset) hashes every key of a pipelined command batch in a
- * tight scalar loop. On Zen 5 that loop is a natural fit for 512-bit vectors:
+ * tight scalar loop. On any CPU with AVX-512 that loop is a natural fit for 512-bit vectors:
  * SipHash's state is 4x uint64, and AVX-512 gives us native VPROLQ rotates,
  * 8-lane 64-bit masked gathers to fetch each lane's message words from its own
  * key pointer, and mask-blend to "freeze" lanes that have already consumed all
