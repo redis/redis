@@ -1004,7 +1004,7 @@ NULL
         kvobj *kv = lookupKeyReadOrReply(c, c->argv[2], shared.nokeyerr);
         if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
 
-        sds raw = bitroarMaterialize(kv);
+        sds raw = bitroarMaterializeForDebug(kv);
         if (raw == NULL) {
             addReplyError(c, "bitmap length exceeds proto-max-bulk-len, cannot materialize");
             return;

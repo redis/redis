@@ -906,8 +906,7 @@ static int bitroarDefaultEnabled(client *c) {
  * bound. */
 static robj *bitroarFromStringObject(robj *o) {
     robj *decoded = getDecodedObject(o);
-    robj *bitmap = bitroarCreateFromString((unsigned char *)decoded->ptr,
-                                           sdslen(decoded->ptr));
+    robj *bitmap = bitroarCreateFromString((unsigned char *)decoded->ptr, sdslen(decoded->ptr));
     decrRefCount(decoded);
     return bitmap;
 }
@@ -1074,7 +1073,8 @@ static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit,
 /* SETBIT against an already installed Roaring bitmap target. */
 static void setbitCommandBitmap(client *c, robj *roaring,
                                 uint64_t bitoffset, long on,
-                                int transitioned) {
+                                int transitioned)
+{
     uint64_t oldlen = bitroarLen(roaring);
     uint64_t byte = bitoffset >> 3;
     int changed = 0;

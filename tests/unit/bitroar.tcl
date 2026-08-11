@@ -1,8 +1,8 @@
 source tests/support/bitmap.tcl
 
 set testmodule [file normalize tests/modules/misc.so]
-set ::sparse_public_offset 65536
-set ::sparse_public_len 8193
+set sparse_public_offset 65536
+set sparse_public_len 8193
 
 proc wait_for_bitmap_defrag_stop {maxtries delay} {
     wait_for_condition $maxtries $delay {
@@ -38,6 +38,8 @@ proc roaring_portable_payload {dump} {
 }
 
 start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
+    # Configuration and type-transition coverage establishes when bitmap
+    # commands create a native value and which string semantics remain intact.
     test {bitmap-default-roaring defaults to no} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
@@ -122,44 +124,46 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
         r config set bitmap-default-roaring no
+        r del bitmap bitmap:existing
 
-        assert_equal 0 [r setbit bitmap:public:disabled $::sparse_public_offset 1]
-        assert_equal string [r type bitmap:public:disabled]
-        assert_equal $::sparse_public_len [r strlen bitmap:public:disabled]
-        assert_equal 1 [r getbit bitmap:public:disabled $::sparse_public_offset]
+        assert_equal 0 [r setbit bitmap $sparse_public_offset 1]
+        assert_equal string [r type bitmap]
+        assert_equal $sparse_public_len [r strlen bitmap]
+        assert_equal 1 [r getbit bitmap $sparse_public_offset]
 
-        r set bitmap:public:disabled:existing [binary format H* 80]
-        assert_equal 0 [r setbit bitmap:public:disabled:existing 1 1]
-        assert_equal string [r type bitmap:public:disabled:existing]
-        assert_equal [binary format H* c0] [r get bitmap:public:disabled:existing]
+        r set bitmap:existing [binary format H* 80]
+        assert_equal 0 [r setbit bitmap:existing 1 1]
+        assert_equal string [r type bitmap:existing]
+        assert_equal [binary format H* c0] [r get bitmap:existing]
     }
 
     test {bitmap-default-roaring yes: SETBIT creates Roaring bitmaps for missing keys} {
         r config set bitmap-default-roaring yes
+        r del bitmap
 
-        assert_equal 0 [r setbit bitmap:public:create $::sparse_public_offset 1]
-        assert_equal bitmap [r type bitmap:public:create]
-        assert_equal bitmap-roaring [r object encoding bitmap:public:create]
-        assert_match {*encoding:bitmap-roaring*} [r debug object bitmap:public:create]
-        assert_equal 1 [r getbit bitmap:public:create $::sparse_public_offset]
-        assert_equal 1 [r bitcount bitmap:public:create]
-        assert_equal $::sparse_public_len [string length [r debug bitmap-raw bitmap:public:create]]
-        assert_error {WRONGTYPE*} {r get bitmap:public:create}
+        assert_equal 0 [r setbit bitmap $sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap]
+        assert_equal bitmap-roaring [r object encoding bitmap]
+        assert_match {*encoding:bitmap-roaring*} [r debug object bitmap]
+        assert_equal 1 [r getbit bitmap $sparse_public_offset]
+        assert_equal 1 [r bitcount bitmap]
+        assert_equal $sparse_public_len [string length [r debug bitmap-raw bitmap]]
+        assert_error {WRONGTYPE*} {r get bitmap}
         r config set bitmap-default-roaring no
     }
 
     test {bitmap-default-roaring yes: SETBIT converts existing string values and keeps TTL} {
         r config set bitmap-default-roaring yes
 
-        r set bitmap:public:auto-on ""
-        r pexpire bitmap:public:auto-on 60000
-        set expire_at [r pexpiretime bitmap:public:auto-on]
-        assert_equal 0 [r setbit bitmap:public:auto-on $::sparse_public_offset 1]
-        assert_equal bitmap [r type bitmap:public:auto-on]
-        assert_equal bitmap-roaring [r object encoding bitmap:public:auto-on]
-        assert_equal 1 [r getbit bitmap:public:auto-on $::sparse_public_offset]
-        assert_equal $expire_at [r pexpiretime bitmap:public:auto-on]
-        assert_error {WRONGTYPE*} {r get bitmap:public:auto-on}
+        r set bitmap ""
+        r pexpire bitmap 60000
+        set expire_at [r pexpiretime bitmap]
+        assert_equal 0 [r setbit bitmap $sparse_public_offset 1]
+        assert_equal bitmap [r type bitmap]
+        assert_equal bitmap-roaring [r object encoding bitmap]
+        assert_equal 1 [r getbit bitmap $sparse_public_offset]
+        assert_equal $expire_at [r pexpiretime bitmap]
+        assert_error {WRONGTYPE*} {r get bitmap}
         r config set bitmap-default-roaring no
     }
 
@@ -275,6 +279,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
+    # Digest and bounds tests protect logical length independently from the
+    # history-dependent CRoaring container representation.
     test {DEBUG DIGEST for Roaring bitmaps includes trailing zero length} {
         r config set bitmap-default-roaring yes
         r del bitmap:digest:short bitmap:digest:long
@@ -310,6 +316,24 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         set converted_digest [r debug digest-value bitmap:digest:converted]
         set setbit_digest [r debug digest-value bitmap:digest:setbit]
         assert_equal $converted_digest $setbit_digest
+    }
+
+    test {DEBUG DIGEST visits Roaring set-bit ranges with half-open endpoints} {
+        # Exact digests exercise the range visitor through its observable
+        # consumer. Cover a singleton, a multi-bit run, and a run merged
+        # across CRoaring's 16-bit container boundary.
+        foreach {key bits expected_digest} {
+            bitmap:digest:ranges:singleton {3}
+            {0fdbe68d29365ad0882498117659e397bf5050ba}
+            bitmap:digest:ranges:multi {1 2 3 4}
+            {bfafd3f1520764ed3706f6448ee778884e151323}
+            bitmap:digest:ranges:cross-container {65534 65535 65536 65537}
+            {92210d5971fd016b830e89475c07b04104263d7d}
+        } {
+            assert_equal OK [create_roaring_bitmap_from_bits r $key $bits]
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal $expected_digest [r debug digest-value $key]
+        }
     }
 
     test {Roaring bitmap writes keep the proto-max-bulk-len offset limit} {
@@ -444,13 +468,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:roaring:raised-limit
     }
 
+    # Conversion is observable through WATCH and ordered type_changed
+    # keyspace notifications; these tests pin both behaviors.
     test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {
         r config set bitmap-default-roaring yes
 
         r del bitmap:public:watch
         r set bitmap:public:watch ""
         r watch bitmap:public:watch
-        assert_equal 0 [r setbit bitmap:public:watch $::sparse_public_offset 1]
+        assert_equal 0 [r setbit bitmap:public:watch $sparse_public_offset 1]
         assert_equal bitmap [r type bitmap:public:watch]
         r multi
         r ping
@@ -476,7 +502,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # names as a legacy creating SETBIT ("new" then "setbit"), with the
         # write event classified under the bitmap notification class.
         r config set bitmap-default-roaring yes
-        r setbit bitmap:public:notify $::sparse_public_offset 1
+        r setbit bitmap:public:notify $sparse_public_offset 1
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify} [$rd read]
 
@@ -550,20 +576,22 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set notify-keyspace-events {}
     }
 
+    # Command-boundary tests verify bitmap commands remain transparent while
+    # string-only commands continue to reject native bitmap objects.
     test {public Roaring bitmaps cover the bitmap command surface} {
         r config set bitmap-default-roaring yes
 
-        assert_equal 0 [r setbit bitmap:public:commands $::sparse_public_offset 1]
-        assert_equal 1 [r getbit bitmap:public:commands $::sparse_public_offset]
+        assert_equal 0 [r setbit bitmap:public:commands $sparse_public_offset 1]
+        assert_equal 1 [r getbit bitmap:public:commands $sparse_public_offset]
         assert_equal 1 [r bitcount bitmap:public:commands]
-        assert_equal $::sparse_public_offset [r bitpos bitmap:public:commands 1]
-        assert_equal [list 1] [r bitfield_ro bitmap:public:commands GET u1 $::sparse_public_offset]
+        assert_equal $sparse_public_offset [r bitpos bitmap:public:commands 1]
+        assert_equal [list 1] [r bitfield_ro bitmap:public:commands GET u1 $sparse_public_offset]
 
-        set next_offset [expr {$::sparse_public_offset + 1}]
+        set next_offset [expr {$sparse_public_offset + 1}]
         assert_equal [list 0] [r bitfield bitmap:public:commands SET u1 $next_offset 1]
         assert_equal bitmap [r type bitmap:public:commands]
         assert_equal 2 [r bitcount bitmap:public:commands]
-        assert_equal $::sparse_public_len [r bitop or bitmap:public:commands:copy bitmap:public:commands]
+        assert_equal $sparse_public_len [r bitop or bitmap:public:commands:copy bitmap:public:commands]
         assert_equal bitmap [r type bitmap:public:commands:copy]
         assert_equal 2 [r bitcount bitmap:public:commands:copy]
         r config set bitmap-default-roaring no
@@ -820,6 +848,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal bitmap [r type bitmap:lua]
     }
 
+    # Persistence tests cover logical length, portable wire bytes, corruption
+    # rejection, and sparse high-offset behavior separately.
     test {Roaring bitmap dump restore and debug reload preserve bitmap objects} {
         set raw [binary format H* f0000000000000010000]
 
@@ -1065,6 +1095,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r config set proto-max-bulk-len 1048576
             set payload [r dump bitmap:rdb:high]
             assert_lessthan [string length $payload] 256
+            assert_error {*bitmap length exceeds proto-max-bulk-len*} {
+                r debug bitmap-raw bitmap:rdb:high
+            }
             r restore bitmap:rdb:high:restored 0 $payload
             assert_equal bitmap [r type bitmap:rdb:high:restored]
             assert_lessthan [r memory usage bitmap:rdb:high:restored] 65536
@@ -1203,9 +1236,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     test {public-created Roaring bitmaps survive debug reload} {
         r config set bitmap-default-roaring yes
 
-        r setbit bitmap:public:reload:direct $::sparse_public_offset 1
+        r setbit bitmap:public:reload:direct $sparse_public_offset 1
         r set bitmap:public:reload:auto ""
-        r setbit bitmap:public:reload:auto $::sparse_public_offset 1
+        r setbit bitmap:public:reload:auto $sparse_public_offset 1
         assert {[string length [r dump bitmap:public:reload:direct]] < 256}
         set digest_before [debug_digest]
 
@@ -1214,8 +1247,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal [debug_digest] $digest_before
         assert_equal bitmap [r type bitmap:public:reload:direct]
         assert_equal bitmap [r type bitmap:public:reload:auto]
-        assert_equal 1 [r getbit bitmap:public:reload:direct $::sparse_public_offset]
-        assert_equal 1 [r getbit bitmap:public:reload:auto $::sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:reload:direct $sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:reload:auto $sparse_public_offset]
         r config set bitmap-default-roaring no
     }
 }
@@ -1229,8 +1262,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "modules" "external:
         r set bitmap:module-boundary $raw
         r set bitmap:module-string $raw
         convert_string_bitmap_to_roaring r bitmap:module-boundary
-        assert_equal {bitmap 7 0 0} [r test.key_string_api bitmap:module-boundary]
-        assert_equal {string 7 1 1} [r test.key_string_api bitmap:module-string]
+        assert_equal {bitmap 7 0 0} [r test.keyinfo bitmap:module-boundary]
+        assert_equal {string 7 1 1} [r test.keyinfo bitmap:module-string]
         assert_equal bitmap [r type bitmap:module-boundary]
         assert_equal $raw [r debug bitmap-raw bitmap:module-boundary]
         assert_equal string [r type bitmap:module-string]
@@ -1271,10 +1304,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         r config set auto-aof-rewrite-percentage 0
         r config set bitmap-default-roaring yes
 
-        r setbit bitmap:public:aof:direct $::sparse_public_offset 1
+        r setbit bitmap:public:aof:direct $sparse_public_offset 1
         r setbit bitmap:public:aof:zero 0 0
         r set bitmap:public:aof:auto ""
-        r setbit bitmap:public:aof:auto $::sparse_public_offset 1
+        r setbit bitmap:public:aof:auto $sparse_public_offset 1
 
         set test_high_offset [expr {[s arch_bits] == 64}]
         if {$test_high_offset} {
@@ -1298,9 +1331,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         if {$test_high_offset} {
             assert_equal bitmap [r type bitmap:public:aof:high]
         }
-        assert_equal 1 [r getbit bitmap:public:aof:direct $::sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:aof:direct $sparse_public_offset]
         assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:aof:zero]
-        assert_equal 1 [r getbit bitmap:public:aof:auto $::sparse_public_offset]
+        assert_equal 1 [r getbit bitmap:public:aof:auto $sparse_public_offset]
 
         if {$test_high_offset} {
             r config set proto-max-bulk-len $byte_len
@@ -1346,7 +1379,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
 
         # SETBIT against a missing key propagates conversion before the write.
         r config set bitmap-default-roaring yes
-        r setbit bitmap:aof-incr:create $::sparse_public_offset 1
+        r setbit bitmap:aof-incr:create $sparse_public_offset 1
         r config set bitmap-default-roaring no
 
         # SETBIT against a string uses the same order and preserves its TTL.
@@ -1394,7 +1427,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal [list \
             {multi} \
             [list bitconvert bitmap:aof-incr:create ROARING] \
-            [list setbit bitmap:aof-incr:create $::sparse_public_offset 1] \
+            [list setbit bitmap:aof-incr:create $sparse_public_offset 1] \
             {exec} \
             {multi} \
             [list bitconvert bitmap:aof-incr:convert ROARING] \
@@ -1441,10 +1474,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             $master config set bitmap-default-roaring yes
             $replica config set bitmap-default-roaring no
 
-            $master setbit bitmap:public:repl:direct $::sparse_public_offset 1
+            $master setbit bitmap:public:repl:direct $sparse_public_offset 1
             $master setbit bitmap:public:repl:zero 0 0
             $master set bitmap:public:repl:auto ""
-            $master setbit bitmap:public:repl:auto $::sparse_public_offset 1
+            $master setbit bitmap:public:repl:auto $sparse_public_offset 1
             $master set bitmap:public:repl:bitfield [binary format H* 80]
             assert_equal {1} [$master bitfield bitmap:public:repl:bitfield SET u1 0 1]
             wait_for_ofs_sync $master $replica
@@ -1453,9 +1486,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             assert_equal bitmap [$replica type bitmap:public:repl:zero]
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
             assert_equal bitmap [$replica type bitmap:public:repl:bitfield]
-            assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct $sparse_public_offset]
             assert_equal [binary format H* 00] [$replica debug bitmap-raw bitmap:public:repl:zero]
-            assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:auto $sparse_public_offset]
             assert_equal [binary format H* 80] \
                 [$replica debug bitmap-raw bitmap:public:repl:bitfield]
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
@@ -1550,10 +1583,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             assert_equal bitmap [$replica type bitmap:public:repl:direct]
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
             assert_equal bitmap [$replica type bitmap:public:repl:bitfield]
-            assert_equal 1 [$replica getbit bitmap:public:repl:direct $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:direct $sparse_public_offset]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
             assert_equal [binary format H* 00] [$replica debug bitmap-raw bitmap:public:repl:zero]
-            assert_equal 1 [$replica getbit bitmap:public:repl:auto $::sparse_public_offset]
+            assert_equal 1 [$replica getbit bitmap:public:repl:auto $sparse_public_offset]
             assert_equal [$master debug digest] [$replica debug digest]
         }
 
