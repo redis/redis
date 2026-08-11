@@ -338,8 +338,9 @@ void sortCommandGeneric(client *c, int readonly) {
         sortby = NULL;
     }
 
-    /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET) {
+    /* Destructively convert encoded sorted sets for SORT. SORT_RO traverses
+     * listpack encoded sorted sets directly below. */
+    if (sortval->type == OBJ_ZSET && !readonly) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
@@ -351,7 +352,7 @@ void sortCommandGeneric(client *c, int readonly) {
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
     case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
-    case OBJ_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
+    case OBJ_ZSET: vectorlen = zsetLength(sortval); break;
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
@@ -438,6 +439,54 @@ void sortCommandGeneric(client *c, int readonly) {
         setTypeResetIterator(&si);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+    } else if (sortval->type == OBJ_ZSET &&
+               sortval->encoding == OBJ_ENCODING_LISTPACK &&
+               dontsort)
+    {
+        /* Special handling for a listpack encoded sorted set, if 'dontsort'
+         * is true. Load only the requested range directly from the listpack. */
+        unsigned char *zl = sortval->ptr;
+        unsigned char *eptr = NULL, *sptr = NULL;
+        sds sdsele;
+        int rangelen = vectorlen;
+
+        if (rangelen) {
+            eptr = desc ? lpSeek(zl,-2-(2*start)) : lpSeek(zl,2*start);
+            serverAssertWithInfo(c,sortval,eptr != NULL);
+            sptr = lpNext(zl,eptr);
+            serverAssertWithInfo(c,sortval,sptr != NULL);
+        }
+
+        while(rangelen--) {
+            sdsele = lpGetObject(eptr);
+            vector[j].obj = createObject(OBJ_STRING,sdsele);
+            vector[j].u.score = 0;
+            vector[j].u.cmpobj = NULL;
+            j++;
+            if (desc)
+                zzlPrev(zl,&eptr,&sptr);
+            else
+                zzlNext(zl,&eptr,&sptr);
+        }
+        /* Fix start/end: output code is not aware of this optimization. */
+        end -= start;
+        start = 0;
+    } else if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl = sortval->ptr;
+        unsigned char *eptr = lpSeek(zl,0);
+        unsigned char *sptr;
+        sds sdsele;
+
+        while(eptr) {
+            sptr = lpNext(zl,eptr);
+            serverAssertWithInfo(c,sortval,sptr != NULL);
+            sdsele = lpGetObject(eptr);
+            vector[j].obj = createObject(OBJ_STRING,sdsele);
+            vector[j].u.score = 0;
+            vector[j].u.cmpobj = NULL;
+            j++;
+            zzlNext(zl,&eptr,&sptr);
+        }
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original

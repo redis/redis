@@ -143,6 +143,20 @@ foreach command {SORT SORT_RO} {
         r sort zset alpha desc
     } {e d c b a}
 
+    test "SORT_RO sorted set preserves listpack encoding" {
+        r del zset
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
+        assert_encoding listpack zset
+        assert_equal {e d c b a} [r sort_ro zset alpha desc]
+        assert_equal {a c e b d} [r sort_ro zset by nosort asc]
+        assert_equal {b e} [r sort_ro zset by nosort desc limit 1 2]
+        assert_encoding listpack zset
+    }
+
     test "SORT sorted set BY nosort should retain ordering" {
         r del zset
         r zadd zset 1 a
