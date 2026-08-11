@@ -1,7 +1,7 @@
 source tests/support/bitmap.tcl
 
-set ::sparse_public_offset 65536
-set ::sparse_public_len 8193
+set sparse_public_offset 65536
+set sparse_public_len 8193
 
 proc create_roaring_bitmap_from_raw {client key raw} {
     $client set $key $raw
