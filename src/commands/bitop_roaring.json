@@ -3,7 +3,7 @@
         "summary": "Performs a bitwise operation and stores a native Roaring bitmap result for deterministic replay.",
         "complexity": "O(N)",
         "group": "bitmap",
-        "since": "8.10.0",
+        "since": "8.12.0",
         "arity": -4,
         "function": "bitopRoaringCommand",
         "doc_flags": [
