@@ -113,6 +113,24 @@ CRoaring
 Updated source can be found here: https://github.com/RoaringBitmap/CRoaring
 Redis currently vendors CRoaring v4.7.2.
 
+Redis bitmap persistence contract:
+
+* `RDB_TYPE_BITMAP` stores the bitmap's logical byte length followed by an RDB
+  string containing CRoaring's 64-bit portable serialization. The logical
+  length is separate because trailing zero bits are observable through Redis
+  bitmap commands but are not represented by Roaring containers.
+* The CRoaring portable blob follows the RoaringFormatSpec, uses canonical
+  little-endian fields on every architecture, and is shared by RDB snapshots,
+  DUMP/RESTORE, and the RDB payloads used by AOF persistence.
+* Persistence never expands a sparse bitmap to its logical string length. A
+  bitmap with a high set-bit offset therefore remains proportional to its
+  resident Roaring containers instead of its highest bit.
+* Externally exposed dense raw-byte materialization is limited to
+  `DEBUG BITMAP-RAW` and by `proto-max-bulk-len`. The internal
+  mixed-representation BITOP optimization also materializes bounded raw
+  buffers, but has its own 1 MiB aggregate limit and does not affect the
+  persistence format.
+
 1. Replace `deps/croaring/include` with upstream `include`.
 2. Replace `deps/croaring/src` with upstream C source/header files from `src`;
    Redis does not use upstream CMake files.
