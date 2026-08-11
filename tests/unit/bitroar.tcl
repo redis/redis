@@ -64,6 +64,13 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
 
+    test {BITMAP command is not part of the v1 public surface} {
+        assert_equal {{}} [r command info bitmap]
+        assert_equal {{}} [r command info bitmap|convert]
+        assert_error {ERR unknown command 'bitmap'*} {r bitmap help}
+        assert_error {ERR unknown command 'bitmap'*} {r bitmap convert bitmap:convert:missing}
+    }
+
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
         r config set bitmap-default-roaring no
 
