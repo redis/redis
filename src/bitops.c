@@ -2343,7 +2343,8 @@ struct bitfieldOp {
 static int bitfieldSignedResult(struct bitfieldOp *op, int64_t oldval,
                                 int64_t *newval, int64_t *retval)
 {
-    int64_t wrapped;
+    /* OVERFLOW FAIL leaves wrapped untouched, though the caller discards newval. */
+    int64_t wrapped = 0;
     int overflow;
 
     if (op->opcode == BITFIELDOP_INCRBY) {
@@ -2368,8 +2369,7 @@ static int bitfieldSignedResult(struct bitfieldOp *op, int64_t oldval,
 static int bitfieldUnsignedResult(struct bitfieldOp *op, uint64_t oldval,
                                  uint64_t *newval, uint64_t *retval)
 {
-    /* Initialization of 'wrapped' is required to avoid
-     * false-positive warning "-Wmaybe-uninitialized" */
+    /* OVERFLOW FAIL leaves wrapped untouched, though the caller discards newval. */
     uint64_t wrapped = 0;
     int overflow;
 
