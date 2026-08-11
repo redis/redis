@@ -2,9 +2,8 @@
 #
 # Generate initial seed corpora for the Redis core fuzz targets.
 #
-# These are generator inputs, not RESP payloads. The first byte selects the
-# command count, each command-kind byte selects a grammar branch, and following
-# bytes choose keys, offsets, values, arities, and modes.
+# These are generator inputs, not RESP payloads. Bytes select command counts,
+# grammar branches, keys, offsets, values, arities, encodings, and modes.
 
 set -euo pipefail
 
@@ -12,14 +11,16 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CORPUS_DIR="$SCRIPT_DIR/corpus"
 STRING_DIR="$CORPUS_DIR/string_commands"
 BITMAP_DIR="$CORPUS_DIR/bitmap_commands"
+HASH_DIR="$CORPUS_DIR/hash_templates"
 ARRAY_DIR="$CORPUS_DIR/array_commands"
 REPLICATION_COMPRESSION_DIR="$CORPUS_DIR/replication_compression"
 LIST_MOVE_DIR="$CORPUS_DIR/list_move_commands"
 STREAM_DIR="$CORPUS_DIR/stream_commands"
 
-mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$ARRAY_DIR" "$REPLICATION_COMPRESSION_DIR" "$LIST_MOVE_DIR" "$STREAM_DIR"
+mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$HASH_DIR" "$ARRAY_DIR" "$REPLICATION_COMPRESSION_DIR" "$LIST_MOVE_DIR" "$STREAM_DIR"
 rm -f "$STRING_DIR"/seed* "$BITMAP_DIR"/seed* \
-    "$ARRAY_DIR"/seed* "$REPLICATION_COMPRESSION_DIR"/seed* "$LIST_MOVE_DIR"/seed* "$STREAM_DIR"/seed*
+    "$HASH_DIR"/seed* "$ARRAY_DIR"/seed* "$REPLICATION_COMPRESSION_DIR"/seed* \
+    "$LIST_MOVE_DIR"/seed* "$STREAM_DIR"/seed*
 
 echo "Generating Redis core fuzz seed corpora..."
 
@@ -108,6 +109,50 @@ printf '\x00\x06\x00\x00\x00\x03\x01\x05' \
 # Invalid BITOP arity shape.
 printf '\x00\x07\x00' \
     > "$BITMAP_DIR/seed15_invalid_bitop_shape"
+
+# Compact-hash / HIMPORT seeds.
+# Shared, reordered fieldsets using template-listpack, followed by DUMP.
+printf '\x00\x00\x00\x01b\x01c\x01A\x01B\x01C\x01D\x00\x0d\x04' \
+    > "$HASH_DIR/seed01_shared_template_listpack"
+
+# The same shared schema with hash-max-listpack-entries=0, forcing
+# template-array, followed by HGETALL.
+printf '\x01\x00\x00\x01b\x01c\x01A\x01B\x01C\x01D\x00\x0b\x05' \
+    > "$HASH_DIR/seed02_shared_template_array"
+
+# Duplicate PREPARE must leave the old fieldset binding intact.
+printf '\x00\x00\x00\x01b\x01c\x01A\x01B\x01C\x01D\x00\x02\x00\x03dup\x01x' \
+    > "$HASH_DIR/seed03_duplicate_schema"
+
+# DISCARD, failed use, reordered re-PREPARE, SET, and DISCARDALL exercise
+# holder/key-reference lifetimes.
+printf '\x00\x00\x00\x01b\x01c\x01A\x01B\x01C\x01D\x04\x05\x00\x03\x00\x00\x00\x01x\x01\x01\x00\x03\x00\x00\x01W\x01X\x01Y\x01Z\x06' \
+    > "$HASH_DIR/seed04_discard_reprepare_lifetime"
+
+# COPY a template key, DUMP the copy, then mutate an existing field via HSET.
+printf '\x00\x00\x00\x01b\x01c\x01A\x01B\x01C\x01D\x02\x0c\x04\x00\x01\x0d\x00\x08\x00\x00\x02\x01Z' \
+    > "$HASH_DIR/seed05_copy_dump_hset"
+
+# Long and binary field/value data cross the listpack-value threshold.
+{
+    printf '\x00\x00\x00'
+    printf '\x04A\x00B\xff'
+    printf '\x50'
+    printf 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'
+    printf '\x50'
+    printf 'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv'
+    printf '\x01B\x01C\x01D'
+    printf '\x00\x0d\x04'
+} > "$HASH_DIR/seed06_long_binary_fields_values"
+
+# Invalid HIMPORT shapes and subcommands remain parser-safe.
+printf '\x00\x00\x00\x01b\x01c\x01A\x01B\x01C\x01D\x04\x0f\x00\x0f\x01\x0f\x02\x00\x0f\x03\x0f\x04\x00\x00' \
+    > "$HASH_DIR/seed07_malformed_himport"
+
+# RESET drops all fieldsets; a SET through an old binding must fail, while a
+# freshly prepared binding on the reset connection must work.
+printf '\x00\x00\x00\x01b\x01c\x01A\x01B\x01C\x01D\x03\x07\x03\x00\x00\x00\x01Z\x00\x00\x00\x00\x03\x00\x00\x01V' \
+    > "$HASH_DIR/seed08_reset_fieldsets"
 
 # Array command seeds.
 # ARSET k0 0 with 12 values promotes a populated slice to its dense encoding.
@@ -336,6 +381,7 @@ printf '\x00\x07\x00\x05\x01a\x01b\x01c' \
 echo "Seed files generated:"
 echo "  string_commands: $(find "$STRING_DIR" -type f | wc -l | tr -d ' ')"
 echo "  bitmap_commands: $(find "$BITMAP_DIR" -type f | wc -l | tr -d ' ')"
+echo "  hash_templates: $(find "$HASH_DIR" -type f | wc -l | tr -d ' ')"
 echo "  array_commands: $(find "$ARRAY_DIR" -type f | wc -l | tr -d ' ')"
 echo "  replication_compression: $(find "$REPLICATION_COMPRESSION_DIR" -type f | wc -l | tr -d ' ')"
 echo "  list_move_commands: $(find "$LIST_MOVE_DIR" -type f | wc -l | tr -d ' ')"

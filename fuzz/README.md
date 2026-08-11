@@ -4,6 +4,9 @@ This directory contains opt-in libFuzzer targets for Redis core. The targets
 exercise Redis commands through the real command parser and executor, using a
 local socketpair-backed client.
 
+The shared harness is data-structure agnostic. Feature branches can add focused
+targets without changing normal Redis builds.
+
 `fuzz_list_move_commands` is a stateful target for Redis 8.10 `LMOVEM` and
 `BLMOVEM`. Its generated pipelines grow, shrink, rotate, delete, and change the
 types of source and destination keys. It covers both directions, `COUNT` and
@@ -66,6 +69,7 @@ fuzz/generate-seeds.sh
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -runs=1
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
+fuzz/fuzz_hash_templates fuzz/corpus/hash_templates -runs=1
 fuzz/fuzz_array_commands fuzz/corpus/array_commands -runs=1
 fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -runs=1
 fuzz/fuzz_list_move_commands fuzz/corpus/list_move_commands -runs=1
@@ -77,6 +81,7 @@ fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -runs=1
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -max_total_time=300
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -max_total_time=300
+fuzz/fuzz_hash_templates fuzz/corpus/hash_templates -max_total_time=300
 fuzz/fuzz_array_commands fuzz/corpus/array_commands -max_total_time=300
 fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -max_total_time=300
 fuzz/fuzz_list_move_commands fuzz/corpus/list_move_commands -max_total_time=300
@@ -120,3 +125,13 @@ fuzz/fuzz_bitmap_commands -minimize_crash=1 crash-1234
 Minimized crash inputs should be added to the relevant corpus directory. If a
 crash captures an important semantic regression, add a deterministic Redis test
 for it as well.
+
+## Compact hashes and `HIMPORT`
+
+`fuzz_hash_templates` always prepares the same schema in two different field
+orders and creates two keys backed by the shared template. It then mutates a
+bounded model with `HIMPORT PREPARE`, `SET`, `DISCARD`, and `DISCARDALL`, ordinary
+hash commands, `COPY`, `DUMP`, `RESET`, deletion, wrong-type values, and invalid
+command shapes. The target varies listpack thresholds to exercise both
+`template-listpack` and `template-array`, and checks the resulting database
+against its in-memory field/value model after every generated command stream.
