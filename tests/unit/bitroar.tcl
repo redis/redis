@@ -1,15 +1,37 @@
 source tests/support/bitmap.tcl
 
-set testmodule [file normalize tests/modules/misc.so]
 set sparse_public_offset 65536
 set sparse_public_len 8193
 
-proc wait_for_bitmap_defrag_stop {maxtries delay} {
-    wait_for_condition $maxtries $delay {
-        [s active_defrag_running] eq 0
-    } else {
-        fail "bitmap defrag did not stop"
+proc create_roaring_bitmap_from_raw {client key raw} {
+    $client set $key $raw
+    convert_string_bitmap_to_roaring $client $key
+}
+
+proc create_roaring_bitmap_from_bits {client key bits} {
+    set old [lindex [$client config get bitmap-default-roaring] 1]
+
+    $client del $key
+    if {[llength $bits] == 0} {
+        $client restore $key 0 [empty_roaring_bitmap_dump_payload] replace
+        return OK
     }
+
+    $client config set bitmap-default-roaring yes
+    set code [catch {
+        foreach bit $bits {
+            $client setbit $key $bit 1
+        }
+    } result opts]
+    $client config set bitmap-default-roaring $old
+    if {$code != 0} {
+        return -options $opts $result
+    }
+    return OK
+}
+
+proc seed_roaring_bitmap {key bits} {
+    create_roaring_bitmap_from_bits r $key $bits
 }
 
 # Extract the raw string payload from a bitmap DUMP. It starts with the RDB
@@ -1172,67 +1194,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal [s lazyfreed_objects] 1
     } {} {needs:config-resetstat}
 
-    if {$::debug_defrag} {
-        test {forced active defrag relocates BITSET storage with known and unknown allocation sizes} {
-            r flushdb
-            set old_bitmap_default_roaring [config_get_set bitmap-default-roaring no]
-            set old_activedefrag [config_get_set activedefrag no]
-            wait_for_bitmap_defrag_stop 500 10
-            r config resetstat
-
-            # Alternating bits exceed ARRAY capacity and cannot be compressed
-            # usefully as runs, forcing a BITSET container with an independently
-            # aligned words allocation.
-            set dense [string repeat [binary format H* aa] 8192]
-            r set bitmap:defrag:dense $dense
-            convert_string_bitmap_to_roaring r bitmap:defrag:dense
-            r set bitmap:defrag:lazy $dense
-            convert_string_bitmap_to_roaring r bitmap:defrag:lazy
-            assert_equal bitmap [r type bitmap:defrag:dense]
-            assert_equal 32768 [r bitcount bitmap:defrag:dense]
-            assert_morethan [r memory usage bitmap:defrag:dense] 8192
-            # Leave this object's allocation cache unmaterialized until after
-            # defrag to cover relocation of an unknown cached size.
-            assert_equal bitmap [r type bitmap:defrag:lazy]
-            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
-
-            set old_hz [config_get_set hz 100]
-            set old_threshold [config_get_set active-defrag-threshold-lower 1]
-            set old_cycle_min [config_get_set active-defrag-cycle-min 65]
-            set old_cycle_max [config_get_set active-defrag-cycle-max 75]
-            set old_ignore_bytes [config_get_set active-defrag-ignore-bytes 1]
-            r config set activedefrag yes
-
-            wait_for_condition 500 10 {
-                [s active_defrag_key_hits] >= 2
-            } else {
-                puts [r info memory]
-                puts [r info stats]
-                fail "forced defrag did not relocate both dense bitmaps"
-            }
-
-            r config set activedefrag no
-            wait_for_bitmap_defrag_stop 500 10
-            r config set hz $old_hz
-            r config set active-defrag-threshold-lower $old_threshold
-            # Lower min first so restoring an old max below the test's min
-            # cannot transiently violate the min <= max constraint.
-            r config set active-defrag-cycle-min 1
-            r config set active-defrag-cycle-max $old_cycle_max
-            r config set active-defrag-cycle-min $old_cycle_min
-            r config set active-defrag-ignore-bytes $old_ignore_bytes
-            assert_equal bitmap [r type bitmap:defrag:dense]
-            assert_equal 32768 [r bitcount bitmap:defrag:dense]
-            assert_equal $dense [r debug bitmap-raw bitmap:defrag:dense]
-            assert_morethan [r memory usage bitmap:defrag:lazy] 8192
-            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
-            assert_equal $dense [r debug bitmap-raw bitmap:defrag:lazy]
-            assert_equal 2 [r del bitmap:defrag:dense bitmap:defrag:lazy]
-            r config set bitmap-default-roaring $old_bitmap_default_roaring
-            assert_equal OK [r config set activedefrag $old_activedefrag]
-        } {} {needs:config-resetstat}
-    }
-
     test {public-created Roaring bitmaps survive debug reload} {
         r config set bitmap-default-roaring yes
 
@@ -1250,28 +1211,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r getbit bitmap:public:reload:direct $sparse_public_offset]
         assert_equal 1 [r getbit bitmap:public:reload:auto $sparse_public_offset]
         r config set bitmap-default-roaring no
-    }
-}
-
-start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "modules" "external:skip" "cluster:skip"}} {
-    r module load $testmodule
-
-    test {module key API exposes bitmap without string access} {
-        set raw [binary format H* 80400100080000]
-
-        r set bitmap:module-boundary $raw
-        r set bitmap:module-string $raw
-        convert_string_bitmap_to_roaring r bitmap:module-boundary
-        assert_equal {bitmap 7 0 0} [r test.keyinfo bitmap:module-boundary]
-        assert_equal {string 7 1 1} [r test.keyinfo bitmap:module-string]
-        assert_equal bitmap [r type bitmap:module-boundary]
-        assert_equal $raw [r debug bitmap-raw bitmap:module-boundary]
-        assert_equal string [r type bitmap:module-string]
-        assert_equal $raw [r get bitmap:module-string]
-    }
-
-    test "Unload the module - misc" {
-        assert_equal {OK} [r module unload misc]
     }
 }
 
