@@ -338,16 +338,6 @@ void sortCommandGeneric(client *c, int readonly) {
         sortby = NULL;
     }
 
-    /* Destructively convert encoded sorted sets for SORT. SORT_RO traverses
-     * listpack encoded sorted sets directly below. */
-    if (sortval->type == OBJ_ZSET && !readonly) {
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
-        zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
-    }
-
     /* Obtain the length of the object to sort. */
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
@@ -472,6 +462,8 @@ void sortCommandGeneric(client *c, int readonly) {
         end -= start;
         start = 0;
     } else if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
+        /* Load every element of a listpack encoded sorted set, the actual
+         * sorting is performed later on the vector. */
         unsigned char *zl = sortval->ptr;
         unsigned char *eptr = lpSeek(zl,0);
         unsigned char *sptr;

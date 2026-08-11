@@ -143,18 +143,21 @@ foreach command {SORT SORT_RO} {
         r sort zset alpha desc
     } {e d c b a}
 
-    test "SORT_RO sorted set preserves listpack encoding" {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 5 b
-        r zadd zset 2 c
-        r zadd zset 10 d
-        r zadd zset 3 e
-        assert_encoding listpack zset
-        assert_equal {e d c b a} [r sort_ro zset alpha desc]
-        assert_equal {a c e b d} [r sort_ro zset by nosort asc]
-        assert_equal {b e} [r sort_ro zset by nosort desc limit 1 2]
-        assert_encoding listpack zset
+    foreach command {SORT SORT_RO} {
+        test "$command sorted set preserves listpack encoding" {
+            r del zset
+            r zadd zset 1 a
+            r zadd zset 5 b
+            r zadd zset 2 c
+            r zadd zset 10 d
+            r zadd zset 3 e
+            assert_encoding listpack zset
+            assert_equal {e d c b a} [r $command zset alpha desc]
+            assert_equal {a c e b d} [r $command zset by nosort asc]
+            assert_equal {d b e c a} [r $command zset by nosort desc]
+            assert_equal {b e} [r $command zset by nosort desc limit 1 2]
+            assert_encoding listpack zset
+        }
     }
 
     test "SORT sorted set BY nosort should retain ordering" {
@@ -185,6 +188,39 @@ foreach command {SORT SORT_RO} {
         assert_equal [r sort zset by nosort limit -10 100] {a c e b d}
     }
 
+    foreach command {SORT SORT_RO} {
+        test "$command sorted set BY <pattern> preserves listpack encoding" {
+            r del zset
+            r zadd zset 1 a
+            r zadd zset 2 b
+            r zadd zset 3 c
+            foreach {ele weight} {a 3 b 1 c 2} {
+                r set weight_$ele $weight
+                r hset wobj_$ele weight $weight
+            }
+            assert_encoding listpack zset
+            assert_equal {b c a} [r $command zset by weight_*]
+            assert_equal {b 1 c 2 a 3} [r $command zset by weight_* get # get weight_*]
+            assert_equal {b c a} [r $command zset by wobj_*->weight]
+            assert_encoding listpack zset
+        } {} {cluster:skip}
+    }
+
+    test "SORT sorted set STORE preserves listpack encoding" {
+        r del zset sort-res
+        r zadd zset 1 a
+        r zadd zset 5 b
+        r zadd zset 2 c
+        r zadd zset 10 d
+        r zadd zset 3 e
+        assert_encoding listpack zset
+        assert_equal 5 [r sort zset alpha desc store sort-res]
+        assert_equal {e d c b a} [r lrange sort-res 0 -1]
+        assert_equal 5 [r sort zset by nosort store sort-res]
+        assert_equal {a c e b d} [r lrange sort-res 0 -1]
+        assert_encoding listpack zset
+    } {} {cluster:skip}
+
     test "SORT sorted set BY nosort works as expected from scripts" {
         r del zset
         r zadd zset 1 a
@@ -192,11 +228,13 @@ foreach command {SORT SORT_RO} {
         r zadd zset 2 c
         r zadd zset 10 d
         r zadd zset 3 e
-        r eval {
+        assert_encoding listpack zset
+        assert_equal {{a c e b d} {d b e c a}} [r eval {
             return {redis.call('sort',KEYS[1],'by','nosort','asc'),
                     redis.call('sort',KEYS[1],'by','nosort','desc')}
-        } 1 zset
-    } {{a c e b d} {d b e c a}}
+        } 1 zset]
+        assert_encoding listpack zset
+    }
 
     test "SORT sorted set: +inf and -inf handling" {
         r del zset
