@@ -430,8 +430,7 @@ void sortCommandGeneric(client *c, int readonly) {
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else if (sortval->type == OBJ_ZSET &&
-               sortval->encoding == OBJ_ENCODING_LISTPACK &&
-               dontsort)
+               sortval->encoding == OBJ_ENCODING_LISTPACK && dontsort)
     {
         /* Special handling for a listpack encoded sorted set, if 'dontsort'
          * is true. Load only the requested range directly from the listpack. */
