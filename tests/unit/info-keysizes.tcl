@@ -865,6 +865,8 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
         assert_equal OK [r config set bitmap-default-roaring yes]
 
+        # Exercise both construction paths: BITFIELD can create a new native
+        # bitmap or convert an existing string in place.
         assert_equal {0} [r bitfield "bitmap:keymem:bf:new" SET u1 65536 1]
         assert_equal bitmap [r type "bitmap:keymem:bf:new"]
 
@@ -872,6 +874,8 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         assert_equal {0} [r bitfield "bitmap:keymem:bf:convert" SET u1 65536 1]
         assert_equal bitmap [r type "bitmap:keymem:bf:convert"]
 
+        # COPY, RESTORE, and BITOP each install a bitmap through different
+        # keyspace/accounting paths.
         assert_equal 1 [r copy "bitmap:keymem:bf:new" "bitmap:keymem:copy"]
         r restore "bitmap:keymem:restore" 0 [r dump "bitmap:keymem:bf:new"]
         r bitop or "bitmap:keymem:bitop" "bitmap:keymem:bf:new"
@@ -882,6 +886,8 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
             bitmap:keymem:restore
             bitmap:keymem:bitop
         } {
+            # Growing every installed value validates both the logical-size
+            # histogram and per-slot allocation accounting update paths.
             assert_equal 0 [r setbit $key 131072 1]
         }
 
