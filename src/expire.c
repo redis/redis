@@ -214,7 +214,23 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
             .now = commandTimeSnapshot(),
             .itemsExpired = 0};
 
+    /* Wrap the batch in an execution unit, as whole-key active expiration does in
+     * activeExpireCycleTryExpire(). Field deletions here fire keyspace
+     * notifications ("hexpired", and "del" when the hash empties), and a module
+     * may queue a post-notification job from them. Without an execution unit
+     * those jobs are not drained when the cycle ends, so they linger until the
+     * tail of the next command's call() -- a client command in between observes
+     * state the module has not reacted to yet.
+     *
+     * The unit wraps the whole batch rather than each hash so that the drain
+     * happens outside the estore iteration: a regular (non per-key) job is
+     * allowed to write to the keyspace, which could otherwise mutate the
+     * subexpires structure while it is being walked. */
+    enterExecutionUnit(1, 0);
     estoreActiveExpire(db->subexpires, slot, &info);
+    exitExecutionUnit();
+    /* Propagate the field deletions and drain post-notification jobs. */
+    postExecutionUnitOperations();
 
     /* Return number of fields active-expired */
     return maxFieldsToExpire - ctx.fieldsToExpireQuota;
