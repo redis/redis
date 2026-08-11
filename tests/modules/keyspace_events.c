@@ -125,6 +125,17 @@ static void DeleteBitmapTransitionKey(RedisModuleCtx *ctx, RedisModuleString *ke
     RedisModule_FreeCallReply(reply);
 }
 
+static int BitmapTransitionBitIsSet(RedisModuleCtx *ctx, RedisModuleString *key,
+                                    long long offset)
+{
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "GETBIT", "sl", key, offset);
+    RedisModule_Assert(reply != NULL);
+    RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER);
+    int is_set = RedisModule_CallReplyInteger(reply) != 0;
+    RedisModule_FreeCallReply(reply);
+    return is_set;
+}
+
 static void BitmapTransitionKeyUnlink(RedisModuleCtx *ctx, RedisModuleEvent eid,
                                       uint64_t subevent, void *data)
 {
@@ -235,8 +246,9 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
 static int KeySpace_NotificationModuleBitmap(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     bitmap_callback_call_count++;
     LogBitmapTransitionNotification(ctx, type, event, key);
-    if (strcmp(RedisModule_StringPtrLen(key, NULL),
-               "bitmap:transition:delete-bitmap") == 0)
+    if (strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:delete-bitmap",
+                strlen("bitmap:transition:delete-bitmap")) == 0)
     {
         DeleteBitmapTransitionKey(ctx, key);
     }
@@ -251,6 +263,14 @@ static int KeySpace_NotificationBitmapTransition(RedisModuleCtx *ctx, int type,
     if (type == REDISMODULE_NOTIFY_TYPE_CHANGED &&
         strcmp(RedisModule_StringPtrLen(key, NULL),
                "bitmap:transition:delete-type") == 0)
+    {
+        DeleteBitmapTransitionKey(ctx, key);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:delete-type-zero",
+                strlen("bitmap:transition:delete-type-zero")) == 0 &&
+        !BitmapTransitionBitIsSet(ctx, key, 0))
     {
         DeleteBitmapTransitionKey(ctx, key);
     }

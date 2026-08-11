@@ -895,8 +895,8 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
  * to, only when bitmap-default-roaring is enabled and never while obeying a
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state, so masters propagate every type transition as
- * an explicit RESTORE (see bitroarPropagateRestore()) instead of letting
- * replicas re-derive it from their local configuration. */
+ * an explicit BITCONVERT instead of letting replicas re-derive it from their
+ * local configuration. */
 static int bitroarDefaultEnabled(client *c) {
     return server.bitmap_default_roaring && !mustObeyClient(c);
 }
@@ -911,86 +911,133 @@ static robj *bitroarFromStringObject(robj *o) {
     return bitmap;
 }
 
-/* Propagate a bitmap representation transition as RESTORE ... REPLACE
- * [ABSTTL] [KEEPMETADATA] instead of the triggering command: the conversion
- * decision must stay a pure function of replicated logical state, never
- * re-derived from replica-local config or allocator behavior. A newly created
- * object is serialized before dbAdd() emits a notification. A converted object
- * is installed first so its inherited serializable metadata is included; the
- * internal KEEPMETADATA modifier also retains target-local metadata classes
- * that cannot be encoded in the payload. Callers pass the expiration that
- * RESTORE should apply, and the payload is queued before conversion
- * notifications run module callbacks that may mutate the key. This helper owns
- * suppression of the triggering command so callers cannot queue both the
- * original write and the replacement payload. */
-static void bitroarPropagateRestore(client *c, robj *key, robj *bitmap,
-                                    long long expire, int keepmetadata)
-{
-    rio payload;
-    robj *argv[7];
-    int has_expire = expire != -1;
-    int argc = 5;
-
-    createDumpPayload(&payload, bitmap, key, c->db->id, 0, 0);
-
-    argv[0] = createStringObject("RESTORE", 7);
-    argv[1] = key;
-    argv[2] = has_expire ? createStringObjectFromLongLong(expire) : shared.integers[0];
-    argv[3] = createObject(OBJ_STRING, payload.io.buffer.ptr);
-    argv[4] = createStringObject("REPLACE", 7);
-    if (has_expire) argv[argc++] = shared.absttl;
-    if (keepmetadata)
-        argv[argc++] = createStringObject("KEEPMETADATA", 12);
-
-    preventCommandPropagation(c);
-    alsoPropagate(c->db->id, argv, argc, PROPAGATE_AOF | PROPAGATE_REPL);
-
-    decrRefCount(argv[0]);
-    if (has_expire) decrRefCount(argv[2]);
-    decrRefCount(argv[3]);
-    decrRefCount(argv[4]);
-    if (keepmetadata) decrRefCount(argv[argc-1]);
+/* A 32-bit size_t cannot exceed the signed Roaring length bound. Keep the
+ * comparison out of those builds so -Wtype-limits does not flag an
+ * intentionally impossible condition. */
+static int bitroarStringTooLarge(robj *o) {
+#if SIZE_MAX > BITROAR_MAX_BYTES_RAW
+    return (uint64_t)stringObjectLen(o) > BITROAR_MAX_BYTES;
+#else
+    UNUSED(o);
+    return 0;
+#endif
 }
 
-/* Install a string-to-bitmap representation transition without treating the
- * logical key as deleted or overwritten. dbReplaceValueWithLink() preserves
- * the TTL and module key metadata and does not run key-unlink callbacks. The
- * installed value is serialized before any notification callback can mutate
- * it, then watchers are signaled and modules observe the bitmap from the
- * type_changed callback. Direct execution emits type_changed before the
- * caller's bitmap event; replicas and AOF replay observe restore followed by
- * type_changed. */
-static void bitroarInstallConvertedValue(client *c, robj *key, robj **bitmapref,
-                                         long long expire, dictEntryLink link)
-{
-    serverAssert(link != NULL);
-    serverAssert(dictGetKV(*link)->type == OBJ_STRING);
-    serverAssert((*bitmapref)->type == OBJ_BITMAP);
+/* Return the propagation targets enabled for this invocation of call(). This
+ * matters for Lua redis.set_repl() and selective RM_Call propagation: an
+ * explicitly queued transition must never escape to a target suppressed for
+ * its triggering command. */
+static int bitroarPropagationTarget(client *c) {
+    int target = PROPAGATE_NONE;
 
-    dbReplaceValueWithLink(c->db, key, bitmapref, link);
-    bitroarPropagateRestore(c, key, *bitmapref, expire, 1);
-    keyModified(c, c->db, key, *bitmapref, 1);
-    notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
+    if (c->command_call_flags & CMD_CALL_PROPAGATE_AOF)
+        target |= PROPAGATE_AOF;
+    if (c->command_call_flags & CMD_CALL_PROPAGATE_REPL)
+        target |= PROPAGATE_REPL;
+    if (c->flags & (CLIENT_PREVENT_AOF_PROP | CLIENT_MODULE_PREVENT_AOF_PROP))
+        target &= ~PROPAGATE_AOF;
+    if (c->flags & (CLIENT_PREVENT_REPL_PROP | CLIENT_MODULE_PREVENT_REPL_PROP))
+        target &= ~PROPAGATE_REPL;
+    return target;
+}
+
+/* Queue the current command before synchronous notification callbacks, while
+ * retaining the exact AOF/replica target selected for this call(). */
+static void bitroarPropagateCurrentCommand(client *c) {
+    alsoPropagate(c->db->id, c->argv, c->argc, bitroarPropagationTarget(c));
+    preventCommandPropagation(c);
+}
+
+/* Queue the narrow representation transition used by commands whose result
+ * must be converted explicitly on replicas and during AOF replay. */
+static void bitroarPropagateConvert(client *c, robj *key) {
+    robj *argv[3];
+
+    argv[0] = createStringObject("BITCONVERT", 10);
+    argv[1] = key;
+    argv[2] = createStringObject("ROARING", 7);
+    alsoPropagate(c->db->id, argv, 3, bitroarPropagationTarget(c));
+    decrRefCount(argv[0]);
+    decrRefCount(argv[2]);
+}
+
+/* Apply BITCONVERT's local state transition without producing a command reply.
+ * SETBIT and BITFIELD call this before their logical write so primary event and
+ * module-callback order is identical to replaying BITCONVERT followed by the
+ * original command. o and link are the caller's fresh lookupKeyWriteWithLink()
+ * result for key; the caller must already have rejected other value types and
+ * strings beyond the Roaring bound, so the transition itself cannot fail. This
+ * matters because callers queue the conversion for propagation first: nothing
+ * may error between queueing and applying it. Callers must re-lookup the key
+ * afterwards: NOTIFY_NEW and NOTIFY_TYPE_CHANGED callbacks may replace or
+ * delete it synchronously. */
+static void bitroarConvertKey(client *c, robj *key, kvobj *o, dictEntryLink link) {
+    serverAssert(o == NULL || o->type == OBJ_STRING);
+
+    robj *bitmap = o == NULL ? bitroarCreate() : bitroarFromStringObject(o);
+    serverAssert(bitmap != NULL);
+
+    if (o == NULL) {
+        dbAddByLink(c->db, key, &bitmap, &link);
+        /* dbAddByLink() initializes LRU/LFU before emitting NOTIFY_NEW. Pass
+         * NULL here rather than retaining a value pointer across that callback. */
+        keyModified(c, c->db, key, NULL, 1);
+    } else {
+        dbReplaceValueWithLink(c->db, key, &bitmap, link);
+        keyModified(c, c->db, key, bitmap, 1);
+        notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
+    }
+}
+
+/* BITCONVERT is an internal propagation primitive. It changes only the value
+ * representation, so replacing a string retains the key's TTL and module
+ * metadata in its existing kvobj. Missing keys become empty native bitmaps;
+ * native bitmaps are already in the requested representation. */
+void bitconvertCommand(client *c) {
+    if (strcasecmp(c->argv[2]->ptr, "ROARING")) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+
+    dictEntryLink link = NULL;
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (o != NULL && o->type != OBJ_STRING && o->type != OBJ_BITMAP) {
+        addReplyErrorObject(c, shared.wrongtypeerr);
+        return;
+    }
+    if (o != NULL && o->type == OBJ_BITMAP) {
+        addReply(c, shared.ok);
+        return;
+    }
+    if (o != NULL && bitroarStringTooLarge(o)) {
+        addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
+        return;
+    }
+
+    /* A replica may have AOF enabled. Queue BITCONVERT before its local
+     * callbacks there as well; automatic propagation would append it after
+     * callback-generated writes and invert the replay order. */
+    bitroarPropagateCurrentCommand(c);
+    bitroarConvertKey(c, c->argv[1], o, link);
+    server.dirty++;
+    addReply(c, shared.ok);
 }
 
 typedef struct bitroarTarget {
     robj *value;
-    long long expire;
     int transition;
-    int created;
 } bitroarTarget;
 
 /* SETBIT and BITFIELD share the decision and bookkeeping for the representation
  * a bitmap write should target. Returns C_ERR after replying to the client when
  * the Roaring representation cannot hold the write; the keyspace is left
- * untouched, which keeps multi-op BITFIELD writes all-or-nothing. On C_OK,
- * target->value is the Roaring object to mutate, or NULL to retain the string
- * path. New and converted values are marked as transitions so callers can
- * propagate and install them after mutation; converted values also retain the
- * expiration read from the still-installed string. */
-static int bitroarResolveTarget(client *c, robj *key, kvobj *o, uint64_t maxbit,
+ * untouched, which keeps multi-op BITFIELD syntax and range failures atomic.
+ * On C_OK, target->value is an existing Roaring object to mutate, or NULL.
+ * Missing and string values are marked for a transition that callers apply
+ * before re-looking up the key and executing the logical write. */
+static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit,
                                 bitroarTarget *target) {
-    *target = (bitroarTarget){.expire = -1};
+    *target = (bitroarTarget){0};
 
     int is_roaring = (o != NULL && o->type == OBJ_BITMAP);
     if (!is_roaring) {
@@ -1011,34 +1058,23 @@ static int bitroarResolveTarget(client *c, robj *key, kvobj *o, uint64_t maxbit,
 
     if (is_roaring) {
         target->value = o;
-    } else if (o == NULL) {
-        /* bitmap-default-roaring yes: newly created bitmap keys use Roaring. */
-        target->value = bitroarCreate();
-        target->transition = 1;
-        target->created = 1;
     } else {
-        /* bitmap-default-roaring yes: writes against existing strings first
-         * produce a Roaring value so the write is not bounded by the
-         * string representation. */
-        target->value = bitroarFromStringObject(o);
-        if (target->value == NULL) {
+        if (o != NULL && bitroarStringTooLarge(o)) {
             addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
             return C_ERR;
         }
-        target->expire = getExpire(c->db, key->ptr, o);
+        /* bitmap-default-roaring yes: missing keys and string values first
+         * undergo the explicit representation transition. */
         target->transition = 1;
     }
     return C_OK;
 }
 
-/* SETBIT against a Roaring bitmap target: mutate the bitmap, install it in
- * the keyspace when it was just created or converted from a string, and
- * reply with the original bit value. 'link' is the lookup link from
- * setbitCommand() so the keyspace dict is probed only once. */
-static void setbitCommandBitmap(client *c, bitroarTarget *target,
-                                uint64_t bitoffset, long on, dictEntryLink link)
+/* SETBIT against an already installed Roaring bitmap target. */
+static void setbitCommandBitmap(client *c, robj *roaring,
+                                uint64_t bitoffset, long on,
+                                int transitioned)
 {
-    robj *roaring = target->value;
     uint64_t oldlen = bitroarLen(roaring);
     uint64_t byte = bitoffset >> 3;
     int changed = 0;
@@ -1047,33 +1083,30 @@ static void setbitCommandBitmap(client *c, bitroarTarget *target,
 
     bitval = bitroarGetBit(roaring, bitoffset);
     if (byte >= oldlen || (!!bitval != on)) {
-        if (!target->transition && server.memory_tracking_enabled)
+        if (server.memory_tracking_enabled)
             oldAllocSize = kvobjAllocSize(roaring);
         /* bitroarResolveTarget() already checked the internal bound. */
         serverAssert(bitroarSetBit(roaring, bitoffset, on) == C_OK);
         changed = 1;
     }
 
-    if (target->created) {
-        /* Queue the RESTORE payload before the keyspace notification:
-         * module subscribers may mutate or delete the key from their
-         * callback. */
-        bitroarPropagateRestore(c, c->argv[1], roaring, -1, 0);
-        kvobj *kv = dbAddByLink(c->db, c->argv[1], &roaring, &link);
-        keyModified(c,c->db,c->argv[1],kv,1);
-        server.dirty++;
-        notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
-    } else if (target->transition) {
-        bitroarInstallConvertedValue(c, c->argv[1], &roaring, target->expire, link);
-        server.dirty++;
-        notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
-    } else if (changed) {
+    if (changed) {
+        /* Native SETBIT can run keyspace callbacks too. Queue it before the
+         * notification unless a transition path already placed it after
+         * BITCONVERT and its callbacks. This also preserves order in an
+         * AOF-enabled replica applying the transition pair. */
+        if ((c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+            bitroarPropagateCurrentCommand(c);
         if (oldlen != bitroarLen(roaring))
             updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitroarLen(roaring));
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), roaring, oldAllocSize, kvobjAllocSize(roaring));
         keyModified(c,c->db,c->argv[1],roaring,1);
         notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    } else if (transitioned) {
+        /* The representation transition itself changed the key even though
+         * SETBIT left its logical value and length unchanged. */
         server.dirty++;
     }
 
@@ -1100,15 +1133,39 @@ void setbitCommand(client *c) {
         return;
     }
 
-    dictEntryLink link;
+    dictEntryLink link = NULL;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     bitroarTarget target;
 
-    if (bitroarResolveTarget(c, c->argv[1], o, bitoffset, &target) != C_OK)
+    if (bitroarResolveTarget(c, o, bitoffset, &target) != C_OK)
         return;
 
-    if (target.value != NULL) {
-        setbitCommandBitmap(c, &target, bitoffset, on, link);
+    if (target.transition) {
+        /* Queue the conversion first, then perform that same transition
+         * locally. The triggering SETBIT is queued after conversion callbacks
+         * but before its own notifications below. */
+        bitroarPropagateConvert(c, c->argv[1]);
+        bitroarConvertKey(c, c->argv[1], o, link);
+
+        /* Conversion callbacks may replace or delete the key. Replay observes
+         * those effects before SETBIT too, so continue from a fresh lookup and
+         * deliberately do not apply bitmap-default-roaring a second time. */
+        link = NULL;
+        o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+
+        if (o != NULL && checkStringOrBitmapType(c, o)) {
+            /* The conversion callback replaced the key with an incompatible
+             * type. Replay stops at the same error, so suppress the automatic
+             * SETBIT that dirty accounting for BITCONVERT would otherwise add. */
+            preventCommandPropagation(c);
+            server.dirty++;
+            return;
+        }
+        bitroarPropagateCurrentCommand(c);
+    }
+
+    if (o != NULL && o->type == OBJ_BITMAP) {
+        setbitCommandBitmap(c, o, bitoffset, on, target.transition);
         return;
     }
 
@@ -1127,7 +1184,8 @@ void setbitCommand(client *c) {
     /* Either it is newly created, changed length, or the bit changes before and after.
      * Note that the bitval here is actually a decimal number.
      * So we need to use `!!` to convert it to 0 or 1 for comparison. */
-    if (strGrowSize || (!!bitval != on)) {
+    int changed = strGrowSize || (!!bitval != on);
+    if (changed) {
         /* Update byte with new bit value. */
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
@@ -1148,6 +1206,8 @@ void setbitCommand(client *c) {
 
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    } else if (target.transition) {
         server.dirty++;
     }
 
@@ -1496,15 +1556,25 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX512 */
 
-/* BITOP whose result is a Roaring bitmap: at least one source already is one
- * (a property of the replicated dataset, identical on replicas), or
- * bitmap-default-roaring is enabled on this server (a local decision,
- * propagated as an explicit RESTORE of the result). Sources come from
- * bitopCommand()'s lookup loop through objects[]. Computes the result, stores
- * it into targetkey and replies with the destination length. */
+/* Queue an internal BITOP_ROARING form of the current command. Unlike a
+ * BITOP-then-BITCONVERT sequence, this performs the native result store and its
+ * notifications identically on the primary, replicas, and AOF replay. */
+static void bitroarPropagateBitopRoaring(client *c) {
+    robj **argv = zmalloc(sizeof(*argv) * c->argc);
+    memcpy(argv, c->argv, sizeof(*argv) * c->argc);
+    argv[0] = createStringObject("BITOP_ROARING", 13);
+
+    alsoPropagate(c->db->id, argv, c->argc, bitroarPropagationTarget(c));
+    preventCommandPropagation(c);
+    decrRefCount(argv[0]);
+    zfree(argv);
+}
+
+/* BITOP whose result is a Roaring bitmap. Sources come from
+ * bitopCommandGeneric()'s lookup loop through objects[]. */
 static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
                                robj **objects, unsigned long numkeys,
-                               uint64_t maxlen, int has_roaring_bitmap)
+                               uint64_t maxlen, int propagate_forced)
 {
     robj *res_bitmap = NULL;
 
@@ -1515,21 +1585,23 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
         return;
     }
 
-    /* Store the computed value into the target key */
+    /* Store the computed value into the target key. Queue the command before
+     * notifications on every native path, including BITOP_ROARING replay on a
+     * replica with AOF enabled. */
     if (maxlen) {
-        if (!has_roaring_bitmap) {
-            /* The Roaring destination type came from this server's
-             * bitmap-default-roaring setting, not from the source types, so
-             * replicas and the AOF receive the explicit result instead of
-             * re-running the command against their own configuration. The
-             * payload is queued before setKey() notifications: module
-             * subscribers may mutate or delete the key. */
-            bitroarPropagateRestore(c, targetkey, res_bitmap, -1, 0);
-        }
+        if (propagate_forced)
+            bitroarPropagateBitopRoaring(c);
+        else
+            bitroarPropagateCurrentCommand(c);
         setKey(c, c->db, targetkey, &res_bitmap, 0);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
-    } else if (dbDelete(c->db,targetkey)) {
+    } else if (lookupKeyWrite(c->db, targetkey) != NULL) {
+        if (propagate_forced)
+            bitroarPropagateBitopRoaring(c);
+        else
+            bitroarPropagateCurrentCommand(c);
+        serverAssert(dbDelete(c->db,targetkey));
         keyModified(c,c->db,targetkey,NULL,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
         server.dirty++;
@@ -1540,7 +1612,7 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
-void bitopCommand(client *c) {
+static void bitopCommandGeneric(client *c, int force_roaring) {
     char *opname = c->argv[1]->ptr;
     robj *targetkey = c->argv[2];
     bitroarOp op;
@@ -1633,12 +1705,15 @@ void bitopCommand(client *c) {
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
-    /* Roaring bitmap sources, or a Roaring destination configured through
-     * bitmap-default-roaring, take the dedicated Roaring path; everything
-     * below keeps the string flow. */
-    if (has_roaring_bitmap || (maxlen && bitroarDefaultEnabled(c))) {
+    /* Roaring bitmap sources, the hidden force-native replication primitive,
+     * or a destination selected by bitmap-default-roaring take the dedicated
+     * path. A config-only decision is propagated as BITOP_ROARING so replay
+     * observes the exact same value type and notification sequence. */
+    int config_forced = maxlen && !has_roaring_bitmap &&
+                        (force_roaring || bitroarDefaultEnabled(c));
+    if (has_roaring_bitmap || config_forced) {
         bitopCommandBitmap(c, op, targetkey, objects, numkeys,
-                           maxlen, has_roaring_bitmap);
+                           maxlen, config_forced && !force_roaring);
         for (j = 0; j < numkeys; j++) {
             /* Borrowed Roaring operands may be freed by now: storing the
              * result overwrites (or deletes) the target key, which can be
@@ -1969,6 +2044,14 @@ void bitopCommand(client *c) {
         server.dirty++;
     }
     addReplyLongLong(c,(long long)maxlen); /* Return the output string length in bytes. */
+}
+
+void bitopCommand(client *c) {
+    bitopCommandGeneric(c, 0);
+}
+
+void bitopRoaringCommand(client *c) {
+    bitopCommandGeneric(c, 1);
 }
 
 typedef struct bitRange {
@@ -2386,7 +2469,7 @@ void bitfieldGeneric(client *c, int flags) {
     int readonly = 1;
     uint64_t highest_write_offset = 0;
     int roaring_bitmap_write = 0;
-    bitroarTarget roaring_target = {.expire = -1};
+    bitroarTarget roaring_target = {0};
     int roaring_len_extended = 0;
     dictEntryLink roaring_bitmap_link = NULL;
     size_t oldAllocSize = 0;
@@ -2483,17 +2566,35 @@ void bitfieldGeneric(client *c, int flags) {
          * bitmap in place and does not need it. */
         o = lookupKeyWriteWithLink(c->db,c->argv[1],&roaring_bitmap_link);
 
-        /* When bitmap-default-roaring is enabled, newly created bitmap keys
-         * use Roaring, and a write against an existing string value converts it
-         * first. The transition reaches replicas and the AOF as an explicit
-         * RESTORE of the final state. */
-        if (bitroarResolveTarget(c, c->argv[1], o, highest_write_offset,
+        /* When bitmap-default-roaring is enabled, missing and string keys
+         * undergo the explicit transition before the BITFIELD operations. */
+        if (bitroarResolveTarget(c, o, highest_write_offset,
             &roaring_target) != C_OK)
         {
             zfree(ops);
             return;
         }
-        if (roaring_target.value != NULL) o = roaring_target.value;
+        if (roaring_target.transition) {
+            bitroarPropagateConvert(c, c->argv[1]);
+            bitroarConvertKey(c, c->argv[1], o, roaring_bitmap_link);
+
+            /* Resume from the state left by synchronous conversion callbacks.
+             * Do not apply the local default again: replay executes BITFIELD
+             * under mustObeyClient() after those same callback effects. */
+            roaring_bitmap_link = NULL;
+            o = lookupKeyWriteWithLink(c->db, c->argv[1], &roaring_bitmap_link);
+
+            if (o != NULL && checkStringOrBitmapType(c, o)) {
+                preventCommandPropagation(c);
+                server.dirty++;
+                zfree(ops);
+                return;
+            }
+            /* Conversion callback writes are already queued. Put BITFIELD
+             * next, before lookupStringForBitCommand() can emit NEW and before
+             * either representation emits its logical write notification. */
+            bitroarPropagateCurrentCommand(c);
+        }
 
         if (o != NULL && o->type == OBJ_BITMAP) {
             uint64_t byte = highest_write_offset >> 3;
@@ -2501,7 +2602,7 @@ void bitfieldGeneric(client *c, int flags) {
             roaringOldSize = bitroarLen(o);
             roaringGrowSize = byte + 1 > roaringOldSize ? byte + 1 - roaringOldSize : 0;
             roaring_bitmap_write = 1;
-            if (!roaring_target.transition && server.memory_tracking_enabled)
+            if (server.memory_tracking_enabled)
                 oldAllocSize = kvobjAllocSize(o);
         } else {
             if ((o = lookupStringForBitCommand(c, highest_write_offset,o,roaring_bitmap_link,
@@ -2526,40 +2627,22 @@ void bitfieldGeneric(client *c, int flags) {
             roaring_len_extended = oldlen != bitroarLen(o);
         }
 
-        /* A created or converted Roaring value must reach replicas and the AOF
-         * even when every op failed or wrote nothing: the transition itself
-         * (and the string-parity length growth above) already happened.
-         * Creation is serialized before dbAddByLink() emits "new"; conversion
-         * is installed first so preserved metadata is serialized, then emits
-         * type_changed. */
-        if (roaring_target.transition) {
-            if (roaring_target.created) {
-                bitroarPropagateRestore(c, c->argv[1], o, roaring_target.expire, 0);
-                robj *created_bitmap = o;
-                dbAddByLink(c->db, c->argv[1], &created_bitmap, &roaring_bitmap_link);
-            } else {
-                bitroarInstallConvertedValue(c, c->argv[1], &o,
-                    roaring_target.expire, roaring_bitmap_link);
-            }
-        }
+        if (changes || roaring_len_extended) {
+            /* As with native SETBIT, place the command before its bitmap
+             * notification unless the transition path already queued it. */
+            if ((c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+                bitroarPropagateCurrentCommand(c);
+            if (roaringOldSize != bitroarLen(o))
+                updateKeysizesHist(c->db, OBJ_BITMAP, roaringOldSize, bitroarLen(o));
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
+                                    oldAllocSize, kvobjAllocSize(o));
 
-        if (changes || roaring_len_extended || roaring_target.transition) {
-            if (!roaring_target.transition) {
-                if (roaringOldSize != bitroarLen(o))
-                    updateKeysizesHist(c->db, OBJ_BITMAP, roaringOldSize, bitroarLen(o));
-                if (server.memory_tracking_enabled)
-                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o,
-                                        oldAllocSize, kvobjAllocSize(o));
-            }
-
-            /* Converted values were already signaled before type_changed. A newly
-             * created value still needs the normal command modification signal. */
-            if (!roaring_target.transition || roaring_target.created) {
-                keyModified(c,c->db,c->argv[1], roaring_target.transition ?
-                    lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOEFFECTS) : o, 1);
-            }
+            keyModified(c,c->db,c->argv[1],o,1);
             notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
             server.dirty += changes ? changes : 1;
+        } else if (roaring_target.transition) {
+            server.dirty++;
         }
         zfree(ops);
         return;
@@ -2696,6 +2779,8 @@ void bitfieldGeneric(client *c, int flags) {
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes ? changes : 1;
+    } else if (roaring_target.transition) {
+        server.dirty++;
     }
     zfree(ops);
 }

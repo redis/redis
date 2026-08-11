@@ -1,0 +1,124 @@
+{
+    "BITOP_ROARING": {
+        "summary": "Performs a bitwise operation and stores a native Roaring bitmap result for deterministic replay.",
+        "complexity": "O(N)",
+        "group": "bitmap",
+        "since": "8.10.0",
+        "arity": -4,
+        "function": "bitopRoaringCommand",
+        "doc_flags": [
+            "SYSCMD"
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "NOSCRIPT",
+            "INTERNAL"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "OW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 3
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "operation",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "and",
+                        "type": "pure-token",
+                        "token": "AND"
+                    },
+                    {
+                        "name": "or",
+                        "type": "pure-token",
+                        "token": "OR"
+                    },
+                    {
+                        "name": "xor",
+                        "type": "pure-token",
+                        "token": "XOR"
+                    },
+                    {
+                        "name": "not",
+                        "type": "pure-token",
+                        "token": "NOT"
+                    },
+                    {
+                        "name": "diff",
+                        "type": "pure-token",
+                        "token": "DIFF"
+                    },
+                    {
+                        "name": "diff1",
+                        "type": "pure-token",
+                        "token": "DIFF1"
+                    },
+                    {
+                        "name": "andor",
+                        "type": "pure-token",
+                        "token": "ANDOR"
+                    },
+                    {
+                        "name": "one",
+                        "type": "pure-token",
+                        "token": "ONE"
+                    }
+                ]
+            },
+            {
+                "name": "destkey",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 1,
+                "multiple": true
+            }
+        ],
+        "reply_schema": {
+            "description": "the size of the native bitmap result, equal to the longest input",
+            "type": "integer",
+            "minimum": 0
+        }
+    }
+}
