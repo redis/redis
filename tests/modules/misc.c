@@ -194,7 +194,7 @@ const char *test_keytype_name(int type) {
     }
 }
 
-int test_key_string_api(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int test_keyinfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
     RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
@@ -622,7 +622,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.keyexists", test_keyexists,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx,"test.key_string_api", test_key_string_api,"write",1,1,1) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,"test.keyinfo", test_keyinfo,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"test.setlru", test_setlru,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
