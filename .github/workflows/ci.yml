@@ -52,18 +52,24 @@ jobs:
             corpus: bitmap_commands
           - fuzzer: fuzz_hash_templates
             corpus: hash_templates
+          - fuzzer: fuzz_array_commands
+            corpus: array_commands
+          - fuzzer: fuzz_replication_compression
+            corpus: replication_compression
+          - fuzzer: fuzz_list_move_commands
+            corpus: list_move_commands
           - fuzzer: fuzz_stream_commands
             corpus: stream_commands
     steps:
       - uses: actions/checkout@v6
       - name: Install Clang
-        run: sudo apt-get update && sudo apt-get install -y clang
+        run: sudo apt-get update && sudo apt-get install -y clang libzstd-dev
       - name: Generate fuzzing seeds
         run: |
           fuzz/generate-seeds.sh
           git diff --exit-code -- fuzz/corpus
       - name: Build fuzzers
-        run: make fuzz CC=clang -j"$(nproc)"
+        run: make fuzz CC=clang BUILD_COMPRESSION=yes -j"$(nproc)"
       - name: Restore reusable fuzz corpus
         uses: actions/cache/restore@v4
         with:
@@ -98,6 +104,7 @@ jobs:
           mkdir -p "fuzz-corpus-minimized/${{ matrix.fuzzer }}"
           "fuzz/${{ matrix.fuzzer }}" \
             -merge=1 \
+            -print_funcs=0 \
             "fuzz-corpus-minimized/${{ matrix.fuzzer }}" \
             "fuzz-corpus/${{ matrix.fuzzer }}"
       - name: Collect fuzz artifacts
