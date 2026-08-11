@@ -52,6 +52,8 @@ jobs:
             corpus: bitmap_commands
           - fuzzer: fuzz_replication_compression
             corpus: replication_compression
+          - fuzzer: fuzz_stream_commands
+            corpus: stream_commands
     steps:
       - uses: actions/checkout@v6
       - name: Install Clang
@@ -123,6 +125,41 @@ jobs:
         with:
           name: fuzz-${{ matrix.fuzzer }}-artifacts
           path: fuzz-artifacts/${{ matrix.fuzzer }}
+          if-no-files-found: ignore
+
+  fuzz-backup-state-machine:
+    name: Fuzz Testing - BACKUP state machine
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Validate state-machine harness
+        run: python3 -m py_compile fuzz/fuzz_backup_state_machine.py
+      - name: Build sanitizer-instrumented Redis
+        run: |
+          make redis-server CC=clang SANITIZER=address MALLOC=libc SKIP_VEC_SETS=yes OPTIMIZATION=-O1 -j"$(nproc)" \
+            REDIS_CFLAGS='-DREDIS_TEST -fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer' \
+            REDIS_LDFLAGS='-fsanitize=undefined'
+      - name: Run BACKUP state-machine fuzzing
+        env:
+          ASAN_OPTIONS: abort_on_error=1:detect_leaks=0:allocator_may_return_null=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          mkdir -p fuzz-backup-artifacts
+          python3 fuzz/fuzz_backup_state_machine.py \
+            --redis-server src/redis-server \
+            --seeds fuzz/corpus/backup_state_machine/seeds.txt \
+            --duration 60 \
+            --max-runs 128 \
+            --artifact-dir fuzz-backup-artifacts
+      - name: Upload BACKUP fuzz artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-backup-state-machine-artifacts
+          path: fuzz-backup-artifacts
           if-no-files-found: ignore
 
   build-debian-old:

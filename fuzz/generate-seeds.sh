@@ -13,10 +13,11 @@ CORPUS_DIR="$SCRIPT_DIR/corpus"
 STRING_DIR="$CORPUS_DIR/string_commands"
 BITMAP_DIR="$CORPUS_DIR/bitmap_commands"
 REPLICATION_COMPRESSION_DIR="$CORPUS_DIR/replication_compression"
+STREAM_DIR="$CORPUS_DIR/stream_commands"
 
-mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$REPLICATION_COMPRESSION_DIR"
+mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$REPLICATION_COMPRESSION_DIR" "$STREAM_DIR"
 rm -f "$STRING_DIR"/seed* "$BITMAP_DIR"/seed* \
-    "$REPLICATION_COMPRESSION_DIR"/seed*
+    "$REPLICATION_COMPRESSION_DIR"/seed* "$STREAM_DIR"/seed*
 
 echo "Generating Redis core fuzz seed corpora..."
 
@@ -150,7 +151,42 @@ printf '\x07\x01\x00\x00\x07\x01\x07\x01duplicate-me' \
 printf '\x00\xff\x00\x00\xff\x01\xfe\x01\x00\xff\x10\xef\x20\xdf\x30\xcf\x40\xbf\x50\xaf\x60\x9f\x70\x8f' \
     > "$REPLICATION_COMPRESSION_DIR/seed10_high_entropy"
 
+# Stream command seeds. Every input starts from streams s0/s1, group g0, and
+# pending entries 1-0 through 3-0, so these bytes select the follow-up grammar.
+# XNACK SILENT IDS 1 1-0.
+printf '\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00' \
+    > "$STREAM_DIR/seed01_xnack_silent"
+
+# XNACK FATAL FORCE IDS 3 with a mix of pending and missing IDs.
+printf '\x00\x03\x00\x02\x01\x00\x00\x02\x00\x01\x03' \
+    > "$STREAM_DIR/seed02_xnack_fatal_force"
+
+# XNACK FAIL with RETRYCOUNT after the IDS block.
+printf '\x00\x03\x00\x01\x00\x01\x01\x00\x00\x00\x00\x00' \
+    > "$STREAM_DIR/seed03_xnack_retrycount"
+
+# XREAD with COUNT, MAXCOUNT, and MAXSIZE across two streams.
+printf '\x00\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00' \
+    > "$STREAM_DIR/seed04_xread_limits"
+
+# XREADGROUP with COUNT, MAXCOUNT, MAXSIZE, and NOACK.
+printf '\x00\x02\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00' \
+    > "$STREAM_DIR/seed05_xreadgroup_limits"
+
+# XCLAIM a pending entry, followed by XNACK to release it again.
+printf '\x01\x04\x00\x00\x00\x00\x00\x00\x03\x00\x01\x00\x00\x00\x00\x00' \
+    > "$STREAM_DIR/seed06_claim_nack_cycle"
+
+# XACK and XDEL state transitions.
+printf '\x01\x05\x00\x00\x00\x00\x06\x00\x00\x00\x00' \
+    > "$STREAM_DIR/seed07_ack_delete"
+
+# Malformed XNACK/XREADGROUP argument shape.
+printf '\x00\x07\x00\x05\x01a\x01b\x01c' \
+    > "$STREAM_DIR/seed08_invalid_shape"
+
 echo "Seed files generated:"
 echo "  string_commands: $(find "$STRING_DIR" -type f | wc -l | tr -d ' ')"
 echo "  bitmap_commands: $(find "$BITMAP_DIR" -type f | wc -l | tr -d ' ')"
 echo "  replication_compression: $(find "$REPLICATION_COMPRESSION_DIR" -type f | wc -l | tr -d ' ')"
+echo "  stream_commands: $(find "$STREAM_DIR" -type f | wc -l | tr -d ' ')"
