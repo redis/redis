@@ -1539,6 +1539,9 @@ typedef struct client {
     struct redisCommand *realcmd; /* The original command that was executed by the client,
                                      Used to update error stats in case the c->cmd was modified
                                      during the command invocation (like on GEOADD for example). */
+    int command_call_flags; /* CMD_CALL_* flags for the currently executing call().
+                               Saved/restored across nested calls so command code that
+                               emits replacement propagation can honor selective targets. */
     user *user;             /* User associated with this connection. If the
                                user is set to NULL the connection can do
                                anything (admin). */
@@ -3873,6 +3876,7 @@ void replyToClientsBlockedOnShutdown(void);
 int abortShutdown(void);
 void afterCommand(client *c);
 int mustObeyClient(client *c);
+int commandVisibleForClient(client *c, struct redisCommand *cmd);
 #ifdef __GNUC__
 void _serverLog(int level, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
@@ -4556,6 +4560,7 @@ void delCommand(client *c);
 void delexCommand(client *c);
 void unlinkCommand(client *c);
 void existsCommand(client *c);
+void bitconvertCommand(client *c);
 void setbitCommand(client *c);
 void getbitCommand(client *c);
 void bitfieldCommand(client *c);
@@ -4779,6 +4784,7 @@ void functionRestoreCommand(client *c);
 void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
+void bitopRoaringCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);

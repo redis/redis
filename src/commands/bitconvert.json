@@ -1,0 +1,58 @@
+{
+    "BITCONVERT": {
+        "summary": "Converts a string bitmap to the native bitmap representation.",
+        "complexity": "O(N) where N is the length of the string value.",
+        "group": "bitmap",
+        "since": "8.10.0",
+        "arity": 3,
+        "function": "bitconvertCommand",
+        "doc_flags": [
+            "SYSCMD"
+        ],
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "NOSCRIPT",
+            "INTERNAL"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "encoding",
+                "token": "ROARING",
+                "type": "pure-token"
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

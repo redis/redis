@@ -181,6 +181,7 @@ client *createClient(connection *conn) {
     c->io_deferred_objects_num = 0;
     c->io_deferred_objects_size = 0;
     c->cmd = c->lastcmd = c->realcmd = c->lookedcmd = NULL;
+    c->command_call_flags = CMD_CALL_NONE;
     c->cur_script = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;

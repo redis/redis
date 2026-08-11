@@ -393,50 +393,6 @@ void keyMetaSpecCleanup(KeyMetaSpec *kms) {
     kms->metabits = 0;
 }
 
-/* Merge module metadata loaded from a RESTORE payload into an existing key.
- * A representation transition keeps target-only metadata classes that are
- * already attached to the logical key. Values present in the payload are
- * authoritative: they fill missing classes and replace stale target values.
- * Replaced values are released through the class free callback without an
- * unlink callback because the logical key survives. This function consumes
- * the metadata owned by `kms`. */
-void keyMetaMergeFromSpec(redisDb *db, kvobj **kvref, KeyMetaSpec *kms) {
-    kvobj *kv = *kvref;
-    uint64_t *pMeta = kms->meta + KEY_META_ID_MAX - 1;
-
-    /* Expiration is reconciled by RESTORE from its explicit TTL argument. */
-    if (kms->metabits & KEY_META_MASK_EXPIRE)
-        pMeta--;
-
-    uint32_t mbits = kms->metabits >> KEY_META_ID_MODULE_FIRST;
-    int keyMetaId = KEY_META_ID_MODULE_FIRST;
-    while (mbits) {
-        if (mbits & 1) {
-            KeyMetaClass *pClass = &keyMetaClass[keyMetaId];
-            uint64_t loaded = *pMeta--;
-            serverAssert(pClass->state == CLASS_STATE_INUSE);
-
-            uint64_t existing = pClass->conf.reset_value;
-            int has_target = keyMetaGetMetadata(keyMetaId, kv, &existing);
-            int has_existing = has_target &&
-                               existing != pClass->conf.reset_value;
-
-            if (has_existing && pClass->conf.free)
-                pClass->conf.free(kvobjGetKey(kv), existing);
-
-            if (loaded != pClass->conf.reset_value || has_target) {
-                kv = keyMetaSetMetadata(db, kv, keyMetaId, loaded);
-                serverAssert(kv != NULL);
-            }
-        }
-        mbits >>= 1;
-        keyMetaId++;
-    }
-
-    keyMetaSpecInit(kms);
-    *kvref = kv;
-}
-
 int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
     static int countDownNotice = 0;
     static rio *lastRdb = NULL;

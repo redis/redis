@@ -73,6 +73,77 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_error {ERR unknown command 'bitmap'*} {r bitmap convert bitmap:convert:missing}
     }
 
+    test {BITCONVERT is internal and has narrow conversion semantics} {
+        set raw [binary format H* 80400100080000]
+        r del bitmap:bitconvert:missing bitmap:bitconvert:string \
+            bitmap:bitconvert:list
+
+        # Ordinary clients cannot discover or execute the propagation primitive.
+        assert_equal {{}} [r command info bitconvert]
+        assert_equal {{}} [r command info bitop_roaring]
+        assert {[lsearch -exact [r acl cat bitmap] bitconvert] == -1}
+        assert {[lsearch -exact [r acl cat bitmap] bitop_roaring] == -1}
+        assert_error {ERR Command 'bitconvert' not found*} {
+            r acl dryrun default bitconvert bitmap:bitconvert:missing ROARING
+        }
+        assert_error {ERR unknown command 'bitconvert'*} {
+            r bitconvert bitmap:bitconvert:missing ROARING
+        }
+
+        r debug mark-internal-client
+
+        # A missing key becomes an empty native bitmap.
+        assert_equal OK [r bitconvert bitmap:bitconvert:missing ROARING]
+        assert_equal bitmap [r type bitmap:bitconvert:missing]
+        assert_equal bitmap-roaring [r object encoding bitmap:bitconvert:missing]
+        assert_equal {} [r debug bitmap-raw bitmap:bitconvert:missing]
+
+        # Strings convert in place without changing bytes or expiration.
+        r set bitmap:bitconvert:string $raw
+        r pexpire bitmap:bitconvert:string 600000
+        set expire_at [r pexpiretime bitmap:bitconvert:string]
+        assert_equal OK [r bitconvert bitmap:bitconvert:string ROARING]
+        assert_equal bitmap [r type bitmap:bitconvert:string]
+        assert_equal $raw [r debug bitmap-raw bitmap:bitconvert:string]
+        assert_equal $expire_at [r pexpiretime bitmap:bitconvert:string]
+
+        # Converting a native bitmap again is an idempotent no-op.
+        set digest [r debug digest-value bitmap:bitconvert:string]
+        assert_equal OK [r bitconvert bitmap:bitconvert:string ROARING]
+        assert_equal $digest [r debug digest-value bitmap:bitconvert:string]
+        assert_equal $expire_at [r pexpiretime bitmap:bitconvert:string]
+
+        # Other value types retain their ordinary WRONGTYPE behavior.
+        r lpush bitmap:bitconvert:list value
+        assert_error {WRONGTYPE*} {r bitconvert bitmap:bitconvert:list ROARING}
+        assert_equal list [r type bitmap:bitconvert:list]
+
+        assert_error {ERR syntax error*} {
+            r bitconvert bitmap:bitconvert:missing STRING
+        }
+
+        # Config-independent BITOP replay uses a second hidden primitive that
+        # performs the native store and notifications in one operation.
+        r set bitmap:bitconvert:bitop-source [binary format H* f0]
+        assert_equal 1 [r bitop_roaring or bitmap:bitconvert:bitop-out \
+            bitmap:bitconvert:bitop-source]
+        assert_equal bitmap [r type bitmap:bitconvert:bitop-out]
+        assert_equal [binary format H* f0] \
+            [r debug bitmap-raw bitmap:bitconvert:bitop-out]
+
+        r debug mark-internal-client unmark
+        assert_error {ERR unknown command 'bitconvert'*} {
+            r bitconvert bitmap:bitconvert:missing ROARING
+        }
+    }
+
+    test {Internal bitmap propagation primitives cannot be renamed} {
+        foreach command {bitconvert bitop_roaring} {
+            catch {exec src/redis-server --rename-command $command renamed} err
+            assert_match {*Cannot rename an internal command*} $err
+        }
+    } {} {external:skip}
+
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
         r config set bitmap-default-roaring no
         r del bitmap bitmap:existing
@@ -457,26 +528,23 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify} [$rd read]
 
-        # A no-op SETBIT still converts the representation. The installed
-        # bitmap emits type_changed first and the triggering bitmap event
-        # second; the logical key was not overwritten.
+        # A no-op SETBIT still converts the representation. BITCONVERT emits
+        # type_changed; SETBIT then observes the native value and has no
+        # logical write event, exactly as it does during replay.
         assert_equal 1 [r setbit bitmap:public:notify:conv 0 1]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:conv} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:conv} [$rd read]
 
-        # BITFIELD follows the same contract even when its write leaves the
-        # logical bits unchanged.
+        # BITFIELD follows the same replay-equivalent contract when its write
+        # leaves the logical bits unchanged.
         assert_equal {1} [r bitfield bitmap:public:notify:bitfield SET u8 0 1]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:bitfield} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:bitfield} [$rd read]
 
-        # The representation transition and command event also occur when
-        # every write is rejected by OVERFLOW FAIL.
+        # The representation transition still occurs when every write is
+        # rejected by OVERFLOW FAIL, but the rejected command emits no event.
         assert_equal {{}} [r bitfield bitmap:public:notify:bitfield:fail \
             OVERFLOW FAIL INCRBY u8 0 1]
         assert_equal bitmap [r type bitmap:public:notify:bitfield:fail]
         assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:bitfield:fail} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify:bitfield:fail} [$rd read]
         r config set bitmap-default-roaring no
 
         $rd close
@@ -1244,57 +1312,73 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
 }
 
 start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {appendonly yes appendfsync always save {} aof-use-rdb-preamble no}} {
-    test {Roaring bitmap create and conversion are written to incremental AOF as RESTORE} {
+    test {Bitmap transitions use deterministic transactional commands in the incremental AOF} {
         set aof [get_last_incr_aof_path r]
         set raw [binary format H* 80400100080000]
 
+        # SETBIT against a missing key propagates conversion before the write.
         r config set bitmap-default-roaring yes
         r setbit bitmap:aof-incr:create $sparse_public_offset 1
         r config set bitmap-default-roaring no
 
+        # SETBIT against a string uses the same order and preserves its TTL.
         r set bitmap:aof-incr:convert $raw
         r pexpire bitmap:aof-incr:convert 600000
+        set convert_expire [r pexpiretime bitmap:aof-incr:convert]
         convert_string_bitmap_to_roaring r bitmap:aof-incr:convert
+
+        # BITFIELD also converts first, even when the logical write is a no-op.
+        r set bitmap:aof-incr:bitfield $raw
+        r pexpire bitmap:aof-incr:bitfield 600000
+        set bitfield_expire [r pexpiretime bitmap:aof-incr:bitfield]
+        r config set bitmap-default-roaring yes
+        assert_equal {1} [r bitfield bitmap:aof-incr:bitfield SET u1 0 1]
+        r config set bitmap-default-roaring no
+
+        # A config-driven BITOP propagates a force-native internal form so its
+        # store and notification sequence is identical during replay.
+        r set bitmap:aof-incr:bitop:s1 [binary format H* f0]
+        r set bitmap:aof-incr:bitop:s2 [binary format H* 0f]
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r bitop or bitmap:aof-incr:bitop:out \
+            bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2]
+        r config set bitmap-default-roaring no
 
         set fp [open $aof r]
         fconfigure $fp -translation binary
         fconfigure $fp -blocking 1
 
-        set commands {}
+        set transitions {}
+        set transition_restores 0
         while {1} {
             set cmd [read_from_aof $fp]
             if {$cmd eq ""} break
-            lappend commands $cmd
+            set name [lindex $cmd 0]
+            if {$name in {multi exec bitconvert setbit bitfield bitop bitop_roaring}} {
+                lappend transitions $cmd
+            }
+            if {$name eq "restore" && [string match "bitmap:aof-incr:*" [lindex $cmd 1]]} {
+                incr transition_restores
+            }
         }
         close $fp
 
-        set forbidden {}
-        set create_restore 0
-        set convert_restore 0
-        foreach cmd $commands {
-            set name [lindex $cmd 0]
-            if {$name eq "setbit" || $name eq "bitmap"} {
-                lappend forbidden $cmd
-            }
-            if {$name eq "restore"} {
-                assert_equal REPLACE [lindex $cmd 4]
-                set key [lindex $cmd 1]
-                if {$key eq "bitmap:aof-incr:create"} {
-                    assert_equal 5 [llength $cmd]
-                    assert_equal 0 [lindex $cmd 2]
-                    incr create_restore
-                } elseif {$key eq "bitmap:aof-incr:convert"} {
-                    assert_equal 7 [llength $cmd]
-                    assert_equal ABSTTL [lindex $cmd 5]
-                    assert_equal KEEPMETADATA [lindex $cmd 6]
-                    incr convert_restore
-                }
-            }
-        }
-
-        assert_equal {} $forbidden
-        assert_equal 1 $create_restore
-        assert_equal 1 $convert_restore
+        assert_equal [list \
+            {multi} \
+            [list bitconvert bitmap:aof-incr:create ROARING] \
+            [list setbit bitmap:aof-incr:create $sparse_public_offset 1] \
+            {exec} \
+            {multi} \
+            [list bitconvert bitmap:aof-incr:convert ROARING] \
+            [list setbit bitmap:aof-incr:convert 0 1] \
+            {exec} \
+            {multi} \
+            [list bitconvert bitmap:aof-incr:bitfield ROARING] \
+            [list bitfield bitmap:aof-incr:bitfield SET u1 0 1] \
+            {exec} \
+            [list bitop_roaring or bitmap:aof-incr:bitop:out \
+                bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2]] $transitions
+        assert_equal 0 $transition_restores
 
         set digest_before [debug_digest]
         r debug loadaof
@@ -1302,6 +1386,12 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal bitmap [r type bitmap:aof-incr:create]
         assert_equal bitmap [r type bitmap:aof-incr:convert]
         assert_equal $raw [r debug bitmap-raw bitmap:aof-incr:convert]
+        assert_equal $convert_expire [r pexpiretime bitmap:aof-incr:convert]
+        assert_equal bitmap [r type bitmap:aof-incr:bitfield]
+        assert_equal $raw [r debug bitmap-raw bitmap:aof-incr:bitfield]
+        assert_equal $bitfield_expire [r pexpiretime bitmap:aof-incr:bitfield]
+        assert_equal bitmap [r type bitmap:aof-incr:bitop:out]
+        assert_equal [binary format H* ff] [r debug bitmap-raw bitmap:aof-incr:bitop:out]
     }
 }
 
@@ -1318,7 +1408,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
 
         test {Roaring bitmap public creation replicates deterministic type transitions} {
             # The replica stays in bitmap-default-roaring no: type decisions must arrive
-            # from the master as explicit RESTORE commands, never be re-derived from
+            # from the master as explicit BITCONVERT commands, never be re-derived from
             # replica-local configuration.
             $master config set bitmap-default-roaring yes
             $replica config set bitmap-default-roaring no
@@ -1327,21 +1417,26 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             $master setbit bitmap:public:repl:zero 0 0
             $master set bitmap:public:repl:auto ""
             $master setbit bitmap:public:repl:auto $sparse_public_offset 1
+            $master set bitmap:public:repl:bitfield [binary format H* 80]
+            assert_equal {1} [$master bitfield bitmap:public:repl:bitfield SET u1 0 1]
             wait_for_ofs_sync $master $replica
 
             assert_equal bitmap [$replica type bitmap:public:repl:direct]
             assert_equal bitmap [$replica type bitmap:public:repl:zero]
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
+            assert_equal bitmap [$replica type bitmap:public:repl:bitfield]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct $sparse_public_offset]
             assert_equal [binary format H* 00] [$replica debug bitmap-raw bitmap:public:repl:zero]
             assert_equal 1 [$replica getbit bitmap:public:repl:auto $sparse_public_offset]
+            assert_equal [binary format H* 80] \
+                [$replica debug bitmap-raw bitmap:public:repl:bitfield]
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:direct}
             assert_error {WRONGTYPE*} {$replica get bitmap:public:repl:auto}
             assert_equal [$master debug digest] [$replica debug digest]
         }
 
         test {plain SETBIT on an existing Roaring bitmap replicates as a command} {
-            # After the explicit RESTORE transition, later writes replicate
+            # After the explicit BITCONVERT transition, later writes replicate
             # as plain SETBITs against the same type on both sides.
             $master setbit bitmap:public:repl:direct 12345 1
             wait_for_ofs_sync $master $replica
@@ -1385,10 +1480,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
         }
 
         test {BITOP destinations replicate deterministically across modes} {
-            # String-only sources with a bitmap-default-roaring yes master: the roaring
-            # destination decision is master-local, so the result arrives as
-            # a RESTORE and the replica converges although it would have
-            # produced a string itself.
+            # String-only sources with a bitmap-default-roaring yes master: the
+            # destination decision is master-local, so the stream carries the
+            # force-native BITOP_ROARING primitive.
             $master del bitop:repl:s1 bitop:repl:s2 bitop:repl:out
             $master set bitop:repl:s1 [binary format H* f0]
             $master set bitop:repl:s2 [binary format H* 0f]
@@ -1427,6 +1521,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
 
             assert_equal bitmap [$replica type bitmap:public:repl:direct]
             assert_equal bitmap [$replica type bitmap:public:repl:auto]
+            assert_equal bitmap [$replica type bitmap:public:repl:bitfield]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct $sparse_public_offset]
             assert_equal 1 [$replica getbit bitmap:public:repl:direct 12345]
             assert_equal [binary format H* 00] [$replica debug bitmap-raw bitmap:public:repl:zero]
@@ -1434,7 +1529,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             assert_equal [$master debug digest] [$replica debug digest]
         }
 
-        test {bitmap-default-roaring conversion replicates as RESTORE} {
+        test {bitmap-default-roaring conversion replicates as BITCONVERT plus SETBIT} {
             set raw [binary format H* 80400100080000]
 
             $master config set bitmap-default-roaring no
@@ -1442,9 +1537,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             wait_for_ofs_sync $master $replica
             assert_equal string [$replica type bitmap:public:repl:conv]
 
-            # The conversion must arrive as the RESTORE effect, never as a
-            # replayed SETBIT: whether the replica would choose roaring depends
-            # on its own configuration.
+            # The replica first receives the explicit representation decision,
+            # then replays SETBIT against the resulting native bitmap. Its own
+            # bitmap-default-roaring setting is irrelevant.
             convert_string_bitmap_to_roaring $master bitmap:public:repl:conv
             wait_for_ofs_sync $master $replica
 
@@ -1479,6 +1574,84 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             assert_equal string [$replica type bitmap:public:repl:restore:target]
             assert_equal $raw [$replica get bitmap:public:repl:restore:target]
             assert_equal [$master debug digest] [$replica debug digest]
+        }
+    }
+}
+
+start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "external:skip" "cluster:skip" "logreqres:skip"} overrides {appendonly yes appendfsync always save {} aof-use-rdb-preamble no auto-aof-rewrite-percentage 0}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set replica [srv 0 client]
+
+        $replica replicaof $master_host $master_port
+        wait_for_sync $replica
+
+        test {Bitmap transition primitives honor Lua selective propagation targets} {
+            $master flushall
+            wait_for_ofs_sync $master $replica
+            $master set bitmap:selective:source [binary format H* f0]
+            wait_for_ofs_sync $master $replica
+            $master bgrewriteaof
+            waitForBgrewriteaof $master
+
+            $master config set bitmap-default-roaring yes
+            $replica config set bitmap-default-roaring no
+            set cases {}
+
+            foreach {mode constant on_replica in_aof} {
+                none REPL_NONE 0 0
+                aof REPL_AOF 0 1
+                replica REPL_REPLICA 1 0
+                all REPL_ALL 1 1
+            } {
+                foreach command {setbit bitfield bitop} {
+                    set key bitmap:selective:$mode:$command
+                    if {$command eq "setbit"} {
+                        set script [format {
+                            redis.set_repl(redis.%s)
+                            return redis.call('SETBIT', KEYS[1], 0, 1)
+                        } $constant]
+                        assert_equal 0 [$master eval $script 1 $key]
+                    } elseif {$command eq "bitfield"} {
+                        set script [format {
+                            redis.set_repl(redis.%s)
+                            return redis.call('BITFIELD', KEYS[1], 'SET', 'u8', 0, 255)
+                        } $constant]
+                        assert_equal {0} [$master eval $script 1 $key]
+                    } else {
+                        set script [format {
+                            redis.set_repl(redis.%s)
+                            return redis.call('BITOP', 'OR', KEYS[1], KEYS[2])
+                        } $constant]
+                        assert_equal 1 [$master eval $script 2 $key bitmap:selective:source]
+                    }
+                    assert_equal bitmap [$master type $key]
+                    lappend cases $key $on_replica $in_aof
+                }
+            }
+
+            wait_for_ofs_sync $master $replica
+            foreach {key on_replica in_aof} $cases {
+                if {$on_replica} {
+                    assert_equal bitmap [$replica type $key]
+                } else {
+                    assert_equal none [$replica type $key]
+                }
+            }
+
+            # Detach before replacing the master's live dataset from its AOF;
+            # only REPL_AOF and REPL_ALL transition pairs should be present.
+            $replica replicaof no one
+            $master debug loadaof
+            foreach {key on_replica in_aof} $cases {
+                if {$in_aof} {
+                    assert_equal bitmap [$master type $key]
+                } else {
+                    assert_equal none [$master type $key]
+                }
+            }
         }
     }
 }

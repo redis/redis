@@ -731,7 +731,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         flushallAndVerifyCleanup
     }
 
-    test {DUMP/RESTORE: KEEPMETADATA is internal and normal REPLACE still drops target metadata} {
+    test {DUMP/RESTORE: unknown modifiers are rejected and REPLACE drops target metadata} {
         r set restore:plain:source replacement
         set encoded [r dump restore:plain:source]
 
@@ -824,7 +824,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
 }
 
 start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres:skip"} overrides {appendonly yes appendfsync always save {} aof-use-rdb-preamble no enable-debug-command yes}} {
-    test {AOF: bitmap auto-conversion RESTORE carries module metadata} {
+    test {AOF: bitmap conversion does not serialize NOAOF metadata} {
         r module load $testmodule
         r debug enable-keymeta-runtime-registration 1
         assert_equal 1 [r keymeta.register [cname 1] 1 \
@@ -845,12 +845,20 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
 
         set fp [open $aof r]
         fconfigure $fp -translation binary
+        set bitconvert_count 0
+        set setbit_count 0
         set restore_count 0
         set keymeta_set_count 0
         while {1} {
             set cmd [read_from_aof $fp]
             if {$cmd eq ""} break
-            if {[lindex $cmd 0] eq "restore" &&
+            if {[lindex $cmd 0] eq "bitconvert" &&
+                [lindex $cmd 1] eq "bitmap:aof-convert-meta"} {
+                incr bitconvert_count
+            } elseif {[lindex $cmd 0] eq "setbit" &&
+                [lindex $cmd 1] eq "bitmap:aof-convert-meta"} {
+                incr setbit_count
+            } elseif {[lindex $cmd 0] eq "restore" &&
                 [lindex $cmd 1] eq "bitmap:aof-convert-meta"} {
                 incr restore_count
             } elseif {[lindex $cmd 0] eq "keymeta.set"} {
@@ -858,58 +866,65 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
             }
         }
         close $fp
-        assert_equal 1 $restore_count
+        assert_equal 1 $bitconvert_count
+        assert_equal 1 $setbit_count
+        assert_equal 0 $restore_count
         assert_equal 0 $keymeta_set_count
 
-        # KEYMETA.SET is absent, so the metadata can survive replay only when
-        # the conversion's RESTORE carries it.
+        # The class deliberately has neither an AOF callback nor a persisted
+        # command. In-place conversion preserves it while the key exists, but
+        # does not invent an AOF representation for module-owned metadata.
         r debug loadaof
         assert_equal bitmap [r type bitmap:aof-convert-meta]
         assert_equal bitmap-roaring [r object encoding bitmap:aof-convert-meta]
         assert_equal $expire_at [r pexpiretime bitmap:aof-convert-meta]
-        assert_equal "conversion_meta" \
+        assert_equal {} \
             [r keymeta.get [cname 1] bitmap:aof-convert-meta]
         flushallAndVerifyCleanup
     }
 
-    test {AOF: bitmap conversion replaces stale serialized metadata from the base file} {
+    test {AOF: bitmap conversion retains AOF metadata recreated by the base file} {
+        assert_equal 2 [r keymeta.register [cname 2] 1 "ALLOWIGNORE"]
         r config set auto-aof-rewrite-percentage 0
 
         set key bitmap:aof-convert-stale-meta
         r set $key [binary format H* 80]
-        r keymeta.set [cname 1] $key "base_meta"
+        r keymeta.set [cname 2] $key "base_meta"
         r pexpire $key 600000
         set expire_at [r pexpiretime $key]
 
-        # The base AOF contains an older serialized value. KEYMETA.SET is not
-        # itself persisted, so the conversion RESTORE must replace that stale
-        # target value with the authoritative metadata in its DUMP payload.
+        # The base AOF contains an older serialized value. The later KEYMETA.SET
+        # is intentionally not persisted, so replay reconstructs the base value
+        # and BITCONVERT retains it in place.
         r bgrewriteaof
         waitForBgrewriteaof r
         set incr_aof [get_last_incr_aof_path r]
-        r keymeta.set [cname 1] $key "conversion_meta"
+        r keymeta.set [cname 2] $key "conversion_meta"
 
         r config set bitmap-default-roaring yes
         assert_equal 1 [r setbit $key 0 0]
         r config set bitmap-default-roaring no
-        assert_equal "conversion_meta" [r keymeta.get [cname 1] $key]
+        assert_equal "conversion_meta" [r keymeta.get [cname 2] $key]
 
         set fp [open $incr_aof r]
         fconfigure $fp -translation binary
+        set conversion_bitconvert 0
         set conversion_restore 0
         set keymeta_set_count 0
         while {1} {
             set cmd [read_from_aof $fp]
             if {$cmd eq ""} break
-            if {[lindex $cmd 0] eq "restore" && [lindex $cmd 1] eq $key} {
-                assert {[lsearch -exact $cmd KEEPMETADATA] >= 0}
+            if {[lindex $cmd 0] eq "bitconvert" && [lindex $cmd 1] eq $key} {
+                incr conversion_bitconvert
+            } elseif {[lindex $cmd 0] eq "restore" && [lindex $cmd 1] eq $key} {
                 incr conversion_restore
             } elseif {[lindex $cmd 0] eq "keymeta.set"} {
                 incr keymeta_set_count
             }
         }
         close $fp
-        assert_equal 1 $conversion_restore
+        assert_equal 1 $conversion_bitconvert
+        assert_equal 0 $conversion_restore
         assert_equal 0 $keymeta_set_count
 
         set active_before [r keymeta.active]
@@ -917,13 +932,12 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
         assert_equal bitmap [r type $key]
         assert_equal bitmap-roaring [r object encoding $key]
         assert_equal $expire_at [r pexpiretime $key]
-        assert_equal "conversion_meta" [r keymeta.get [cname 1] $key]
+        assert_equal "base_meta" [r keymeta.get [cname 2] $key]
         assert_equal $active_before [r keymeta.active]
         flushallAndVerifyCleanup
     }
 
     test {AOF: bitmap auto-conversion retains AOF-only metadata from the base file} {
-        assert_equal 2 [r keymeta.register [cname 2] 1 "ALLOWIGNORE"]
         r config set auto-aof-rewrite-percentage 0
 
         set key bitmap:aof-convert-aof-only-meta
@@ -946,17 +960,20 @@ start_server {tags {"modules" "bitmap" "external:skip" "cluster:skip" "logreqres
 
         set fp [open $incr_aof r]
         fconfigure $fp -translation binary
+        set conversion_bitconvert 0
         set conversion_restore 0
         while {1} {
             set cmd [read_from_aof $fp]
             if {$cmd eq ""} break
-            if {[lindex $cmd 0] eq "restore" && [lindex $cmd 1] eq $key} {
-                assert {[lsearch -exact $cmd KEEPMETADATA] >= 0}
+            if {[lindex $cmd 0] eq "bitconvert" && [lindex $cmd 1] eq $key} {
+                incr conversion_bitconvert
+            } elseif {[lindex $cmd 0] eq "restore" && [lindex $cmd 1] eq $key} {
                 incr conversion_restore
             }
         }
         close $fp
-        assert_equal 1 $conversion_restore
+        assert_equal 1 $conversion_bitconvert
+        assert_equal 0 $conversion_restore
 
         set active_before [r keymeta.active]
         r debug loadaof
@@ -986,8 +1003,8 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                 "UNLINKFREE:ALLOWIGNORE"]
             assert_equal 2 [$client keymeta.register [cname 2] 1 \
                 "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
-            # Leave an unused class between the two serialized classes so the
-            # replay merge also exercises gaps in the metadata bitmask.
+            # Leave an unused class between two attached classes so in-place
+            # conversion also covers gaps in the metadata bitmask.
             assert_equal 3 [$client keymeta.register [cname 3] 1 "ALLOWIGNORE"]
             assert_equal 4 [$client keymeta.register [cname 4] 1 \
                 "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
@@ -997,7 +1014,7 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
         wait_for_sync $replica
         $replica config set replica-read-only no
 
-        test {Replication: bitmap conversion merges multiple serialized metadata classes} {
+        test {Replication: bitmap conversion preserves metadata attached on each node} {
             set keys [list bitmap:repl-meta:setbit bitmap:repl-meta:bitfield]
             foreach key $keys {
                 $master set $key [binary format H* 80]
@@ -1010,19 +1027,18 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                 $master keymeta.set [cname 1] $key "local_only_meta"
                 $replica keymeta.set [cname 1] $key "local_only_meta"
 
-                # The primary carries two non-contiguous serialized classes.
-                $master keymeta.set [cname 2] $key "serialized_meta_2"
-                $master keymeta.set [cname 4] $key "serialized_meta_4"
+                # The primary carries two non-contiguous local classes.
+                $master keymeta.set [cname 2] $key "primary_meta_2"
+                $master keymeta.set [cname 4] $key "primary_meta_4"
             }
 
-            # Each replica key has one stale serialized value and is missing
-            # the other. The opposite ordering verifies that attaching a
-            # missing class can reallocate the kvobj without losing the later
-            # replacement or the target-only class.
+            # Each replica key has one different local class and is missing the
+            # other. BITCONVERT must preserve this node-local state rather than
+            # replacing it from a serialized primary payload.
             $replica keymeta.set [cname 2] [lindex $keys 0] \
-                "stale_serialized_meta_2"
+                "replica_meta_2"
             $replica keymeta.set [cname 4] [lindex $keys 1] \
-                "stale_serialized_meta_4"
+                "replica_meta_4"
             assert_equal 6 [$master keymeta.active]
             assert_equal 4 [$replica keymeta.active]
 
@@ -1045,16 +1061,26 @@ start_server [list overrides [list loadmodule "$testmodule" enable-debug-command
                     assert_equal [lindex $expires $i] [$client pexpiretime $key]
                     assert_equal "local_only_meta" \
                         [$client keymeta.get [cname 1] $key]
-                    assert_equal "serialized_meta_2" \
-                        [$client keymeta.get [cname 2] $key]
                     assert_equal {} [$client keymeta.get [cname 3] $key]
-                    assert_equal "serialized_meta_4" \
-                        [$client keymeta.get [cname 4] $key]
                 }
-                # Both sides finish with exactly three classes per key. Replay
-                # freed the replica's stale values and attached its missing ones.
-                assert_equal 6 [$client keymeta.active]
             }
+
+            foreach key $keys {
+                assert_equal "primary_meta_2" \
+                    [$master keymeta.get [cname 2] $key]
+                assert_equal "primary_meta_4" \
+                    [$master keymeta.get [cname 4] $key]
+            }
+            assert_equal "replica_meta_2" \
+                [$replica keymeta.get [cname 2] [lindex $keys 0]]
+            assert_equal {} \
+                [$replica keymeta.get [cname 4] [lindex $keys 0]]
+            assert_equal {} \
+                [$replica keymeta.get [cname 2] [lindex $keys 1]]
+            assert_equal "replica_meta_4" \
+                [$replica keymeta.get [cname 4] [lindex $keys 1]]
+            assert_equal 6 [$master keymeta.active]
+            assert_equal 4 [$replica keymeta.active]
 
             $master flushall
             wait_for_ofs_sync $master $replica

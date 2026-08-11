@@ -170,12 +170,6 @@ void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
  * was already loaded, preventing memory leaks from partially-loaded metadata. */
 void keyMetaSpecCleanup(KeyMetaSpec *kms);
 
-/* Merge loaded module metadata into an existing key. Target-only classes are
- * retained; loaded values replace the same class and fill missing classes.
- * The function consumes all metadata owned by `kms` and may reallocate
- * `*kvref`. */
-void keyMetaMergeFromSpec(struct redisDb *db, kvobj **kvref, KeyMetaSpec *kms);
-
 static inline uint32_t getNumMeta(uint16_t metabits) {
     /* Assumed expire is always first meta */
     return __builtin_popcount(metabits);

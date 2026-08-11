@@ -3963,7 +3963,7 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
 }
 
 /* Returns true if the command is not internal, or the connection is internal. */
-static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
+int commandVisibleForClient(client *c, struct redisCommand *cmd) {
     return (!(cmd->flags & CMD_INTERNAL)) || (c->flags & CLIENT_INTERNAL);
 }
 
@@ -4005,6 +4005,7 @@ static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
 void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
+    int client_old_call_flags = c->command_call_flags;
     struct redisCommand *real_cmd = c->realcmd;
     client *prev_client = server.executing_client;
     server.executing_client = c;
@@ -4068,7 +4069,9 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    c->command_call_flags = flags;
     c->cmd->proc(c);
+    c->command_call_flags = client_old_call_flags;
 
     exitExecutionUnit();
 
