@@ -52,6 +52,8 @@ jobs:
             corpus: bitmap_commands
           - fuzzer: fuzz_replication_compression
             corpus: replication_compression
+          - fuzzer: fuzz_list_move_commands
+            corpus: list_move_commands
           - fuzzer: fuzz_stream_commands
             corpus: stream_commands
     steps:
@@ -98,6 +100,7 @@ jobs:
           mkdir -p "fuzz-corpus-minimized/${{ matrix.fuzzer }}"
           "fuzz/${{ matrix.fuzzer }}" \
             -merge=1 \
+            -print_funcs=0 \
             "fuzz-corpus-minimized/${{ matrix.fuzzer }}" \
             "fuzz-corpus/${{ matrix.fuzzer }}"
       - name: Collect fuzz artifacts

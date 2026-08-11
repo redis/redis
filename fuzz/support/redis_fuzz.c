@@ -1,6 +1,7 @@
 #include "redis_fuzz.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -38,7 +39,23 @@ static connection *redisFuzzCreateConnection(int *peer_fd) {
 void redisFuzzInit(void) {
     if (redis_fuzz_initialized) return;
 
+    static const int redis_fuzz_signals[] = {
+        SIGTERM, SIGINT, SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT
+    };
+    struct sigaction saved_actions[
+        sizeof(redis_fuzz_signals) / sizeof(redis_fuzz_signals[0])];
     struct timeval tv;
+
+    /* initServer installs Redis's production crash and shutdown handlers.
+     * Preserve the libFuzzer/sanitizer handlers so failures produce artifacts
+     * instead of entering Redis's interactive crash-memory test. */
+    for (size_t i = 0;
+         i < sizeof(redis_fuzz_signals) / sizeof(redis_fuzz_signals[0]);
+         i++)
+    {
+        sigaction(redis_fuzz_signals[i], NULL, &saved_actions[i]);
+    }
+
     tzset();
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     gettimeofday(&tv, NULL);
@@ -63,6 +80,13 @@ void redisFuzzInit(void) {
     keyMetaInit();
     initServer();
 
+    for (size_t i = 0;
+         i < sizeof(redis_fuzz_signals) / sizeof(redis_fuzz_signals[0]);
+         i++)
+    {
+        sigaction(redis_fuzz_signals[i], &saved_actions[i], NULL);
+    }
+
     redis_fuzz_initialized = 1;
 }
 
@@ -71,7 +95,7 @@ void redisFuzzReset(void) {
     server.dirty += emptyData(-1, EMPTYDB_NO_FLAGS | EMPTYDB_NOFUNCTIONS, NULL);
 }
 
-void redisFuzzRunResp(sds resp) {
+void redisFuzzRunRespWithInspect(sds resp, RedisFuzzInspectFunc inspect, void *ctx) {
     redisFuzzInit();
     updateCachedTime(0);
 
@@ -85,11 +109,16 @@ void redisFuzzRunResp(sds resp) {
     c->querybuf = resp;
     c->querybuf_peak = sdslen(resp);
     if (processInputBuffer(c) == C_OK) {
+        if (inspect) inspect(c, ctx);
         freeClient(c);
     }
     close(peer_fd);
 
     redisFuzzReset();
+}
+
+void redisFuzzRunResp(sds resp) {
+    redisFuzzRunRespWithInspect(resp, NULL, NULL);
 }
 
 uint8_t redisFuzzByte(RedisFuzzInput *in) {
