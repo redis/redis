@@ -4,6 +4,15 @@ This directory contains opt-in libFuzzer targets for Redis core. The targets
 exercise Redis commands through the real command parser and executor, using a
 local socketpair-backed client.
 
+The command-extension target covers `INCREX`, `SUNIONCARD`, `SDIFFCARD`, and
+the `AGGREGATE COUNT` mode of sorted-set union/intersection commands. It
+generates stateful option, encoding, aliasing, and wrong-type combinations.
+Reserved keys provide exact post-execution oracles for integer saturation, set
+cardinality, and weighted COUNT scores.
+
+Its initial corpus also preserves minimized UBSan regressions for a relative
+`INCREX` TTL overflow and malformed sorted-set key-count arithmetic.
+
 The shared harness is data-structure agnostic. Feature branches can add focused
 targets without changing normal Redis builds.
 
@@ -69,6 +78,7 @@ fuzz/generate-seeds.sh
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -runs=1
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -runs=1
+fuzz/fuzz_command_extensions fuzz/corpus/command_extensions -runs=1
 fuzz/fuzz_hash_templates fuzz/corpus/hash_templates -runs=1
 fuzz/fuzz_array_commands fuzz/corpus/array_commands -runs=1
 fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -runs=1
@@ -81,6 +91,7 @@ fuzz/fuzz_stream_commands fuzz/corpus/stream_commands -runs=1
 ```sh
 fuzz/fuzz_string_commands fuzz/corpus/string_commands -max_total_time=300
 fuzz/fuzz_bitmap_commands fuzz/corpus/bitmap_commands -max_total_time=300
+fuzz/fuzz_command_extensions fuzz/corpus/command_extensions -max_total_time=300
 fuzz/fuzz_hash_templates fuzz/corpus/hash_templates -max_total_time=300
 fuzz/fuzz_array_commands fuzz/corpus/array_commands -max_total_time=300
 fuzz/fuzz_replication_compression fuzz/corpus/replication_compression -max_total_time=300

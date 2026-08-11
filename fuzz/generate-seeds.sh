@@ -11,16 +11,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CORPUS_DIR="$SCRIPT_DIR/corpus"
 STRING_DIR="$CORPUS_DIR/string_commands"
 BITMAP_DIR="$CORPUS_DIR/bitmap_commands"
+COMMAND_EXT_DIR="$CORPUS_DIR/command_extensions"
 HASH_DIR="$CORPUS_DIR/hash_templates"
 ARRAY_DIR="$CORPUS_DIR/array_commands"
 REPLICATION_COMPRESSION_DIR="$CORPUS_DIR/replication_compression"
 LIST_MOVE_DIR="$CORPUS_DIR/list_move_commands"
 STREAM_DIR="$CORPUS_DIR/stream_commands"
 
-mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$HASH_DIR" "$ARRAY_DIR" "$REPLICATION_COMPRESSION_DIR" "$LIST_MOVE_DIR" "$STREAM_DIR"
+mkdir -p "$STRING_DIR" "$BITMAP_DIR" "$COMMAND_EXT_DIR" "$HASH_DIR" "$ARRAY_DIR" "$REPLICATION_COMPRESSION_DIR" "$LIST_MOVE_DIR" "$STREAM_DIR"
 rm -f "$STRING_DIR"/seed* "$BITMAP_DIR"/seed* \
-    "$HASH_DIR"/seed* "$ARRAY_DIR"/seed* "$REPLICATION_COMPRESSION_DIR"/seed* \
-    "$LIST_MOVE_DIR"/seed* "$STREAM_DIR"/seed*
+    "$COMMAND_EXT_DIR"/seed* "$HASH_DIR"/seed* "$ARRAY_DIR"/seed* \
+    "$REPLICATION_COMPRESSION_DIR"/seed* "$LIST_MOVE_DIR"/seed* "$STREAM_DIR"/seed*
 
 echo "Generating Redis core fuzz seed corpora..."
 
@@ -109,6 +110,69 @@ printf '\x00\x06\x00\x00\x00\x03\x01\x05' \
 # Invalid BITOP arity shape.
 printf '\x00\x07\x00' \
     > "$BITMAP_DIR/seed15_invalid_bitop_shape"
+
+# Command-extension seeds.
+# INCREX BYINT with reordered bounds, saturation, expiration, and ENX.
+printf '\x00\x01\x06\x00\x02\x03\x08\x04\x09\x00\x01\x0d\x01\x02\x01\x0b\x02' \
+    > "$COMMAND_EXT_DIR/seed01_increx_byint_bounds_expiry"
+
+# Duplicate BYFLOAT plus NaN and infinity bounds.
+printf '\x00\x01\x05\x01\x01\x02\x03\x08\x00\x01\x11\x01\x10\x01\x12\x01\x11' \
+    > "$COMMAND_EXT_DIR/seed02_increx_float_specials"
+
+# Conflicting PERSIST, absolute expiration options, and ENX ordering.
+printf '\x00\x01\x04\x0a\x06\x07\x09\x01\x08\x08' \
+    > "$COMMAND_EXT_DIR/seed03_increx_expiry_conflicts"
+
+# Stateful SADDs followed by SUNIONCARD APPROX LIMIT.
+printf '\x03\x02\x01\x00\x01\x05\x01\x07\x02\x01\x01\x01\x07\x01\x06\x02\x01\x02\x01\x06\x01\x08\x03\x02\x03\x00\x01\x02\x02' \
+    > "$COMMAND_EXT_DIR/seed04_sunioncard_stateful"
+
+# Large-first intset SDIFFCARD path, including LIMIT and SUNIONCARD APPROX.
+printf '\x00\x08\x00\x05\x02' \
+    > "$COMMAND_EXT_DIR/seed05_sdiffcard_intset_shape"
+
+# Large-first string/hashtable SDIFFCARD path.
+printf '\x00\x08\x01\x01\x07' \
+    > "$COMMAND_EXT_DIR/seed06_sdiffcard_hashtable_shape"
+
+# Weighted ZUNION COUNT reads and an aliased ZUNIONSTORE destination.
+printf '\x03\x05\x01\x00\x01\x07\x01\x05\x01\x09\x01\x06\x05\x01\x01\x01\x09\x01\x05\x01\x07\x01\x07\x06\x00\x01\x07\x01\x00\x01\x06\x01\x06\x02\x01\x01\x01\x00\x00\x01\x06\x01' \
+    > "$COMMAND_EXT_DIR/seed07_zunion_count_alias"
+
+# Mixed set/zset ZINTER COUNT with weights and WITHSCORES.
+printf '\x03\x02\x01\x00\x01\x05\x01\x06\x05\x01\x01\x01\x07\x01\x05\x01\x09\x01\x08\x02\x01\x02\x01\x05\x01\x07\x06\x01\x02\x03\x01\x00\x01\x02\x00\x03\x07' \
+    > "$COMMAND_EXT_DIR/seed08_zinter_count_mixed_inputs"
+
+# Wrong-type set and sorted-set extension calls.
+printf '\x02\x00\x00\x00\x01\x05\x03\x00\x02\x00\x02\x06\x02\x00\x00\x01\x04\x00' \
+    > "$COMMAND_EXT_DIR/seed09_wrong_types"
+
+# Malformed extension-command arity and empty arguments.
+printf '\x00\x09\x05\x06' \
+    > "$COMMAND_EXT_DIR/seed10_malformed_shape"
+
+# Existing LLONG_MAX followed by overflowing INCREX BYINT.
+printf '\x01\x00\x00\x01\x01\x0d\x01\x01\x00\x00\x01\x07' \
+    > "$COMMAND_EXT_DIR/seed11_increx_integer_overflow"
+
+# Valid BYFLOAT with lower/upper bounds and saturation.
+printf '\x01\x00\x00\x01\x01\x0a\x01\x04\x01\x02\x03\x08\x00\x01\x08\x01\x02\x01\x0b' \
+    > "$COMMAND_EXT_DIR/seed12_increx_byfloat_bounds"
+
+# Duplicate SUNIONCARD and SDIFFCARD LIMIT options.
+printf '\x01\x03\x01\x06\x00\x01\x02\x03\x04\x01\x05\x00\x01\x02\x03' \
+    > "$COMMAND_EXT_DIR/seed13_cardinality_duplicate_limits"
+
+# Minimized UBSan reproducer: INCREX dst PX LLONG_MAX overflows when the
+# relative TTL is converted to an absolute timestamp.
+printf '\x00\x01\x01\x05\x04\x09' \
+    > "$COMMAND_EXT_DIR/seed14_repro_increx_px_overflow"
+
+# Minimized UBSan reproducer: malformed ZUNION with LLONG_MAX input keys
+# overflows key-spec last-key arithmetic before normal syntax validation.
+printf '\x00\x09\x02\x03\x01\x01\x0d' \
+    > "$COMMAND_EXT_DIR/seed15_repro_zunion_keynum_overflow"
 
 # Compact-hash / HIMPORT seeds.
 # Shared, reordered fieldsets using template-listpack, followed by DUMP.
@@ -381,6 +445,7 @@ printf '\x00\x07\x00\x05\x01a\x01b\x01c' \
 echo "Seed files generated:"
 echo "  string_commands: $(find "$STRING_DIR" -type f | wc -l | tr -d ' ')"
 echo "  bitmap_commands: $(find "$BITMAP_DIR" -type f | wc -l | tr -d ' ')"
+echo "  command_extensions: $(find "$COMMAND_EXT_DIR" -type f | wc -l | tr -d ' ')"
 echo "  hash_templates: $(find "$HASH_DIR" -type f | wc -l | tr -d ' ')"
 echo "  array_commands: $(find "$ARRAY_DIR" -type f | wc -l | tr -d ' ')"
 echo "  replication_compression: $(find "$REPLICATION_COMPRESSION_DIR" -type f | wc -l | tr -d ' ')"

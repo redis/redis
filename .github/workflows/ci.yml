@@ -50,6 +50,8 @@ jobs:
             corpus: string_commands
           - fuzzer: fuzz_bitmap_commands
             corpus: bitmap_commands
+          - fuzzer: fuzz_command_extensions
+            corpus: command_extensions
           - fuzzer: fuzz_hash_templates
             corpus: hash_templates
           - fuzzer: fuzz_array_commands
@@ -87,7 +89,8 @@ jobs:
           fi
       - name: Run Fuzzing - ${{ matrix.fuzzer }}
         run: |
-          export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:malloc_limit_mb=2048
+          export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:malloc_limit_mb=2048:symbolize=0
+          export UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
           "fuzz/${{ matrix.fuzzer }}" \
             "fuzz-corpus/${{ matrix.fuzzer }}" \
             -artifact_prefix=./ \

@@ -256,7 +256,10 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int relative_tt
     if (unit == UNIT_SECONDS) *milliseconds *= 1000;
 
     if (relative_ttl) {
-        *milliseconds += commandTimeSnapshot();
+        if (add_overflow_ll(*milliseconds, commandTimeSnapshot(), milliseconds)) {
+            addReplyErrorExpireTime(c);
+            return C_ERR;
+        }
     }
 
     if (*milliseconds <= 0) {
