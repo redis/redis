@@ -622,6 +622,14 @@ tags "modules external:skip" {
                 # Put the shared base state in the replica's rewritten AOF;
                 # the transitions below must remain correctly ordered in its
                 # incremental file despite synchronous module writes.
+                # Replication may finish while the replica's initial AOF
+                # rewrite is still scheduled or running.
+                wait_for_condition 100 50 {
+                    [status $replica aof_rewrite_scheduled] eq 0 &&
+                    [status $replica aof_rewrite_in_progress] eq 0
+                } else {
+                    fail "Replica initial AOF rewrite did not finish"
+                }
                 $replica bgrewriteaof
                 waitForBgrewriteaof $replica
 
