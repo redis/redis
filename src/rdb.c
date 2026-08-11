@@ -1309,7 +1309,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 if (fields_lp) {
                     /* Get listpack blob and skip caching in fork. */
                     int cache = (server.in_fork_child == CHILD_TYPE_NONE);
-                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, cache);
+                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, &cache);
                     n = rdbSaveRawString(rdb, blob, lpBytes(blob));
                     if (!cache) lpFree(blob);
                     if (n == -1) return -1;
@@ -2522,7 +2522,7 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one.
  * tuple_len indicates what is a logical entry tuple size.
- * Whether tuple is of size 1 (set), 2 (feild-value) or 3 (field-value[-ttl]),
+ * Whether tuple is of size 1 (set), 2 (field-value) or 3 (field-value[-ttl]),
  * first element in the tuple must be unique */
 int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
     if (!deep)
@@ -2870,7 +2870,8 @@ static hashTemplate *rdbCreateTemplateFromFields(rdbTmplFields *out) {
     rdbFreeSdsArray(out->fields, out->field_count);
     out->fields = NULL;
     if (out->fields_lp != NULL) {
-        hashTemplateIndexFieldsLp(tmpl, out->fields_lp); /* transfers ownership */
+        if (!hashTemplateIndexFieldsLp(tmpl, out->fields_lp))
+            lpFree(out->fields_lp);
         out->fields_lp = NULL;
     }
     return tmpl;
