@@ -2923,6 +2923,14 @@ void resetServerStats(void) {
     server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
+    if (server.expire_lag_active_histogram) {
+        hdr_close(server.expire_lag_active_histogram);
+        server.expire_lag_active_histogram = NULL;
+    }
+    if (server.expire_lag_lazy_histogram) {
+        hdr_close(server.expire_lag_lazy_histogram);
+        server.expire_lag_lazy_histogram = NULL;
+    }
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
     server.stat_evictedscripts = 0;
@@ -3856,6 +3864,26 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
     if (*latency_histogram==NULL)
         hdr_init(LATENCY_HISTOGRAM_MIN_VALUE,LATENCY_HISTOGRAM_MAX_VALUE,LATENCY_HISTOGRAM_PRECISION,latency_histogram);
     hdr_record_value(*latency_histogram,duration_hist);
+}
+
+/* Record how late a key was deleted relative to its own expiration deadline.
+ * A key stops being readable the instant its deadline passes, but it is only
+ * deleted, and its `expired` notification only published, once some client
+ * touches it or the active expire cycle happens to sample it. This histogram
+ * measures that gap so operators can see it instead of inferring it. */
+void updateExpireLagHistogram(struct hdr_histogram **lag_histogram, long long expire_at, long long deleted_at) {
+    if (expire_at <= 0) return; /* Unknown deadline, nothing meaningful to record. */
+    /* Clamp while still in milliseconds. Converting first would depend on the
+     * two timestamps being close enough for the product to fit. */
+    long long lag_ms = deleted_at - expire_at;
+    if (lag_ms > EXPIRE_LAG_HISTOGRAM_MAX_VALUE / 1000000)
+        lag_ms = EXPIRE_LAG_HISTOGRAM_MAX_VALUE / 1000000;
+    int64_t lag_ns = lag_ms > 0 ? (int64_t)lag_ms * 1000000 : 0;
+    if (lag_ns < EXPIRE_LAG_HISTOGRAM_MIN_VALUE)
+        lag_ns = EXPIRE_LAG_HISTOGRAM_MIN_VALUE;
+    if (*lag_histogram == NULL)
+        hdr_init(EXPIRE_LAG_HISTOGRAM_MIN_VALUE,EXPIRE_LAG_HISTOGRAM_MAX_VALUE,EXPIRE_LAG_HISTOGRAM_PRECISION,lag_histogram);
+    hdr_record_value(*lag_histogram,lag_ns);
 }
 
 /* Handle the alsoPropagate() API to handle commands that want to propagate
@@ -7055,6 +7083,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         info = sdscatprintf(info, "# Latencystats\r\n");
         if (server.latency_tracking_enabled) {
             info = genRedisInfoStringLatencyStats(info, server.commands);
+            if (server.expire_lag_active_histogram)
+                info = fillPercentileDistributionLatencies(info, "expire_lag_active",
+                    server.expire_lag_active_histogram);
+            if (server.expire_lag_lazy_histogram)
+                info = fillPercentileDistributionLatencies(info, "expire_lag_lazy",
+                    server.expire_lag_lazy_histogram);
         }
     }
 

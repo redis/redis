@@ -862,6 +862,14 @@ typedef enum {
                                         * Value quantization within the range will thus be no larger than 1/100th (or 1%) of any value.
                                         * The total size per histogram should sit around 40 KiB Bytes. */
 
+/* Expiration lag histogram init settings. The lag between a key's expiration
+ * deadline and its actual deletion is bounded by how often the sampler happens
+ * to draw that key, not by command execution time, so it needs a much wider
+ * range than the per command histograms above. */
+#define EXPIRE_LAG_HISTOGRAM_MIN_VALUE 1000L          /* >= 1 microsec */
+#define EXPIRE_LAG_HISTOGRAM_MAX_VALUE 3600000000000L /* <= 1 hour */
+#define EXPIRE_LAG_HISTOGRAM_PRECISION 2              /* 2 significant digits, as above. */
+
 /* Busy module flags, see busy_module_yield_flags */
 #define BUSY_MODULE_YIELD_NONE (0)
 #define BUSY_MODULE_YIELD_EVENTS (1<<0)
@@ -2185,6 +2193,10 @@ struct redisServer {
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
+    /* Nanoseconds a key spent between its expiration deadline and its actual
+     * deletion, split by whichever path did the deleting. */
+    struct hdr_histogram *expire_lag_active_histogram;
+    struct hdr_histogram *expire_lag_lazy_histogram;
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_evictedclients;  /* Number of evicted clients */
     long long stat_evictedscripts;  /* Number of evicted lua scripts. */
@@ -3866,6 +3878,7 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
+void updateExpireLagHistogram(struct hdr_histogram** lag_histogram, long long expire_at, long long deleted_at);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
 int abortShutdown(void);
