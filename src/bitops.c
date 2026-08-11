@@ -906,8 +906,7 @@ static int bitroarDefaultEnabled(client *c) {
  * bound. */
 static robj *bitroarFromStringObject(robj *o) {
     robj *decoded = getDecodedObject(o);
-    robj *bitmap = bitroarCreateFromString((unsigned char *)decoded->ptr,
-                                           sdslen(decoded->ptr));
+    robj *bitmap = bitroarCreateFromString((unsigned char *)decoded->ptr, sdslen(decoded->ptr));
     decrRefCount(decoded);
     return bitmap;
 }
@@ -925,7 +924,8 @@ static robj *bitroarFromStringObject(robj *o) {
  * suppression of the triggering command so callers cannot queue both the
  * original write and the replacement payload. */
 static void bitroarPropagateRestore(client *c, robj *key, robj *bitmap,
-                                    long long expire, int keepmetadata) {
+                                    long long expire, int keepmetadata)
+{
     rio payload;
     robj *argv[7];
     int has_expire = expire != -1;
@@ -935,8 +935,7 @@ static void bitroarPropagateRestore(client *c, robj *key, robj *bitmap,
 
     argv[0] = createStringObject("RESTORE", 7);
     argv[1] = key;
-    argv[2] = has_expire ? createStringObjectFromLongLong(expire) :
-                            shared.integers[0];
+    argv[2] = has_expire ? createStringObjectFromLongLong(expire) : shared.integers[0];
     argv[3] = createObject(OBJ_STRING, payload.io.buffer.ptr);
     argv[4] = createStringObject("REPLACE", 7);
     if (has_expire) argv[argc++] = shared.absttl;
@@ -962,7 +961,8 @@ static void bitroarPropagateRestore(client *c, robj *key, robj *bitmap,
  * caller's bitmap event; replicas and AOF replay observe restore followed by
  * type_changed. */
 static void bitroarInstallConvertedValue(client *c, robj *key, robj **bitmapref,
-                                         long long expire, dictEntryLink link) {
+                                         long long expire, dictEntryLink link)
+{
     serverAssert(link != NULL);
     serverAssert(dictGetKV(*link)->type == OBJ_STRING);
     serverAssert((*bitmapref)->type == OBJ_BITMAP);
@@ -1036,7 +1036,8 @@ static int bitroarResolveTarget(client *c, robj *key, kvobj *o, uint64_t maxbit,
  * reply with the original bit value. 'link' is the lookup link from
  * setbitCommand() so the keyspace dict is probed only once. */
 static void setbitCommandBitmap(client *c, bitroarTarget *target,
-                                uint64_t bitoffset, long on, dictEntryLink link) {
+                                uint64_t bitoffset, long on, dictEntryLink link)
+{
     robj *roaring = target->value;
     uint64_t oldlen = bitroarLen(roaring);
     uint64_t byte = bitoffset >> 3;
