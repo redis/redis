@@ -85,10 +85,11 @@ int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t
 void bitroarOptimize(robj *o);
 robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen);
 
-/* Serialization. Materialize flattens to the logical raw string bytes;
- * SerializePortable emits the RoaringFormatSpec 64-bit portable format,
- * whose size tracks resident data rather than the logical length. */
-sds bitroarMaterialize(const robj *o);
+/* Serialization. MaterializeForDebug flattens to the logical raw string bytes
+ * for DEBUG BITMAP-RAW and rejects lengths above proto-max-bulk-len.
+ * SerializePortable emits the RoaringFormatSpec 64-bit portable format, whose
+ * size tracks resident data rather than the logical length. */
+sds bitroarMaterializeForDebug(const robj *o);
 sds bitroarSerializePortable(const robj *o);
 
 #endif /* __BITROAR_H */
