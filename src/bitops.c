@@ -2107,7 +2107,7 @@ void bitfieldGeneric(client *c, int flags) {
         }
     }
 
-    if (changes) {
+    if (changes || strGrowSize) {
 
         /* If this is not a new key (old size not 0) and size changed, then 
          * update the keysizes histogram. Otherwise, the histogram already 
@@ -2117,7 +2117,7 @@ void bitfieldGeneric(client *c, int flags) {
         
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty += changes;
+        server.dirty += changes ? changes : 1;
     }
     zfree(ops);
 }
