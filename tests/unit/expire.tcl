@@ -306,6 +306,49 @@ start_server {tags {"expire"}} {
         r ttl foo
     } {-2}
 
+    test {Expiration lag: lazy deletion reports how long the key outlived its deadline} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking yes
+        r debug set-active-expire 0
+        r psetex lagkey 100 v
+        after 600
+        # The read is what deletes the key here, so the reported lag is the
+        # time the key spent past its deadline before anyone asked for it.
+        assert_equal {} [r get lagkey]
+        set line [latencyrstat_percentiles expire_lag_lazy r]
+        assert_match {*p50=*} $line
+        assert_match {} [latencyrstat_percentiles expire_lag_active r]
+        regexp {p50=([0-9.]+)} $line -> p50
+        assert {$p50 >= 400000}
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test {Expiration lag: the active cycle reports its own samples} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking yes
+        r psetex activelagkey 100 v
+        wait_for_condition 50 100 {
+            [latencyrstat_percentiles expire_lag_active r] ne {}
+        } else {
+            fail "active expire cycle recorded no lag sample"
+        }
+        assert_match {*p50=*} [latencyrstat_percentiles expire_lag_active r]
+    }
+
+    test {Expiration lag: nothing is recorded while latency tracking is off} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking no
+        r psetex offlagkey 100 v
+        after 600
+        assert_equal {} [r get offlagkey]
+        assert_match {} [latencyrstat_percentiles expire_lag_lazy r]
+        assert_match {} [latencyrstat_percentiles expire_lag_active r]
+        r config set latency-tracking yes
+    } {OK}
+
     # Start a new server with empty data and AOF file.
     start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
