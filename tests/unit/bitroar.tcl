@@ -241,6 +241,24 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal $converted_digest $setbit_digest
     }
 
+    test {DEBUG DIGEST visits Roaring set-bit ranges with half-open endpoints} {
+        # Exact digests exercise the range visitor through its observable
+        # consumer. Cover a singleton, a multi-bit run, and a run merged
+        # across CRoaring's 16-bit container boundary.
+        foreach {key bits expected_digest} {
+            bitmap:digest:ranges:singleton {3}
+            {0fdbe68d29365ad0882498117659e397bf5050ba}
+            bitmap:digest:ranges:multi {1 2 3 4}
+            {bfafd3f1520764ed3706f6448ee778884e151323}
+            bitmap:digest:ranges:cross-container {65534 65535 65536 65537}
+            {92210d5971fd016b830e89475c07b04104263d7d}
+        } {
+            assert_equal OK [create_roaring_bitmap_from_bits r $key $bits]
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal $expected_digest [r debug digest-value $key]
+        }
+    }
+
     test {Roaring bitmap writes keep the proto-max-bulk-len offset limit} {
         r del bitmap:roaring:bounds
         r config set bitmap-default-roaring yes
