@@ -336,24 +336,23 @@ start_server {tags {"pubsub network"}} {
     }
 
     test "Keyspace notifications: bitmap events test" {
-        set bitmap_key {mybitmap{bitmap}}
         r config set bitmap-default-roaring yes
         r config set notify-keyspace-events KEb
-        r del $bitmap_key {mybitmap-copy{bitmap}}
+        r del mybitmap mybitmap_copy
         set rd1 [redis_deferring_client]
         assert_equal {1} [psubscribe $rd1 *]
 
-        r setbit $bitmap_key 0 1
-        assert_equal "pmessage * __keyspace@${db}__:$bitmap_key setbit" [$rd1 read]
-        assert_equal "pmessage * __keyevent@${db}__:setbit $bitmap_key" [$rd1 read]
+        r setbit mybitmap 0 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap" [$rd1 read]
 
-        r bitfield $bitmap_key SET u1 1 1
-        assert_equal "pmessage * __keyspace@${db}__:$bitmap_key setbit" [$rd1 read]
-        assert_equal "pmessage * __keyevent@${db}__:setbit $bitmap_key" [$rd1 read]
+        r bitfield mybitmap SET u1 1 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap" [$rd1 read]
 
-        r bitop or {mybitmap-copy{bitmap}} $bitmap_key
-        assert_equal "pmessage * __keyspace@${db}__:mybitmap-copy{bitmap} set" [$rd1 read]
-        assert_equal "pmessage * __keyevent@${db}__:set mybitmap-copy{bitmap}" [$rd1 read]
+        r bitop or mybitmap_copy mybitmap
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap_copy set" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set mybitmap_copy" [$rd1 read]
 
         $rd1 close
         r config set bitmap-default-roaring no
