@@ -4835,3 +4835,43 @@ start_server {tags {"repl external:skip" "stream"}} {
     }
 }
 
+start_server {tags {"stream external:skip needs:debug"}} {
+    # XSETID ... ENTRIESADDED must not leave a consumer group's entries_read
+    # greater than the stream's entries_added. Otherwise XINFO GROUPS reports a
+    # negative lag, and the resulting RDB fails to load ("Stream cgroup
+    # entries_read inconsistent with entries_added"). XGROUP CREATE/SETID
+    # already clamp entries_read; XSETID must clamp it too.
+    test "XSETID ENTRIESADDED clamps group entries_read and keeps the RDB loadable" {
+        r DEL mystream
+        for {set i 1} {$i <= 10} {incr i} { r XADD mystream * f v$i }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c COUNT 10 STREAMS mystream >
+        set top [dict get [r XINFO STREAM mystream] last-generated-id]
+
+        # Shrink the stream so entries_added can be lowered below entries_read.
+        r XTRIM mystream MAXLEN 2
+        r XSETID mystream $top ENTRIESADDED 2
+
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+
+        r DEBUG RELOAD
+        assert_equal [r XLEN mystream] 2
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+    }
+
+    test "XSETID raising entries_added leaves group entries_read untouched" {
+        r DEL s2
+        for {set i 1} {$i <= 5} {incr i} { r XADD s2 * f v$i }
+        r XGROUP CREATE s2 g 0
+        r XREADGROUP GROUP g c COUNT 3 STREAMS s2 >
+        set top [dict get [r XINFO STREAM s2] last-generated-id]
+        r XSETID s2 $top ENTRIESADDED 100
+        set ginfo [lindex [r XINFO GROUPS s2] 0]
+        assert_equal [dict get $ginfo entries-read] 3
+        assert_equal [dict get $ginfo lag] 97
+    }
+}
