@@ -1314,7 +1314,7 @@ void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
              * the same shape, so plain row-by-row subtraction is enough. */
             for (int row = 0; row < MAX_KEYSIZES_ROWS; row++) {
                 for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                    meta->keysizes_hist[row][bin]   -= ctx->delta_keysizes_hist[row][bin];
+                    meta->keysizes_hist[row][bin] -= ctx->delta_keysizes_hist[row][bin];
                     meta->allocsizes_hist[row][bin] -= ctx->delta_allocsizes_hist[row][bin];
                 }
             }
