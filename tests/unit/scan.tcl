@@ -394,6 +394,13 @@ proc test_scan {type} {
         lsort -unique [lindex $res 1]
     } {foo foobar}
 
+    test "{$type} SSCAN MATCH * returns empty-string member" {
+        r del mykey
+        r sadd mykey "" a b
+        set res [r sscan mykey 0 MATCH * COUNT 10000]
+        assert_equal [lsort -unique [lindex $res 1]] [lsort -unique [list "" a b]]
+    }
+
     test "{$type} HSCAN with PATTERN" {
         r del mykey
         r hmset mykey foo 1 fab 2 fiz 3 foobar 10 1 a 2 b 3 c 4 d
