@@ -65,38 +65,19 @@ void updateLRM(robj *o) {
     }
 }
 
-/* Maps an object type to its row in a keysizesHist, -1 if the type is untracked.
- * A type missing from this table would map to entry 0, i.e. the OBJ_STRING row,
- * so the static_assert below makes adding an object type a compile error until
- * it is listed here. */
-static const int8_t typeToKeysizesHistEntry[OBJ_TYPE_MAX] = {
-    [OBJ_STRING] = 0,
-    [OBJ_LIST]   = 1,
-    [OBJ_SET]    = 2,
-    [OBJ_ZSET]   = 3,
-    [OBJ_HASH]   = 4,
-    [OBJ_MODULE] = -1,
-    [OBJ_STREAM] = 5,
-    [OBJ_ARRAY]  = -1,
-#ifdef ENABLE_GCRA
-    [OBJ_GCRA]   = -1,
-#endif
-};
-#ifdef ENABLE_GCRA
-static_assert(OBJ_TYPE_MAX == OBJ_GCRA + 1, "new object type: add it to typeToKeysizesHistEntry");
-#else
-static_assert(OBJ_TYPE_MAX == OBJ_ARRAY + 1, "new object type: add it to typeToKeysizesHistEntry");
-#endif
+static_assert(MAX_KEYSIZES_ROWS == 6, "keysizesHistRow(): add/remove a row mapping");
 
-/* Return the histogram row that tracks `type`, or NULL if the type is not
- * tracked. The type-to-row mapping is the same for every histogram and known at
- * compile time. */
+/* Return the histogram row that tracks `type`, or NULL if the type is untracked. */
 int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
-    /* kvobj's type is a 4-bit field, so it can hold values with no OBJ_* name;
-     * keep the table access in bounds. */
-    if (unlikely(type >= OBJ_TYPE_MAX)) return NULL;
-    int8_t entry = typeToKeysizesHistEntry[type];
-    return (entry < 0) ? NULL : hist[entry];
+    switch (type) {
+    case OBJ_STRING: return hist[0];
+    case OBJ_LIST:   return hist[1];
+    case OBJ_SET:    return hist[2];
+    case OBJ_ZSET:   return hist[3];
+    case OBJ_HASH:   return hist[4];
+    case OBJ_STREAM: return hist[5];
+    default:         return NULL;
+    }
 }
 
 /* 
@@ -1331,7 +1312,7 @@ void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
         if (ctx->target_kvstore == server.db[0].keys && meta) {
             /* Subtract the delta from the live histogram. Both histograms have
              * the same shape, so plain row-by-row subtraction is enough. */
-            for (int row = 0; row < MAX_KEYSIZES_TYPES; row++) {
+            for (int row = 0; row < MAX_KEYSIZES_ROWS; row++) {
                 for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
                     meta->keysizes_hist[row][bin]   -= ctx->delta_keysizes_hist[row][bin];
                     meta->allocsizes_hist[row][bin] -= ctx->delta_allocsizes_hist[row][bin];
