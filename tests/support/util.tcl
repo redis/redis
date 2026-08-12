@@ -367,11 +367,14 @@ proc createComplexDataset {r ops {opt {}}} {
             }
         }
 
-        # Streams get their own small key namespace rather than sharing the random
-        # keyspace: unlike the other types, removing all entries from a stream does
-        # not delete the key, so a stream key cycles back to "none" only if the key
-        # itself is deleted or expires. The dedicated namespace also lets entries
-        # accumulate into larger streams, with "*" keeping IDs monotonic per key.
+        # Do one random operation on one of 20 dedicated stream keys. Streams get
+        # their own keys because Redis deletes a list/set/zset/hash once its last
+        # element is gone, which frees the name to be reused as another type, while
+        # an empty stream stays. The test code never deletes such a stream, on purpose:
+        # together with strings, streams are the only type that can exist with zero
+        # elements, and they give the dataset its zero-length coverage, like the
+        # size-0 bucket of the INFO keysizes histograms. The 20 keys for streams also
+        # mean each stream gets many operations, with "*" keeping its IDs increasing.
         if {rand() < 0.2} {
             set sk "strm:[randomInt 20]$tag"
             randpath {
