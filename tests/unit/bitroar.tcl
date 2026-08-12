@@ -291,11 +291,11 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:convert:int bitmap:convert:list
         r set bitmap:convert:int 12345
         assert_equal int [r object encoding bitmap:convert:int]
-        assert_equal OK [convert_string_bitmap_to_roaring r bitmap:convert:int]
+        r config set bitmap-default-roaring yes
+        assert_equal 0 [r setbit bitmap:convert:int 0 0]
         assert_equal bitmap [r type bitmap:convert:int]
         assert_equal "12345" [r debug bitmap-raw bitmap:convert:int]
 
-        r config set bitmap-default-roaring yes
         r rpush bitmap:convert:list element
         assert_error {WRONGTYPE*} {r setbit bitmap:convert:list 0 1}
         r config set bitmap-default-roaring no
@@ -1325,7 +1325,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         r set bitmap:aof-incr:convert $raw
         r pexpire bitmap:aof-incr:convert 600000
         set convert_expire [r pexpiretime bitmap:aof-incr:convert]
-        convert_string_bitmap_to_roaring r bitmap:aof-incr:convert
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r setbit bitmap:aof-incr:convert 0 1]
+        r config set bitmap-default-roaring no
 
         # BITFIELD also converts first, even when the logical write is a no-op.
         r set bitmap:aof-incr:bitfield $raw
@@ -1540,7 +1542,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             # The replica first receives the explicit representation decision,
             # then replays SETBIT against the resulting native bitmap. Its own
             # bitmap-default-roaring setting is irrelevant.
-            convert_string_bitmap_to_roaring $master bitmap:public:repl:conv
+            $master config set bitmap-default-roaring yes
+            assert_equal 1 [$master setbit bitmap:public:repl:conv 0 1]
+            $master config set bitmap-default-roaring no
             wait_for_ofs_sync $master $replica
 
             assert_equal bitmap [$replica type bitmap:public:repl:conv]
@@ -1902,7 +1906,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* "[string repeat ff 8192]8001"]
 
         r set bitmap:roaring:convert:dense $raw
-        convert_string_bitmap_to_roaring r bitmap:roaring:convert:dense
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r setbit bitmap:roaring:convert:dense 0 1]
+        r config set bitmap-default-roaring no
         assert_equal bitmap [r type bitmap:roaring:convert:dense]
         assert_equal bitmap-roaring [r object encoding bitmap:roaring:convert:dense]
         assert_equal $raw [r debug bitmap-raw bitmap:roaring:convert:dense]
