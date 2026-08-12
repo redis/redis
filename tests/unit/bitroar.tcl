@@ -1325,7 +1325,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         r set bitmap:aof-incr:convert $raw
         r pexpire bitmap:aof-incr:convert 600000
         set convert_expire [r pexpiretime bitmap:aof-incr:convert]
-        convert_string_bitmap_to_roaring r bitmap:aof-incr:convert
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r setbit bitmap:aof-incr:convert 0 1]
+        r config set bitmap-default-roaring no
 
         # BITFIELD also converts first, even when the logical write is a no-op.
         r set bitmap:aof-incr:bitfield $raw
@@ -1540,7 +1542,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             # The replica first receives the explicit representation decision,
             # then replays SETBIT against the resulting native bitmap. Its own
             # bitmap-default-roaring setting is irrelevant.
-            convert_string_bitmap_to_roaring $master bitmap:public:repl:conv
+            $master config set bitmap-default-roaring yes
+            assert_equal 1 [$master setbit bitmap:public:repl:conv 0 1]
+            $master config set bitmap-default-roaring no
             wait_for_ofs_sync $master $replica
 
             assert_equal bitmap [$replica type bitmap:public:repl:conv]
