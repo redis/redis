@@ -1298,22 +1298,25 @@ static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
     if (o->encoding == OBJ_ENCODING_TMPL_LP) {
         unsigned char *lp = o->ptr;
 
-        /* Fields going past the old values: append them in ascending order. */
+        /* Fields going past the old values are appended below; find where
+         * they start. */
         int tail = num_new_fields;
         while (tail > 0 && (unsigned long long)new_fields[tail - 1].insert_pos == old_count)
             tail--;
-        for (int i = tail; i < num_new_fields; i++) {
-            sds v = new_fields[i].value;
-            lp = lpAppend(lp, (unsigned char *)v, sdslen(v));
-            serverAssert(lp != NULL);
-        }
 
-        /* The rest go in front of an old value. insert_pos values refer to
+        /* Fields going in front of an old value. insert_pos values refer to
          * the old layout, walking backwards so they stay correct as is. */
         for (int i = tail - 1; i >= 0; i--) {
             sds v = new_fields[i].value;
             unsigned char *p = hashTemplateLpSeekValue(lp, new_fields[i].insert_pos);
             lp = lpInsertString(lp, (unsigned char *)v, sdslen(v), p, LP_BEFORE, NULL);
+            serverAssert(lp != NULL);
+        }
+
+        /* The rest go past the old values: append them in ascending order. */
+        for (int i = tail; i < num_new_fields; i++) {
+            sds v = new_fields[i].value;
+            lp = lpAppend(lp, (unsigned char *)v, sdslen(v));
             serverAssert(lp != NULL);
         }
         o->ptr = lp;

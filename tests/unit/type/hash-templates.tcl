@@ -677,6 +677,12 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         r hset hset:multi b 2 c 3 d 4
         assert_encoding $encoding hset:multi
         assert_equal {a 1 b 2 c 3 d 4} [r hgetall hset:multi]
+
+        # New fields land before, between and after the old ones.
+        make_hashtmpl hset:multi2 c 3 f 6
+        assert_equal 3 [r hset hset:multi2 h 8 a 1 d 4]
+        assert_encoding $encoding hset:multi2
+        assert_equal {a 1 c 3 d 4 f 6 h 8} [r hgetall hset:multi2]
     }
 
     test {HSET on template-based hash returns number of new fields} {
