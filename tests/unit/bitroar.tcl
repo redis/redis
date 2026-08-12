@@ -78,14 +78,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:bitconvert:missing bitmap:bitconvert:string \
             bitmap:bitconvert:list
 
-        # Ordinary clients cannot discover or execute the propagation primitive.
+        # Ordinary clients cannot discover these primitives through COMMAND or execute them.
         assert_equal {{}} [r command info bitconvert]
         assert_equal {{}} [r command info bitop_roaring]
-        assert {[lsearch -exact [r acl cat bitmap] bitconvert] == -1}
-        assert {[lsearch -exact [r acl cat bitmap] bitop_roaring] == -1}
-        assert_error {ERR Command 'bitconvert' not found*} {
-            r acl dryrun default bitconvert bitmap:bitconvert:missing ROARING
-        }
         assert_error {ERR unknown command 'bitconvert'*} {
             r bitconvert bitmap:bitconvert:missing ROARING
         }

@@ -3963,7 +3963,7 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags) {
 }
 
 /* Returns true if the command is not internal, or the connection is internal. */
-int commandVisibleForClient(client *c, struct redisCommand *cmd) {
+static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
     return (!(cmd->flags & CMD_INTERNAL)) || (c->flags & CLIENT_INTERNAL);
 }
 
