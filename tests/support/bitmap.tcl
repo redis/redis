@@ -4,6 +4,7 @@
 # Re-encodes an existing string bitmap as Roaring without changing its logical
 # value or TTL. BITCONVERT is an internal replay primitive, so temporarily mark
 # the test connection internal and always restore its ordinary-client state.
+# Callers must pass a connection that is not already marked internal.
 proc convert_string_bitmap_to_roaring {client key} {
     set code [catch {
         $client debug mark-internal-client

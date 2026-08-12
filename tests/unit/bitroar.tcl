@@ -291,11 +291,11 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:convert:int bitmap:convert:list
         r set bitmap:convert:int 12345
         assert_equal int [r object encoding bitmap:convert:int]
-        assert_equal OK [convert_string_bitmap_to_roaring r bitmap:convert:int]
+        r config set bitmap-default-roaring yes
+        assert_equal 0 [r setbit bitmap:convert:int 0 0]
         assert_equal bitmap [r type bitmap:convert:int]
         assert_equal "12345" [r debug bitmap-raw bitmap:convert:int]
 
-        r config set bitmap-default-roaring yes
         r rpush bitmap:convert:list element
         assert_error {WRONGTYPE*} {r setbit bitmap:convert:list 0 1}
         r config set bitmap-default-roaring no
@@ -1906,7 +1906,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         set raw [binary format H* "[string repeat ff 8192]8001"]
 
         r set bitmap:roaring:convert:dense $raw
-        convert_string_bitmap_to_roaring r bitmap:roaring:convert:dense
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r setbit bitmap:roaring:convert:dense 0 1]
+        r config set bitmap-default-roaring no
         assert_equal bitmap [r type bitmap:roaring:convert:dense]
         assert_equal bitmap-roaring [r object encoding bitmap:roaring:convert:dense]
         assert_equal $raw [r debug bitmap-raw bitmap:roaring:convert:dense]
