@@ -53,6 +53,7 @@ void cleanup_test_memory(void);
 void run_normal_tests(void);
 void run_corruption_tests(void);
 void run_boundary_tests(void);
+void run_trailing_escape_boundary_test(void);
 void print_test_summary(void);
 
 /* Signal handler for segmentation violations */
@@ -60,6 +61,32 @@ static void sigsegv_handler(int sig) {
     boundary_violation = 1;
     printf("Boundary violation detected! Caught signal %d\n", sig);
     longjmp(jmpbuf, 1);
+}
+
+/* Regression test for the trailing-escape boundary */
+void_run_trailing_escape_boundary_test(void) {
+    printf("Running trailing-escape boundary test...\n");
+
+    /* Create a JSON string that ends with a backslash */
+    const char *payload = "{\"ab\\";
+    size_t payload_len = strlen(payload);
+
+    size_t offset = PAGE_SIZE - payload_len;
+    memcpy(safe_page + offset, payload, payload_len);
+
+    exprtoken *token = safe_extract_field(safe_page + offset, payload_len, "ab", 2);
+
+    if (boundary_violation) {
+        printf("Boundary violation detected in trailing-escape test!\n");
+        tests_failed++;
+    } else {
+        if (token != NULL) {
+            exprTokenRelease(token);
+            boundary_tests_passed++;
+        } else {
+            boundary_tests_failed++;
+        }
+    }
 }
 
 /* Wrapper for jsonExtractField to check for boundary violations */
@@ -397,7 +424,8 @@ void run_fastjson_test(void) {
     run_normal_tests();
     run_corruption_tests();
     run_boundary_tests();
-
+    run_trailing_escape_boundary_test();
+    
     /* Print summary */
     print_test_summary();
 
