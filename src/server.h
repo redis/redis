@@ -3490,7 +3490,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...);
 
 /* Client side caching (tracking mode) */
 void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **prefix, size_t numprefix);
-void disableTracking(client *c);
+void disableTracking(client *c, int voluntary);
 void trackingRememberKeys(client *tracking, client *executing);
 void trackingInvalidateKey(client *c, robj *keyobj, int bcast);
 void trackingScheduleKeyInvalidation(uint64_t client_id, robj *keyobj);
