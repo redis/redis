@@ -752,6 +752,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     }
 
     test {Extended SET PX option with a TTL that overflows when added to the current time} {
+        r del foo
         r set foo bar
         assert_error "ERR invalid expire time in 'set' command" {
             r set foo baz px 9223372036854775807
