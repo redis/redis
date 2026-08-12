@@ -153,10 +153,10 @@ tags {"benchmark network external:skip logreqres:skip"} {
                 assert_match  {} [cmdstat get]
             }
 
-            test {benchmark: specific tls-curve-preferences} {
+            test {benchmark: specific tls-groups} {
                 r flushall
                 r config resetstat
-                set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-curve-preferences prime256v1"]
+                set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-groups prime256v1"]
                 common_bench_setup $cmd
                 assert_match  {*calls=1000,*} [cmdstat set]
                 # assert one of the non benchmarked commands is not present

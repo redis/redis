@@ -27,16 +27,16 @@
 #include <openssl/err.h>
 #include <hiredis_ssl.h>
 
-#if defined(TLS_NO_CURVE_PREFERENCES)
-#define CLI_TLS_SUPPORTS_CURVE_PREFERENCES 0
+#if defined(TLS_NO_GROUPS)
+#define CLI_TLS_SUPPORTS_GROUPS 0
 #elif defined(SSL_CTX_set1_groups_list)
-#define CLI_TLS_SUPPORTS_CURVE_PREFERENCES 1
-#define cliSslCtxSetCurvesList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
+#define CLI_TLS_SUPPORTS_GROUPS 1
+#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
 #elif defined(SSL_CTX_set1_curves_list)
-#define CLI_TLS_SUPPORTS_CURVE_PREFERENCES 1
-#define cliSslCtxSetCurvesList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
+#define CLI_TLS_SUPPORTS_GROUPS 1
+#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
 #else
-#define CLI_TLS_SUPPORTS_CURVE_PREFERENCES 0
+#define CLI_TLS_SUPPORTS_GROUPS 0
 #endif
 #endif
 
@@ -92,14 +92,14 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             goto error;
         }
 #endif
-        if (config.curve_preferences) {
-#if CLI_TLS_SUPPORTS_CURVE_PREFERENCES
-            if (!cliSslCtxSetCurvesList(ssl_ctx, config.curve_preferences)) {
-                *err = "Error while configuring TLS curve preferences";
+        if (config.groups) {
+#if CLI_TLS_SUPPORTS_GROUPS
+            if (!cliSslCtxSetGroupsList(ssl_ctx, config.groups)) {
+                *err = "Error while configuring TLS groups";
                 goto error;
             }
 #else
-            *err = "TLS curve preferences are not supported by OpenSSL";
+            *err = "TLS groups are not supported by OpenSSL";
             goto error;
 #endif
         }

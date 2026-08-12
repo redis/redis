@@ -142,15 +142,15 @@ Notes:
   affected connection logs a warning and proceeds without the name check (CA
   chain validation still applies).
 
-TLS group/curve preferences
----------------------------
+TLS groups
+----------
 
-The `tls-curve-preferences` option controls the OpenSSL named groups used
+The `tls-groups` option controls the OpenSSL named groups used
 during TLS handshakes. The value is passed directly to OpenSSL, so it accepts
 the syntax supported by `SSL_CTX_set1_groups_list()` (or the older
 `SSL_CTX_set1_curves_list()` API), for example:
 
-    tls-curve-preferences X25519:prime256v1
+    tls-groups X25519:prime256v1
 
 Redis does not filter the list, so any group name accepted by the linked
 OpenSSL build can be used.
@@ -164,12 +164,12 @@ This option requires OpenSSL 1.0.2 or newer, which provides the
 `SSL_CTX_set1_curves_list()` API used by Redis. Newer OpenSSL versions also
 provide the equivalent `SSL_CTX_set1_groups_list()` API. Building TLS support
 against an older OpenSSL fails with a clear compile-time error by default. To
-build Redis without this option, define `TLS_NO_CURVE_PREFERENCES`, for
+build Redis without this option, define `TLS_NO_GROUPS`, for
 example:
 
-    make BUILD_TLS=yes CFLAGS=-DTLS_NO_CURVE_PREFERENCES
+    make BUILD_TLS=yes CFLAGS=-DTLS_NO_GROUPS
 
-When the feature is compiled out, setting `tls-curve-preferences` causes TLS
+When the feature is compiled out, setting `tls-groups` causes TLS
 context configuration to fail instead of silently ignoring the requested
 preference.
 

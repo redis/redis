@@ -692,7 +692,7 @@ start_server {tags {"introspection"}} {
                 tls-protocols
                 tls-ciphers
                 tls-ciphersuites
-                tls-curve-preferences
+                tls-groups
                 tls-port
             }
         }

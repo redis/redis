@@ -12,7 +12,7 @@ start_server {tags {"tls"}} {
                 --key [file join $tlsdir client.key] \
                 --cacert [file join $tlsdir ca.crt] \
                 --tls-ciphers ECDHE-RSA-AES128-GCM-SHA256 \
-                --tls-curve-preferences $groups \
+                --tls-groups $groups \
                 PING]
             exec {*}$cmd 2>@1
         }
@@ -87,42 +87,42 @@ start_server {tags {"tls"}} {
             r CONFIG SET tls-ciphers "DEFAULT"
         }
 
-        test {TLS: Verify tls-curve-preferences validates group names} {
-            assert_equal {OK} [r CONFIG SET tls-curve-preferences "prime256v1"]
+        test {TLS: Verify tls-groups validates group names} {
+            assert_equal {OK} [r CONFIG SET tls-groups "prime256v1"]
 
-            catch {r CONFIG SET tls-curve-preferences "invalid-group"} e
+            catch {r CONFIG SET tls-groups "invalid-group"} e
             assert_match {*Unable to update TLS configuration*} $e
 
-            r CONFIG SET tls-curve-preferences ""
+            r CONFIG SET tls-groups ""
         }
 
-        test {TLS: Verify tls-curve-preferences with a common group} {
-            set curve_ciphers ECDHE-RSA-AES128-GCM-SHA256
+        test {TLS: Verify tls-groups with a common group} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
             r CONFIG SET tls-protocols TLSv1.2
-            r CONFIG SET tls-ciphers $curve_ciphers
-            r CONFIG SET tls-curve-preferences prime256v1
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
 
             # The client and server both allow prime256v1, so the handshake
             # should complete.
             assert_equal {PONG} [string trim [tls_redis_cli [srv 0 host] [srv 0 port] prime256v1]]
 
-            r CONFIG SET tls-curve-preferences ""
+            r CONFIG SET tls-groups ""
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers DEFAULT
         }
 
-        test {TLS: Verify tls-curve-preferences with disjoint groups} {
-            set curve_ciphers ECDHE-RSA-AES128-GCM-SHA256
+        test {TLS: Verify tls-groups with disjoint groups} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
             r CONFIG SET tls-protocols TLSv1.2
-            r CONFIG SET tls-ciphers $curve_ciphers
-            r CONFIG SET tls-curve-preferences prime256v1
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
 
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
             assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
             assert_no_match {*PONG*} $e
 
-            r CONFIG SET tls-curve-preferences ""
+            r CONFIG SET tls-groups ""
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers DEFAULT
         }
