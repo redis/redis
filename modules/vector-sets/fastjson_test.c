@@ -81,7 +81,7 @@ void_run_trailing_escape_boundary_test(void) {
         tests_failed++;
     } else
         if (token != NULL) {
-            printf("Trailing escape test returned a non-NULL token for" "malformed input!\n")
+            printf("Trailing escape test returned a non-NULL token for malformed input!\n")
             exprTokenRelease(token);
             tests_failed++;
         } else {
