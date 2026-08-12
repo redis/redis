@@ -79,15 +79,15 @@ void_run_trailing_escape_boundary_test(void) {
     if (boundary_violation) {
         printf("Boundary violation detected in trailing-escape test!\n");
         tests_failed++;
-    } else {
+    } else
         if (token != NULL) {
+            printf("Trailing escape test returned a non-NULL token for" "malformed input!\n")
             exprTokenRelease(token);
-            boundary_tests_passed++;
+            tests_failed++;
         } else {
-            boundary_tests_failed++;
+            boundary_tests_passed++;
         }
     }
-}
 
 /* Wrapper for jsonExtractField to check for boundary violations */
 exprtoken *safe_extract_field(const char *json, size_t json_len,
