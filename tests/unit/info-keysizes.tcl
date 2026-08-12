@@ -868,7 +868,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         # Exercise both construction paths: BITFIELD can create a new native
         # bitmap or convert an existing string in place.
         assert_equal {0} [r bitfield bitmap_new SET u1 65536 1]
-        assert_equal bitmap [r type "bitmap:keymem:bf:new"]
+        assert_equal bitmap [r type bitmap_new]
 
         r set "bitmap:keymem:bf:convert" ""
         assert_equal {0} [r bitfield "bitmap:keymem:bf:convert" SET u1 65536 1]
@@ -876,12 +876,12 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
 
         # COPY, RESTORE, and BITOP each install a bitmap through different
         # keyspace/accounting paths.
-        assert_equal 1 [r copy "bitmap:keymem:bf:new" "bitmap:keymem:copy"]
-        r restore "bitmap:keymem:restore" 0 [r dump "bitmap:keymem:bf:new"]
-        r bitop or "bitmap:keymem:bitop" "bitmap:keymem:bf:new"
+        assert_equal 1 [r copy bitmap_new "bitmap:keymem:copy"]
+        r restore "bitmap:keymem:restore" 0 [r dump bitmap_new]
+        r bitop or "bitmap:keymem:bitop" bitmap_new
 
         foreach key {
-            bitmap:keymem:bf:new
+            bitmap_new
             bitmap:keymem:copy
             bitmap:keymem:restore
             bitmap:keymem:bitop
