@@ -3993,6 +3993,7 @@ typedef struct hashTemplateRegistry {
     size_t by_id_cap;           /* How many chunk pointers by_id can hold. */
     size_t by_id_chunks;        /* How many chunks are currently allocated. */
     size_t by_id_next;          /* The next id that has never been used. */
+    size_t by_id_free_chunk_hint; /* Lowest chunk index that may hold a free id. */
     size_t total_key_refs;      /* Sum of key_refcount across all templates. */
     size_t fields_lp_cache_bytes; /* Total lpBytes() of cached fields listpack blobs. */
     size_t total_mem_size;      /* Sum of every live template's mem_size, plus any
@@ -4093,7 +4094,7 @@ void hashTemplatesInit(void);
 hashTemplate *hashTemplateGetOrCreate(sds *fields, unsigned long long field_count);
 hashTemplate *hashTemplateGetByFieldsLp(unsigned char *fields_lp);
 hashTemplate *hashTemplateGetById(uint64_t id);
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl);
+hashTemplate *hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf);
 int hashTemplateDefragByIdChunk(unsigned long chunk_idx);
 hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);

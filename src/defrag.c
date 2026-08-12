@@ -441,7 +441,7 @@ void activeDefragZsetNode(zset *zs, dictEntry *de, dictEntryLink plink) {
 #define DEFRAG_SDS_DICT_VAL_VOID_PTR 3
 #define DEFRAG_SDS_DICT_VAL_LUA_SCRIPT 4
 
-void activeDefragSdsDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+void activeDefragDictCallbackNoop(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     UNUSED(privdata);
     UNUSED(de);
@@ -486,7 +486,7 @@ void activeDefragSdsDict(dict* d, int val_type) {
                       NULL)
     };
     dictScanFunction *fn = (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ?
-        activeDefragLuaScriptDictCallback : activeDefragSdsDictCallback);
+        activeDefragLuaScriptDictCallback : activeDefragDictCallbackNoop);
     do {
         cursor = dictScanDefrag(d, cursor, fn,
                                 &defragfns, NULL);
@@ -796,16 +796,15 @@ void defragTmplArray(defragKeysCtx *ctx, kvobj *ob) {
     }
 }
 
-/* Incremental defrag of a TMPL_ARRAY's values; cursor = next index.
+/* Incremental defrag of an sds array; cursor = next index.
  * Returns 1 if time is up (more to do), 0 when done. */
-long scanLaterTmplArray(robj *ob, unsigned long *cursor, monotime endtime) {
-    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
-    hashTemplateArray *hta = ob->ptr;
-    unsigned long long n = hta->field_count;
+static long defragSdsArrayIncremental(sds *arr, unsigned long long n,
+                                      unsigned long *cursor, monotime endtime)
+{
     long iterations = 0;
     while (*cursor < n) {
-        sds newsds = activeDefragSds(hta->values[*cursor]);
-        if (newsds) hta->values[*cursor] = newsds;
+        sds newsds = activeDefragSds(arr[*cursor]);
+        if (newsds) arr[*cursor] = newsds;
         server.stat_active_defrag_scanned++;
         (*cursor)++;
         if (++iterations > 128) {
@@ -815,6 +814,13 @@ long scanLaterTmplArray(robj *ob, unsigned long *cursor, monotime endtime) {
     }
     *cursor = 0;
     return 0;
+}
+
+/* Incremental defrag of a TMPL_ARRAY's values; cursor = next index. */
+long scanLaterTmplArray(robj *ob, unsigned long *cursor, monotime endtime) {
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    hashTemplateArray *hta = ob->ptr;
+    return defragSdsArrayIncremental(hta->values, hta->field_count, cursor, endtime);
 }
 
 /* Defrag callback for radix tree iterator, called for each node,
@@ -1697,43 +1703,98 @@ static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     return DEFRAG_DONE;
 }
 
-static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
-    unsigned long *cursor = ctx;
-    hashTemplateRegistry *reg = server.htemplates;
-    if (reg == NULL || reg->by_id == NULL) return DEFRAG_DONE;
+/* Cursor of a registry lookup dict stage. A template holding too many fields to
+ * relocate during the scan is deferred to 'later' and drained a slice at a time
+ * between scan steps, the way defragLater() defers big keys to defragLaterStep(). */
+typedef struct {
+    unsigned long cursor;      /* dict scan cursor */
+    int scan_done;             /* the dict scan finished, only 'later' is left */
+    list *later;               /* ids of templates with field work left */
+    unsigned long later_field; /* field cursor into the head of 'later' */
+} defragTmplCtx;
 
-    unsigned long iterations = 0;
-    while (*cursor < reg->by_id_next) {
-        hashTemplate *tmpl = hashTemplateGetById(*cursor);
-        (*cursor)++;
-        if (tmpl == NULL) continue; /* freed or never-used slot */
-
-        hashTemplateDefrag(tmpl);
-
-        if (++iterations > 8) {
-            iterations = 0;
-            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
-        }
-    }
-    return DEFRAG_DONE;
+static void freeDefragTmplContext(void *ctx) {
+    defragTmplCtx *tctx = ctx;
+    if (tctx->later) listRelease(tctx->later);
+    zfree(tctx);
 }
 
 static void defragTmplRegistryCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
-    UNUSED(privdata); 
-    UNUSED(de);
+    defragTmplCtx *ctx = privdata;
+    hashTemplate *tmpl = dictGetKey(de);
     UNUSED(plink);
+
+    tmpl = hashTemplateDefrag(tmpl, (dictEntry *)de);
+    if (tmpl->field_count > server.active_defrag_max_scan_fields) {
+        if (!ctx->later) ctx->later = listCreate();
+        listAddNodeTail(ctx->later, (void *)(uintptr_t)tmpl->id);
+        return;
+    }
+    for (unsigned long long i = 0; i < tmpl->field_count; i++) {
+        sds newsds = activeDefragSds(tmpl->fields[i]);
+        if (newsds) tmpl->fields[i] = newsds;
+        server.stat_active_defrag_scanned++;
+    }
 }
 
-/* Defrag a registry lookup dict. Keys/values (template/blob pointers) are
- * relocated by defragStageHashTemplates. */
-static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor, monotime endtime) {
-    dictDefragFunctions fns = { .defragAlloc = activeDefragAlloc };
-    unsigned long iterations = 0;
-    do {
-        *cursor = dictScanDefrag(*dref, *cursor, defragTmplRegistryCb, &fns, NULL);
-        if (++iterations > 64) {
+/* Relocate the field names of the templates the scan deferred, mirroring
+ * defragLaterStep() for big keys. A kvstoreHelperPreContinueFn. */
+static doneStatus defragTmplLaterStep(void *privdata, monotime endtime) {
+    defragTmplCtx *ctx = privdata;
+    unsigned int iterations = 0;
+    unsigned long long prev_defragged = server.stat_active_defrag_hits;
+    unsigned long long prev_scanned = server.stat_active_defrag_scanned;
+
+    while (ctx->later && listLength(ctx->later) > 0) {
+        listNode *head = listFirst(ctx->later);
+        hashTemplate *tmpl = hashTemplateGetById((uint64_t)(uintptr_t)head->value);
+
+        if (tmpl && defragSdsArrayIncremental(tmpl->fields, tmpl->field_count, &ctx->later_field, endtime))
+            break; /* time is up */
+
+        /* Drained it fully or it was freed since we deferred it. */
+        ctx->later_field = 0;
+        listDelNode(ctx->later, head);
+
+        if (++iterations > 16 ||
+            server.stat_active_defrag_hits - prev_defragged > 512 ||
+            server.stat_active_defrag_scanned - prev_scanned > 64)
+        {
+            if (getMonotonicUs() > endtime) break;
             iterations = 0;
-            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+            prev_defragged = server.stat_active_defrag_hits;
+            prev_scanned = server.stat_active_defrag_scanned;
+        }
+    }
+    return (!ctx->later || listLength(ctx->later) == 0) ? DEFRAG_DONE : DEFRAG_NOT_DONE;
+}
+
+/* Defrag a registry lookup dict, invoking 'callback' per entry and 'precontinue'
+ * (optional) before each scan step, the way defragStageKvstoreHelper() does. */
+static doneStatus defragRegistryDict(monotime endtime, dict **dref, unsigned long *cursor,
+                                     void *ctx, dictScanFunction *scan_fn,
+                                     kvstoreHelperPreContinueFn precontinue_fn)
+{
+    dictDefragFunctions fns = { .defragAlloc = activeDefragAlloc };
+    unsigned int iterations = 0;
+    unsigned long long prev_defragged = server.stat_active_defrag_hits;
+    unsigned long long prev_scanned = server.stat_active_defrag_scanned;
+    do {
+        if (precontinue_fn && precontinue_fn(ctx, endtime) == DEFRAG_NOT_DONE)
+            return DEFRAG_NOT_DONE;
+
+        *cursor = dictScanDefrag(*dref, *cursor, scan_fn, &fns, ctx);
+
+        if (++iterations > 16 ||
+            server.stat_active_defrag_hits - prev_defragged > 512 ||
+            server.stat_active_defrag_scanned - prev_scanned > 64)
+        {
+            iterations = 0;
+            prev_defragged = server.stat_active_defrag_hits;
+            prev_scanned = server.stat_active_defrag_scanned;
+
+            if (*cursor != 0 && getMonotonicUs() >= endtime)
+                return DEFRAG_NOT_DONE;
         }
     } while (*cursor != 0);
     dict *newd = dictDefragTables(*dref);
@@ -1742,13 +1803,23 @@ static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor, monotim
 }
 
 static doneStatus defragStageHashTemplatesByFields(void *ctx, monotime endtime) {
+    defragTmplCtx *tctx = ctx;
     if (server.htemplates == NULL) return DEFRAG_DONE;
-    return defragRegistryDict(&server.htemplates->by_fields, ctx, endtime);
+
+    if (!tctx->scan_done) {
+        if (defragRegistryDict(endtime, &server.htemplates->by_fields, &tctx->cursor,
+                               tctx, defragTmplRegistryCb,
+                               defragTmplLaterStep) == DEFRAG_NOT_DONE)
+            return DEFRAG_NOT_DONE;
+        tctx->scan_done = 1;
+    }
+    return defragTmplLaterStep(tctx, endtime);
 }
 
 static doneStatus defragStageHashTemplatesByFieldsLp(void *ctx, monotime endtime) {
     if (server.htemplates == NULL) return DEFRAG_DONE;
-    return defragRegistryDict(&server.htemplates->by_fields_lp, ctx, endtime);
+    return defragRegistryDict(endtime, &server.htemplates->by_fields_lp, ctx, NULL,
+                              activeDefragDictCallbackNoop, NULL);
 }
 
 static doneStatus defragStageHashTemplatesById(void *ctx, monotime endtime) {
@@ -2097,8 +2168,7 @@ static void beginDefragCycle(void) {
     addDefragStage(defragLuaScripts, NULL, NULL);
 
     /* Add stage for the hash template registry. */
-    addDefragStage(defragStageHashTemplates, zfree, zcalloc(sizeof(unsigned long)));
-    addDefragStage(defragStageHashTemplatesByFields, zfree, zcalloc(sizeof(unsigned long)));
+    addDefragStage(defragStageHashTemplatesByFields, freeDefragTmplContext, zcalloc(sizeof(defragTmplCtx)));
     addDefragStage(defragStageHashTemplatesByFieldsLp, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesById, zfree, zcalloc(sizeof(unsigned long)));
 

@@ -1318,6 +1318,7 @@ run_solo {defrag} {
 
             after 120
             if {$::verbose} { puts "frag before defrag: [s allocator_frag_ratio]" }
+            assert_morethan [s allocator_frag_ratio] 1.4
 
             set digest [debug_digest]
             catch {r config set activedefrag yes}
@@ -1327,7 +1328,8 @@ run_solo {defrag} {
                 } else {
                     fail "defrag not started."
                 }
-                wait_for_defrag_stop 500 100
+                # test the fragmentation is lower
+                wait_for_defrag_stop 500 100 1.1
             }
 
             # Data byte-identical after defrag moved the allocations.
@@ -1354,7 +1356,11 @@ run_solo {defrag} {
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
-            r config set active-defrag-ignore-bytes 100kb
+            r config set active-defrag-ignore-bytes 1mb
+
+            # Most templates below have 3 fields, over this limit: their field
+            # names are relocated by the deferred drain
+            r config set active-defrag-max-scan-fields 2
             r config set maxmemory 0
             r config set hash-min-template-entries 0
 
@@ -1374,42 +1380,96 @@ run_solo {defrag} {
             $rd close
             assert {[s hash_templates] >= $n}
 
+            # A wide template goes over the max scan fields limit, so its field
+            # names are relocated by the deferred defrag
+            set wide_pad [string repeat _ 60]
+            set wide_fields {}
+            for {set f 0} {$f < 20000} {incr f} {
+                lappend wide_fields wf[format %05d $f]$wide_pad
+            }
+            r himport prepare wide {*}$wide_fields
+            r himport set wide:1 wide {*}[lrepeat 20000 wv]
+
+            # 2-field templates stay under the scan fields limit set above:
+            # their names can only be reclaimed by the regular path.
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < 300} {incr j} {
+                $rd himport prepare is$j ia$j$pad ib$j$pad
+                $rd himport set ik:$j is$j 1 2
+            }
+            for {set j 0} {$j < 600} {incr j} { $rd read }
+            $rd close
+
+            # 9000 more templates: enough id chunks (>64) that the id-chunk
+            # defrag stage reaches its budget check.
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < 9000} {incr j} {
+                $rd himport prepare bs$j x$j y$j z$j ; incr cmds
+                $rd himport set bk:$j bs$j 1 2 3     ; incr cmds
+                if {$cmds % $batch == 0} { for {set rc 0} {$rc < $batch} {incr rc} { $rd read } }
+            }
+            $rd close
+
+            # RESTORE caches small template's fields listpack
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < 200} {incr j} {
+                $rd himport prepare lpfs$j a$j b$j c$j
+                $rd himport set lpk:$j lpfs$j v1 v2 v3
+            }
+            for {set j 0} {$j < 400} {incr j} { $rd read }
+            $rd close
+            for {set j 0} {$j < 200} {incr j} { r restore lpc:$j 0 [r dump lpk:$j] }
+
             # Fragment: delete every other key so its template (and long field-name
             # strings) is freed, leaving holes around the survivors.
             set rd [redis_deferring_client]
             set deleted 0
             for {set j 0} {$j < $n} {incr j 2} { $rd del k:$j; incr deleted }
+            for {set j 0} {$j < 200} {incr j 2} { $rd del lpk:$j lpc:$j; incr deleted }
+            for {set j 0} {$j < 300} {incr j 2} { $rd del ik:$j; incr deleted }
+            for {set j 0} {$j < 9000} {incr j 2} { $rd del bk:$j; incr deleted }
             for {set rc 0} {$rc < $deleted} {incr rc} { $rd read }
             $rd close
             wait_for_condition 300 100 {
-                [s hash_templates] <= [expr {$n / 2 + 50}]
+                [s hash_templates] <= [expr {$n / 2 + 4500 + 150 + 300}]
             } else { fail "templates not drained ([s hash_templates])" }
 
             after 120
             if {$::verbose} { puts "registry frag before defrag: [s allocator_frag_ratio]" }
+            assert_morethan [s allocator_frag_ratio] 1.1
+
+            # Touch the cached blobs again (RESTORE looks them up).
+            for {set j 1} {$j < 200} {incr j 2} { r restore lpc:$j 0 [r dump lpk:$j] replace }
 
             set digest [debug_digest]
             catch {r config set activedefrag yes}
             if {[r config get activedefrag] eq "activedefrag yes"} {
-                # Let defrag relocate the registry allocations; we only wait for
-                # progress (hits > 0), not for fragmentation to fully settle.
                 wait_for_condition 100 100 {
-                    [s active_defrag_hits] > 0
-                } else { fail "defrag made no progress" }
-                after 500 ;# let it churn the registry a bit more
-                r config set activedefrag no
-                wait_for_defrag_stop 500 100
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    fail "defrag not started."
+                }
+                # test the fragmentation is lower
+                wait_for_defrag_stop 500 100 1.1
             }
 
             # Byte-identical after the registry field-name/array moves, and a
             # survivor still resolves (its relocated field name reads back right).
             assert_equal $digest [debug_digest]
             assert_equal v1a [r hget k:1 a1$pad]
+            assert_equal v1 [r hget lpc:1 a1]
+            # Access wide template's relocated field names.
+            assert_equal wv [r hget wide:1 wf00000$wide_pad]
+            assert_equal wv [r hget wide:1 wf19999$wide_pad]
             # After relocation, re-preparing an existing field set still finds its
             # template instead of creating a new one.
             set nt [s hash_templates]
             r himport prepare chk a1$pad b1$pad c1$pad
             assert_equal $nt [s hash_templates]
+            # RESTORE probes the relocated by_fields_lp entry.
+            r restore lpchk 0 [r dump lpc:1]
+            assert_equal $nt [s hash_templates]
+            assert_equal v1 [r hget lpchk a1]
             r save ;# iterate over all data / pointers
         } {OK}
     }
