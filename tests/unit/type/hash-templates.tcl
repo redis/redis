@@ -2784,3 +2784,69 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         }
     }
 }
+
+start_server {tags {"hash" "external:skip" "cluster:skip"} overrides {hash-min-template-entries 0}} {
+    test {Stress test for template creation and deletion} {
+        # Create 10000 templates
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 10000} {incr j} {
+            $rd himport prepare rec$j a$j b$j c$j
+            $rd himport set reck:$j rec$j 1 2 3
+        }
+        for {set j 0} {$j < 20000} {incr j} { $rd read }
+        $rd close ;# releases the PREPARE holds
+        assert_equal 10000 [s hash_templates]
+
+        # Free every other template
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 10000} {incr j 2} { $rd del reck:$j }
+        for {set j 0} {$j < 5000} {incr j} { $rd read }
+        $rd close
+        wait_for_condition 100 100 {
+            [s hash_templates] == 5000
+        } else { fail "templates not freed ([s hash_templates])" }
+
+        # Create another 5000 template
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 5000} {incr j} {
+            $rd himport prepare rec2_$j x$j y$j z$j
+            $rd himport set reck2:$j rec2_$j 1 2 3
+        }
+        for {set j 0} {$j < 10000} {incr j} { $rd read }
+        $rd close
+        assert_equal 10000 [s hash_templates]
+
+        # Free a contiguous batch, then refill it.
+        set rd [redis_deferring_client]
+        for {set j 1} {$j < 1000} {incr j 2} { $rd del reck:$j }
+        for {set j 0} {$j < 500} {incr j} { $rd del reck2:$j }
+        for {set j 0} {$j < 1000} {incr j} { $rd read }
+        $rd close
+        wait_for_condition 100 100 {
+            [s hash_templates] == 9000
+        } else { fail "templates not freed ([s hash_templates])" }
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 1000} {incr j} {
+            $rd himport prepare rec3_$j p$j q$j w$j
+            $rd himport set reck3:$j rec3_$j 1 2 3
+        }
+        for {set j 0} {$j < 2000} {incr j} { $rd read }
+        $rd close
+        assert_equal 10000 [s hash_templates]
+
+        # Delete one, create one, back and forth.
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 100} {incr j} {
+            $rd del reck:[expr {2001 + 2*$j}]
+            $rd himport prepare rec4_$j f$j g$j h$j
+            $rd himport set reck4:$j rec4_$j 1 2 3
+        }
+        for {set j 0} {$j < 300} {incr j} { $rd read }
+        $rd close
+        assert_equal 10000 [s hash_templates]
+
+        r flushall
+        wait_num_template_keys 0
+        wait_num_templates 0
+    }
+}

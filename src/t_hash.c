@@ -404,6 +404,11 @@ static tmplIdChunk *tmplIdGetOrCreateChunk(size_t id) {
  * by_id_free_chunk_hint are full, the scan starts there. */
 static size_t tmplIdGetLowestFree(void) {
     size_t chunk_idx = htemplates->by_id_free_chunk_hint;
+#ifdef DEBUG_ASSERTIONS
+    /* Chunks below the hint must be full. */
+    for (size_t i = 0; i < chunk_idx; i++)
+        serverAssert(htemplates->by_id[i] && htemplates->by_id[i]->used == TMPL_CHUNK_SIZE);
+#endif
     while (chunk_idx < htemplates->by_id_cap && htemplates->by_id[chunk_idx] &&
            htemplates->by_id[chunk_idx]->used == TMPL_CHUNK_SIZE) {
         chunk_idx++;
@@ -465,12 +470,28 @@ hashTemplate *hashTemplateGetById(uint64_t id) {
 }
 
 /* Defrag the template struct and re-point every reference
- * to it (by_id slot, by_fields key, by_fields_lp value).
- * Field name SDS allocations are handled by the registry defrag stage. */
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf) {
+ * to it (by_id slot, by_fields key, by_fields_lp value).*/
+hashTemplate *hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime) {
     /* Field-name array. */
     sds *newfields = activeDefragAlloc(tmpl->fields);
     if (newfields) tmpl->fields = newfields;
+
+    /* Field names, checking the clock every 128 so a wide template cannot
+     * blow the time budget. On timeout, defrag_field keeps the position, the
+     * leftover is picked up when the template is scanned again. */
+    unsigned long long i = tmpl->defrag_field;
+    long iterations = 0;
+    while (i < tmpl->field_count) {
+        sds newsds = activeDefragSds(tmpl->fields[i]);
+        if (newsds) tmpl->fields[i] = newsds;
+        server.stat_active_defrag_scanned++;
+        i++;
+        if (++iterations > 128) {
+            if (getMonotonicUs() > endtime) break;
+            iterations = 0;
+        }
+    }
+    tmpl->defrag_field = (i >= tmpl->field_count) ? 0 : i;
 
     /* fields_lp blob (the by_fields_lp key). */
     dictEntry *lp = NULL;
@@ -706,6 +727,7 @@ static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
     tmpl->fields = zmalloc(sizeof(sds) * field_count);
     tmpl->fields_lp = NULL; /* Lazy built on first save/lookup due to RESTORE. */
     tmpl->fields_lp_last_used = 0;
+    tmpl->defrag_field = 0;
     tmpl->mem_size = sizeof(*tmpl) + sizeof(sds) * field_count;
 
     for (unsigned long long i = 0; i < field_count; i++) {

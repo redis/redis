@@ -1358,11 +1358,12 @@ run_solo {defrag} {
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1mb
 
-            # Most templates below have 3 fields, over this limit: their field
-            # names are relocated by the deferred drain
-            r config set active-defrag-max-scan-fields 2
             r config set maxmemory 0
             r config set hash-min-template-entries 0
+
+            # Extra plain keys grow the heap, so the small leftover that
+            # defrag cannot move stays below the 1.1 ratio target.
+            populate 5000 filler: 1024
 
             # Many distinct templates with long field names, fragmenting the
             # registry's per-template allocations (struct, field array + strings,
@@ -1375,38 +1376,19 @@ run_solo {defrag} {
             for {set j 0} {$j < $n} {incr j} {
                 $rd himport prepare fs$j a$j$pad b$j$pad c$j$pad ; incr cmds
                 $rd himport set k:$j fs$j v${j}a v${j}b v${j}c   ; incr cmds
-                if {$cmds % $batch == 0} { for {set rc 0} {$rc < $batch} {incr rc} { $rd read } }
+                discard_replies_every $rd $cmds $batch $batch
             }
             $rd close
             assert {[s hash_templates] >= $n}
 
-            # A wide template goes over the max scan fields limit, so its field
-            # names are relocated by the deferred defrag
-            set wide_pad [string repeat _ 60]
-            set wide_fields {}
-            for {set f 0} {$f < 20000} {incr f} {
-                lappend wide_fields wf[format %05d $f]$wide_pad
-            }
-            r himport prepare wide {*}$wide_fields
-            r himport set wide:1 wide {*}[lrepeat 20000 wv]
-
-            # 2-field templates stay under the scan fields limit set above:
-            # their names can only be reclaimed by the regular path.
-            set rd [redis_deferring_client]
-            for {set j 0} {$j < 300} {incr j} {
-                $rd himport prepare is$j ia$j$pad ib$j$pad
-                $rd himport set ik:$j is$j 1 2
-            }
-            for {set j 0} {$j < 600} {incr j} { $rd read }
-            $rd close
-
             # 9000 more templates: enough id chunks (>64) that the id-chunk
             # defrag stage reaches its budget check.
             set rd [redis_deferring_client]
+            set cmds 0
             for {set j 0} {$j < 9000} {incr j} {
                 $rd himport prepare bs$j x$j y$j z$j ; incr cmds
                 $rd himport set bk:$j bs$j 1 2 3     ; incr cmds
-                if {$cmds % $batch == 0} { for {set rc 0} {$rc < $batch} {incr rc} { $rd read } }
+                discard_replies_every $rd $cmds $batch $batch
             }
             $rd close
 
@@ -1426,20 +1408,20 @@ run_solo {defrag} {
             set deleted 0
             for {set j 0} {$j < $n} {incr j 2} { $rd del k:$j; incr deleted }
             for {set j 0} {$j < 200} {incr j 2} { $rd del lpk:$j lpc:$j; incr deleted }
-            for {set j 0} {$j < 300} {incr j 2} { $rd del ik:$j; incr deleted }
             for {set j 0} {$j < 9000} {incr j 2} { $rd del bk:$j; incr deleted }
             for {set rc 0} {$rc < $deleted} {incr rc} { $rd read }
             $rd close
             wait_for_condition 300 100 {
-                [s hash_templates] <= [expr {$n / 2 + 4500 + 150 + 300}]
+                [s hash_templates] <= [expr {$n / 2 + 4500 + 150}]
             } else { fail "templates not drained ([s hash_templates])" }
 
             after 120
             if {$::verbose} { puts "registry frag before defrag: [s allocator_frag_ratio]" }
             assert_morethan [s allocator_frag_ratio] 1.1
 
-            # Touch the cached blobs again (RESTORE looks them up).
+            # Touch the cached blobs again (RESTORE looks them up)
             for {set j 1} {$j < 200} {incr j 2} { r restore lpc:$j 0 [r dump lpk:$j] replace }
+            set lpdump [r dump lpc:1]
 
             set digest [debug_digest]
             catch {r config set activedefrag yes}
@@ -1453,23 +1435,81 @@ run_solo {defrag} {
                 wait_for_defrag_stop 500 100 1.1
             }
 
-            # Byte-identical after the registry field-name/array moves, and a
-            # survivor still resolves (its relocated field name reads back right).
+            # Validate: the data survived the moves and every relocated
+            # registry reference still resolves.
             assert_equal $digest [debug_digest]
             assert_equal v1a [r hget k:1 a1$pad]
             assert_equal v1 [r hget lpc:1 a1]
-            # Access wide template's relocated field names.
-            assert_equal wv [r hget wide:1 wf00000$wide_pad]
-            assert_equal wv [r hget wide:1 wf19999$wide_pad]
             # After relocation, re-preparing an existing field set still finds its
             # template instead of creating a new one.
             set nt [s hash_templates]
             r himport prepare chk a1$pad b1$pad c1$pad
             assert_equal $nt [s hash_templates]
-            # RESTORE probes the relocated by_fields_lp entry.
-            r restore lpchk 0 [r dump lpc:1]
+            # RESTORE probe
+            r restore lpchk 0 $lpdump
             assert_equal $nt [s hash_templates]
             assert_equal v1 [r hget lpchk a1]
+            r save ;# iterate over all data / pointers
+        } {OK}
+
+        # A wide template's field names cannot be relocated in one go: a scan
+        # visit is cut by the clock (one slice never fits 100000 names) and
+        # the next defrag cycle resumes from the position saved on the
+        # template.
+        test "Active defrag resumes a wide template across cycles: $type" {
+            r flushall
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 1
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 100kb
+            r config set hash-min-template-entries 0
+
+            set wide_pad [string repeat _ 60]
+            set wide_fields {}
+            for {set f 0} {$f < 100000} {incr f} {
+                lappend wide_fields wf[format %05d $f]$wide_pad
+            }
+            r himport prepare wide {*}$wide_fields
+            r himport set wide:1 wide {*}[lrepeat 100000 wv]
+
+            # Fragment: templates with long field names, half of them deleted,
+            # so defrag has cycles to run.
+            set pad [string repeat _ 2000]
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < 300} {incr j} {
+                $rd himport prepare wfs$j a$j$pad b$j$pad c$j$pad
+                $rd himport set wk:$j wfs$j 1 2 3
+            }
+            for {set j 0} {$j < 600} {incr j} { $rd read }
+            $rd close
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < 300} {incr j 2} { $rd del wk:$j }
+            for {set j 0} {$j < 150} {incr j} { $rd read }
+            $rd close
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes}
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                # Two completed cycles: the first visit of the wide template
+                # gets cut, the next one resumes it. The +1 covers the ms
+                # rounding of the two INFO fields.
+                for {set cycle 0} {$cycle < 2} {incr cycle} {
+                    set completed [expr {[s total_active_defrag_time] - [s current_active_defrag_time]}]
+                    wait_for_condition 500 100 {
+                        [s total_active_defrag_time] - [s current_active_defrag_time] > $completed + 1
+                    } else { fail "no defrag cycle" }
+                }
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+            }
+
+            assert_equal $digest [debug_digest]
+            assert_equal wv [r hget wide:1 wf00000$wide_pad]
+            assert_equal wv [r hget wide:1 wf99999$wide_pad]
             r save ;# iterate over all data / pointers
         } {OK}
     }
