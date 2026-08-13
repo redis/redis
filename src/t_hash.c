@@ -1159,6 +1159,7 @@ void hashTemplateLpFree(unsigned char *lp) {
 static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta) {
     hashTemplate *tmpl = hashTemplateGetById(hta->tmpl_id);
     serverAssert(tmpl != NULL);
+    serverAssert(tmpl->field_count == hta->field_count);
     return tmpl;
 }
 
@@ -1167,20 +1168,40 @@ static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta) {
  * Otherwise copies them with sdsdup. */
 static hashTemplateArray *hashTemplateArrayCreate(hashTemplate *tmpl, sds *values, int take) {
     unsigned long long n = tmpl->field_count;
-    hashTemplateArray *hta = zmalloc(sizeof(*hta) + sizeof(sds) * n);
+    size_t usable;
+    hashTemplateArray *hta = zmalloc_usable(sizeof(*hta) + sizeof(sds) * n, &usable);
     hta->tmpl_id = tmpl->id;
     hta->field_count = n;
+    hta->alloc_size = usable;
 
-    for (unsigned long long i = 0; i < n; i++)
+    for (unsigned long long i = 0; i < n; i++) {
         hta->values[i] = take ? values[i] : sdsdup(values[i]);
+        hta->alloc_size += sdsAllocSize(hta->values[i]);
+    }
 
     hashTemplateIncrKeyRef(tmpl);
+    return hta;
+}
+
+static hashTemplateArray *hashTemplateArrayResize(hashTemplateArray *hta, unsigned long long field_count) {
+    size_t old_usable, new_usable;
+    hta = zrealloc_usable(hta, sizeof(*hta) + sizeof(sds) * field_count,
+                          &new_usable, &old_usable);
+    hta->alloc_size += new_usable;
+    hta->alloc_size -= old_usable;
     return hta;
 }
 
 /* Free a hashTemplateArray (release key ref and free data). May run in a BIO
  * lazyfree thread: uses the tmpl_id/field_count, never the registry. */
 void hashTemplateArrayFree(hashTemplateArray *hta) {
+#ifdef DEBUG_ASSERTIONS
+    size_t values_size = 0;
+    for (unsigned long long i = 0; i < hta->field_count; i++)
+        values_size += sdsAllocSize(hta->values[i]);
+    debugServerAssert(hta->alloc_size - values_size == zmalloc_usable_size(hta));
+#endif
+
     for (unsigned long long i = 0; i < hta->field_count; i++)
         sdsfree(hta->values[i]);
 
@@ -2055,13 +2076,15 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
                 serverAssert(o->ptr != NULL);
             } else {
                 hashTemplateArray *hta = o->ptr;
-                if (hta->values[field_idx]) sdsfree(hta->values[field_idx]);
+                hta->alloc_size -= sdsAllocSize(hta->values[field_idx]);
+                sdsfree(hta->values[field_idx]);
                 if (flags & HASH_SET_TAKE_VALUE) {
                     hta->values[field_idx] = value;  /* adopt, don't copy */
                     value = NULL;
                 } else {
                     hta->values[field_idx] = sdsdup(value);
                 }
+                hta->alloc_size += sdsAllocSize(hta->values[field_idx]);
             }
             update = 1;
             goto cleanup;
@@ -2090,7 +2113,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
         } else {
             hashTemplateArray *hta = o->ptr;
             /* Expand struct and shift elements to make room. */
-            hta = zrealloc(hta, sizeof(*hta) + sizeof(sds) * new_field_count);
+            hta = hashTemplateArrayResize(hta, new_field_count);
             if ((unsigned long long)insert_pos < tmpl->field_count) {
                 memmove(&hta->values[insert_pos + 1], &hta->values[insert_pos],
                         sizeof(sds) * (tmpl->field_count - insert_pos));
@@ -2101,6 +2124,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
             } else {
                 hta->values[insert_pos] = sdsdup(value);
             }
+            hta->alloc_size += sdsAllocSize(hta->values[insert_pos]);
             hashTemplateDecrKeyRef(tmpl);
             hta->tmpl_id = new_tmpl->id;
             hta->field_count = new_tmpl->field_count;
@@ -2418,12 +2442,13 @@ int hashTypeDelete(robj *o, void *field) {
                     o->ptr = lp;
                 } else {
                     hashTemplateArray *hta = o->ptr;
+                    hta->alloc_size -= sdsAllocSize(hta->values[idx]);
                     sdsfree(hta->values[idx]);
                     memmove(&hta->values[idx], &hta->values[idx + 1],
                             sizeof(sds) * (old_count - idx - 1));
                     hta->tmpl_id = new_tmpl->id;
                     hta->field_count = new_count;
-                    hta = zrealloc(hta, sizeof(*hta) + sizeof(sds) * new_count);
+                    hta = hashTemplateArrayResize(hta, new_count);
                     o->ptr = hta;
                 }
                 hashTemplateDecrKeyRef(tmpl);
@@ -2499,10 +2524,7 @@ size_t hashTypeAllocSize(const robj *o) {
         size = lpBytes(lp);
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        size = sizeof(hashTemplateArray) + sizeof(sds) * hta->field_count;
-        for (unsigned long long i = 0; i < hta->field_count; i++) {
-            if (hta->values[i]) size += sdsAllocSize(hta->values[i]);
-        }
+        size = hta->alloc_size;
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -3562,16 +3584,8 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
         hobj->encoding = OBJ_ENCODING_TMPL_LP;
     } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
         hashTemplateArray *hta = o->ptr;
-        unsigned long long n = hta->field_count;
-
-        /* Create new array structure with duplicated values. */
-        hashTemplateArray *new_hta = zmalloc(sizeof(*new_hta) + sizeof(sds) * n);
-        new_hta->tmpl_id = hta->tmpl_id;
-        new_hta->field_count = n;
-        hashTemplateIncrKeyRef(hashTemplateGetById(new_hta->tmpl_id));
-        for (unsigned long long i = 0; i < n; i++) {
-            new_hta->values[i] = sdsdup(hta->values[i]);
-        }
+        hashTemplate *tmpl = hashTemplateArrayGetTemplate(hta);
+        hashTemplateArray *new_hta = hashTemplateArrayCreate(tmpl, hta->values, 0);
 
         hobj = createObject(OBJ_HASH, new_hta);
         hobj->encoding = OBJ_ENCODING_TMPL_ARRAY;

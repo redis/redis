@@ -6036,6 +6036,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     }
 
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
@@ -6043,6 +6044,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         if (created) moduleDelKeyIfEmpty(key);
         return REDISMODULE_ERR;
     }
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count increased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
@@ -6089,8 +6091,10 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
     }
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     streamID streamid = {id->ms, id->seq};
     if (streamDeleteItem(s, &streamid)) {
+        updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         return REDISMODULE_OK;
@@ -6357,7 +6361,13 @@ int RM_StreamIteratorDelete(RedisModuleKey *key) {
         return REDISMODULE_ERR;
     }
     streamIterator *si = key->iter;
+    stream *s = key->kv->ptr;
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     streamIteratorRemoveEntry(si, &key->u.stream.currentid);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     key->u.stream.currentid.ms = 0; /* Make sure repeated Delete() fails */
     key->u.stream.currentid.seq = 0;
     key->u.stream.numfieldsleft = 0; /* Make sure NextField() fails */
@@ -6393,7 +6403,9 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     long long retval = streamTrimByLength(s, length, approx);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;
@@ -6429,7 +6441,9 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     streamID minid = (streamID){id->ms, id->seq};
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     long long retval = streamTrimByID(s, minid, approx);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;

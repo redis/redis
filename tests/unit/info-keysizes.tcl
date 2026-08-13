@@ -9,8 +9,8 @@
 #  cmd         -  A command that should be run before the verification.
 #  expOutput   -  This is a string that represents the expected output abbreviated.
 #                 Instead of the output of "strings_len_exp_distrib" write "STR". 
-#                 Similarly for LIST, SET, ZSET and HASH. Spaces and newlines are 
-#                 ignored.
+#                 Similarly for LIST, SET, ZSET, HASH and STREAM. Spaces and
+#                 newlines are ignored.
 #
 #                 Alternatively, you can set "__EVAL_DB_HIST__". The function
 #                 will read all the keys from the server for selected db index,
@@ -34,6 +34,7 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
     
         # Replace all placeholders with the actual values. Remove spaces & newlines.
         set res [string map {
+            "STREAM" "distrib_streams_items"
             "STR" "distrib_strings_sizes"
             "LIST" "distrib_lists_items"
             "SET" "distrib_sets_items"
@@ -113,6 +114,10 @@ proc eval_db_histogram {server dbid} {
                 set value [$server hlen $key]
                 set type "HASH"
             }
+            "stream" {
+                set value [$server xlen $key]
+                set type "STREAM"
+            }
             default {
                 continue  ; # Skip unknown types
             }
@@ -126,7 +131,7 @@ proc eval_db_histogram {server dbid} {
     }
 
     set result {}
-    foreach type {STR LIST SET ZSET HASH} {
+    foreach type {STR LIST SET ZSET HASH STREAM} {
         if {[array exists type_counts] && [array names type_counts $type,*] ne ""} {
             set sorted_powers [lsort -integer [lmap item [array names type_counts $type,*] {
                 lindex [split $item ,] 1  ; # Extracts only the numeric part
@@ -506,7 +511,7 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         createComplexDataset $server 1000
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
-        
+
         run_cmd_verify_hist {$server FLUSHALL} {}
         createComplexDataset $server 1000 {useexpire usehexpire}
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
@@ -727,6 +732,14 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server RPUSH l12 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {$server RENAME l12 l13} {db0_LIST:4=1}
     } {} {cluster:skip}
+
+    test "KEYSIZES - Test COPY $suffixRepl" {
+        # COPY births a new key via dbAdd; the histogram should count the copy.
+        # Exercised on a stream so a stream goes through this generic path too.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st1 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server COPY st1 st2} {db0_STREAM:1=2}
+    } {} {cluster:skip}
     
     test "KEYSIZES - Test MOVE $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
@@ -752,6 +765,68 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server DEL l10} {db0_STR:8=1}
         run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1}
     } {} {cluster:skip needs:debug}
+
+    test "KEYSIZES - Stream entries are tracked in the keysizes histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # Bin walk (floor-log2): 1->"1", 2,3->"2", 4..7->"4", 8->"8".
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 3-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XADD st 4-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 5-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 6-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 7-1 f v} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XADD st 8-1 f v} {db0_STREAM:8=1}
+        # XTRIM and XDEL move the sample down; emptying lands it in bin 0.
+        run_cmd_verify_hist {$server XTRIM st maxlen 4} {db0_STREAM:4=1}  ;# keeps 5-1..8-1
+        run_cmd_verify_hist {$server XDEL st 5-1 6-1} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server XDEL st 7-1 8-1} {db0_STREAM:0=1}
+        # Deleting the key removes its sample entirely.
+        run_cmd_verify_hist {$server DEL st} {}
+        # XGROUP CREATE ... MKSTREAM births an empty stream in bin 0.
+        run_cmd_verify_hist {$server XGROUP CREATE st2 g 0 MKSTREAM} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - XADD that appends and trims in one command $suffixRepl" {
+        # xaddCommand appends then trims within the same command, with a single
+        # post-command histogram update. MAXLEN 0 leaves the (newly created)
+        # stream key at length 0 -> bin 0; later MAXLEN 1 must keep it at bin 1.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st MAXLEN 0 1-1 f v} {db0_STREAM:0=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st MAXLEN 1 3-1 f v} {db0_STREAM:1=1}
+    }
+
+    test "KEYSIZES - XDELEX and XACKDEL update the stream histogram $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        for {set i 1} {$i <= 4} {incr i} { $server XADD st $i-1 f v }
+        run_cmd_verify_hist {$server XLEN st} {db0_STREAM:4=1}
+        run_cmd_verify_hist {$server XDELEX st IDS 2 4-1 3-1} {db0_STREAM:2=1}
+        $server XGROUP CREATE st g 0
+        $server XREADGROUP GROUP g c COUNT 2 STREAMS st >
+        run_cmd_verify_hist {$server XACKDEL st g IDS 2 1-1 2-1} {db0_STREAM:0=1}
+    }
+
+    test "KEYSIZES - Stream survives DEBUG RELOAD $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server XADD st 1-1 f v} {db0_STREAM:1=1}
+        run_cmd_verify_hist {$server XADD st 2-1 f v} {db0_STREAM:2=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STREAM:2=1}
+    } {} {cluster:skip needs:debug}
+
+    test "KEYSIZES - Untracked types stay out of the histogram $suffixRepl" {
+        # Only strings, the four collections and streams own a histogram row.
+        # A key of any other type (here an array) must not be counted into some
+        # other type's row, neither when created nor when modified in place.
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ARSET arr 0 a b c d} {}
+        assert_equal {array} [$server TYPE arr]
+        assert_equal 4 [$server ARLEN arr]
+        run_cmd_verify_hist {$server SET s1 1234} {db0_STR:4=1}
+        run_cmd_verify_hist {$server ARSET arr 4 e f g h} {db0_STR:4=1}
+        assert_equal 8 [$server ARLEN arr]
+        run_cmd_verify_hist {$server DEL arr} {db0_STR:4=1}
+    }
 
     test "KEYSIZES - Test RDB $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
@@ -807,8 +882,8 @@ proc get_info_keymem_stripped {server} {
     set info [$server info keysizes]
     set result ""
     foreach line [split $info "\n"] {
-        # Match key memory histograms: lists_sizes, sets_sizes, zsets_sizes, hashes_sizes
-        if {[regexp {distrib_(lists|sets|zsets|hashes)_sizes} $line]} {
+        # Match key memory histograms: lists/sets/zsets/hashes/streams _sizes.
+        if {[regexp {distrib_(lists|sets|zsets|hashes|streams)_sizes} $line]} {
             append result [string map {" " "" "\r" ""} $line]
         }
     }
@@ -855,8 +930,17 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         r SADD "set" x y z
         r ZADD "zset" 1 a 2 b
         r HSET "hash" f1 v1
+        r XADD "stream" 1-1 f v
 
-        verify_keymem_non_empty r {lists sets zsets hashes}
+        verify_keymem_non_empty r {lists sets zsets hashes streams}
+    }
+
+    test "KEY-MEMORY-STATS - Stream keys should appear in key memory histogram" {
+        r FLUSHALL
+        for {set i 1} {$i <= 8} {incr i} { r XADD mystream $i-1 f v }
+        verify_keymem_non_empty r {streams}
+        r FLUSHALL
+        verify_keymem_empty r
     }
 
     test "KEY-MEMORY-STATS - BITFIELD Roaring transitions keep histograms consistent" {
