@@ -66,7 +66,7 @@ void updateLRM(robj *o) {
     }
 }
 
-static_assert(MAX_KEYSIZES_ROWS == 6, "keysizesHistRow(): add/remove a row mapping");
+static_assert(MAX_KEYSIZES_ROWS == 7, "keysizesHistRow(): add/remove a row mapping");
 
 /* Return the histogram row that tracks `type`, or NULL if the type is untracked. */
 int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
@@ -77,6 +77,7 @@ int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
     case OBJ_ZSET:   return hist[3];
     case OBJ_HASH:   return hist[4];
     case OBJ_STREAM: return hist[5];
+    case OBJ_BITMAP: return hist[6];
     default:         return NULL;
     }
 }
@@ -87,16 +88,16 @@ int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
  * It is used to track the distribution of key sizes in the dataset. It is updated 
  * every time key's length is modified. Available to user via INFO command. 
  * 
- * The histogram is a base-2 logarithmic histogram, with 60 bins. The i'th bin
- * represents the number of keys with a size in the range 2^i and 2^(i+1) 
- * exclusive. oldLen/newLen must be smaller than 2^48, and if their value 
- * equals -1, it means that the key is being created/deleted, respectively. Each
- * data type has its own histogram and it is maintained per database.
+ * The histogram is a base-2 logarithmic histogram, with 61 bins. For positive
+ * sizes, bin i represents the number of keys in the range 2^(i-1) through 2^i
+ * exclusive. oldLen/newLen must be smaller than 2^60, and if their value equals
+ * -1, it means that the key is being created/deleted, respectively. Each data
+ * type has its own histogram and it is maintained per database.
  *
  * Example mapping of key lengths to bins:
  *               [1,2)->1 [2,4)->2 [4,8)->3 [8,16)->4 ...
  *
- * Since strings and streams can be empty (zero length), the histogram also tracks:
+ * Since strings, streams and bitmaps can be empty (zero length), the histogram also tracks:
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
@@ -112,7 +113,7 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
-            /* Only strings and streams can be empty. Yet, a command flow might
+            /* Only strings, streams and bitmaps can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
             hist[0]--;
             debugServerAssert(hist[0] >= 0);
@@ -126,7 +127,7 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
-            /* Only strings and streams can be empty. Yet, a command flow might
+            /* Only strings, streams and bitmaps can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
             hist[0]++;
         }
