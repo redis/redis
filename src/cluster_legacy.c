@@ -2488,12 +2488,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     {
         /* Safeguard against sub-replicas. A replica's master can turn itself
          * into a replica if its last slot is removed. If no other node takes
-         * over the slot, there is nothing else to trigger replica migration.
-         *
-         * Note that this only covers the case where we get here at all. When a
-         * master is demoted by a failover, clusterProcessPacket() moves its
-         * slots to the new master itself, leaving no slot difference for us to
-         * detect, so it runs the same safeguard right after that handling. */
+         * over the slot, there is nothing else to trigger replica migration. */
         serverLog(LL_NOTICE,
                   "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s (%s)",
                   myself->slaveof->slaveof->name, myself->slaveof->slaveof->human_nodename);
@@ -3098,6 +3093,7 @@ int clusterProcessPacket(clusterLink *link) {
                                     sender->shard_id,
                                     (unsigned long long)senderConfigEpoch,
                                     (unsigned long long)sender->configEpoch);
+                            return 1;
                         } else {
                             /* A failover occurred in the shard where `sender` belongs to and `sender` is no longer
                              * a primary. Update slot assignment to `master`, which is the new primary in the shard */
@@ -3166,13 +3162,11 @@ int clusterProcessPacket(clusterLink *link) {
          * This runs on every packet rather than only on the demotion itself, so
          * it also recovers a node that learned of the demotion before it knew
          * the new master. Only follow a grandmaster we believe is a master, so
-         * that a stale message we chose to ignore above, or a chain that has not
-         * settled yet, cannot make us resync from a node that owns no slots. */
+         * that a chain that has not settled yet cannot make us resync from a
+         * node that owns no slots. */
         clusterNode *grandmaster = nodeIsSlave(myself) && myself->slaveof ?
                                    myself->slaveof->slaveof : NULL;
-        if (grandmaster && clusterNodeIsMaster(grandmaster) &&
-            grandmaster != myself && grandmaster != myself->slaveof &&
-            myself->numslots == 0 &&
+        if (grandmaster && clusterNodeIsMaster(grandmaster) && grandmaster != myself &&
             !(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION))
         {
             serverLog(LL_NOTICE,
