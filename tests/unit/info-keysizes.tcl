@@ -9,7 +9,7 @@
 #  cmd         -  A command that should be run before the verification.
 #  expOutput   -  This is a string that represents the expected output abbreviated.
 #                 Instead of the output of "strings_len_exp_distrib" write "STR". 
-#                 Similarly for LIST, SET, ZSET, HASH and STREAM. Spaces and
+#                 Similarly for LIST, SET, ZSET, HASH, STREAM and BITMAP. Spaces and
 #                 newlines are ignored.
 #
 #                 Alternatively, you can set "__EVAL_DB_HIST__". The function
@@ -34,6 +34,7 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
     
         # Replace all placeholders with the actual values. Remove spaces & newlines.
         set res [string map {
+            "BITMAP" "distrib_bitmaps_sizes"
             "STREAM" "distrib_streams_items"
             "STR" "distrib_strings_sizes"
             "LIST" "distrib_lists_items"
@@ -718,6 +719,28 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server bitfield b3 set u8 65 255} {db0_STR:8=1}
         run_cmd_verify_hist {$server bitfield b4 set u8 1000 255} {db0_STR:8=1,64=1}
     } {} {cluster:skip}
+
+    test "KEYSIZES - Native bitmap byte lengths are tracked $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        set old_bitmap_default [lindex [$server config get bitmap-default-roaring] 1]
+        $server config set bitmap-default-roaring yes
+
+        # SETBIT walks logical byte lengths across histogram boundaries. A zero
+        # write beyond the end still extends a native bitmap's logical length.
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 0 1} {db0_BITMAP:1=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 63 1} {db0_BITMAP:8=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 64 1} {db0_BITMAP:8=1}
+        run_cmd_verify_hist {$server SETBIT bitmap:hist 127 0} {db0_BITMAP:16=1}
+
+        # BITFIELD uses the same native mutation accounting, including writes
+        # of zero that only extend the logical length.
+        run_cmd_verify_hist {$server BITFIELD bitmap:hist SET u8 256 1} {db0_BITMAP:32=1}
+        run_cmd_verify_hist {$server BITFIELD bitmap:hist SET u8 1024 0} {db0_BITMAP:128=1}
+
+        # Async deletion removes the bitmap row on both primary and replica.
+        run_cmd_verify_hist {$server UNLINK bitmap:hist} {} 1
+        $server config set bitmap-default-roaring $old_bitmap_default
+    } {} {cluster:skip}
        
     test "KEYSIZES - Test RESTORE $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
@@ -815,7 +838,7 @@ proc test_all_keysizes { {replMode 0} } {
     } {} {cluster:skip needs:debug}
 
     test "KEYSIZES - Untracked types stay out of the histogram $suffixRepl" {
-        # Only strings, the four collections and streams own a histogram row.
+        # Only strings, the four collections, streams and bitmaps own a histogram row.
         # A key of any other type (here an array) must not be counted into some
         # other type's row, neither when created nor when modified in place.
         run_cmd_verify_hist {$server FLUSHALL} {}
@@ -873,7 +896,8 @@ start_server {} {
 # The key memory histogram (distrib_*_sizes) requires key-memory-histograms or
 # cluster-slot-stats-enabled to be set on startup (which enables memory_tracking).
 #
-# Note: Strings are not tracked to avoid confusion with distrib_strings_sizes.
+# Note: String and bitmap allocation rows are not exposed because their logical
+# byte histograms already use the conventional distrib_*_sizes field names.
 ################################################################################
 
 # Query and Strip result of "info keysizes" from header, spaces, and newlines,
@@ -943,6 +967,28 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_empty r
     }
 
+    if {[s arch_bits] == 64} {
+        test "KEYSIZES - Sparse native bitmap reaches the 512P histogram bin" {
+            r FLUSHALL
+            set bitmap_len [expr {1 << 59}]
+            set bit_offset [expr {($bitmap_len - 1) * 8}]
+            set old_bulk_limit [config_get_set proto-max-bulk-len $bitmap_len]
+            set old_bitmap_default [config_get_set bitmap-default-roaring yes]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+
+            # Writing zero at the end changes only the logical length, so this
+            # exercises the final histogram bin without a matching allocation.
+            assert_equal 0 [r SETBIT bitmap:hist:top $bit_offset 0]
+            assert_equal bitmap [r TYPE bitmap:hist:top]
+            assert_match "*db0_distrib_bitmaps_sizes:512P=1*" [r INFO KEYSIZES]
+
+            assert_equal 1 [r DEL bitmap:hist:top]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+            r CONFIG SET bitmap-default-roaring $old_bitmap_default
+            r CONFIG SET proto-max-bulk-len $old_bulk_limit
+        }
+    }
+
     test "KEY-MEMORY-STATS - BITFIELD Roaring transitions keep histograms consistent" {
         r FLUSHALL
         assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
@@ -963,6 +1009,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         assert_equal 1 [r copy bitmap_new "bitmap:keymem:copy"]
         r restore "bitmap:keymem:restore" 0 [r dump bitmap_new]
         r bitop or "bitmap:keymem:bitop" bitmap_new
+        assert_match "*db0_distrib_bitmaps_sizes:8K=5*" [r INFO KEYSIZES]
 
         foreach key {
             bitmap_new
@@ -974,6 +1021,15 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
             # histogram and per-slot allocation accounting update paths.
             assert_equal 0 [r setbit $key 131072 1]
         }
+
+        assert_match "*db0_distrib_bitmaps_sizes:8K=1,16K=4*" [r INFO KEYSIZES]
+
+        # RDB loading reconstructs both histogram rows through the generic
+        # key-install path. Allocation accounting is checked internally.
+        assert_equal OK [r DEBUG RELOAD]
+        assert_match "*db0_distrib_bitmaps_sizes:8K=1,16K=4*" [r INFO KEYSIZES]
+        assert_equal 1 [r DEL "bitmap:keymem:bf:convert"]
+        assert_match "*db0_distrib_bitmaps_sizes:16K=4*" [r INFO KEYSIZES]
 
         assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 0]
         assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
@@ -1148,11 +1204,15 @@ start_server {tags {external:skip} overrides {key-memory-histograms no}} {
         r SADD "set" x y z
         r ZADD "zset" 1 a 2 b
         r HSET "hash" f1 v1
+        set old_bitmap_default [config_get_set bitmap-default-roaring yes]
+        r SETBIT "bitmap" 63 1
+        r CONFIG SET bitmap-default-roaring $old_bitmap_default
 
         set info [r info keysizes]
         # Keysizes (sizes/items) should be present
         assert {[string match "*distrib_strings_sizes*" $info]}
         assert {[string match "*distrib_lists_items*" $info]}
+        assert {[string match "*distrib_bitmaps_sizes*" $info]}
         # Key memory histogram should NOT be present (note: lists_sizes
         # is only present when memory tracking is enabled, but lists_items always is)
         set stripped [get_info_keymem_stripped r]

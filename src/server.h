@@ -1248,14 +1248,14 @@ typedef struct redisDb {
 } redisDb;
 
 /* maximum number of bins of keysizes histogram */
-#define MAX_KEYSIZES_BINS 60
+#define MAX_KEYSIZES_BINS 61
 
 /* Per-type keysizes/allocsizes histograms: one row per tracked type, i.e. the
- * basic types plus streams. Rows are addressed with keysizesHistRow() rather
- * than by object type, so untracked types in between (OBJ_MODULE) cost no row
- * and the histogram stays plain storage: zeroing initializes it, and it can be
- * copied or moved like any other array. */
-#define MAX_KEYSIZES_ROWS (OBJ_TYPE_BASIC_MAX + 1)  /* basic types + streams */
+ * basic types plus streams and bitmaps. Rows are addressed with
+ * keysizesHistRow() rather than by object type, so untracked types in between
+ * (OBJ_MODULE) cost no row and the histogram stays plain storage: zeroing
+ * initializes it, and it can be copied or moved like any other array. */
+#define MAX_KEYSIZES_ROWS (OBJ_TYPE_BASIC_MAX + 2)  /* basic types + streams + bitmaps */
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
