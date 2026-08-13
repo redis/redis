@@ -203,8 +203,12 @@ static void monotonicInit_x86linux(void) {
      * calibration.  */
     if (mono_ticksPerMicrosecond == 0 && nominal_model != 0) {
         long measured = monotonicCalibrateOnce_x86linux();
-        long diff = measured > 0 ? labs(measured - nominal_model) : LONG_MAX;
-        if (diff * 1000 <= nominal_model) { /* within 0.1% */
+        /* measured <= 0 means calibration itself failed (non-monotonic
+         * sample pair) -- treat that the same as "unconfirmed" and fall
+         * through, rather than encoding failure as a sentinel that then
+         * participates in the diff*1000 multiplication below (which can
+         * overflow a signed long and is undefined behavior in C). */
+        if (measured > 0 && labs(measured - nominal_model) * 1000 <= nominal_model) { /* within 0.1% */
             mono_ticksPerMicrosecond = nominal_model;
         } else {
             fprintf(stderr, "monotonic: x86 linux, advertised clock rate "
