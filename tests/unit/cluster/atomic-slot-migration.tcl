@@ -123,6 +123,19 @@ proc failover_and_wait_for_done {node_id {failover_arg ""}} {
     fail "Failover did not complete after $max_attempts attempts for node $node_id"
 }
 
+# Return 1 if the given node is the current owner of the given slot, from that
+# node's own view of the cluster.
+proc node_owns_slot {node_id slot} {
+    set myid [R $node_id cluster myid]
+    foreach range [R $node_id cluster slots] {
+        lassign $range start end owner
+        if {$slot >= $start && $slot <= $end} {
+            return [expr {[lindex $owner 2] eq $myid}]
+        }
+    }
+    return 0
+}
+
 proc migration_status {node_id task_id field} {
     set status [R $node_id CLUSTER MIGRATION STATUS ID $task_id]
 
@@ -716,6 +729,22 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     proc asm_basic_error_handling_test {operation channel all_states} {
+        # Slots 0-100 must start on the source node, since this test imports them
+        # to node 0. Earlier tests in this block happen to leave them there, but
+        # inheriting that is what makes this test fail as
+        # "ERR this node is already the owner of the slot range" - an error that
+        # names neither the absent setup nor this test, and which also makes the
+        # test impossible to run on its own with --only.
+        if {[node_owns_slot 0 0]} {
+            set setup_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+            wait_for_condition 1000 10 {
+                [string match {*completed*} [migration_status 0 $setup_id state]] &&
+                [string match {*completed*} [migration_status 1 $setup_id state]]
+            } else {
+                fail "setup: slots 0-100 could not be moved to the source node"
+            }
+        }
+
         foreach state $all_states {
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
 
