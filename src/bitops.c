@@ -1160,9 +1160,10 @@ void setbitCommand(client *c) {
          * lookupStringForBitCommand() by calling dbAdd(). Two deliberate
          * differences from the upstream shape of this block, both caught by
          * kvsUpdateHistogram's non-negative bin assert (see
-         * aviggiano/redis#168): the guard is "not created" rather than "old
-         * size not 0", since a pre-existing empty string that grows would
-         * never leave the zero-size bin; and the histogram is updated before
+         * https://github.com/redis/redis/pull/15598): the guard is "not
+         * created" rather than "old size not 0", since a pre-existing empty
+         * string that grows would never leave the zero-size bin; and the
+         * histogram is updated before
          * the keyspace notification, whose module callbacks may delete the
          * key and decrement the new-size bin. */
         if (!created && strGrowSize != 0)
@@ -2577,7 +2578,7 @@ static void bitfieldWriteString(client *c, kvobj *o, struct bitfieldOp *ops,
      * keysizes histogram. Otherwise, the histogram already updated
      * in lookupStringForBitCommand() by calling dbAdd(). "Not
      * created" rather than "old size not 0": see the same guard in
-     * setbitCommand() and aviggiano/redis#168. */
+     * setbitCommand() and https://github.com/redis/redis/pull/15598. */
     if (!created && growSize != 0)
         updateKeysizesHist(c->db,OBJ_STRING,oldSize,oldSize+growSize);
 
