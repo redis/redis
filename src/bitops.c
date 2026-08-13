@@ -1061,8 +1061,6 @@ static void setbitCommandBitmap(client *c, robj *roaring,
          * AOF-enabled replica applying the transition pair. */
         if ((c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
             bitroarPropagateCurrentCommand(c);
-        if (oldlen != bitroarLen(roaring))
-            updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitroarLen(roaring));
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), roaring, oldAllocSize, kvobjAllocSize(roaring));
         keyModified(c,c->db,c->argv[1],roaring,1);
@@ -2689,8 +2687,6 @@ static void bitfieldWriteRoaring(client *c, kvobj *o, struct bitfieldOp *ops,
      * transition path already queued it immediately after BITCONVERT. */
     if ((c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
         bitroarPropagateCurrentCommand(c);
-    if (oldSize != bitroarLen(o))
-        updateKeysizesHist(c->db,OBJ_BITMAP,oldSize,bitroarLen(o));
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,
                             oldAllocSize,kvobjAllocSize(o));
