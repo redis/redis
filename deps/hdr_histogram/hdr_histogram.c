@@ -4,6 +4,7 @@
  * as explained at http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+#include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
@@ -718,6 +719,13 @@ int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percen
     {
         return EINVAL;
     }
+
+#ifndef NDEBUG
+    for (size_t i = 1; i < length; i++)
+    {
+        assert(percentiles[i] >= percentiles[i - 1]);
+    }
+#endif
 
     const int64_t total_count = h->total_count;
     /* To avoid allocations we reuse the values array for intermediate
