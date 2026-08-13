@@ -1697,7 +1697,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     serverAssert(!((data->type != LLONG_MAX) && o));
 
     kvobj *kv = NULL;
-    zskiplistNode *znode = NULL;
+    zbtElem *znode = NULL;
     if (!o) { /* If scanning keyspace */
         kv = dictGetKV(de);
         keyStr = kvobjGetKey(kv);
@@ -1706,7 +1706,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         keyStr = entryGetField(hashEntry);
     } else if (o->type == OBJ_ZSET) {
         znode = dictGetKey(de);
-        keyStr = zslGetNodeElement(znode);
+        keyStr = zbtGetEle(znode);
     } else {
         keyStr = dictGetKey(de);
     }
@@ -1913,7 +1913,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
-    } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
+    } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_BTREE) {
         zset *zs = o->ptr;
         ht = zs->dict;
     }

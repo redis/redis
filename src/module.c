@@ -198,6 +198,8 @@ struct RedisModuleKey {
             uint32_t start;        /* Start pos for positional ranges. */
             uint32_t end;          /* End pos for positional ranges. */
             void *current;         /* Zset iterator current node. */
+            zbtIter it;            /* B+ tree position for O(1) stepping
+                                       (valid only for OBJ_ENCODING_BTREE). */
             int er;                /* Zset iterator end reached flag
                                        (true if end was reached). */
         } zset;
@@ -5334,6 +5336,8 @@ int RM_ZsetScore(RedisModuleKey *key, RedisModuleString *ele, double *score) {
 void zsetKeyReset(RedisModuleKey *key) {
     key->u.zset.type = REDISMODULE_ZSET_RANGE_NONE;
     key->u.zset.current = NULL;
+    key->u.zset.it.leaf = NULL;
+    key->u.zset.it.idx = 0;
     key->u.zset.er = 1;
 }
 
@@ -5379,11 +5383,13 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
     if (key->kv->encoding == OBJ_ENCODING_LISTPACK) {
         key->u.zset.current = first ? zzlFirstInRange(key->kv->ptr,zrs) :
                                       zzlLastInRange(key->kv->ptr,zrs);
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
         zset *zs = key->kv->ptr;
-        zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslNthInRange(zsl, zrs, 0, NULL) :
-                                      zslNthInRange(zsl, zrs, -1, NULL);
+        zbtree *t = zs->tree;
+        /* Seed the persistent iterator so subsequent Next/Prev steps are O(1)
+         * rather than re-seeking from the tree root each time. */
+        key->u.zset.current = first ? zbtNthInRange(t, zrs, 0, NULL, &key->u.zset.it) :
+                                      zbtNthInRange(t, zrs, -1, NULL, &key->u.zset.it);
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5443,11 +5449,13 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
     if (key->kv->encoding == OBJ_ENCODING_LISTPACK) {
         key->u.zset.current = first ? zzlFirstInLexRange(key->kv->ptr,zlrs) :
                                       zzlLastInLexRange(key->kv->ptr,zlrs);
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
         zset *zs = key->kv->ptr;
-        zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslNthInLexRange(zsl,zlrs,0,NULL) :
-                                      zslNthInLexRange(zsl,zlrs,-1,NULL);
+        zbtree *t = zs->tree;
+        /* Seed the persistent iterator so subsequent Next/Prev steps are O(1)
+         * rather than re-seeking from the tree root each time. */
+        key->u.zset.current = first ? zbtNthInLexRange(t,zlrs,0,NULL,&key->u.zset.it) :
+                                      zbtNthInLexRange(t,zlrs,-1,NULL,&key->u.zset.it);
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5495,10 +5503,10 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
             *score = zzlGetScore(sptr);
         }
         str = createObject(OBJ_STRING,ele);
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zskiplistNode *ln = key->u.zset.current;
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        zbtElem *ln = key->u.zset.current;
         if (score) *score = ln->score;
-        sds ele = zslGetNodeElement(ln);
+        sds ele = zbtGetEle(ln);
         str = createStringObject(ele,sdslen(ele));
     } else {
         serverPanic("Unsupported zset encoding");
@@ -5545,27 +5553,28 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             key->u.zset.current = next;
             return 1;
         }
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zskiplistNode *ln = key->u.zset.current, *next = ln->level[0].forward;
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        /* Step the persistent iterator (O(1)); restore it if the candidate is
+         * outside the requested range so 'current' and the cursor stay put. */
+        zbtIter saved = key->u.zset.it;
+        zbtElem *next = zbtIterNext(&key->u.zset.it);
         if (next == NULL) {
+            key->u.zset.it = saved;
             key->u.zset.er = 1;
             return 0;
-        } else {
-            /* Are we still within the range? */
-            if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueLteMax(next->score,&key->u.zset.rs))
-            {
-                key->u.zset.er = 1;
-                return 0;
-            } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-                if (!zslLexValueLteMax(zslGetNodeElement(next),&key->u.zset.lrs)) {
-                    key->u.zset.er = 1;
-                    return 0;
-                }
-            }
-            key->u.zset.current = next;
-            return 1;
         }
+        /* Are we still within the range? */
+        if ((key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
+             !zslValueLteMax(next->score,&key->u.zset.rs)) ||
+            (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX &&
+             !zslLexValueLteMax(zbtGetEle(next),&key->u.zset.lrs)))
+        {
+            key->u.zset.it = saved;
+            key->u.zset.er = 1;
+            return 0;
+        }
+        key->u.zset.current = next;
+        return 1;
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5609,27 +5618,28 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
             key->u.zset.current = prev;
             return 1;
         }
-    } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zskiplistNode *ln = key->u.zset.current, *prev = ln->backward;
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        /* Step the persistent iterator (O(1)); restore it if the candidate is
+         * outside the requested range so 'current' and the cursor stay put. */
+        zbtIter saved = key->u.zset.it;
+        zbtElem *prev = zbtIterPrev(&key->u.zset.it);
         if (prev == NULL) {
+            key->u.zset.it = saved;
             key->u.zset.er = 1;
             return 0;
-        } else {
-            /* Are we still within the range? */
-            if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
-                !zslValueGteMin(prev->score,&key->u.zset.rs))
-            {
-                key->u.zset.er = 1;
-                return 0;
-            } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
-                if (!zslLexValueGteMin(zslGetNodeElement(prev),&key->u.zset.lrs)) {
-                    key->u.zset.er = 1;
-                    return 0;
-                }
-            }
-            key->u.zset.current = prev;
-            return 1;
         }
+        /* Are we still within the range? */
+        if ((key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
+             !zslValueGteMin(prev->score,&key->u.zset.rs)) ||
+            (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX &&
+             !zslLexValueGteMin(zbtGetEle(prev),&key->u.zset.lrs)))
+        {
+            key->u.zset.it = saved;
+            key->u.zset.er = 1;
+            return 0;
+        }
+        key->u.zset.current = prev;
+        return 1;
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -12304,8 +12314,8 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
         field = createStringObject(fieldStr, sdslen(fieldStr));
         value = createStringObject(val, sdslen(val));
     } else if (kv->type == OBJ_ZSET) {
-        zskiplistNode *znode = (zskiplistNode *) key;
-        sds fieldStr = zslGetNodeElement(znode);
+        zbtElem *znode = (zbtElem *) key;
+        sds fieldStr = zbtGetEle(znode);
         field = createStringObject(fieldStr, sdslen(fieldStr));
         value = createStringObjectFromLongDouble(znode->score, 0);
     }
@@ -12373,7 +12383,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         if (kv->encoding == OBJ_ENCODING_HT)
             ht = kv->ptr;
     } else if (kv->type == OBJ_ZSET) {
-        if (kv->encoding == OBJ_ENCODING_SKIPLIST)
+        if (kv->encoding == OBJ_ENCODING_BTREE)
             ht = ((zset *)kv->ptr)->dict;
     } else {
         errno = EINVAL;

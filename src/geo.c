@@ -295,12 +295,13 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (ga->used && limit && ga->used >= limit) break;
             zzlNext(zl, &eptr, &sptr);
         }
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
         zset *zs = zobj->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
+        zbtree *t = zs->tree;
+        zbtIter it;
+        zbtElem *ln;
 
-        if ((ln = zslNthInRange(zsl, &range, 0, NULL)) == NULL) {
+        if ((ln = zbtNthInRange(t, &range, 0, NULL, &it)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
             return 0;
         }
@@ -313,11 +314,11 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
                 break;
             if (geoWithinShape(shape, ln->score, xy, &distance) == C_OK) {
                 /* Append the new element. */
-                sds ele = zslGetNodeElement(ln);
+                sds ele = zbtGetEle(ln);
                 geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ele));
             }
             if (ga->used && limit && ga->used >= limit) break;
-            ln = ln->level[0].forward;
+            ln = zbtIterNext(&it);
         }
     }
     return ga->used - origincount;
@@ -814,7 +815,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         }
 
         for (i = 0; i < returned_items; i++) {
-            zskiplistNode *znode;
+            zbtElem *znode;
             geoPoint *gp = ga->array+i;
             gp->dist /= shape.conversion; /* Fix according to unit. */
             double score = storedist ? gp->dist : gp->score;
@@ -822,9 +823,9 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
             if (maxelelen < elelen) maxelelen = elelen;
             totelelen += elelen;
-            znode = zslInsert(zs->zsl,score,gp->member);
+            znode = zbtInsert(zs->tree,score,gp->member);
             serverAssert(dictAdd(zs->dict, znode, NULL) == DICT_OK);
-            sdsfree(gp->member); /* zslInsert copies the sds, so free the original */
+            sdsfree(gp->member); /* zbtInsert copies the sds, so free the original */
             gp->member = NULL;
         }
 

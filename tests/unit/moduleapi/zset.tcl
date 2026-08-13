@@ -115,6 +115,54 @@ start_server {tags {"modules external:skip"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    foreach {enc setup} {
+        listpack {r config set zset-max-listpack-entries 128}
+        btree    {r config set zset-max-listpack-entries 0}
+    } {
+        test "Module zset score range iterator - $enc" {
+            eval $setup
+            r del zk
+            r zadd zk 1 a 2 b 3 c 4 d 5 e
+            assert_encoding $enc zk
+            assert_equal {b c d} [r zset.rangebyscore zk 2 4 asc]
+            assert_equal {d c b} [r zset.rangebyscore zk 2 4 desc]
+            # Full range walks the whole set with O(1) stepping.
+            assert_equal {a b c d e} [r zset.rangebyscore zk -inf +inf asc]
+            assert_equal {e d c b a} [r zset.rangebyscore zk -inf +inf desc]
+            # Empty range.
+            assert_equal {} [r zset.rangebyscore zk 100 200 asc]
+        }
+
+        test "Module zset lex range iterator - $enc" {
+            eval $setup
+            r del zk
+            r zadd zk 0 a 0 b 0 c 0 d 0 e
+            assert_encoding $enc zk
+            assert_equal {b c d} [r zset.rangebylex zk {[b} {[d} asc]
+            assert_equal {d c b} [r zset.rangebylex zk {[b} {[d} desc]
+            assert_equal {a b c d e} [r zset.rangebylex zk - + asc]
+            assert_equal {e d c b a} [r zset.rangebylex zk - + desc]
+            assert_equal {c d e} [r zset.rangebylex zk {(b} + asc]
+        }
+    }
+
+    test "Module zset range iterator large - btree" {
+        r config set zset-max-listpack-entries 0
+        r del zk
+        for {set i 0} {$i < 1000} {incr i} {
+            r zadd zk $i [format m%04d $i]
+        }
+        assert_encoding btree zk
+        set expected {}
+        for {set i 100} {$i <= 199} {incr i} {
+            lappend expected [format m%04d $i]
+        }
+        # A 100-element sub-range walked purely via the O(1) persistent iterator.
+        assert_equal $expected [r zset.rangebyscore zk 100 199 asc]
+        assert_equal [lreverse $expected] [r zset.rangebyscore zk 100 199 desc]
+    }
+    r config set zset-max-listpack-entries 128
+
     test "Unload the module - zset" {
         assert_equal {OK} [r module unload zset]
     }

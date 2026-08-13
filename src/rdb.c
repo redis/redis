@@ -712,7 +712,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_ZSET:
         if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_LISTPACK);
-        else if (o->encoding == OBJ_ENCODING_SKIPLIST)
+        else if (o->encoding == OBJ_ENCODING_BTREE)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_2);
         else
             serverPanic("Unknown sorted set encoding");
@@ -1223,22 +1223,21 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
             if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
             nwritten += n;
-        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+        } else if (o->encoding == OBJ_ENCODING_BTREE) {
             zset *zs = o->ptr;
-            zskiplist *zsl = zs->zsl;
+            zbtree *t = zs->tree;
 
-            if ((n = rdbSaveLen(rdb,zsl->length)) == -1) return -1;
+            if ((n = rdbSaveLen(rdb,t->length)) == -1) return -1;
             nwritten += n;
 
-            /* We save the skiplist elements from the greatest to the smallest
-             * (that's trivial since the elements are already ordered in the
-             * skiplist): this improves the load process, since the next loaded
-             * element will always be the smaller, so adding to the skiplist
-             * will always immediately stop at the head, making the insertion
-             * O(1) instead of O(log(N)). */
-            zskiplistNode *zn = zsl->tail;
+            /* We save the elements from the greatest to the smallest (that's
+             * trivial since the elements are already ordered in the tree):
+             * this improves the load process, since the next loaded element
+             * will always be the smaller, keeping insertions cheap. */
+            zbtIter it;
+            zbtElem *zn = zbtLast(t, &it);
             while (zn != NULL) {
-                sds ele = zslGetNodeElement(zn);
+                sds ele = zbtGetEle(zn);
                 if ((n = rdbSaveRawString(rdb,
                     (unsigned char*)ele,sdslen(ele))) == -1)
                 {
@@ -1248,7 +1247,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 if ((n = rdbSaveBinaryDoubleValue(rdb,zn->score)) == -1)
                     return -1;
                 nwritten += n;
-                zn = zn->backward;
+                zn = zbtIterPrev(&it);
             }
         } else {
             serverPanic("Unknown sorted set encoding");
@@ -2885,6 +2884,14 @@ static void rdbDiscardTemplateFields(rdbTmplFields *out) {
     out->fields_lp = NULL;
 }
 
+/* qsort() comparator ordering an array of zbtElem* by (score, member), used to
+ * normalize arbitrary RDB zset input before the bottom-up tree build. */
+static int zbtElemPtrCompare(const void *a, const void *b) {
+    zbtElem *ea = *(zbtElem *const *)a;
+    zbtElem *eb = *(zbtElem *const *)b;
+    return zbtCompare(ea->score, zbtGetEle(ea), eb);
+}
+
 /* Load a Redis object of the specified type from the specified file.
  * On success a newly allocated object is returned, otherwise NULL.
  *
@@ -3058,51 +3065,81 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 
-        /* Load every single element of the sorted set. */
+        /* Load every element into a detached buffer, checking membership
+         * uniqueness *before* handing ownership to the tree. The tree is then
+         * built bottom-up in a single O(N) pass. The dict is populated as we go
+         * (its key destructor is NULL, so the buffered elements below are still
+         * owned by us until zbtBuildFromSorted() takes them). */
+        uint64_t total = zsetlen;
+        zbtElem **elems = zmalloc(sizeof(zbtElem *) * total);
+        uint64_t loaded = 0;
         while(zsetlen--) {
             sds sdsele;
             double score;
-            zskiplistNode *znode;
+            zbtElem *znode;
 
-            if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-                decrRefCount(o);
-                return NULL;
-            }
+            if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
+                goto zseterr;
 
             if (rdbtype == RDB_TYPE_ZSET_2) {
                 if (rdbLoadBinaryDoubleValue(rdb,&score) == -1) {
-                    decrRefCount(o);
                     sdsfree(sdsele);
-                    return NULL;
+                    goto zseterr;
                 }
             } else {
                 if (rdbLoadDoubleValue(rdb,&score) == -1) {
-                    decrRefCount(o);
                     sdsfree(sdsele);
-                    return NULL;
+                    goto zseterr;
                 }
             }
 
             if (isnan(score)) {
                 rdbReportCorruptRDB("Zset with NAN score detected");
-                decrRefCount(o);
                 sdsfree(sdsele);
-                return NULL;
+                goto zseterr;
             }
 
             /* Don't care about integer-encoded strings. */
             if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
             totelelen += sdslen(sdsele);
 
-            znode = zslInsert(zs->zsl,score,sdsele);
+            znode = zbtCreateElem(score, sdsele);
+            sdsfree(sdsele); /* zbtCreateElem copies the sds into the element. */
             if (dictAdd(zs->dict, znode, NULL) != DICT_OK) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
-                decrRefCount(o);
-                sdsfree(sdsele); /* zslInsert copies the sds, so we need to free the original */
-                return NULL;
+                zbtFreeElem(znode);
+                goto zseterr;
             }
-            sdsfree(sdsele); /* zslInsert copies the sds into the node, so free the original */
+            elems[loaded++] = znode;
+            continue;
+
+        zseterr:
+            for (uint64_t i = 0; i < loaded; i++) zbtFreeElem(elems[i]);
+            zfree(elems);
+            decrRefCount(o);
+            return NULL;
         }
+
+        /* zbtBuildFromSorted() requires strictly ascending input. Redis writes
+         * zsets to the RDB in descending order, so detect and reverse that fast
+         * path; otherwise sort arbitrary (but valid, dup-free) input. */
+        if (loaded > 1) {
+            int ascending = 1, descending = 1;
+            for (uint64_t i = 1; i < loaded; i++) {
+                int c = zbtCompare(elems[i-1]->score, zbtGetEle(elems[i-1]), elems[i]);
+                if (c >= 0) ascending = 0;
+                if (c <= 0) descending = 0;
+            }
+            if (descending) {
+                for (uint64_t i = 0, j = loaded - 1; i < j; i++, j--) {
+                    zbtElem *tmp = elems[i]; elems[i] = elems[j]; elems[j] = tmp;
+                }
+            } else if (!ascending) {
+                qsort(elems, loaded, sizeof(zbtElem *), zbtElemPtrCompare);
+            }
+        }
+        zbtBuildFromSorted(zs->tree, elems, loaded);
+        zfree(elems);
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */
         if (zsetLength(o) <= server.zset_max_listpack_entries &&
@@ -3767,7 +3804,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
 
                     if (zsetLength(o) > server.zset_max_listpack_entries)
-                        zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                        zsetConvert(o, OBJ_ENCODING_BTREE);
                     else
                         o->ptr = lpShrinkToFit(o->ptr);
                     break;
@@ -3789,7 +3826,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
 
                 if (zsetLength(o) > server.zset_max_listpack_entries)
-                    zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                    zsetConvert(o, OBJ_ENCODING_BTREE);
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
                 {

@@ -102,7 +102,7 @@ start_server {tags {"zset"}} {
         if {$encoding == "listpack"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
-        } elseif {$encoding == "skiplist"} {
+        } elseif {$encoding == "btree"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
         } else {
@@ -1338,7 +1338,79 @@ start_server {tags {"zset"}} {
     }
 
     basics listpack
-    basics skiplist
+    basics btree
+
+    proc with_btree_encoding {body} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        uplevel 1 $body
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test "Large B-tree ZREMRANGEBYRANK removes an exact contiguous window" {
+        with_btree_encoding {
+            r del zr
+            for {set i 0} {$i < 3000} {incr i} { r zadd zr $i [format e%05d $i] }
+            assert_encoding btree zr
+            assert_equal 1000 [r zremrangebyrank zr 1000 1999]
+            assert_equal 2000 [r zcard zr]
+            assert_equal [format e%05d 0]    [lindex [r zrange zr 0 0] 0]
+            assert_equal [format e%05d 999]  [lindex [r zrange zr 999 999] 0]
+            assert_equal [format e%05d 2000] [lindex [r zrange zr 1000 1000] 0]
+            assert_equal [format e%05d 2999] [lindex [r zrange zr -1 -1] 0]
+            # Remove everything that is left.
+            assert_equal 2000 [r zremrangebyrank zr 0 -1]
+            assert_equal 0 [r exists zr]
+        }
+    }
+
+    test "Large B-tree ZREMRANGEBYSCORE/BYLEX batched deletion" {
+        with_btree_encoding {
+            r del zs
+            for {set i 0} {$i < 3000} {incr i} { r zadd zs $i m$i }
+            assert_encoding btree zs
+            assert_equal 501 [r zremrangebyscore zs 0 500]
+            assert_equal 2499 [r zcard zs]
+            assert_equal 0 [r zcount zs 0 500]
+            assert_equal 2499 [r zcount zs -inf +inf]
+
+            r del zl
+            for {set i 0} {$i < 2000} {incr i} { r zadd zl 0 [format k%05d $i] }
+            assert_encoding btree zl
+            assert_equal 500 [r zremrangebylex zl \[k00000 \[k00499]
+            assert_equal 1500 [r zcard zl]
+            assert_equal [format k%05d 500] [lindex [r zrange zl 0 0] 0]
+        }
+    }
+
+    test "Large B-tree COPY preserves digest and cardinality" {
+        with_btree_encoding {
+            r del zcopy_src zcopy_dst
+            for {set i 0} {$i < 5000} {incr i} {
+                r zadd zcopy_src [expr {$i * 1.5}] [format m%06d $i]
+            }
+            assert_encoding btree zcopy_src
+            r copy zcopy_src zcopy_dst
+            assert_encoding btree zcopy_dst
+            assert_equal [r zcard zcopy_src] [r zcard zcopy_dst]
+            assert_equal [debug_digest_value zcopy_src] [debug_digest_value zcopy_dst]
+        }
+    }
+
+    test "Large B-tree survives DEBUG RELOAD (RDB save/load)" {
+        with_btree_encoding {
+            r del zrl
+            for {set i 0} {$i < 5000} {incr i} {
+                r zadd zrl [expr {$i - 2500}] [format m%06d $i]
+            }
+            assert_encoding btree zrl
+            set d1 [debug_digest_value zrl]
+            r debug reload
+            assert_encoding btree zrl
+            assert_equal 5000 [r zcard zrl]
+            assert_equal $d1 [debug_digest_value zrl]
+        }
+    }
 
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
@@ -1700,7 +1772,7 @@ start_server {tags {"zset"}} {
             r config set zset-max-ziplist-entries 256
             r config set zset-max-ziplist-value 64
             set elements 128
-        } elseif {$encoding == "skiplist"} {
+        } elseif {$encoding == "btree"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
             if {$::accurate} {set elements 1000} else {set elements 100}
@@ -2214,7 +2286,7 @@ start_server {tags {"zset"}} {
 
     tags {"slow"} {
         stresses listpack
-        stresses skiplist
+        stresses btree
     }
 
     test "BZPOP/BZMPOP against wrong type" {
@@ -2489,9 +2561,9 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries 0
         r del z1{t} z2{t}
         r zadd z1{t} 1 a
-        assert_encoding skiplist z1{t}
+        assert_encoding btree z1{t}
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
-        assert_encoding skiplist z2{t}
+        assert_encoding btree z2{t}
         r config set zset-max-listpack-entries $original_max
     }
 
@@ -2503,7 +2575,7 @@ start_server {tags {"zset"}} {
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 0]
         assert_encoding listpack z2{t}
         assert_equal 2 [r zrangestore z3{t} z1{t} 0 1]
-        assert_encoding skiplist z3{t}
+        assert_encoding btree z3{t}
         r config set zset-max-listpack-entries $original_max
     }
 
@@ -2540,7 +2612,7 @@ start_server {tags {"zset"}} {
         }
     }
 
-    foreach {type contents} "listpack {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
+    foreach {type contents} "listpack {1 a 2 b 3 c} btree {1 a 2 b 3 [randstring 70 90 alpha]}" {
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         r config set zset-max-ziplist-value 10
         create_zset myzset $contents
@@ -2599,7 +2671,7 @@ start_server {tags {"zset"}} {
     r readraw 0
 
     foreach {type contents} "
-        skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
+        btree {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
         listpack {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
         test "ZRANDMEMBER with <count> - $type" {
             set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
@@ -2776,7 +2848,7 @@ start_server {tags {"zset"}} {
                 assert_encoding hashtable set_big{t}
             }
 
-            foreach zset_type {listpack skiplist} {
+            foreach zset_type {listpack btree} {
                 r del zset_small{t} zset_big{t}
 
                 if {$zset_type == "listpack"} {
@@ -2784,12 +2856,12 @@ start_server {tags {"zset"}} {
                     r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
                     assert_encoding listpack zset_small{t}
                     assert_encoding listpack zset_big{t}
-                } elseif {$zset_type == "skiplist"} {
+                } elseif {$zset_type == "btree"} {
                     r config set zset-max-listpack-entries 0
                     r zadd zset_small{t} 1 1 2 2 3 3
                     r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
-                    assert_encoding skiplist zset_small{t}
-                    assert_encoding skiplist zset_big{t}
+                    assert_encoding btree zset_small{t}
+                    assert_encoding btree zset_big{t}
                 }
 
                 # Test one key is big and one key is small separately.
@@ -2850,7 +2922,7 @@ start_server {tags {"zset"}} {
             assert_encoding listpack myzset
             assert_equal $max_entries [r zcard myzset]
             assert_equal 1 [r zadd myzset 1 b]
-            assert_encoding skiplist myzset
+            assert_encoding btree myzset
 
             r config set zset-max-listpack-entries $original_max
         }

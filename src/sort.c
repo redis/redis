@@ -14,7 +14,6 @@
 #include <math.h> /* isnan() */
 #include "cluster.h"
 
-zskiplistNode* zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
 redisSortOperation *createSortOperation(int type, robj *pattern) {
     redisSortOperation *so = zmalloc(sizeof(*so));
@@ -342,7 +341,7 @@ void sortCommandGeneric(client *c, int readonly) {
     if (sortval->type == OBJ_ZSET) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
-        zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
+        zsetConvert(sortval, OBJ_ENCODING_BTREE);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     }
@@ -447,32 +446,28 @@ void sortCommandGeneric(client *c, int readonly) {
          * way, just getting the required range, as an optimization. */
 
         zset *zs = sortval->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
+        zbtree *t = zs->tree;
+        zbtIter it;
+        zbtElem *ln;
         sds sdsele;
         int rangelen = vectorlen;
 
         /* Check if starting point is trivial, before doing log(N) lookup. */
         if (desc) {
             long zsetlen = dictSize(((zset*)sortval->ptr)->dict);
-
-            ln = zsl->tail;
-            if (start > 0)
-                ln = zslGetElementByRank(zsl,zsetlen-start);
+            ln = zbtElemByRank(t, start > 0 ? (unsigned long)(zsetlen-start) : t->length, &it);
         } else {
-            ln = zsl->header->level[0].forward;
-            if (start > 0)
-                ln = zslGetElementByRank(zsl,start+1);
+            ln = zbtElemByRank(t, start > 0 ? (unsigned long)(start+1) : 1, &it);
         }
 
         while(rangelen--) {
             serverAssertWithInfo(c,sortval,ln != NULL);
-            sdsele = zslGetNodeElement(ln);
+            sdsele = zbtGetEle(ln);
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
-            ln = desc ? ln->backward : ln->level[0].forward;
+            ln = desc ? zbtIterPrev(&it) : zbtIterNext(&it);
         }
         /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
@@ -487,7 +482,7 @@ void sortCommandGeneric(client *c, int readonly) {
             oldsize = kvobjAllocSize(sortval);
         dictInitIterator(&di, set);
         while((setele = dictNext(&di)) != NULL) {
-            sdsele = zslGetNodeElement(dictGetKey(setele));
+            sdsele = zbtGetEle(dictGetKey(setele));
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
