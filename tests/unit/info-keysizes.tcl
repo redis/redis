@@ -740,7 +740,7 @@ proc test_all_keysizes { {replMode 0} } {
         # Async deletion removes the bitmap row on both primary and replica.
         run_cmd_verify_hist {$server UNLINK bitmap:hist} {} 1
         $server config set bitmap-default-roaring $old_bitmap_default
-    } {} {cluster:skip}
+    } {OK} {cluster:skip}
        
     test "KEYSIZES - Test RESTORE $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
