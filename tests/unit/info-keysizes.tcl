@@ -969,6 +969,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
 
     if {[s arch_bits] == 64} {
         test "KEYSIZES - Sparse native bitmap reaches the 512P histogram bin" {
+            r SELECT 0
             r FLUSHALL
             set bitmap_len [expr {1 << 59}]
             set bit_offset [expr {($bitmap_len - 1) * 8}]
@@ -990,6 +991,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
     }
 
     test "KEY-MEMORY-STATS - BITFIELD Roaring transitions keep histograms consistent" {
+        r SELECT 0
         r FLUSHALL
         assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
         assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
