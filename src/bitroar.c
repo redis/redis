@@ -1543,9 +1543,7 @@ static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources,
  * as a new Roaring bitmap object whose logical length is 'maxlen', matching the
  * string semantics where the destination length equals the longest source.
  * Sparse, large and Roaring-only operations stay entirely in Roaring space;
- * bounded dense mixed operands use the raw-word path above. The BITOP NOT
- * length guard lives at the command layer because complementing is inherently
- * dense. */
+ * bounded dense mixed operands use the raw-word path above. */
 robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys,
                      uint64_t maxlen)
 {
