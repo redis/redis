@@ -356,12 +356,13 @@ static void dictDestructorKV(dict *d, void *key) {
         meta->alloc_size -= alloc_size;
         /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
          * (e.g. in lazy free context). */
-        if (kvstoreMeta && kv->type < OBJ_TYPE_BASIC_MAX) {
+        int64_t *hist = kvstoreMeta ? keysizesHistRow(kvstoreMeta->allocsizes_hist, kv->type) : NULL;
+        if (hist) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
             int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
             debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-            kvstoreMeta->allocsizes_hist[kv->type][old_bin]--;
+            hist[old_bin]--;
         }
     }
     decrRefCount(kv);
@@ -6368,8 +6369,9 @@ void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloc
 }
 
 /* Append keysizes histograms to the info string in format "db<dbnum>_<field_name>:<label>=<count>,..."
- * field_names is an array of field names indexed by type, NULL entries are skipped. */
-static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const char *field_names[]) {
+ * field_names is an array of OBJ_TYPE_MAX field names indexed by object type;
+ * NULL entries, and types with no histogram row, are skipped. */
+static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const char *field_names[OBJ_TYPE_MAX]) {
     static const char *expSizeLabels[] = {
         "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
         "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
@@ -6380,8 +6382,10 @@ static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const c
         "1E", "2E", "4E"                                                     /* Exa */
     };
 
-    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+    for (int type = 0; type < OBJ_TYPE_MAX; type++) {
         if (field_names[type] == NULL) continue;
+        int64_t *hist = keysizesHistRow(histogram, type);
+        if (hist == NULL) continue; /* untracked type, e.g. OBJ_MODULE */
 
         char buf[10000];
         int cnt = 0, buflen = 0;
@@ -6389,15 +6393,15 @@ static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const c
         buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, field_names[type]);
 
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-            if (histogram[type][i] == 0)
+            if (hist[i] == 0)
                 continue;
 
             int res = snprintf(buf + buflen, sizeof(buf) - buflen,
                                (cnt == 0) ? "%s=%llu" : ",%s=%llu",
-                               expSizeLabels[i], (unsigned long long) histogram[type][i]);
+                               expSizeLabels[i], (unsigned long long) hist[i]);
             if (res < 0) break;
             buflen += res;
-            cnt += histogram[type][i];
+            cnt += hist[i];
         }
 
         if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
@@ -7099,22 +7103,24 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keysizes\r\n");
 
-        static const char *type_items_str[] = {
+        /* Indexed by object type. Untracked types (e.g. OBJ_MODULE) are left
+         * NULL and skipped by sdscatHistograms(). */
+        static const char *type_items_str[OBJ_TYPE_MAX] = {
             [OBJ_STRING] = "distrib_strings_sizes",
             [OBJ_LIST] = "distrib_lists_items",
             [OBJ_SET] = "distrib_sets_items",
             [OBJ_ZSET] = "distrib_zsets_items",
-            [OBJ_HASH] = "distrib_hashes_items"
+            [OBJ_HASH] = "distrib_hashes_items",
+            [OBJ_STREAM] = "distrib_streams_items"
         };
-        serverAssert(sizeof(type_items_str)/sizeof(type_items_str[0]) == OBJ_TYPE_BASIC_MAX);
-        static const char *type_sizes_str[] = {
+        static const char *type_sizes_str[OBJ_TYPE_MAX] = {
             [OBJ_STRING] = NULL, /* Skip strings to avoid confusion with distrib_strings_sizes */
             [OBJ_LIST] = "distrib_lists_sizes",
             [OBJ_SET] = "distrib_sets_sizes",
             [OBJ_ZSET] = "distrib_zsets_sizes",
-            [OBJ_HASH] = "distrib_hashes_sizes"
+            [OBJ_HASH] = "distrib_hashes_sizes",
+            [OBJ_STREAM] = "distrib_streams_sizes"
         };
-        serverAssert(sizeof(type_sizes_str)/sizeof(type_sizes_str[0]) == OBJ_TYPE_BASIC_MAX);
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
             if (kvstoreSize(server.db[dbnum].keys) == 0)
