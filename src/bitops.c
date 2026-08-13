@@ -938,7 +938,7 @@ static void bitroarPropagateConvert(client *c, robj *key) {
 static void bitroarConvertKey(client *c, robj *key, kvobj *o, dictEntryLink link) {
     serverAssert(o == NULL || o->type == OBJ_STRING);
 
-    robj *bitmap = o == NULL ? bitroarCreate() : bitroarFromStringObject(o);
+    robj *bitmap = (o == NULL) ? bitroarCreate() : bitroarFromStringObject(o);
     serverAssert(bitmap != NULL);
 
     if (o == NULL) {
@@ -987,21 +987,15 @@ void bitconvertCommand(client *c) {
     addReply(c, shared.ok);
 }
 
-typedef struct bitroarTarget {
-    robj *value;
-    int transition;
-} bitroarTarget;
-
 /* SETBIT and BITFIELD share the decision and bookkeeping for the representation
  * a bitmap write should target. Returns C_ERR after replying to the client when
  * the Roaring representation cannot hold the write; the keyspace is left
  * untouched, which keeps multi-op BITFIELD syntax and range failures atomic.
- * On C_OK, target->value is an existing Roaring object to mutate, or NULL.
- * Missing and string values are marked for a transition that callers apply
- * before re-looking up the key and executing the logical write. */
+ * On C_OK, missing and string values are marked for a transition that callers
+ * apply before re-looking up the key and executing the logical write. */
 static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit,
-                                bitroarTarget *target) {
-    *target = (bitroarTarget){0};
+                                int *transition) {
+    *transition = 0;
 
     int is_roaring = (o != NULL && o->type == OBJ_BITMAP);
     if (!is_roaring) {
@@ -1020,16 +1014,14 @@ static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit,
         return C_ERR;
     }
 
-    if (is_roaring) {
-        target->value = o;
-    } else {
+    if (!is_roaring) {
         if (o != NULL && bitroarStringTooLarge(o)) {
             addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
             return C_ERR;
         }
         /* bitmap-default-roaring yes: missing keys and string values first
          * undergo the explicit representation transition. */
-        target->transition = 1;
+        *transition = 1;
     }
     return C_OK;
 }
@@ -1099,12 +1091,12 @@ void setbitCommand(client *c) {
 
     dictEntryLink link = NULL;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-    bitroarTarget target;
+    int transition;
 
-    if (bitroarResolveTarget(c, o, bitoffset, &target) != C_OK)
+    if (bitroarResolveTarget(c, o, bitoffset, &transition) != C_OK)
         return;
 
-    if (target.transition) {
+    if (transition) {
         /* Queue the conversion first, then perform that same transition
          * locally. The triggering SETBIT is queued after conversion callbacks
          * but before its own notifications below. */
@@ -1129,7 +1121,7 @@ void setbitCommand(client *c) {
     }
 
     if (o != NULL && o->type == OBJ_BITMAP) {
-        setbitCommandBitmap(c, o, bitoffset, on, target.transition);
+        setbitCommandBitmap(c, o, bitoffset, on, transition);
         return;
     }
 
@@ -1172,7 +1164,7 @@ void setbitCommand(client *c) {
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty++;
-    } else if (target.transition) {
+    } else if (transition) {
         server.dirty++;
     }
 
@@ -2750,10 +2742,10 @@ void bitfieldGeneric(client *c, int flags) {
 
     /* When bitmap-default-roaring is enabled, missing and string keys undergo
      * the explicit transition before the BITFIELD operations. */
-    bitroarTarget target;
-    if (bitroarResolveTarget(c,o,highest_write_offset,&target) != C_OK)
+    int transition;
+    if (bitroarResolveTarget(c,o,highest_write_offset,&transition) != C_OK)
         goto cleanup;
-    if (target.transition) {
+    if (transition) {
         bitroarPropagateConvert(c,c->argv[1]);
         bitroarConvertKey(c,c->argv[1],o,link);
 
@@ -2770,9 +2762,9 @@ void bitfieldGeneric(client *c, int flags) {
     }
 
     if (o != NULL && o->type == OBJ_BITMAP)
-        bitfieldWriteRoaring(c,o,ops,numops,highest_write_offset,target.transition);
+        bitfieldWriteRoaring(c,o,ops,numops,highest_write_offset,transition);
     else
-        bitfieldWriteString(c,o,ops,numops,highest_write_offset,link,target.transition);
+        bitfieldWriteString(c,o,ops,numops,highest_write_offset,link,transition);
 
 cleanup:
     zfree(ops);
