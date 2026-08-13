@@ -3282,6 +3282,79 @@ start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list 
     }
 }
 
+start_cluster 2 2 [list tags {external:skip cluster modules} config_lines [list cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
+    test "Slot stats are not tracked for imported data on masters and replicas" {
+        # Migrate slot 0 from node 0 to node 1 with a 2s default delay so the live
+        # write below is applied as imported data.
+        setup_slot_migration_with_delay 0 1 0 0
+
+        # Forward a write while slot 0 is being imported.
+        set import_key [slot_key 0 import_key]
+        R 0 SET $import_key value
+        wait_for_asm_done
+        R 0 CONFIG SET rdb-key-save-delay 0
+
+        # The destination master and replica have all imported keys, but do not
+        # count the commands used to apply them as slot CPU or network activity.
+        foreach node {1 3} {
+            assert {$import_key in [R $node CLUSTER GETKEYSINSLOT 0 10]}
+            set slot_stats [R $node CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+            assert_equal 1 [llength $slot_stats]
+            set stats [lindex $slot_stats 0 1]
+            # There is key-count, but no cpu-usec network-bytes-in/out.
+            assert_equal 3 [dict get $stats key-count]
+            foreach metric {cpu-usec network-bytes-in network-bytes-out} {
+                assert_equal 0 [dict get $stats $metric]
+            }
+        }
+
+        # The source master and replica no longer retain keys or statistics for
+        # the migrated slot.
+        foreach node {0 2} {
+            assert_equal {} [R $node CLUSTER GETKEYSINSLOT 0 10]
+            assert_equal {} [R $node CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+        }
+
+        # Commands issued after the migration must be tracked by both the new
+        # master and its replica.
+        R 1 SET $import_key updated
+        wait_for_ofs_sync [Rn 1] [Rn 3]
+        foreach node {1 3} {
+            set slot_stats [R $node CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+            set stats [lindex $slot_stats 0 1]
+            assert {[dict get $stats network-bytes-in] > 0}
+        }
+
+        # Migrate slot back to node 0.
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
+
+    test "Sharded pub/sub channels are unsubscribed after slot migration" {
+        set channelname [slot_key 0 myshardchan]
+
+        # Subscribe to the channel on the source master's replica(node 2).
+        set rd [redis_deferring_client -2]
+        $rd ssubscribe $channelname
+        $rd read
+
+        # Migrate slot 0 from node 0 to node 1.
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+
+        # Verify the replica client receives sunsubscribe for the migrated slot.
+        set msg [$rd read]
+        assert {"sunsubscribe" eq [lindex $msg 0]}
+        assert {$channelname eq [lindex $msg 1]}
+        assert {"0" eq [lindex $msg 2]}
+        $rd close
+
+        # cleanup: migrate slot back to node 0
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
+}
+
 start_server {tags "cluster external:skip"} {
     test "Test RM_ClusterGetLocalSlotRanges without cluster" {
         r module load $testmodule
