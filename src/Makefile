@@ -559,10 +559,9 @@ bench: $(REDIS_BENCHMARK_NAME)
 	@echo ""
 	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32" SKIP_VEC_SETS="yes"
 
-# OPTIMIZATION=-O0 to keep gcov's source-line and basic-block mappings accurate.
 # Use -fprofile-update=atomic because IO threads can update counters concurrently.
 gcov:
-	$(MAKE) OPTIMIZATION="-O0" REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -fprofile-update=atomic -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
+	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -fprofile-update=atomic -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
 
 noopt:
 	$(MAKE) OPTIMIZATION="-O0"
