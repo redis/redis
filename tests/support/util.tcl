@@ -371,8 +371,8 @@ proc createComplexDataset {r ops {opt {}}} {
         # their own keys because Redis deletes a list/set/zset/hash once its last
         # element is gone, which frees the name to be reused as another type, while
         # an empty stream stays. The test code never deletes such a stream, on purpose:
-        # together with strings, streams are the only type that can exist with zero
-        # elements, and they give the dataset its zero-length coverage, like the
+        # together with strings and bitmaps, streams can exist with zero elements,
+        # and they give the dataset its zero-length coverage, like the
         # size-0 bucket of the INFO keysizes histograms. The 20 keys for streams also
         # mean each stream gets many operations, with "*" keeping its IDs increasing.
         if {rand() < 0.2} {

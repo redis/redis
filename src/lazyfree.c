@@ -34,7 +34,7 @@ static void populateDeltaHistograms(kvstore *kvs, asmTrimCtx *ctx) {
 
         /* Update keysizes_hist delta */
         size_t len = getObjectLength(kv);
-        int sizeBin = (len == 0) ? 0 : log2ceil(len) + 1; /* Only strings can be empty */
+        int sizeBin = (len == 0) ? 0 : log2ceil(len) + 1; /* Strings, streams and bitmaps can be empty */
         debugServerAssert(sizeBin < MAX_KEYSIZES_BINS);
         keysizesRow[sizeBin]++;
 
