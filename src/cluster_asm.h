@@ -41,7 +41,7 @@ size_t asmGetMigrateOutputMemoryUsage(void);
 int clusterAsmCancel(const char *task_id, const char *reason);
 int clusterAsmCancelBySlot(int slot, const char *reason);
 int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slots, const char *reason);
-int clusterAsmCancelByNode(void *node, const char *reason);
+int clusterAsmCancelInvalidTasks(void);
 int isSlotInAsmTask(int slot);
 int isSlotInTrimJob(int slot);
 sds asmCatInfoString(sds info);
@@ -67,4 +67,3 @@ struct asmTrimCtx *asmTrimCtxCreate(struct slotRangeArray *slots, kvstore *targe
 void asmTrimCtxRetain(struct asmTrimCtx *ctx);
 void asmTrimCtxRelease(struct asmTrimCtx *ctx);
 #endif
-
