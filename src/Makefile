@@ -460,13 +460,6 @@ ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
 .make-prerequisites: persist-settings
 endif
 
-# One-time migration for worktrees that persisted the removed CRoaring LTO
-# setting. Check its origin because an empty persisted value is still present.
-# Rewriting .make-settings drops it, so later builds do not distclean again.
-ifneq ($(origin PREV_CROARING_ENABLE_LTO),undefined)
-.make-prerequisites: persist-settings
-endif
-
 # redis-server
 $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a ../deps/croaring/libroaring.a $(FINAL_LIBS)
