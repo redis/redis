@@ -173,6 +173,11 @@ When the feature is compiled out, setting `tls-groups` causes TLS
 context configuration to fail instead of silently ignoring the requested
 preference.
 
+`redis-cli` and `redis-benchmark` expose `--tls-groups` when built with
+OpenSSL support for named group configuration. When the feature is compiled
+out, the command-line option is not accepted, matching the behavior of other
+TLS options that depend on OpenSSL build capabilities.
+
 Connections
 -----------
 

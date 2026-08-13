@@ -4,6 +4,20 @@
 #include <hiredis.h>
 #include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 
+#ifdef USE_OPENSSL
+#include <openssl/ssl.h>
+
+#if defined(TLS_NO_GROUPS)
+#define CLI_TLS_SUPPORTS_GROUPS 0
+#elif defined(SSL_CTX_set1_groups_list) || defined(SSL_CTX_set1_curves_list)
+#define CLI_TLS_SUPPORTS_GROUPS 1
+#else
+#define CLI_TLS_SUPPORTS_GROUPS 0
+#endif
+#else
+#define CLI_TLS_SUPPORTS_GROUPS 0
+#endif
+
 typedef struct cliSSLconfig {
     /* Requested SNI, or NULL */
     char *sni;
