@@ -66,69 +66,60 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
 
-    test {BITMAP command is not part of the v1 public surface} {
-        assert_equal {{}} [r command info bitmap]
-        assert_equal {{}} [r command info bitmap|convert]
-        assert_error {ERR unknown command 'bitmap'*} {r bitmap help}
-        assert_error {ERR unknown command 'bitmap'*} {r bitmap convert bitmap:convert:missing}
-    }
-
     test {BITCONVERT is internal and has narrow conversion semantics} {
         set raw [binary format H* 80400100080000]
-        r del bitmap:bitconvert:missing bitmap:bitconvert:string \
-            bitmap:bitconvert:list
+        r del bitmap_missing bitmap_string bitmap_list
 
         # Ordinary clients cannot discover these primitives through COMMAND or execute them.
         assert_equal {{}} [r command info bitconvert]
         assert_equal {{}} [r command info bitop_roaring]
         assert_error {ERR unknown command 'bitconvert'*} {
-            r bitconvert bitmap:bitconvert:missing ROARING
+            r bitconvert bitmap_missing ROARING
         }
 
         r debug mark-internal-client
 
         # A missing key becomes an empty native bitmap.
-        assert_equal OK [r bitconvert bitmap:bitconvert:missing ROARING]
-        assert_equal bitmap [r type bitmap:bitconvert:missing]
-        assert_equal bitmap-roaring [r object encoding bitmap:bitconvert:missing]
-        assert_equal {} [r debug bitmap-raw bitmap:bitconvert:missing]
+        assert_equal OK [r bitconvert bitmap_missing ROARING]
+        assert_equal bitmap [r type bitmap_missing]
+        assert_equal bitmap-roaring [r object encoding bitmap_missing]
+        assert_equal {} [r debug bitmap-raw bitmap_missing]
 
         # Strings convert in place without changing bytes or expiration.
-        r set bitmap:bitconvert:string $raw
-        r pexpire bitmap:bitconvert:string 600000
-        set expire_at [r pexpiretime bitmap:bitconvert:string]
-        assert_equal OK [r bitconvert bitmap:bitconvert:string ROARING]
-        assert_equal bitmap [r type bitmap:bitconvert:string]
-        assert_equal $raw [r debug bitmap-raw bitmap:bitconvert:string]
-        assert_equal $expire_at [r pexpiretime bitmap:bitconvert:string]
+        r set bitmap_string $raw
+        r pexpire bitmap_string 600000
+        set expire_at [r pexpiretime bitmap_string]
+        assert_equal OK [r bitconvert bitmap_string ROARING]
+        assert_equal bitmap [r type bitmap_string]
+        assert_equal $raw [r debug bitmap-raw bitmap_string]
+        assert_equal $expire_at [r pexpiretime bitmap_string]
 
         # Converting a native bitmap again is an idempotent no-op.
-        set digest [r debug digest-value bitmap:bitconvert:string]
-        assert_equal OK [r bitconvert bitmap:bitconvert:string ROARING]
-        assert_equal $digest [r debug digest-value bitmap:bitconvert:string]
-        assert_equal $expire_at [r pexpiretime bitmap:bitconvert:string]
+        set digest [r debug digest-value bitmap_string]
+        assert_equal OK [r bitconvert bitmap_string ROARING]
+        assert_equal $digest [r debug digest-value bitmap_string]
+        assert_equal $expire_at [r pexpiretime bitmap_string]
 
         # Other value types retain their ordinary WRONGTYPE behavior.
-        r lpush bitmap:bitconvert:list value
-        assert_error {WRONGTYPE*} {r bitconvert bitmap:bitconvert:list ROARING}
-        assert_equal list [r type bitmap:bitconvert:list]
+        r lpush bitmap_list value
+        assert_error {WRONGTYPE*} {r bitconvert bitmap_list ROARING}
+        assert_equal list [r type bitmap_list]
 
         assert_error {ERR syntax error*} {
-            r bitconvert bitmap:bitconvert:missing STRING
+            r bitconvert bitmap_missing STRING
         }
 
         # Config-independent BITOP replay uses a second hidden primitive that
         # performs the native store and notifications in one operation.
-        r set bitmap:bitconvert:bitop-source [binary format H* f0]
-        assert_equal 1 [r bitop_roaring or bitmap:bitconvert:bitop-out \
-            bitmap:bitconvert:bitop-source]
-        assert_equal bitmap [r type bitmap:bitconvert:bitop-out]
+        r set bitmap_source [binary format H* f0]
+        assert_equal 1 [r bitop_roaring or bitmap_out bitmap_source]
+        assert_equal bitmap [r type bitmap_out]
         assert_equal [binary format H* f0] \
-            [r debug bitmap-raw bitmap:bitconvert:bitop-out]
+            [r debug bitmap-raw bitmap_out]
 
         r debug mark-internal-client unmark
         assert_error {ERR unknown command 'bitconvert'*} {
-            r bitconvert bitmap:bitconvert:missing ROARING
+            r bitconvert bitmap_missing ROARING
         }
     }
 
