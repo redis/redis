@@ -2618,6 +2618,13 @@ void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes) {
 void asmSendStreamEofIfDrained(asmTask *task) {
     client *c = task->main_channel_client;
 
+    /* Don't hand ownership over once the write pause has expired. */
+    if (server.mstime - task->paused_time >= server.asm_write_pause_timeout) {
+        asmTaskSetFailed(task, "Write pause timeout during slot handoff: destination did not take ownership within %lld ms.",
+                         server.asm_write_pause_timeout);
+        return;
+    }
+
     /* The command streams for slot ranges have been drained. */
     if (!clientHasPendingReplies(c)) {
         serverLog(LL_NOTICE, "Slot migration command stream drained, sending STREAM-EOF to the destination");
