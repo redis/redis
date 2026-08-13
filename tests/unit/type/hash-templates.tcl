@@ -2802,9 +2802,7 @@ start_server {tags {"hash" "external:skip" "cluster:skip"} overrides {hash-min-t
         for {set j 0} {$j < 10000} {incr j 2} { $rd del reck:$j }
         for {set j 0} {$j < 5000} {incr j} { $rd read }
         $rd close
-        wait_for_condition 100 100 {
-            [s hash_templates] == 5000
-        } else { fail "templates not freed ([s hash_templates])" }
+        wait_num_templates 5000
 
         # Create another 5000 template
         set rd [redis_deferring_client]
@@ -2822,9 +2820,7 @@ start_server {tags {"hash" "external:skip" "cluster:skip"} overrides {hash-min-t
         for {set j 0} {$j < 500} {incr j} { $rd del reck2:$j }
         for {set j 0} {$j < 1000} {incr j} { $rd read }
         $rd close
-        wait_for_condition 100 100 {
-            [s hash_templates] == 9000
-        } else { fail "templates not freed ([s hash_templates])" }
+        wait_num_templates 9000
         set rd [redis_deferring_client]
         for {set j 0} {$j < 1000} {incr j} {
             $rd himport prepare rec3_$j p$j q$j w$j
