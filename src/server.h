@@ -2417,6 +2417,12 @@ struct redisServer {
     int child_info_nread;           /* Num of bytes of the last read from pipe */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
+    int also_propagate_mask;        /* PROPAGATE_* targets allowed for commands
+                                       queued via alsoPropagate(). Narrowed by
+                                       call() from its CMD_CALL_PROPAGATE_*
+                                       flags, so effect commands honor Lua
+                                       redis.set_repl() and selective RM_Call
+                                       propagation. */
     int replication_allowed;        /* Are we allowed to replicate? */
     /* Logging */
     char *logfile;                  /* Path of log file */

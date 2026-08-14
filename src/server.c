@@ -3048,6 +3048,7 @@ void initServer(void) {
      * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
     server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);
     server.replication_allowed = 1;
+    server.also_propagate_mask = PROPAGATE_AOF|PROPAGATE_REPL;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
@@ -3795,6 +3796,14 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
+    /* Restrict the requested targets to the ones enabled for the currently
+     * executing call(), so that effect commands don't reach an AOF / replica
+     * target that was suppressed for the command that generated them (e.g.
+     * by Lua redis.set_repl() or a selective RM_Call). Callers propagating
+     * implicit deletions (expired keys, evictions) force the mask open, as
+     * those must always reach replicas and the AOF. */
+    target &= server.also_propagate_mask;
+
     if (!shouldPropagate(target))
         return;
 
@@ -4077,7 +4086,19 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* Narrow the targets allowed for alsoPropagate() to the ones enabled for
+     * this invocation, so effect commands queued by the implementation honor
+     * Lua redis.set_repl() and selective RM_Call propagation. Nested call()s
+     * can only narrow the mask further, never widen what an outer level
+     * suppressed. */
+    int prev_also_propagate_mask = server.also_propagate_mask;
+    server.also_propagate_mask &=
+        ((flags & CMD_CALL_PROPAGATE_AOF) ? PROPAGATE_AOF : 0) |
+        ((flags & CMD_CALL_PROPAGATE_REPL) ? PROPAGATE_REPL : 0);
+
     c->cmd->proc(c);
+
+    server.also_propagate_mask = prev_also_propagate_mask;
 
     exitExecutionUnit();
 

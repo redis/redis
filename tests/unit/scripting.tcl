@@ -1667,6 +1667,70 @@ start_server {tags {"scripting repl external:skip"}} {
             assert {[r mget a b c d] eq {1 {} 3 4}}
         }
 
+        test "Test selective replication of effect commands (SPOP) from Lua" {
+            r del myset
+            r sadd myset a b c d e
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.call('set','before','1');
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('spop',KEYS[1],2);
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('set','after','1');
+            } 1 myset
+            # SPOP propagates itself as SREM via alsoPropagate(): with
+            # REPL_NONE it must not reach replicas or the AOF.
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {multi}
+                    {select *}
+                    {set before 1}
+                    {set after 1}
+                    {exec}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {multi}
+                    {set before 1}
+                    {set after 1}
+                    {exec}
+                }
+            }
+            close_replication_stream $repl
+            assert_equal 3 [r scard myset]
+        }
+
+        test "Lazy expire deletion is propagated despite set_repl(REPL_NONE)" {
+            r debug set-active-expire 0
+            r del foo
+            r set foo bar px 1
+            after 10
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('get',KEYS[1]);
+                redis.set_repl(redis.REPL_ALL);
+            } 1 foo
+            # Implicit deletions of expired keys must always be propagated,
+            # regardless of the script's replication mode.
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {select *}
+                    {del foo}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {del foo}
+                }
+            }
+            close_replication_stream $repl
+            r debug set-active-expire 1
+        }
+
         test "PRNG is seeded randomly for command replication" {
             if {$is_eval eq 1} {
                 # on is_eval Lua we need to call redis.replicate_commands() to get real randomization
