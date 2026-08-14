@@ -123,17 +123,35 @@ proc failover_and_wait_for_done {node_id {failover_arg ""}} {
     fail "Failover did not complete after $max_attempts attempts for node $node_id"
 }
 
-# Return 1 if the given node is the current owner of the given slot, from that
-# node's own view of the cluster.
-proc node_owns_slot {node_id slot} {
+# Return 1 if the given node owns every slot in the range, from that node's own
+# view of the cluster. CLUSTER SLOTS reports one range per owner, so a node that
+# owns the whole range covers it with a single entry.
+proc node_owns_slots {node_id start_slot end_slot} {
     set myid [R $node_id cluster myid]
     foreach range [R $node_id cluster slots] {
-        lassign $range start end owner
-        if {$slot >= $start && $slot <= $end} {
-            return [expr {[lindex $owner 2] eq $myid}]
+        lassign $range start end node
+        if {[lindex $node 2] eq $myid && $start <= $start_slot && $end_slot <= $end} {
+            return 1
         }
     }
     return 0
+}
+
+# Move a slot range to a node, unless it owns all of it already. A range split
+# across owners is left to the server, which rejects the import with "slots
+# belong to different source nodes".
+proc move_slots_to_node {node_id start_slot end_slot} {
+    if {[node_owns_slots $node_id $start_slot $end_slot]} {
+        return
+    }
+    set task_id [R $node_id CLUSTER MIGRATION IMPORT $start_slot $end_slot]
+    wait_for_condition 1000 10 {
+        [string match {*completed*} [migration_status $node_id $task_id state]]
+    } else {
+        fail "could not move slots $start_slot-$end_slot to node $node_id -
+             ([migration_status $node_id $task_id state]
+              [migration_status $node_id $task_id last_error])"
+    }
 }
 
 proc migration_status {node_id task_id field} {
@@ -164,6 +182,10 @@ proc migration_status {node_id task_id field} {
 # Setup slot migration test with keys and delay, then start migration
 # Returns the task_id for the migration
 proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {keys 2} {delay 1000000}} {
+    # This populates the range on src_node and imports it to dst_node, so the
+    # range has to be on src_node to begin with.
+    move_slots_to_node $src_node $start_slot $end_slot
+
     # Two keys on the start slot
     populate_slot $keys -idx $src_node -slot $start_slot
 
@@ -601,6 +623,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Verify expire time is migrated correctly" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
 
@@ -640,6 +663,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Slot migration with complex data types can work well" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
 
@@ -673,6 +697,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Slot migration preserves template-encoded hashes" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
         R 0 config set hash-min-template-entries 0
@@ -729,21 +754,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     proc asm_basic_error_handling_test {operation channel all_states} {
-        # Slots 0-100 must start on the source node, since this test imports them
-        # to node 0. Earlier tests in this block happen to leave them there, but
-        # inheriting that is what makes this test fail as
-        # "ERR this node is already the owner of the slot range" - an error that
-        # names neither the absent setup nor this test, and which also makes the
-        # test impossible to run on its own with --only.
-        if {[node_owns_slot 0 0]} {
-            set setup_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
-            wait_for_condition 1000 10 {
-                [string match {*completed*} [migration_status 0 $setup_id state]] &&
-                [string match {*completed*} [migration_status 1 $setup_id state]]
-            } else {
-                fail "setup: slots 0-100 could not be moved to the source node"
-            }
-        }
+        move_slots_to_node 1 0 100
 
         foreach state $all_states {
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
@@ -841,6 +852,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Migration will be successful after fail points are cleared" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
         set slot0_key [slot_key 0 mykey]
@@ -953,6 +965,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Expired key is not deleted and SCAN/KEYS/RANDOMKEY/CLUSTER GETKEYSINSLOT filter keys in importing slots" {
+        move_slots_to_node 1 0 100
         set slot0_key [slot_key 0 mykey]
         set slot1_key [slot_key 1 mykey]
         set slot2_key [slot_key 2 mykey]
@@ -3431,6 +3444,7 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
     test "redis-cli --cluster rebalance automatically uses atomic slot migration" {
         # Rebalance distributes 16384 slots evenly across the 3 nodes.
         # (0-999) will be moved back to node 0.
+        move_slots_to_node 1 0 999
         clear_module_event_log
         exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] --cluster-yes
         wait_for_asm_done
