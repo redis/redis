@@ -3093,6 +3093,8 @@ int clusterProcessPacket(clusterLink *link) {
                                     sender->shard_id,
                                     (unsigned long long)senderConfigEpoch,
                                     (unsigned long long)sender->configEpoch);
+                            /* Ignore the rest of this stale packet to prevent it from reverting
+                             * newer topology changes and creating an invalid replication chain. */
                             return 1;
                         } else {
                             /* A failover occurred in the shard where `sender` belongs to and `sender` is no longer
