@@ -141,7 +141,7 @@ endif
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier
 # to fit redis into cross-compilation environments, which typically set AR.
-AR ?= ar
+AR?=ar
 ARFLAGS=rc
 
 lua: .make-prerequisites
