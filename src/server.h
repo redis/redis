@@ -882,7 +882,6 @@ typedef enum {
 #define OBJ_SET 2       /* Set object. */
 #define OBJ_ZSET 3      /* Sorted set object. */
 #define OBJ_HASH 4      /* Hash object. */
-#define OBJ_TYPE_BASIC_MAX 5 /* Max number of basic object types. */
 
 /* The "module" object type is a special one that signals that the object
  * is one directly managed by a Redis module. In this case the value points
@@ -1253,7 +1252,15 @@ typedef struct redisDb {
  * than by object type, so untracked types in between (OBJ_MODULE) cost no row
  * and the histogram stays plain storage: zeroing initializes it, and it can be
  * copied or moved like any other array. */
-#define MAX_KEYSIZES_ROWS (OBJ_TYPE_BASIC_MAX + 1)  /* basic types + streams */
+enum {
+    KEYSIZES_ROW_STRING = 0,
+    KEYSIZES_ROW_LIST,
+    KEYSIZES_ROW_SET,
+    KEYSIZES_ROW_ZSET,
+    KEYSIZES_ROW_HASH,
+    KEYSIZES_ROW_STREAM,
+    MAX_KEYSIZES_ROWS   /* must stay last */
+};
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
