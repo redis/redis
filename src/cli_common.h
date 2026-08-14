@@ -7,9 +7,7 @@
 #ifdef USE_OPENSSL
 #include <openssl/ssl.h>
 
-#if defined(TLS_NO_GROUPS)
-#define CLI_TLS_SUPPORTS_GROUPS 0
-#elif defined(SSL_CTX_set1_groups_list) || defined(SSL_CTX_set1_curves_list)
+#if !defined(TLS_NO_GROUPS) && (defined(SSL_CTX_set1_groups_list) || defined(SSL_CTX_set1_curves_list))
 #define CLI_TLS_SUPPORTS_GROUPS 1
 #else
 #define CLI_TLS_SUPPORTS_GROUPS 0
