@@ -1591,6 +1591,17 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
     }
+
+    # The calls elsewhere in this file only take the no-op path, since in an
+    # ordered run the slots are already on the node that needs them.
+    test "move_slots_to_node migrates a range that is not on the target node" {
+        move_slots_to_node 1 0 100
+        move_slots_to_node 0 0 100
+        assert_equal 1 [node_owns_slots 0 0 100]
+        assert_equal 0 [node_owns_slots 1 0 100]
+        move_slots_to_node 1 0 100
+        assert_equal 1 [node_owns_slots 1 0 100]
+    }
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
