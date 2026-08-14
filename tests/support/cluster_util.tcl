@@ -68,6 +68,38 @@ proc wait_for_cluster_propagation {} {
     }
 }
 
+# Return 1 if all instances have no in-progress atomic slot migration (ASM)
+# task and no running slot trim.
+proc asm_all_instances_idle {total} {
+    for {set i 0} {$i < $total} {incr i} {
+        if {[CI $i cluster_slot_migration_active_tasks] != 0} { return 0 }
+        if {[CI $i cluster_slot_migration_active_trim_running] != 0} { return 0 }
+    }
+    return 1
+}
+
+# Wait for all atomic slot migration (ASM) tasks to complete in the cluster.
+# The cluster_state can be "ok" while an ASM task is still running (slots stay
+# covered throughout the migration), so callers that need the migration to be
+# fully settled must use this instead of relying on wait_for_cluster_state.
+proc wait_for_asm_done {} {
+    set total_instances [expr {$::cluster_master_nodes + $::cluster_replica_nodes}]
+
+    wait_for_condition 3000 10 {
+        [asm_all_instances_idle $total_instances] == 1
+    } else {
+        # Print the number of active tasks on each instance
+        for {set i 0} {$i < $total_instances} {incr i} {
+            set migration_count [CI $i cluster_slot_migration_active_tasks]
+            set trim_count [CI $i cluster_slot_migration_active_trim_running]
+            puts "Instance $i: migration_tasks=$migration_count, trim_tasks=$trim_count"
+        }
+        fail "ASM tasks did not complete on all instances"
+    }
+    # wait all nodes to reach the same cluster config after ASM
+    wait_for_cluster_propagation
+}
+
 # Wait for cluster size to be consistent across nodes.
 proc wait_for_cluster_size {cluster_size} {
     wait_for_condition 1000 50 {
@@ -261,4 +293,46 @@ proc check_cluster_node_mark {flag ref_node_index instance_id_to_check} {
         }
     }
     fail "Unable to find instance id in cluster nodes. ID: $instance_id_to_check"
+}
+
+# Build the 2256-byte cluster bus header (CLUSTERMSG_MIN_LEN) shared by all
+# message types. The sender identity, type, length, and the
+# extensions/flags/mflags0 fields are supplied by the caller; everything else
+# (epochs, slots, etc.) is fixed boilerplate. The extensions/flags/mflags0
+# fields default to 0 for callers that don't need them (e.g. a PING carrying
+# extension data overrides them). Message-type-specific payload is appended
+# after this header.
+proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type totlen {num_extensions 0} {flags 0} {mflags0 0}} {
+    set CLUSTER_NAMELEN 40
+    set NET_IP_STR_LEN 46
+
+    set sender_padded [binary format a${CLUSTER_NAMELEN} $sender_name]
+    set myslots [string repeat \x00 [expr {16384/8}]]
+    set slaveof [string repeat \x00 $CLUSTER_NAMELEN]
+    set myip [string repeat \x00 $NET_IP_STR_LEN]
+    set notused1 [string repeat \x00 30]
+
+    set hdr ""
+    append hdr "RCmb"
+    append hdr [binary format I $totlen]
+    append hdr [binary format S 1]                  ;# ver
+    append hdr [binary format S $sender_port]       ;# port
+    append hdr [binary format S $msg_type]          ;# type
+    append hdr [binary format S 0]                  ;# count
+    append hdr [binary format W 1]                  ;# currentEpoch
+    append hdr [binary format W 2]                  ;# configEpoch
+    append hdr [binary format W 0]                  ;# offset
+    append hdr $sender_padded                       ;# sender
+    append hdr $myslots                             ;# myslots
+    append hdr $slaveof                             ;# slaveof
+    append hdr $myip                                ;# myip
+    append hdr [binary format S $num_extensions]    ;# extensions
+    append hdr $notused1                            ;# notused1
+    append hdr [binary format S 0]                  ;# pport
+    append hdr [binary format S $sender_cport]      ;# cport
+    append hdr [binary format S $flags]             ;# flags
+    append hdr [binary format c 0]                  ;# state
+    append hdr [binary format ccc $mflags0 0 0]     ;# mflags
+
+    return $hdr
 }

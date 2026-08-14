@@ -189,6 +189,83 @@ start_server {
         assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer TIMEOUT 1000 STREAMS mystream >}
     }
 
+    # Count the total number of entries across all streams in an XREADGROUP reply.
+    proc xreadgroup_total_entries {res} {
+        set total 0
+        foreach stream $res {
+            incr total [llength [lindex $stream 1]]
+        }
+        return $total
+    }
+
+    test {XREADGROUP MAXCOUNT/MAXSIZE parameter validation} {
+        r DEL mystream1
+        r XGROUP CREATE mystream1 mygroup 0 MKSTREAM
+        assert_error "*MAXCOUNT must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT 0 STREAMS mystream1 >}
+        assert_error "*MAXSIZE must be a positive integer*" {r XREADGROUP GROUP mygroup c MAXSIZE -1 STREAMS mystream1 >}
+        assert_error "*MAXCOUNT must be greater than or equal to COUNT*" {r XREADGROUP GROUP mygroup c COUNT 50 MAXCOUNT 10 STREAMS mystream1 >}
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup c MAXCOUNT foo STREAMS mystream1 >}
+    }
+
+    test {XREADGROUP MAXCOUNT caps new (">") and history (PEL) reads across streams} {
+        r DEL mystream{t}1 mystream{t}2 mystream{t}3
+        foreach s {mystream{t}1 mystream{t}2 mystream{t}3} {
+            for {set i 0} {$i < 100} {incr i} { r XADD $s * f v$i }
+            r XGROUP CREATE $s mygroup 0
+        }
+        # Per-stream COUNT 50 across 3 streams would yield 150, MAXCOUNT caps it.
+        set res [r XREADGROUP GROUP mygroup c1 COUNT 50 MAXCOUNT 80 STREAMS mystream{t}1 mystream{t}2 mystream{t}3 > > >]
+        assert_equal 80 [xreadgroup_total_entries $res]
+        # c1 now owns the 80 entries just delivered; re-read its history with a cap.
+        set res [r XREADGROUP GROUP mygroup c1 MAXCOUNT 25 STREAMS mystream{t}1 mystream{t}2 mystream{t}3 0 0 0]
+        assert_equal 25 [xreadgroup_total_entries $res]
+    }
+
+    test {XREADGROUP MAXSIZE limits the reply size across streams} {
+        r DEL stream{t}1 stream{t}2 stream{t}3
+        foreach s {stream{t}1 stream{t}2 stream{t}3} {
+            for {set i 0} {$i < 50} {incr i} { r XADD $s * f v$i }
+            r XGROUP CREATE $s g2 0
+        }
+        set full [r XREADGROUP GROUP g2 ca STREAMS stream{t}1 stream{t}2 stream{t}3 > > >]
+        r XGROUP CREATE stream{t}1 g3 0
+        r XGROUP CREATE stream{t}2 g3 0
+        r XGROUP CREATE stream{t}3 g3 0
+        set capped [r XREADGROUP GROUP g3 cb MAXSIZE 200 STREAMS stream{t}1 stream{t}2 stream{t}3 > > >]
+        assert {[xreadgroup_total_entries $capped] < [xreadgroup_total_entries $full]}
+        assert {[xreadgroup_total_entries $capped] >= 1}
+    }
+
+    test {XREADGROUP MAXSIZE still returns a single oversized message} {
+        r DEL bigstream
+        r XADD bigstream 1-1 f [string repeat x 5000]
+        r XADD bigstream 2-2 f v
+        r XGROUP CREATE bigstream bg 0
+        set res [r XREADGROUP GROUP bg c MAXSIZE 50 STREAMS bigstream >]
+        assert_equal 1 [xreadgroup_total_entries $res]
+        assert_equal 1-1 [lindex $res 0 1 0 0]
+    }
+
+    test {XREADGROUP MAXCOUNT honored after blocking unblock} {
+        r DEL stream{t}1 stream{t}2
+        r XGROUP CREATE stream{t}1 bg 0 MKSTREAM
+        r XGROUP CREATE stream{t}2 bg 0 MKSTREAM
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP bg c BLOCK 20000 COUNT 2 MAXCOUNT 3 STREAMS stream{t}1 stream{t}2 > >
+        wait_for_blocked_client
+        # Add the entries atomically so the unblocked client is reprocessed once
+        # with all entries present, making the MAXCOUNT cap deterministic.
+        r MULTI
+        for {set i 0} {$i < 10} {incr i} {
+            r XADD stream{t}1 * f v$i
+            r XADD stream{t}2 * f v$i
+        }
+        r EXEC
+        set res [$rd read]
+        assert_equal 3 [xreadgroup_total_entries $res]
+        $rd close
+    }
+
     test {XREADGROUP will return only new elements} {
         r XADD mystream * a 1
         r XADD mystream * b 2
@@ -690,7 +767,7 @@ start_server {
 
         # verify command stats, error stats and error counter work on failed blocked command
         assert_match {*count=1*} [errorrstat NOGROUP r]
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdrstat xreadgroup r]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat xreadgroup r]
         assert_equal [s total_error_replies] 1
     }
 
@@ -1310,7 +1387,7 @@ start_server {
             set n_consumers [lindex $grpinfo 3]
 
             # All consumers are created via XREADGROUP, regardless of whether they managed
-            # to read any entries ot not
+            # to read any entries or not
             assert_equal $n_consumers 3
             $rd close
         }
@@ -3402,47 +3479,47 @@ start_server {
 
         # Unrecognized option at various positions — the parser accepts options
         # both before and after the IDS block, so verify rejection in each slot.
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL BADOPT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 BADOPT}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT BADOPT IDS 1 1-0 FORCE}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT FORCE BADOPT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL RETRYCOUNT 5 BADOPT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 5 BADOPT}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL FORCE IDS 1 1-0 BADOPT RETRYCOUNT 5}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL BADOPT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 BADOPT}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT BADOPT IDS 1 1-0 FORCE}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT FORCE BADOPT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL RETRYCOUNT 5 BADOPT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 5 BADOPT}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL FORCE IDS 1 1-0 BADOPT RETRYCOUNT 5}
 
         # Invalid mode
-        assert_error "*mode must be SILENT, FAIL, or FATAL*" {r XNACK mystream grp BADMODE IDS 1 1-0}
+        assert_error "ERR mode must be SILENT, FAIL, or FATAL" {r XNACK mystream grp BADMODE IDS 1 1-0}
 
         # Multiple mode words — only one mode is allowed per invocation.
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL FATAL IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT FAIL IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FATAL SILENT IDS 1 1-0}
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL SILENT FATAL IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL FATAL IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT FAIL IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FATAL SILENT IDS 1 1-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL SILENT FATAL IDS 1 1-0}
 
         # IDS keyword validation
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
-        assert_error "*expected IDS keyword*" {r XNACK mystream grp SILENT FORCE RETRYCOUNT 5}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
+        assert_error "ERR syntax error, expected IDS keyword" {r XNACK mystream grp SILENT FORCE RETRYCOUNT 5}
 
         # numids validation
-        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS abc 1-0}
-        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS 0 1-0}
-        assert_error "*numids must be a positive integer*" {r XNACK mystream grp SILENT IDS -1 1-0}
-        assert_error "*number of IDs doesn't match numids*" {r XNACK mystream grp SILENT IDS 2 1-0}
+        assert_error "ERR numids must be a positive integer*" {r XNACK mystream grp SILENT IDS abc 1-0}
+        assert_error "ERR numids must be a positive integer*" {r XNACK mystream grp SILENT IDS 0 1-0}
+        assert_error "ERR numids must be a positive integer*" {r XNACK mystream grp SILENT IDS -1 1-0}
+        assert_error "ERR number of IDs doesn't match numids" {r XNACK mystream grp SILENT IDS 2 1-0}
 
         # Invalid stream ID format
-        assert_error "*Invalid stream ID*" {r XNACK mystream grp FAIL IDS 1 not-a-valid-id}
+        assert_error "ERR Invalid stream ID*" {r XNACK mystream grp FAIL IDS 1 not-a-valid-id}
 
         # RETRYCOUNT validation — non-integer, negative, overflow, missing value
-        assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
-        assert_error "*Invalid RETRYCOUNT*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT -1}
-        assert_error "*value is not an integer or out of range*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99999999999999999999}
+        assert_error "ERR value is not an integer or out of range" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT abc}
+        assert_error "ERR Invalid RETRYCOUNT value, must be >= 0" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT -1}
+        assert_error "ERR value is not an integer or out of range" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT 99999999999999999999}
         # RETRYCOUNT without a following value — consumed as trailing option
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 RETRYCOUNT}
         # RETRYCOUNT right after mode with no IDS — too few arguments
-        assert_error "*wrong number of arguments*" {r XNACK mystream grp FAIL RETRYCOUNT}
+        assert_error "ERR wrong number of arguments for 'xnack' command" {r XNACK mystream grp FAIL RETRYCOUNT}
 
         # Extra args after numids IDs — the surplus ID is parsed as an option
-        assert_error "*Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 2-0}
+        assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp FAIL IDS 1 1-0 2-0}
     }
 
     # Verify SILENT mode decrements delivery_count by 1, clamped at 0.
@@ -4758,3 +4835,43 @@ start_server {tags {"repl external:skip" "stream"}} {
     }
 }
 
+start_server {tags {"stream external:skip needs:debug"}} {
+    # XSETID ... ENTRIESADDED must not leave a consumer group's entries_read
+    # greater than the stream's entries_added. Otherwise XINFO GROUPS reports a
+    # negative lag, and the resulting RDB fails to load ("Stream cgroup
+    # entries_read inconsistent with entries_added"). XGROUP CREATE/SETID
+    # already clamp entries_read; XSETID must clamp it too.
+    test "XSETID ENTRIESADDED clamps group entries_read and keeps the RDB loadable" {
+        r DEL mystream
+        for {set i 1} {$i <= 10} {incr i} { r XADD mystream * f v$i }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c COUNT 10 STREAMS mystream >
+        set top [dict get [r XINFO STREAM mystream] last-generated-id]
+
+        # Shrink the stream so entries_added can be lowered below entries_read.
+        r XTRIM mystream MAXLEN 2
+        r XSETID mystream $top ENTRIESADDED 2
+
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+
+        r DEBUG RELOAD
+        assert_equal [r XLEN mystream] 2
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+    }
+
+    test "XSETID raising entries_added leaves group entries_read untouched" {
+        r DEL s2
+        for {set i 1} {$i <= 5} {incr i} { r XADD s2 * f v$i }
+        r XGROUP CREATE s2 g 0
+        r XREADGROUP GROUP g c COUNT 3 STREAMS s2 >
+        set top [dict get [r XINFO STREAM s2] last-generated-id]
+        r XSETID s2 $top ENTRIESADDED 100
+        set ginfo [lindex [r XINFO GROUPS s2] 0]
+        assert_equal [dict get $ginfo entries-read] 3
+        assert_equal [dict get $ginfo lag] 97
+    }
+}

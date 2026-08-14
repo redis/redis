@@ -1020,6 +1020,15 @@ start_server {tags {"scripting"}} {
 
         r config set maxmemory 0
     } {OK} {needs:config-maxmemory}
+
+    test {FUNCTION - test function list with CRLF injection attempt} {
+        r function flush
+
+        # This test verifies that CRLF characters are properly handled
+        # to prevent protocol injection attacks when using FUNCTION LIST.
+        # The error message should have CRLF replaced with spaces.
+        assert_error {*Unknown argument X  +INJECTED*} {r function list "X\r\n+INJECTED"}
+    }
 }
 
 start_server {tags {"scripting"}} {

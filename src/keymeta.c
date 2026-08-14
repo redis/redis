@@ -92,7 +92,7 @@ static uint64_t keyMetaClassEncode(const char *name, int metaver, uint64_t flags
     /* Encode last 4-char into 32-bit serialized class ID (24b name + 5b version + 3b flags) */
     uint32_t encName4chars = 0;
     for (int j = 0; j < KM_FULLNAME_LEN; j++) {
-        char *p = strchr(keyMetaCharSet, fullname[j]);
+        const char *p = strchr(keyMetaCharSet, fullname[j]);
         if (!p) return 0; /* Invalid character in name */
         unsigned long pos = p - keyMetaCharSet;
         encName9Chars = (encName9Chars << KM_ENC_CHAR_BITS) | pos;
@@ -416,7 +416,7 @@ int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
          *
          * Note: rdbLoadCheckModuleValue() reads opcodes until it finds RDB_MODULE_OPCODE_EOF,
          * so it consumes the EOF marker as well. We don't need to read it separately. */
-        robj *dummy = rdbLoadCheckModuleValue(rdb, cname);
+        robj *dummy = rdbLoadCheckModuleValue(rdb, cname, 1);
         if (dummy == NULL) {
             serverLog(LL_WARNING, "Corrupted metadata value for class '%s'", cname);
             return -1;
@@ -742,10 +742,10 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     if (entityId == 0) return 0;
 
     /* Check for name conflicts using 4-char name. Allow reuse of RELEASED; forbid if INUSE. */
-    int alreayReleased;
-    int keyMetaId = keyMetaClassLookupByName(name, &alreayReleased);
+    int alreadyReleased;
+    int keyMetaId = keyMetaClassLookupByName(name, &alreadyReleased);
 
-    if (alreayReleased) {
+    if (alreadyReleased) {
         /* If already released, then reuse the keyMetaId. */
     } else {
         /* Assert class is registered for first time */

@@ -11,8 +11,10 @@
  * atomicSet(var,value)  -- Set the atomic counter value
  * atomicGetWithSync(var,value)  -- 'atomicGet' with inter-thread synchronization
  * atomicSetWithSync(var,value)  -- 'atomicSet' with inter-thread synchronization
+ * atomicSetRelease(var,value)  -- 'atomicSet' with release ordering
  * atomicCompareExchange(type,var,expected_var,desired)  --  Compare and exchange (CAS) operation
- * 
+ * atomicExchangeAcquire(var,newvalue,oldvalue_var)  --  Atomically store newvalue and fetch the previous value (acquire)
+ *
  * Atomic operations on flags. 
  * Flag type can be int, long, long long or their unsigned counterparts.
  * The value of the flag can be 1 or 0.
@@ -111,10 +113,14 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     atomic_store_explicit(&var,value,memory_order_seq_cst)
+#define atomicSetRelease(var,value) \
+    atomic_store_explicit(&var,value,memory_order_release)
 #define atomicCompareExchange(type,var,expected_var,desired) \
     atomic_compare_exchange_weak_explicit(&var,&expected_var,desired,memory_order_relaxed,memory_order_relaxed)
 #define atomicFlagGetSet(var,oldvalue_var) \
     oldvalue_var = atomic_exchange_explicit(&var,1,memory_order_relaxed)
+#define atomicExchangeAcquire(var,newvalue,oldvalue_var) \
+    oldvalue_var = atomic_exchange_explicit(&var,newvalue,memory_order_acquire)
 #define REDIS_ATOMIC_API "c11-builtin"
 
 #elif !defined(__ATOMIC_VAR_FORCE_SYNC_MACROS) && \
@@ -138,10 +144,14 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     __atomic_store_n(&var,value,__ATOMIC_SEQ_CST)
+#define atomicSetRelease(var,value) \
+    __atomic_store_n(&var,value,__ATOMIC_RELEASE)
 #define atomicCompareExchange(type,var,expected_var,desired) \
     __atomic_compare_exchange_n(&var,&expected_var,desired,1,__ATOMIC_RELAXED,__ATOMIC_RELAXED)
 #define atomicFlagGetSet(var,oldvalue_var) \
     oldvalue_var = __atomic_exchange_n(&var,1,__ATOMIC_RELAXED)
+#define atomicExchangeAcquire(var,newvalue,oldvalue_var) \
+    oldvalue_var = __atomic_exchange_n(&var,newvalue,__ATOMIC_ACQUIRE)
 #define REDIS_ATOMIC_API "atomic-builtin"
 
 #elif defined(HAVE_ATOMIC)
@@ -169,6 +179,8 @@
     ANNOTATE_HAPPENS_BEFORE(&var);  \
     while(!__sync_bool_compare_and_swap(&var,var,value,__sync_synchronize)); \
 } while(0)
+/* __sync has no release-only store; full barrier is a safe superset. */
+#define atomicSetRelease(var,value) atomicSetWithSync(var,value)
 #define atomicCompareExchange(type,var,expected_var,desired) ({ \
     type _old = __sync_val_compare_and_swap(&var,expected_var,desired); \
     int _success = (_old == expected_var); \
@@ -177,10 +189,35 @@
 })
 #define atomicFlagGetSet(var,oldvalue_var) \
     oldvalue_var = __sync_val_compare_and_swap(&var,0,1)
+#define atomicExchangeAcquire(var,newvalue,oldvalue_var) do { \
+    ANNOTATE_HAPPENS_BEFORE(&var); \
+    do { oldvalue_var = var; } \
+    while (!__sync_bool_compare_and_swap(&var,oldvalue_var,newvalue)); \
+    ANNOTATE_HAPPENS_AFTER(&var); \
+} while(0)
 #define REDIS_ATOMIC_API "sync-builtin"
 
 #else
 #error "Unable to determine atomic operations for your platform"
 
 #endif
+
+/* atomicIncrGetSingleWriter(var, delta, newvalue_var)
+ *
+ * Adds `delta` to `var` and writes the resulting value to `newvalue_var`.
+ * Same end result as atomicIncrGet() but implemented as load+add+store instead
+ * of an atomic read-modify-write. This avoids the `lock` prefix on x86
+ * (~20-40 cycles vs ~2-3 for plain load+store).
+ *
+ * SAFETY: the caller MUST guarantee that no other thread ever writes to `var`
+ * (no atomicIncr, no atomicSet, no other call to this macro from a different
+ * thread). Concurrent writers cause silent lost updates. Readers on other
+ * threads using atomicGet are fine: they will observe either the pre or
+ * post update value. */
+#define atomicIncrGetSingleWriter(var, delta, newvalue_var) do { \
+    atomicGet((var), (newvalue_var)); \
+    (newvalue_var) += (delta); \
+    atomicSet((var), (newvalue_var)); \
+} while(0)
+
 #endif /* __ATOMIC_VAR_H */

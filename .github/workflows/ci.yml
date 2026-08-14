@@ -2,12 +2,16 @@ name: CI
 
 on: [push, pull_request]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
 
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
@@ -26,7 +30,7 @@ jobs:
   test-sanitizer-address:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: make
         # build with TLS module just for compilation coverage
         run: make SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS -DREDIS_TEST' BUILD_TLS=module
@@ -39,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     container: debian:buster
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: make
       run: |
         sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list
@@ -50,7 +54,7 @@ jobs:
   build-macos-latest:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
@@ -59,16 +63,16 @@ jobs:
   build-32bit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: make
       run: |
-        sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib g++-multilib
+        sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib
         make REDIS_CFLAGS='-Werror' 32bit
 
   build-libc-malloc:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: make
       run: make REDIS_CFLAGS='-Werror' MALLOC=libc
 
@@ -76,17 +80,17 @@ jobs:
     runs-on: ubuntu-latest
     container: quay.io/centos/centos:stream9
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: make
       run: |
-        dnf -y install which gcc gcc-c++ make
+        dnf -y install which gcc make
         make REDIS_CFLAGS='-Werror'
 
   build-old-chain-jemalloc:
     runs-on: ubuntu-latest
     container: ubuntu:20.04
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - name: make
       run: |
         apt-get update
@@ -96,7 +100,6 @@ jobs:
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
         apt-get update
-        apt-get install -y make gcc-4.8 g++-4.8
+        apt-get install -y make gcc-4.8
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
-        update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'

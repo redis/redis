@@ -281,7 +281,7 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
-    test {Subscribers are killed when revoked of channel permission} {
+    test {Subscribers are killed when revoked of shard channel permission} {
         set rd [redis_deferring_client]
         r ACL setuser psuser resetchannels &foo:1
         $rd AUTH psuser pspass
@@ -343,6 +343,253 @@ start_server {tags {"acl external:skip"}} {
         $rd close
     } {0}
 
+    # {label subscribe-command target client-name}. The expected reply verb is
+    # the lowercased command, and the reply is "{verb} {target} 1".
+    foreach {label subcmd target cname} {
+        channel         SUBSCRIBE  secret    prov-channel
+        pattern         PSUBSCRIBE secret:*  prov-pattern
+        {shard channel} SSUBSCRIBE secret    prov-shard
+    } {
+        test "Provenance: $label subscription is killed when originating user's permissions are revoked" {
+            r ACL SETUSER provuser on nopass ~* &* +@all
+            set rd [redis_deferring_client]
+            $rd HELLO 3 AUTH provuser provuser
+            $rd read
+            $rd $subcmd $target
+            assert_match "[string tolower $subcmd] $target 1" [$rd read]
+            # Re-auth as default — subscription stays under provuser
+            $rd AUTH default ""
+            $rd read
+            $rd CLIENT SETNAME $cname
+            $rd read
+            # Revoke provuser's channel access
+            r ACL SETUSER provuser resetchannels
+            # Client must be killed — provenance entry is under provuser
+            catch {$rd read} e
+            assert_match {*I/O error*} $e
+            assert_no_match "*$cname*" [r CLIENT LIST]
+            $rd close
+            r ACL DELUSER provuser
+        }
+    }
+
+    test {Provenance: ACL DELUSER kills client that holds subscriptions from deleted user} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE chan1
+        $rd read
+        # Re-auth as default, subscription remains under provuser
+        $rd AUTH default ""
+        $rd read
+        $rd CLIENT SETNAME prov-deluser
+        $rd read
+        r ACL DELUSER provuser
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-deluser*} [r CLIENT LIST]
+        $rd close
+    } {0}
+
+    test {Provenance: duplicate subscribe after re-auth attributes to first user} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE chan1
+        assert_match {subscribe chan1 1} [$rd read]
+        # Re-auth and subscribe to the same channel — should be a no-op
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE chan1
+        assert_match {subscribe chan1 1} [$rd read]
+        $rd CLIENT SETNAME prov-dup
+        $rd read
+        # Revoke provuser (the originating user) — must kill
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-dup*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: re-auth as the same user keeps the original owner for later stamping} {
+        r ACL SETUSER provA on nopass ~* &* +@all
+        r ACL SETUSER provB on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provA provA
+        $rd read
+        $rd CLIENT SETNAME prov-same
+        $rd read
+        $rd SUBSCRIBE chan:same
+        assert_match {subscribe chan:same 1} [$rd read]
+        # Re-auth as the SAME user: c->user does not change, so the still-NULL
+        # subscription keeps resolving to provA and no stamp is needed.
+        $rd AUTH provA provA
+        $rd read
+        # Switch to another user: the subscription is stamped with provA — the
+        # pre-switch identity, i.e. its creator — not with provB.
+        $rd AUTH provB provB
+        $rd read
+        # Revoking the CURRENT user's channels must NOT kill: the subscription
+        # is owned by provA; provB owns none of the client's subscriptions.
+        r ACL SETUSER provB resetchannels
+        assert_match {*prov-same*} [r CLIENT LIST]
+        # Revoking the ORIGINATING user's channels must kill the client.
+        r ACL SETUSER provA resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*prov-same*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER provA provB
+    }
+
+    test {Provenance: many user switches with subscriptions, revoking one kills client} {
+        r ACL SETUSER user1 on nopass ~* &* +@all
+        r ACL SETUSER user2 on nopass ~* &* +@all
+        r ACL SETUSER user3 on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH user1 user1
+        $rd read
+        $rd SUBSCRIBE ch1
+        $rd read
+        $rd AUTH user2 user2
+        $rd read
+        $rd SUBSCRIBE ch2
+        $rd read
+        $rd AUTH user3 user3
+        $rd read
+        $rd SUBSCRIBE ch3
+        $rd read
+        $rd CLIENT SETNAME multi-user
+        $rd read
+        # Verify all subscriptions deliver
+        r PUBLISH ch1 msg1
+        assert_match {*msg1*} [$rd read]
+        r PUBLISH ch2 msg2
+        assert_match {*msg2*} [$rd read]
+        r PUBLISH ch3 msg3
+        assert_match {*msg3*} [$rd read]
+        # Revoke user2 — client must be killed
+        r ACL SETUSER user2 resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*multi-user*} [r CLIENT LIST]
+        $rd close
+        r ACL DELUSER user1 user2 user3
+    }
+
+    test {Provenance: RESET clears all per-user subscription state} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE ch1
+        $rd read
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE ch2
+        $rd read
+        # RESET should clear everything
+        $rd RESET
+        $rd read
+        # Client should be out of pubsub mode — normal commands should work
+        $rd SET testkey testval
+        assert_match {OK} [$rd read]
+        $rd DEL testkey
+        $rd read
+        # PUBSUB NUMSUB should show zero for both channels
+        assert_equal {ch1 0 ch2 0} [r PUBSUB NUMSUB ch1 ch2]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: UNSUBSCRIBE with no args clears all per-user channel entries} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE ch1 ch2
+        $rd read ; # subscribe ch1
+        $rd read ; # subscribe ch2
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE ch3
+        $rd read
+        # Unsubscribe all channels (no args)
+        $rd UNSUBSCRIBE
+        $rd read ; # unsubscribe ch1
+        $rd read ; # unsubscribe ch2
+        $rd read ; # unsubscribe ch3
+        assert_equal {ch1 0 ch2 0 ch3 0} [r PUBSUB NUMSUB ch1 ch2 ch3]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: PUNSUBSCRIBE with no args clears all per-user pattern entries} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd PSUBSCRIBE foo:*
+        $rd read
+        $rd AUTH default ""
+        $rd read
+        $rd PSUBSCRIBE bar:*
+        $rd read
+        $rd PUNSUBSCRIBE
+        $rd read ; # punsubscribe foo:*
+        $rd read ; # punsubscribe bar:*
+        assert_equal {0} [r PUBSUB NUMPAT]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: PUBSUB NUMSUB stays correct through subscribe, re-auth, and revocation} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd SUBSCRIBE ch1
+        $rd read
+        assert_equal {ch1 1} [r PUBSUB NUMSUB ch1]
+        $rd AUTH default ""
+        $rd read
+        $rd SUBSCRIBE ch2
+        $rd read
+        assert_equal {ch1 1 ch2 1} [r PUBSUB NUMSUB ch1 ch2]
+        # Revoke provuser — client killed, all subscriptions gone
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_equal {ch1 0 ch2 0} [r PUBSUB NUMSUB ch1 ch2]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
+    test {Provenance: PUBSUB NUMPAT stays correct through subscribe, re-auth, and revocation} {
+        r ACL SETUSER provuser on nopass ~* &* +@all
+        set rd [redis_deferring_client]
+        $rd HELLO 3 AUTH provuser provuser
+        $rd read
+        $rd PSUBSCRIBE foo:*
+        $rd read
+        assert_equal {1} [r PUBSUB NUMPAT]
+        $rd AUTH default ""
+        $rd read
+        $rd PSUBSCRIBE bar:*
+        $rd read
+        assert_equal {2} [r PUBSUB NUMPAT]
+        r ACL SETUSER provuser resetchannels
+        catch {$rd read} e
+        assert_match {*I/O error*} $e
+        assert_equal {0} [r PUBSUB NUMPAT]
+        $rd close
+        r ACL DELUSER provuser
+    }
+
     test {blocked command gets rejected when reprocessed after permission change} {
         r auth default ""
         r config resetstat
@@ -357,7 +604,7 @@ start_server {tags {"acl external:skip"}} {
         assert_error {*NOPERM No permissions to access a key*} {$rd read}
         $rd ping
         $rd close
-        assert_match {*calls=0,usec=0,*,rejected_calls=1,failed_calls=0} [cmdrstat blpop r]
+        assert_match {*calls=0,usec=0,*,rejected_calls=1,failed_calls=0*} [cmdrstat blpop r]
     }
 
     test {Users can be configured to authenticate with any password} {
@@ -632,7 +879,7 @@ start_server {tags {"acl external:skip"}} {
         r ACL SETUSER adv-test -@all +select|0 +select|0 +debug|segfault +debug
         assert_equal "-@all +select|0 +debug" [dict get [r ACL getuser adv-test] commands]
 
-        # Unnecessary categories are retained for potentional future compatibility
+        # Unnecessary categories are retained for potential future compatibility
         r ACL SETUSER adv-test -@all -@dangerous
         assert_equal "-@all -@dangerous" [dict get [r ACL getuser adv-test] commands]
 
@@ -686,16 +933,16 @@ start_server {tags {"acl external:skip"}} {
          for {set j 0} {$j < 10} {incr j} {
              assert_error "*WRONGPASS*" {r AUTH user1 doo}
          }
-         set entry_id_lastest_error [dict get [lindex [r ACL LOG] 0] entry-id]
+         set entry_id_latest_error [dict get [lindex [r ACL LOG] 0] entry-id]
          set timestamp_created_updated [dict get [lindex [r ACL LOG] 0] timestamp-created]
          set timestamp_last_updated_after_update [dict get [lindex [r ACL LOG] 0] timestamp-last-updated]
-         assert {$entry_id_lastest_error eq $entry_id_initial_error}
+         assert {$entry_id_latest_error eq $entry_id_initial_error}
          assert {$timestamp_last_update_original < $timestamp_last_updated_after_update}
          assert {$timestamp_created_original eq $timestamp_created_updated}
          r ACL setuser user2 >doo
          assert_error "*WRONGPASS*" {r AUTH user2 foo}
          set new_error_entry_id [dict get [lindex [r ACL LOG] 0] entry-id]
-         assert {$new_error_entry_id eq $entry_id_lastest_error + 1 }
+         assert {$new_error_entry_id eq $entry_id_latest_error + 1 }
     }
 
     test {ACL LOG shows failed command executions at toplevel} {
@@ -1125,6 +1372,217 @@ start_server [list overrides [list "dir" $server_path "acl-pubsub-default" "allc
         $rd2 close
     }
 
+    test {ACL LOAD re-keys surviving client subscriptions to new user pointers} {
+        reconnect
+
+        set rd1 [redis_deferring_client]
+        $rd1 AUTH alice alice
+        $rd1 read
+        $rd1 CLIENT SETNAME rekey-survivor
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+
+        # alice is unchanged in the ACL file — should survive and
+        # subscriptions should still work after re-keying to the new
+        # user pointer.
+        r ACL LOAD
+        r PUBLISH test1 rekey-msg
+
+        assert_match {*rekey-msg*} [$rd1 read]
+        assert_match {*rekey-survivor*} [r CLIENT LIST]
+        $rd1 close
+    }
+
+    test {ACL LOAD re-keyed client can create new subscriptions} {
+        reconnect
+
+        set rd1 [redis_deferring_client]
+        $rd1 HELLO 3 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+
+        r ACL LOAD
+
+        # After re-keying, the client should be able to subscribe to new
+        # channels under the same (now re-keyed) user pointer.
+        $rd1 SUBSCRIBE test2
+        $rd1 read
+
+        # Both the old (re-keyed) and new subscriptions should deliver.
+        r PUBLISH test1 old-channel
+        assert_match {*old-channel*} [$rd1 read]
+        r PUBLISH test2 new-channel
+        assert_match {*new-channel*} [$rd1 read]
+
+        # Second ACL LOAD: forces the walk to dereference every outer dict
+        # key (old_user_ptr->name). If the first re-key left a dangling
+        # pointer, this will crash rather than pass silently.
+        r ACL LOAD
+        r PUBLISH test1 after-second-load
+        assert_match {*after-second-load*} [$rd1 read]
+        $rd1 close
+    }
+
+    test {ACL LOAD re-keys a stamped provenance user so revocation still targets it} {
+        reconnect
+
+        set rd1 [redis_deferring_client]
+        $rd1 HELLO 3 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE alicechan
+        $rd1 read
+        # Re-auth to default: alicechan's provenance is now STAMPED with alice (a
+        # non-NULL value), while the client's current user becomes default.
+        $rd1 AUTH default ""
+        $rd1 read
+        $rd1 CLIENT SETNAME rekey-prov
+        $rd1 read
+
+        # alice is unchanged in the file, so the client survives; its stamped
+        # provenance must be re-keyed from the (now freed) old alice object to
+        # the new one loaded here.
+        r ACL LOAD
+        assert_match {*rekey-prov*} [r CLIENT LIST]
+
+        # Prove the stamp points at the NEW alice: the client's current user is
+        # default, so revoking alice's channels can only disconnect it through
+        # the stamped provenance. A stale/dangling old pointer would not match
+        # the freshly loaded alice, and the client would wrongly survive.
+        r ACL SETUSER alice resetchannels
+        wait_for_condition 50 100 {
+            ![string match {*rekey-prov*} [r CLIENT LIST]]
+        } else {
+            fail "client not disconnected after its re-keyed provenance user lost channel access (re-key left a stale pointer)"
+        }
+        $rd1 close
+        r ACL SETUSER alice allchannels ; # restore for subsequent tests
+    }
+
+    test {ACL LOAD kills client when one of multiple provenance users is deleted} {
+        reconnect
+        r ACL SETUSER tempuser on nopass ~* &* +@all
+
+        set rd1 [redis_deferring_client]
+        # Subscribe as alice first, then re-auth as tempuser and subscribe more
+        $rd1 HELLO 3 AUTH alice alice
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+        $rd1 AUTH tempuser tempuser
+        $rd1 read
+        $rd1 SUBSCRIBE test2
+        $rd1 read
+        $rd1 AUTH alice alice
+        $rd1 read
+        $rd1 CLIENT SETNAME multi-prov
+        $rd1 read
+
+        # tempuser is not in user.acl, so ACL LOAD will delete it.
+        # Client has a provenance entry for the deleted user → must be killed.
+        r ACL LOAD
+        catch {$rd1 read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*multi-prov*} [r CLIENT LIST]
+        $rd1 close
+    }
+
+    test {ACL LOAD kills default user subscriber when channel access revoked} {
+        reconnect
+        set rd1 [redis_deferring_client]
+        $rd1 CLIENT SETNAME default-sub
+        $rd1 read
+        $rd1 SUBSCRIBE secret
+        $rd1 read
+
+        # Write a modified ACL file that restricts default's channels
+        set aclfile [file join $server_path user.acl]
+        set fd [open $aclfile w]
+        puts $fd "user alice on allcommands allkeys &* >alice"
+        puts $fd "user bob on -@all +@set +acl ~set* &* >bob"
+        puts $fd "user doug on resetchannels &test +@all ~* >doug"
+        puts $fd "user default on nopass ~* resetchannels &healthcheck +@all"
+        close $fd
+
+        r ACL LOAD
+
+        # default no longer has access to "secret" → client must be killed
+        catch {$rd1 read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*default-sub*} [r CLIENT LIST]
+
+        # Restore the original ACL file
+        exec cp -f tests/assets/user.acl $server_path
+        r ACL LOAD
+        $rd1 close
+    }
+
+    test {ACL LOAD twice in one MULTI/EXEC survives a killed subscriber} {
+        reconnect
+        set rd1 [redis_deferring_client]
+        $rd1 AUTH alice alice
+        $rd1 read
+        $rd1 CLIENT SETNAME asap-victim
+        $rd1 read
+        $rd1 SUBSCRIBE secret
+        $rd1 read
+
+        # Revoke alice's access to "secret" so the first ACL LOAD kills the
+        # subscriber. The kill is asynchronous (freeClientAsync): the client stays
+        # in server.clients until beforeSleep, and running two loads inside one
+        # MULTI/EXEC keeps both in the same event-loop iteration, so the second
+        # load revisits the killed-but-not-yet-reaped client. deauthenticateAnd-
+        # CloseClient() clears the client's Pub/Sub state synchronously, so by the
+        # second load it holds no subscriptions — and thus no stale provenance
+        # pointer (alice's old user object, freed after the first load) for the
+        # walk to dereference. Without that synchronous cleanup the second load
+        # would hit a use-after-free (caught under ASAN/valgrind).
+        set aclfile [file join $server_path user.acl]
+        set fd [open $aclfile w]
+        puts $fd "user alice on allcommands allkeys resetchannels &other >alice"
+        puts $fd "user bob on -@all +@set +acl ~set* &* >bob"
+        puts $fd "user doug on resetchannels &test +@all ~* >doug"
+        puts $fd "user default on nopass ~* &* +@all"
+        close $fd
+
+        r MULTI
+        r ACL LOAD
+        r ACL LOAD
+        assert_equal {OK OK} [r EXEC]
+
+        # The first load killed the subscriber.
+        catch {$rd1 read} e
+        assert_match {*I/O error*} $e
+        assert_no_match {*asap-victim*} [r CLIENT LIST]
+
+        # The server survived both loads in the same iteration.
+        assert_equal PONG [r ping]
+
+        # Restore the original ACL file.
+        exec cp -f tests/assets/user.acl $server_path
+        r ACL LOAD
+        $rd1 close
+    }
+
+    test {ACL LOAD default user subscriber survives when permissions unchanged} {
+        reconnect
+        set rd1 [redis_deferring_client]
+        $rd1 CLIENT SETNAME default-survivor
+        $rd1 read
+        $rd1 SUBSCRIBE test1
+        $rd1 read
+
+        # Reload with identical permissions — default pointer is stable,
+        # subscriptions should survive.
+        r ACL LOAD
+        r PUBLISH test1 default-ok
+
+        assert_match {*default-ok*} [$rd1 read]
+        assert_match {*default-survivor*} [r CLIENT LIST]
+        $rd1 close
+    }
+
     test {ACL load and save} {
         r ACL setuser eve +get allkeys >eve on
         r ACL save
@@ -1329,3 +1787,75 @@ start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl e
     }
 }
 
+tags {modules external:skip cluster} {
+    set testmodule [file normalize tests/modules/internalsecret.so]
+
+    # A valid ACL file must exist at startup for `ACL LOAD` to be available.
+    # Global so test bodies (which run in their own scope) can rewrite it.
+    set ::aclpath [file normalize tests/tmp/internalauth-acl-load.acl]
+    set fp [open $::aclpath w]
+    puts $fp "user default on nopass ~* &* +@all"
+    close $fp
+
+    start_cluster 1 0 [list config_lines [list loadmodule $testmodule] overrides [list aclfile $::aclpath]] {
+        test {ACL LOAD handles correctly an internal (NULL-user) connection present} {
+            set victim [redis_client]
+
+            # Promote the victim connection to an internal connection using the
+            # real internal secret. This sets c->user = NULL while leaving the
+            # client in server.clients, and does NOT set CLIENT_MASTER.
+            set secret [$victim internalauth.getinternalsecret]
+            assert_equal {OK} [$victim auth "internal connection" $secret]
+
+            # ACL LOAD iterates every client in server.clients.
+            assert_equal {OK} [r ACL LOAD]
+
+            # Confirm server it is responsive.
+            assert_equal {PONG} [r ping]
+
+            $victim close
+        }
+
+        test {ACL LOAD validates a NULL-user connection's subscriptions stamped with a real user} {
+            # A connection can subscribe as a real ACL user and then become an
+            # internal (no-user) connection: switching identity stamps the
+            # subscription with the originating user while c->user becomes NULL.
+            # ACL LOAD must still validate/re-key those stamps — skipping the
+            # client just because c->user == NULL would leave a subscription
+            # owned by a now-deleted user alive (and its user* pointer dangling).
+            set fp [open $::aclpath w]
+            puts $fp "user default on nopass ~* &* +@all"
+            puts $fp "user provuser on nopass ~* &* +@all"
+            close $fp
+            assert_equal {OK} [r ACL LOAD]
+
+            set victim [redis_deferring_client]
+            $victim hello 3 ; # RESP3 so it can re-auth while subscribed
+            $victim read
+            $victim auth provuser ""
+            $victim read
+            $victim subscribe provchan
+            $victim read
+            # Demote to an internal (NULL-user) connection: provchan is now
+            # stamped with provuser while c->user == NULL.
+            $victim internalauth.getinternalsecret
+            set secret [$victim read]
+            $victim auth "internal connection" $secret
+            assert_equal {OK} [$victim read]
+
+            # Remove provuser and reload. provchan's originating user is gone, so
+            # the internal connection must be disconnected despite c->user == NULL.
+            set fp [open $::aclpath w]
+            puts $fp "user default on nopass ~* &* +@all"
+            close $fp
+            assert_equal {OK} [r ACL LOAD]
+            assert_equal {PONG} [r ping] ; # let the async close run
+
+            catch {$victim ping; $victim read} e
+            assert_match {*I/O error*} $e
+            $victim close
+        }
+    }
+
+    file delete $::aclpath
+}

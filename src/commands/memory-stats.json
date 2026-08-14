@@ -38,6 +38,12 @@
                 "clients.normal": {
                     "type": "integer"
                 },
+                "clients.normal.shared": {
+                    "type": "integer"
+                },
+                "clients.normal.unshared": {
+                    "type": "integer"
+                },
                 "cluster.links": {
                     "type": "integer"
                 },
@@ -60,6 +66,9 @@
                     "type": "integer"
                 },
                 "overhead.total": {
+                    "type": "integer"
+                },
+                "hash.templates": {
                     "type": "integer"
                 },
                 "db.dict.rehashing.count": {

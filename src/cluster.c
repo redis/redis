@@ -85,20 +85,40 @@ ConnectionType *connTypeOfCluster(void) {
  * -------------------------------------------------------------------------- */
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
- * io stream pointed by 'rio'. This function can't fail. */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum) {
+ * io stream pointed by 'rio'. Flags can omit the checksum or key metadata.
+ * This function can't fail. */
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint) {
     unsigned char buf[2];
     uint64_t crc = 0;
 
     /* Serialize the object in an RDB-like format. It consist of an object type
-     * byte followed by the serialized object. This is understood by RESTORE. */
-    rioInitWithBuffer(payload,sdsempty());
+     * byte followed by the serialized object. This is understood by RESTORE.
+     * 'size_hint', when non-zero, sizes the buffer to the caller's estimate of
+     * the payload in a single allocation to avoid reallocations. */
+    sds buffer;
+    if (size_hint) {
+        buffer = sdsnewlen(SDS_NOINIT, size_hint);
+        sdssetlen(buffer, 0);
+        buffer[0] = '\0';
+    } else {
+        buffer = sdsempty();
+    }
+    rioInitWithBuffer(payload,buffer);
+    payload->flags |= RIO_FLAG_DUMP_PAYLOAD;
 
-    /* Save key metadata if present without (handles TTL separately via command args) */
-    if (getModuleMetaBits(o->metabits))
+    /* Skip compression when the caller asked for raw bytes. */
+    int prev_comp = server.rdb_compression;
+    if (flags & DUMP_PAYLOAD_DONT_COMPRESS) server.rdb_compression = 0;
+
+    /* Save key metadata if present (TTL is handled separately via command
+     * args). AOF RESTORE payloads omit it because AOF rewrite handles module
+     * metadata separately through keyMetaOnAof(). */
+    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
+
+    server.rdb_compression = prev_comp;
 
     /* Write the footer, this is how it looks like:
      * ----------------+---------------------+---------------+
@@ -114,13 +134,22 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_chec
 
     /* If crc checksum is disabled, crc is set to 0 and no checksum validation
      * will be performed on RESTORE. */
-    if (!skip_checksum) {
+    if (!(flags & DUMP_PAYLOAD_SKIP_CHECKSUM)) {
         /* CRC64 */
         crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
                     sdslen(payload->io.buffer.ptr));
         memrev64ifbe(&crc);
     }
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,&crc,8);
+}
+
+/* CRC-less, compression-less DUMP payload for RESTORE; returns an sds the caller
+ * owns. size_hint (if nonzero) presizes. */
+sds createRawDumpPayload(robj *o, robj *key, int dbid, int flags, size_t size_hint) {
+    rio payload;
+    createDumpPayload(&payload, o, key, dbid,
+                      DUMP_PAYLOAD_SKIP_CHECKSUM | DUMP_PAYLOAD_DONT_COMPRESS | flags, size_hint);
+    return payload.io.buffer.ptr;
 }
 
 /* Verify that the RDB version of the dump payload matches the one of this Redis
@@ -172,7 +201,7 @@ void dumpCommand(client *c) {
     }
 
     /* Create the DUMP encoded representation. */
-    createDumpPayload(&payload,o,c->argv[1],c->db->id,0);
+    createDumpPayload(&payload,o,c->argv[1],c->db->id,0,0);
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);
@@ -222,9 +251,7 @@ void restoreCommand(client *c) {
 
     /* Make sure this key does not already exist here... */
     robj *key = c->argv[1];
-    kvobj *oldval = lookupKeyWrite(c->db,key);
-    int oldtype = oldval ? oldval->type : -1;
-    if (!replace && oldval) {
+    if (!replace && lookupKeyWrite(c->db,key) != NULL) {
         addReplyErrorObject(c,shared.busykeyerr);
         return;
     }
@@ -245,6 +272,7 @@ void restoreCommand(client *c) {
     }
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
+    payload.flags |= RIO_FLAG_DUMP_PAYLOAD;
 
     /* Initialize metadata spec to collect metadata+expiry from payload. */
     KeyMetaSpec keymeta;
@@ -271,10 +299,21 @@ void restoreCommand(client *c) {
         return;
     }
 
-    /* Remove the old key if needed. */
+    /* Resolve the key's existence and its insertion link. On the common new-key
+     * path dbAddInternal() below reuses the link instead of probing again. */
+    dictEntryLink link = NULL;
+    kvobj *oldval = lookupKeyWriteWithLink(c->db, key, &link);
+    int oldtype = oldval ? oldval->type : -1;
+
+    /* Call dbDelete() only when a key is actually present:
+     *   oldval != NULL -> key exists.
+     *   link  == NULL  -> an expired key might still be physically present and 
+     *                     must be deleted. */
     int deleted = 0;
-    if (replace)
+    if (replace && (oldval || !link)) {
         deleted = dbDelete(c->db,key);
+        link = NULL; /* dbDelete invalidated the link */
+    }
 
     if (ttl && checkAlreadyExpired(ttl)) {
         if (deleted) {
@@ -293,7 +332,7 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, &keymeta);
+    kvobj *kv = dbAddInternal(c->db, key, &obj, &link, &keymeta);
 
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;
@@ -612,7 +651,7 @@ void migrateCommand(client *c) {
 
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
-        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid,0);
+        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid,0,0);
         serverAssertWithInfo(c,NULL,
                              rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                                 sdslen(payload.io.buffer.ptr)));
@@ -804,7 +843,12 @@ int verifyClusterNodeId(const char *name, int length) {
 }
 
 int isValidAuxChar(int c) {
-    return isalnum(c) || (strchr("!#$%&()*+:;<>?@[]^{|}~", c) == NULL);
+    /* Reject control characters (0x00-0x1F and 0x7F). */
+    if (iscntrl(c)) {
+        return 0;
+    }
+    /* Reject forbidden characters including nodes.conf delimiters and special parsing characters */
+    return isalnum(c) || (strchr("!#$%&()*+:;<>?@[]^{|}~,= \"'\\", c) == NULL);
 }
 
 int isValidAuxString(char *s, unsigned int length) {
@@ -852,6 +896,17 @@ static int shouldReturnTlsInfo(void) {
 
 unsigned int countKeysInSlot(unsigned int slot) {
     return kvstoreDictSize(server.db->keys, slot);
+}
+
+void removeChannelsInSlot(unsigned int slot) {
+    if (countChannelsInSlot(slot) == 0) return;
+
+    pubsubShardUnsubscribeAllChannelsInSlot(slot);
+}
+
+/* Get the count of the channels for a given slot. */
+unsigned int countChannelsInSlot(unsigned int hashslot) {
+    return kvstoreDictSize(server.pubsubshard_channels, hashslot);
 }
 
 /* Add detailed information of a node to the output buffer of the given client. */
@@ -1496,6 +1551,7 @@ int clusterRedirectBlockedClientIfNeeded(client *c) {
     clusterNode *myself = getMyClusterNode();
     if (c->flags & CLIENT_BLOCKED &&
         (c->bstate.btype == BLOCKED_LIST ||
+         c->bstate.btype == BLOCKED_LIST_NONEMPTY ||
          c->bstate.btype == BLOCKED_ZSET ||
          c->bstate.btype == BLOCKED_STREAM ||
          c->bstate.btype == BLOCKED_MODULE))
@@ -1741,7 +1797,7 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
              * just moved to another node. The modules needs to know that these
              * keys are no longer available locally, so just send the keyspace
              * notification to the modules, but not to clients. */
-            moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+            moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id, NULL, 0);
         }
         exitExecutionUnit();
         postExecutionUnitOperations();
@@ -2102,17 +2158,26 @@ int clusterCanAccessKeysInSlot(int slot) {
     return 0;
 }
 
-/* Return the slot ranges that belong to the current node or its master. */
+/* Return the slot ranges that belong to the current node or its master.
+ * In non-cluster mode, returns the full slot range (0-16383). */
 slotRangeArray *clusterGetLocalSlotRanges(void) {
-    slotRangeArray *slots = NULL;
-
     if (!server.cluster_enabled) {
-        slots = slotRangeArrayCreate(1);
+        slotRangeArray *slots = slotRangeArrayCreate(1);
         slotRangeArraySet(slots, 0, 0, CLUSTER_SLOTS - 1);
         return slots;
     }
 
-    clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
+    return clusterGetNodeSlotRanges(getMyClusterNode());
+}
+
+/* Returns the slot ranges owned by the given node.
+ * If the node is a replica, the master's slot ranges are returned.
+ * Returns an empty array if the node has no slots. */
+slotRangeArray *clusterGetNodeSlotRanges(clusterNode *node) {
+    slotRangeArray *slots = NULL;
+
+    serverAssert(server.cluster_enabled && node != NULL);
+    clusterNode *master = clusterNodeGetMaster(node);
     if (master) {
         for (int i = 0; i < CLUSTER_SLOTS; i++) {
             if (clusterNodeCoversSlot(master, i))
@@ -2345,4 +2410,92 @@ int verifyClusterConfigWithData(void) {
     /* Delete keys in unowned slots */
     clusterDeleteKeysInUnownedSlots();
     return C_OK;
+}
+
+/* Notify Redis that the cluster topology changed. (cluster impl --> redis)
+ *
+ * When CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT is set, arg points to a
+ * slotRangeArray identifying the changed slots. If arg is NULL,
+ * all slots are checked against the current topology.
+ */
+int clusterNotifyTopologyChanged(int flags, void *arg) {
+    if (!server.cluster_enabled) return C_OK;
+    server.cluster_topology_change_flags |= flags;
+
+    if (flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT) {
+        clusterNode *myself = getMyClusterNode();
+        if (!myself) return C_OK; /* The local cluster node is not initialized. */
+        clusterNode *master = clusterNodeGetMaster(myself);
+        slotRangeArray *changed_slots = arg;
+        int num_ranges = changed_slots ? changed_slots->num_ranges : 1;
+
+        for (int i = 0; i < num_ranges; i++) {
+            /* Without a changed-slot list, check every slot. */
+            int start = changed_slots ? changed_slots->ranges[i].start : 0;
+            int end = changed_slots ? changed_slots->ranges[i].end : CLUSTER_SLOTS-1;
+
+            for (int slot = start; slot <= end; slot++) {
+                int owned = master && clusterNodeCoversSlot(master, slot);
+
+                /* Per-slot state remains valid while this shard owns the slot. */
+                if (owned) continue;
+
+                /* Statistics and subscriptions are stale once this shard no longer
+                 * owns the slot. */
+                clusterSlotStatReset(slot);
+                removeChannelsInSlot(slot);
+            }
+        }
+    }
+
+    /* Cancel ASM tasks that are no longer valid in the updated topology. */
+    if (flags & (CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE |
+                 CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE))
+    {
+        clusterAsmCancelInvalidTasks();
+    }
+
+    return C_OK;
+}
+
+/* Fire the cluster topology-change notification to modules, if one is pending.
+ * Called once per event-loop iteration from clusterCommonBeforeSleep().
+ * Topology mutation paths record the relevant reasons, including slot, role,
+ * node, and OK/FAIL state changes. This debounces a reshuffle that touches many
+ * slots into a single notification, and reports every reason that contributed
+ * via the change_flags bitmask in the event data. The check here makes redundant
+ * calls a harmless no-op.
+ *
+ * The cluster first becoming ready is delivered through this same path: the
+ * OK/FAIL transition records a STATE reason (slot assignment at startup records
+ * a SLOT reason too), so no dedicated "startup" notification is needed. */
+static void clusterFireTopologyChangeEventIfNeeded(void) {
+    if (!server.cluster_topology_change_flags) return;
+
+    uint64_t module_flags = 0;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE;
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE)
+        module_flags |= REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE;
+
+    /* No data payload beyond the change reasons: a subscribing module reads
+     * whatever else it needs about the new topology via the cluster info module
+     * APIs (CLUSTER SLOTS, RedisModule_GetClusterNodesList/NodeInfo,
+     * RedisModule_GetClusterSize, ...). */
+    RedisModuleClusterTopologyChangeInfo info = {
+        .version = REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION,
+        .change_flags = module_flags,
+    };
+    server.cluster_topology_change_flags = 0;
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
+}
+
+/* Handle common cluster work after cluster implementation-specific beforeSleep(). */
+void clusterCommonBeforeSleep(void) {
+    asmBeforeSleep();
+    clusterFireTopologyChangeEventIfNeeded();
 }

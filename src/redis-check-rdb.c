@@ -88,6 +88,14 @@ char *rdb_type_string[] = {
     "hash-listpack-md",
     "stream-v4",
     "stream-v5",
+    "array",
+    "hash-tmpl-lp",
+    "hash-tmpl-lp-ref",
+    "hash-tmpl-array",
+    "hash-tmpl-array-ref",
+#ifdef ENABLE_GCRA
+    "gcra",
+#endif
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -255,7 +263,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 uint32_t classSpec;
                 if (rioRead(&rdb, &classSpec, 4) == 0) goto eoferr;
                 /* Skip module value using rdbLoadCheckModuleValue */
-                robj *o = rdbLoadCheckModuleValue(&rdb, "metadata");
+                robj *o = rdbLoadCheckModuleValue(&rdb, "metadata", 1);
                 if (o == NULL) goto eoferr;
                 decrRefCount(o);
             }
@@ -325,7 +333,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
             moduleTypeNameByID(name,moduleid);
             rdbCheckInfo("MODULE AUX for: %s", name);
 
-            robj *o = rdbLoadCheckModuleValue(&rdb,name);
+            robj *o = rdbLoadCheckModuleValue(&rdb, name, 0);
             decrRefCount(o);
             continue; /* Read type again. */
         } else if (type == RDB_OPCODE_FUNCTION_PRE_GA) {
@@ -340,6 +348,14 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 goto err;
             }
             continue;
+        } else if (type == RDB_OPCODE_HASH_TEMPLATE) {
+            /* Hash template registry. Must be loaded so that later
+             * template-referencing keys can resolve their template. */
+            if (rdbLoadHashTemplate(&rdb) != C_OK) {
+                rdbCheckError("Failed loading hash templates");
+                goto err;
+            }
+            continue; /* Read type again. */
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
@@ -389,6 +405,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     if (closefile) fclose(fp);
+    rdbClearHashTemplates();
     stopLoading(1);
     return 0;
 
@@ -400,6 +417,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     }
 err:
     if (closefile) fclose(fp);
+    rdbClearHashTemplates();
     stopLoading(0);
     return 1;
 }
@@ -437,6 +455,9 @@ int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
      * an already initialized Redis instance, check if we really need to. */
     if (shared.integers[0] == NULL)
         createSharedObjects();
+
+    server.main_thread_id = pthread_self(); /* Needed for hashtemplate keys free path */
+    hashTemplatesInit();
     server.loading_process_events_interval_bytes = 0;
     server.sanitize_dump_payload = SANITIZE_DUMP_YES;
     rdbCheckMode = 1;

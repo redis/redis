@@ -15,7 +15,7 @@ if { ! [ catch {
 
 proc generate_collections {suffix elements} {
     set rd [redis_deferring_client]
-    set numcmd 7
+    set numcmd 8  ;# base commands including array
     set has_vsets [server_has_command vadd]
     if {$has_vsets} {incr numcmd}
 
@@ -29,6 +29,15 @@ proc generate_collections {suffix elements} {
         $rd zadd zset$suffix $j $val
         $rd sadd set$suffix $val
         $rd xadd stream$suffix * item 1 value $val
+        # Array with sparse indices and mixed value types (int, float, string)
+        set idx [expr {$j * 100 + int(rand() * 50)}]  ;# sparse indices
+        if {$j % 3 == 0} {
+            $rd arset array$suffix $idx $j  ;# integer value
+        } elseif {$j % 3 == 1} {
+            $rd arset array$suffix $idx [format "%.5f" [expr {rand() * 1000}]]  ;# float value
+        } else {
+            $rd arset array$suffix $idx "str_$val"  ;# string value
+        }
         if {$has_vsets} {
             $rd vadd vset$suffix VALUES 3 1 1 1 $j
         }
@@ -59,9 +68,29 @@ proc generate_types {} {
     # create other non-collection types
     r incr int
     r set string str
+if 0 {
+    r gcra gcra 10 5 60000
+}
 
     # create bigger objects with 10 items (more than a single ziplist / listpack)
     generate_collections big 10
+
+    # Hash templates: cover all four DUMP types. 
+    # Value encoding depends on whether the values fit a listpack;
+    # The field-name format depends on whether the fields fit in a listpack. 
+    # TMPL_LP: field count < hash-max-ziplist-entries (5)
+    r himport prepare fs_lp_lp f0 f1 f2                         
+    r himport set htmpl_lp_lp fs_lp_lp 0 1 2
+    # TMPL_ARRAY: field count > hash-max-ziplist-entries (5)
+    r himport prepare fs_arr_raw f0 f1 f2 f3 f4 f5 f6 f7 f8 f9  
+    r himport set htmpl_arr_raw fs_arr_raw 0 1 2 3 4 5 6 7 8 9
+    # TMPL_LP: field count > hash-max-ziplist-entries (5)
+    r himport prepare fs_lp_raw f0 f1 [string repeat x 70]     
+    r himport set htmpl_lp_raw fs_lp_raw 0 1 2
+    # TMPL_ARRAY: long value > hash-max-ziplist-entries (5)
+    r himport prepare fs_arr_lp f0 f1 f2                       
+    r himport set htmpl_arr_lp fs_arr_lp 0 1 [string repeat y 70]
+    r himport discardall
 
     # make sure our big stream also has a listpack record that has different
     # field names than the master recorded

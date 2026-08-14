@@ -227,6 +227,13 @@ void execCommand(client *c) {
                 call(c,CMD_CALL_FULL);
 
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+
+            /* Drain per-key jobs queued by this sub-command so modules observe
+             * per-key effects between MULTI/EXEC sub-commands. Done here rather
+             * than on afterCommand() so standalone commands pay nothing. Regular
+             * jobs drain at the end of the EXEC's execution unit. */
+            if (server.fire_keyed_jobs_between_subcommands)
+                firePerKeyJobsBetweenSubcommands();
         }
 
         /* Commands may alter argc/argv, restore mstate. */
@@ -504,6 +511,7 @@ size_t multiStateMemOverhead(client *c) {
     /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
     /* Reserved memory for queued multi commands. */
-    mem += c->mstate.alloc_count * sizeof(pendingCommand);
+    mem += c->mstate.alloc_count * sizeof(pendingCommand*);
+    mem += c->mstate.count * sizeof(pendingCommand);
     return mem;
 }

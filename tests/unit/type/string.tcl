@@ -256,6 +256,47 @@ start_server {tags {"string"}} {
         list [r msetnx x1{t} xxx x1{t} zzz] [r get x1{t}]
     } {0 yyy}
 
+    test {MSET spanning multiple prefetch batches (batch size 16)} {
+        # Exercise the batched prefetch loop across the 16-key boundary.
+        # Test sizes chosen to hit: last batch only (16), boundary+1 (17),
+        # two full batches (32), and partial-tail (33, 40).
+        foreach n {16 17 32 33 40} {
+            r flushdb
+            set cmd [list mset]
+            for {set i 0} {$i < $n} {incr i} {
+                lappend cmd "k:${i}{t}" "v:$i"
+            }
+            assert_equal [r {*}$cmd] "OK"
+            for {set i 0} {$i < $n} {incr i} {
+                assert_equal [r get "k:${i}{t}"] "v:$i"
+            }
+        }
+    }
+
+    test {MSET overwrites expired keys across batch boundary} {
+        # Regression test for dict-pointer staleness across batches
+        # (see src/t_string.c:prefetchKeysBatch). When lookupKeyWrite in
+        # batch 1 expires a pre-existing key, under cluster mode the slot
+        # dict may be freed (KVSTORE_FREE_EMPTY_DICTS) and recreated
+        # mid-command; msetGenericCommand must re-fetch the slot dict per
+        # batch. This test exercises the same code path in standalone mode.
+        r flushdb
+        r debug set-active-expire 0
+        for {set i 0} {$i < 8} {incr i} {
+            r set "k:${i}{t}" "old:$i" px 1
+        }
+        after 20
+        set cmd [list mset]
+        for {set i 0} {$i < 20} {incr i} {
+            lappend cmd "k:${i}{t}" "new:$i"
+        }
+        assert_equal [r {*}$cmd] "OK"
+        for {set i 0} {$i < 20} {incr i} {
+            assert_equal [r get "k:${i}{t}"] "new:$i"
+        }
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     test {MSETEX - all expiration flags} {
         # Test each expiration type separately (EX, PX, EXAT, PXAT)
         set future_sec [expr [clock seconds] + 10]
@@ -635,6 +676,14 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         list $old_value $new_value
     } {{} bar}
 
+    test {Extended SET GET option accepts repeated GET tokens} {
+        r del foo
+        r set foo bar
+        set old_value [r set foo baz GET GET]
+        set new_value [r get foo]
+        list $old_value $new_value
+    } {bar baz}
+
     test {Extended SET GET option with XX} {
         r del foo
         r set foo bar
@@ -700,6 +749,16 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         r set foo bar px 10000
         set ttl [r ttl foo]
         assert {$ttl <= 10 && $ttl > 5}
+    }
+
+    test {Extended SET PX option with a TTL that overflows when added to the current time} {
+        r del foo
+        r set foo bar
+        assert_error "ERR invalid expire time in 'set' command" {
+            r set foo baz px 9223372036854775807
+        }
+        assert_equal bar [r get foo]
+        assert_equal -1 [r pttl foo]
     }
 
     test "Extended SET EXAT option" {
@@ -1543,6 +1602,36 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
         assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET - mutually exclusive flags} {
+        r set mykey "hello"
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" XX}
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" XX}
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFDNE 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDNE 0123456789abcdef XX}
+
+        # IF* conditions are mutually exclusive with each other
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFNE "world"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "world" IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef IFDNE fedcba9876543210}
+
+        assert_equal "hello" [r get mykey]
     }
 
     test {DIGEST always returns exactly 16 hex characters with leading zeros} {

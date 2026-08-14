@@ -289,7 +289,7 @@ start_server {tags {"zset"}} {
             assert {[r zscore ztmp x] == 25}
         }
 
-        test "ZADD INCR works with a single score-elemenet pair - $encoding" {
+        test "ZADD INCR works with a single score-element pair - $encoding" {
             r del ztmp
             r zadd ztmp 10 x 20 y 30 z
             catch {r zadd ztmp INCR 15 x 10 y} err
@@ -971,6 +971,26 @@ start_server {tags {"zset"}} {
             assert_equal {b 2 c 3} [r zinter 2 zseta{t} zsetb{t} aggregate max withscores]
         }
 
+        test "ZUNIONSTORE with AGGREGATE COUNT - $encoding" {
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} aggregate count]
+            assert_equal {a 1 d 1 b 2 c 2} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZUNION/ZINTER with AGGREGATE COUNT - $encoding" {
+            assert_equal {a 1 d 1 b 2 c 2} [r zunion 2 zseta{t} zsetb{t} aggregate count withscores]
+            assert_equal {b 2 c 2} [r zinter 2 zseta{t} zsetb{t} aggregate count withscores]
+        }
+
+        test "ZUNIONSTORE with AGGREGATE COUNT and WEIGHTS - $encoding" {
+            assert_equal 4 [r zunionstore zsetc{t} 2 zseta{t} zsetb{t} weights 2 3 aggregate count]
+            assert_equal {a 2 d 3 b 5 c 5} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZUNION/ZINTER with AGGREGATE COUNT and WEIGHTS - $encoding" {
+            assert_equal {a 2 d 3 b 5 c 5} [r zunion 2 zseta{t} zsetb{t} weights 2 3 aggregate count withscores]
+            assert_equal {b 5 c 5} [r zinter 2 zseta{t} zsetb{t} weights 2 3 aggregate count withscores]
+        }
+
         test "ZINTERSTORE basics - $encoding" {
             assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t}]
             assert_equal {b 3 c 5} [r zrange zsetc{t} 0 -1 withscores]
@@ -1028,6 +1048,39 @@ start_server {tags {"zset"}} {
         test "ZINTERSTORE with AGGREGATE MAX - $encoding" {
             assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} aggregate max]
             assert_equal {b 2 c 3} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE COUNT - $encoding" {
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} aggregate count]
+            assert_equal {b 2 c 2} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZINTERSTORE with AGGREGATE COUNT and WEIGHTS - $encoding" {
+            assert_equal 2 [r zinterstore zsetc{t} 2 zseta{t} zsetb{t} weights 2 3 aggregate count]
+            assert_equal {b 5 c 5} [r zrange zsetc{t} 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE/ZINTERSTORE with AGGREGATE COUNT - 3 sets - $encoding" {
+            r del s1{t} s2{t} s3{t} t1{t}
+            r zadd s1{t} 1 foo 1 bar
+            r zadd s2{t} 2 foo 2 bar
+            r zadd s3{t} 3 foo
+
+            assert_equal 1 [r zinterstore t1{t} 3 s1{t} s2{t} s3{t} aggregate count]
+            assert_equal {foo 3} [r zrange t1{t} 0 -1 withscores]
+
+            assert_equal 2 [r zunionstore t1{t} 3 s1{t} s2{t} s3{t} aggregate count]
+            assert_equal {bar 2 foo 3} [r zrange t1{t} 0 -1 withscores]
+        }
+
+        test "ZUNIONSTORE/ZINTERSTORE with AGGREGATE COUNT and WEIGHTS - 3 sets - $encoding" {
+            assert_equal 1 [r zinterstore t1{t} 3 s1{t} s2{t} s3{t} weights 10 5 3 aggregate count]
+            assert_equal {foo 18} [r zrange t1{t} 0 -1 withscores]
+
+            assert_equal 2 [r zunionstore t1{t} 3 s1{t} s2{t} s3{t} weights 10 5 3 aggregate count]
+            assert_equal {bar 15 foo 18} [r zrange t1{t} 0 -1 withscores]
+
+            r del s1{t} s2{t} s3{t} t1{t}
         }
 
         foreach cmd {ZUNIONSTORE ZINTERSTORE} {
@@ -1639,7 +1692,7 @@ start_server {tags {"zset"}} {
         assert_error {*at least 1 input key * 'zintercard' command} {r zintercard 0 key{t}}
     }
 
-    proc stressers {encoding} {
+    proc stresses {encoding} {
         set original_max_entries [lindex [r config get zset-max-ziplist-entries] 1]
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         if {$encoding == "listpack"} {
@@ -1705,6 +1758,38 @@ start_server {tags {"zset"}} {
             for {set i 0} {$i < $elements} {incr i} {
                 # Check above notes on IEEE 754 double-precision comparison
                 assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
+            }
+        } {} {needs:debug}
+
+        test "ZSCORE 17-19 significant digit mantissas (widened fast path) - $encoding" {
+            # Exercise the widened fast_float_strtod path that handles
+            # mantissas > 2^53 (via __uint128_t arithmetic). ZADD/ZSCORE
+            # must round-trip bit-exactly through the listpack/skiplist
+            # encoding (parse on ingest, parse again on retrieval). Each
+            # input string below parses to a specific IEEE double whose
+            # canonical string representation is itself, so `expr` in Tcl
+            # re-evaluates to the same numeric value.
+            r del zscorewide
+            set widecases {
+                0.49606648747577575
+                0.8731899671198792
+                0.34912978268081996
+                0.0033318113277969186
+                0.9955843393406656
+                -0.8731899671198792
+            }
+            set i 0
+            foreach s $widecases {
+                r zadd zscorewide $s m$i
+                assert_equal [expr $s] [expr [r zscore zscorewide m$i]]
+                incr i
+            }
+            r debug reload
+            assert_encoding $encoding zscorewide
+            set i 0
+            foreach s $widecases {
+                assert_equal [expr $s] [expr [r zscore zscorewide m$i]]
+                incr i
             }
         } {} {needs:debug}
 
@@ -2128,8 +2213,8 @@ start_server {tags {"zset"}} {
     }
 
     tags {"slow"} {
-        stressers listpack
-        stressers skiplist
+        stresses listpack
+        stresses skiplist
     }
 
     test "BZPOP/BZMPOP against wrong type" {

@@ -471,6 +471,21 @@ proc test_scan {type} {
         }
     }
 
+    test "{$type} SCAN COUNT overflow" {
+        r flushdb
+        populate 10
+
+        # count = LONG_MAX/10 + 1, within LONG_MAX so it parses fine,
+        # but count*10 overflows signed long which is undefined behavior.
+        # Compute dynamically to support both 32-bit and 64-bit builds.
+        set long_max [expr {[s arch_bits] == 32 ? 2147483647 : 9223372036854775807}]
+        set big_count [expr {$long_max / 10 + 1}]
+        set res [r scan 0 count $big_count]
+        assert {[llength $res] == 2}
+        assert_equal 0 [lindex $res 0]
+        assert_equal 10 [llength [lindex $res 1]]
+    }
+
     test "{$type} SCAN MATCH pattern implies cluster slot" {
         # Tests the code path for an optimization for patterns like "{foo}-*"
         # which implies that all matching keys belong to one slot.

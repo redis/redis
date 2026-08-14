@@ -27,20 +27,23 @@ static void populateDeltaHistograms(kvstore *kvs, asmTrimCtx *ctx) {
 
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
-        if ((!kv) || (kv->type >= OBJ_TYPE_BASIC_MAX)) continue;
+        if (!kv) continue;
+        int64_t *keysizesRow = keysizesHistRow(ctx->delta_keysizes_hist, kv->type);
+        if (!keysizesRow) continue; /* untracked type, e.g. OBJ_MODULE */
 
         /* Update keysizes_hist delta */
         size_t len = getObjectLength(kv);
         int sizeBin = (len == 0) ? 0 : log2ceil(len) + 1; /* Only strings can be empty */
         debugServerAssert(sizeBin < MAX_KEYSIZES_BINS);
-        ctx->delta_keysizes_hist[kv->type][sizeBin]++;
+        keysizesRow[sizeBin]++;
 
         /* Update allocsizes_hist delta */
         if (server.memory_tracking_enabled) {
+            int64_t *allocsizesRow = keysizesHistRow(ctx->delta_allocsizes_hist, kv->type);
             size_t alloc_size = kvobjAllocSize(kv);
             int allocBin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
             debugServerAssert(allocBin < MAX_KEYSIZES_BINS);
-            ctx->delta_allocsizes_hist[kv->type][allocBin]++;
+            allocsizesRow[allocBin]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
@@ -178,6 +181,9 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_HT) {
         dict *ht = obj->ptr;
         return dictSize(ht);
+    } else if (obj->type == OBJ_HASH && obj->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+        hashTemplateArray *hta = obj->ptr;
+        return hta->field_count;
     } else if (obj->type == OBJ_STREAM) {
         size_t effort = 0;
         stream *s = obj->ptr;
@@ -207,6 +213,9 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         /* If the module's free_effort returns 0, we will use asynchronous free
          * memory by default. */
         return effort == 0 ? ULONG_MAX : effort;
+    } else if (obj->type == OBJ_ARRAY) {
+        redisArray *ar = obj->ptr;
+        return arCount(ar);
     } else {
         return 1; /* Everything else is a single allocation. */
     }
@@ -332,7 +341,7 @@ void emptyDbAsync(redisDb *db) {
     db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-    db->stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
+    db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
     emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys, NULL);
 }

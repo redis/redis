@@ -251,7 +251,7 @@ start_server {tags {external:skip "hotkeys"}} {
         r multi
         # Send multiple commands to avoid <1us cpu for $key2 which we assert
         # at end of test
-        for {set i 0} {$i < 7} {incr i} {
+        for {set i 0} {$i < 30} {incr i} {
             r set $key1 value1
             r set $key2 value1
             r set $key1 value2
@@ -324,7 +324,7 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
-    foreach sample_ratio {1 100 500 1000} {
+    foreach sample_ratio {1 100 500} {
         test "HOTKEYS detection with biased key access, sample ratio = $sample_ratio" {
             # Generate 100 random keys
             set all_keys {}

@@ -141,7 +141,7 @@ client* scriptGetCaller(void) {
 int scriptInterrupt(scriptRunCtx *run_ctx) {
     if (run_ctx->flags & SCRIPT_TIMEDOUT) {
         /* script already timedout
-           we just need to precess some events and return */
+           we just need to process some events and return */
         processEventsWhileBlocked();
         return (run_ctx->flags & SCRIPT_KILLED) ? SCRIPT_KILL : SCRIPT_CONTINUE;
     }
@@ -322,6 +322,9 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
 
     /* After the script done, remove the MULTI state. */
     run_ctx->c->flags &= ~CLIENT_MULTI;
+
+    /* HIMPORT fieldsets are scoped to a single script invocation. */
+    himportFieldsetsFree(run_ctx->c);
 
     if (scriptIsTimedout()) {
         exitScriptTimedoutMode(run_ctx);
@@ -633,7 +636,11 @@ static int scriptVerifyAllowStale(client *c, sds *err) {
 void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     client *c = run_ctx->c;
 
-    /* Setup our fake client for command execution */
+    /* Setup our fake client for command execution. The script client can never
+     * hold Pub/Sub subscriptions (SUBSCRIBE family is CMD_NOSCRIPT), so this
+     * direct identity assignment needs no provenance stamping — assert the
+     * invariant that keeps the flat-lazy owner model sound. */
+    serverAssert(clientTotalPubSubSubscriptionCount(c) == 0);
     c->user = run_ctx->original_client->user;
 
     /* Process module hooks */
@@ -687,6 +694,10 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+
+    if (server.fire_keyed_jobs_between_subcommands)
+        firePerKeyJobsBetweenSubcommands();
+
     clusterSlotStatsInvalidateSlotIfApplicable(run_ctx);
     return;
 

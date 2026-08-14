@@ -218,7 +218,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
  *    | robj (16) | key-hdr-size (1) | sdshdr8 "myvalue" \0  (11) | 
  *    +-----------+------------------+----------------------------+
  */
-robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
+static inline robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
     
@@ -514,6 +514,32 @@ robj *createStreamObject(void) {
     return o;
 }
 
+#ifdef ENABLE_GCRA
+robj *createGCRAObject(long long value) {
+    /* NOTE: for 32-bit systems we can't use integer encoding (as OBJ_STRING does)
+     * as the GCRA object is a unixtime value in microseconds, which as of the
+     * time of writing is already much more than 32-bit's LONG_MAX. */
+#if UINTPTR_MAX == 0xffffffff
+    long long *v = zmalloc(sizeof(long long));
+    *v = value;
+    robj *o = createObject(OBJ_GCRA,v);
+#else
+    robj *o = createObject(OBJ_GCRA,NULL);
+    o->ptr = (void*)value;
+#endif
+
+    o->encoding = OBJ_ENCODING_INT;
+    return o;
+}
+#endif
+
+robj *createArrayObject(void) {
+    redisArray *ar = arNew();
+    robj *o = createObject(OBJ_ARRAY, ar);
+    o->encoding = OBJ_ENCODING_SLICED_ARRAY;
+    return o;
+}
+
 robj *createModuleObject(moduleType *mt, void *value) {
     moduleValue *mv = zmalloc(sizeof(*mv));
     mv->type = mt;
@@ -586,6 +612,20 @@ void freeStreamObject(robj *o) {
     freeStream(o->ptr);
 }
 
+#ifdef ENABLE_GCRA
+void freeGCRAObject(robj *o) {
+#if UINTPTR_MAX == 0xffffffff
+    zfree(o->ptr);
+#else
+    (void)o;
+#endif
+}
+#endif
+
+void freeArrayObject(robj *o) {
+    arFree(o->ptr);
+}
+
 void incrRefCount(robj *o) {
     if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
         o->refcount++;
@@ -610,6 +650,14 @@ void decrRefCount(robj *o) {
     }
 
     if (--(o->refcount) == 0) {
+        /* Fast path for embedded strings: no inner allocation to free, and we
+         * can compute the alloc size to hint jemalloc for a faster deallocation. */
+        if (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_EMBSTR && !o->iskvobj) {
+            serverAssert(sdsType(o->ptr) == SDS_TYPE_8); /* embstr always type_8 */
+            zfree_with_size(o, sizeof(robj) + sdsAllocSize(o->ptr));
+            return;
+        }
+
         void *alloc = o;
         
         if (o->iskvobj) {
@@ -629,6 +677,10 @@ void decrRefCount(robj *o) {
             case OBJ_HASH: freeHashObject(o); break;
             case OBJ_MODULE: freeModuleObject(o); break;
             case OBJ_STREAM: freeStreamObject(o); break;
+#ifdef ENABLE_GCRA
+            case OBJ_GCRA: freeGCRAObject(o); break;
+#endif
+            case OBJ_ARRAY: freeArrayObject(o); break;
             default: serverPanic("Unknown object type"); break;
             }
         }
@@ -691,8 +743,7 @@ void dismissSetObject(robj *o, size_t size_hint) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(set->ht_table[0], DICTHT_SIZE(set->ht_size_exp[0])*sizeof(dictEntry*));
-        dismissMemory(set->ht_table[1], DICTHT_SIZE(set->ht_size_exp[1])*sizeof(dictEntry*));
+        dismissDictBucketsMemory(set);
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -720,9 +771,7 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         }
 
         /* Dismiss hash table memory. */
-        dict *d = zs->dict;
-        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
-        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
+        dismissDictBucketsMemory(zs->dict);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
@@ -748,13 +797,25 @@ void dismissHashObject(robj *o, size_t size_hint) {
         }
 
         /* Dismiss hash table memory. */
-        dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0])*sizeof(dictEntry*));
-        dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1])*sizeof(dictEntry*));
+        dismissDictBucketsMemory(d);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = o->ptr;
         dismissMemory(lpt->lp, lpBytes((unsigned char*)lpt->lp));
+    } else if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned char *lp = o->ptr;
+        dismissMemory(lp, lpBytes(lp));
+    } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+        hashTemplateArray *hta = o->ptr;
+        unsigned long long n = hta->field_count;
+        /* We iterate all values only when average value size is bigger than
+         * a page size, mirroring the heuristic used for OBJ_ENCODING_HT. */
+        if (n > 0 && size_hint / n >= server.page_size) {
+            for (unsigned long long i = 0; i < n; i++)
+                dismissSds(hta->values[i]);
+        }
+        dismissMemory(hta, sizeof(*hta) + n * sizeof(sds));
     } else {
         serverPanic("Unknown hash encoding type");
     }
@@ -779,6 +840,20 @@ void dismissStreamObject(robj *o, size_t size_hint) {
         raxStop(&ri);
     }
 }
+
+/* See dismissObject() */
+void dismissArrayObject(robj *o, size_t size_hint) {
+    arDismiss(o->ptr, size_hint);
+}
+
+#ifdef ENABLE_GCRA
+void dismissGCRAObject(robj *o, size_t size_hint) {
+    /* GCRA is a single allocation of a long long thus way smaller than a
+     * page-size. The dismiss mechanism is not needed for it - hence NOOP.*/
+    (void)o;
+    (void)size_hint;
+}
+#endif
 
 /* When creating a snapshot in a fork child process, the main process and child
  * process share the same physical memory pages, and if / when the parent
@@ -808,6 +883,10 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_ZSET: dismissZsetObject(o, size_hint); break;
         case OBJ_HASH: dismissHashObject(o, size_hint); break;
         case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
+#ifdef ENABLE_GCRA
+        case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
+#endif
+        case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
         default: break;
     }
 #else
@@ -929,6 +1008,10 @@ size_t getObjectLength(robj *o) {
         case OBJ_ZSET: return zsetLength(o);
         case OBJ_HASH: return hashTypeLength(o, 0);
         case OBJ_STREAM: return streamLength(o);
+#ifdef ENABLE_GCRA
+        case OBJ_GCRA: return gcraObjectLength(o);
+#endif
+        case OBJ_ARRAY: return arCount(o->ptr);
         default: return 0;
     }
 }
@@ -1137,6 +1220,24 @@ int getLongLongFromObject(robj *o, long long *target) {
     return C_OK;
 }
 
+#ifdef ENABLE_GCRA
+int getLongLongFromGCRAObject(robj *o, long long *target) {
+    long long res;
+    serverAssertWithInfo(NULL, o, o->type == OBJ_GCRA);
+    serverAssert(o->encoding == OBJ_ENCODING_INT);
+#if UINTPTR_MAX == 0xffffffff
+    res = *((long long*)o->ptr);
+#else
+    res = (long long)o->ptr;
+#endif
+    if (unlikely(res < 0)) {
+        serverPanic("Invalid negative GCRA value");
+    }
+    *target = res;
+    return C_OK;
+}
+#endif
+
 int getLongLongFromObjectOrReply(client *c, robj *o, long long *target, const char *msg) {
     long long value;
     if (getLongLongFromObject(o, &value) != C_OK) {
@@ -1210,6 +1311,9 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_SKIPLIST: return "skiplist";
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
+    case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
+	case OBJ_ENCODING_TMPL_LP: return "template-listpack";
+	case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
     default: return "unknown";
     }
 }
@@ -1227,7 +1331,11 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         o->type == OBJ_SET ||
         o->type == OBJ_ZSET ||
         o->type == OBJ_HASH ||
-        o->type == OBJ_STREAM)
+        o->type == OBJ_STREAM ||
+#ifdef ENABLE_GCRA
+        o->type == OBJ_GCRA ||
+#endif
+        o->type == OBJ_ARRAY)
     {
         return kvobjAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
@@ -1236,9 +1344,23 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     serverPanic("Unknown object type");
 }
 
+/* Returns the size in bytes consumed by the object header, key and value in RAM.
+ * Note that the returned value is accurate approximation of the actual allocated
+ * size. For performance reasons it accumulates requested size instead in several
+ * cases (e.g. kvobj allocation, type 5 sds, listpacks, etc) but it does so in a
+ * self-consistent way.
+ */
 size_t kvobjAllocSize(kvobj *o) {
-    /* All kv-objects has at least kvobj header and embedded key */
-    size_t asize = zmalloc_size(kvobjGetAllocPtr(o));
+    debugServerAssert(o->iskvobj);
+    size_t asize = sizeof(kvobj);
+    /* Add metadata size */
+    asize += getNumMeta(o->metabits) * sizeof(uint64_t);
+    /* Add embedded key size */
+    asize += 1; /* embedded key header size */
+    asize += sdsAllocSize(kvobjGetKey(o));
+    /* Add embedded string size */
+    if (o->encoding == OBJ_ENCODING_EMBSTR)
+        asize += sdsAllocSize(o->ptr);
 
     if (o->type == OBJ_STRING) {
         asize += stringObjectAllocSize(o);
@@ -1253,11 +1375,37 @@ size_t kvobjAllocSize(kvobj *o) {
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
         asize += s->alloc_size;
+#ifdef ENABLE_GCRA
+    } else if (o->type == OBJ_GCRA) {
+        asize += gcraTypeAllocSize(o);
+#endif
+    } else if (o->type == OBJ_ARRAY) {
+        redisArray *ar = o->ptr;
+        asize += ar->alloc_size;
     } else if (o->type == OBJ_MODULE) {
         /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
     }
     return asize;
 }
+
+#ifdef ENABLE_GCRA
+size_t gcraTypeAllocSize(robj *o) {
+    (void)o;
+#if UINTPTR_MAX == 0xffffffff
+    return sizeof(long long);
+#else
+    /* Same as string with int encoding there is no allocation as the value is
+     * cast to void* and stored in o->ptr */
+    return 0;
+#endif
+}
+
+/* The gcra object is a single long long value */
+size_t gcraObjectLength(robj *o) {
+    (void)o;
+    return 1;
+}
+#endif
 
 /* Release data obtained with getMemoryOverheadData(). */
 void freeMemoryOverheadData(struct redisMemOverhead *mh) {
@@ -1315,6 +1463,21 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->clients_slaves = 0;
         mh->repl_backlog = server.repl_buffer_mem;
     }
+
+    /* Replicas' compression state is allocated per client and is not part of
+     * the shared replication buffer accounted for above, so it needs to be
+     * added separately regardless of which branch was taken. */
+    if (listLength(server.slaves)) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *replica = listNodeValue(ln);
+            mh->clients_slaves += clientCompressionMemoryUsage(replica);
+        }
+    }
+
     if (server.repl_backlog) {
         /* The approximate memory of rax tree for indexed blocks. */
         mh->repl_backlog +=
@@ -1326,6 +1489,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->replica_fullsync_buffer;
     mem_total += mh->repl_backlog;
     mem_total += mh->clients_slaves;
+
+    /* Compute shared/unshared reply memory. */
+    getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
@@ -1355,9 +1521,12 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->script_vm += functionsMemoryVM();
     mem_total+=mh->script_vm;
 
+    mh->hash_templates = hashTemplatesMemUsage();
+    mem_total+=mh->hash_templates;
+
     /* Cluster atomic slot migration buffers. */
     mh->asm_import_input_buffer = asmGetImportInputBufferSize();
-    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
+    mh->asm_migrate_output_buffer = asmGetMigrateOutputMemoryUsage();
     mem_total += mh->asm_import_input_buffer;
     mem_total += mh->asm_migrate_output_buffer;
 
@@ -1606,7 +1775,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
-        addReplyBulkCString(c,strEncoding(kv->encoding));
+        addReplyBulkCString(c, strEncoding(kv->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
@@ -1678,11 +1847,19 @@ NULL
             return;
         }
         size_t usage = kvobjComputeSize(c->argv[2], kv, samples, c->db->id);
+
+        /* Add this key's share of the hash-template cost (see the comment of
+         * hashTemplatePerKeyMemoryShare()). */
+        if (kv->type == OBJ_HASH &&
+            (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+             kv->encoding == OBJ_ENCODING_TMPL_ARRAY))
+            usage += hashTemplatePerKeyMemoryShare(kv);
+
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,33+mh->num_dbs);
+        addReplyMapLen(c,36+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1705,6 +1882,12 @@ NULL
         addReplyBulkCString(c,"clients.normal");
         addReplyLongLong(c,mh->clients_normal);
 
+        addReplyBulkCString(c,"clients.normal.shared");
+        addReplyLongLong(c,mh->clients_normal_shared);
+
+        addReplyBulkCString(c,"clients.normal.unshared");
+        addReplyLongLong(c,mh->clients_normal_unshared);
+
         addReplyBulkCString(c,"cluster.links");
         addReplyLongLong(c,mh->cluster_links);
 
@@ -1719,6 +1902,9 @@ NULL
 
         addReplyBulkCString(c,"script.VMs");
         addReplyLongLong(c,mh->script_vm);
+
+        addReplyBulkCString(c,"hash.templates");
+        addReplyLongLong(c,mh->hash_templates);
 
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];

@@ -108,7 +108,7 @@ int extractLongLatOrReply(client *c, robj **argv, double *xy) {
     if (xy[0] < GEO_LONG_MIN || xy[0] > GEO_LONG_MAX ||
         xy[1] < GEO_LAT_MIN  || xy[1] > GEO_LAT_MAX) {
         addReplyErrorFormat(c,
-            "-ERR invalid longitude,latitude pair %f,%f\r\n",xy[0],xy[1]);
+            "invalid longitude,latitude pair %f,%f",xy[0],xy[1]);
         return C_ERR;
     }
     return C_OK;

@@ -1382,7 +1382,7 @@ start_server {tags {"scripting"}} {
         set rd [redis_deferring_client]
         r config set lua-time-limit 10
 
-        # senging (in a pipeline):
+        # sending (in a pipeline):
         # 1. eval "while 1 do redis.call('ping') end" 0
         # 2. ping
         if {$is_eval == 1} {
@@ -2604,6 +2604,14 @@ start_server {tags {"scripting"}} {
             r eval {return redis.error_reply("")} 0
         }
         assert_equal [errorrstat ERR r] {count=1}
+    }
+
+    test "LUA redis.error_reply API with CRLF injection attempt" {
+        catch {
+            r eval {error(redis.error_reply("X\r\n+INJECTED"))} 0
+        } err
+        # The error message should have CRLF replaced with spaces
+        assert_match {ERR X  +INJECTED*} $err
     }
 
     test "LUA redis.status_reply API" {
