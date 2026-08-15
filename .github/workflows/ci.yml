@@ -39,6 +39,139 @@ jobs:
       - name: test
         run: ./runtest --verbose --tags -slow --dump-logs
 
+  fuzz:
+    name: Fuzz Testing - ${{ matrix.fuzzer }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fuzzer: fuzz_string_commands
+            corpus: string_commands
+          - fuzzer: fuzz_bitmap_commands
+            corpus: bitmap_commands
+          - fuzzer: fuzz_command_extensions
+            corpus: command_extensions
+          - fuzzer: fuzz_hash_templates
+            corpus: hash_templates
+          - fuzzer: fuzz_array_commands
+            corpus: array_commands
+          - fuzzer: fuzz_replication_compression
+            corpus: replication_compression
+          - fuzzer: fuzz_list_move_commands
+            corpus: list_move_commands
+          - fuzzer: fuzz_stream_commands
+            corpus: stream_commands
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang libzstd-dev
+      - name: Generate fuzzing seeds
+        run: |
+          fuzz/generate-seeds.sh
+          git diff --exit-code -- fuzz/corpus
+      - name: Build fuzzers
+        run: make fuzz CC=clang BUILD_COMPRESSION=yes -j"$(nproc)"
+      - name: Restore reusable fuzz corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: fuzz-corpus-minimized/${{ matrix.fuzzer }}
+          key: fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-
+            fuzz-corpus-${{ matrix.fuzzer }}-
+      - name: Prepare fuzz corpus
+        run: |
+          mkdir -p "fuzz-corpus/${{ matrix.fuzzer }}"
+          cp -R "fuzz/corpus/${{ matrix.corpus }}/." "fuzz-corpus/${{ matrix.fuzzer }}/"
+          if [ -d "fuzz-corpus-minimized/${{ matrix.fuzzer }}" ]; then
+            cp -R "fuzz-corpus-minimized/${{ matrix.fuzzer }}/." "fuzz-corpus/${{ matrix.fuzzer }}/"
+          fi
+      - name: Run Fuzzing - ${{ matrix.fuzzer }}
+        run: |
+          export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:malloc_limit_mb=2048:symbolize=0
+          export UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
+          "fuzz/${{ matrix.fuzzer }}" \
+            "fuzz-corpus/${{ matrix.fuzzer }}" \
+            -artifact_prefix=./ \
+            -max_total_time=60 \
+            -timeout=30 \
+            -rss_limit_mb=2048 \
+            -max_len=4096 \
+            -print_funcs=0
+      - name: Minimize fuzz corpus
+        if: always()
+        run: |
+          export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:malloc_limit_mb=2048
+          rm -rf "fuzz-corpus-minimized/${{ matrix.fuzzer }}"
+          mkdir -p "fuzz-corpus-minimized/${{ matrix.fuzzer }}"
+          "fuzz/${{ matrix.fuzzer }}" \
+            -merge=1 \
+            -print_funcs=0 \
+            "fuzz-corpus-minimized/${{ matrix.fuzzer }}" \
+            "fuzz-corpus/${{ matrix.fuzzer }}"
+      - name: Collect fuzz artifacts
+        if: always()
+        run: |
+          mkdir -p "fuzz-artifacts/${{ matrix.fuzzer }}"
+          if [ -d "fuzz-corpus-minimized/${{ matrix.fuzzer }}" ]; then
+            cp -R "fuzz-corpus-minimized/${{ matrix.fuzzer }}" "fuzz-artifacts/${{ matrix.fuzzer }}/corpus"
+          fi
+          shopt -s nullglob
+          for pattern in crash-* leak-* timeout-* oom-* slow-unit-*; do
+            for file in $pattern; do
+              cp "$file" "fuzz-artifacts/${{ matrix.fuzzer }}/"
+            done
+          done
+      - name: Save minimized fuzz corpus
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: fuzz-corpus-minimized/${{ matrix.fuzzer }}
+          key: fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-${{ github.run_id }}
+      - name: Upload fuzz artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.fuzzer }}-artifacts
+          path: fuzz-artifacts/${{ matrix.fuzzer }}
+          if-no-files-found: ignore
+
+  fuzz-backup-state-machine:
+    name: Fuzz Testing - BACKUP state machine
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Validate state-machine harness
+        run: python3 -m py_compile fuzz/fuzz_backup_state_machine.py
+      - name: Build sanitizer-instrumented Redis
+        run: |
+          make redis-server CC=clang SANITIZER=address MALLOC=libc SKIP_VEC_SETS=yes OPTIMIZATION=-O1 -j"$(nproc)" \
+            REDIS_CFLAGS='-DREDIS_TEST -fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer' \
+            REDIS_LDFLAGS='-fsanitize=undefined'
+      - name: Run BACKUP state-machine fuzzing
+        env:
+          ASAN_OPTIONS: abort_on_error=1:detect_leaks=0:allocator_may_return_null=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          mkdir -p fuzz-backup-artifacts
+          python3 fuzz/fuzz_backup_state_machine.py \
+            --redis-server src/redis-server \
+            --seeds fuzz/corpus/backup_state_machine/seeds.txt \
+            --duration 60 \
+            --max-runs 128 \
+            --artifact-dir fuzz-backup-artifacts
+      - name: Upload BACKUP fuzz artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-backup-state-machine-artifacts
+          path: fuzz-backup-artifacts
+          if-no-files-found: ignore
+
   build-debian-old:
     runs-on: ubuntu-latest
     container: debian:buster
