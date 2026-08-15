@@ -3310,8 +3310,22 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
                 goto invalid_spec;
             }
 
-            first += spec->fk.keynum.firstkey;
-            last = first + ((long)numkeys - 1) * step;
+            /* A valid key count cannot exceed argc. Enforce that bound before
+             * computing the indexes so malformed counts cannot overflow. */
+            if (numkeys > argc)
+                goto invalid_spec;
+
+            long long first_ll, last_ll;
+            long long offset = (numkeys - 1) * (long long)step;
+            if (add_overflow_ll(first, spec->fk.keynum.firstkey, &first_ll) ||
+                add_overflow_ll(first_ll, offset, &last_ll) ||
+                first_ll < LONG_MIN || first_ll > LONG_MAX ||
+                last_ll < LONG_MIN || last_ll > LONG_MAX)
+            {
+                goto invalid_spec;
+            }
+            first = (long)first_ll;
+            last = (long)last_ll;
         } else {
             /* unknown spec */
             goto invalid_spec;

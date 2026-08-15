@@ -39,6 +39,36 @@ jobs:
       - name: test
         run: ./runtest --verbose --tags -slow --dump-logs
 
+  # Fuzzing campaigns run in the Daily workflow; this job only keeps the fuzz
+  # build path and seed corpora from rotting between daily runs.
+  fuzz-smoke:
+    name: Fuzz smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install -y clang libzstd-dev
+      - name: Generate fuzzing seeds
+        run: |
+          fuzz/generate-seeds.sh
+          # add -N so newly generated (untracked) seeds count as drift too
+          git add -N fuzz/corpus
+          git diff --exit-code -- fuzz/corpus
+      - name: Validate BACKUP state-machine harness
+        run: python3 -m py_compile fuzz/fuzz_backup_state_machine.py
+      - name: Build fuzzers
+        run: make fuzz CC=clang BUILD_COMPRESSION=yes -j"$(nproc)"
+      - name: Replay seed corpora
+        run: |
+          export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:malloc_limit_mb=2048:symbolize=0
+          export UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
+          for corpus in fuzz/corpus/*/; do
+            name=$(basename "$corpus")
+            [ "$name" = "backup_state_machine" ] && continue
+            "fuzz/fuzz_${name}" "$corpus" -runs=0 -print_funcs=0
+          done
+
   build-debian-old:
     runs-on: ubuntu-latest
     container: debian:buster
