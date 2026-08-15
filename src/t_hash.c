@@ -471,7 +471,7 @@ hashTemplate *hashTemplateGetById(uint64_t id) {
 
 /* Defrag the template struct and re-point every reference
  * to it (by_id slot, by_fields key, by_fields_lp value).*/
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime) {
+void hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime) {
     /* Field-name array. */
     sds *newfields = activeDefragAlloc(tmpl->fields);
     if (newfields) tmpl->fields = newfields;
@@ -502,25 +502,26 @@ hashTemplate *hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime end
             /* oldlp is freed, find its entry by pointer. */
             uint64_t hash = dictGetHash(htemplates->by_fields_lp, newlp);
             lp = dictFindByHashAndPtr(htemplates->by_fields_lp, oldlp, hash);
+            serverAssert(lp);
             tmpl->fields_lp = newlp;
-            if (lp) dictSetKey(htemplates->by_fields_lp, lp, newlp);
+            dictSetKey(htemplates->by_fields_lp, lp, newlp);
         }
     }
 
     /* The struct itself: by_id slot, by_fields key, by_fields_lp value. */
     uint64_t id = tmpl->id;
     hashTemplate *newtmpl = activeDefragAlloc(tmpl);
-    if (!newtmpl) return tmpl;
+    if (!newtmpl) return;
 
     tmplIdChunk *chunk = htemplates->by_id[id / TMPL_CHUNK_SIZE];
     chunk->slots[id % TMPL_CHUNK_SIZE] = newtmpl;
 
-    if (bf) dictSetKey(htemplates->by_fields, bf, newtmpl);
+    dictSetKey(htemplates->by_fields, bf, newtmpl);
     if (newtmpl->fields_lp) {
         if (!lp) lp = dictFind(htemplates->by_fields_lp, newtmpl->fields_lp);
-        if (lp) dictSetVal(htemplates->by_fields_lp, lp, newtmpl);
+        serverAssert(lp);
+        dictSetVal(htemplates->by_fields_lp, lp, newtmpl);
     }
-    return newtmpl;
 }
 
 /* Defrag by_id top array (once, at idx 0) and the chunk at 'idx'. */

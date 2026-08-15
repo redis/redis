@@ -4095,7 +4095,7 @@ void hashTemplatesInit(void);
 hashTemplate *hashTemplateGetOrCreate(sds *fields, unsigned long long field_count);
 hashTemplate *hashTemplateGetByFieldsLp(unsigned char *fields_lp);
 hashTemplate *hashTemplateGetById(uint64_t id);
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime);
+void hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime);
 int hashTemplateDefragByIdChunk(unsigned long chunk_idx);
 hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);
