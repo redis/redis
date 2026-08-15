@@ -1,0 +1,12 @@
+# Build outputs and local fuzzing artifacts
+fuzz_*
+!fuzz_*.c
+!fuzz_*.py
+*.o
+*.d
+__pycache__/
+crash-*
+leak-*
+timeout-*
+oom-*
+slow-unit-*
