@@ -521,6 +521,9 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         make_hashtmpl basic:incr counter 10
         assert_equal [r hincrby basic:incr counter 5] 15
         assert_equal [r hget basic:incr counter] 15
+
+        assert_equal 5 [r hincrby basic:incr newcnt 5]
+        assert_equal [r hget basic:incr newcnt] 5
         assert_encoding $encoding basic:incr
     }
 
@@ -528,6 +531,9 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         make_hashtmpl basic:incrfloat value 10.5
         set result [r hincrbyfloat basic:incrfloat value 0.1]
         assert_range $result 10.5 10.7
+
+        set result [r hincrbyfloat basic:incrfloat newval 1.5]
+        assert_range $result 1.4 1.6
         assert_encoding $encoding basic:incrfloat
     }
 
@@ -581,6 +587,33 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r hgetall hdel:dup] {c 3}
     }
 
+    test {HDEL/HGETDEL with unsorted and non-adjacent repeated fields} {
+        # Fields given out of order, one of them twice.
+        make_hashtmpl hdel:unsorted a 1 b 2 c 3 d 4 e 5
+        assert_equal 2 [r hdel hdel:unsorted d a d]
+        assert_equal {b 2 c 3 e 5} [r hgetall hdel:unsorted]
+
+        make_hashtmpl hgetdel:unsorted a 1 b 2 c 3 d 4 e 5
+        assert_equal {3 1 {} 5} [r hgetdel hgetdel:unsorted FIELDS 4 c a c e]
+        assert_equal {b 2 d 4} [r hgetall hgetdel:unsorted]
+        assert_encoding $encoding hgetdel:unsorted
+    }
+
+    test {HSET and HDEL move the key to an existing template, not a duplicate} {
+        # Two keys ending up with the same fields must share one template,
+        # no matter how they got there (PREPARE, HSET add or HDEL drop).
+        make_hashtmpl same:1 a 1 b 2 c 3
+        make_hashtmpl same:2 a 1 b 2
+        set base [s hash_templates]
+        # Adding c moves same:2 to same:1's template, no new one.
+        r hset same:2 c 9
+        assert_equal $base [s hash_templates]
+        # Deleting c moves same:1 to same:2's old template.
+        r hdel same:1 c
+        assert_equal $base [s hash_templates]
+        assert_encoding $encoding same:1
+    }
+
     test {HGETDEL returns value and keeps template encoding} {
         make_hashtmpl hgetdel:test a 1 b 2 c 3 d 4
         assert_encoding $encoding hgetdel:test
@@ -594,6 +627,9 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r hgetdel hgetdel:multi FIELDS 2 b d] {2 4}
         assert_encoding $encoding hgetdel:multi
         assert_equal [r hgetall hgetdel:multi] {a 1 c 3 e 5}
+
+        assert_equal [r hgetdel hgetdel:multi FIELDS 2 a a] {1 {}}
+        assert_equal [r hgetall hgetdel:multi] {c 3 e 5}
     }
 
     test {HGETDEL non-existent field returns nil and keeps encoding} {
@@ -704,6 +740,13 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal 2 [r hset hset:repeat c 1 d 4 c 3]
         assert_equal 3 [r hget hset:repeat c]
         assert_equal 4 [r hget hset:repeat d]
+        # A repeated existing field: two in-place overwrites, last value wins.
+        assert_equal 0 [r hset hset:repeat a 9 a 10]
+        assert_equal 10 [r hget hset:repeat a]
+        # A new field between the repeats of an existing one.
+        assert_equal 1 [r hset hset:repeat a 11 e 5 a 12]
+        assert_equal 12 [r hget hset:repeat a]
+        assert_equal 5 [r hget hset:repeat e]
         assert_encoding $encoding hset:repeat
     }
 
@@ -935,6 +978,14 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_encoding $encoding hfe:noexp
         assert_equal [r hget hfe:noexp email] alice@example.com
         assert_equal [r hget hfe:noexp name] bob
+        # A repeated new field is created once, last value wins.
+        assert_equal [r hsetex hfe:noexp FIELDS 2 age 25 age 26] 1
+        assert_equal [r hget hfe:noexp age] 26
+        # KEEPTTL sets no expiration either, so it stays as template encoded.
+        assert_equal [r hsetex hfe:noexp KEEPTTL FIELDS 2 name carol title dev] 1
+        assert_equal [r hget hfe:noexp name] carol
+        assert_equal [r hget hfe:noexp title] dev
+        assert_encoding $encoding hfe:noexp
     }
 
     test {HSETEX with expiration converts template key to regular hash} {

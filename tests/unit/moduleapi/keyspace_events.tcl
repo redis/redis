@@ -210,6 +210,18 @@ tags "modules external:skip" {
             r himport discard fieldset3
         }
 
+        test "Subkey notification: HGETDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset4 f1 f2 f3
+            r himport set myhash fieldset4 v1 v2 v3
+            r keyspace.reset_subkey_events
+            assert_equal {v1 {} v2} [r hgetdel myhash FIELDS 3 f1 f1 f2]
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset4
+        }
+
         test "Subkey notification: non-subkey event calls subkey callback with count=0" {
             r hset myhash f1 v1
             r keyspace.reset_subkey_events
