@@ -473,7 +473,7 @@ $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a ../deps/croaring/libroaring.a $(FINAL_LIBS)
 
 ../fuzz/fuzz_%: ../fuzz/fuzz_%.o $(REDIS_FUZZ_COMMON_OBJ) $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a $(FINAL_LIBS)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a ../deps/croaring/libroaring.a $(FINAL_LIBS)
 
 # redis-sentinel
 $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
