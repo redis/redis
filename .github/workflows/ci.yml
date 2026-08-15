@@ -52,6 +52,8 @@ jobs:
       - name: Generate fuzzing seeds
         run: |
           fuzz/generate-seeds.sh
+          # add -N so newly generated (untracked) seeds count as drift too
+          git add -N fuzz/corpus
           git diff --exit-code -- fuzz/corpus
       - name: Validate BACKUP state-machine harness
         run: python3 -m py_compile fuzz/fuzz_backup_state_machine.py

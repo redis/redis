@@ -1515,6 +1515,8 @@ jobs:
       - name: Generate fuzzing seeds
         run: |
           fuzz/generate-seeds.sh
+          # add -N so newly generated (untracked) seeds count as drift too
+          git add -N fuzz/corpus
           git diff --exit-code -- fuzz/corpus
       - name: Build fuzzers
         run: make fuzz CC=clang BUILD_COMPRESSION=yes -j"$(nproc)"
@@ -1522,7 +1524,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: fuzz-corpus-minimized/${{ matrix.fuzzer }}
-          key: fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-${{ github.run_id }}
+          key: fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-
             fuzz-corpus-${{ matrix.fuzzer }}-
@@ -1534,6 +1536,7 @@ jobs:
             cp -R "fuzz-corpus-minimized/${{ matrix.fuzzer }}/." "fuzz-corpus/${{ matrix.fuzzer }}/"
           fi
       - name: Run Fuzzing - ${{ matrix.fuzzer }}
+        id: run_fuzzing
         run: |
           export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:malloc_limit_mb=2048:symbolize=0
           export UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
@@ -1546,7 +1549,10 @@ jobs:
             -max_len=4096 \
             -print_funcs=0
       - name: Minimize fuzz corpus
-        if: always()
+        id: minimize
+        # Runs even when fuzzing found a crash, but not when fuzzing never ran
+        # (a failed build must not lead to saving an empty corpus below).
+        if: always() && steps.run_fuzzing.outcome != 'skipped'
         run: |
           export ASAN_OPTIONS=detect_leaks=0:allocator_may_return_null=1:malloc_limit_mb=2048
           rm -rf "fuzz-corpus-minimized/${{ matrix.fuzzer }}"
@@ -1570,11 +1576,11 @@ jobs:
             done
           done
       - name: Save minimized fuzz corpus
-        if: always()
+        if: always() && steps.minimize.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: fuzz-corpus-minimized/${{ matrix.fuzzer }}
-          key: fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-${{ github.run_id }}
+          key: fuzz-corpus-${{ matrix.fuzzer }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload fuzz artifacts
         if: always()
         uses: actions/upload-artifact@v4
