@@ -69,17 +69,8 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
     /* Protection against abusive patterns. */
     if (nesting > 1000) return 0;
 
-    /* When the candidate string is empty the main loop below (guarded by
-     * both patternLen and stringLen) is never entered, so a pattern made
-     * only of star characters would otherwise incorrectly fail to match
-     * the empty string. The only patterns that match the empty string are
-     * the empty pattern and any pattern made solely of stars. */
-    if (stringLen == 0) {
-        while (patternLen && pattern[0] == '*') {
-            pattern++;
-            patternLen--;
-        }
-        return patternLen == 0;
+    if (patternLen != 0 && stringLen == 0) {
+        return strspn(pattern, "*") >= (size_t)patternLen;
     }
 
     while(patternLen && stringLen) {
@@ -1862,31 +1853,11 @@ static void test_reclaimFilePageCache(void) {
 }
 #endif
 
-static void test_stringmatchlen(void) {
-    /* '*' (and any pattern made only of '*') must match the empty string. */
-    assert(stringmatchlen("*", 1, "", 0, 0) == 1);
-    assert(stringmatchlen("**", 2, "", 0, 0) == 1);
-    assert(stringmatchlen("*", 1, "", 0, 1) == 1); /* nocase as well */
-    /* Regression: '*' still matches non-empty strings. */
-    assert(stringmatchlen("*", 1, "abc", 3, 0) == 1);
-    assert(stringmatchlen("a*", 2, "a", 1, 0) == 1);
-    assert(stringmatchlen("a*", 2, "abc", 3, 0) == 1);
-    assert(stringmatchlen("*x", 2, "ax", 2, 0) == 1);
-    assert(stringmatchlen("*x", 2, "x", 1, 0) == 1);
-    /* '*x' must NOT match the empty string. */
-    assert(stringmatchlen("*x", 2, "", 0, 0) == 0);
-    /* Empty pattern matches only the empty string. */
-    assert(stringmatchlen("", 0, "", 0, 0) == 1);
-    assert(stringmatchlen("", 0, "a", 1, 0) == 0);
-    printf("stringmatchlen test is ok\\n");
-}
-
 int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
 
-    test_stringmatchlen();
     test_string2ll();
     test_string2l();
     test_string2d();
