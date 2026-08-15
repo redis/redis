@@ -16,6 +16,11 @@ Its initial corpus also preserves minimized UBSan regressions for a relative
 The shared harness is data-structure agnostic. Feature branches can add focused
 targets without changing normal Redis builds.
 
+In CI, the fuzz campaigns run in the Daily workflow (`daily.yml`, on a cron
+schedule or via manual dispatch with the `fuzz` token removed from `skipjobs`).
+The per-PR CI (`ci.yml`) only runs a smoke job that checks seed drift, builds
+the fuzz targets, and replays the checked-in corpora with `-runs=0`.
+
 `fuzz_list_move_commands` is a stateful target for Redis 8.10 `LMOVEM` and
 `BLMOVEM`. Its generated pipelines grow, shrink, rotate, delete, and change the
 types of source and destination keys. It covers both directions, `COUNT` and
