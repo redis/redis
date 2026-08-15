@@ -108,6 +108,9 @@ clean:
 build:
 	+@scripts/build.sh $(BUILD_ARGS)
 
+fuzz:
+	@$(MAKE) -C fuzz
+
 # bootstrap [<name> ...|all|.] — install per-module build/test prereqs.
 bootstrap:
 	+@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
@@ -157,4 +160,4 @@ sync-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/sync-redis-conf.sh
 
-.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf tarball
+.PHONY: install clean build fuzz run test bootstrap deploy modules-update modules-shallow sync-redis-conf tarball

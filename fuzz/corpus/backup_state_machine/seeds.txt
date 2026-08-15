@@ -1,0 +1,35 @@
+# Bits 0-2 select the lifecycle/fault scenario, bit 3 selects appendonly,
+# and bit 4 selects the RDB/AOF preamble. Each mode has every configuration
+# combination; higher bits vary data mutations and command ordering.
+0x83f1a76d5b2900c0
+0x83f1a76d5b2900d0
+0x1d0c6b8f45a971d1
+0x1d0c6b8f45a971c1
+0xf62730a14de55a12
+0xf62730a14de55a02
+0x43a8c75e0916bb23
+0x43a8c75e0916bb33
+0xb9136e2f7840cd34
+0xb9136e2f7840cd24
+0x28d7a1f96c53e845
+0x28d7a1f96c53e855
+0xd56b04c2a8179f56
+0xd56b04c2a8179f46
+0x6ea91d3754c20b67
+0x6ea91d3754c20b77
+0x9248fb1603ad71a8
+0x9248fb1603ad71b8
+0x317d5ec9b68042b9
+0x317d5ec9b68042a9
+0xc4a0723fd19e58ca
+0xc4a0723fd19e58da
+0x75be9148063af0db
+0x75be9148063af0cb
+0xa153d86c2f749bec
+0xa153d86c2f749bfc
+0x0bce4261d89537fd
+0x0bce4261d89537ed
+0xe6087f35a2cb4a0e
+0xe6087f35a2cb4a1e
+0x59f314b87d60ce1f
+0x59f314b87d60ce0f
