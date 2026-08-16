@@ -4,43 +4,67 @@ Mark a small set of keys as **blessed** so they survive memory pressure. Aimed a
 customers who run one DB mostly as a cache but keep a few non-cache keys
 (counters, a stream or two) that must never disappear when eviction kicks in.
 
-The protection is a **bitfield** — each bit is one independent guarantee:
+## Levels
 
-| flag | meaning |
-|------|---------|
-| `NOEVICT` | never evicted (deleted) under `maxmemory` |
-| `NOSWAP`  | kept in RAM, never swapped to flash (RoF only) |
-
-Commands:
+The protection is a single **ordered level** (a ladder, not a bitfield). Each
+level is strictly stronger than the one below:
 
 ```
-BLESS key NOEVICT                 # never evict
-BLESS key NOSWAP                  # keep in RAM
-BLESS key NOEVICT NOSWAP          # both (space- or '|'-separated)
-BLESS key NOEVICT|NOSWAP          # same, one token
-BLESS key AUFERRE                 # unbless (clear all flags)
-BLESSED COUNT                     # number of blessed keys
-BLESSED LIST                      # each blessed key -> its flags
+   NONE ───────────► NOEVICT ───────────► INRAM
+  (0, unblessed)   (1, never evicted,   (2, never evicted
+                    may swap to flash)   AND never swapped)
 ```
 
-Aliases (the ticket's names): `AETERNUS` = `NOEVICT`, `VELOX` = `NOEVICT|NOSWAP`,
-`AUFERRE` = clear. Config: `bless-max-keys` (per node, default 1024).
+| level | evictable (`maxmemory`)? | swappable to flash (RoF)? |
+|-------|--------------------------|---------------------------|
+| `NONE`    | yes | yes |
+| `NOEVICT` | **no** | yes |
+| `INRAM`   | **no** | **no** (pinned in RAM) |
+
+`INRAM` implies `NOEVICT`.
+
+## Commands
+
+`BLESS` is a container command (like `OBJECT`):
+
+```
+BLESS SET <key> NONE|NOEVICT|INRAM   # set the level; NONE clears (unbless)
+BLESS GET <key>                      # -> "NOEVICT" | "INRAM", or nil if not blessed
+BLESS COUNT                          # number of blessed keys in the CURRENT db
+BLESS LIST                           # map: key -> level, for the CURRENT db
+BLESS HELP
+```
+
+Config: `bless-max-keys` (per DB, default 1024).
 
 ---
 
 ## The one idea
 
-Bless is a **durable per-key property**, exactly like TTL. TTL is keymeta class 0;
-bless is a keymeta class too. That single decision gives us persistence and
-migration transport for free. But a value stored *in the key* can be swapped to
-flash under RoF — and the eviction/swap decision must never read flash. So bless
-lives in **two places**, with one authoritative:
+Bless is a **durable per-key property, modeled exactly like TTL.** TTL is keymeta
+class 0; bless is keymeta class `BLES`. That single decision buys persistence and
+migration transport for free. And like TTL, it lives in two places:
 
-- **keymeta value** — the source of truth. Durable, migrates. May go to flash.
-- **RAM index** — a derived mirror. Always resident. This is what decisions read.
+```mermaid
+flowchart LR
+  subgraph K["per key"]
+    KM["keymeta BLES value<br/>(in the kvobj)<br/><b>source of truth</b><br/>durable · migrates"]
+  end
+  subgraph D["per redisDb"]
+    IX["blessed_keys dict<br/>name → level<br/><b>derived index</b><br/>always in RAM"]
+  end
+  KM -- "rebuilt on load / migration" --> IX
+  IX -- "O(1) lookup for decisions" --> Q(["eviction / swap / COUNT / LIST"])
+```
 
-Everything below is organized around those two representations and the four
-layers that use them.
+- **keymeta value** — the source of truth. Durable, migrates, may page to flash
+  with its value.
+- **`db->blessed_keys`** — a derived, always-resident index. Every decision and
+  `COUNT`/`LIST` read *this*, so a cold (on-flash) key is still decided on without
+  a flash read.
+
+This mirrors TTL exactly: keymeta expire (class 0) is the source of truth, and
+`db->expires` is the derived per-DB index.
 
 ---
 
@@ -48,129 +72,173 @@ layers that use them.
 
 ```mermaid
 flowchart TB
-  subgraph L1["Layer 1 · Command surface"]
-    A["BLESS / BLESSED / bless-max-keys<br/>t_bless.c, commands/*.json, config.c"]
+  subgraph L1["Layer 1 · Command surface — t_bless.c, commands/*.json, config.c"]
+    A["BLESS SET/GET/COUNT/LIST · bless-max-keys"]
   end
   subgraph L2["Layer 2 · Durable storage (source of truth)"]
-    B["keymeta class 'BLES' — bitfield in the kvobj<br/>RDB · AOF-restore · DUMP/RESTORE · slot migration"]
+    B["keymeta class BLES — level in the kvobj<br/>RDB · DUMP/RESTORE · slot migration"]
   end
-  subgraph L3["Layer 3 · RAM index (derived, always resident)"]
-    C["redisDb.blessed_keys (per-DB) : name -> level<br/>COUNT / LIST / cap / eviction lookup"]
+  subgraph L3["Layer 3 · RAM index (derived, per-DB, always resident)"]
+    C["db->blessed_keys : name → level"]
   end
   subgraph L4["Layer 4 · Enforcement (guarding)"]
-    D["NOEVICT → performEvictions (core)<br/>NOSWAP → RoF swap-out selector (BigRedis fork)"]
+    D["NOEVICT → performEvictions (core)<br/>NOSWAP → RoF swap-out selector (BigRedis)"]
   end
-  A -->|keyMetaSetMetadata| B
-  A -->|blessedSetPut/Del| C
-  B -->|rebuilt on load/restore/migration| C
-  C -->|blessNoEvict / blessNoSwap| D
+  A -- "keyMetaSetMetadata()" --> B
+  A -- "blessedSetPut/Del()" --> C
+  B -- "dbAdd* hook → blessTrackKey()" --> C
+  C -- "blessNoEvict(db,key) / blessNoSwap(db,key)" --> D
 ```
 
-### Layer 1 — Command surface
-`t_bless.c`, `commands/bless.json` + `blessed*.json`, `config.c`.
+### Function interaction map
 
-- `blessCommand` parses one or more flag tokens (each may be `|`-joined), ORs
-  them into a bitfield, validates, then writes both representations. `AUFERRE`
-  clears; combining `AUFERRE` with a flag is an error.
-- The cap (`bless-max-keys`) is checked only for *newly* blessed keys; re-flagging
-  an already-blessed key is free.
-- `BLESS` is a `WRITE` command → replicated verbatim to replicas and AOF, so
-  replicas build their own copy of both representations.
-- `blessedCommand` serves `COUNT` (dict size) and `LIST` (a RESP3 map
-  name → flag-string, RESP2 flat array).
+The actual functions and how they cross the layers:
 
-### Layer 2 — Durable storage (source of truth)
-keymeta class `"BLES"`, registered in `blessInit()` via
-`keyMetaClassCreate(NULL, "BLES", 0, &conf)` with `reset_value = 0`.
+```mermaid
+flowchart TD
+  cmd["blessCommand()"] --> setc["blessSetCommand()"]
+  setc -- "attach level (L2)" --> kms["keyMetaSetMetadata(db,o,BLES,level)"]
+  setc -- "update index (L3)" --> put["blessedSetPut(db,key,level)"]
 
-- The level is a **bitfield in the class's 8-byte value slot**, stored inline in
-  the value object (`kvobj`) — the same slot mechanism TTL uses. One bit in the
-  object's `metabits` marks "has a BLES value"; the 8-byte slot holds the flags.
-- `rdb_save`/`rdb_load` callbacks write/read the bitfield. `AUFERRE` writes the
-  reset sentinel `0`, which the framework never serializes — an unblessed key
-  carries nothing in RDB or in a migration payload.
-- Because it's a keymeta class, the flag rides inline in DUMP/RESTORE and in the
-  cluster slot-migration snapshot — same path as TTL, no separate channel.
+  save["keymeta rdb_save"] --> brs["blessRdbSave() → rdbSaveLen(level)"]
+  load["keymeta rdb_load"] --> brl["blessRdbLoad() → rdbLoadLen(level)"]
 
-### Layer 3 — RAM index (derived, always resident)
-`redisDb.blessed_keys` — a **per-DB** `dict` of key name → level, one per numbered
-DB, exactly like `db->expires`. Being per-DB makes it SWAPDB- and multi-DB-safe.
+  add["dbAddInternal / dbAddRDBLoad"] -- "reads attached level (L2→L3)" --> track["blessTrackKey(db,key,level)"]
+  track --> put
+  unlink["keyMetaOnUnlink → blessUnlink()"] --> del["blessedSetDel(db,key)"]
+  rename["keyMetaOnRename → blessRename()"] --> del
 
-- Answers `COUNT`/`LIST`, enforces the cap, and is the structure the guarding
-  layer consults **without touching flash**.
-- Kept in sync only on the main thread. See "Keeping the two in sync" below.
+  evict["performEvictions → evictionPoolPopulate"] --> ne["blessNoEvict(db,key)"]
+  ne --> get["blessGetLevel(db,key) ≥ NOEVICT"]
+  put --> IX[("db->blessed_keys")]
+  del --> IX
+  get --> IX
+```
 
-### Layer 4 — Enforcement (guarding)
-- **`NOEVICT`** — enforced in `evict.c`. `evictionPoolPopulate` skips blessed keys
-  (and doesn't count them, so an all-blessed sample yields zero candidates and
-  eviction stops with a normal OOM instead of spinning); the random-policy path
-  retries to skip them. Reads `blessNoEvict(key)`.
-- **`NOSWAP`** — enforced by the RoF swap-out selector in the BigRedis fork. The
-  selector reads the engine's own `io_blessed_keys` set, so `NOSWAP` registers the
-  key there (see "BigRedis / RoF integration" below). A no-op without RoF.
+- **L1 command** writes *both* the keymeta value (L2) and the index (L3).
+- **L2 load/migration** funnels through the `dbAdd*` hook, which reads the freshly
+  attached level and calls `blessTrackKey` to rebuild L3.
+- **L3 removals** ride the main-thread `unlink`/`rename` keymeta callbacks.
+- **L4 guards** are pure O(1) reads of L3.
 
 ---
 
-## What lives in RAM vs. flash
+## Write path — `BLESS SET k INRAM`
 
-This is the crux under RoF. There are three pieces of bless-related state:
-
-| state | where it lives | on flash under RoF? | used for |
-|-------|----------------|---------------------|----------|
-| BLES bitfield (the flags) | inline in the `kvobj` value | **yes** — swaps out *with the value* | durability, migration transport |
-| `metabits` presence bit | inline in the `kvobj` header | rides with the value | marks the slot present |
-| `blessed_keys` RAM index | per-DB `dict`, name → level | **no** — always resident | every decision + COUNT/LIST/cap |
-
-```
-                 RAM                                      FLASH (RoF, cold keys)
- ┌───────────────────────────────────┐        ┌───────────────────────────────┐
- │ blessed_keys dict                 │        │  cold value object             │
- │   "counter:1" -> NOEVICT|NOSWAP   │◄────────│  [ BLES flags ][ robj ][ ... ] │
- │   "job:queue" -> NOEVICT          │  mirror │   (flags also here, but cold)  │
- │  (always resident, decisions here)│        └───────────────────────────────┘
- └───────────────────────────────────┘
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as client
+  participant Cmd as blessCommand / blessSetCommand
+  participant KV as kvobj (keymeta, L2)
+  participant IX as db->blessed_keys (L3)
+  C->>Cmd: BLESS SET k INRAM
+  Cmd->>Cmd: parse level (NONE/NOEVICT/INRAM)
+  Cmd->>KV: lookupKeyWrite(k)  (swaps in if on flash)
+  Cmd->>Cmd: cap check: dictSize(db->blessed_keys) < bless-max-keys
+  Cmd->>KV: keyMetaSetMetadata(db, o, BLES, INRAM)
+  Cmd->>IX: blessedSetPut(db, k, INRAM)
+  Cmd->>C: +OK  (keyModified, notify, dirty++)
 ```
 
-Why two copies:
-
-- The **keymeta value** is authoritative and must be durable, so it lives in the
-  key and travels with it (RDB, migration). Under RoF the whole value — flags
-  included — can be paged to flash.
-- But eviction and swap-out decisions run over *RAM-resident key records* and must
-  not issue a flash read to ask "is this blessed?". So the decision reads the
-  **RAM index** by key name — O(1), always in RAM, regardless of where the value
-  currently sits.
-
-So: the flags are *stored* wherever the value is (RAM or flash); the flags are
-*decided on* only from the RAM index. The RAM index is the reason a cold, on-flash
-blessed key is still protected without paging it back in.
+`NONE` takes the mirror path: `keyMetaSetMetadata(..., NONE)` (reset sentinel →
+never persisted) + `blessedSetDel(db, k)`.
 
 ---
 
-## Keeping the two in sync (main thread only)
+## Load / migration path — rebuilding the index from the keys
 
-The keymeta value is written whenever bless changes; the RAM index must track it
-across every lifecycle event. All mutations happen on the main thread.
+The keymeta `rdb_load` callback has **no key name** (the key isn't live yet), so
+the index is rebuilt at the *key-add* choke points, not in the callback.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Src as RDB file / source shard
+  participant RL as rdbResolveKeyType → blessRdbLoad
+  participant ADD as dbAddInternal / dbAddRDBLoad
+  participant IX as db->blessed_keys (L3)
+  Src->>RL: RDB_OPCODE_KEY_META + level  (before the key)
+  RL->>RL: read level into KeyMetaSpec
+  RL->>ADD: attach level to the new kvobj
+  ADD->>ADD: keyMetaGetMetadata(BLES) → level
+  ADD->>IX: blessTrackKey(db, key, level)
+```
+
+RESTORE / COPY / MOVE / RENAME-new go through `dbAddInternal`; RDB file load goes
+through `dbAddRDBLoad`; both carry the hook, so cold (on-flash) keys are rebuilt
+too — their level rides in the RAM-resident metadata, not with the flash value.
+
+---
+
+## Keeping the index in sync (main thread only)
 
 ```mermaid
 flowchart LR
-  BLESS["BLESS cmd"] -->|"add / update / remove"| SET[("blessed_keys")]
-  ADD["dbAddInternal / dbAddRDBLoad<br/>RDB load · RESTORE · migration · COPY · MOVE · RENAME-new"] -->|add| SET
-  UNLINK["unlink cb<br/>DEL · expire · overwrite"] -->|remove| SET
+  BLESS["BLESS SET"] -->|add / update / remove| SET[("db->blessed_keys")]
+  ADD["dbAddInternal / dbAddRDBLoad<br/>RDB · RESTORE · migration · COPY · MOVE · RENAME-new"] -->|blessTrackKey| SET
+  UNLINK["unlink cb — DEL · expire · overwrite"] -->|blessedSetDel| SET
   RENAME["rename cb"] -->|remove old name| SET
-  FLUSH["FLUSHDB / FLUSHALL"] -->|clear| SET
+  FLUSH["emptyDbStructure — FLUSHDB/ALL · DEBUG RELOAD · full sync"] -->|dictEmpty| SET
+  SWAP["SWAPDB"] -->|swap field with the data| SET
 ```
 
-- **Add on load/migration** happens at the key-add choke points, not in the
-  keymeta `rdb_load` callback — that callback receives a NULL key name (the key
-  isn't live yet). RDB file load goes through `dbAddRDBLoad`; RESTORE/COPY/MOVE/
-  RENAME go through `dbAddInternal`; both have a hook that reads the just-attached
-  flags and calls `blessTrackKey`.
-- **Remove** uses the `unlink` callback (main thread), never `free` — `free` may
-  run on a lazyfree background thread and must not touch globals.
-- **Rename** drops the old name in the `rename` callback; the new name is added by
-  the `dbAddInternal` hook.
-- **Flush** clears the whole index.
+- **Remove** uses the `unlink` callback (main thread), never `free` (which may run
+  on a lazyfree background thread and must not touch the DB).
+- **Flush/reload** clears per-DB inside `emptyDbStructure`, so an empty-then-load
+  never leaves stale entries.
+- **SWAPDB** swaps `db->blessed_keys` alongside `keys`/`expires` — the index
+  follows the data.
+
+---
+
+## What lives in RAM vs. flash (under RoF)
+
+| state | where | on flash? | used for |
+|-------|-------|-----------|----------|
+| BLES level | inline in the `kvobj` value | **yes** — pages out with the value | durability, migration |
+| `metabits` presence bit | in the `kvobj` header | rides with the value | marks the slot present |
+| `db->blessed_keys` index | per-DB `dict` | **no** — always resident | every decision + COUNT/LIST/cap |
+
+```mermaid
+flowchart LR
+  subgraph RAM
+    IX["db->blessed_keys<br/>counter → NOEVICT<br/>job → INRAM<br/>(decisions read here)"]
+    HDR["cold key's RAM record<br/>(level available via meta CF)"]
+  end
+  subgraph FLASH["FLASH (cold values)"]
+    VAL["value blob<br/>[ BLES level ][ robj ][ … ]"]
+  end
+  IX -. "mirror" .- HDR
+  HDR -. "value paged out" .- VAL
+```
+
+The level is *stored* wherever the value is; it is *decided on* only from the
+always-resident index. That's why a cold blessed key is protected without a flash
+read.
+
+---
+
+## Eviction & swap decision
+
+Two independent pressure sources; the level is read once from the index:
+
+```mermaid
+flowchart TD
+  P[Memory pressure] --> S["sample candidate key<br/>(RAM-resident records)"]
+  S --> L{"level = blessGetLevel(db,key)<br/>O(1), RAM only"}
+  L --> PT{pressure type}
+  PT -->|maxmemory: want to EVICT| EV{"level ≥ NOEVICT ?"}
+  PT -->|RoF RAM pressure: want to SWAP| SW{"level ≥ INRAM ?"}
+  EV -->|yes| SKIP1["skip → pick another victim"]
+  EV -->|no| EVICT["evict (delete)"]
+  SW -->|yes| SKIP2["keep in RAM → pick another"]
+  SW -->|no| SWAP["swap value to flash"]
+```
+
+**Safety:** if a sampled batch is entirely `NOEVICT`+, `evictionPoolPopulate`
+reports zero candidates, so eviction stops and the client gets a normal `OOM`
+error instead of the server spinning. Verified under load.
 
 ---
 
@@ -178,255 +246,306 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
+  autonumber
   participant Src as Source shard
   participant Dst as Dest shard
-  Src->>Src: DUMP key — rdbSaveKeyMetadata writes RDB_OPCODE_KEY_META + flags
+  Src->>Src: DUMP — rdbSaveKeyMetadata writes RDB_OPCODE_KEY_META + level
   Src->>Dst: RESTORE key <payload>
-  Dst->>Dst: rdbResolveKeyType reads opcode → blessRdbLoad → flags
-  Dst->>Dst: dbAddInternal attaches flags + rebuilds RAM index
+  Dst->>Dst: rdbResolveKeyType → blessRdbLoad → level
+  Dst->>Dst: dbAddInternal attaches level + blessTrackKey → index
+  Note over Src,Dst: source trim (dbDelete) → unlink cb removes it from source index
 ```
 
-The same machinery serves RDB save/load and cluster slot migration; module aux
-data is not involved (bless is per-key, not global). `AUFERRE` keys carry nothing
-because the reset sentinel is never serialized.
+Same machinery for RDB save/load and cluster slot migration; no module-aux, no
+separate channel. `NONE` keys carry nothing (reset sentinel is never serialized).
 
 ---
 
-## Eviction & swap decision
+## BigRedis / RoF integration (`NOSWAP`)
 
-Under memory pressure the server considers a candidate key and decides: skip,
-swap to flash, or evict. Two independent pressure sources:
+The swap engine (BigRedis, in the `redislabsdev/Redis` fork) owns RAM↔flash. Its
+swap-out victim selector already skips keys in its own per-DB set `io_blessed_keys`
+("keys that must stay in RAM"). It does **not** read core keymeta.
 
-- **RAM pressure** (RoF) → first response is *swap* RAM→flash.
-- **Capacity / `maxmemory`** → response is *evict* (delete).
-
-The decision reads the flags from the **RAM index by key name**, so it is the
-same whether the value is currently in RAM or on flash. Residency does not change
-the *decision*; it only limits the *action* (a value already on flash can't be
-swapped again; a `NOSWAP` key is never on flash to begin with).
+**Recommended wiring — the engine queries core, no mirroring:**
 
 ```mermaid
 flowchart TD
-  P[Memory pressure] --> S["Sample candidate key<br/>(from RAM-resident key records)"]
-  S --> L{"flags = blessed_keys[name]<br/>O(1), RAM only — no flash read"}
-  L --> PT{Pressure type?}
-  PT -->|RAM pressure<br/>want to swap out| SW{NOSWAP set?}
-  PT -->|capacity<br/>want to evict| EV{NOEVICT set?}
-  SW -->|yes| KEEP["Keep in RAM → pick another victim"]
-  SW -->|no| SWAP["Swap value to flash"]
-  EV -->|yes| SKIP["Never evict → pick another victim"]
-  EV -->|no| EVICT["Evict (delete) the key"]
+  V["swap-out selector picks candidate key"] --> A{"in io_blessed_keys?<br/>(engine's own size-pins)"}
+  A -->|yes| KEEP1["keep in RAM"]
+  A -->|no| B{"blessNoSwap(db,key)?<br/>(core query — user INRAM)"}
+  B -->|yes| KEEP2["keep in RAM"]
+  B -->|no| SWAPOUT["swap value to flash"]
 ```
 
-Decision matrix (rows = flag bits):
+- **User `INRAM`** → the engine calls core `blessNoSwap(db,key)` at decision time.
+  Nothing is copied into `io_blessed_keys`; single source of truth (core keymeta).
+- **`io_blessed_keys`** keeps only the engine's *own* size-driven pins (values too
+  big for flash / >4 GB). Core knows nothing about those; they stay engine-local.
+- On load there's nothing to rebuild for user pins (core index rebuilds from
+  keymeta); the engine re-derives size-pins from value sizes.
 
-| flags               | evictable? | swappable to flash? |
-|---------------------|------------|---------------------|
-| none (`AUFERRE`)    | yes        | yes                 |
-| `NOEVICT`           | **no**     | yes                 |
-| `NOSWAP`            | yes        | **no** (pinned RAM) |
-| `NOEVICT \| NOSWAP` | **no**     | **no**              |
+Caveat: the query must be safe from the thread that runs victim selection
+(main-thread → fine).
 
-Safety: if a sampled batch is entirely `NOEVICT`, the eviction sampler reports
-zero candidates and stops, so the client gets a normal `OOM` error rather than the
-server spinning. Confirmed under load.
-
----
-
-## BigRedis / RoF integration
-
-Under RoF the swap engine (BigRedis, `bigstore.c` in the `redislabsdev/Redis`
-fork) is what actually moves keys RAM↔flash. It already has a per-DB set,
-`io_blessed_keys` — literally *"keys in RAM that should NOT be swapped to disk"* —
-and every swap-out victim path skips keys in it (`isValidKeyForRamEviction`,
-`getFirstRamEvictionCandidate`). It does **not** read core keymeta/`metabits` for
-victim selection.
-
-So `NOSWAP` does not need a new mechanism: a `NOSWAP` key is **registered in
-`io_blessed_keys`** (the same thing `DEBUG bigredis-bless` does). The core keymeta
-`BLES` class stays the durable source of truth; `io_blessed_keys` is the derived
-enforcement cache the engine reads — mirrored on key-add, exactly like the RAM
-index is for `NOEVICT`.
-
-### The one thing to get right: user `NOSWAP` vs. size-driven bless
-
-A key can end up "don't swap" for **two different reasons**, and they must not be
-confused:
-
-| reason | who sets it | lifetime | listed by `BLESSED LIST`? |
-|--------|-------------|----------|---------------------------|
-| user asked (`BLESS … NOSWAP`) | our command | until `AUFERRE` / key deleted | **yes** |
-| value too big for flash (auto) | the engine, by size | until it shrinks / OOM unbless | no |
-
-Two independent signals keep them apart — no new bookkeeping needed:
-
-1. **keymeta is the discriminator for "user intent."** Only user-blessed keys get
-   a `BLES` keymeta value; size-pinned keys have none. `BLESSED COUNT`/`LIST` read
-   our keymeta-derived RAM set, so they show *only* user-blessed keys, never the
-   auto size-pinned ones.
-2. **The engine already separates the two inside `io_blessed_keys`:**
-   - **hard-bless** (`BlessedValue` size 0) — explicit; **never** auto-unblessed.
-   - **soft-bless** (real serialized size) — size-driven; **can** be auto-unblessed
-     under OOM or when the value shrinks below the threshold.
-
-**Rule:** register a user `NOSWAP` key as **hard-bless** (size 0). That is what
-makes the guarantee hold — the engine's OOM auto-unbless explicitly skips size-0
-entries, so a user-pinned key is never evicted from RAM behind the user's back. A
-size-pinned key stays soft-bless and the engine keeps managing it independently.
-`AUFERRE` removes only the user's hard-bless; if the key also happens to be big,
-the engine re-pins it as soft-bless on its own — the two populations never merge.
-
-```mermaid
-flowchart TD
-  K[key marked don't-swap] --> Q{has BLES keymeta?}
-  Q -->|yes| U["user NOSWAP → hard-bless (size 0)<br/>persisted, listed, never auto-unblessed"]
-  Q -->|no| S["engine size-pin → soft-bless (real size)<br/>transient, not listed, auto-unbless on OOM"]
-```
+*(Alternative, not preferred: mirror user `INRAM` into `io_blessed_keys` as a
+"hard-bless" (size 0, never auto-unblessed). Reuses the existing skip but
+duplicates state and needs load-time reconciliation.)*
 
 ### `NOEVICT` in the fork
 
-`NOEVICT` cannot piggyback on `io_blessed_keys`: the fork's standard `maxmemory`
-delete-eviction path (`performEvictionsEx`, `ram_eviction == 0`) does not consult
-it. `NOEVICT` needs its own skip there — the same guard we added upstream, placed
-at the fork's existing candidate-skip seams.
+`NOEVICT` can't piggyback on `io_blessed_keys`: the fork's `maxmemory`
+delete-eviction path (`performEvictionsEx`, `ram_eviction == 0`) doesn't consult
+it, and the flash-eviction path (`performFlashEvictionsEx`, `bigredis-evex.c`)
+deletes cold keys entirely. Both must skip `NOEVICT` keys — the core guard we
+added in `evict.c` plus a matching skip in the engine's flash-eviction candidate
+scan. See "core vs BigRedis ownership" below.
 
-## Group blessing by prefix (proposed — NOT implemented)
-
-A convenience for blessing many keys at once by **key-name prefix**, e.g. bless
-every key under `user:`. Design only; no code yet.
-
-### Command
-
-```
-BLESS GROUP <prefix> <FLAG ...>     # bless every key starting with <prefix>
-BLESS GROUP <prefix> AUFERRE        # remove the group rule (and its blessings)
-BLESS GROUPS                        # list all group rules -> flags
-```
-`FLAG` is the same set as `BLESS SET` (`NOEVICT`, `NOSWAP`, aliases). Lives under
-the existing `BLESS` container as more subcommands.
-
-There are two candidate approaches. They differ in **where the O(N) keyspace
-cost lands** — at query time (Approach A) or at write/rule time (Approach B).
-
-## Approach A — Rule-only (lazy evaluation) — RECOMMENDED
-
-Store **only the rule**; never stamp individual keys. Blessing is *computed* at
-the decision points.
-
-- **Storage:** a per-node radix tree (`rax`) of `prefix -> flags`. This is the
-  same structure client-side tracking already uses for `BCAST` prefixes
-  (`PrefixTable`, `tracking.c`). Not attached to any key.
-- **`BLESS GROUP user: NOEVICT`:** just `raxInsert` the rule — **O(1)**, no key
-  scan. Future `user:*` keys are covered automatically (nothing to do on add).
-- **Enforcement:** the guard becomes "explicitly blessed **or** matches a rule":
-  `blessNoEvict(key) = key ∈ blessed_keys  OR  raxMatchesPrefix(bless_groups, key)`
-  — O(key-length) per check, no flash read.
-- **`COUNT` / `LIST` / `GROUPS`** answer about **definitions**, all cheap:
-  - `BLESS COUNT` → number of explicit per-key blessings — O(1).
-  - `BLESS LIST` → explicit per-key blessings (key → flags).
-  - `BLESS GROUPS` → the rules (prefix → flags) — O(#rules).
-  They deliberately do **not** enumerate "every key currently matching a prefix"
-  — that expansion is inherently O(N) and is never hidden behind a blocking
-  command. If it's truly needed, expose it only as a cursor: `BLESS GROUPSCAN
-  <cursor>` (same engine as `SCAN`, incremental, non-blocking, opt-in).
-- **Cost:** O(1) bless, O(key-len) per decision, tiny memory (just rules). The
-  only O(N) is the opt-in cursor scan.
-
-## Approach B — Materialize (eager stamp)
-
-Iterate the whole keyspace and **stamp each matching key** as individually
-blessed, so group members become real entries in `blessed_keys`/keymeta.
-
-- **Storage:** the same `rax` rule table (still needed for *future* keys) **plus**
-  a per-key BLES value on every matching key — i.e. the group is expanded into the
-  per-key representation.
-- **`BLESS GROUP user: NOEVICT`:** walk the entire keyspace and bless every match.
-  Must be done with the **incremental cursor** (`kvstoreScan` / `dbScan`, the
-  `SCAN` engine) driven from `serverCron` a slice at a time — **never** a
-  synchronous `KEYS`-style loop, which would block the event loop on O(N).
-- **On key creation** (`dbAddInternal` / `dbAddRDBLoad`): test the new key against
-  the rules and stamp it if it matches.
-- **`COUNT` / `LIST`:** cheap again — every protected key is a real entry in
-  `blessed_keys`, so they read the materialized set directly (same as pure
-  per-key). This is the payoff: the O(N) moves to rule-creation/scan, and queries
-  are O(result).
-- **Costs / the hard parts:**
-  - **O(N) scan on every `BLESS GROUP`** (and again on `AUFERRE` to un-stamp).
-  - **Per-key memory** — every group member carries its own 8-byte BLES slot.
-  - **Origin tracking** — a key may be blessed *both* explicitly and by a group;
-    un-stamping a group must not remove an explicit bless. Each entry needs to
-    remember its source (origin bit / refcount), or `AUFERRE` on a group can
-    wrongly unbless a hand-blessed key.
-  - **Rule churn** — changing a rule re-scans; overlapping rules complicate
-    un-stamping.
-
-## A vs B
-
-| | Approach A (rule-only) | Approach B (materialize) |
-|---|---|---|
-| `BLESS GROUP` cost | **O(1)** | O(N) keyspace scan |
-| future keys | automatic (nothing on add) | per-add rule check + stamp |
-| `COUNT`/`LIST` of members | not offered cheaply (cursor only) | **O(result), cheap** |
-| memory | just the rules | + 8 bytes per matched key |
-| removal (`AUFERRE`) | O(1) (drop rule) | O(N) re-scan + origin bookkeeping |
-| complexity | low | high (origin tracking, scan scheduling) |
-
-**Recommendation: Approach A.** It's O(1) to define, covers future keys for free,
-and keeps memory flat. Its only weakness — enumerating a group's live members — is
-a rare, admin-style need that Approach B pays for on *every* group op. Take B only
-if cheap `COUNT`/`LIST` over *materialized* group members is a hard product
-requirement.
-
-## Effective flags (both approaches)
-
-A key can be blessed individually **and** by a group. Effective protection is the
-**union** of its per-key flags and every matching group rule's flags.
+### Core vs BigRedis ownership
 
 ```mermaid
 flowchart LR
-  K["key user:42"] --> P{per-key BLES flags}
-  K --> G{matching group rules}
-  P --> U["effective = per-key ∪ group flags"]
-  G --> U
+  subgraph core["CORE team (this repo)"]
+    c1["BLESS command + keymeta BLES"]
+    c2["db->blessed_keys index"]
+    c3["NOEVICT in performEvictions / evictionPoolPopulate"]
+    c4["blessNoEvict() / blessNoSwap() helpers"]
+  end
+  subgraph eng["BigRedis team (fork)"]
+    e1["swap-out selector → call blessNoSwap()"]
+    e2["flash-eviction scan → skip NOEVICT"]
+    e3["io_blessed_keys = size-pins only"]
+  end
+  c4 --> e1
+  c4 --> e2
 ```
 
-## Common concerns (both approaches)
+---
 
-- **Rule persistence.** The rule table is node config, not per-key data, so it
-  needs its own persistence — mirror `FUNCTION`: a dedicated RDB section
-  (`rdbSaveFunctions`/`rdbFunctionLoad` pattern) for snapshot restart, plus
-  command propagation (`BLESS GROUP` is a `WRITE`) for AOF and replicas. Always
-  RAM-resident, never swapped to flash.
-- **Cap.** `bless-max-keys` bounds explicit per-key blessings; a prefix can match
-  unbounded keys. Cap the **number of group rules** separately; don't count
-  group-covered keys toward `bless-max-keys` (Approach A can't, and Approach B
-  shouldn't).
-- **Cluster / migration.** Rules are node-local; since keys migrate, the same
-  rule must exist on every shard — replicate/broadcast the rule, not just per-key
-  state.
-- **RoF overlap.** A user group `NOSWAP` registers matching keys as hard-bless;
-  auto size-bless stays soft (see "BigRedis / RoF integration").
+## Group blessing by prefix (proposed — NOT implemented)
+
+Bless many keys by **key-name prefix**, e.g. every key under `user:`. Design only.
+
+```
+BLESS GROUP <prefix> NONE|NOEVICT|INRAM   # rule: bless keys starting with <prefix>
+BLESS GROUPS                              # list rules -> level
+BLESS GROUPSCAN <cursor>                  # (Approach A) iterate live matches, non-blocking
+```
+
+Two candidate approaches, differing in **where the O(N) keyspace cost lands**:
+
+```mermaid
+flowchart LR
+  subgraph A["Approach A — rule-only (RECOMMENDED)"]
+    a1["store rule in a rax:<br/>prefix → level"] --> a2["decide at lookup:<br/>blessNoEvict = index OR rax prefix match"]
+    a2 --> a3["BLESS GROUP = O(1)<br/>future keys covered free"]
+  end
+  subgraph B["Approach B — materialize"]
+    b1["scan keyspace,<br/>stamp each match"] --> b2["COUNT/LIST cheap<br/>(real entries)"]
+    b2 --> b3["O(N) on every GROUP/AUFERRE<br/>+ origin tracking"]
+  end
+```
+
+| | A · rule-only | B · materialize |
+|---|---|---|
+| `BLESS GROUP` cost | **O(1)** | O(N) keyspace scan |
+| future keys | automatic | per-add rule check + stamp |
+| enumerate members | cursor only (`GROUPSCAN`) | **O(result), cheap** |
+| memory | just the rules | + 8 bytes per matched key |
+| removal | O(1) | O(N) re-scan + origin bookkeeping |
+
+**Recommendation: Approach A** (rule-only, `rax` of `prefix → level`, evaluated at
+the decision points). Same structure client-side tracking uses for `BCAST`
+prefixes. Effective protection on a key = `max(per-key level, matching rule
+levels)`.
+
+**Common concerns:** rules are node config → persist like `FUNCTION` (own RDB
+section + command propagation), replicate to every shard; cap the *number of
+rules* (a prefix matches unbounded keys); a group `INRAM` maps to the same RoF
+path as a per-key `INRAM`.
+
+---
+
+## Code reference (structs & functions)
+
+### Types & storage
+
+```c
+/* t_bless.c — the level ladder (stored as the keymeta value) */
+#define BLESS_NONE     0   /* unblessed; reset sentinel, never persisted */
+#define BLESS_NOEVICT  1   /* never evicted, may swap to flash */
+#define BLESS_INRAM    2   /* never evicted, always in RAM (implies NOEVICT) */
+
+/* server.h — per-DB derived index, sits right next to db->expires */
+typedef struct redisDb {
+    kvstore *keys;
+    kvstore *expires;
+    dict    *blessed_keys;   /* key name (sds) -> level (in the value ptr) */
+    /* ... */
+} redisDb;
+
+/* server.h — process-wide state */
+struct redisServer {
+    int bless_max_keys;      /* cap per DB (config, default 1024) */
+    int bless_class_id;      /* keymeta class id assigned to "BLES" */
+    /* ... */
+};
+
+/* t_bless.c — the per-DB dict type (sds key, level packed in the value ptr) */
+static dictType blessedDictType = {
+    dictSdsHash, NULL, NULL, dictSdsKeyCompare, dictSdsDestructor, NULL, NULL
+};
+dict *blessedDictCreate(void) { return dictCreate(&blessedDictType); }
+```
+
+### Index helpers (Layer 3)
+
+```c
+/* t_bless.c */
+static void blessedSetPut(redisDb *db, sds name, uint64_t level);   /* add/update */
+static void blessedSetDel(redisDb *db, sds name);                   /* remove */
+static uint64_t blessGetLevel(redisDb *db, sds name);               /* -> level or NONE */
+
+void blessTrackKey(redisDb *db, sds name, uint64_t level) {          /* public: dbAdd* hook */
+    blessedSetPut(db, name, level);
+}
+int blessNoEvict(redisDb *db, sds name) { return blessGetLevel(db,name) >= BLESS_NOEVICT; }
+int blessNoSwap (redisDb *db, sds name) { return blessGetLevel(db,name) >= BLESS_INRAM;  }
+```
+
+### keymeta class BLES — source of truth (Layer 2)
+
+```c
+/* t_bless.c — persistence rides in the keymeta value; NONE is never written */
+static void blessRdbSave(RedisModuleIO *io, void *r, uint64_t *meta) {
+    UNUSED(r);
+    if (rdbSaveLen(io->rio, *meta) == -1) io->error = 1;
+}
+static int blessRdbLoad(RedisModuleIO *io, uint64_t *meta, int encver) {
+    UNUSED(encver);
+    uint64_t v = rdbLoadLen(io->rio, NULL);
+    if (v == RDB_LENERR) { io->error = 1; return -1; }
+    *meta = v; return 1;                 /* attach; index rebuilt later in dbAdd* */
+}
+/* main-thread removal; NOT free() (which may run on a lazyfree bg thread) */
+static void blessUnlink(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
+    if (ctx->from_key && ctx->from_dbid >= 0)
+        blessedSetDel(&server.db[ctx->from_dbid], ctx->from_key->ptr);
+}
+static int blessRename(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta); /* drop old name */
+static int blessKeep  (struct RedisModuleKeyOptCtx *ctx, uint64_t *meta); /* copy/move: keep */
+
+void blessInit(void) {                    /* called once, after keyMetaInit(), before RDB load */
+    KeyMetaClassConf conf; memset(&conf, 0, sizeof(conf));
+    conf.flags       = (1u << KEY_META_FLAG_ALLOW_IGNORE);  /* old peers skip gracefully */
+    conf.reset_value = BLESS_NONE;
+    conf.rdb_save = blessRdbSave; conf.rdb_load = blessRdbLoad;
+    conf.unlink   = blessUnlink;  conf.rename   = blessRename;
+    conf.copy     = blessKeep;    conf.move     = blessKeep;
+    server.bless_class_id = keyMetaClassCreate(NULL, "BLES", 0, &conf);
+}
+```
+
+### Commands (Layer 1)
+
+```c
+/* t_bless.c — container dispatcher (OBJECT-style); arity/keys per subcommand JSON */
+void blessCommand(client *c) {
+    const char *sub = c->argv[1]->ptr;
+    if      (!strcasecmp(sub,"set"))   blessSetCommand(c);
+    else if (!strcasecmp(sub,"get"))   /* blessGetLevel(c->db, argv[2]) -> name or nil */;
+    else if (!strcasecmp(sub,"count")) addReplyLongLong(c, dictSize(c->db->blessed_keys));
+    else if (!strcasecmp(sub,"list"))  /* map over c->db->blessed_keys: name -> level */;
+    else if (!strcasecmp(sub,"help"))  addReplyHelp(c, ...);
+    else addReplySubcommandSyntaxError(c);
+}
+
+static void blessSetCommand(client *c) {          /* BLESS SET key NONE|NOEVICT|INRAM */
+    uint64_t level = /* parse c->argv[3] */;
+    robj *o = lookupKeyWrite(c->db, c->argv[2]);  /* swaps a cold key in */
+    if (!o) { addReplyErrorObject(c, shared.nokeyerr); return; }
+    sds key = c->argv[2]->ptr;
+    int already = dictFind(c->db->blessed_keys, key) != NULL;
+    if (level == BLESS_NONE) {
+        keyMetaSetMetadata(c->db, o, server.bless_class_id, BLESS_NONE);  /* sentinel */
+        blessedSetDel(c->db, key);
+    } else {
+        if (!already && (int)dictSize(c->db->blessed_keys) >= server.bless_max_keys)
+            { addReplyError(c, "reached the maximum number of blessed keys"); return; }
+        keyMetaSetMetadata(c->db, o, server.bless_class_id, level);       /* source of truth */
+        blessedSetPut(c->db, key, level);                                /* derived index */
+    }
+    keyModified(c, c->db, c->argv[2], NULL, 1); server.dirty++; addReply(c, shared.ok);
+}
+```
+
+### Integration points (where core is touched)
+
+```c
+/* server.c  initServer() — create the per-DB index next to keys/expires */
+server.db[j].blessed_keys = blessedDictCreate();
+
+/* db.c  dbAddInternal() and dbAddRDBLoad() — rebuild the index on load/RESTORE/migration */
+if (server.bless_class_id > 0 && (metabits & (1u << server.bless_class_id))) {
+    uint64_t level;
+    if (keyMetaGetMetadata(server.bless_class_id, kv, &level) && level != 0)
+        blessTrackKey(db, key /* ->ptr */, level);
+}
+
+/* db.c  emptyDbStructure() — wipe per-DB on flush / DEBUG RELOAD / full sync */
+dictEmpty(dbarray[j].blessed_keys, NULL);
+
+/* db.c  dbSwapDatabases() / swapMainDbWithTempDb() — index follows the data */
+db1->blessed_keys = db2->blessed_keys;
+db2->blessed_keys = aux.blessed_keys;
+
+/* evict.c  evictionPoolPopulate() and the random-policy branch — NOEVICT guard */
+if (blessNoEvict(db, key)) continue;   /* skip; not counted -> clean OOM if all blessed */
+
+/* config.c  the cap */
+createIntConfig("bless-max-keys", NULL, MODIFIABLE_CONFIG, 0, INT_MAX,
+                server.bless_max_keys, 1024, INTEGER_CONFIG, NULL, NULL);
+```
+
+Files: `t_bless.c` (feature), `commands/bless*.json` (command table), `server.h`
+(struct fields + prototypes), `server.c` (per-DB creation + `blessInit()`),
+`db.c` (add hooks, empty, swapdb), `evict.c` (NOEVICT guard), `config.c` (cap).
+
+---
 
 ## Scope
 
-Implemented:
+**Implemented (this repo):**
 
-- Layers 1–3 in full: `BLESS`/`BLESSED`, the `bless-max-keys` cap, the keymeta
-  bitfield storage, the RAM index, and RDB + DUMP/RESTORE + slot-migration
-  transport.
+- Layers 1–3: `BLESS SET/GET/COUNT/LIST`, the `bless-max-keys` cap, keymeta `BLES`
+  storage (enum level), the per-DB `db->blessed_keys` index, and RDB +
+  DUMP/RESTORE + slot-migration transport.
 - Layer 4 `NOEVICT`: enforced in `performEvictions` for both the pool
   (LRU/LFU/volatile-ttl) and random policies, with correct OOM termination.
-  Helper `blessNoEvict(db, key)`.
-- Per-DB + SWAPDB: `blessed_keys` lives on `redisDb` (like `expires`).
-  `COUNT`/`LIST`/cap are per current DB; `SWAPDB` swaps the index with the data;
-  no cross-DB name collision. Cleared per-DB in `emptyDbStructure`.
+  `blessNoEvict(db, key)`.
+- Per-DB + SWAPDB: `db->blessed_keys` (like `db->expires`); `COUNT`/`LIST`/cap per
+  current DB; `SWAPDB` swaps the index with the data; cleared per-DB in
+  `emptyDbStructure` (no stale entries after reload).
 
-Deferred:
+**Deferred:**
 
-- Layer 4 `NOSWAP`: enforced in the BigRedis fork, not this repo. Wiring is to
-  register the key in `io_blessed_keys` as hard-bless — see "BigRedis / RoF
-  integration" above.
-- `aof_rewrite` keymeta callback: bless survives RDB, replication and migration,
-  but not an AOF rewrite yet. Add a callback that re-emits `BLESS`.
-- Group blessing by prefix (`BLESS GROUP <prefix> …`) — designed, not implemented;
-  see "Group blessing by prefix" above.
+- Layer 4 `NOSWAP`: enforced in the BigRedis fork (see RoF integration). Core-side
+  `blessNoSwap(db,key)` is ready.
+- `NOEVICT` in the fork's flash-eviction scan (engine-side skip).
+- `aof_rewrite` keymeta callback: bless survives RDB / replication / migration,
+  but not an AOF rewrite yet.
+- Group blessing by prefix — designed above, not implemented.
+
+**Open questions to decide:**
+
+- **Does bless survive a value overwrite?** `SET`/`GETSET`/`RESTORE REPLACE`/
+  `COPY REPLACE`/`RENAME`-onto-existing build a fresh object without the old
+  keymeta, so today bless is dropped (same as `SET` clearing a TTL). Preserve it
+  (like `KEEPTTL`) or keep the TTL-like clear-on-overwrite? Undecided.
+- **OOM vs. `INRAM` — who wins?** Under RoF, if the smallest value the relief
+  valve wants to swap out is a user `INRAM` key: honor `INRAM` (risk node OOM),
+  let OOM win (break the pin as last resort), or hybrid (honor to a limit, then
+  swap + warn)? Undecided.
+- **Cap on import:** migration/RDB load add to the index without a cap check, so a
+  shard can exceed `bless-max-keys`. Treat the cap as a soft, command-time guard
+  (migration/load may exceed) — proposed, matches current behavior.
