@@ -150,7 +150,8 @@ static void blessGetCommand(client *c) {
         addReply(c, shared.nokeyerr);
         return;
     }
-    addReplyBulkCString(c, blessLevelName(keyAttrGet(o)));
+    /* RESP simple string (+NO-EVICT\r\n), per the API contract - not a bulk string. */
+    addReplyStatus(c, blessLevelName(keyAttrGet(o)));
 }
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
