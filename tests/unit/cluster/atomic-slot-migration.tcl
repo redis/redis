@@ -3555,7 +3555,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set kp [slot_key 0 plain]
         R 0 set $kb v0
         R 0 set $kp v1
-        assert_equal 1 [R 0 bless set $kb no-evict on]
+        assert_equal 1 [R 0 bless set $kb no-evict]
         assert_equal 1 [R 0 bless count]
 
         # Atomically migrate slots 0-100 from node 0 to node 1.
@@ -3565,15 +3565,15 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # New owner (node 1): data and bless level carried over the ASM channel.
         assert_equal v0 [R 1 get $kb]
-        assert_equal {NO-EVICT ON}  [R 1 bless get $kb]
-        assert_equal {NO-EVICT OFF} [R 1 bless get $kp]
+        assert_equal {NO-EVICT} [R 1 bless get $kb]
+        assert_equal {NONE}     [R 1 bless get $kp]
         assert_equal 1 [R 1 bless count]
 
         # Its replica (node 4) received the bless too (READONLY to read a
         # replica's keyed command in cluster mode).
         wait_for_ofs_sync [Rn 1] [Rn 4]
         R 4 readonly
-        assert_equal {NO-EVICT ON} [R 4 bless get $kb]
+        assert_equal {NO-EVICT} [R 4 bless get $kb]
 
         # Former owner (node 0) drops the migrated key from its index once the
         # source trim runs (background trim moves the slot-partitioned index).

@@ -41,11 +41,8 @@
             }
         ],
         "reply_schema": {
-            "type": "object",
-            "description": "A map of each protection to its ON|OFF state.",
-            "additionalProperties": {
-                "type": "string"
-            }
+            "type": "string",
+            "description": "The key's blessing level: NONE or NO-EVICT."
         }
     }
 }

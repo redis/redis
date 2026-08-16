@@ -9,8 +9,7 @@
  *
  * Reserved ATTR bits (each owner defines its masks in its own file):
  *   bit 0    : bless NO-EVICT   (t_bless.c)
- *   bit 1    : bless IN-RAM     (future)
- *   bits 2.. : free
+ *   bits 1.. : free
  */
 
 #ifndef __KEYATTR_H

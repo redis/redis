@@ -14,9 +14,17 @@
 
 #include "server.h"
 
-/* Bless owns bit 0 of the shared ATTR mask (see reserved bits in server.h). */
+/* Bless is a single LEVEL per key, stored in the shared ATTR mask (see reserved
+ * bits in server.h). Setting a level replaces any previous one.
+ *   NONE     = 0
+ *   NO-EVICT = bit 0   (never evicted under maxmemory) */
 #define BLESS_NONE     0
-#define BLESS_NOEVICT  (1ULL << 0)   /* never evicted under maxmemory */
+#define BLESS_NOEVICT  (1ULL << 0)
+
+/* Level name for a stored mask. */
+static const char *blessLevelName(uint64_t mask) {
+    return (mask & BLESS_NOEVICT) ? "NO-EVICT" : "NONE";
+}
 
 /* Per-DB index: NO-EVICT key name (sds) -> attribute mask (in the value ptr). */
 static dictType blessedDictType = {
@@ -52,11 +60,6 @@ static void blessedSetDel(redisDb *db, sds keyname) {
     kvstoreDictDelete(db->blessed_keys, getKeySlot(keyname), keyname);
 }
 
-static uint64_t blessGetMask(redisDb *db, sds keyname) {
-    dictEntry *de = kvstoreDictFind(db->blessed_keys, getKeySlot(keyname), keyname);
-    return de ? (uint64_t)(uintptr_t)dictGetVal(de) : BLESS_NONE;
-}
-
 /* True if the key must not be evicted. Reads the NO-EVICT bit inline from the
  * key's keymeta - no index, no lookup. Safe for unblessed keys (mask 0). */
 int blessNoEvict(kvobj *kv) {
@@ -73,17 +76,17 @@ static void blessUntrack(redisDb *db, sds key) {
     blessedSetDel(db, key);
 }
 
-/* Re-emit "BLESS SET <key> NO-EVICT ON" onto the command-format AOF stream,
+/* Re-emit "BLESS SET <key> <level>" onto the command-format AOF stream,
  * mirroring how TTL re-emits PEXPIREAT: that stream carries no keymeta. */
 static void blessAof(RedisModuleIO *io, uint64_t mask) {
     if (!(mask & BLESS_NOEVICT)) return;
+    const char *level = blessLevelName(mask);
     rio *r = io->rio;
-    if (rioWriteBulkCount(r, '*', 5) == 0 ||
+    if (rioWriteBulkCount(r, '*', 4) == 0 ||
         rioWriteBulkString(r, "BLESS", 5) == 0 ||
         rioWriteBulkString(r, "SET", 3) == 0 ||
         rioWriteBulkObject(r, io->key) == 0 ||
-        rioWriteBulkString(r, "NO-EVICT", 8) == 0 ||
-        rioWriteBulkString(r, "ON", 2) == 0)
+        rioWriteBulkString(r, level, strlen(level)) == 0)
         io->error = 1;
 }
 
@@ -95,33 +98,27 @@ void blessInit(void) {
 
 /* ---- commands ---- */
 
-/* BLESS SET <key> NO-EVICT ON|OFF        (future: [IN-RAM ON|OFF])
- * Sets a key's protections against memory pressure, in the idiom of
- * CLIENT NO-EVICT ON|OFF. NO-EVICT ON protects the key from eviction; OFF
- * removes the protection. At least one protection must be given - a bare
- * `BLESS SET <key>` is an error (no implicit default), so intent is always
- * explicit and IN-RAM can be added later without changing what a bare call means.
- * Only the named bit is modified; other attribute bits are left untouched.
- * Replies 1 if the key's stored state changed, 0 otherwise (no change). */
+/* BLESS SET <key> [NONE|NO-EVICT]
+ * Sets a key's blessing LEVEL against memory pressure. The level is optional and
+ * defaults to NO-EVICT. NONE removes protection; NO-EVICT protects from eviction.
+ * Setting a level replaces any previous one. Replies 1 if the stored level
+ * changed, 0 otherwise. */
 static void blessSetCommand(client *c) {
     robj *keyobj = c->argv[2];
 
-    int noevict = -1;   /* -1 = not specified */
-    for (int j = 3; j < c->argc; ) {
-        const char *opt = c->argv[j]->ptr;
-        if (!strcasecmp(opt, "no-evict") && j + 1 < c->argc) {
-            const char *v = c->argv[j + 1]->ptr;
-            if (!strcasecmp(v, "on"))        noevict = 1;
-            else if (!strcasecmp(v, "off"))  noevict = 0;
-            else { addReplyErrorObject(c, shared.syntaxerr); return; }
-            j += 2;
-        } else {
+    uint64_t mask;
+    if (c->argc == 3) {
+        mask = BLESS_NOEVICT;                       /* default level */
+    } else if (c->argc == 4) {
+        const char *lvl = c->argv[3]->ptr;
+        if      (!strcasecmp(lvl, "none"))     mask = BLESS_NONE;
+        else if (!strcasecmp(lvl, "no-evict")) mask = BLESS_NOEVICT;
+        else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
-    }
-    if (noevict == -1) {
-        addReplyError(c, "at least one protection is required (NO-EVICT ON|OFF)");
+    } else {
+        addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
 
@@ -129,12 +126,7 @@ static void blessSetCommand(client *c) {
     if (o == NULL) { addReply(c, shared.nokeyerr); return; }   /* missing key -> error */
     sds keyname = keyobj->ptr;
 
-    /* Flags are independent: flip only the NO-EVICT bit, leaving the rest of the
-     * mask (e.g. a future IN-RAM) untouched. */
-    uint64_t cur = keyAttrGet(o), mask = cur;
-    if (noevict == 1) mask |= BLESS_NOEVICT;
-    else              mask &= ~(uint64_t)BLESS_NOEVICT;
-
+    uint64_t cur = keyAttrGet(o);
     if (mask == cur) { addReply(c, shared.czero); return; }    /* no change */
     if (keyMetaSetMetadata(c->db, o, server.key_attr_class_id, mask) == NULL) {
         addReplyError(c, "failed to update key attribute metadata");
@@ -149,19 +141,16 @@ static void blessSetCommand(client *c) {
     addReply(c, shared.cone);
 }
 
-/* BLESS GET <key> -> a map of each protection to its ON|OFF state. Currently just
- * NO-EVICT; IN-RAM joins as a second entry when implemented. A key that exists
- * but isn't protected reports OFF. Errors if the key does not exist. */
+/* BLESS GET <key> -> the key's blessing level (NONE | NO-EVICT). A key that
+ * exists but isn't blessed reports NONE. Errors if the key does not exist. */
 static void blessGetCommand(client *c) {
     robj *keyobj = c->argv[2];
-    if (lookupKeyReadWithFlags(c->db, keyobj, LOOKUP_NOTOUCH) == NULL) {
+    robj *o = lookupKeyReadWithFlags(c->db, keyobj, LOOKUP_NOTOUCH);
+    if (o == NULL) {
         addReply(c, shared.nokeyerr);
         return;
     }
-    uint64_t mask = blessGetMask(c->db, keyobj->ptr);
-    addReplyMapLen(c, 1);
-    addReplyBulkCString(c, "NO-EVICT");
-    addReplyBulkCString(c, (mask & BLESS_NOEVICT) ? "ON" : "OFF");
+    addReplyBulkCString(c, blessLevelName(keyAttrGet(o)));
 }
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
@@ -176,9 +165,8 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "count")) {
         addReplyLongLong(c, kvstoreSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
-        /* BLESS LIST [NO-EVICT] - array of keys in the current DB that have the
-         * given flag set (default NO-EVICT). Flags are independent, so this is a
-         * bit test (IN-RAM joins as another selectable flag). */
+        /* BLESS LIST [NO-EVICT] - array of keys in the current DB blessed at the
+         * given level (default, and currently only, NO-EVICT). */
         uint64_t flag = BLESS_NOEVICT;
         if (c->argc == 3) {
             if (strcasecmp(c->argv[2]->ptr, "no-evict")) {
@@ -196,7 +184,7 @@ void blessCommand(client *c) {
         dictEntry *de;
         while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             uint64_t mask = (uint64_t)(uintptr_t)dictGetVal(de);
-            if (mask & flag) {
+            if ((mask & flag) == flag) {
                 sds name = dictGetKey(de);
                 addReplyBulkCBuffer(c, name, sdslen(name));
                 n++;

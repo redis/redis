@@ -41,27 +41,26 @@
                 "key_spec_index": 0
             },
             {
-                "token": "NO-EVICT",
-                "name": "no-evict",
+                "name": "level",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "on",
+                        "name": "none",
                         "type": "pure-token",
-                        "token": "ON"
+                        "token": "NONE"
                     },
                     {
-                        "name": "off",
+                        "name": "no-evict",
                         "type": "pure-token",
-                        "token": "OFF"
+                        "token": "NO-EVICT"
                     }
                 ]
             }
         ],
         "reply_schema": {
             "type": "integer",
-            "description": "1 if a protection setting changed, 0 if already in that state."
+            "description": "1 if the blessing level changed, 0 if already at that level."
         }
     }
 }

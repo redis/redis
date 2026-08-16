@@ -1,6 +1,6 @@
 {
     "LIST": {
-        "summary": "Lists keys whose protection includes the given type (default NO-EVICT).",
+        "summary": "Lists keys blessed at or above the given level (default NO-EVICT).",
         "complexity": "O(N) where N is the number of blessed keys.",
         "group": "generic",
         "since": "8.10.0",
@@ -23,7 +23,7 @@
         ],
         "reply_schema": {
             "type": "array",
-            "description": "Key names whose protection includes the requested type (default NO-EVICT).",
+            "description": "Key names blessed at the requested level (default NO-EVICT).",
             "items": {
                 "type": "string"
             }
