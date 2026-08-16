@@ -1268,14 +1268,14 @@ static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
     }
 
     /* Merge old and new names into the new template's field array. */
-    unsigned long long new_field_count = old_field_count + num_new_fields;
+    unsigned long long total_field_count = old_field_count + num_new_fields;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
-    sds *fields_arr = (new_field_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
-                                                                     zmalloc(sizeof(sds) * new_field_count);
+    sds *fields_arr = (total_field_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
+                                                                     zmalloc(sizeof(sds) * total_field_count);
     uint64_t hash = tmpl->hash;
     unsigned long long old_pos = 0;
     int added = 0;
-    for (unsigned long long i = 0; i < new_field_count; i++) {
+    for (unsigned long long i = 0; i < total_field_count; i++) {
         if (added < num_new_fields && new_fields[added].insert_pos == i) {
             fields_arr[i] = new_fields[added].field;
             hash += computeFieldHash(new_fields[added].field); /* incremental set hash */
@@ -1287,7 +1287,7 @@ static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
     }
     serverAssert(added == num_new_fields && old_pos == old_field_count);
 
-    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, fields_arr, new_field_count);
+    hashTemplate *new_tmpl = hashTemplateGetOrCreateWithHash(hash, fields_arr, total_field_count);
     if (fields_arr != stack_fields) zfree(fields_arr);
     
     /* Update the values */
@@ -1308,14 +1308,28 @@ static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
         o->ptr = lp;
     } else {
         serverAssert(o->encoding == OBJ_ENCODING_TMPL_ARRAY);
-        hashTemplateArray *hta = hashTemplateArrayResize(o->ptr, new_field_count);
-        for (int i = 0; i < num_new_fields; i++) {
-            unsigned long long pos = new_fields[i].insert_pos;
-            serverAssert(pos <= old_field_count + (unsigned long long)i);
-            /* Shift the values after it right by one to open a gap. */
-            memmove(&hta->values[pos + 1], &hta->values[pos], sizeof(sds) * (old_field_count + i - pos));
-            hta->values[pos] = sdsdup(new_fields[i].value);
-            hta->alloc_size += sdsAllocSize(hta->values[pos]);
+        serverAssert(num_new_fields > 0);
+        hashTemplateArray *hta = hashTemplateArrayResize(o->ptr, total_field_count);
+
+        /* Open a gap: move the old values from the first insert position
+         * onwards to the end of the array. Then fill each slot in order,
+         * either with the next new value or with the next old one. */
+        unsigned long long first = new_fields[0].insert_pos;
+        serverAssert(first <= old_field_count);
+        memmove(&hta->values[first + num_new_fields], &hta->values[first],
+                sizeof(sds) * (old_field_count - first));
+        old_pos = first + num_new_fields;
+        added = 0;
+        for (unsigned long long i = first; added < num_new_fields; i++) {
+            serverAssert(i < total_field_count);
+            if (new_fields[added].insert_pos == i) {
+                hta->values[i] = sdsdup(new_fields[added].value);
+                hta->alloc_size += sdsAllocSize(hta->values[i]);
+                added++;
+            } else {
+                serverAssert(old_pos < total_field_count);
+                hta->values[i] = hta->values[old_pos++];
+            }
         }
         o->ptr = hta;
     }
