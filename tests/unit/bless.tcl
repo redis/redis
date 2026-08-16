@@ -144,6 +144,30 @@ start_server {tags {"bless"}} {
         assert_equal 1 [r bless count]
     }
 
+    test {RESTORE REPLACE keeps the destination blessing (payload wins if blessed)} {
+        r flushall
+        # unblessed payload over a blessed destination -> destination blessing kept
+        r set plain pv
+        set unblessed_dump [r dump plain]
+        r set k old
+        r bless set k no-evict
+        r restore k 0 $unblessed_dump replace
+        assert_equal {NO-EVICT} [r bless get k]
+        assert_equal 1 [r exists k]
+        # a blessed payload wins over an unblessed destination
+        r set src sv
+        r bless set src no-evict
+        set blessed_dump [r dump src]
+        r set d2 old
+        r restore d2 0 $blessed_dump replace
+        assert_equal {NO-EVICT} [r bless get d2]
+        # blessed payload over a blessed destination -> still blessed
+        r set d3 x
+        r bless set d3 no-evict
+        r restore d3 0 $blessed_dump replace
+        assert_equal {NO-EVICT} [r bless get d3]
+    }
+
     test {BLESS and TTL coexist across DEBUG RELOAD} {
         r flushall
         r set a 1

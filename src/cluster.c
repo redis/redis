@@ -305,6 +305,12 @@ void restoreCommand(client *c) {
     kvobj *oldval = lookupKeyWriteWithLink(c->db, key, &link);
     int oldtype = oldval ? oldval->type : -1;
 
+    /* RESTORE REPLACE recreates the key (dbDelete below), which would drop the
+     * destination's blessing. Product wants it kept when the payload carries none;
+     * capture it now and re-inject into the spec before dbAddInternal (a payload
+     * that is itself blessed wins). */
+    uint64_t oldAttr = (replace && oldval) ? keyAttrGet(oldval) : 0;
+
     /* Call dbDelete() only when a key is actually present:
      *   oldval != NULL -> key exists.
      *   link  == NULL  -> an expired key might still be physically present and 
@@ -330,6 +336,10 @@ void restoreCommand(client *c) {
         addReply(c, shared.ok);
         return;
     }
+
+    /* Preserve the replaced key's blessing if the payload didn't bring one. */
+    if (oldAttr && !(keymeta.metabits & KEY_ATTR_METABIT))
+        keyMetaSpecAdd(&keymeta, server.key_attr_class_id, oldAttr);
 
     /* Create the key and set the TTL if any */
     kvobj *kv = dbAddInternal(c->db, key, &obj, &link, &keymeta);
