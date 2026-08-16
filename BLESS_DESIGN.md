@@ -28,19 +28,22 @@ implemented (see "Future: adding INRAM/NOSWAP").
 `BLESS` is a container command (like `OBJECT`):
 
 ```
-BLESS SET <key> [NO-EVICT ON|OFF] [INRAM ON|OFF]   # set protections (INRAM = future)
-BLESS GET <key>                                    # -> policy type ("NO-EVICT" / "NONE")
+BLESS SET <key> NO-EVICT ON|OFF [IN-RAM ON|OFF]    # set protections; >=1 required (IN-RAM = future)
+BLESS GET <key>                                    # -> map: { NO-EVICT: ON|OFF }
 BLESS COUNT                                         # number of protected keys in the CURRENT db
-BLESS LIST                                          # map: key -> policy type, for the CURRENT db
+BLESS LIST [NO-EVICT]                               # -> array of keys with that protection (default NO-EVICT)
 ```
 
 Protection is expressed as two independent toggles (`ON` = more protection),
 using the `ON|OFF` idiom of `CLIENT NO-EVICT` / `CLIENT TRACKING`:
 
 - **`NO-EVICT ON|OFF`** — `ON` = never evicted under `maxmemory`; `OFF` = evictable.
-  **Default (omitted): `NO-EVICT ON`**, so `BLESS SET <key>` protects the key.
 - **`INRAM ON|OFF`** *(future — not implemented)* — `ON` = value never swapped to
-  flash (Redis-on-Flash); `OFF` = may swap. Default: `INRAM OFF`.
+  flash (Redis-on-Flash); `OFF` = may swap.
+
+**At least one toggle must be given** — there is no implicit default, so a bare
+`BLESS SET <key>` is an error. This keeps intent explicit and means adding `INRAM`
+later never changes what an existing command does.
 
 `SET` replies `1` if a setting changed, `0` otherwise. A missing key is an error
 (`ERR no such key`). `GET` returns the key's policy type as a bulk string, or

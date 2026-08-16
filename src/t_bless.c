@@ -177,23 +177,22 @@ void blessInit(void) {
 
 /* ---- commands ---- */
 
-/* BLESS SET <key> [NO-EVICT ON|OFF]
+/* BLESS SET <key> NO-EVICT ON|OFF        (future: [IN-RAM ON|OFF])
  * Sets a key's protections against memory pressure, in the idiom of
  * CLIENT NO-EVICT ON|OFF. NO-EVICT ON protects the key from eviction; OFF
- * removes the protection. When NO-EVICT is omitted it defaults to ON, so
- * `BLESS SET <key>` protects the key.
- *   INRAM ON|OFF is reserved for a future Redis-on-Flash "keep value in RAM"
+ * removes the protection. At least one protection must be given - a bare
+ * `BLESS SET <key>` is an error (no implicit default), so intent is always
+ * explicit and IN-RAM can be added later without changing what a bare call means.
+ *   IN-RAM ON|OFF is reserved for a future Redis-on-Flash "keep value in RAM"
  *   toggle and is intentionally not parsed yet; the level is stored as a number
- *   so an independent INRAM bit can be added later without touching storage.
+ *   so an independent IN-RAM bit can be added later without touching storage.
  * Replies 1 if the key's stored state changed, 0 otherwise (no change).
- * No cap: bless is meant for a small number of keys (see README). A hard cap
- * would also be unenforceable on the migration / RDB-load paths anyway. */
+ * No cap: bless is meant for a small number of keys (see README). */
 static void blessSetCommand(client *c) {
     /* BLESS SET <key> [NO-EVICT ON|OFF] */
     robj *keyobj = c->argv[2];
 
-    /* Default when NO-EVICT is omitted: ON (protect the key). */
-    int noevict = 1;
+    int noevict = -1;   /* -1 = not specified */
     for (int j = 3; j < c->argc; ) {
         const char *opt = c->argv[j]->ptr;
         if (!strcasecmp(opt, "no-evict") && j + 1 < c->argc) {
@@ -207,7 +206,13 @@ static void blessSetCommand(client *c) {
             return;
         }
     }
-    uint64_t level = noevict ? BLESS_NOEVICT : BLESS_NONE;
+    /* At least one protection must be specified; there is no implicit default.
+     * IN-RAM will join this check when implemented. */
+    if (noevict == -1) {
+        addReplyError(c, "at least one protection is required (NO-EVICT ON|OFF)");
+        return;
+    }
+    uint64_t level = (noevict == 1) ? BLESS_NOEVICT : BLESS_NONE;
 
     robj *o = lookupKeyWrite(c->db, keyobj);
     if (o == NULL) { addReply(c, shared.nokeyerr); return; }   /* missing key -> error */
@@ -254,22 +259,35 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "count")) {
         addReplyLongLong(c, kvstoreSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
-        /* Reply is a map for the current DB: key name -> { NO-EVICT: ON|OFF },
-         * the same per-toggle shape BLESS GET uses (INRAM joins later). Every
-         * key in the index is protected, so NO-EVICT is always ON here. */
-        addReplyMapLen(c, kvstoreSize(c->db->blessed_keys));
+        /* BLESS LIST [NO-EVICT] - array of keys in the current DB whose
+         * protection includes the given type (default NO-EVICT). Higher levels
+         * imply lower ones, so this is a ">= threshold" filter (IN-RAM joins as
+         * a stronger threshold later). */
+        uint64_t threshold = BLESS_NOEVICT;
+        if (c->argc == 3) {
+            if (strcasecmp(c->argv[2]->ptr, "no-evict")) {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return;
+            }
+        } else if (c->argc > 3) {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+        void *replylen = addReplyDeferredLen(c);
+        unsigned long n = 0;
         kvstoreIterator kvs_it;
         kvstoreIteratorInit(&kvs_it, c->db->blessed_keys);
         dictEntry *de;
         while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
-            sds name = dictGetKey(de);
             uint64_t level = (uint64_t)(uintptr_t)dictGetVal(de);
-            addReplyBulkCBuffer(c, name, sdslen(name));
-            addReplyMapLen(c, 1);
-            addReplyBulkCString(c, "NO-EVICT");
-            addReplyBulkCString(c, (level >= BLESS_NOEVICT) ? "ON" : "OFF");
+            if (level >= threshold) {
+                sds name = dictGetKey(de);
+                addReplyBulkCBuffer(c, name, sdslen(name));
+                n++;
+            }
         }
         kvstoreIteratorReset(&kvs_it);
+        setDeferredArrayLen(c, replylen, n);
     } else {
         addReplySubcommandSyntaxError(c);
     }

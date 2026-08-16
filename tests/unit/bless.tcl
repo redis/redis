@@ -7,9 +7,9 @@ start_server {tags {"bless"}} {
         assert_equal 0 [r bless set k no-evict on]
         assert_equal {NO-EVICT ON} [r bless get k]
         assert_equal 1 [r bless count]
-        # SET with no arg defaults to ON
+        # a second key, explicit protection
         r set k2 v
-        assert_equal 1 [r bless set k2]
+        assert_equal 1 [r bless set k2 no-evict on]
         assert_equal 2 [r bless count]
         # OFF clears the protection
         assert_equal 1 [r bless set k no-evict off]
@@ -21,6 +21,26 @@ start_server {tags {"bless"}} {
         r flushall
         assert_error {*no such key*} {r bless set nope no-evict on}
         assert_error {*no such key*} {r bless get nope}
+    }
+
+    test {BLESS SET with no protection is an error (no implicit default)} {
+        r flushall
+        r set k v
+        assert_error {*at least one protection*} {r bless set k}
+        assert_equal 0 [r bless count]
+    }
+
+    test {BLESS LIST returns keys with the given protection (default NO-EVICT)} {
+        r flushall
+        r set a 1; r set b 2; r set c 3
+        r bless set a no-evict on
+        r bless set b no-evict on
+        assert_equal [lsort {a b}] [lsort [r bless list]]
+        assert_equal [lsort {a b}] [lsort [r bless list no-evict]]
+        # unblessing removes the key from the list
+        r bless set a no-evict off
+        assert_equal {b} [r bless list]
+        assert_error {*syntax*} {r bless list bogus}
     }
 
     test {BLESS survives DEBUG RELOAD (RDB round-trip)} {

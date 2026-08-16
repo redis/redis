@@ -1,10 +1,10 @@
 {
     "LIST": {
-        "summary": "Returns all blessed keys with their bless flags.",
+        "summary": "Lists keys whose protection includes the given type (default NO-EVICT).",
         "complexity": "O(N) where N is the number of blessed keys.",
         "group": "generic",
         "since": "8.10.0",
-        "arity": 2,
+        "arity": -2,
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
@@ -13,14 +13,19 @@
         "acl_categories": [
             "KEYSPACE"
         ],
+        "arguments": [
+            {
+                "name": "no-evict",
+                "type": "pure-token",
+                "token": "NO-EVICT",
+                "optional": true
+            }
+        ],
         "reply_schema": {
-            "type": "object",
-            "description": "A map of blessed key name to its per-protection ON|OFF state.",
-            "additionalProperties": {
-                "type": "object",
-                "additionalProperties": {
-                    "type": "string"
-                }
+            "type": "array",
+            "description": "Key names whose protection includes the requested type (default NO-EVICT).",
+            "items": {
+                "type": "string"
             }
         }
     }
