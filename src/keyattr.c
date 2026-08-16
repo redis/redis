@@ -52,6 +52,15 @@ static void keyAttrUntrackKey(redisDb *db, sds key, uint64_t mask) {
         if (mask & owners[i].flags) owners[i].untrack(db, key);
 }
 
+/* Value overwrite (SET k v2): the ATTR keymeta value is preserved on the new
+ * object (kept by db.c and carried by keyMetaTransition), but attrUnlink already
+ * dropped the key from the owners' indexes. Re-add it so the whole attribute set
+ * survives the overwrite - only BLESS SET NONE / key removal clears it. */
+void keyAttrOnOverwrite(redisDb *db, robj *key, kvobj *kv) {
+    uint64_t mask = keyAttrGet(kv);
+    if (mask) keyAttrTrackKey(db, key->ptr, mask);
+}
+
 /* ---- ATTR keymeta class callbacks (generic; operate on the raw mask) ---- */
 
 static void attrRdbSave(RedisModuleIO *io, void *reserved, uint64_t *meta) {

@@ -47,6 +47,35 @@ start_server {tags {"bless"}} {
         assert_error {*syntax*} {r bless list bogus}
     }
 
+    test {BLESS survives value overwrite (all types); COUNT/LIST stay consistent} {
+        r flushall
+        # string overwrite via SET
+        r set k v1
+        r bless set k no-evict
+        r set k v2
+        assert_equal {NO-EVICT} [r bless get k]
+        assert_equal 1 [r bless count]
+        assert_equal {k} [r bless list]
+        # overwrite that changes the type (hash -> string) keeps the blessing
+        r hset h f v
+        r bless set h no-evict
+        r set h nowstring
+        assert_equal {NO-EVICT} [r bless get h]
+        # in-place modification keeps it too
+        r rpush lst a
+        r bless set lst no-evict
+        r rpush lst b c
+        assert_equal {NO-EVICT} [r bless get lst]
+        assert_equal 3 [r bless count]
+        # NONE and key removal are the only things that clear it
+        r bless set k none
+        assert_equal {NONE} [r bless get k]
+        r del h
+        r set h x
+        assert_equal {NONE} [r bless get h]
+        assert_equal 1 [r bless count]
+    }
+
     test {BLESS survives DEBUG RELOAD (RDB round-trip)} {
         r flushall
         r set a 1; r set b 2; r set c 3

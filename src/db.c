@@ -648,8 +648,11 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         newKeyMetaBits &= ~KEY_META_MASK_EXPIRE; 
 
     if (overwrite) {
-        /* On overwrite, discard module metadata excluding expire if set */
-        newKeyMetaBits &= KEY_META_MASK_EXPIRE;
+        /* On overwrite, discard module metadata excluding expire and the keyattr
+         * (ATTR) class, which must survive value replacement (e.g. a blessing on
+         * SET k v2). Keeping its bit lets keyMetaTransition() carry the value to
+         * the new object; keyAttrOnOverwrite() below re-adds it to the indexes. */
+        newKeyMetaBits &= (KEY_META_MASK_EXPIRE | KEY_ATTR_METABIT);
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
         incrRefCount(old);
@@ -715,6 +718,11 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         if (newKeyMetaBits & KEY_META_MASK_MODULES)
             keyMetaTransition(old, kvNew);
     }
+
+    /* Overwrite unlinked the key from the keyattr indexes (attrUnlink); the ATTR
+     * value was carried to the new object above, so re-add it to the indexes. */
+    if (overwrite && (kvNew->metabits & KEY_ATTR_METABIT))
+        keyAttrOnOverwrite(db, key, kvNew);
 
     /* Remove old key and add new key to KEYSIZES histogram */
     int64_t newlen = (int64_t) getObjectLength(kvNew);
