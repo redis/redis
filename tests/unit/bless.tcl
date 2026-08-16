@@ -135,4 +135,24 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         assert_equal 1 [r exists toobig]
         r config set maxmemory 0
     }
+
+    test {BLESS SET is not DENYOOM: works under memory pressure (like EXPIRE)} {
+        r flushall
+        r config set maxmemory 0
+        r config set maxmemory-policy noeviction
+        r set important v
+        r set other v
+        # force OOM: cap maxmemory below current usage
+        set used [s used_memory]
+        r config set maxmemory [expr {$used - 100000}]
+        # a real DENYOOM write is rejected here...
+        assert_error {*OOM*} {r set grow [string repeat z 1000]}
+        # ...but BLESS SET is not DENYOOM (its footprint is one keymeta slot,
+        # like EXPIRE), so both protecting and unblessing work under OOM.
+        assert_equal 1 [r bless set important no-evict]
+        assert_equal {NO-EVICT} [r bless get important]
+        assert_equal 1 [r bless set important none]
+        assert_equal {NONE} [r bless get important]
+        r config set maxmemory 0
+    }
 }

@@ -9,7 +9,7 @@
         "function": "blessCommand",
         "command_flags": [
             "WRITE",
-            "DENYOOM"
+            "FAST"
         ],
         "acl_categories": [
             "KEYSPACE"

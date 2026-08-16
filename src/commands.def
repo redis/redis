@@ -2515,7 +2515,7 @@ struct COMMAND_STRUCT BLESS_Subcommands[] = {
 {MAKE_CMD("count","Returns the number of blessed keys.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_COUNT_History,0,BLESS_COUNT_Tips,0,blessCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESS_COUNT_Keyspecs,0,NULL,0)},
 {MAKE_CMD("get","Returns the bless level of a key.","O(1).","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_GET_History,0,BLESS_GET_Tips,0,blessCommand,3,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESS_GET_Keyspecs,1,NULL,1),.args=BLESS_GET_Args},
 {MAKE_CMD("list","Lists keys blessed at or above the given level (default NO-EVICT).","O(N) where N is the number of blessed keys.","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_LIST_History,0,BLESS_LIST_Tips,0,blessCommand,-2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESS_LIST_Keyspecs,0,NULL,1),.args=BLESS_LIST_Args},
-{MAKE_CMD("set","Sets a key's protections against memory pressure.","O(1).","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_SET_History,0,BLESS_SET_Tips,0,blessCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,BLESS_SET_Keyspecs,1,NULL,2),.args=BLESS_SET_Args},
+{MAKE_CMD("set","Sets a key's protections against memory pressure.","O(1).","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_SET_History,0,BLESS_SET_Tips,0,blessCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_SET_Keyspecs,1,NULL,2),.args=BLESS_SET_Args},
 {0}
 };
 
