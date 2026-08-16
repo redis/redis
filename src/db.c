@@ -469,7 +469,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
         {
             uint64_t level;
             if (keyMetaGetMetadata(server.bless_class_id, kv, &level) && level != 0)
-                blessTrackKey(key->ptr, level);
+                blessTrackKey(db, key->ptr, level);
         }
     }
 
@@ -587,7 +587,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
         {
             uint64_t level;
             if (keyMetaGetMetadata(server.bless_class_id, kv, &level) && level != 0)
-                blessTrackKey(key, level);
+                blessTrackKey(db, key, level);
         }
     }
 
@@ -1055,6 +1055,9 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             kvstoreEmpty(dbarray[j].expires, callback);
             dictEmpty(dbarray[j].stream_idmp_keys, callback);
         }
+        /* The blessed-keys index is derived from the keys; wipe it whenever the
+         * DB's keyspace is emptied so it is rebuilt cleanly on the next load. */
+        dictEmpty(dbarray[j].blessed_keys, NULL);
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
@@ -1417,10 +1420,8 @@ int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
     else
         server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
 
-    /* Blessed keys were just wiped. ponytail: the set spans all DBs, so a
-     * single-DB FLUSHDB also clears entries of other DBs - acceptable for the
-     * single-DB target use case; make the set per-DB for multi-DB correctness. */
-    blessedFlushAll();
+    /* blessed_keys is wiped per-DB inside emptyDbStructure(), reached by both
+     * flush branches above. */
 
     /* Without the forceCommandPropagation, when DB(s) was already empty,
      * FLUSHALL\FLUSHDB will not be replicated nor put into the AOF. */
@@ -2681,6 +2682,7 @@ int dbSwapDatabases(int id1, int id2) {
      * remain in the same DB they were. */
     db1->keys = db2->keys;
     db1->expires = db2->expires;
+    db1->blessed_keys = db2->blessed_keys;
     db1->subexpires = db2->subexpires;
     db1->stream_idmp_keys = db2->stream_idmp_keys;
     db1->avg_ttl = db2->avg_ttl;
@@ -2688,6 +2690,7 @@ int dbSwapDatabases(int id1, int id2) {
 
     db2->keys = aux.keys;
     db2->expires = aux.expires;
+    db2->blessed_keys = aux.blessed_keys;
     db2->subexpires = aux.subexpires;
     db2->stream_idmp_keys = aux.stream_idmp_keys;
     db2->avg_ttl = aux.avg_ttl;
@@ -2727,6 +2730,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
+        activedb->blessed_keys = newdb->blessed_keys;
         activedb->subexpires = newdb->subexpires;
         activedb->stream_idmp_keys = newdb->stream_idmp_keys;
         activedb->avg_ttl = newdb->avg_ttl;
@@ -2734,6 +2738,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
+        newdb->blessed_keys = aux.blessed_keys;
         newdb->subexpires = aux.subexpires;
         newdb->stream_idmp_keys = aux.stream_idmp_keys;
         newdb->avg_ttl = aux.avg_ttl;

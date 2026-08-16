@@ -15,7 +15,7 @@
         ],
         "reply_schema": {
             "type": "object",
-            "description": "A map of blessed key name to its bless flags.",
+            "description": "A map of blessed key name to its bless level.",
             "additionalProperties": {
                 "type": "string"
             }

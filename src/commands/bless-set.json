@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "generic",
         "since": "8.6.0",
-        "arity": -4,
+        "arity": 4,
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
@@ -41,15 +41,12 @@
                 "key_spec_index": 0
             },
             {
-                "name": "flag",
+                "name": "level",
                 "type": "oneof",
-                "multiple": true,
                 "arguments": [
-                    { "name": "noevict",  "type": "pure-token", "token": "NOEVICT" },
-                    { "name": "noswap",   "type": "pure-token", "token": "NOSWAP" },
-                    { "name": "aeternus", "type": "pure-token", "token": "AETERNUS" },
-                    { "name": "velox",    "type": "pure-token", "token": "VELOX" },
-                    { "name": "auferre",  "type": "pure-token", "token": "AUFERRE" }
+                    { "name": "none",    "type": "pure-token", "token": "NONE" },
+                    { "name": "noevict", "type": "pure-token", "token": "NOEVICT" },
+                    { "name": "inram",   "type": "pure-token", "token": "INRAM" }
                 ]
             }
         ],

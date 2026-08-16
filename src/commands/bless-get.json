@@ -43,7 +43,7 @@
         "reply_schema": {
             "oneOf": [
                 { "type": "null", "description": "Key is not blessed." },
-                { "type": "string", "description": "The key's bless flags, e.g. NOEVICT|NOSWAP." }
+                { "type": "string", "description": "The key's bless level: NOEVICT or INRAM." }
             ]
         }
     }

@@ -55,7 +55,7 @@ flowchart TB
     B["keymeta class 'BLES' — bitfield in the kvobj<br/>RDB · AOF-restore · DUMP/RESTORE · slot migration"]
   end
   subgraph L3["Layer 3 · RAM index (derived, always resident)"]
-    C["server.blessed_keys : name -> flags<br/>COUNT / LIST / cap / eviction lookup"]
+    C["redisDb.blessed_keys (per-DB) : name -> level<br/>COUNT / LIST / cap / eviction lookup"]
   end
   subgraph L4["Layer 4 · Enforcement (guarding)"]
     D["NOEVICT → performEvictions (core)<br/>NOSWAP → RoF swap-out selector (BigRedis fork)"]
@@ -93,7 +93,8 @@ keymeta class `"BLES"`, registered in `blessInit()` via
   cluster slot-migration snapshot — same path as TTL, no separate channel.
 
 ### Layer 3 — RAM index (derived, always resident)
-`server.blessed_keys` — a `dict` of key name → flags.
+`redisDb.blessed_keys` — a **per-DB** `dict` of key name → level, one per numbered
+DB, exactly like `db->expires`. Being per-DB makes it SWAPDB- and multi-DB-safe.
 
 - Answers `COUNT`/`LIST`, enforces the cap, and is the structure the guarding
   layer consults **without touching flash**.
@@ -118,7 +119,7 @@ This is the crux under RoF. There are three pieces of bless-related state:
 |-------|----------------|---------------------|----------|
 | BLES bitfield (the flags) | inline in the `kvobj` value | **yes** — swaps out *with the value* | durability, migration transport |
 | `metabits` presence bit | inline in the `kvobj` header | rides with the value | marks the slot present |
-| `blessed_keys` RAM index | global `dict`, name → flags | **no** — always resident | every decision + COUNT/LIST/cap |
+| `blessed_keys` RAM index | per-DB `dict`, name → level | **no** — always resident | every decision + COUNT/LIST/cap |
 
 ```
                  RAM                                      FLASH (RoF, cold keys)
@@ -304,31 +305,79 @@ BLESS GROUPS                        # list all group rules -> flags
 `FLAG` is the same set as `BLESS SET` (`NOEVICT`, `NOSWAP`, aliases). Lives under
 the existing `BLESS` container as more subcommands.
 
-### Two possible models (pick one)
+There are two candidate approaches. They differ in **where the O(N) keyspace
+cost lands** — at query time (Approach A) or at write/rule time (Approach B).
 
-| model | what `BLESS GROUP user: NOEVICT` covers | cost |
-|-------|------------------------------------------|------|
-| **one-shot** | only keys that exist *right now* | a single scan; reuses per-key bless |
-| **dynamic rule** (recommended for "prefix") | existing keys **and every future** `user:*` key | a stored rule consulted on key-add + eviction |
+## Approach A — Rule-only (lazy evaluation) — RECOMMENDED
 
-"Prefix" implies the **dynamic rule** — a user expects a later `SET user:42 …`
-to also be protected. That is the model described below.
+Store **only the rule**; never stamp individual keys. Blessing is *computed* at
+the decision points.
 
-### How it would work (dynamic rule)
+- **Storage:** a per-node radix tree (`rax`) of `prefix -> flags`. This is the
+  same structure client-side tracking already uses for `BCAST` prefixes
+  (`PrefixTable`, `tracking.c`). Not attached to any key.
+- **`BLESS GROUP user: NOEVICT`:** just `raxInsert` the rule — **O(1)**, no key
+  scan. Future `user:*` keys are covered automatically (nothing to do on add).
+- **Enforcement:** the guard becomes "explicitly blessed **or** matches a rule":
+  `blessNoEvict(key) = key ∈ blessed_keys  OR  raxMatchesPrefix(bless_groups, key)`
+  — O(key-length) per check, no flash read.
+- **`COUNT` / `LIST` / `GROUPS`** answer about **definitions**, all cheap:
+  - `BLESS COUNT` → number of explicit per-key blessings — O(1).
+  - `BLESS LIST` → explicit per-key blessings (key → flags).
+  - `BLESS GROUPS` → the rules (prefix → flags) — O(#rules).
+  They deliberately do **not** enumerate "every key currently matching a prefix"
+  — that expansion is inherently O(N) and is never hidden behind a blocking
+  command. If it's truly needed, expose it only as a cursor: `BLESS GROUPSCAN
+  <cursor>` (same engine as `SCAN`, incremental, non-blocking, opt-in).
+- **Cost:** O(1) bless, O(key-len) per decision, tiny memory (just rules). The
+  only O(N) is the opt-in cursor scan.
 
-- **Storage:** a small per-node table of rules, `prefix -> flags` (a `rax` /
-  radix tree for longest-prefix match). This is separate from the per-key keymeta
-  — a rule is not attached to any single key. It is node config, so it must be
-  persisted on its own (RDB aux field) and replicated to replicas.
-- **On `BLESS GROUP user: NOEVICT`:** (1) store the rule; (2) apply to all
-  existing matching keys now.
-- **On key creation** (`dbAddInternal` / `dbAddRDBLoad`): if the new key name
-  matches a rule, bless it.
-- **Enforcement:** the guarding checks become "is this key blessed **or** does it
-  match a group rule?" — i.e. `blessNoEvict(key)` also tests the rule table
-  (O(#rules), or O(key-len) with a radix tree).
+## Approach B — Materialize (eager stamp)
 
-### Effective flags
+Iterate the whole keyspace and **stamp each matching key** as individually
+blessed, so group members become real entries in `blessed_keys`/keymeta.
+
+- **Storage:** the same `rax` rule table (still needed for *future* keys) **plus**
+  a per-key BLES value on every matching key — i.e. the group is expanded into the
+  per-key representation.
+- **`BLESS GROUP user: NOEVICT`:** walk the entire keyspace and bless every match.
+  Must be done with the **incremental cursor** (`kvstoreScan` / `dbScan`, the
+  `SCAN` engine) driven from `serverCron` a slice at a time — **never** a
+  synchronous `KEYS`-style loop, which would block the event loop on O(N).
+- **On key creation** (`dbAddInternal` / `dbAddRDBLoad`): test the new key against
+  the rules and stamp it if it matches.
+- **`COUNT` / `LIST`:** cheap again — every protected key is a real entry in
+  `blessed_keys`, so they read the materialized set directly (same as pure
+  per-key). This is the payoff: the O(N) moves to rule-creation/scan, and queries
+  are O(result).
+- **Costs / the hard parts:**
+  - **O(N) scan on every `BLESS GROUP`** (and again on `AUFERRE` to un-stamp).
+  - **Per-key memory** — every group member carries its own 8-byte BLES slot.
+  - **Origin tracking** — a key may be blessed *both* explicitly and by a group;
+    un-stamping a group must not remove an explicit bless. Each entry needs to
+    remember its source (origin bit / refcount), or `AUFERRE` on a group can
+    wrongly unbless a hand-blessed key.
+  - **Rule churn** — changing a rule re-scans; overlapping rules complicate
+    un-stamping.
+
+## A vs B
+
+| | Approach A (rule-only) | Approach B (materialize) |
+|---|---|---|
+| `BLESS GROUP` cost | **O(1)** | O(N) keyspace scan |
+| future keys | automatic (nothing on add) | per-add rule check + stamp |
+| `COUNT`/`LIST` of members | not offered cheaply (cursor only) | **O(result), cheap** |
+| memory | just the rules | + 8 bytes per matched key |
+| removal (`AUFERRE`) | O(1) (drop rule) | O(N) re-scan + origin bookkeeping |
+| complexity | low | high (origin tracking, scan scheduling) |
+
+**Recommendation: Approach A.** It's O(1) to define, covers future keys for free,
+and keeps memory flat. Its only weakness — enumerating a group's live members — is
+a rare, admin-style need that Approach B pays for on *every* group op. Take B only
+if cheap `COUNT`/`LIST` over *materialized* group members is a hard product
+requirement.
+
+## Effective flags (both approaches)
 
 A key can be blessed individually **and** by a group. Effective protection is the
 **union** of its per-key flags and every matching group rule's flags.
@@ -341,20 +390,22 @@ flowchart LR
   G --> U
 ```
 
-### Open questions (call out before implementing)
+## Common concerns (both approaches)
 
-- **Cap.** `bless-max-keys` bounds explicit per-key blessings. A prefix can match
-  unbounded keys — so a group rule can't be counted the same way. Likely: cap the
-  **number of group rules** separately, and don't count group-matched keys toward
-  `bless-max-keys`.
-- **`COUNT` / `LIST`.** Do they include group-matched keys (expensive to
-  enumerate) or only explicit per-key blessings? Proposal: `BLESS LIST`/`COUNT`
-  stay per-key; group rules are shown by `BLESS GROUPS`.
-- **Cluster / migration.** Group rules are node-local config; since keys migrate
-  across shards, the same rule must exist on every shard (broadcast/replicate the
-  rule, not just per-key state).
-- **Overlap with size-driven bless (RoF).** Same rule as per-key: a user group
-  `NOSWAP` registers matching keys as hard-bless; auto size-bless stays soft.
+- **Rule persistence.** The rule table is node config, not per-key data, so it
+  needs its own persistence — mirror `FUNCTION`: a dedicated RDB section
+  (`rdbSaveFunctions`/`rdbFunctionLoad` pattern) for snapshot restart, plus
+  command propagation (`BLESS GROUP` is a `WRITE`) for AOF and replicas. Always
+  RAM-resident, never swapped to flash.
+- **Cap.** `bless-max-keys` bounds explicit per-key blessings; a prefix can match
+  unbounded keys. Cap the **number of group rules** separately; don't count
+  group-covered keys toward `bless-max-keys` (Approach A can't, and Approach B
+  shouldn't).
+- **Cluster / migration.** Rules are node-local; since keys migrate, the same
+  rule must exist on every shard — replicate/broadcast the rule, not just per-key
+  state.
+- **RoF overlap.** A user group `NOSWAP` registers matching keys as hard-bless;
+  auto size-bless stays soft (see "BigRedis / RoF integration").
 
 ## Scope
 
@@ -365,7 +416,10 @@ Implemented:
   transport.
 - Layer 4 `NOEVICT`: enforced in `performEvictions` for both the pool
   (LRU/LFU/volatile-ttl) and random policies, with correct OOM termination.
-  Helper `blessNoEvict(key)`.
+  Helper `blessNoEvict(db, key)`.
+- Per-DB + SWAPDB: `blessed_keys` lives on `redisDb` (like `expires`).
+  `COUNT`/`LIST`/cap are per current DB; `SWAPDB` swaps the index with the data;
+  no cross-DB name collision. Cleared per-DB in `emptyDbStructure`.
 
 Deferred:
 
@@ -376,6 +430,3 @@ Deferred:
   but not an AOF rewrite yet. Add a callback that re-emits `BLESS`.
 - Group blessing by prefix (`BLESS GROUP <prefix> …`) — designed, not implemented;
   see "Group blessing by prefix" above.
-- Multi-DB: the RAM index is keyed by name and shared across DBs. Single-DB
-  `FLUSHDB` over-clears, and same-named keys in different DBs collide. Fine for
-  the single-DB target use case; make the index per-DB otherwise.

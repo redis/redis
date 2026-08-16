@@ -5,42 +5,35 @@
  * so it is persisted to RDB and carried inline through DUMP/RESTORE and cluster
  * slot migration for free - exactly like TTL (keymeta class 0).
  *
- * In addition we keep a per-node in-RAM set of blessed keys. That set answers
- * BLESSED COUNT / BLESSED LIST, enforces the bless-max-keys cap, and is the
- * structure the eviction/swap decision would consult without touching flash.
+ * In addition each redisDb keeps an in-RAM index of its blessed keys
+ * (db->blessed_keys). It answers BLESSED COUNT / LIST for the current DB,
+ * enforces the bless-max-keys cap, and is the structure the eviction/swap
+ * decision consults without touching flash. It is per-DB (like db->expires) so
+ * it stays correct across SWAPDB and multiple databases.
  *
- * NOTE: this implements storage + command surface only. The actual enforcement
- * ("guarding" eviction/swap, and the ROF RAM-residency wiring) is intentionally
- * out of scope here.
+ * NOTE: this implements storage + command surface + the NOEVICT eviction guard.
+ * The ROF swap-out (NOSWAP) enforcement lives in the BigRedis engine.
  */
 
 #include "server.h"
 
-/* Bless levels - stored as the keymeta value. 0 (the reset sentinel) means
- * "not blessed" (AUFERRE) and is never persisted/migrated. */
-/* Bless flags - a bitfield stored as the keymeta value. Each bit is one
- * independent protection; a value of 0 means "not blessed" (AUFERRE) and is
- * the reset sentinel that is never persisted/migrated. Flags can be combined. */
-#define BLESS_NONE     0
-#define BLESS_NOEVICT  (1u << 0)  /* Never evicted. */
-#define BLESS_NOSWAP   (1u << 1)  /* Kept in RAM, never swapped to flash. */
-#define BLESS_ALL      (BLESS_NOEVICT | BLESS_NOSWAP)
+/* Bless levels - an ordered ladder stored as the keymeta value. Each level is
+ * strictly stronger than the one below. 0 means "not blessed" (the reset
+ * sentinel, never persisted/migrated). */
+#define BLESS_NONE     0  /* may be evicted or swapped. */
+#define BLESS_NOEVICT  1  /* never evicted, may swap to flash. */
+#define BLESS_INRAM    2  /* never evicted, always in RAM (implies NOEVICT). */
 
-/* Append the flag names of 'f' (e.g. "NOEVICT|NOSWAP") to the reply. */
-static void addReplyBlessFlags(client *c, uint64_t f) {
-    sds s = sdsempty();
-    if (f & BLESS_NOEVICT) s = sdscat(s, "NOEVICT");
-    if (f & BLESS_NOSWAP) {
-        if (sdslen(s)) s = sdscat(s, "|");
-        s = sdscat(s, "NOSWAP");
+/* Human-readable name of a bless level. */
+static const char *blessLevelName(uint64_t level) {
+    switch (level) {
+    case BLESS_NOEVICT: return "NOEVICT";
+    case BLESS_INRAM:   return "INRAM";
+    default:            return "NONE";
     }
-    addReplyBulkCBuffer(c, s, sdslen(s));
-    sdsfree(s);
 }
 
-/* Global set: blessed key name (sds) -> level (stored in the value pointer).
- * ponytail: keyed by name only, one set for all DBs. The feature targets
- * single-DB use; add a (dbid,name) composite key if multi-DB support is needed. */
+/* Per-DB index: blessed key name (sds) -> level (stored in the value pointer). */
 static dictType blessedDictType = {
     dictSdsHash,            /* hash function */
     NULL,                   /* key dup */
@@ -51,52 +44,56 @@ static dictType blessedDictType = {
     NULL                    /* allow to resize */
 };
 
-/* ---- RAM-side blessed-set helpers (main thread only) ---- */
+/* Create a per-DB blessed-keys index. Called once per redisDb at startup. */
+dict *blessedDictCreate(void) {
+    return dictCreate(&blessedDictType);
+}
 
-static void blessedSetPut(sds keyname, uint64_t level) {
-    dictEntry *de = dictFind(server.blessed_keys, keyname);
+/* ---- per-DB index helpers (main thread only) ---- */
+
+static void blessedSetPut(redisDb *db, sds keyname, uint64_t level) {
+    dictEntry *de = dictFind(db->blessed_keys, keyname);
     if (de) {
-        dictSetVal(server.blessed_keys, de, (void *)(uintptr_t)level);
+        dictSetVal(db->blessed_keys, de, (void *)(uintptr_t)level);
         return;
     }
-    dictAdd(server.blessed_keys, sdsdup(keyname), (void *)(uintptr_t)level);
+    dictAdd(db->blessed_keys, sdsdup(keyname), (void *)(uintptr_t)level);
 }
 
-static void blessedSetDel(sds keyname) {
-    dictDelete(server.blessed_keys, keyname);
+static void blessedSetDel(redisDb *db, sds keyname) {
+    dictDelete(db->blessed_keys, keyname);
 }
 
-/* Public: add/update a blessed key in the RAM set. Called from dbAddInternal()
- * when a key arrives with the bless metadata attached (RDB load, RESTORE,
- * cluster slot migration, COPY, MOVE, RENAME) - the keymeta rdb_load callback
- * has no key name, so this is the single point that sees key + metadata together. */
-void blessTrackKey(sds keyname, uint64_t level) {
-    blessedSetPut(keyname, level);
+/* Public: add/update a blessed key in its DB's index. Called from dbAddInternal
+ * and dbAddRDBLoad when a key arrives with the bless metadata attached (RDB load,
+ * RESTORE, cluster slot migration, COPY, MOVE, RENAME) - the keymeta rdb_load
+ * callback has no key name, so these are the points that see key + metadata
+ * together. */
+void blessTrackKey(redisDb *db, sds keyname, uint64_t level) {
+    blessedSetPut(db, keyname, level);
 }
 
-/* Public: drop the whole set (FLUSHDB/FLUSHALL). */
-void blessedFlushAll(void) {
-    if (server.blessed_keys) dictEmpty(server.blessed_keys, NULL);
+/* Guarding queries. Safe for unblessed keys (-> NONE). */
+static uint64_t blessGetLevel(redisDb *db, sds keyname) {
+    dictEntry *de = dictFind(db->blessed_keys, keyname);
+    return de ? (uint64_t)(uintptr_t)dictGetVal(de) : BLESS_NONE;
 }
 
-/* Guarding queries. Safe before blessInit() and for unblessed keys (→ 0). */
-static uint64_t blessGetFlags(sds keyname) {
-    if (!server.blessed_keys) return 0;
-    dictEntry *de = dictFind(server.blessed_keys, keyname);
-    return de ? (uint64_t)(uintptr_t)dictGetVal(de) : 0;
+/* True if the key must not be evicted (NOEVICT and up). performEvictions(). */
+int blessNoEvict(redisDb *db, sds keyname) {
+    return blessGetLevel(db, keyname) >= BLESS_NOEVICT;
 }
 
-/* True if the key must not be evicted. Consulted by performEvictions(). */
-int blessNoEvict(sds keyname) { return (blessGetFlags(keyname) & BLESS_NOEVICT) != 0; }
-
-/* True if the key must stay in RAM (never swapped to flash). Consulted by the
- * ROF swap-out selector. */
-int blessNoSwap(sds keyname) { return (blessGetFlags(keyname) & BLESS_NOSWAP) != 0; }
+/* True if the key must stay in RAM, never swapped to flash (INRAM). Consulted
+ * by the ROF swap-out selector. */
+int blessNoSwap(redisDb *db, sds keyname) {
+    return blessGetLevel(db, keyname) >= BLESS_INRAM;
+}
 
 /* ---- keymeta class callbacks ---- */
 
-/* Persist the 1-byte level. The framework only calls this when the value is
- * not the reset sentinel, so AUFERRE keys are never written. */
+/* Persist the level. The framework only calls this when the value is not the
+ * reset sentinel, so unblessed keys are never written. */
 static void blessRdbSave(RedisModuleIO *io, void *reserved, uint64_t *meta) {
     UNUSED(reserved);
     if (rdbSaveLen(io->rio, *meta) == -1) io->error = 1;
@@ -107,7 +104,7 @@ static int blessRdbLoad(RedisModuleIO *io, uint64_t *meta, int encver) {
     uint64_t v = rdbLoadLen(io->rio, NULL);
     if (v == RDB_LENERR) { io->error = 1; return -1; }
     *meta = v;
-    return 1; /* attach; RAM set is populated later in dbAddInternal (io has no key). */
+    return 1; /* attach; the DB index is populated later in dbAdd* (io has no key). */
 }
 
 /* Logical removal on the main thread (DEL, expire, overwrite). We use unlink
@@ -115,30 +112,31 @@ static int blessRdbLoad(RedisModuleIO *io, uint64_t *meta, int encver) {
  * and must not touch the keyspace/globals. */
 static void blessUnlink(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     UNUSED(meta);
-    if (ctx->from_key) blessedSetDel(ctx->from_key->ptr);
+    if (ctx->from_key && ctx->from_dbid >= 0)
+        blessedSetDel(&server.db[ctx->from_dbid], ctx->from_key->ptr);
 }
 
 /* RENAME: drop the old name here; the new name is (re)added via dbAddInternal.
  * Returning non-zero keeps the metadata attached to the renamed key. */
 static int blessRename(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     UNUSED(meta);
-    if (ctx->from_key) blessedSetDel(ctx->from_key->ptr);
+    if (ctx->from_key && ctx->from_dbid >= 0)
+        blessedSetDel(&server.db[ctx->from_dbid], ctx->from_key->ptr);
     return 1;
 }
 
-/* COPY/MOVE: keep the metadata; the destination key is added to the set via
- * dbAddInternal once it becomes live. */
+/* COPY/MOVE: keep the metadata; the destination key is added to its DB's index
+ * via dbAddInternal once it becomes live. */
 static int blessKeep(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     UNUSED(ctx);
     UNUSED(meta);
     return 1;
 }
 
-/* Register the BLESS keymeta class and create the RAM set. Called once at
- * startup, right after keyMetaInit() and before any RDB load. */
+/* Register the BLESS keymeta class. Called once at startup, right after
+ * keyMetaInit() and before any RDB load. The per-DB indexes are created with
+ * their redisDb (see initServer). */
 void blessInit(void) {
-    server.blessed_keys = dictCreate(&blessedDictType);
-
     KeyMetaClassConf conf;
     memset(&conf, 0, sizeof(conf));
     conf.flags = (1u << KEY_META_FLAG_ALLOW_IGNORE); /* older servers skip gracefully */
@@ -159,69 +157,46 @@ void blessInit(void) {
 
 /* ---- commands ---- */
 
-/* BLESS SET key FLAG [FLAG ...]
- * FLAG is one of: NOEVICT, NOSWAP, AETERNUS (=NOEVICT), VELOX (=NOEVICT|NOSWAP),
- * AUFERRE/NONE (clear). Flags may be given as separate arguments and/or joined
- * in a single '|'-separated token. */
+/* BLESS SET key LEVEL
+ * LEVEL is exactly one of: NONE (clear), NOEVICT, INRAM.
+ * The levels form a ladder: INRAM implies NOEVICT. */
 static void blessSetCommand(client *c) {
-    uint64_t flags = 0;
-    int sawAuferre = 0, sawFlag = 0;
-
-    for (int j = 3; j < c->argc; j++) {
-        int parts;
-        sds *tok = sdssplitlen(c->argv[j]->ptr, sdslen(c->argv[j]->ptr), "|", 1, &parts);
-        if (tok == NULL) { addReplyError(c, "syntax error"); return; }
-        for (int i = 0; i < parts; i++) {
-            sds t = tok[i];
-            if (sdslen(t) == 0) continue; /* from a bare '|' token or trailing '|' */
-            if (!strcasecmp(t, "noevict"))       { flags |= BLESS_NOEVICT; sawFlag = 1; }
-            else if (!strcasecmp(t, "noswap"))   { flags |= BLESS_NOSWAP;  sawFlag = 1; }
-            else if (!strcasecmp(t, "aeternus")) { flags |= BLESS_NOEVICT; sawFlag = 1; }
-            else if (!strcasecmp(t, "velox"))    { flags |= BLESS_ALL;     sawFlag = 1; }
-            else if (!strcasecmp(t, "auferre") || !strcasecmp(t, "none")) { sawAuferre = 1; }
-            else {
-                addReplyErrorFormat(c, "unknown bless flag '%s'", t);
-                sdsfreesplitres(tok, parts);
-                return;
-            }
-        }
-        sdsfreesplitres(tok, parts);
-    }
-
-    if (sawAuferre && sawFlag) {
-        addReplyError(c, "AUFERRE cannot be combined with other flags");
+    uint64_t level;
+    const char *t = c->argv[3]->ptr;
+    if (!strcasecmp(t, "none"))         level = BLESS_NONE;
+    else if (!strcasecmp(t, "noevict")) level = BLESS_NOEVICT;
+    else if (!strcasecmp(t, "inram"))   level = BLESS_INRAM;
+    else {
+        addReplyError(c, "unknown bless level (use NONE, NOEVICT or INRAM)");
         return;
     }
-    if (!sawAuferre && !sawFlag) {
-        addReplyError(c, "syntax error: no bless flags given");
-        return;
-    }
-    if (sawAuferre) flags = BLESS_NONE; /* clear all protections */
 
     robj *o = lookupKeyWrite(c->db, c->argv[2]);
     if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }
 
     sds keyname = c->argv[2]->ptr;
-    int already = (dictFind(server.blessed_keys, keyname) != NULL);
+    int already = (dictFind(c->db->blessed_keys, keyname) != NULL);
 
-    if (flags == BLESS_NONE) {
+    if (level == BLESS_NONE) {
         if (!already) { addReply(c, shared.ok); return; } /* nothing to unbless */
         if (keyMetaSetMetadata(c->db, o, server.bless_class_id, BLESS_NONE) == NULL) {
             addReplyError(c, "failed to update key metadata");
             return;
         }
-        blessedSetDel(keyname);
+        blessedSetDel(c->db, keyname);
     } else {
-        /* Per-node cap applies only to newly blessed keys; re-flagging is free. */
-        if (!already && (int)dictSize(server.blessed_keys) >= server.bless_max_keys) {
+        /* Cap applies only to newly blessed keys; re-leveling is free. Per-DB:
+         * dictSize is the count for this DB (see the design doc on the per-node
+         * vs per-DB cap decision). */
+        if (!already && (int)dictSize(c->db->blessed_keys) >= server.bless_max_keys) {
             addReplyError(c, "reached the maximum number of blessed keys (bless-max-keys)");
             return;
         }
-        if (keyMetaSetMetadata(c->db, o, server.bless_class_id, flags) == NULL) {
+        if (keyMetaSetMetadata(c->db, o, server.bless_class_id, level) == NULL) {
             addReplyError(c, "failed to update key metadata");
             return;
         }
-        blessedSetPut(keyname, flags);
+        blessedSetPut(c->db, keyname, level);
     }
 
     keyModified(c, c->db, c->argv[2], NULL, 1);
@@ -230,15 +205,16 @@ static void blessSetCommand(client *c) {
     addReply(c, shared.ok);
 }
 
-/* BLESS GET key -> the key's flags (nil if not blessed). */
+/* BLESS GET key -> the key's level name (nil if not blessed). */
 static void blessGetCommand(client *c) {
-    uint64_t flags = blessGetFlags(c->argv[2]->ptr);
-    if (flags == BLESS_NONE) { addReplyNull(c); return; }
-    addReplyBlessFlags(c, flags);
+    uint64_t level = blessGetLevel(c->db, c->argv[2]->ptr);
+    if (level == BLESS_NONE) { addReplyNull(c); return; }
+    addReplyBulkCString(c, blessLevelName(level));
 }
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
- * per-subcommand arity and key specs are enforced by the command table. */
+ * per-subcommand arity and key specs are enforced by the command table.
+ * COUNT/LIST report the current DB only, like DBSIZE/KEYS. */
 void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub, "set")) {
@@ -246,29 +222,29 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "count")) {
-        addReplyLongLong(c, dictSize(server.blessed_keys));
+        addReplyLongLong(c, dictSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
-        /* Reply is a map: key name -> flags. */
-        addReplyMapLen(c, dictSize(server.blessed_keys));
-        dictIterator *di = dictGetIterator(server.blessed_keys);
+        /* Reply is a map: key name -> level name, for the current DB. */
+        addReplyMapLen(c, dictSize(c->db->blessed_keys));
+        dictIterator *di = dictGetIterator(c->db->blessed_keys);
         dictEntry *de;
         while ((de = dictNext(di)) != NULL) {
             sds name = dictGetKey(de);
-            uint64_t flags = (uint64_t)(uintptr_t)dictGetVal(de);
+            uint64_t level = (uint64_t)(uintptr_t)dictGetVal(de);
             addReplyBulkCBuffer(c, name, sdslen(name));
-            addReplyBlessFlags(c, flags);
+            addReplyBulkCString(c, blessLevelName(level));
         }
         dictReleaseIterator(di);
     } else if (!strcasecmp(sub, "help")) {
         const char *help[] = {
-            "SET <key> <NOEVICT|NOSWAP|AUFERRE ...>",
-            "    Bless a key (AUFERRE clears all flags).",
+            "SET <key> <NONE | NOEVICT | INRAM>",
+            "    Bless a key at a level (NONE clears; INRAM implies NOEVICT).",
             "GET <key>",
-            "    Show a key's bless flags.",
+            "    Show a key's bless level.",
             "COUNT",
-            "    Number of blessed keys.",
+            "    Number of blessed keys in the current DB.",
             "LIST",
-            "    Map of blessed key -> flags.",
+            "    Map of blessed key -> level in the current DB.",
             NULL
         };
         addReplyHelp(c, help);
