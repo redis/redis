@@ -99,7 +99,7 @@ int verifyClusterNodeId(const char *name, int length);
 static void updateShardId(clusterNode *node, const char *shard_id);
 
 int getNodeDefaultClientPort(clusterNode *n) {
-    return server.tls_cluster ? n->tls_port : n->tcp_port;
+    return clusterDefaultClientPortIsTLS() ? n->tls_port : n->tcp_port;
 }
 
 static inline int getNodeDefaultReplicationPort(clusterNode *n) {
@@ -111,7 +111,7 @@ int clusterNodeClientPort(clusterNode *n, int use_tls) {
 }
 
 static inline int defaultClientPort(void) {
-    return server.tls_cluster ? server.tls_port : server.port;
+    return clusterDefaultClientPortIsTLS() ? server.tls_port : server.port;
 }
 
 #define isSlotUnclaimed(slot) \
@@ -495,7 +495,7 @@ int clusterLoadConfig(char *filename) {
         /* If neither TCP or TLS port is found in aux field, it is considered
          * an old version of nodes.conf file.*/
         if (!aux_tcp_port && !aux_tls_port) {
-            if (server.tls_cluster) {
+            if (clusterDefaultClientPortIsTLS()) {
                 n->tls_port = atoi(port);
             } else {
                 n->tcp_port = atoi(port);
@@ -2066,7 +2066,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
      * handshake. */
     n = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
     memcpy(n->ip,norm_ip,sizeof(n->ip));
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         n->tls_port = port;
     } else {
         n->tcp_port = port;
@@ -2077,7 +2077,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
 }
 
 static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp_port) {
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         *tls_port = ntohs(hdr->port);
         *tcp_port = ntohs(hdr->pport);
     } else {
@@ -2087,7 +2087,7 @@ static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp
 }
 
 static void getClientPortFromGossip(clusterMsgDataGossip *g, int *tls_port, int *tcp_port) {
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         *tls_port = ntohs(g->port);
         *tcp_port = ntohs(g->pport);
     } else {
@@ -2226,8 +2226,8 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
                 (strcasecmp(node->ip,g->ip) ||
-                 node->tls_port != (server.tls_cluster ? ntohs(g->port) : ntohs(g->pport)) ||
-                 node->tcp_port != (server.tls_cluster ? ntohs(g->pport) : ntohs(g->port)) ||
+                 node->tls_port != msg_tls_port ||
+                 node->tcp_port != msg_tcp_port ||
                  node->cport != ntohs(g->cport)))
             {
                 if (node->link) freeClusterLink(node->link);
@@ -3708,7 +3708,7 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
     if (myself->slaveof != NULL)
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         hdr->port = htons(announced_tls_port);
         hdr->pport = htons(announced_tcp_port);
     } else {
@@ -3748,7 +3748,7 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
     gossip->ping_sent = htonl(n->ping_sent/1000);
     gossip->pong_received = htonl(n->pong_received/1000);
     memcpy(gossip->ip,n->ip,sizeof(n->ip));
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         gossip->port = htons(n->tls_port);
         gossip->pport = htons(n->tcp_port);
     } else {

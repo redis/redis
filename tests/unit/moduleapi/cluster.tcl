@@ -224,6 +224,16 @@ start_cluster 3 0 [list tags {external:skip cluster modules} config_lines $modul
         assert_equal {PONG} [$node2 PING]
         assert_equal {PONG} [$node3 PING]
     }
+
+    test "RedisModule_GetClusterNodeInfo reports whether the returned port uses TLS" {
+        set info [$node1 test.getclusternodeinfo]
+        set port [lindex $info 0]
+        set flags [lindex $info 1]
+        set tls_port_flag [expr {1 << 6}]
+
+        assert_equal [srv 0 port] $port
+        assert_equal $::tls [expr {($flags & $tls_port_flag) != 0}]
+    }
 }
 
 # -----------------------------------------------------------------------------
