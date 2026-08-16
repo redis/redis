@@ -8,7 +8,8 @@
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "FAST"
         ],
         "acl_categories": [
             "KEYSPACE"
@@ -16,8 +17,7 @@
         "key_specs": [
             {
                 "flags": [
-                    "RO",
-                    "ACCESS"
+                    "RO"
                 ],
                 "begin_search": {
                     "index": {

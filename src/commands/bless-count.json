@@ -8,7 +8,12 @@
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "FAST"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_SUM"
         ],
         "acl_categories": [
             "KEYSPACE"

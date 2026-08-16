@@ -2425,7 +2425,10 @@ struct COMMAND_ARG SELECT_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BLESS COUNT tips */
-#define BLESS_COUNT_Tips NULL
+const char *BLESS_COUNT_Tips[] = {
+"request_policy:all_shards",
+"response_policy:agg_sum",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2453,7 +2456,7 @@ struct COMMAND_ARG BLESS_COUNT_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* BLESS GET key specs */
 keySpec BLESS_GET_Keyspecs[1] = {
-{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 
@@ -2471,7 +2474,10 @@ struct COMMAND_ARG BLESS_GET_Args[] = {
 
 #ifndef SKIP_CMD_TIPS_TABLE
 /* BLESS LIST tips */
-#define BLESS_LIST_Tips NULL
+const char *BLESS_LIST_Tips[] = {
+"request_policy:all_shards",
+"nondeterministic_output_order",
+};
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
@@ -2517,9 +2523,9 @@ struct COMMAND_ARG BLESS_SET_Args[] = {
 
 /* BLESS command table */
 struct COMMAND_STRUCT BLESS_Subcommands[] = {
-{MAKE_CMD("count","Returns the number of blessed keys at the given level (default NO-EVICT). NONE is not countable and INRAM is unimplemented - both are a syntax error.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_COUNT_History,0,BLESS_COUNT_Tips,0,blessCommand,-2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESS_COUNT_Keyspecs,0,NULL,1),.args=BLESS_COUNT_Args},
-{MAKE_CMD("get","Returns the bless level of a key.","O(1).","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_GET_History,0,BLESS_GET_Tips,0,blessCommand,3,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESS_GET_Keyspecs,1,NULL,1),.args=BLESS_GET_Args},
-{MAKE_CMD("list","Lists blessed keys. Accepts NO-EVICT or no argument (default NO-EVICT); NONE is not listable (unblessed keys are untracked) and INRAM is unimplemented - both are a syntax error.","O(N) where N is the number of blessed keys.","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_LIST_History,0,BLESS_LIST_Tips,0,blessCommand,-2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESS_LIST_Keyspecs,0,NULL,1),.args=BLESS_LIST_Args},
+{MAKE_CMD("count","Returns the number of blessed keys at the given level (default NO-EVICT). NONE is not countable and INRAM is unimplemented - both are a syntax error.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_COUNT_History,0,BLESS_COUNT_Tips,2,blessCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_COUNT_Keyspecs,0,NULL,1),.args=BLESS_COUNT_Args},
+{MAKE_CMD("get","Returns the bless level of a key.","O(1).","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_GET_History,0,BLESS_GET_Tips,0,blessCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_GET_Keyspecs,1,NULL,1),.args=BLESS_GET_Args},
+{MAKE_CMD("list","Lists blessed keys. Accepts NO-EVICT or no argument (default NO-EVICT); NONE is not listable (unblessed keys are untracked) and INRAM is unimplemented - both are a syntax error.","O(N) where N is the number of blessed keys.","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_LIST_History,0,BLESS_LIST_Tips,2,blessCommand,-2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESS_LIST_Keyspecs,0,NULL,1),.args=BLESS_LIST_Args},
 {MAKE_CMD("set","Sets a key's protections against memory pressure.","O(1).","8.10.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_SET_History,0,BLESS_SET_Tips,0,blessCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_SET_Keyspecs,1,NULL,2),.args=BLESS_SET_Args},
 {0}
 };

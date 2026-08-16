@@ -10,6 +10,10 @@
         "command_flags": [
             "READONLY"
         ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ],
         "acl_categories": [
             "KEYSPACE"
         ],
