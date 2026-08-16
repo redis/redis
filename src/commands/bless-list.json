@@ -15,9 +15,12 @@
         ],
         "reply_schema": {
             "type": "object",
-            "description": "A map of blessed key name to its bless level.",
+            "description": "A map of blessed key name to its per-protection ON|OFF state.",
             "additionalProperties": {
-                "type": "string"
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                }
             }
         }
     }

@@ -41,8 +41,11 @@
             }
         ],
         "reply_schema": {
-            "type": "string",
-            "description": "The key's bless level name (NONE if not blessed)."
+            "type": "object",
+            "description": "A map of each protection to its ON|OFF state.",
+            "additionalProperties": {
+                "type": "string"
+            }
         }
     }
 }

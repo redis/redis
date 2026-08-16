@@ -1,10 +1,10 @@
 {
     "SET": {
-        "summary": "Blesses a key at a protection level.",
+        "summary": "Sets a key's protections against memory pressure.",
         "complexity": "O(1).",
         "group": "generic",
         "since": "8.6.0",
-        "arity": 4,
+        "arity": -3,
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
@@ -41,17 +41,27 @@
                 "key_spec_index": 0
             },
             {
-                "name": "level",
+                "token": "NO-EVICT",
+                "name": "no-evict",
                 "type": "oneof",
+                "optional": true,
                 "arguments": [
-                    { "name": "none",    "type": "pure-token", "token": "NONE" },
-                    { "name": "noevict", "type": "pure-token", "token": "NOEVICT" }
+                    {
+                        "name": "on",
+                        "type": "pure-token",
+                        "token": "ON"
+                    },
+                    {
+                        "name": "off",
+                        "type": "pure-token",
+                        "token": "OFF"
+                    }
                 ]
             }
         ],
         "reply_schema": {
             "type": "integer",
-            "description": "1 if the key's bless level changed, 0 otherwise."
+            "description": "1 if a protection setting changed, 0 if already in that state."
         }
     }
 }

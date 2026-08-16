@@ -24,14 +24,6 @@
 #define BLESS_NONE     0  /* may be evicted. */
 #define BLESS_NOEVICT  1  /* never evicted. */
 
-/* Human-readable name of a bless level. */
-static const char *blessLevelName(uint64_t level) {
-    switch (level) {
-    case BLESS_NOEVICT: return "NOEVICT";
-    default:            return "NONE";
-    }
-}
-
 /* Per-DB index: blessed key name (sds) -> level (stored in the value pointer). */
 static dictType blessedDictType = {
     dictSdsHash,            /* hash function */
@@ -158,24 +150,37 @@ void blessInit(void) {
 
 /* ---- commands ---- */
 
-/* BLESS SET <key> <level>
- * <level> is NONE (clear) or NOEVICT (numeric, room for stronger levels later).
- * Replies 1 if the key's level changed, 0 otherwise (missing key or no change).
- * A trailing option (e.g. PREFIX, to treat <key> as a prefix) can be appended
- * here in the future without breaking this form.
+/* BLESS SET <key> [NO-EVICT ON|OFF]
+ * Sets a key's protections against memory pressure, in the idiom of
+ * CLIENT NO-EVICT ON|OFF. NO-EVICT ON protects the key from eviction; OFF
+ * removes the protection. When NO-EVICT is omitted it defaults to ON, so
+ * `BLESS SET <key>` protects the key.
+ *   INRAM ON|OFF is reserved for a future Redis-on-Flash "keep value in RAM"
+ *   toggle and is intentionally not parsed yet; the level is stored as a number
+ *   so an independent INRAM bit can be added later without touching storage.
+ * Replies 1 if the key's stored state changed, 0 otherwise (no change).
  * No cap: bless is meant for a small number of keys (see README). A hard cap
  * would also be unenforceable on the migration / RDB-load paths anyway. */
 static void blessSetCommand(client *c) {
-    /* BLESS SET <key> <level> */
+    /* BLESS SET <key> [NO-EVICT ON|OFF] */
     robj *keyobj = c->argv[2];
-    uint64_t level;
-    const char *t = c->argv[3]->ptr;
-    if (!strcasecmp(t, "none"))         level = BLESS_NONE;
-    else if (!strcasecmp(t, "noevict")) level = BLESS_NOEVICT;
-    else {
-        addReplyError(c, "unknown bless level (use NONE or NOEVICT)");
-        return;
+
+    /* Default when NO-EVICT is omitted: ON (protect the key). */
+    int noevict = 1;
+    for (int j = 3; j < c->argc; ) {
+        const char *opt = c->argv[j]->ptr;
+        if (!strcasecmp(opt, "no-evict") && j + 1 < c->argc) {
+            const char *v = c->argv[j + 1]->ptr;
+            if (!strcasecmp(v, "on"))        noevict = 1;
+            else if (!strcasecmp(v, "off"))  noevict = 0;
+            else { addReplyErrorObject(c, shared.syntaxerr); return; }
+            j += 2;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
     }
+    uint64_t level = noevict ? BLESS_NOEVICT : BLESS_NONE;
 
     robj *o = lookupKeyWrite(c->db, keyobj);
     if (o == NULL) { addReply(c, shared.nokeyerr); return; }   /* missing key -> error */
@@ -194,8 +199,10 @@ static void blessSetCommand(client *c) {
     addReply(c, shared.cone);
 }
 
-/* BLESS GET <key> -> the key's bless level name ("NONE" if the key exists but is
- * not blessed). Errors if the key does not exist. */
+/* BLESS GET <key> -> a map of each protection to its ON|OFF state, in the same
+ * vocabulary BLESS SET uses. Currently just NO-EVICT; INRAM joins as a second
+ * entry when implemented. A key that exists but isn't blessed reports OFF.
+ * Errors if the key does not exist. */
 static void blessGetCommand(client *c) {
     robj *keyobj = c->argv[2];
     if (lookupKeyReadWithFlags(c->db, keyobj, LOOKUP_NOTOUCH) == NULL) {
@@ -203,7 +210,9 @@ static void blessGetCommand(client *c) {
         return;
     }
     uint64_t level = blessGetLevel(c->db, keyobj->ptr);
-    addReplyBulkCString(c, blessLevelName(level));
+    addReplyMapLen(c, 1);
+    addReplyBulkCString(c, "NO-EVICT");
+    addReplyBulkCString(c, (level >= BLESS_NOEVICT) ? "ON" : "OFF");
 }
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
@@ -218,7 +227,9 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "count")) {
         addReplyLongLong(c, dictSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
-        /* Reply is a map: key name -> level name, for the current DB. */
+        /* Reply is a map for the current DB: key name -> { NO-EVICT: ON|OFF },
+         * the same per-toggle shape BLESS GET uses (INRAM joins later). Every
+         * key in the index is protected, so NO-EVICT is always ON here. */
         addReplyMapLen(c, dictSize(c->db->blessed_keys));
         dictIterator *di = dictGetIterator(c->db->blessed_keys);
         dictEntry *de;
@@ -226,7 +237,9 @@ void blessCommand(client *c) {
             sds name = dictGetKey(de);
             uint64_t level = (uint64_t)(uintptr_t)dictGetVal(de);
             addReplyBulkCBuffer(c, name, sdslen(name));
-            addReplyBulkCString(c, blessLevelName(level));
+            addReplyMapLen(c, 1);
+            addReplyBulkCString(c, "NO-EVICT");
+            addReplyBulkCString(c, (level >= BLESS_NOEVICT) ? "ON" : "OFF");
         }
         dictReleaseIterator(di);
     } else {
