@@ -3547,3 +3547,40 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal $src_digest [R 4 debug digest]
     }
 }
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    test "BLESS level survives atomic slot migration" {
+        # Two keys in slot 0 (owned by node 0): one blessed, one plain.
+        set kb [slot_key 0 blessed]
+        set kp [slot_key 0 plain]
+        R 0 set $kb v0
+        R 0 set $kp v1
+        assert_equal 1 [R 0 bless set $kb no-evict on]
+        assert_equal 1 [R 0 bless count]
+
+        # Atomically migrate slots 0-100 from node 0 to node 1.
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+        wait_for_asm_done
+        assert_equal "completed" [migration_status 1 $task_id state]
+
+        # New owner (node 1): data and bless level carried over the ASM channel.
+        assert_equal v0 [R 1 get $kb]
+        assert_equal {NO-EVICT ON}  [R 1 bless get $kb]
+        assert_equal {NO-EVICT OFF} [R 1 bless get $kp]
+        assert_equal 1 [R 1 bless count]
+
+        # Its replica (node 4) received the bless too (READONLY to read a
+        # replica's keyed command in cluster mode).
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal {NO-EVICT ON} [R 4 bless get $kb]
+
+        # Former owner (node 0) drops the migrated key from its index once the
+        # source trim runs (background trim moves the slot-partitioned index).
+        wait_for_condition 50 100 {
+            [R 0 bless count] == 0
+        } else {
+            fail "former owner still lists [R 0 bless count] blessed key(s) after migration+trim"
+        }
+    }
+}

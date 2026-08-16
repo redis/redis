@@ -1057,7 +1057,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         }
         /* The blessed-keys index is derived from the keys; wipe it whenever the
          * DB's keyspace is emptied so it is rebuilt cleanly on the next load. */
-        dictEmpty(dbarray[j].blessed_keys, NULL);
+        kvstoreEmpty(dbarray[j].blessed_keys, NULL);
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;

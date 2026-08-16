@@ -1231,7 +1231,7 @@ typedef struct replBufBlock {
 typedef struct redisDb {
     kvstore *keys;              /* The keyspace for this DB. As metadata, holds keysizes histogram */
     kvstore *expires;           /* Timeout of keys with a timeout set */
-    dict *blessed_keys;         /* Blessed key name (sds) -> bless level (per-DB, like expires). */
+    kvstore *blessed_keys;      /* Blessed key name (sds) -> bless level (slot-partitioned, per-DB, like expires). */
     estore *subexpires;         /* Timeout of sub-keys with a timeout set. (Currently only used for hashes) */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
@@ -4316,7 +4316,7 @@ kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const KeyMetaSpec *m);
 void blessInit(void);
-dict *blessedDictCreate(void);
+kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
 void blessTrackKey(redisDb *db, sds keyname, uint64_t level);
 int blessNoEvict(kvobj *kv);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);

@@ -39,24 +39,28 @@ static dictType blessedDictType = {
     NULL                    /* allow to resize */
 };
 
-/* Create a per-DB blessed-keys index. Called once per redisDb at startup. */
-dict *blessedDictCreate(void) {
-    return dictCreate(&blessedDictType);
+/* Create a per-DB blessed-keys index. Slot-partitioned like db->expires so a
+ * slot migration (ASM) can drop a whole slot's entries in O(1). Called once per
+ * redisDb at startup. */
+kvstore *blessedKvstoreCreate(int slot_count_bits, int flags) {
+    return kvstoreCreate(&kvstoreBaseType, &blessedDictType, slot_count_bits, flags);
 }
 
 /* ---- per-DB index helpers (main thread only) ---- */
 
 static void blessedSetPut(redisDb *db, sds keyname, uint64_t level) {
-    dictEntry *de = dictFind(db->blessed_keys, keyname);
+    int slot = getKeySlot(keyname);
+    dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
     if (de) {
-        dictSetVal(db->blessed_keys, de, (void *)(uintptr_t)level);
+        kvstoreDictSetVal(db->blessed_keys, slot, de, (void *)(uintptr_t)level);
         return;
     }
-    dictAdd(db->blessed_keys, sdsdup(keyname), (void *)(uintptr_t)level);
+    de = kvstoreDictAddRaw(db->blessed_keys, slot, sdsdup(keyname), NULL);
+    kvstoreDictSetVal(db->blessed_keys, slot, de, (void *)(uintptr_t)level);
 }
 
 static void blessedSetDel(redisDb *db, sds keyname) {
-    dictDelete(db->blessed_keys, keyname);
+    kvstoreDictDelete(db->blessed_keys, getKeySlot(keyname), keyname);
 }
 
 /* Public: add/update a blessed key in its DB's index. Called from dbAddInternal
@@ -70,7 +74,7 @@ void blessTrackKey(redisDb *db, sds keyname, uint64_t level) {
 
 /* Guarding queries. Safe for unblessed keys (-> NONE). */
 static uint64_t blessGetLevel(redisDb *db, sds keyname) {
-    dictEntry *de = dictFind(db->blessed_keys, keyname);
+    dictEntry *de = kvstoreDictFind(db->blessed_keys, getKeySlot(keyname), keyname);
     return de ? (uint64_t)(uintptr_t)dictGetVal(de) : BLESS_NONE;
 }
 
@@ -129,6 +133,25 @@ static int blessKeep(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     return 1;
 }
 
+/* Re-emit "BLESS SET <key> NO-EVICT ON" onto the command-format AOF stream,
+ * mirroring how TTL re-emits PEXPIREAT: that stream reconstructs keys from data
+ * commands and carries no keymeta, so a blessed key would otherwise lose its
+ * level across an AOF rewrite or an AOF-format slot (ASM) migration. Invoked via
+ * keyMetaOnUnlink's AOF sibling keyMetaOnAof() (aof.c); the framework only calls
+ * it for a non-reset (blessed) value. */
+static void blessAofRewrite(RedisModuleIO *io, void *reserved, uint64_t meta) {
+    UNUSED(reserved);
+    UNUSED(meta);
+    rio *r = io->rio;
+    if (rioWriteBulkCount(r, '*', 5) == 0 ||
+        rioWriteBulkString(r, "BLESS", 5) == 0 ||
+        rioWriteBulkString(r, "SET", 3) == 0 ||
+        rioWriteBulkObject(r, io->key) == 0 ||
+        rioWriteBulkString(r, "NO-EVICT", 8) == 0 ||
+        rioWriteBulkString(r, "ON", 2) == 0)
+        io->error = 1;
+}
+
 /* Register the BLESS keymeta class. Called once at startup, right after
  * keyMetaInit() and before any RDB load. The per-DB indexes are created with
  * their redisDb (see initServer). */
@@ -141,12 +164,12 @@ void blessInit(void) {
     conf.rdb_load = blessRdbLoad;
     conf.unlink   = blessUnlink;
     conf.rename   = blessRename;
-    conf.copy     = blessKeep;
-    conf.move     = blessKeep;
-    /* No aof_rewrite callback: with the RDB preamble (aof-use-rdb-preamble yes,
-     * the default) bless survives an AOF rewrite because the preamble carries
-     * keymeta. Only a command-format rewrite (preamble off) would drop it; add
-     * an aof_rewrite that re-emits BLESS if that must be covered too. */
+    conf.copy       = blessKeep;
+    conf.move       = blessKeep;
+    conf.aof_rewrite = blessAofRewrite;
+    /* aof_rewrite (blessAofRewrite) re-emits BLESS on the command-format AOF
+     * stream, so bless survives an AOF rewrite and AOF-format slot migration too,
+     * not just the RDB / DUMP / RESTORE paths. */
 
     server.bless_class_id = keyMetaClassCreate(NULL, "BLES", 0, &conf);
     serverAssert(server.bless_class_id >= KEY_META_ID_MODULE_FIRST);
@@ -229,15 +252,16 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "count")) {
-        addReplyLongLong(c, dictSize(c->db->blessed_keys));
+        addReplyLongLong(c, kvstoreSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
         /* Reply is a map for the current DB: key name -> { NO-EVICT: ON|OFF },
          * the same per-toggle shape BLESS GET uses (INRAM joins later). Every
          * key in the index is protected, so NO-EVICT is always ON here. */
-        addReplyMapLen(c, dictSize(c->db->blessed_keys));
-        dictIterator *di = dictGetIterator(c->db->blessed_keys);
+        addReplyMapLen(c, kvstoreSize(c->db->blessed_keys));
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, c->db->blessed_keys);
         dictEntry *de;
-        while ((de = dictNext(di)) != NULL) {
+        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             sds name = dictGetKey(de);
             uint64_t level = (uint64_t)(uintptr_t)dictGetVal(de);
             addReplyBulkCBuffer(c, name, sdslen(name));
@@ -245,7 +269,7 @@ void blessCommand(client *c) {
             addReplyBulkCString(c, "NO-EVICT");
             addReplyBulkCString(c, (level >= BLESS_NOEVICT) ? "ON" : "OFF");
         }
-        dictReleaseIterator(di);
+        kvstoreIteratorReset(&kvs_it);
     } else {
         addReplySubcommandSyntaxError(c);
     }
