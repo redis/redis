@@ -16,17 +16,19 @@
  * consulted only when there is no in-RAM keymeta to read (RoF flash-eviction).
  *
  * NOTE: this implements NOEVICT only (storage + command surface + the eviction
- * guard). The level is stored as a number, so additional stronger levels can be
- * added later without changing storage, index, persistence, or migration.
+ * guard). Protections are stored as a bitmask of independent flags, so more
+ * flags can be added later without changing storage, index, persistence, or
+ * migration.
  */
 
 #include "server.h"
 
-/* Bless level - stored as the keymeta value. A NUMBER (not a boolean) so more
- * levels can be added later without touching storage. 0 means "not blessed"
- * (the reset sentinel, never persisted/migrated). */
-#define BLESS_NONE     0  /* may be evicted. */
-#define BLESS_NOEVICT  1  /* never evicted. */
+/* Bless protections - stored as a BITMASK of independent flags in the keymeta
+ * value. Each flag is set/cleared on its own and none implies another. 0 means
+ * "no protection" (the reset sentinel, never persisted/migrated). */
+#define BLESS_NONE     0        /* no protection; may be evicted. */
+#define BLESS_NOEVICT  (1 << 0) /* never evicted under maxmemory. */
+/* Future: BLESS_INRAM (1 << 1) - value kept in RAM under Redis-on-Flash. */
 
 /* Per-DB index: blessed key name (sds) -> level (stored in the value pointer). */
 static dictType blessedDictType = {
@@ -78,16 +80,16 @@ static uint64_t blessGetLevel(redisDb *db, sds keyname) {
     return de ? (uint64_t)(uintptr_t)dictGetVal(de) : BLESS_NONE;
 }
 
-/* True if the key must not be evicted (NOEVICT and up). Called from
- * performEvictions() for each sampled key. Reads the level straight from the
- * key's inline keymeta, so the core eviction path needs no side index and no
- * extra lookup. Written as a ">= level" test so higher levels can be added the
- * same way. Safe for unblessed keys: keyMetaGetMetadata leaves level=NONE. */
+/* True if the key must not be evicted. Called from performEvictions() for each
+ * sampled key; reads the flag straight from the key's inline keymeta, so the
+ * core eviction path needs no side index and no extra lookup. A bit test (flags
+ * are independent). Safe for unblessed keys: keyMetaGetMetadata leaves
+ * level=NONE. */
 int blessNoEvict(kvobj *kv) {
     if (server.bless_class_id <= 0) return 0;
     uint64_t level = BLESS_NONE;
     keyMetaGetMetadata(server.bless_class_id, kv, &level);
-    return level >= BLESS_NOEVICT;
+    return (level & BLESS_NOEVICT) != 0;
 }
 
 /* ---- keymeta class callbacks ---- */
@@ -184,12 +186,12 @@ void blessInit(void) {
  * `BLESS SET <key>` is an error (no implicit default), so intent is always
  * explicit and IN-RAM can be added later without changing what a bare call means.
  *   IN-RAM ON|OFF is reserved for a future Redis-on-Flash "keep value in RAM"
- *   toggle and is intentionally not parsed yet; the level is stored as a number
- *   so an independent IN-RAM bit can be added later without touching storage.
+ *   toggle and is intentionally not parsed yet; protections are an independent
+ *   bitmask, so an IN-RAM bit can be added later without touching storage.
  * Replies 1 if the key's stored state changed, 0 otherwise (no change).
  * No cap: bless is meant for a small number of keys (see README). */
 static void blessSetCommand(client *c) {
-    /* BLESS SET <key> [NO-EVICT ON|OFF] */
+    /* BLESS SET <key> NO-EVICT ON|OFF   (future: [IN-RAM ON|OFF]) */
     robj *keyobj = c->argv[2];
 
     int noevict = -1;   /* -1 = not specified */
@@ -212,14 +214,23 @@ static void blessSetCommand(client *c) {
         addReplyError(c, "at least one protection is required (NO-EVICT ON|OFF)");
         return;
     }
-    uint64_t level = (noevict == 1) ? BLESS_NOEVICT : BLESS_NONE;
 
     robj *o = lookupKeyWrite(c->db, keyobj);
     if (o == NULL) { addReply(c, shared.nokeyerr); return; }   /* missing key -> error */
     sds keyname = keyobj->ptr;
-    if (blessGetLevel(c->db, keyname) == level) { addReply(c, shared.czero); return; }
+
+    /* Flags are independent: modify only the bit(s) named in this call and leave
+     * the rest (e.g. a future IN-RAM) untouched. Read the current mask from the
+     * key's keymeta - the authoritative source. */
+    uint64_t cur = BLESS_NONE;
+    keyMetaGetMetadata(server.bless_class_id, o, &cur);
+    uint64_t level = cur;
+    if (noevict == 1) level |= BLESS_NOEVICT;
+    else              level &= ~(uint64_t)BLESS_NOEVICT;
+
+    if (level == cur) { addReply(c, shared.czero); return; }   /* no change */
     if (keyMetaSetMetadata(c->db, o, server.bless_class_id, level) == NULL) {
-        addReply(c, shared.czero);
+        addReplyError(c, "failed to update key protection metadata");
         return;
     }
     if (level == BLESS_NONE) blessedSetDel(c->db, keyname);
@@ -244,7 +255,7 @@ static void blessGetCommand(client *c) {
     uint64_t level = blessGetLevel(c->db, keyobj->ptr);
     addReplyMapLen(c, 1);
     addReplyBulkCString(c, "NO-EVICT");
-    addReplyBulkCString(c, (level >= BLESS_NOEVICT) ? "ON" : "OFF");
+    addReplyBulkCString(c, (level & BLESS_NOEVICT) ? "ON" : "OFF");
 }
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
@@ -259,11 +270,10 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "count")) {
         addReplyLongLong(c, kvstoreSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
-        /* BLESS LIST [NO-EVICT] - array of keys in the current DB whose
-         * protection includes the given type (default NO-EVICT). Higher levels
-         * imply lower ones, so this is a ">= threshold" filter (IN-RAM joins as
-         * a stronger threshold later). */
-        uint64_t threshold = BLESS_NOEVICT;
+        /* BLESS LIST [NO-EVICT] - array of keys in the current DB that have the
+         * given flag set (default NO-EVICT). Flags are independent, so this is a
+         * bit test, not a threshold (IN-RAM joins as another selectable flag). */
+        uint64_t flag = BLESS_NOEVICT;
         if (c->argc == 3) {
             if (strcasecmp(c->argv[2]->ptr, "no-evict")) {
                 addReplyErrorObject(c, shared.syntaxerr);
@@ -280,7 +290,7 @@ void blessCommand(client *c) {
         dictEntry *de;
         while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             uint64_t level = (uint64_t)(uintptr_t)dictGetVal(de);
-            if (level >= threshold) {
+            if (level & flag) {
                 sds name = dictGetKey(de);
                 addReplyBulkCBuffer(c, name, sdslen(name));
                 n++;
