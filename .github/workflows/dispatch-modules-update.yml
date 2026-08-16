@@ -1,0 +1,43 @@
+name: Dispatch Modules Update Tests
+
+on:
+  push:
+    branches:
+      - unstable
+    paths:
+      - modules/modules.yaml
+
+permissions: {}
+
+jobs:
+  dispatch-modules-update:
+    if: github.repository == 'redis/redis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch ce-testing modules-update workflow
+        env:
+          CE_TESTING_DISPATCH_TOKEN: ${{ secrets.CE_TESTING_DISPATCH_TOKEN }}
+          REDIS_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$CE_TESTING_DISPATCH_TOKEN" ]]; then
+            echo '::error::CE_TESTING_DISPATCH_TOKEN is not configured'
+            exit 1
+          fi
+
+          payload=$(printf \
+            '{"event_type":"redis_modules_manifest_updated","client_payload":{"redis_sha":"%s"}}' \
+            "$REDIS_SHA")
+
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 60 \
+            --request POST \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $CE_TESTING_DISPATCH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            --header 'Content-Type: application/json' \
+            --data-binary "$payload" \
+            https://api.github.com/repos/redislabsdev/ce-testing/dispatches
