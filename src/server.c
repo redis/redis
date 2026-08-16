@@ -8068,7 +8068,6 @@ redisTestProc *getTestProcByName(const char *name) {
 }
 #endif
 
-#ifndef REDIS_FUZZ
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
@@ -8433,6 +8432,5 @@ int main(int argc, char **argv) {
     aeDeleteEventLoop(server.el);
     return 0;
 }
-#endif /* REDIS_FUZZ */
 
 /* The End */
