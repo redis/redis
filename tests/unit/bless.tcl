@@ -44,7 +44,10 @@ start_server {tags {"bless"}} {
         # NONE removes the key from the list
         r bless set a none
         assert_equal {b} [r bless list]
+        # LIST accepts only NO-EVICT (or nothing); NONE not listable, INRAM future
         assert_error {*syntax*} {r bless list bogus}
+        assert_error {*syntax*} {r bless list none}
+        assert_error {*syntax*} {r bless list inram}
     }
 
     test {BLESS survives value overwrite (all types); COUNT/LIST stay consistent} {
@@ -74,6 +77,21 @@ start_server {tags {"bless"}} {
         r set h x
         assert_equal {NONE} [r bless get h]
         assert_equal 1 [r bless count]
+    }
+
+    test {SET keeps blessing; DEL+SET clears it} {
+        r flushall
+        # SET, BLESS, SET  -> blessing kept across the overwrite
+        r set k v1
+        r bless set k no-evict
+        r set k v2
+        assert_equal {NO-EVICT} [r bless get k]
+        assert_equal 1 [r bless count]
+        # SET, DEL, SET  -> key removal clears the blessing; the recreated key is plain
+        r del k
+        r set k v3
+        assert_equal {NONE} [r bless get k]
+        assert_equal 0 [r bless count]
     }
 
     test {BLESS survives DEBUG RELOAD (RDB round-trip)} {

@@ -31,8 +31,17 @@ implemented (see "Future: adding INRAM/NOSWAP").
 BLESS SET <key> NO-EVICT ON|OFF [IN-RAM ON|OFF]    # set protections; >=1 required (IN-RAM = future)
 BLESS GET <key>                                    # -> map: { NO-EVICT: ON|OFF }
 BLESS COUNT                                         # number of protected keys in the CURRENT db
-BLESS LIST [NO-EVICT]                               # -> array of keys with that protection (default NO-EVICT)
+BLESS LIST [NO-EVICT]                               # -> array of blessed keys (default/only level: NO-EVICT)
 ```
+
+**`BLESS LIST` accepted levels.** `BLESS LIST` takes either no argument or the token
+`NO-EVICT` (both list the NO-EVICT keys). Anything else is a syntax error:
+
+- **`NONE` is intentionally not listable.** `NONE` means *unblessed* — i.e. every key
+  that is not in the blessed index. Listing it would mean enumerating (almost) the
+  whole keyspace, and unblessed keys are not tracked in `db->blessed_keys`, so there is
+  nothing to list. Use `KEYS`/`SCAN` for the full keyspace instead.
+- **`INRAM` is future / not implemented** and currently returns a syntax error.
 
 Protection is expressed as two independent toggles (`ON` = more protection),
 using the `ON|OFF` idiom of `CLIENT NO-EVICT` / `CLIENT TRACKING`:
