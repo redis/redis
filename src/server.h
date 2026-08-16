@@ -2531,7 +2531,6 @@ struct redisServer {
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
-    int bless_max_keys;             /* Max number of blessed keys per DB. */
     int bless_class_id;             /* keymeta class id for BLESS (0 = uninit). */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
@@ -4319,7 +4318,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 void blessInit(void);
 dict *blessedDictCreate(void);
 void blessTrackKey(redisDb *db, sds keyname, uint64_t level);
-int blessNoEvict(redisDb *db, sds keyname);
+int blessNoEvict(kvobj *kv);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);

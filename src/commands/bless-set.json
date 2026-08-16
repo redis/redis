@@ -1,7 +1,7 @@
 {
     "SET": {
-        "summary": "Blesses a key so it is protected from eviction and/or swapping.",
-        "complexity": "O(1)",
+        "summary": "Blesses a key at a protection level.",
+        "complexity": "O(1).",
         "group": "generic",
         "since": "8.6.0",
         "arity": 4,
@@ -50,7 +50,8 @@
             }
         ],
         "reply_schema": {
-            "const": "OK"
+            "type": "integer",
+            "description": "1 if the key's bless level changed, 0 otherwise."
         }
     }
 }

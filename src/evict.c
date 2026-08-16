@@ -150,7 +150,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         /* Blessed NOEVICT keys are never eviction candidates. Don't count them
          * either, so an all-blessed sample reports 0 candidates and the caller
          * stops sampling instead of spinning forever. */
-        if (blessNoEvict(db, key)) continue;
+        if (blessNoEvict(kv)) continue;
         candidates++;
 
         /* Calculate the idle time according to the policy. This is called
@@ -679,7 +679,7 @@ int performEvictions(void) {
                     if (de == NULL) break;
                     kvobj *kv = dictGetKV(de);
                     sds key = kvobjGetKey(kv);
-                    if (blessNoEvict(db, key)) continue;
+                    if (blessNoEvict(kv)) continue;
                     bestkey = key;
                     bestdbid = j;
                     break;

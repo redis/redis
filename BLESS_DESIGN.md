@@ -28,14 +28,36 @@ implemented (see "Future: adding INRAM/NOSWAP").
 `BLESS` is a container command (like `OBJECT`):
 
 ```
-BLESS SET <key> NONE|NOEVICT         # set the level; NONE clears (unbless)
-BLESS GET <key>                      # -> "NOEVICT", or nil if not blessed
-BLESS COUNT                          # number of blessed keys in the CURRENT db
-BLESS LIST                           # map: key -> level, for the CURRENT db
-BLESS HELP
+BLESS SET <key> [NO-EVICT ON|OFF] [INRAM ON|OFF]   # set protections (INRAM = future)
+BLESS GET <key>                                    # -> policy type ("NO-EVICT" / "NONE")
+BLESS COUNT                                         # number of protected keys in the CURRENT db
+BLESS LIST                                          # map: key -> policy type, for the CURRENT db
 ```
 
-Config: `bless-max-keys` (per DB, default 1024).
+Protection is expressed as two independent toggles (`ON` = more protection),
+using the `ON|OFF` idiom of `CLIENT NO-EVICT` / `CLIENT TRACKING`:
+
+- **`NO-EVICT ON|OFF`** — `ON` = never evicted under `maxmemory`; `OFF` = evictable.
+  **Default (omitted): `NO-EVICT ON`**, so `BLESS SET <key>` protects the key.
+- **`INRAM ON|OFF`** *(future — not implemented)* — `ON` = value never swapped to
+  flash (Redis-on-Flash); `OFF` = may swap. Default: `INRAM OFF`.
+
+`SET` replies `1` if a setting changed, `0` otherwise. A missing key is an error
+(`ERR no such key`). `GET` returns the key's policy type as a bulk string, or
+errors if the key does not exist.
+
+The two toggles are the 2×2 matrix of the four levels:
+
+| NO-EVICT | INRAM | meaning |
+|---|---|---|
+| OFF | OFF | normal key (evictable, swappable) |
+| ON | OFF | protected from eviction (today's default `BLESS SET`) |
+| OFF | ON | pinned in RAM but evictable *(future)* |
+| ON | ON | never evicted **and** never swapped *(future)* |
+
+No cap. Bless is intended for a **small number of keys**; there is no
+`bless-max-keys` limit (a hard cap would be unenforceable on the migration /
+RDB-load paths anyway).
 
 ## Future: adding INRAM/NOSWAP (minimal effort)
 
@@ -87,7 +109,7 @@ This mirrors TTL exactly: keymeta expire (class 0) is the source of truth, and
 ```mermaid
 flowchart TB
   subgraph L1["Layer 1 · Command surface — t_bless.c, commands/*.json, config.c"]
-    A["BLESS SET/GET/COUNT/LIST · bless-max-keys"]
+    A["BLESS SET/GET/COUNT/LIST"]
   end
   subgraph L2["Layer 2 · Durable storage (source of truth)"]
     B["keymeta class BLES — level in the kvobj<br/>RDB · DUMP/RESTORE · slot migration"]
@@ -149,7 +171,6 @@ sequenceDiagram
   C->>Cmd: BLESS SET k INRAM
   Cmd->>Cmd: parse level (NONE/NOEVICT/INRAM)
   Cmd->>KV: lookupKeyWrite(k)  (swaps in if on flash)
-  Cmd->>Cmd: cap check: dictSize(db->blessed_keys) < bless-max-keys
   Cmd->>KV: keyMetaSetMetadata(db, o, BLES, INRAM)
   Cmd->>IX: blessedSetPut(db, k, INRAM)
   Cmd->>C: +OK  (keyModified, notify, dirty++)
@@ -212,7 +233,7 @@ flowchart LR
 |-------|-------|-----------|----------|
 | BLES level | inline in the `kvobj` value | **yes** — pages out with the value | durability, migration |
 | `metabits` presence bit | in the `kvobj` header | rides with the value | marks the slot present |
-| `db->blessed_keys` index | per-DB `dict` | **no** — always resident | every decision + COUNT/LIST/cap |
+| `db->blessed_keys` index | per-DB `dict` | **no** — always resident | every decision + COUNT/LIST |
 
 ```mermaid
 flowchart LR
@@ -336,50 +357,6 @@ flowchart LR
 
 ---
 
-## Group blessing by prefix (proposed — NOT implemented)
-
-Bless many keys by **key-name prefix**, e.g. every key under `user:`. Design only.
-
-```
-BLESS GROUP <prefix> NONE|NOEVICT|INRAM   # rule: bless keys starting with <prefix>
-BLESS GROUPS                              # list rules -> level
-BLESS GROUPSCAN <cursor>                  # (Approach A) iterate live matches, non-blocking
-```
-
-Two candidate approaches, differing in **where the O(N) keyspace cost lands**:
-
-```mermaid
-flowchart LR
-  subgraph A["Approach A — rule-only (RECOMMENDED)"]
-    a1["store rule in a rax:<br/>prefix → level"] --> a2["decide at lookup:<br/>blessNoEvict = index OR rax prefix match"]
-    a2 --> a3["BLESS GROUP = O(1)<br/>future keys covered free"]
-  end
-  subgraph B["Approach B — materialize"]
-    b1["scan keyspace,<br/>stamp each match"] --> b2["COUNT/LIST cheap<br/>(real entries)"]
-    b2 --> b3["O(N) on every GROUP/AUFERRE<br/>+ origin tracking"]
-  end
-```
-
-| | A · rule-only | B · materialize |
-|---|---|---|
-| `BLESS GROUP` cost | **O(1)** | O(N) keyspace scan |
-| future keys | automatic | per-add rule check + stamp |
-| enumerate members | cursor only (`GROUPSCAN`) | **O(result), cheap** |
-| memory | just the rules | + 8 bytes per matched key |
-| removal | O(1) | O(N) re-scan + origin bookkeeping |
-
-**Recommendation: Approach A** (rule-only, `rax` of `prefix → level`, evaluated at
-the decision points). Same structure client-side tracking uses for `BCAST`
-prefixes. Effective protection on a key = `max(per-key level, matching rule
-levels)`.
-
-**Common concerns:** rules are node config → persist like `FUNCTION` (own RDB
-section + command propagation), replicate to every shard; cap the *number of
-rules* (a prefix matches unbounded keys); a group `INRAM` maps to the same RoF
-path as a per-key `INRAM`.
-
----
-
 ## Code reference (structs & functions)
 
 ### Types & storage
@@ -400,7 +377,6 @@ typedef struct redisDb {
 
 /* server.h — process-wide state */
 struct redisServer {
-    int bless_max_keys;      /* cap per DB (config, default 1024) */
     int bless_class_id;      /* keymeta class id assigned to "BLES" */
     /* ... */
 };
@@ -474,18 +450,15 @@ void blessCommand(client *c) {
     else addReplySubcommandSyntaxError(c);
 }
 
-static void blessSetCommand(client *c) {          /* BLESS SET key NONE|NOEVICT|INRAM */
+static void blessSetCommand(client *c) {          /* BLESS SET <key> NONE|NOEVICT */
     uint64_t level = /* parse c->argv[3] */;
     robj *o = lookupKeyWrite(c->db, c->argv[2]);  /* swaps a cold key in */
-    if (!o) { addReplyErrorObject(c, shared.nokeyerr); return; }
+    if (!o) { addReply(c, shared.nokeyerr); return; }
     sds key = c->argv[2]->ptr;
-    int already = dictFind(c->db->blessed_keys, key) != NULL;
     if (level == BLESS_NONE) {
         keyMetaSetMetadata(c->db, o, server.bless_class_id, BLESS_NONE);  /* sentinel */
         blessedSetDel(c->db, key);
     } else {
-        if (!already && (int)dictSize(c->db->blessed_keys) >= server.bless_max_keys)
-            { addReplyError(c, "reached the maximum number of blessed keys"); return; }
         keyMetaSetMetadata(c->db, o, server.bless_class_id, level);       /* source of truth */
         blessedSetPut(c->db, key, level);                                /* derived index */
     }
@@ -515,15 +488,55 @@ db2->blessed_keys = aux.blessed_keys;
 
 /* evict.c  evictionPoolPopulate() and the random-policy branch — NOEVICT guard */
 if (blessNoEvict(db, key)) continue;   /* skip; not counted -> clean OOM if all blessed */
-
-/* config.c  the cap */
-createIntConfig("bless-max-keys", NULL, MODIFIABLE_CONFIG, 0, INT_MAX,
-                server.bless_max_keys, 1024, INTEGER_CONFIG, NULL, NULL);
 ```
 
 Files: `t_bless.c` (feature), `commands/bless*.json` (command table), `server.h`
 (struct fields + prototypes), `server.c` (per-DB creation + `blessInit()`),
-`db.c` (add hooks, empty, swapdb), `evict.c` (NOEVICT guard), `config.c` (cap).
+`db.c` (add hooks, empty, swapdb), `evict.c` (NOEVICT guard).
+
+---
+
+## Bless vs. TTL across value-changing commands
+
+Bless is modeled on TTL, but with one deliberate difference: TTL is a value
+lifecycle timer (reset on a fresh `SET`), whereas bless is a *protection* the
+user set — so its natural default is to **survive** a value overwrite, the
+opposite of TTL.
+
+| command | what happens to the TTL | what happens to the bless |
+|---|---|---|
+| `SET` | cleared by default (kept only with `KEEPTTL`) | **kept by default** (clear only via `BLESS SET NONE`) — *deliberately opposite to TTL* |
+| `GETSET` | cleared (like `SET`) | **kept** (survives, same as `SET`) |
+| `RESTORE … REPLACE` | set from the command's `ttl` arg | set from the **dump payload** (the restored key's own bless) — full replace |
+| `COPY` | carried from the source | **carried from the source** |
+| `RENAME` | kept (the key keeps its TTL) | **kept** (carried to the new name) |
+
+There is **no** bless equivalent of `KEEPTTL`, and one is not planned:
+`KEEPTTL` is opt-in because `SET`'s default (reset TTL) is usually wanted; bless's
+useful default is the inverse (keep the guarantee), so it is "keep-by-default"
+with `BLESS SET NONE` as the explicit clear.
+
+**Status vs. current code:** `COPY` / `RENAME` / `RESTORE REPLACE` already behave
+as above (via the `copy`/`rename` callbacks and the dump payload). `SET` /
+`GETSET` do **not** yet — today they drop bless (like TTL); making them
+"keep-by-default" needs a small `dbSetValue` change (capture the old level before
+the overwrite, re-apply it to the new object). See Scope → Open.
+
+---
+
+## Known gaps & limitations
+
+Severity legend: 🟥 correctness/functional · 🟧 medium · 🟨 low · ⬜ by-design / decision.
+
+- ⬜⬜ **AOF rewrite in legacy mode — very low severity.** With the **default**
+  `aof-use-rdb-preamble yes`, `BGREWRITEAOF` writes an RDB base as the AOF
+  preamble, and an RDB carries keymeta — so **bless already survives AOF rewrite
+  by default**. The gap exists **only** if an operator sets
+  `aof-use-rdb-preamble no` (legacy pure-RESP AOF): the rewrite emits commands
+  and, since we registered no `aof_rewrite` keymeta callback, no `BLESS` command
+  is written → bless is lost after that rewrite. Fix if ever needed: a ~10-line
+  `aof_rewrite` callback that re-emits `BLESS SET <key> <level>`. Not planned,
+  because the default config is unaffected.
 
 ---
 
@@ -531,15 +544,18 @@ Files: `t_bless.c` (feature), `commands/bless*.json` (command table), `server.h`
 
 **Implemented (this repo):**
 
-- Layers 1–3: `BLESS SET/GET/COUNT/LIST`, the `bless-max-keys` cap, keymeta `BLES`
-  storage (enum level), the per-DB `db->blessed_keys` index, and RDB +
-  DUMP/RESTORE + slot-migration transport.
+- Layers 1–3: `BLESS SET/GET/COUNT/LIST`, keymeta `BLES` storage (enum level),
+  the per-DB `db->blessed_keys` index, and RDB + DUMP/RESTORE + slot-migration
+  transport.
 - Layer 4 `NOEVICT`: enforced in `performEvictions` for both the pool
   (LRU/LFU/volatile-ttl) and random policies, with correct OOM termination.
   `blessNoEvict(db, key)`.
-- Per-DB + SWAPDB: `db->blessed_keys` (like `db->expires`); `COUNT`/`LIST`/cap per
+- Per-DB + SWAPDB: `db->blessed_keys` (like `db->expires`); `COUNT`/`LIST` per
   current DB; `SWAPDB` swaps the index with the data; cleared per-DB in
   `emptyDbStructure` (no stale entries after reload).
+- **No cap:** bless is intended for a small number of keys, so there is no
+  `bless-max-keys` limit. A hard cap would be unenforceable anyway — migration
+  and RDB load add to the index without passing through the command.
 
 **Deferred:**
 
@@ -548,18 +564,16 @@ Files: `t_bless.c` (feature), `commands/bless*.json` (command table), `server.h`
 - `NOEVICT` in the fork's flash-eviction scan (engine-side skip).
 - `aof_rewrite` keymeta callback: bless survives RDB / replication / migration,
   but not an AOF rewrite yet.
-- Group blessing by prefix — designed above, not implemented.
 
 **Open questions to decide:**
 
-- **Does bless survive a value overwrite?** `SET`/`GETSET`/`RESTORE REPLACE`/
-  `COPY REPLACE`/`RENAME`-onto-existing build a fresh object without the old
-  keymeta, so today bless is dropped (same as `SET` clearing a TTL). Preserve it
-  (like `KEEPTTL`) or keep the TTL-like clear-on-overwrite? Undecided.
+- **Bless across `SET`/`GETSET` — decided: keep-by-default, not yet implemented.**
+  Today `SET`/`GETSET` drop bless (they build a fresh object; see "Bless vs. TTL
+  across value-changing commands"). Target is **keep-by-default** (bless is a
+  protection, not value lifecycle). Needs a small `dbSetValue` change: capture the
+  old level before the overwrite, re-apply it to the new object. No `KEEPBLESS`
+  flag. (`COPY`/`RENAME`/`RESTORE REPLACE` already behave correctly.)
 - **OOM vs. `INRAM` — who wins?** Under RoF, if the smallest value the relief
   valve wants to swap out is a user `INRAM` key: honor `INRAM` (risk node OOM),
   let OOM win (break the pin as last resort), or hybrid (honor to a limit, then
   swap + warn)? Undecided.
-- **Cap on import:** migration/RDB load add to the index without a cap check, so a
-  shard can exceed `bless-max-keys`. Treat the cap as a soft, command-time guard
-  (migration/load may exceed) — proposed, matches current behavior.

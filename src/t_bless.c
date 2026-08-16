@@ -6,9 +6,9 @@
  * slot migration for free - exactly like TTL (keymeta class 0).
  *
  * In addition each redisDb keeps an in-RAM index of its blessed keys
- * (db->blessed_keys). It answers BLESSED COUNT / LIST for the current DB,
- * enforces the bless-max-keys cap, and is the structure the eviction decision
- * consults. It is per-DB (like db->expires) so it stays correct across SWAPDB
+ * (db->blessed_keys). It answers BLESSED COUNT / LIST for the current DB and is
+ * the structure the eviction decision consults. It is per-DB (like db->expires)
+ * so it stays correct across SWAPDB
  * and multiple databases.
  *
  * NOTE: this implements NOEVICT only (storage + command surface + the eviction
@@ -78,10 +78,17 @@ static uint64_t blessGetLevel(redisDb *db, sds keyname) {
     return de ? (uint64_t)(uintptr_t)dictGetVal(de) : BLESS_NONE;
 }
 
-/* True if the key must not be evicted (NOEVICT and up). performEvictions().
- * Written as a ">= level" test so higher levels can be added the same way. */
-int blessNoEvict(redisDb *db, sds keyname) {
-    return blessGetLevel(db, keyname) >= BLESS_NOEVICT;
+/* True if the key must not be evicted (NOEVICT and up). Called from
+ * performEvictions() for each sampled key. Reads the level straight from the
+ * key's inline metadata - which is always resident in RAM, even under RoF where
+ * only the value is on flash - so the eviction path needs no side index and no
+ * flash I/O. Written as a ">= level" test so higher levels can be added the same
+ * way. Safe for unblessed keys: keyMetaGetMetadata leaves level=NONE. */
+int blessNoEvict(kvobj *kv) {
+    if (server.bless_class_id <= 0) return 0;
+    uint64_t level = BLESS_NONE;
+    keyMetaGetMetadata(server.bless_class_id, kv, &level);
+    return level >= BLESS_NOEVICT;
 }
 
 /* ---- keymeta class callbacks ---- */
@@ -151,10 +158,16 @@ void blessInit(void) {
 
 /* ---- commands ---- */
 
-/* BLESS SET key LEVEL
- * LEVEL is NONE (clear) or NOEVICT. The level is numeric, leaving room for
- * stronger levels later. */
+/* BLESS SET <key> <level>
+ * <level> is NONE (clear) or NOEVICT (numeric, room for stronger levels later).
+ * Replies 1 if the key's level changed, 0 otherwise (missing key or no change).
+ * A trailing option (e.g. PREFIX, to treat <key> as a prefix) can be appended
+ * here in the future without breaking this form.
+ * No cap: bless is meant for a small number of keys (see README). A hard cap
+ * would also be unenforceable on the migration / RDB-load paths anyway. */
 static void blessSetCommand(client *c) {
+    /* BLESS SET <key> <level> */
+    robj *keyobj = c->argv[2];
     uint64_t level;
     const char *t = c->argv[3]->ptr;
     if (!strcasecmp(t, "none"))         level = BLESS_NONE;
@@ -164,44 +177,32 @@ static void blessSetCommand(client *c) {
         return;
     }
 
-    robj *o = lookupKeyWrite(c->db, c->argv[2]);
-    if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }
-
-    sds keyname = c->argv[2]->ptr;
-    int already = (dictFind(c->db->blessed_keys, keyname) != NULL);
-
-    if (level == BLESS_NONE) {
-        if (!already) { addReply(c, shared.ok); return; } /* nothing to unbless */
-        if (keyMetaSetMetadata(c->db, o, server.bless_class_id, BLESS_NONE) == NULL) {
-            addReplyError(c, "failed to update key metadata");
-            return;
-        }
-        blessedSetDel(c->db, keyname);
-    } else {
-        /* Cap applies only to newly blessed keys; re-leveling is free. Per-DB:
-         * dictSize is the count for this DB (see the design doc on the per-node
-         * vs per-DB cap decision). */
-        if (!already && (int)dictSize(c->db->blessed_keys) >= server.bless_max_keys) {
-            addReplyError(c, "reached the maximum number of blessed keys (bless-max-keys)");
-            return;
-        }
-        if (keyMetaSetMetadata(c->db, o, server.bless_class_id, level) == NULL) {
-            addReplyError(c, "failed to update key metadata");
-            return;
-        }
-        blessedSetPut(c->db, keyname, level);
+    robj *o = lookupKeyWrite(c->db, keyobj);
+    if (o == NULL) { addReply(c, shared.nokeyerr); return; }   /* missing key -> error */
+    sds keyname = keyobj->ptr;
+    if (blessGetLevel(c->db, keyname) == level) { addReply(c, shared.czero); return; }
+    if (keyMetaSetMetadata(c->db, o, server.bless_class_id, level) == NULL) {
+        addReply(c, shared.czero);
+        return;
     }
+    if (level == BLESS_NONE) blessedSetDel(c->db, keyname);
+    else                     blessedSetPut(c->db, keyname, level);
 
-    keyModified(c, c->db, c->argv[2], NULL, 1);
-    notifyKeyspaceEvent(NOTIFY_GENERIC, "bless", c->argv[2], c->db->id);
+    keyModified(c, c->db, keyobj, NULL, 1);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, "bless", keyobj, c->db->id);
     server.dirty++;
-    addReply(c, shared.ok);
+    addReply(c, shared.cone);
 }
 
-/* BLESS GET key -> the key's level name (nil if not blessed). */
+/* BLESS GET <key> -> the key's bless level name ("NONE" if the key exists but is
+ * not blessed). Errors if the key does not exist. */
 static void blessGetCommand(client *c) {
-    uint64_t level = blessGetLevel(c->db, c->argv[2]->ptr);
-    if (level == BLESS_NONE) { addReplyNull(c); return; }
+    robj *keyobj = c->argv[2];
+    if (lookupKeyReadWithFlags(c->db, keyobj, LOOKUP_NOTOUCH) == NULL) {
+        addReply(c, shared.nokeyerr);
+        return;
+    }
+    uint64_t level = blessGetLevel(c->db, keyobj->ptr);
     addReplyBulkCString(c, blessLevelName(level));
 }
 
@@ -228,19 +229,6 @@ void blessCommand(client *c) {
             addReplyBulkCString(c, blessLevelName(level));
         }
         dictReleaseIterator(di);
-    } else if (!strcasecmp(sub, "help")) {
-        const char *help[] = {
-            "SET <key> <NONE | NOEVICT>",
-            "    Bless a key so it is never evicted (NONE clears).",
-            "GET <key>",
-            "    Show a key's bless level.",
-            "COUNT",
-            "    Number of blessed keys in the current DB.",
-            "LIST",
-            "    Map of blessed key -> level in the current DB.",
-            NULL
-        };
-        addReplyHelp(c, help);
     } else {
         addReplySubcommandSyntaxError(c);
     }
