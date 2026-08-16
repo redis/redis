@@ -1,0 +1,50 @@
+{
+    "GET": {
+        "summary": "Returns the bless flags of a key, or nil if it is not blessed.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "8.6.0",
+        "arity": 3,
+        "container": "BLESS",
+        "function": "blessCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                { "type": "null", "description": "Key is not blessed." },
+                { "type": "string", "description": "The key's bless flags, e.g. NOEVICT|NOSWAP." }
+            ]
+        }
+    }
+}

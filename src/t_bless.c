@@ -159,15 +159,15 @@ void blessInit(void) {
 
 /* ---- commands ---- */
 
-/* BLESS key FLAG [FLAG ...]
+/* BLESS SET key FLAG [FLAG ...]
  * FLAG is one of: NOEVICT, NOSWAP, AETERNUS (=NOEVICT), VELOX (=NOEVICT|NOSWAP),
  * AUFERRE/NONE (clear). Flags may be given as separate arguments and/or joined
  * in a single '|'-separated token. */
-void blessCommand(client *c) {
+static void blessSetCommand(client *c) {
     uint64_t flags = 0;
     int sawAuferre = 0, sawFlag = 0;
 
-    for (int j = 2; j < c->argc; j++) {
+    for (int j = 3; j < c->argc; j++) {
         int parts;
         sds *tok = sdssplitlen(c->argv[j]->ptr, sdslen(c->argv[j]->ptr), "|", 1, &parts);
         if (tok == NULL) { addReplyError(c, "syntax error"); return; }
@@ -198,10 +198,10 @@ void blessCommand(client *c) {
     }
     if (sawAuferre) flags = BLESS_NONE; /* clear all protections */
 
-    robj *o = lookupKeyWrite(c->db, c->argv[1]);
+    robj *o = lookupKeyWrite(c->db, c->argv[2]);
     if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }
 
-    sds keyname = c->argv[1]->ptr;
+    sds keyname = c->argv[2]->ptr;
     int already = (dictFind(server.blessed_keys, keyname) != NULL);
 
     if (flags == BLESS_NONE) {
@@ -224,18 +224,31 @@ void blessCommand(client *c) {
         blessedSetPut(keyname, flags);
     }
 
-    keyModified(c, c->db, c->argv[1], NULL, 1);
-    notifyKeyspaceEvent(NOTIFY_GENERIC, "bless", c->argv[1], c->db->id);
+    keyModified(c, c->db, c->argv[2], NULL, 1);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, "bless", c->argv[2], c->db->id);
     server.dirty++;
     addReply(c, shared.ok);
 }
 
-/* BLESSED COUNT | LIST | HELP */
-void blessedCommand(client *c) {
-    if (!strcasecmp(c->argv[1]->ptr, "count") && c->argc == 2) {
+/* BLESS GET key -> the key's flags (nil if not blessed). */
+static void blessGetCommand(client *c) {
+    uint64_t flags = blessGetFlags(c->argv[2]->ptr);
+    if (flags == BLESS_NONE) { addReplyNull(c); return; }
+    addReplyBlessFlags(c, flags);
+}
+
+/* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
+ * per-subcommand arity and key specs are enforced by the command table. */
+void blessCommand(client *c) {
+    const char *sub = c->argv[1]->ptr;
+    if (!strcasecmp(sub, "set")) {
+        blessSetCommand(c);
+    } else if (!strcasecmp(sub, "get")) {
+        blessGetCommand(c);
+    } else if (!strcasecmp(sub, "count")) {
         addReplyLongLong(c, dictSize(server.blessed_keys));
-    } else if (!strcasecmp(c->argv[1]->ptr, "list") && c->argc == 2) {
-        /* Reply is a map: key name -> bless level. */
+    } else if (!strcasecmp(sub, "list")) {
+        /* Reply is a map: key name -> flags. */
         addReplyMapLen(c, dictSize(server.blessed_keys));
         dictIterator *di = dictGetIterator(server.blessed_keys);
         dictEntry *de;
@@ -246,12 +259,16 @@ void blessedCommand(client *c) {
             addReplyBlessFlags(c, flags);
         }
         dictReleaseIterator(di);
-    } else if (!strcasecmp(c->argv[1]->ptr, "help")) {
+    } else if (!strcasecmp(sub, "help")) {
         const char *help[] = {
+            "SET <key> <NOEVICT|NOSWAP|AUFERRE ...>",
+            "    Bless a key (AUFERRE clears all flags).",
+            "GET <key>",
+            "    Show a key's bless flags.",
             "COUNT",
-            "    Return the number of blessed keys.",
+            "    Number of blessed keys.",
             "LIST",
-            "    Return the names of all blessed keys.",
+            "    Map of blessed key -> flags.",
             NULL
         };
         addReplyHelp(c, help);

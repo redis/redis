@@ -104,8 +104,9 @@ keymeta class `"BLES"`, registered in `blessInit()` via
   (and doesn't count them, so an all-blessed sample yields zero candidates and
   eviction stops with a normal OOM instead of spinning); the random-policy path
   retries to skip them. Reads `blessNoEvict(key)`.
-- **`NOSWAP`** — enforced by the RoF swap-out selector in the BigRedis fork, which
-  calls `blessNoSwap(key)`. Not present in this repo; a no-op without RoF.
+- **`NOSWAP`** — enforced by the RoF swap-out selector in the BigRedis fork. The
+  selector reads the engine's own `io_blessed_keys` set, so `NOSWAP` registers the
+  key there (see "BigRedis / RoF integration" below). A no-op without RoF.
 
 ---
 
@@ -231,6 +232,130 @@ server spinning. Confirmed under load.
 
 ---
 
+## BigRedis / RoF integration
+
+Under RoF the swap engine (BigRedis, `bigstore.c` in the `redislabsdev/Redis`
+fork) is what actually moves keys RAM↔flash. It already has a per-DB set,
+`io_blessed_keys` — literally *"keys in RAM that should NOT be swapped to disk"* —
+and every swap-out victim path skips keys in it (`isValidKeyForRamEviction`,
+`getFirstRamEvictionCandidate`). It does **not** read core keymeta/`metabits` for
+victim selection.
+
+So `NOSWAP` does not need a new mechanism: a `NOSWAP` key is **registered in
+`io_blessed_keys`** (the same thing `DEBUG bigredis-bless` does). The core keymeta
+`BLES` class stays the durable source of truth; `io_blessed_keys` is the derived
+enforcement cache the engine reads — mirrored on key-add, exactly like the RAM
+index is for `NOEVICT`.
+
+### The one thing to get right: user `NOSWAP` vs. size-driven bless
+
+A key can end up "don't swap" for **two different reasons**, and they must not be
+confused:
+
+| reason | who sets it | lifetime | listed by `BLESSED LIST`? |
+|--------|-------------|----------|---------------------------|
+| user asked (`BLESS … NOSWAP`) | our command | until `AUFERRE` / key deleted | **yes** |
+| value too big for flash (auto) | the engine, by size | until it shrinks / OOM unbless | no |
+
+Two independent signals keep them apart — no new bookkeeping needed:
+
+1. **keymeta is the discriminator for "user intent."** Only user-blessed keys get
+   a `BLES` keymeta value; size-pinned keys have none. `BLESSED COUNT`/`LIST` read
+   our keymeta-derived RAM set, so they show *only* user-blessed keys, never the
+   auto size-pinned ones.
+2. **The engine already separates the two inside `io_blessed_keys`:**
+   - **hard-bless** (`BlessedValue` size 0) — explicit; **never** auto-unblessed.
+   - **soft-bless** (real serialized size) — size-driven; **can** be auto-unblessed
+     under OOM or when the value shrinks below the threshold.
+
+**Rule:** register a user `NOSWAP` key as **hard-bless** (size 0). That is what
+makes the guarantee hold — the engine's OOM auto-unbless explicitly skips size-0
+entries, so a user-pinned key is never evicted from RAM behind the user's back. A
+size-pinned key stays soft-bless and the engine keeps managing it independently.
+`AUFERRE` removes only the user's hard-bless; if the key also happens to be big,
+the engine re-pins it as soft-bless on its own — the two populations never merge.
+
+```mermaid
+flowchart TD
+  K[key marked don't-swap] --> Q{has BLES keymeta?}
+  Q -->|yes| U["user NOSWAP → hard-bless (size 0)<br/>persisted, listed, never auto-unblessed"]
+  Q -->|no| S["engine size-pin → soft-bless (real size)<br/>transient, not listed, auto-unbless on OOM"]
+```
+
+### `NOEVICT` in the fork
+
+`NOEVICT` cannot piggyback on `io_blessed_keys`: the fork's standard `maxmemory`
+delete-eviction path (`performEvictionsEx`, `ram_eviction == 0`) does not consult
+it. `NOEVICT` needs its own skip there — the same guard we added upstream, placed
+at the fork's existing candidate-skip seams.
+
+## Group blessing by prefix (proposed — NOT implemented)
+
+A convenience for blessing many keys at once by **key-name prefix**, e.g. bless
+every key under `user:`. Design only; no code yet.
+
+### Command
+
+```
+BLESS GROUP <prefix> <FLAG ...>     # bless every key starting with <prefix>
+BLESS GROUP <prefix> AUFERRE        # remove the group rule (and its blessings)
+BLESS GROUPS                        # list all group rules -> flags
+```
+`FLAG` is the same set as `BLESS SET` (`NOEVICT`, `NOSWAP`, aliases). Lives under
+the existing `BLESS` container as more subcommands.
+
+### Two possible models (pick one)
+
+| model | what `BLESS GROUP user: NOEVICT` covers | cost |
+|-------|------------------------------------------|------|
+| **one-shot** | only keys that exist *right now* | a single scan; reuses per-key bless |
+| **dynamic rule** (recommended for "prefix") | existing keys **and every future** `user:*` key | a stored rule consulted on key-add + eviction |
+
+"Prefix" implies the **dynamic rule** — a user expects a later `SET user:42 …`
+to also be protected. That is the model described below.
+
+### How it would work (dynamic rule)
+
+- **Storage:** a small per-node table of rules, `prefix -> flags` (a `rax` /
+  radix tree for longest-prefix match). This is separate from the per-key keymeta
+  — a rule is not attached to any single key. It is node config, so it must be
+  persisted on its own (RDB aux field) and replicated to replicas.
+- **On `BLESS GROUP user: NOEVICT`:** (1) store the rule; (2) apply to all
+  existing matching keys now.
+- **On key creation** (`dbAddInternal` / `dbAddRDBLoad`): if the new key name
+  matches a rule, bless it.
+- **Enforcement:** the guarding checks become "is this key blessed **or** does it
+  match a group rule?" — i.e. `blessNoEvict(key)` also tests the rule table
+  (O(#rules), or O(key-len) with a radix tree).
+
+### Effective flags
+
+A key can be blessed individually **and** by a group. Effective protection is the
+**union** of its per-key flags and every matching group rule's flags.
+
+```mermaid
+flowchart LR
+  K["key user:42"] --> P{per-key BLES flags}
+  K --> G{matching group rules}
+  P --> U["effective = per-key ∪ group flags"]
+  G --> U
+```
+
+### Open questions (call out before implementing)
+
+- **Cap.** `bless-max-keys` bounds explicit per-key blessings. A prefix can match
+  unbounded keys — so a group rule can't be counted the same way. Likely: cap the
+  **number of group rules** separately, and don't count group-matched keys toward
+  `bless-max-keys`.
+- **`COUNT` / `LIST`.** Do they include group-matched keys (expensive to
+  enumerate) or only explicit per-key blessings? Proposal: `BLESS LIST`/`COUNT`
+  stay per-key; group rules are shown by `BLESS GROUPS`.
+- **Cluster / migration.** Group rules are node-local config; since keys migrate
+  across shards, the same rule must exist on every shard (broadcast/replicate the
+  rule, not just per-key state).
+- **Overlap with size-driven bless (RoF).** Same rule as per-key: a user group
+  `NOSWAP` registers matching keys as hard-bless; auto size-bless stays soft.
+
 ## Scope
 
 Implemented:
@@ -244,12 +369,13 @@ Implemented:
 
 Deferred:
 
-- Layer 4 `NOSWAP`: the RoF swap-out selector lives in the BigRedis fork, not in
-  this repo. The check is ready — the selector calls `blessNoSwap(key)`.
+- Layer 4 `NOSWAP`: enforced in the BigRedis fork, not this repo. Wiring is to
+  register the key in `io_blessed_keys` as hard-bless — see "BigRedis / RoF
+  integration" above.
 - `aof_rewrite` keymeta callback: bless survives RDB, replication and migration,
   but not an AOF rewrite yet. Add a callback that re-emits `BLESS`.
-- Group blessing (bless many keys / a pattern in one command) — see the separate
-  discussion; parked.
+- Group blessing by prefix (`BLESS GROUP <prefix> …`) — designed, not implemented;
+  see "Group blessing by prefix" above.
 - Multi-DB: the RAM index is keyed by name and shared across DBs. Single-DB
   `FLUSHDB` over-clears, and same-named keys in different DBs collide. Fine for
   the single-DB target use case; make the index per-DB otherwise.

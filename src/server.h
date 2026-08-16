@@ -4571,7 +4571,6 @@ void delexCommand(client *c);
 void unlinkCommand(client *c);
 void existsCommand(client *c);
 void blessCommand(client *c);
-void blessedCommand(client *c);
 void setbitCommand(client *c);
 void getbitCommand(client *c);
 void bitfieldCommand(client *c);

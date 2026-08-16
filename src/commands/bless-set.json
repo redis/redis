@@ -1,0 +1,60 @@
+{
+    "SET": {
+        "summary": "Blesses a key so it is protected from eviction and/or swapping.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "8.6.0",
+        "arity": -4,
+        "container": "BLESS",
+        "function": "blessCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "flag",
+                "type": "oneof",
+                "multiple": true,
+                "arguments": [
+                    { "name": "noevict",  "type": "pure-token", "token": "NOEVICT" },
+                    { "name": "noswap",   "type": "pure-token", "token": "NOSWAP" },
+                    { "name": "aeternus", "type": "pure-token", "token": "AETERNUS" },
+                    { "name": "velox",    "type": "pure-token", "token": "VELOX" },
+                    { "name": "auferre",  "type": "pure-token", "token": "AUFERRE" }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

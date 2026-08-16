@@ -1,12 +1,12 @@
 {
     "LIST": {
-        "summary": "Returns the names of all blessed keys.",
+        "summary": "Returns all blessed keys with their bless flags.",
         "complexity": "O(N) where N is the number of blessed keys.",
         "group": "generic",
         "since": "8.6.0",
         "arity": 2,
-        "container": "BLESSED",
-        "function": "blessedCommand",
+        "container": "BLESS",
+        "function": "blessCommand",
         "command_flags": [
             "READONLY"
         ],
@@ -15,13 +15,9 @@
         ],
         "reply_schema": {
             "type": "object",
-            "description": "A map of blessed key name to its bless level.",
+            "description": "A map of blessed key name to its bless flags.",
             "additionalProperties": {
-                "type": "string",
-                "oneof": [
-                    { "const": "AETERNUS" },
-                    { "const": "VELOX" }
-                ]
+                "type": "string"
             }
         }
     }
