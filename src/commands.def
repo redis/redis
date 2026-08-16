@@ -2416,6 +2416,98 @@ struct COMMAND_ARG SELECT_Args[] = {
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** BLESS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESS history */
+#define BLESS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESS tips */
+#define BLESS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESS key specs */
+keySpec BLESS_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BLESS flag argument table */
+struct COMMAND_ARG BLESS_flag_Subargs[] = {
+{MAKE_ARG("noevict",ARG_TYPE_PURE_TOKEN,-1,"NOEVICT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("noswap",ARG_TYPE_PURE_TOKEN,-1,"NOSWAP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("aeternus",ARG_TYPE_PURE_TOKEN,-1,"AETERNUS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("velox",ARG_TYPE_PURE_TOKEN,-1,"VELOX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("auferre",ARG_TYPE_PURE_TOKEN,-1,"AUFERRE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLESS argument table */
+struct COMMAND_ARG BLESS_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("flag",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,5,NULL),.subargs=BLESS_flag_Subargs},
+};
+
+/********** BLESSED COUNT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESSED COUNT history */
+#define BLESSED_COUNT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESSED COUNT tips */
+#define BLESSED_COUNT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESSED COUNT key specs */
+#define BLESSED_COUNT_Keyspecs NULL
+#endif
+
+/********** BLESSED LIST ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESSED LIST history */
+#define BLESSED_LIST_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESSED LIST tips */
+#define BLESSED_LIST_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESSED LIST key specs */
+#define BLESSED_LIST_Keyspecs NULL
+#endif
+
+/* BLESSED command table */
+struct COMMAND_STRUCT BLESSED_Subcommands[] = {
+{MAKE_CMD("count","Returns the number of blessed keys.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESSED_COUNT_History,0,BLESSED_COUNT_Tips,0,blessedCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESSED_COUNT_Keyspecs,0,NULL,0)},
+{MAKE_CMD("list","Returns the names of all blessed keys.","O(N) where N is the number of blessed keys.","8.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESSED_LIST_History,0,BLESSED_LIST_Tips,0,blessedCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,BLESSED_LIST_Keyspecs,0,NULL,0)},
+{0}
+};
+
+/********** BLESSED ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESSED history */
+#define BLESSED_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESSED tips */
+#define BLESSED_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESSED key specs */
+#define BLESSED_Keyspecs NULL
+#endif
+
 /********** COPY ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -12838,6 +12930,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("reset","Resets the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,RESET_History,0,RESET_Tips,0,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,RESET_Keyspecs,0,NULL,0)},
 {MAKE_CMD("select","Changes the selected database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SELECT_History,0,SELECT_Tips,0,selectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,SELECT_Keyspecs,0,NULL,1),.args=SELECT_Args},
 /* generic */
+{MAKE_CMD("bless","Protects a key from eviction and/or swapping.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_History,0,BLESS_Tips,0,blessCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,BLESS_Keyspecs,1,NULL,2),.args=BLESS_Args},
+{MAKE_CMD("blessed","A container for blessed-key introspection commands.","Depends on subcommand.","8.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESSED_History,0,BLESSED_Tips,0,NULL,-2,0,0,BLESSED_Keyspecs,0,NULL,0),.subcommands=BLESSED_Subcommands},
 {MAKE_CMD("copy","Copies the value of a key to a new key.","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,COPY_History,0,COPY_Tips,0,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,COPY_Keyspecs,2,NULL,4),.args=COPY_Args},
 {MAKE_CMD("del","Deletes one or more keys.","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,DEL_History,0,DEL_Tips,2,delCommand,-2,CMD_WRITE,ACL_CATEGORY_KEYSPACE,DEL_Keyspecs,1,NULL,1),.args=DEL_Args},
 {MAKE_CMD("dump","Returns a serialized representation of the value stored at a key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,DUMP_History,0,DUMP_Tips,1,dumpCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,DUMP_Keyspecs,1,NULL,1),.args=DUMP_Args},

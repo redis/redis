@@ -1,0 +1,9 @@
+{
+    "BLESSED": {
+        "summary": "A container for blessed-key introspection commands.",
+        "complexity": "Depends on subcommand.",
+        "group": "generic",
+        "since": "8.6.0",
+        "arity": -2
+    }
+}

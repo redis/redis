@@ -1,0 +1,28 @@
+{
+    "LIST": {
+        "summary": "Returns the names of all blessed keys.",
+        "complexity": "O(N) where N is the number of blessed keys.",
+        "group": "generic",
+        "since": "8.6.0",
+        "arity": 2,
+        "container": "BLESSED",
+        "function": "blessedCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "reply_schema": {
+            "type": "object",
+            "description": "A map of blessed key name to its bless level.",
+            "additionalProperties": {
+                "type": "string",
+                "oneof": [
+                    { "const": "AETERNUS" },
+                    { "const": "VELOX" }
+                ]
+            }
+        }
+    }
+}

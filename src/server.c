@@ -8152,6 +8152,7 @@ int main(int argc, char **argv) {
     moduleInitModulesSystem();
     connTypeInitialize();
     keyMetaInit();
+    blessInit();
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */

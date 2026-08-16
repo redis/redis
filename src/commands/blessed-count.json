@@ -1,0 +1,21 @@
+{
+    "COUNT": {
+        "summary": "Returns the number of blessed keys.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "8.6.0",
+        "arity": 2,
+        "container": "BLESSED",
+        "function": "blessedCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of blessed keys."
+        }
+    }
+}

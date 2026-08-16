@@ -456,9 +456,21 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
         /* memcpy modules metadata to beginning of kvobj */
         if (keymeta->metabits & KEY_META_MASK_MODULES)
             /* Also trivial overwrite expire */
-            memcpy(kvobjGetAllocPtr(kv), 
-                   keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta, 
+            memcpy(kvobjGetAllocPtr(kv),
+                   keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta,
                    keymeta->numMeta * sizeof(uint64_t));
+
+        /* Rebuild the RAM-side blessed-key set. This is the single point where a
+         * key + its metadata become live together (the keymeta rdb_load callback
+         * gets no key name), so it covers RDB load, RESTORE, slot migration,
+         * COPY, MOVE and RENAME. */
+        if (server.bless_class_id > 0 &&
+            (keymeta->metabits & (1u << server.bless_class_id)))
+        {
+            uint64_t level;
+            if (keyMetaGetMetadata(server.bless_class_id, kv, &level) && level != 0)
+                blessTrackKey(key->ptr, level);
+        }
     }
 
     signalKeyAsReady(db, key, kv->type);
@@ -566,6 +578,17 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
             memcpy(kvobjGetAllocPtr(kv),
                    keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
                    keyMetaSpec->numMeta * sizeof(uint64_t));
+
+        /* Rebuild the RAM-side blessed-key set on RDB load (this path does not
+         * go through dbAddInternal). The keymeta rdb_load callback gets no key
+         * name, so this is where key + metadata first become live together. */
+        if (server.bless_class_id > 0 &&
+            (keyMetaSpec->metabits & (1u << server.bless_class_id)))
+        {
+            uint64_t level;
+            if (keyMetaGetMetadata(server.bless_class_id, kv, &level) && level != 0)
+                blessTrackKey(key, level);
+        }
     }
 
     updateKeysizesHist(db, kv->type, -1, (int64_t) getObjectLength(kv));
@@ -1393,6 +1416,11 @@ int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
     else
         server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
+
+    /* Blessed keys were just wiped. ponytail: the set spans all DBs, so a
+     * single-DB FLUSHDB also clears entries of other DBs - acceptable for the
+     * single-DB target use case; make the set per-DB for multi-DB correctness. */
+    blessedFlushAll();
 
     /* Without the forceCommandPropagation, when DB(s) was already empty,
      * FLUSHALL\FLUSHDB will not be replicated nor put into the AOF. */

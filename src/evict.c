@@ -133,6 +133,7 @@ void evictionPoolAlloc(void) {
  * right. */
 int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool) {
     int j, k, count;
+    int candidates = 0; /* Non-blessed sampled keys (drives sampling progress). */
     dictEntry *samples[server.maxmemory_samples];
 
     /* Don't retry, since we will call evictionPoolPopulate multiple times if needed. */
@@ -141,11 +142,17 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
     count = kvstoreDictGetSomeKeys(samplekvs,slot,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
-        
+
         dictEntry *de = samples[j];
         kvobj *kv = dictGetKV(de);
         sds key = kvobjGetKey(kv);
-        
+
+        /* Blessed NOEVICT keys are never eviction candidates. Don't count them
+         * either, so an all-blessed sample reports 0 candidates and the caller
+         * stops sampling instead of spinning forever. */
+        if (blessNoEvict(key)) continue;
+        candidates++;
+
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
          * just a score where a higher score means better candidate. */
@@ -221,7 +228,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         pool[k].slot = slot;
     }
 
-    return count;
+    return candidates;
 }
 
 /* ----------------------------------------------------------------------------
@@ -666,13 +673,18 @@ int performEvictions(void) {
                 }
                 int slot = kvstoreGetFairRandomDictIndex(kvs, randomEvictionShouldSkipDictIndex, 16, 0);
                 if (slot == -1) continue;
-                de = kvstoreDictGetRandomKey(kvs, slot);
-                if (de) {
+                /* Try a few random keys so blessed NOEVICT keys are skipped. */
+                for (int attempts = 0; attempts < server.maxmemory_samples; attempts++) {
+                    de = kvstoreDictGetRandomKey(kvs, slot);
+                    if (de == NULL) break;
                     kvobj *kv = dictGetKV(de);
-                    bestkey = kvobjGetKey(kv);
+                    sds key = kvobjGetKey(kv);
+                    if (blessNoEvict(key)) continue;
+                    bestkey = key;
                     bestdbid = j;
                     break;
                 }
+                if (bestkey) break;
             }
         }
 
