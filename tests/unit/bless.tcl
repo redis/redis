@@ -16,6 +16,11 @@ start_server {tags {"bless"}} {
         assert_equal 1 [r bless set k none]
         assert_equal {NONE} [r bless get k]
         assert_equal 1 [r bless count]
+        # COUNT takes an optional level like LIST (default NO-EVICT)
+        assert_equal 1 [r bless count no-evict]
+        assert_error {*syntax*} {r bless count none}
+        assert_error {*syntax*} {r bless count inram}
+        assert_error {*syntax*} {r bless count bogus}
     }
 
     test {BLESS SET/GET on a missing key errors} {

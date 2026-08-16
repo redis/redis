@@ -1,10 +1,10 @@
 {
     "COUNT": {
-        "summary": "Returns the number of blessed keys.",
+        "summary": "Returns the number of blessed keys at the given level (default NO-EVICT). NONE is not countable and INRAM is unimplemented - both are a syntax error.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "8.10.0",
-        "arity": 2,
+        "arity": -2,
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
@@ -13,9 +13,17 @@
         "acl_categories": [
             "KEYSPACE"
         ],
+        "arguments": [
+            {
+                "name": "no-evict",
+                "type": "pure-token",
+                "token": "NO-EVICT",
+                "optional": true
+            }
+        ],
         "reply_schema": {
             "type": "integer",
-            "description": "The number of blessed keys."
+            "description": "The number of keys blessed at the requested level (default NO-EVICT)."
         }
     }
 }

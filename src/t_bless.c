@@ -164,6 +164,18 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "count")) {
+        /* BLESS COUNT [NO-EVICT] - number of keys blessed at the given level
+         * (default, and currently only, NO-EVICT), parsed like BLESS LIST. Every
+         * tracked key carries the NO-EVICT bit, so the index size is the count. */
+        if (c->argc == 3) {
+            if (strcasecmp(c->argv[2]->ptr, "no-evict")) {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return;
+            }
+        } else if (c->argc > 3) {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
         addReplyLongLong(c, kvstoreSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
         /* BLESS LIST [NO-EVICT] - array of keys in the current DB blessed at the
