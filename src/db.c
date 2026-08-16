@@ -460,10 +460,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta,
                    keymeta->numMeta * sizeof(uint64_t));
 
-        /* Route per-key attributes to their owners' indexes. This is the single
-         * point where a key + its metadata become live together (the keymeta
-         * rdb_load callback gets no key name), covering RDB load, RESTORE, slot
-         * migration, COPY, MOVE and RENAME. */
+        /* Index a key that arrives already blessed (not via BLESS SET) so COUNT/LIST see it. */
         if (server.key_attr_class_id > 0 &&
             (keymeta->metabits & KEY_ATTR_METABIT))
         {
@@ -579,9 +576,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
                    keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
                    keyMetaSpec->numMeta * sizeof(uint64_t));
 
-        /* Route per-key attributes to their owners' indexes on RDB load (this
-         * path does not go through dbAddInternal). The keymeta rdb_load callback
-         * gets no key name, so this is where key + metadata first meet. */
+        /* Same as dbAddInternal, for the RDB-load path (bypasses dbAddInternal). */
         if (server.key_attr_class_id > 0 &&
             (keyMetaSpec->metabits & KEY_ATTR_METABIT))
         {
@@ -1427,9 +1422,6 @@ int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
     else
         server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
-
-    /* blessed_keys is wiped per-DB inside emptyDbStructure(), reached by both
-     * flush branches above. */
 
     /* Without the forceCommandPropagation, when DB(s) was already empty,
      * FLUSHALL\FLUSHDB will not be replicated nor put into the AOF. */

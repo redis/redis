@@ -84,14 +84,16 @@ static void attrUnlink(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
         keyAttrUntrackKey(&server.db[ctx->from_dbid], ctx->from_key->ptr, *meta);
 }
 
-/* RENAME: drop the old name; the new name is re-added via dbAdd*. */
+/* RENAME/MOVE: drop the source's index entry; the destination is re-added via
+ * dbAdd*. (MOVE zeroes the source slot before dbDelete, so attrUnlink won't fire
+ * there - the untrack must happen here.) */
 static int attrRename(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     if (ctx->from_key && ctx->from_dbid >= 0)
         keyAttrUntrackKey(&server.db[ctx->from_dbid], ctx->from_key->ptr, *meta);
     return 1;
 }
 
-/* COPY/MOVE: keep the mask on the destination (added to its index via dbAdd*). */
+/* COPY: keep the source's entry; the destination is added to its index via dbAdd*. */
 static int attrKeep(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     UNUSED(ctx);
     UNUSED(meta);
@@ -117,7 +119,7 @@ void keyAttrInit(void) {
     conf.unlink = attrUnlink;
     conf.rename = attrRename;
     conf.copy = attrKeep;
-    conf.move = attrKeep;
+    conf.move = attrRename;   /* MOVE must drop the source index, like RENAME */
     conf.aof_rewrite = attrAofRewrite;
     server.key_attr_class_id = keyMetaClassCreate(NULL, "ATTR", 0, &conf);
     serverAssert(server.key_attr_class_id >= KEY_META_ID_MODULE_FIRST);

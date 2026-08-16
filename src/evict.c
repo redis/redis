@@ -142,7 +142,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
     count = kvstoreDictGetSomeKeys(samplekvs,slot,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
-
+        
         dictEntry *de = samples[j];
         kvobj *kv = dictGetKV(de);
         sds key = kvobjGetKey(kv);
@@ -646,7 +646,13 @@ int performEvictions(void) {
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
                     if (de) {
-                        bestkey = kvobjGetKey(dictGetKV(de));
+                        kvobj *kv = dictGetKV(de);
+                        /* The pool persists across performEvictions() calls, so a
+                         * key pooled while unblessed may since have been marked
+                         * NO-EVICT. The entry is already removed from the pool
+                         * above; skip it as a target and try the next one. */
+                        if (blessNoEvict(kv)) continue;
+                        bestkey = kvobjGetKey(kv);
                         break;
                     } else {
                         /* Ghost... Iterate again. */
