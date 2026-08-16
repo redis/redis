@@ -465,7 +465,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
          * rdb_load callback gets no key name), covering RDB load, RESTORE, slot
          * migration, COPY, MOVE and RENAME. */
         if (server.key_attr_class_id > 0 &&
-            (keymeta->metabits & (1u << server.key_attr_class_id)))
+            (keymeta->metabits & KEY_ATTR_METABIT))
         {
             uint64_t mask = 0;
             if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
@@ -583,7 +583,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
          * path does not go through dbAddInternal). The keymeta rdb_load callback
          * gets no key name, so this is where key + metadata first meet. */
         if (server.key_attr_class_id > 0 &&
-            (keyMetaSpec->metabits & (1u << server.key_attr_class_id)))
+            (keyMetaSpec->metabits & KEY_ATTR_METABIT))
         {
             uint64_t mask = 0;
             if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
