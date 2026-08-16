@@ -1,5 +1,5 @@
 /*
- * BLESS - protect keys from eviction / swapping ("blessed" keys).
+ * BLESS - protect keys from eviction ("blessed" keys).
  *
  * The bless level is stored per-key as a keymeta class value (see keymeta.h),
  * so it is persisted to RDB and carried inline through DUMP/RESTORE and cluster
@@ -7,28 +7,27 @@
  *
  * In addition each redisDb keeps an in-RAM index of its blessed keys
  * (db->blessed_keys). It answers BLESSED COUNT / LIST for the current DB,
- * enforces the bless-max-keys cap, and is the structure the eviction/swap
- * decision consults without touching flash. It is per-DB (like db->expires) so
- * it stays correct across SWAPDB and multiple databases.
+ * enforces the bless-max-keys cap, and is the structure the eviction decision
+ * consults. It is per-DB (like db->expires) so it stays correct across SWAPDB
+ * and multiple databases.
  *
- * NOTE: this implements storage + command surface + the NOEVICT eviction guard.
- * The ROF swap-out (NOSWAP) enforcement lives in the BigRedis engine.
+ * NOTE: this implements NOEVICT only (storage + command surface + the eviction
+ * guard). The level is stored as a number, so additional stronger levels can be
+ * added later without changing storage, index, persistence, or migration.
  */
 
 #include "server.h"
 
-/* Bless levels - an ordered ladder stored as the keymeta value. Each level is
- * strictly stronger than the one below. 0 means "not blessed" (the reset
- * sentinel, never persisted/migrated). */
-#define BLESS_NONE     0  /* may be evicted or swapped. */
-#define BLESS_NOEVICT  1  /* never evicted, may swap to flash. */
-#define BLESS_INRAM    2  /* never evicted, always in RAM (implies NOEVICT). */
+/* Bless level - stored as the keymeta value. A NUMBER (not a boolean) so more
+ * levels can be added later without touching storage. 0 means "not blessed"
+ * (the reset sentinel, never persisted/migrated). */
+#define BLESS_NONE     0  /* may be evicted. */
+#define BLESS_NOEVICT  1  /* never evicted. */
 
 /* Human-readable name of a bless level. */
 static const char *blessLevelName(uint64_t level) {
     switch (level) {
     case BLESS_NOEVICT: return "NOEVICT";
-    case BLESS_INRAM:   return "INRAM";
     default:            return "NONE";
     }
 }
@@ -79,15 +78,10 @@ static uint64_t blessGetLevel(redisDb *db, sds keyname) {
     return de ? (uint64_t)(uintptr_t)dictGetVal(de) : BLESS_NONE;
 }
 
-/* True if the key must not be evicted (NOEVICT and up). performEvictions(). */
+/* True if the key must not be evicted (NOEVICT and up). performEvictions().
+ * Written as a ">= level" test so higher levels can be added the same way. */
 int blessNoEvict(redisDb *db, sds keyname) {
     return blessGetLevel(db, keyname) >= BLESS_NOEVICT;
-}
-
-/* True if the key must stay in RAM, never swapped to flash (INRAM). Consulted
- * by the ROF swap-out selector. */
-int blessNoSwap(redisDb *db, sds keyname) {
-    return blessGetLevel(db, keyname) >= BLESS_INRAM;
 }
 
 /* ---- keymeta class callbacks ---- */
@@ -158,16 +152,15 @@ void blessInit(void) {
 /* ---- commands ---- */
 
 /* BLESS SET key LEVEL
- * LEVEL is exactly one of: NONE (clear), NOEVICT, INRAM.
- * The levels form a ladder: INRAM implies NOEVICT. */
+ * LEVEL is NONE (clear) or NOEVICT. The level is numeric, leaving room for
+ * stronger levels later. */
 static void blessSetCommand(client *c) {
     uint64_t level;
     const char *t = c->argv[3]->ptr;
     if (!strcasecmp(t, "none"))         level = BLESS_NONE;
     else if (!strcasecmp(t, "noevict")) level = BLESS_NOEVICT;
-    else if (!strcasecmp(t, "inram"))   level = BLESS_INRAM;
     else {
-        addReplyError(c, "unknown bless level (use NONE, NOEVICT or INRAM)");
+        addReplyError(c, "unknown bless level (use NONE or NOEVICT)");
         return;
     }
 
@@ -237,8 +230,8 @@ void blessCommand(client *c) {
         dictReleaseIterator(di);
     } else if (!strcasecmp(sub, "help")) {
         const char *help[] = {
-            "SET <key> <NONE | NOEVICT | INRAM>",
-            "    Bless a key at a level (NONE clears; INRAM implies NOEVICT).",
+            "SET <key> <NONE | NOEVICT>",
+            "    Bless a key so it is never evicted (NONE clears).",
             "GET <key>",
             "    Show a key's bless level.",
             "COUNT",

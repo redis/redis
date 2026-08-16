@@ -45,8 +45,7 @@
                 "type": "oneof",
                 "arguments": [
                     { "name": "none",    "type": "pure-token", "token": "NONE" },
-                    { "name": "noevict", "type": "pure-token", "token": "NOEVICT" },
-                    { "name": "inram",   "type": "pure-token", "token": "INRAM" }
+                    { "name": "noevict", "type": "pure-token", "token": "NOEVICT" }
                 ]
             }
         ],

@@ -6,36 +6,50 @@ customers who run one DB mostly as a cache but keep a few non-cache keys
 
 ## Levels
 
-The protection is a single **ordered level** (a ladder, not a bitfield). Each
-level is strictly stronger than the one below:
+The protection is a single **ordered level** (a number, not a bitfield), so
+stronger levels can be added later without changing storage. **Implemented today:
+`NONE` and `NOEVICT`.** A stronger `INRAM` level is designed for but not yet
+implemented (see "Future: adding INRAM/NOSWAP").
 
 ```
-   NONE ───────────► NOEVICT ───────────► INRAM
-  (0, unblessed)   (1, never evicted,   (2, never evicted
-                    may swap to flash)   AND never swapped)
+   NONE ───────────► NOEVICT ─ ─ ─ ─►  (INRAM)
+  (0, unblessed)   (1, never evicted)   (2, planned: never evicted
+                                          AND never swapped to flash)
 ```
 
-| level | evictable (`maxmemory`)? | swappable to flash (RoF)? |
-|-------|--------------------------|---------------------------|
-| `NONE`    | yes | yes |
-| `NOEVICT` | **no** | yes |
-| `INRAM`   | **no** | **no** (pinned in RAM) |
-
-`INRAM` implies `NOEVICT`.
+| level | evictable (`maxmemory`)? | swappable to flash (RoF)? | status |
+|-------|--------------------------|---------------------------|--------|
+| `NONE`    | yes | yes | ✅ |
+| `NOEVICT` | **no** | yes | ✅ |
+| `INRAM`   | **no** | **no** (pinned in RAM) | 🔜 planned |
 
 ## Commands
 
 `BLESS` is a container command (like `OBJECT`):
 
 ```
-BLESS SET <key> NONE|NOEVICT|INRAM   # set the level; NONE clears (unbless)
-BLESS GET <key>                      # -> "NOEVICT" | "INRAM", or nil if not blessed
+BLESS SET <key> NONE|NOEVICT         # set the level; NONE clears (unbless)
+BLESS GET <key>                      # -> "NOEVICT", or nil if not blessed
 BLESS COUNT                          # number of blessed keys in the CURRENT db
 BLESS LIST                           # map: key -> level, for the CURRENT db
 BLESS HELP
 ```
 
 Config: `bless-max-keys` (per DB, default 1024).
+
+## Future: adding INRAM/NOSWAP (minimal effort)
+
+Because the level is stored as a **number** (in the keymeta value + the RAM
+index), adding the stronger level is purely additive — no storage, index,
+persistence, or migration change:
+
+1. `#define BLESS_INRAM 2`
+2. accept `INRAM` in `blessSetCommand` + add the token to `bless-set.json`
+3. add `blessNoSwap(db,key) { return blessGetLevel(db,key) >= BLESS_INRAM; }`
+4. have the BigRedis swap-out selector call `blessNoSwap()` (see "BigRedis / RoF integration")
+
+The rest of this document describes the full design **including** that future
+`INRAM`/`NOSWAP` level, so the current `NOEVICT`-only build is a strict subset.
 
 ---
 

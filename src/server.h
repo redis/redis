@@ -4320,7 +4320,6 @@ void blessInit(void);
 dict *blessedDictCreate(void);
 void blessTrackKey(redisDb *db, sds keyname, uint64_t level);
 int blessNoEvict(redisDb *db, sds keyname);
-int blessNoSwap(redisDb *db, sds keyname);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
