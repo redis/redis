@@ -6,10 +6,14 @@
  * slot migration for free - exactly like TTL (keymeta class 0).
  *
  * In addition each redisDb keeps an in-RAM index of its blessed keys
- * (db->blessed_keys). It answers BLESSED COUNT / LIST for the current DB and is
- * the structure the eviction decision consults. It is per-DB (like db->expires)
- * so it stays correct across SWAPDB
- * and multiple databases.
+ * (db->blessed_keys). It answers BLESS COUNT / LIST for the current DB, and it
+ * is the eviction guard's fallback source when a key's keymeta is not resident
+ * in RAM (the fully disk-only case under RoF). It is per-DB (like db->expires)
+ * so it stays correct across SWAPDB and multiple databases.
+ *
+ * On the core eviction path the key is always in RAM, so blessNoEvict() reads
+ * the level inline from the kvobj and never touches this index; the index is
+ * consulted only when there is no in-RAM keymeta to read (RoF flash-eviction).
  *
  * NOTE: this implements NOEVICT only (storage + command surface + the eviction
  * guard). The level is stored as a number, so additional stronger levels can be
@@ -72,10 +76,9 @@ static uint64_t blessGetLevel(redisDb *db, sds keyname) {
 
 /* True if the key must not be evicted (NOEVICT and up). Called from
  * performEvictions() for each sampled key. Reads the level straight from the
- * key's inline metadata - which is always resident in RAM, even under RoF where
- * only the value is on flash - so the eviction path needs no side index and no
- * flash I/O. Written as a ">= level" test so higher levels can be added the same
- * way. Safe for unblessed keys: keyMetaGetMetadata leaves level=NONE. */
+ * key's inline keymeta, so the core eviction path needs no side index and no
+ * extra lookup. Written as a ">= level" test so higher levels can be added the
+ * same way. Safe for unblessed keys: keyMetaGetMetadata leaves level=NONE. */
 int blessNoEvict(kvobj *kv) {
     if (server.bless_class_id <= 0) return 0;
     uint64_t level = BLESS_NONE;
@@ -140,9 +143,10 @@ void blessInit(void) {
     conf.rename   = blessRename;
     conf.copy     = blessKeep;
     conf.move     = blessKeep;
-    /* ponytail: no aof_rewrite callback yet -> bless is not preserved across an
-     * AOF rewrite. RDB, replication and slot migration are covered. Add an
-     * aof_rewrite that re-emits BLESS if AOF persistence of bless is required. */
+    /* No aof_rewrite callback: with the RDB preamble (aof-use-rdb-preamble yes,
+     * the default) bless survives an AOF rewrite because the preamble carries
+     * keymeta. Only a command-format rewrite (preamble off) would drop it; add
+     * an aof_rewrite that re-emits BLESS if that must be covered too. */
 
     server.bless_class_id = keyMetaClassCreate(NULL, "BLES", 0, &conf);
     serverAssert(server.bless_class_id >= KEY_META_ID_MODULE_FIRST);

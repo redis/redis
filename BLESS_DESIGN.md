@@ -123,7 +123,8 @@ flowchart TB
   A -- "keyMetaSetMetadata()" --> B
   A -- "blessedSetPut/Del()" --> C
   B -- "dbAdd* hook → blessTrackKey()" --> C
-  C -- "blessNoEvict(db,key) / blessNoSwap(db,key)" --> D
+  B -- "blessNoEvict(kv) reads inline" --> D
+  C -- "COUNT / LIST" --> A
 ```
 
 ### Function interaction map
@@ -144,11 +145,11 @@ flowchart TD
   unlink["keyMetaOnUnlink → blessUnlink()"] --> del["blessedSetDel(db,key)"]
   rename["keyMetaOnRename → blessRename()"] --> del
 
-  evict["performEvictions → evictionPoolPopulate"] --> ne["blessNoEvict(db,key)"]
-  ne --> get["blessGetLevel(db,key) ≥ NOEVICT"]
+  evict["performEvictions → evictionPoolPopulate"] --> ne["blessNoEvict(kv)"]
+  ne --> get["keyMetaGetMetadata(BLES,kv) ≥ NOEVICT (inline, no dict)"]
   put --> IX[("db->blessed_keys")]
   del --> IX
-  get --> IX
+  cl["COUNT / LIST"] --> IX
 ```
 
 - **L1 command** writes *both* the keymeta value (L2) and the index (L3).
@@ -336,6 +337,29 @@ deletes cold keys entirely. Both must skip `NOEVICT` keys — the core guard we
 added in `evict.c` plus a matching skip in the engine's flash-eviction candidate
 scan. See "core vs BigRedis ownership" below.
 
+#### Reading the level (RAM key vs fully disk-only)
+
+The flash-eviction guard reads the level from whatever is **already in RAM** —
+never a flash read, and **never `fe->keymeta`** (the candidate snapshot is frozen
+at collection time and not updated on bless, so it's stale):
+
+- `ramob != NULL` (full object **or** metadata stub — a stub carries the module
+  slots via `keyMetaTransition`) → read inline: `blessNoEvict(ramob)`.
+- `ramob == NULL` (fully disk-only, no RAM presence) → read the index:
+  `blessGetLevel(db, key) >= BLESS_NOEVICT`.
+
+**Why the index is trusted for disk-only keys — swap-safe invariant.**
+`db->blessed_keys` survives a swap-to-disk-only because swap-out never fires the
+keymeta `unlink` callback: dirty evict does a raw dict unlink + SAVE-to-SST, the
+stub path uses `keyMetaTransition`, and `dbRemove` passes `justRemove=1` (the
+`!justRemove` gate at `db.c:2049`). `unlink` fires only on true logical delete
+(DEL / expire / unbless / overwrite / disk-only trim) — the same rail TTL rides.
+
+**Guardrail:** the index prune (`blessedSetDel`) must live in the `unlink`
+callback, **never in `free`** — `free` *does* fire on dirty swap-out (the kvobj
+is freed after the SAVE), so a free-based prune would wrongly drop swapped-out
+blessed keys. `blessInit` registers no `free` callback; keep it that way.
+
 ### Core vs BigRedis ownership
 
 ```mermaid
@@ -365,7 +389,7 @@ flowchart LR
 /* t_bless.c — the level ladder (stored as the keymeta value) */
 #define BLESS_NONE     0   /* unblessed; reset sentinel, never persisted */
 #define BLESS_NOEVICT  1   /* never evicted, may swap to flash */
-#define BLESS_INRAM    2   /* never evicted, always in RAM (implies NOEVICT) */
+/* Future: BLESS_INRAM 2 — never evicted, always in RAM (implies NOEVICT). */
 
 /* server.h — per-DB derived index, sits right next to db->expires */
 typedef struct redisDb {
@@ -399,8 +423,14 @@ static uint64_t blessGetLevel(redisDb *db, sds name);               /* -> level 
 void blessTrackKey(redisDb *db, sds name, uint64_t level) {          /* public: dbAdd* hook */
     blessedSetPut(db, name, level);
 }
-int blessNoEvict(redisDb *db, sds name) { return blessGetLevel(db,name) >= BLESS_NOEVICT; }
-int blessNoSwap (redisDb *db, sds name) { return blessGetLevel(db,name) >= BLESS_INRAM;  }
+/* Eviction guard: reads the level inline from the key's keymeta (the kvobj is
+ * resident in RAM on the core eviction path) — no dict lookup. */
+int blessNoEvict(kvobj *kv) {
+    uint64_t level = BLESS_NONE;
+    keyMetaGetMetadata(server.bless_class_id, kv, &level);
+    return level >= BLESS_NOEVICT;
+}
+/* Future NOSWAP guard would mirror this for BLESS_INRAM. */
 ```
 
 ### keymeta class BLES — source of truth (Layer 2)
@@ -487,7 +517,7 @@ db1->blessed_keys = db2->blessed_keys;
 db2->blessed_keys = aux.blessed_keys;
 
 /* evict.c  evictionPoolPopulate() and the random-policy branch — NOEVICT guard */
-if (blessNoEvict(db, key)) continue;   /* skip; not counted -> clean OOM if all blessed */
+if (blessNoEvict(kv)) continue;   /* inline keymeta read; not counted -> clean OOM if all blessed */
 ```
 
 Files: `t_bless.c` (feature), `commands/bless*.json` (command table), `server.h`

@@ -3,7 +3,7 @@
         "summary": "Returns the number of blessed keys.",
         "complexity": "O(1)",
         "group": "generic",
-        "since": "8.6.0",
+        "since": "8.10.0",
         "arity": 2,
         "container": "BLESS",
         "function": "blessCommand",

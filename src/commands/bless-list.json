@@ -3,7 +3,7 @@
         "summary": "Returns all blessed keys with their bless flags.",
         "complexity": "O(N) where N is the number of blessed keys.",
         "group": "generic",
-        "since": "8.6.0",
+        "since": "8.10.0",
         "arity": 2,
         "container": "BLESS",
         "function": "blessCommand",
