@@ -460,16 +460,16 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta,
                    keymeta->numMeta * sizeof(uint64_t));
 
-        /* Rebuild the RAM-side blessed-key set. This is the single point where a
-         * key + its metadata become live together (the keymeta rdb_load callback
-         * gets no key name), so it covers RDB load, RESTORE, slot migration,
-         * COPY, MOVE and RENAME. */
-        if (server.bless_class_id > 0 &&
-            (keymeta->metabits & (1u << server.bless_class_id)))
+        /* Route per-key attributes to their owners' indexes. This is the single
+         * point where a key + its metadata become live together (the keymeta
+         * rdb_load callback gets no key name), covering RDB load, RESTORE, slot
+         * migration, COPY, MOVE and RENAME. */
+        if (server.key_attr_class_id > 0 &&
+            (keymeta->metabits & (1u << server.key_attr_class_id)))
         {
-            uint64_t level;
-            if (keyMetaGetMetadata(server.bless_class_id, kv, &level) && level != 0)
-                blessTrackKey(db, key->ptr, level);
+            uint64_t mask = 0;
+            if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
+                keyAttrTrackKey(db, key->ptr, mask);
         }
     }
 
@@ -579,15 +579,15 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
                    keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
                    keyMetaSpec->numMeta * sizeof(uint64_t));
 
-        /* Rebuild the RAM-side blessed-key set on RDB load (this path does not
-         * go through dbAddInternal). The keymeta rdb_load callback gets no key
-         * name, so this is where key + metadata first become live together. */
-        if (server.bless_class_id > 0 &&
-            (keyMetaSpec->metabits & (1u << server.bless_class_id)))
+        /* Route per-key attributes to their owners' indexes on RDB load (this
+         * path does not go through dbAddInternal). The keymeta rdb_load callback
+         * gets no key name, so this is where key + metadata first meet. */
+        if (server.key_attr_class_id > 0 &&
+            (keyMetaSpec->metabits & (1u << server.key_attr_class_id)))
         {
-            uint64_t level;
-            if (keyMetaGetMetadata(server.bless_class_id, kv, &level) && level != 0)
-                blessTrackKey(db, key, level);
+            uint64_t mask = 0;
+            if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
+                keyAttrTrackKey(db, key, mask);
         }
     }
 

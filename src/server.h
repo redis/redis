@@ -94,6 +94,7 @@ struct RedisModuleKeyOptCtx {
 #include "endianconv.h"
 #include "crc64.h"
 #include "keymeta.h"
+#include "keyattr.h"
 
 struct hdr_histogram;
 
@@ -2531,7 +2532,7 @@ struct redisServer {
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
-    int bless_class_id;             /* keymeta class id for BLESS (0 = uninit). */
+    int key_attr_class_id;          /* keymeta class id for per-key attributes (0 = uninit). */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
@@ -4317,7 +4318,6 @@ kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const KeyMetaSpec *m);
 void blessInit(void);
 kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
-void blessTrackKey(redisDb *db, sds keyname, uint64_t level);
 int blessNoEvict(kvobj *kv);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);

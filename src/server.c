@@ -8153,6 +8153,7 @@ int main(int argc, char **argv) {
     moduleInitModulesSystem();
     connTypeInitialize();
     keyMetaInit();
+    keyAttrInit();
     blessInit();
 
     /* Store the executable path and arguments in a safe place in order
