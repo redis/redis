@@ -955,6 +955,46 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
         # Make sure we don't have any timeouts.
         assert_equal 0 [s 0 expired_time_cap_reached_count]
     } {} {needs:debug}
+
+    test {EXPIRETIME returns -1 for persistent key with no TTL} {
+        r set mykey myval
+        r persist mykey
+        r expiretime mykey
+    } {-1}
+
+    test {EXPIRETIME returns -2 for non-existent key} {
+        r del nosuchkey
+        r expiretime nosuchkey
+    } {-2}
+
+    test {PEXPIRETIME returns -1 for persistent key with no TTL} {
+        r set mykey myval
+        r persist mykey
+        r pexpiretime mykey
+    } {-1}
+
+    test {PEXPIRETIME returns -2 for non-existent key} {
+        r del nosuchkey
+        r pexpiretime nosuchkey
+    } {-2}
+
+    test {EXPIRETIME returns correct Unix timestamp after EXPIREAT} {
+        r del mykey
+        r set mykey val
+        set target [expr {[clock seconds] + 100}]
+        r expireat mykey $target
+        set et [r expiretime mykey]
+        expr {$et == $target}
+    } {1}
+
+    test {PEXPIRETIME returns correct millisecond timestamp after PEXPIREAT} {
+        r del mykey
+        r set mykey val
+        set target [expr {[clock milliseconds] + 100000}]
+        r pexpireat mykey $target
+        set pet [r pexpiretime mykey]
+        expr {$pet == $target}
+    } {1}
 }
 
 # Config lazyexpire-nested-arbitrary-keys test body
