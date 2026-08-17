@@ -2638,8 +2638,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     test {BITOP NOT avoids RUN churn for fragmented ARRAY containers} {
         set chunks 256
         set chunk_bytes 8192
-        set source_cardinality [expr {$chunks * 4096}]
-        set raw_chunk [string repeat [binary format H* 8000] 4096]
+        set source_cardinality [expr {$chunks * 2048}]
+        set raw_chunk [string repeat [binary format H* 80000000] 2048]
         set raw [string repeat $raw_chunk $chunks]
         r del bitop:not:fragmented bitop:not:fragmented:dest
         r set bitop:not:fragmented $raw
@@ -2648,7 +2648,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         assert_equal $source_cardinality [r bitcount bitop:not:fragmented]
         assert_lessthan [r memory usage bitop:not:fragmented] \
-            [expr {4 * 1024 * 1024}]
+            [expr {2 * 1024 * 1024}]
         set track_allocations [expr {
             [string match {*jemalloc*} [s mem_allocator]] &&
             ![catch {r debug mallctl thread.allocated} allocated_before]
