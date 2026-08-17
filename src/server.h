@@ -2340,11 +2340,7 @@ struct redisServer {
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
-    /* Best-effort estimate (usec) of command execution time represented by
-     * the current AOF contents — not a live progress indicator during load.
-     * After a successful BGREWRITEAOF the base dump cost is excluded (reset
-     * to 0); foreground rewrite and AOF load recompute from wall-clock. */
-    long long aof_cmd_duration;
+    long long aof_cmd_duration;     /* Best-effort AOF replay time estimate (usec) */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     off_t aof_load_corrupt_tail_max_size; /* The max size of broken AOF tail than can be ignored. */
     int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
