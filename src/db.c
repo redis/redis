@@ -1153,6 +1153,7 @@ redisDb *initTempDb(void) {
                                        flags);
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
+        tempDb[i].blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         tempDb[i].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     }
@@ -1172,6 +1173,7 @@ void discardTempDb(redisDb *tempDb) {
         estoreRelease(tempDb[i].subexpires);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
+        kvstoreRelease(tempDb[i].blessed_keys);
         dictRelease(tempDb[i].stream_idmp_keys);
     }
 
