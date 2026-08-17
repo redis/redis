@@ -1085,6 +1085,7 @@ void stopAppendOnly(void) {
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
+    server.aof_cmd_duration = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
     server.aof_last_incr_fsync_offset = 0;
@@ -1472,7 +1473,7 @@ sds genAofTimestampAnnotationIfNeeded(int force) {
  * argv   - The command to write to the aof.
  * argc   - Number of values in argv
  */
-void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
+void feedAppendOnlyFile(int dictid, robj **argv, int argc, long long duration) {
     sds buf = sdsempty();
 
     serverAssert(dictid == -1 || (dictid >= 0 && dictid < server.dbnum));
@@ -1508,6 +1509,7 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
         (server.aof_state == AOF_WAIT_REWRITE && server.child_type == CHILD_TYPE_AOF))
     {
         server.aof_buf = sdscatlen(server.aof_buf, buf, sdslen(buf));
+        server.aof_cmd_duration += duration;
     }
 
     sdsfree(buf);
@@ -1626,6 +1628,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
+    long long start = ustime();
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
@@ -1836,6 +1839,9 @@ int loadSingleAppendOnlyFile(char *filename) {
 loaded_ok: /* DB loaded, cleanup and return success (AOF_OK or AOF_TRUNCATED). */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
+    /* Recompute estimate from actual AOF load wall-clock time (usec).
+     * Best-effort: not a live progress indicator during an in-progress load. */
+    server.aof_cmd_duration = ustime() - start;
     goto cleanup;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -2925,6 +2931,7 @@ int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp = NULL;
     char tmpfile[256];
+    long long now = mstime();
 
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
@@ -2972,6 +2979,10 @@ int rewriteAppendOnlyFile(char *filename) {
         stopSaving(0);
         return C_ERR;
     }
+
+    /* Recompute estimate from foreground rewrite wall-clock time (usec). */
+    server.aof_cmd_duration = 1000*(mstime() - now);
+
     stopSaving(1);
 
     return C_OK;
@@ -3667,6 +3678,10 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             (int)server.child_pid);
 
         serverAssert(server.aof_manifest != NULL);
+        /* Reset the duration as we ignore the time it took to dump the data
+         * in the fork. After BGREWRITEAOF the estimate covers only subsequent
+         * incr AOF commands, not the new base file's reconstruction cost. */
+        server.aof_cmd_duration = 0;
 
         /* Dup a temporary aof_manifest for subsequent modifications. */
         temp_am = aofManifestDup(server.aof_manifest);
