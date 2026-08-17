@@ -45,19 +45,13 @@ start_cluster 1 2 {tags {external:skip cluster}} {
         wait_for_condition 50 100 {
             [lindex [R $promoted role] 0] eq "master"
         } else {
-            R $promoted DEBUG DROP-CLUSTER-PACKET-FILTER -1
             fail "manual failover did not promote the replica"
         }
 
         # The observer must recover through the sub-replica safeguard rather
         # than through clusterUpdateSlotsConfigWith(), which by this point can
         # no longer see a slot difference to act on.
-        if {[catch {
-            wait_for_log_messages -$observer {"*I'm a sub-replica!*"} $loglines 100 100
-        } err]} {
-            R $promoted DEBUG DROP-CLUSTER-PACKET-FILTER -1
-            fail $err
-        }
+        wait_for_log_messages -$observer {"*I'm a sub-replica!*"} $loglines 100 100
         R $promoted DEBUG DROP-CLUSTER-PACKET-FILTER -1
 
         # It must replicate the new master directly, rather than the old master
