@@ -123,7 +123,7 @@ static void blessSetCommand(client *c) {
     }
 
     robj *o = lookupKeyWrite(c->db, keyobj);
-    if (o == NULL) { addReply(c, shared.nokeyerr); return; }   /* missing key -> error */
+    if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }   /* missing key -> error */
     sds keyname = keyobj->ptr;
 
     uint64_t cur = keyAttrGet(o);
@@ -147,7 +147,7 @@ static void blessGetCommand(client *c) {
     robj *keyobj = c->argv[2];
     robj *o = lookupKeyReadWithFlags(c->db, keyobj, LOOKUP_NOTOUCH);
     if (o == NULL) {
-        addReply(c, shared.nokeyerr);
+        addReplyErrorObject(c, shared.nokeyerr);
         return;
     }
     /* RESP simple string (+NO-EVICT\r\n), per the API contract - not a bulk string. */
