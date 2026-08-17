@@ -2502,10 +2502,20 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         set not_limit [expr {512 * 1024 * 1024}]
         set byte_len [expr {$not_limit + 1}]
         set last_bit [expr {$byte_len * 8 - 1}]
-        set old_limit [config_get_set proto-max-bulk-len $byte_len]
-        set old_roaring [config_get_set bitmap-default-roaring yes]
+        r config set proto-max-bulk-len $byte_len
+        r config set bitmap-default-roaring yes
         r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
-            bitop:not:roaring:huge:copy
+            bitop:not:roaring:huge:copy bitop:not:roaring:limit \
+            bitop:not:roaring:limit:dest
+
+        # The exact limit, whose flip endpoint is 2^32 bits, remains valid.
+        set limit_last_bit [expr {$not_limit * 8 - 1}]
+        assert_equal 0 [r setbit bitop:not:roaring:limit $limit_last_bit 0]
+        assert_equal $not_limit [r bitop not bitop:not:roaring:limit:dest \
+            bitop:not:roaring:limit]
+        assert_equal 1 [r getbit bitop:not:roaring:limit:dest 0]
+        assert_equal 1 [r getbit bitop:not:roaring:limit:dest $limit_last_bit]
+        r del bitop:not:roaring:limit bitop:not:roaring:limit:dest
 
         # SETBIT 0 extends the logical length without allocating a container.
         # DUMP/RESTORE preserves that length in a compact portable payload even
@@ -2522,7 +2532,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         r set bitop:not:roaring:huge:dest keep
         set dirty [s rdb_changes_since_last_save]
-        assert_error {ERR BITOP NOT result exceeds Roaring bitmap limit} {
+        assert_error {ERR BITOP NOT result exceeds 512 MiB Roaring bitmap limit} {
             r bitop not bitop:not:roaring:huge:dest bitop:not:roaring:huge
         }
         assert_equal keep [r get bitop:not:roaring:huge:dest]
@@ -2530,7 +2540,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         # Aliasing is rejected before the source can be replaced. Other BITOPs
         # retain wide sparse support and preserve the compact logical length.
-        assert_error {ERR BITOP NOT result exceeds Roaring bitmap limit} {
+        assert_error {ERR BITOP NOT result exceeds 512 MiB Roaring bitmap limit} {
             r bitop not bitop:not:roaring:huge bitop:not:roaring:huge
         }
         assert_equal $byte_len [r bitop or bitop:not:roaring:huge:copy \
@@ -2541,9 +2551,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
             bitop:not:roaring:huge:copy
-        r config set bitmap-default-roaring $old_roaring
-        r config set proto-max-bulk-len $old_limit
-    }
+        set _ {}
+    } {} {config:restore}
 
     test {non-NOT Roaring BITOP survives lowering proto-max-bulk-len} {
         set limit 1048576
