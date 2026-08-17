@@ -2377,6 +2377,13 @@ struct redisServer {
     time_t backup_end_time;          /* Unix time when the current/last backup was sealed. */
     time_t backup_sealed_ttl;        /* Seconds to keep SEALED backup files; 0 disables auto cleanup. */
 
+    /* Keyspace value-MVCC snapshots. See src/kvsnapshot.c */
+    int snapshots_open;             /* # of open hash snapshots (write-path gate) */
+    long long stat_snapshot_hash_deltas; /* # of hash field pre-images recorded */
+    long long stat_snapshot_preserved_bytes; /* Bytes held by chains + frozen kvobjs */
+    long long stat_snapshot_evicted_drops;   /* # of keys dropped on eviction */
+    list *keyspace_snapshots;       /* Open keyspaceSnapshot objects */
+
     /* RDB persistence */
     long long dirty;                /* Changes to DB from the last save */
     long long dirty_before_bgsave;  /* Used to restore dirty on failed BGSAVE */
@@ -4091,7 +4098,7 @@ int hashTypeTryConvertToTemplate(robj *o, size_t min_fields, size_t max_fields,
                                  rdbLoadTemplateCtx *ctx);
 void hashTypeTryConversion(redisDb *db, kvobj *kv, robj **argv, int start, int end);
 int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashDeleted);
-int hashTypeDelete(robj *o, void *key);
+int hashTypeDelete(redisDb *db, robj *o, void *key);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 size_t hashTypeAllocSize(const robj *o);
 size_t hashTemplatePerKeyMemoryShare(const robj *o);
@@ -4318,6 +4325,21 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
+
+/* Point-in-time HASH snapshots. See src/kvsnapshot.c */
+typedef struct keyspaceSnapshot keyspaceSnapshot;
+void kvsnapshotInit(void);
+void kvsnapshotFreeAll(void);
+keyspaceSnapshot *kvSnapshotCreate(int dbid);
+void kvSnapshotFree(keyspaceSnapshot *s);
+void snapshotHashCapture(redisDb *db, kvobj *o, sds field);
+void snapshotHashPreserveOnRemove(redisDb *db, robj *key, kvobj *kv, int flags);
+void snapshotHashPreserveOnFlush(redisDb *db);
+void snapshotOnSwapDb(int id1, int id2);
+void snapshotInvalidateAll(void);
+robj *kvSnapshotHashField(keyspaceSnapshot *s, robj *key, sds field);
+kvobj *kvSnapshotView(keyspaceSnapshot *s, robj *keyobj);
+void debugKvSnapshotCommand(client *c);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2

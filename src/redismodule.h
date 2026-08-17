@@ -9,6 +9,7 @@
 
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleKey RedisModuleKey;
+typedef struct RedisModuleKeyspaceSnapshot RedisModuleKeyspaceSnapshot;
 typedef int RedisModuleKeyMetaClassId;
 
 /* -------------- Defines NOT common between core and modules ------------- */
@@ -1157,6 +1158,10 @@ REDISMODULE_API int (*RedisModule_KeyExists)(RedisModuleCtx *ctx, RedisModuleStr
 REDISMODULE_API RedisModuleKey * (*RedisModule_OpenKey)(RedisModuleCtx *ctx, RedisModuleString *keyname, int mode) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetOpenKeyModesAll)(void) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_CloseKey)(RedisModuleKey *kp) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleKeyspaceSnapshot * (*RedisModule_CreateKeyspaceSnapshot)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleKey * (*RedisModule_SnapshotOpenKey)(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap, RedisModuleString *keyname) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_SnapshotHashGet)(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap, RedisModuleString *keyname, RedisModuleString *field) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_FreeKeyspaceSnapshot)(RedisModuleCtx *ctx, RedisModuleKeyspaceSnapshot *snap) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_KeyType)(RedisModuleKey *kp) REDISMODULE_ATTR;
 REDISMODULE_API size_t (*RedisModule_ValueLength)(RedisModuleKey *kp) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ListPush)(RedisModuleKey *kp, int where, RedisModuleString *ele) REDISMODULE_ATTR;
@@ -1589,6 +1594,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(OpenKey);
     REDISMODULE_GET_API(GetOpenKeyModesAll);
     REDISMODULE_GET_API(CloseKey);
+    REDISMODULE_GET_API(CreateKeyspaceSnapshot);
+    REDISMODULE_GET_API(SnapshotOpenKey);
+    REDISMODULE_GET_API(SnapshotHashGet);
+    REDISMODULE_GET_API(FreeKeyspaceSnapshot);
     REDISMODULE_GET_API(KeyType);
     REDISMODULE_GET_API(ValueLength);
     REDISMODULE_GET_API(ListPush);

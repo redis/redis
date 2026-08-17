@@ -3036,6 +3036,7 @@ void initServer(void) {
     server.firing_keyed_post_notif_jobs = 0;
     server.fire_keyed_jobs_between_subcommands = 0;
     server.in_keyspace_notification = 0;
+    kvsnapshotInit(); /* keyspace value-MVCC snapshots */
     server.clients = listCreate();
     server.clients_index = raxNewEx(0, NULL, sizeof(uint64_t));
     server.clients_to_close = listCreate();
@@ -5222,6 +5223,10 @@ int finishShutdown(void) {
     /* Fire the shutdown modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_SHUTDOWN,0,NULL);
 
+    /* Free any keyspace value-MVCC snapshots the module left open, so the leak
+     * checker sees a clean shutdown. */
+    kvsnapshotFreeAll();
+
     /* Remove the pid file if possible and needed. */
     if (server.daemonize || server.pidfile) {
         serverLog(LL_NOTICE,"Removing the pid file.");
@@ -6839,7 +6844,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
             "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
             "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
-            "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
+            "hash_template_keys:%zu\r\n", hashTemplateKeyCount(),
+            "hash_snapshots_open:%d\r\n", server.snapshots_open,
+            "hash_snapshot_deltas:%lld\r\n", server.stat_snapshot_hash_deltas,
+            "hash_snapshot_preserved_bytes:%lld\r\n", server.stat_snapshot_preserved_bytes,
+            "hash_snapshot_evicted_drops:%lld\r\n", server.stat_snapshot_evicted_drops));
         info = genRedisInfoStringACLStats(info);
         if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);
