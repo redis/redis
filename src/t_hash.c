@@ -400,13 +400,20 @@ static tmplIdChunk *tmplIdGetOrCreateChunk(size_t id) {
     return htemplates->by_id[chunk_idx];
 }
 
-/* Get lowest free id. Caller guarantees a gap exists. */
+/* Get lowest free id. Caller guarantees a gap exists. Chunks below
+ * by_id_free_chunk_hint are full, the scan starts there. */
 static size_t tmplIdGetLowestFree(void) {
-    size_t chunk_idx = 0;
+    size_t chunk_idx = htemplates->by_id_free_chunk_hint;
+#ifdef DEBUG_ASSERTIONS
+    /* Chunks below the hint must be full. */
+    for (size_t i = 0; i < chunk_idx; i++)
+        serverAssert(htemplates->by_id[i] && htemplates->by_id[i]->used == TMPL_CHUNK_SIZE);
+#endif
     while (chunk_idx < htemplates->by_id_cap && htemplates->by_id[chunk_idx] &&
            htemplates->by_id[chunk_idx]->used == TMPL_CHUNK_SIZE) {
         chunk_idx++;
     }
+    htemplates->by_id_free_chunk_hint = chunk_idx;
     tmplIdChunk *chunk = chunk_idx < htemplates->by_id_cap ? htemplates->by_id[chunk_idx] : NULL;
     size_t id = chunk_idx * TMPL_CHUNK_SIZE;
     while (chunk && chunk->slots[id % TMPL_CHUNK_SIZE] != NULL) id++;
@@ -418,6 +425,8 @@ static size_t tmplIdGetLowestFree(void) {
 static uint64_t tmplIdAllocate(hashTemplate *tmpl) {
     int no_gaps = dictSize(htemplates->by_fields) == htemplates->by_id_next;
     size_t id = no_gaps ? htemplates->by_id_next++ : tmplIdGetLowestFree();
+    /* Every lower id is in use, the hint can move up. */
+    if (no_gaps) htemplates->by_id_free_chunk_hint = id / TMPL_CHUNK_SIZE;
     tmplIdChunk *chunk = tmplIdGetOrCreateChunk(id);
     chunk->slots[id % TMPL_CHUNK_SIZE] = tmpl;
     chunk->used++;
@@ -429,6 +438,8 @@ static void tmplIdRecycle(uint64_t id) {
     size_t chunk_idx = id / TMPL_CHUNK_SIZE;
     tmplIdChunk *chunk = htemplates->by_id[chunk_idx];
     chunk->slots[id % TMPL_CHUNK_SIZE] = NULL;
+    if (htemplates->by_id_free_chunk_hint > chunk_idx)
+        htemplates->by_id_free_chunk_hint = chunk_idx;
     /* Free the chunk once it holds no live ids so the id space shrinks. */
     if (--chunk->used == 0) {
         zfree(chunk);
@@ -446,6 +457,7 @@ static void tmplIdRecycle(uint64_t id) {
         htemplates->by_id_cap = 0;
         htemplates->by_id_chunks = 0;
         htemplates->by_id_next = 0;
+        htemplates->by_id_free_chunk_hint = 0;
     }
 }
 
@@ -459,41 +471,57 @@ hashTemplate *hashTemplateGetById(uint64_t id) {
 
 /* Defrag the template struct and re-point every reference
  * to it (by_id slot, by_fields key, by_fields_lp value).*/
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl) {
-    /* Field-name array and the strings it holds. */
+void hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime) {
+    /* Field-name array. */
     sds *newfields = activeDefragAlloc(tmpl->fields);
     if (newfields) tmpl->fields = newfields;
-    for (unsigned long long i = 0; i < tmpl->field_count; i++) {
+
+    /* Field names, checking the clock every 128 so a wide template cannot
+     * blow the time budget. On timeout, defrag_field keeps the position, the
+     * leftover is picked up when the template is scanned again. */
+    unsigned long long i = tmpl->defrag_field;
+    long iterations = 0;
+    while (i < tmpl->field_count) {
         sds newsds = activeDefragSds(tmpl->fields[i]);
         if (newsds) tmpl->fields[i] = newsds;
+        server.stat_active_defrag_scanned++;
+        i++;
+        if (++iterations > 128) {
+            if (getMonotonicUs() > endtime) break;
+            iterations = 0;
+        }
     }
-
-    /* Find the entries referencing tmpl (by_fields key) and its blob
-     * (by_fields_lp key+value) before any realloc frees the old pointers. */
-    uint64_t bf_hash = dictGetHash(htemplates->by_fields, tmpl);
-    dictEntry *bf = dictFindByHashAndPtr(htemplates->by_fields, tmpl, bf_hash);
-    dictEntry *lp = tmpl->fields_lp ? dictFind(htemplates->by_fields_lp, tmpl->fields_lp) : NULL;
+    tmpl->defrag_field = (i >= tmpl->field_count) ? 0 : i;
 
     /* fields_lp blob (the by_fields_lp key). */
+    dictEntry *lp = NULL;
     if (tmpl->fields_lp) {
-        unsigned char *newlp = activeDefragAlloc(tmpl->fields_lp);
+        unsigned char *oldlp = tmpl->fields_lp;
+        unsigned char *newlp = activeDefragAlloc(oldlp);
         if (newlp) {
+            /* oldlp is freed, find its entry by pointer. */
+            uint64_t hash = dictGetHash(htemplates->by_fields_lp, newlp);
+            lp = dictFindByHashAndPtr(htemplates->by_fields_lp, oldlp, hash);
+            serverAssert(lp);
             tmpl->fields_lp = newlp;
-            if (lp) dictSetKey(htemplates->by_fields_lp, lp, newlp);
+            dictSetKey(htemplates->by_fields_lp, lp, newlp);
         }
     }
 
     /* The struct itself: by_id slot, by_fields key, by_fields_lp value. */
     uint64_t id = tmpl->id;
     hashTemplate *newtmpl = activeDefragAlloc(tmpl);
-    if (!newtmpl) return tmpl;
+    if (!newtmpl) return;
 
     tmplIdChunk *chunk = htemplates->by_id[id / TMPL_CHUNK_SIZE];
     chunk->slots[id % TMPL_CHUNK_SIZE] = newtmpl;
 
-    if (bf) dictSetKey(htemplates->by_fields, bf, newtmpl);
-    if (lp) dictSetVal(htemplates->by_fields_lp, lp, newtmpl);
-    return newtmpl;
+    dictSetKey(htemplates->by_fields, bf, newtmpl);
+    if (newtmpl->fields_lp) {
+        if (!lp) lp = dictFind(htemplates->by_fields_lp, newtmpl->fields_lp);
+        serverAssert(lp);
+        dictSetVal(htemplates->by_fields_lp, lp, newtmpl);
+    }
 }
 
 /* Defrag by_id top array (once, at idx 0) and the chunk at 'idx'. */
@@ -700,6 +728,7 @@ static hashTemplate *hashTemplateCreateInternal(uint64_t hash, sds *fields,
     tmpl->fields = zmalloc(sizeof(sds) * field_count);
     tmpl->fields_lp = NULL; /* Lazy built on first save/lookup due to RESTORE. */
     tmpl->fields_lp_last_used = 0;
+    tmpl->defrag_field = 0;
     tmpl->mem_size = sizeof(*tmpl) + sizeof(sds) * field_count;
 
     for (unsigned long long i = 0; i < field_count; i++) {

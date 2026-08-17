@@ -72,6 +72,10 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
+int clusterDefaultClientPortIsTLS(void) {
+    return server.tls_cluster;
+}
+
 ConnectionType *connTypeOfCluster(void) {
     if (server.tls_cluster) {
         return connectionTypeTls();
@@ -885,12 +889,12 @@ void clusterCommandMyShardId(client *c) {
  * a Lua script or RM_call, there is no connection in the fake client, so we use
  * server.current_client here to get the real client if available. And if it is not
  * available (modules may call commands without a real client), we return the default
- * info, which is determined by server.tls_cluster. */
+ * info, which is determined by clusterDefaultClientPortIsTLS(). */
 static int shouldReturnTlsInfo(void) {
     if (server.current_client && server.current_client->conn) {
         return connIsTLS(server.current_client->conn);
     } else {
-        return server.tls_cluster;
+        return clusterDefaultClientPortIsTLS();
     }
 }
 

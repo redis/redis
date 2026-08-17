@@ -367,6 +367,35 @@ proc createComplexDataset {r ops {opt {}}} {
             }
         }
 
+        # Do one random operation on one of 20 dedicated stream keys. Streams get
+        # their own keys because Redis deletes a list/set/zset/hash once its last
+        # element is gone, which frees the name to be reused as another type, while
+        # an empty stream stays. The test code never deletes such a stream, on purpose:
+        # together with strings, streams are the only type that can exist with zero
+        # elements, and they give the dataset its zero-length coverage, like the
+        # size-0 bucket of the INFO keysizes histograms. The 20 keys for streams also
+        # mean each stream gets many operations, with "*" keeping its IDs increasing.
+        if {rand() < 0.2} {
+            set sk "strm:[randomInt 20]$tag"
+            randpath {
+                {*}$r xadd $sk * $f $v
+            } {
+                {*}$r xadd $sk MAXLEN [randomInt 30] * $f $v
+            } {
+                catch {{*}$r xtrim $sk MAXLEN [randomInt 10]}
+            } {
+                catch {{*}$r xgroup create $sk g 0 MKSTREAM}
+                catch {{*}$r xreadgroup group g c count 5 streams $sk >}
+            } {
+                # Ack-and-delete the oldest entry, if any, to drive XACKDEL/PEL.
+                set first [lindex [{*}$r xrange $sk - + COUNT 1] 0 0]
+                if {$first ne {}} {
+                    catch {{*}$r xackdel $sk g IDS 1 $first}
+                    catch {{*}$r xdel $sk $first}
+                }
+            }
+        }
+
         randpath {
             set d [expr {rand()}]
         } {
@@ -516,6 +545,17 @@ proc csvdump r {
                     foreach kv $fields {
                         append o [csvstring [lindex $kv 0]] ,
                         append o [csvstring [lindex $kv 1]] ,
+                    }
+                    append o "\n"
+                }
+                stream {
+                    # Must cover the same state as the stream
+                    # digest in xorObjectDigest() (debug.c)
+                    foreach entry [{*}$r xrange $k - +] {
+                        append o [csvstring [lindex $entry 0]] ,
+                        foreach fv [lindex $entry 1] {
+                            append o [csvstring $fv] ,
+                        }
                     }
                     append o "\n"
                 }

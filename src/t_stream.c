@@ -2564,6 +2564,10 @@ void xaddCommand(client *c) {
     if ((kv = streamTypeLookupWriteOrCreate(c,c->argv[1],parsed_args.no_mkstream)) == NULL) return;
     s = kv->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    /* Entry count before this XADD for the keysizes (distrib_streams_items)
+     * histogram. 0 if we just created the stream -- dbAdd already counted that
+     * birth at bin 0, so we only move the sample to its new bin below. */
+    int64_t old_entries = (int64_t) s->length;
 
     /* IDMP: Check if IID already exists, save IID for later insertion */
     XXH128_hash_t hash;
@@ -2661,6 +2665,8 @@ void xaddCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+
+    updateKeysizesHist(c->db, OBJ_STREAM, old_entries, s->length); /* entries count changed (append + trim) */
 
     keyModified(c,c->db,c->argv[1],kv,1);
 
@@ -4233,6 +4239,8 @@ void xackdelCommand(client *c) {
             streamGetEdgeID(s,1,1,&s->first_id);
         }
 
+        updateKeysizesHist(c->db, OBJ_STREAM, (int64_t) s->length + deleted, s->length); /* entries count decreased */
+
         /* Propagate the write. */
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
@@ -5083,6 +5091,7 @@ void xdelCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
+        updateKeysizesHist(c->db, OBJ_STREAM, (int64_t) s->length + deleted, s->length); /* entries count decreased */
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
@@ -5183,6 +5192,7 @@ void xdelexCommand(client *c) {
 
     /* Update the stream's first ID. */
     if (deleted) {
+        updateKeysizesHist(c->db, OBJ_STREAM, (int64_t) s->length + deleted, s->length); /* entries count decreased */
         if (s->length == 0) {
             s->first_id.ms = 0;
             s->first_id.seq = 0;
@@ -5249,6 +5259,7 @@ void xtrimCommand(client *c) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     if (deleted) {
+        updateKeysizesHist(c->db, OBJ_STREAM, (int64_t) s->length + deleted, s->length); /* entries count decreased */
         notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must

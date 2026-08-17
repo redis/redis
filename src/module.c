@@ -6043,6 +6043,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     }
 
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
@@ -6050,6 +6051,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         if (created) moduleDelKeyIfEmpty(key);
         return REDISMODULE_ERR;
     }
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count increased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
@@ -6096,8 +6098,10 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
     }
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     streamID streamid = {id->ms, id->seq};
     if (streamDeleteItem(s, &streamid)) {
+        updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         return REDISMODULE_OK;
@@ -6364,7 +6368,13 @@ int RM_StreamIteratorDelete(RedisModuleKey *key) {
         return REDISMODULE_ERR;
     }
     streamIterator *si = key->iter;
+    stream *s = key->kv->ptr;
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     streamIteratorRemoveEntry(si, &key->u.stream.currentid);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     key->u.stream.currentid.ms = 0; /* Make sure repeated Delete() fails */
     key->u.stream.currentid.seq = 0;
     key->u.stream.numfieldsleft = 0; /* Make sure NextField() fails */
@@ -6400,7 +6410,9 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     long long retval = streamTrimByLength(s, length, approx);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;
@@ -6436,7 +6448,9 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     streamID minid = (streamID){id->ms, id->seq};
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     long long retval = streamTrimByID(s, minid, approx);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;
@@ -10009,6 +10023,7 @@ size_t RM_GetClusterSize(void) {
  * * REDISMODULE_NODE_PFAIL:        We see the node as failing
  * * REDISMODULE_NODE_FAIL:         The cluster agrees the node is failing
  * * REDISMODULE_NODE_NOFAILOVER:   The slave is configured to never failover
+ * * REDISMODULE_NODE_PORT_TLS:     The returned port is a TLS port (added in Redis 8.12)
  */
 int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
     UNUSED(ctx);
@@ -10042,6 +10057,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         if (clusterNodeTimedOut(node)) *flags |= REDISMODULE_NODE_PFAIL;
         if (clusterNodeIsFailing(node)) *flags |= REDISMODULE_NODE_FAIL;
         if (clusterNodeIsNoFailover(node)) *flags |= REDISMODULE_NODE_NOFAILOVER;
+        if (clusterDefaultClientPortIsTLS()) *flags |= REDISMODULE_NODE_PORT_TLS;
     }
     return REDISMODULE_OK;
 }
