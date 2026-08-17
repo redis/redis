@@ -639,6 +639,8 @@ start_server {tags {"introspection"}} {
             syslog-ident
             appendfilename
             appenddirname
+            backupdirname
+            preload-file
             supervised
             syslog-facility
             databases
@@ -671,6 +673,7 @@ start_server {tags {"introspection"}} {
             req-res-logfile
             client-default-resp
             vset-force-single-threaded-execution
+            repl-compression
         }
 
         if {!$::tls} {
@@ -768,7 +771,7 @@ start_server {tags {"introspection"}} {
     } {} {external:skip}
     
     test {CONFIG SET with multiple args} {
-        set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5}}
+        set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5} backup-sealed-ttl 10000003}
 
         # Backup
         set backups {}
@@ -776,7 +779,7 @@ start_server {tags {"introspection"}} {
             lappend backups $c [lindex [r config get $c] 1]
         }
 
-        # multi config set and veirfy
+        # multi config set and verify
         assert_equal [eval "r config set $some_configs"] "OK"
         dict for {c val} $some_configs {
             assert_equal [lindex [r config get $c] 1] $val
@@ -891,7 +894,7 @@ start_server {tags {"introspection"}} {
     }
 
     test {CONFIG GET multiple args} {
-        set res [r config get maxmemory maxmemory* bind *of]
+        set res [r config get maxmemory maxmemory* bind *of backup*]
         
         # Verify there are no duplicates in the result
         assert_equal [expr [llength [dict keys $res]]*2] [llength $res]
@@ -901,6 +904,9 @@ start_server {tags {"introspection"}} {
 
         # Verify pattern found multiple maxmemory* configs
         assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
+
+        # Verify pattern found backup configs
+        assert {[dict exists $res backupdirname] && [dict exists $res backup-sealed-ttl]}
 
         # Verify we also got the explicit config
         assert {[dict exists $res bind]}  
@@ -1193,5 +1199,15 @@ start_server {tags {introspection external:skip} overrides {requirepass secret}}
         # Check that the warning does NOT appear
         set loglines [exec cat [srv 0 stdout]]
         assert_equal 0 [string match "*WARNING: Redis does not require authentication*" $loglines]
+    }
+}
+
+start_server {tags {introspection external:skip}} {
+    test {CONFIG SET of TLS options must not crash the server} {
+        # These `config set` commands used to crash a non-TLS build (see #15404)
+        catch {r config set tls-port 6380}
+        catch {r config set tls-replication yes}
+        catch {r config set tls-cluster yes}
+        assert_equal {PONG} [r ping]
     }
 }

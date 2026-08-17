@@ -90,6 +90,7 @@ set ::large_memory 0
 set ::log_req_res 0
 set ::force_resp3 0
 set ::debug_defrag 0
+set ::compression 0
 
 # Set to 1 when we are running in client mode. The Redis test uses a
 # server-client model to run tests simultaneously. The server instance
@@ -728,6 +729,8 @@ for {set j 0} {$j < [llength $argv]} {incr j} {
         set ::ignoredigest 1
     } elseif {$opt eq {--debug-defrag}} {
         set ::debug_defrag 1
+    } elseif {$opt eq {--compression}} {
+        set ::compression 1
     } elseif {$opt eq {--help}} {
         print_help_screen
         exit 0

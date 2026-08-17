@@ -112,6 +112,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdint.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -1585,6 +1586,11 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         if (count == 0) {
             return RedisModule_ReplyWithEmptyArray(ctx);
         }
+        /* Negating LLONG_MIN to get abs(count) is UB and overflows the reply length. */
+        if (count == LLONG_MIN) {
+            return RedisModule_ReplyWithError(ctx,
+                "ERR COUNT value is out of range");
+        }
     }
 
     /* Open key. */
@@ -2178,7 +2184,7 @@ size_t VectorSetMemUsage(const void *value) {
     /* Add the 0.33 remaining part, but upper layers have less links. */
     size += (sizeof(hnswNode*) * other_levels_links * vset->hnsw->node_count)/3;
 
-    /* Associated string value and attributres.
+    /* Associated string value and attributes.
      * Use Redis Module API to get string size, and guess that all the
      * elements have similar size as the first few. */
     size_t items_scanned = 0, items_size = 0;
@@ -2200,7 +2206,7 @@ size_t VectorSetMemUsage(const void *value) {
     if (items_scanned)
         size += items_size / items_scanned * vset->hnsw->node_count;
 
-    /* Add memory usage due to attributres. */
+    /* Add memory usage due to attributes. */
     if (attribs_scanned == 0) {
         /* We were not lucky enough to find a single attribute in the
          * first few items? Let's use a fixed arbitrary value. */

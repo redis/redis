@@ -1077,11 +1077,11 @@ start_server {
 
         $db0 XADD mystream IDMP p1 "init" * field "init"
         $db0 XCFGSET mystream IDMP-DURATION 2
-        set id0 [$db0 XADD mystream IDMP p1 "req-1" * field "v1"]
+        $db0 XADD mystream IDMP p1 "req-1" * field "v1"
 
         $db1 XADD mystream IDMP p2 "init" * field "init"
         $db1 XCFGSET mystream IDMP-DURATION 2
-        set id1 [$db1 XADD mystream IDMP p2 "req-1" * field "v1"]
+        $db1 XADD mystream IDMP p2 "req-1" * field "v1"
 
         assert_equal 1 [dict get [$db0 XINFO STREAM mystream] pids-tracked]
         assert_equal 1 [dict get [$db1 XINFO STREAM mystream] pids-tracked]
@@ -1094,13 +1094,15 @@ start_server {
         $db1 XCFGSET mystream IDMP-DURATION 2
 
         set len0_before [$db0 XLEN mystream]
-        set id0_new [$db0 XADD mystream IDMP p1 "req-1" * field "v2"]
-        assert_equal [expr {$len0_before + 1}] [$db0 XLEN mystream] \
+        $db0 XADD mystream IDMP p1 "req-1" * field "v2"
+        set len0_after [$db0 XLEN mystream]
+        assert_equal [expr {$len0_before + 1}] $len0_after \
             "DB0: XADD after FLUSHALL should create a new entry, not deduplicate"
 
         set len1_before [$db1 XLEN mystream]
-        set id1_new [$db1 XADD mystream IDMP p2 "req-1" * field "v2"]
-        assert_equal [expr {$len1_before + 1}] [$db1 XLEN mystream] \
+        $db1 XADD mystream IDMP p2 "req-1" * field "v2"
+        set len1_after [$db1 XLEN mystream]
+        assert_equal [expr {$len1_before + 1}] $len1_after \
             "DB1: XADD after FLUSHALL should create a new entry, not deduplicate"
 
         wait_for_condition 50 100 {
@@ -1116,7 +1118,7 @@ start_server {
 
         $db0 close
         $db1 close
-        assert {$id0 ne $id0_new}
+        assert_equal {2 2} [list $len0_after $len1_after]
     } {} {singledb:skip}
 
     test {XADD IDMP tracking survives RENAME} {
@@ -3185,7 +3187,7 @@ start_server {
         set res [r EXEC]
         set in_exec [lindex $res 1]
         if {$::force_resp3} {
-            set in_exec [transfrom_map_to_tupple_array {XREAD} $in_exec]
+            set in_exec [transform_map_to_tuple_array {XREAD} $in_exec]
         }
         assert_equal [xread_total_entries $solo] [xread_total_entries $in_exec]
     }
@@ -3792,6 +3794,29 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
         assert {[dict get [r xinfo stream mystream] length] == 1}
         assert_equal [dict get [r xinfo stream mystream] last-generated-id] "2-2"
     }
+
+    test {XDELEX DELREF propagates PEL-only changes} {
+        r DEL xdelex-stream
+        r XADD xdelex-stream 1-0 f v
+        r XGROUP CREATE xdelex-stream group 0
+        r XREADGROUP GROUP group consumer STREAMS xdelex-stream >
+
+        # XDEL leaves dangling PEL references. DELREF must remove them even
+        # though the stream entry itself is already gone.
+        assert_equal 1 [r XDEL xdelex-stream 1-0]
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal {-1} [r XDELEX xdelex-stream DELREF IDS 1 1-0]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
+
+        # IDs with no remaining stream entry or PEL reference are a no-op.
+        set dirty [s rdb_changes_since_last_save]
+        assert_equal {-1} [r XDELEX xdelex-stream DELREF IDS 1 1-0]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+
+        r DEBUG LOADAOF
+        assert_equal {0 {} {} {}} [r XPENDING xdelex-stream group]
+    }
 }
 
 start_server {tags {"stream"}} {
@@ -3853,11 +3878,31 @@ start_server {tags {"stream"}} {
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
         # Verify the message was removed from both groups' PELs when with DELREF
+        set dirty [s rdb_changes_since_last_save]
         assert_equal {1 1} [r XDELEX mystream DELREF IDS 2 1-0 2-0]
+        # Count each ID once even though both its PEL references and stream entry are removed.
+        assert_equal [expr {$dirty + 2}] [s rdb_changes_since_last_save]
         assert_equal 0 [r XLEN mystream] 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
         assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
     }
+
+    test "XDELEX with DELREF propagates PEL-only changes to replicas" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XGROUP CREATE mystream group 0
+        r XREADGROUP GROUP group consumer STREAMS mystream >
+        assert_equal 1 [r XDEL mystream 1-0]
+
+        set repl [attach_to_replication_stream]
+        assert_equal {-1} [r XDELEX mystream DELREF IDS 1 1-0]
+        assert_replication_stream $repl {
+            {select *}
+            {xdelex mystream DELREF IDS 1 1-0}
+        }
+        close_replication_stream $repl
+        assert_equal {0 {} {} {}} [r XPENDING mystream group]
+    } {} {needs:repl}
 
     test "XDELEX with ACKED option only deletes messages acknowledged by all groups" {
         r DEL mystream

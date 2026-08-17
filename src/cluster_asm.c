@@ -47,7 +47,6 @@
 #include "cluster.h"
 #include "functions.h"
 #include "cluster_asm.h"
-#include "cluster_slot_stats.h"
 #include "bio.h"
 
 /* Operation types: import (destination side) or migrate (source side) */
@@ -185,7 +184,7 @@ ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 /* cluster.c */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, size_t size_hint);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
 static void asmTaskCancel(asmTask *task, const char *reason);
@@ -2253,8 +2252,13 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
      * use RESTORE command (RDB format) to migrate data.
      * Generally RDB binary format is more efficient, but it may cause
      * block in the destination if the object is too large, so fall back
-     * to AOF format if necessary. */
-    if ((o->type == OBJ_MODULE) ||
+     * to AOF format if necessary. Templated hashes always use RESTORE
+     * regardless of size: the DUMP payload is self-contained (full
+     * RDB_TYPE_HASH_TMPL_LP/ARRAY with fields inlined). */
+    int isTmplHash = (o->type == OBJ_HASH &&
+                      (o->encoding == OBJ_ENCODING_TMPL_LP ||
+                       o->encoding == OBJ_ENCODING_TMPL_ARRAY));
+    if ((o->type == OBJ_MODULE) || isTmplHash ||
         (o->type != OBJ_STRING && getObjectLength(o) <= ASM_AOF_MIN_ITEMS_PER_KEY))
     {
         if (rioWriteBulkCount(rdb, '*', 5) == 0) return C_ERR;
@@ -2264,7 +2268,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Create the DUMP encoded representation. */
         rio payload;
-        createDumpPayload(&payload, o, &key, dbid, 1);
+        createDumpPayload(&payload, o, &key, dbid, DUMP_PAYLOAD_SKIP_CHECKSUM, 0);
         sds buf = payload.io.buffer.ptr;
         if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
             sdsfree(payload.io.buffer.ptr);
@@ -2828,13 +2832,13 @@ int clusterAsmCancelBySlot(int slot, const char *reason) {
     return task ? 1 : 0;
 }
 
-/* Cancel all tasks that involve the given node. */
-int clusterAsmCancelByNode(void *node, const char *reason) {
-    if (asmManager == NULL || node == NULL) return 0;
+/* Cancel all tasks if this node is no longer a primary, and cancel tasks
+ * whose source or destination no longer exists in the current topology. */
+int clusterAsmCancelInvalidTasks(void) {
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
-    /* If the node to be deleted is myself, cancel all tasks. */
-    clusterNode *n = node;
-    if (n == getMyClusterNode()) return clusterAsmCancel(NULL, reason);
+    if (clusterNodeIsSlave(getMyClusterNode()))
+        return clusterAsmCancel(NULL, "switching to replica");
 
     int num_cancelled = 0;
     listIter li;
@@ -2842,12 +2846,11 @@ int clusterAsmCancelByNode(void *node, const char *reason) {
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        /* Cancel the task if the source node is the one to be deleted, or
-         * the dest node is the one to be deleted. */
-        if (!memcmp(task->dest, clusterNodeGetName(n), CLUSTER_NAMELEN) ||
-            !memcmp(task->source, clusterNodeGetName(n), CLUSTER_NAMELEN))
-        {
-            asmTaskCancel(task, reason);
+        clusterNode *source = clusterLookupNode(task->source, CLUSTER_NAMELEN);
+        clusterNode *dest = clusterLookupNode(task->dest, CLUSTER_NAMELEN);
+
+        if (!source || !dest) {
+            asmTaskCancel(task, "node deleted");
             num_cancelled++;
         }
     }
@@ -2933,15 +2936,6 @@ int asmNotifyConfigUpdated(asmTask *task, sds *err) {
                             asmTaskStateToString(task->state));
         asmTaskCancel(task, "slots configuration updated");
         return C_ERR;
-    }
-
-    /* Reset per-slot statistics for the migrated/imported ranges.
-     * Note: cluster_legacy.c also cleans up, so this may run twice, but
-     * required if an alternative cluster impl is in use. */
-    for (int i = 0; i < task->slots->num_ranges; i++) {
-        slotRange *sr = &task->slots->ranges[i];
-        for (int j = sr->start; j <= sr->end; j++)
-            clusterSlotStatReset(j);
     }
 
     /* Clear error message if successful. */
@@ -3106,9 +3100,10 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
             estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
-            streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slot);
         }
     }
+    /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
+    streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
 
     emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, trim_ctx);
 

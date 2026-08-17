@@ -780,6 +780,43 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
 }
 
+/* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
+ * hashtable/set/array paths) so a wide template hash can't stall defrag. */
+void defragTmplArray(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    hashTemplateArray *hta = ob->ptr, *newhta;
+    if ((newhta = activeDefragAlloc(hta))) ob->ptr = hta = newhta;
+    if (hta->field_count > server.active_defrag_max_scan_fields) {
+        defragLater(ctx, ob);
+    } else {
+        for (unsigned long long i = 0; i < hta->field_count; i++) {
+            sds newsds = activeDefragSds(hta->values[i]);
+            if (newsds) hta->values[i] = newsds;
+        }
+    }
+}
+
+/* Incremental defrag of a TMPL_ARRAY's values; cursor = next index.
+ * Returns 1 if time is up (more to do), 0 when done. */
+long scanLaterTmplArray(robj *ob, unsigned long *cursor, monotime endtime) {
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY);
+    hashTemplateArray *hta = ob->ptr;
+    unsigned long long n = hta->field_count;
+    long iterations = 0;
+    while (*cursor < n) {
+        sds newsds = activeDefragSds(hta->values[*cursor]);
+        if (newsds) hta->values[*cursor] = newsds;
+        server.stat_active_defrag_scanned++;
+        (*cursor)++;
+        if (++iterations > 128) {
+            if (getMonotonicUs() > endtime) return 1;
+            iterations = 0;
+        }
+    }
+    *cursor = 0;
+    return 0;
+}
+
 /* Defrag callback for radix tree iterator, called for each node,
  * used in order to defrag the nodes allocations. */
 int defragRaxNode(raxNode **noderef, void *privdata) {
@@ -1184,6 +1221,11 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
                 lpt->lp = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragHash(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_TMPL_LP) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                ob->ptr = newzl;
+        } else if (ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+            defragTmplArray(ctx, ob);
         } else {
             serverPanic("Unknown hash encoding");
         }
@@ -1312,6 +1354,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             scanLaterZset(ob, cursor);
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterHash(ob, cursor);
+        } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+            return scanLaterTmplArray(ob, cursor, endtime);
         } else if (ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM) {
             return scanLaterStreamListpacks(ob, cursor, endtime);
         } else if (ob->type == OBJ_MODULE) {
@@ -1426,11 +1470,20 @@ void computeDefragCycles(void) {
 
     /* Calculate the adaptive aggressiveness of the defrag based on the current
      * fragmentation and configurations. */
-    int cpu_pct = INTERPOLATE(frag_pct,
-            server.active_defrag_threshold_lower,
-            server.active_defrag_threshold_upper,
-            server.active_defrag_cycle_min,
-            server.active_defrag_cycle_max);
+    int cpu_pct;
+    if (server.active_defrag_threshold_upper <= server.active_defrag_threshold_lower) {
+        /* If upper is not greater than lower, reaching the lower threshold also
+         * means reaching the upper threshold, so use the maximum effort. This may
+         * cause an immediate jump to maximum effort, but only for an invalid
+         * threshold configuration. */
+        cpu_pct = server.active_defrag_cycle_max;
+    } else {
+        cpu_pct = INTERPOLATE(frag_pct,
+                server.active_defrag_threshold_lower,
+                server.active_defrag_threshold_upper,
+                server.active_defrag_cycle_min,
+                server.active_defrag_cycle_max);
+    }
     cpu_pct *= defrag.decay_rate;
     cpu_pct = LIMIT(cpu_pct,
             server.active_defrag_cycle_min,
@@ -1641,6 +1694,64 @@ static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     UNUSED(endtime);
     UNUSED(ctx);
     activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
+    return DEFRAG_DONE;
+}
+
+static void defragTmplRegistryCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    monotime endtime = *(monotime *)privdata;
+    UNUSED(plink);
+    hashTemplateDefrag(dictGetKey(de), (dictEntry *)de, endtime);
+}
+
+/* Defrag a registry lookup dict, invoking 'scan_fn' per entry, the way
+ * defragStageKvstoreHelper() does. */
+static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor,
+                                     dictScanFunction *scan_fn, monotime endtime)
+{
+    dictDefragFunctions fns = { .defragAlloc = activeDefragAlloc };
+    unsigned int iterations = 0;
+    unsigned long long prev_defragged = server.stat_active_defrag_hits;
+    unsigned long long prev_scanned = server.stat_active_defrag_scanned;
+    do {
+        *cursor = dictScanDefrag(*dref, *cursor, scan_fn, &fns, &endtime);
+
+        if (++iterations > 16 ||
+            server.stat_active_defrag_hits - prev_defragged > 512 ||
+            server.stat_active_defrag_scanned - prev_scanned > 64)
+        {
+            iterations = 0;
+            prev_defragged = server.stat_active_defrag_hits;
+            prev_scanned = server.stat_active_defrag_scanned;
+
+            if (*cursor != 0 && getMonotonicUs() >= endtime)
+                return DEFRAG_NOT_DONE;
+        }
+    } while (*cursor != 0);
+    dict *newd = dictDefragTables(*dref);
+    if (newd) *dref = newd;
+    return DEFRAG_DONE;
+}
+
+static doneStatus defragStageHashTemplatesByFields(void *ctx, monotime endtime) {
+    if (server.htemplates == NULL) return DEFRAG_DONE;
+    return defragRegistryDict(&server.htemplates->by_fields, ctx, defragTmplRegistryCb, endtime);
+}
+
+static doneStatus defragStageHashTemplatesByFieldsLp(void *ctx, monotime endtime) {
+    if (server.htemplates == NULL) return DEFRAG_DONE;
+    return defragRegistryDict(&server.htemplates->by_fields_lp, ctx, scanCallbackCountScanned, endtime);
+}
+
+static doneStatus defragStageHashTemplatesById(void *ctx, monotime endtime) {
+    unsigned long *cursor = ctx;
+    unsigned long iterations = 0;
+    while (hashTemplateDefragByIdChunk(*cursor)) {
+        (*cursor)++;
+        if (++iterations > 64) {
+            iterations = 0;
+            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+        }
+    }
     return DEFRAG_DONE;
 }
 
@@ -1909,6 +2020,8 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
  * actions. This interface allows defrag to continue running, avoiding a single long defrag step
  * after the long operation completes. */
 void defragWhileBlocked(void) {
+    if (server.active_defrag_paused) return;
+
     /* This is called infrequently, while timers are not active. We might need to start defrag. */
     if (!defragIsRunning()) activeDefragCycle();
 
@@ -1974,6 +2087,11 @@ static void beginDefragCycle(void) {
 
     addDefragStage(defragLuaScripts, NULL, NULL);
 
+    /* Add stage for the hash template registry. */
+    addDefragStage(defragStageHashTemplatesByFields, zfree, zcalloc(sizeof(unsigned long)));
+    addDefragStage(defragStageHashTemplatesByFieldsLp, zfree, zcalloc(sizeof(unsigned long)));
+    addDefragStage(defragStageHashTemplatesById, zfree, zcalloc(sizeof(unsigned long)));
+
     /* Add stages for modules. */
     dictIterator di;
     dictEntry *de;
@@ -2036,6 +2154,11 @@ void activeDefragFreeRaw(void *ptr) {
 
 robj *activeDefragStringOb(robj *ob) {
     UNUSED(ob);
+    return NULL;
+}
+
+sds activeDefragSds(sds sdsptr) {
+    UNUSED(sdsptr);
     return NULL;
 }
 

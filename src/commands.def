@@ -3549,7 +3549,7 @@ commandHistory GEORADIUS_History[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* GEORADIUS key specs */
 keySpec GEORADIUS_Keyspecs[3] = {
-{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"Incomplete because duplicate STORE options use last-wins; fall back to georadiusGetKeys",CMD_KEY_OW|CMD_KEY_UPDATE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"STORE",6},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"Incomplete because duplicate STOREDIST options use last-wins; fall back to georadiusGetKeys",CMD_KEY_OW|CMD_KEY_UPDATE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",6},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 
@@ -3612,7 +3612,7 @@ commandHistory GEORADIUSBYMEMBER_History[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* GEORADIUSBYMEMBER key specs */
 keySpec GEORADIUSBYMEMBER_Keyspecs[3] = {
-{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"Incomplete because duplicate STORE options use last-wins; fall back to georadiusGetKeys",CMD_KEY_OW|CMD_KEY_UPDATE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"STORE",5},KSPEC_FK_RANGE,.fk.range={0,1,0}},{"Incomplete because duplicate STOREDIST options use last-wins; fall back to georadiusGetKeys",CMD_KEY_OW|CMD_KEY_UPDATE|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"STOREDIST",5},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 
@@ -4237,6 +4237,126 @@ struct COMMAND_ARG HGETEX_Args[] = {
 {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=HGETEX_expiration_Subargs},
 {MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HGETEX_fields_Subargs},
 };
+
+/********** HIMPORT DISCARD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT DISCARD history */
+#define HIMPORT_DISCARD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT DISCARD tips */
+const char *HIMPORT_DISCARD_Tips[] = {
+"request_policy:all_shards",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT DISCARD key specs */
+#define HIMPORT_DISCARD_Keyspecs NULL
+#endif
+
+/* HIMPORT DISCARD argument table */
+struct COMMAND_ARG HIMPORT_DISCARD_Args[] = {
+{MAKE_ARG("fieldset-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** HIMPORT DISCARDALL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT DISCARDALL history */
+#define HIMPORT_DISCARDALL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT DISCARDALL tips */
+const char *HIMPORT_DISCARDALL_Tips[] = {
+"request_policy:all_shards",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT DISCARDALL key specs */
+#define HIMPORT_DISCARDALL_Keyspecs NULL
+#endif
+
+/********** HIMPORT PREPARE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT PREPARE history */
+#define HIMPORT_PREPARE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT PREPARE tips */
+const char *HIMPORT_PREPARE_Tips[] = {
+"request_policy:all_shards",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT PREPARE key specs */
+#define HIMPORT_PREPARE_Keyspecs NULL
+#endif
+
+/* HIMPORT PREPARE argument table */
+struct COMMAND_ARG HIMPORT_PREPARE_Args[] = {
+{MAKE_ARG("fieldset-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** HIMPORT SET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT SET history */
+#define HIMPORT_SET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT SET tips */
+#define HIMPORT_SET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT SET key specs */
+keySpec HIMPORT_SET_Keyspecs[1] = {
+{NULL,CMD_KEY_OW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HIMPORT SET argument table */
+struct COMMAND_ARG HIMPORT_SET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fieldset-name",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HIMPORT command table */
+struct COMMAND_STRUCT HIMPORT_Subcommands[] = {
+{MAKE_CMD("discard","Removes a single session-local fieldset by name.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARD_History,0,HIMPORT_DISCARD_Tips,1,himportDiscardCommand,3,0,ACL_CATEGORY_HASH,HIMPORT_DISCARD_Keyspecs,0,NULL,1),.args=HIMPORT_DISCARD_Args},
+{MAKE_CMD("discardall","Removes all session-local fieldsets for the connection.","O(N) where N is the number of session-local fieldsets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_DISCARDALL_History,0,HIMPORT_DISCARDALL_Tips,1,himportDiscardallCommand,2,0,ACL_CATEGORY_HASH,HIMPORT_DISCARDALL_Keyspecs,0,NULL,0)},
+{MAKE_CMD("prepare","Defines a session-local fieldset that maps a name to a sorted set of field names.","O(N*log(N)) where N is the number of fields.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_PREPARE_History,0,HIMPORT_PREPARE_Tips,1,himportPrepareCommand,-4,CMD_DENYOOM,ACL_CATEGORY_HASH,HIMPORT_PREPARE_Keyspecs,0,NULL,2),.args=HIMPORT_PREPARE_Args},
+{MAKE_CMD("set","Creates a fieldset-based hash from values supplied in the order matching a previously prepared fieldset.","O(N) where N is the number of fields in the fieldset.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_SET_History,0,HIMPORT_SET_Tips,0,himportSetCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_HASH,HIMPORT_SET_Keyspecs,1,NULL,3),.args=HIMPORT_SET_Args},
+{0}
+};
+
+/********** HIMPORT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HIMPORT history */
+#define HIMPORT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HIMPORT tips */
+#define HIMPORT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HIMPORT key specs */
+#define HIMPORT_Keyspecs NULL
+#endif
 
 /********** HINCRBY ********************/
 
@@ -4989,6 +5109,65 @@ struct COMMAND_ARG BLMOVE_Args[] = {
 {MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** BLMOVEM ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLMOVEM history */
+#define BLMOVEM_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLMOVEM tips */
+#define BLMOVEM_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLMOVEM key specs */
+keySpec BLMOVEM_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BLMOVEM wherefrom argument table */
+struct COMMAND_ARG BLMOVEM_wherefrom_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM whereto argument table */
+struct COMMAND_ARG BLMOVEM_whereto_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM how_many selector argument table */
+struct COMMAND_ARG BLMOVEM_how_many_selector_Subargs[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("exactly",ARG_TYPE_INTEGER,-1,"EXACTLY",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM how_many ordering argument table */
+struct COMMAND_ARG BLMOVEM_how_many_ordering_Subargs[] = {
+{MAKE_ARG("obo",ARG_TYPE_PURE_TOKEN,-1,"OBO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bulk",ARG_TYPE_PURE_TOKEN,-1,"BULK",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLMOVEM how_many argument table */
+struct COMMAND_ARG BLMOVEM_how_many_Subargs[] = {
+{MAKE_ARG("selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_how_many_selector_Subargs},
+{MAKE_ARG("ordering",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_how_many_ordering_Subargs},
+};
+
+/* BLMOVEM argument table */
+struct COMMAND_ARG BLMOVEM_Args[] = {
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_wherefrom_Subargs},
+{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=BLMOVEM_whereto_Subargs},
+{MAKE_ARG("timeout",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("how-many",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BLMOVEM_how_many_Subargs},
+};
+
 /********** BLMPOP ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -5224,6 +5403,64 @@ struct COMMAND_ARG LMOVE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_wherefrom_Subargs},
 {MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVE_whereto_Subargs},
+};
+
+/********** LMOVEM ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* LMOVEM history */
+#define LMOVEM_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* LMOVEM tips */
+#define LMOVEM_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* LMOVEM key specs */
+keySpec LMOVEM_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_DELETE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RW|CMD_KEY_INSERT,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* LMOVEM wherefrom argument table */
+struct COMMAND_ARG LMOVEM_wherefrom_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM whereto argument table */
+struct COMMAND_ARG LMOVEM_whereto_Subargs[] = {
+{MAKE_ARG("left",ARG_TYPE_PURE_TOKEN,-1,"LEFT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("right",ARG_TYPE_PURE_TOKEN,-1,"RIGHT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM how_many selector argument table */
+struct COMMAND_ARG LMOVEM_how_many_selector_Subargs[] = {
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("exactly",ARG_TYPE_INTEGER,-1,"EXACTLY",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM how_many ordering argument table */
+struct COMMAND_ARG LMOVEM_how_many_ordering_Subargs[] = {
+{MAKE_ARG("obo",ARG_TYPE_PURE_TOKEN,-1,"OBO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bulk",ARG_TYPE_PURE_TOKEN,-1,"BULK",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* LMOVEM how_many argument table */
+struct COMMAND_ARG LMOVEM_how_many_Subargs[] = {
+{MAKE_ARG("selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_how_many_selector_Subargs},
+{MAKE_ARG("ordering",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_how_many_ordering_Subargs},
+};
+
+/* LMOVEM argument table */
+struct COMMAND_ARG LMOVEM_Args[] = {
+{MAKE_ARG("source",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("destination",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("wherefrom",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_wherefrom_Subargs},
+{MAKE_ARG("whereto",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=LMOVEM_whereto_Subargs},
+{MAKE_ARG("how-many",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=LMOVEM_how_many_Subargs},
 };
 
 /********** LMPOP ********************/
@@ -7332,6 +7569,154 @@ struct COMMAND_STRUCT ACL_Subcommands[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* ACL key specs */
 #define ACL_Keyspecs NULL
+#endif
+
+/********** BACKUP ABORT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP ABORT history */
+#define BACKUP_ABORT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP ABORT tips */
+#define BACKUP_ABORT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP ABORT key specs */
+#define BACKUP_ABORT_Keyspecs NULL
+#endif
+
+/********** BACKUP CLEANUP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP CLEANUP history */
+#define BACKUP_CLEANUP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP CLEANUP tips */
+#define BACKUP_CLEANUP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP CLEANUP key specs */
+#define BACKUP_CLEANUP_Keyspecs NULL
+#endif
+
+/********** BACKUP HELP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP HELP history */
+#define BACKUP_HELP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP HELP tips */
+#define BACKUP_HELP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP HELP key specs */
+#define BACKUP_HELP_Keyspecs NULL
+#endif
+
+/********** BACKUP LIST ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP LIST history */
+#define BACKUP_LIST_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP LIST tips */
+#define BACKUP_LIST_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP LIST key specs */
+#define BACKUP_LIST_Keyspecs NULL
+#endif
+
+/********** BACKUP SEAL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP SEAL history */
+#define BACKUP_SEAL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP SEAL tips */
+#define BACKUP_SEAL_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP SEAL key specs */
+#define BACKUP_SEAL_Keyspecs NULL
+#endif
+
+/********** BACKUP START ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP START history */
+#define BACKUP_START_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP START tips */
+#define BACKUP_START_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP START key specs */
+#define BACKUP_START_Keyspecs NULL
+#endif
+
+/********** BACKUP STATUS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP STATUS history */
+#define BACKUP_STATUS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP STATUS tips */
+#define BACKUP_STATUS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP STATUS key specs */
+#define BACKUP_STATUS_Keyspecs NULL
+#endif
+
+/* BACKUP command table */
+struct COMMAND_STRUCT BACKUP_Subcommands[] = {
+{MAKE_CMD("abort","Cancel a backup that has not been sealed yet.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_ABORT_History,0,BACKUP_ABORT_Tips,0,backupCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,BACKUP_ABORT_Keyspecs,0,NULL,0)},
+{MAKE_CMD("cleanup","Remove a sealed backup's files and return to idle.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_CLEANUP_History,0,BACKUP_CLEANUP_Tips,0,backupCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,BACKUP_CLEANUP_Keyspecs,0,NULL,0)},
+{MAKE_CMD("help","Return helpful text about BACKUP command parameters.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_HELP_History,0,BACKUP_HELP_Tips,0,backupCommand,2,CMD_LOADING|CMD_STALE,0,BACKUP_HELP_Keyspecs,0,NULL,0)},
+{MAKE_CMD("list","List the immutable backup file paths pinned so far.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_LIST_History,0,BACKUP_LIST_Tips,0,backupCommand,2,CMD_ADMIN|CMD_STALE,0,BACKUP_LIST_Keyspecs,0,NULL,0)},
+{MAKE_CMD("seal","Freeze the current backup (BASE + INCR + manifest).","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_SEAL_History,0,BACKUP_SEAL_Tips,0,backupCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,BACKUP_SEAL_Keyspecs,0,NULL,0)},
+{MAKE_CMD("start","Start a new backup into the configured 'backupdirname'.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_START_History,0,BACKUP_START_Tips,0,backupCommand,2,CMD_ADMIN|CMD_NOSCRIPT,0,BACKUP_START_Keyspecs,0,NULL,0)},
+{MAKE_CMD("status","Report the current backup state.","O(1)","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_STATUS_History,0,BACKUP_STATUS_Tips,0,backupCommand,2,CMD_ADMIN|CMD_STALE,0,BACKUP_STATUS_Keyspecs,0,NULL,0)},
+{0}
+};
+
+/********** BACKUP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BACKUP history */
+#define BACKUP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BACKUP tips */
+#define BACKUP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BACKUP key specs */
+#define BACKUP_Keyspecs NULL
 #endif
 
 /********** BGREWRITEAOF ********************/
@@ -11378,7 +11763,7 @@ commandHistory XREAD_History[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* XREAD key specs */
 keySpec XREAD_Keyspecs[1] = {
-{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
+{"Incomplete because a stream key named STREAMS (or options before it) can shift the STREAMS keyword; fall back to xreadGetKeys",CMD_KEY_RO|CMD_KEY_ACCESS|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",1},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
 };
 #endif
 
@@ -11415,7 +11800,7 @@ commandHistory XREADGROUP_History[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* XREADGROUP key specs */
 keySpec XREADGROUP_Keyspecs[1] = {
-{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
+{"Incomplete because a consumer/group named STREAMS (or options before GROUP) can shift the STREAMS keyword; fall back to xreadGetKeys",CMD_KEY_RO|CMD_KEY_ACCESS|CMD_KEY_INCOMPLETE,KSPEC_BS_KEYWORD,.bs.keyword={"STREAMS",4},KSPEC_FK_RANGE,.fk.range={-1,1,2}}
 };
 #endif
 
@@ -12442,7 +12827,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("asking","Signals that a cluster client is following an -ASK redirect.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,ASKING_History,0,ASKING_Tips,0,askingCommand,1,CMD_FAST,ACL_CATEGORY_CONNECTION,ASKING_Keyspecs,0,NULL,0)},
 {MAKE_CMD("cluster","A container for Redis Cluster commands.","Depends on subcommand.","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_History,0,CLUSTER_Tips,0,NULL,-2,0,0,CLUSTER_Keyspecs,0,NULL,0),.subcommands=CLUSTER_Subcommands},
 {MAKE_CMD("readonly","Enables read-only queries for a connection to a Redis Cluster replica node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,READONLY_History,0,READONLY_Tips,0,readonlyCommand,1,CMD_FAST|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,READONLY_Keyspecs,0,NULL,0)},
-{MAKE_CMD("readwrite","Enables read-write queries for a connection to a Reids Cluster replica node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,READWRITE_History,0,READWRITE_Tips,0,readwriteCommand,1,CMD_FAST|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,READWRITE_Keyspecs,0,NULL,0)},
+{MAKE_CMD("readwrite","Enables read-write queries for a connection to a Redis Cluster replica node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,READWRITE_History,0,READWRITE_Tips,0,readwriteCommand,1,CMD_FAST|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,READWRITE_Keyspecs,0,NULL,0)},
 /* connection */
 {MAKE_CMD("auth","Authenticates the connection.","O(N) where N is the number of passwords defined for the user","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,AUTH_History,1,AUTH_Tips,0,authCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,AUTH_Keyspecs,0,NULL,2),.args=AUTH_Args},
 {MAKE_CMD("client","A container for client connection commands.","Depends on subcommand.","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_History,0,CLIENT_Tips,0,NULL,-2,CMD_SENTINEL,0,CLIENT_Keyspecs,0,NULL,0),.subcommands=CLIENT_Subcommands},
@@ -12503,6 +12888,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hgetall","Returns all fields and values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETALL_History,0,HGETALL_Tips,1,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HGETALL_Keyspecs,1,NULL,1),.args=HGETALL_Args},
 {MAKE_CMD("hgetdel","Returns the value of a field and deletes it from the hash.","O(N) where N is the number of specified fields","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETDEL_History,0,HGETDEL_Tips,0,hgetdelCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HGETDEL_Keyspecs,1,NULL,2),.args=HGETDEL_Args},
 {MAKE_CMD("hgetex","Get the value of one or more fields of a given hash key, and optionally set their expiration.","O(N) where N is the number of specified fields","8.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETEX_History,0,HGETEX_Tips,0,hgetexCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HGETEX_Keyspecs,1,NULL,3),.args=HGETEX_Args},
+{MAKE_CMD("himport","A container for session-based hash import commands using fieldsets.","Depends on subcommand.","8.10.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HIMPORT_History,0,HIMPORT_Tips,0,NULL,-2,0,ACL_CATEGORY_HASH,HIMPORT_Keyspecs,0,NULL,0),.subcommands=HIMPORT_Subcommands},
 {MAKE_CMD("hincrby","Increments the integer value of a field in a hash by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBY_History,0,HINCRBY_Tips,0,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBY_Keyspecs,1,NULL,3),.args=HINCRBY_Args},
 {MAKE_CMD("hincrbyfloat","Increments the floating point value of a field by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.6.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBYFLOAT_History,0,HINCRBYFLOAT_Tips,0,hincrbyfloatCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBYFLOAT_Keyspecs,1,NULL,3),.args=HINCRBYFLOAT_Args},
 {MAKE_CMD("hkeys","Returns all fields in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HKEYS_History,0,HKEYS_Tips,1,hkeysCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HKEYS_Keyspecs,1,NULL,1),.args=HKEYS_Args},
@@ -12530,6 +12916,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("pfselftest","An internal command for testing HyperLogLog values.","N/A","2.8.9",CMD_DOC_SYSCMD,NULL,NULL,"hyperloglog",COMMAND_GROUP_HYPERLOGLOG,PFSELFTEST_History,0,PFSELFTEST_Tips,0,pfselftestCommand,1,CMD_ADMIN,ACL_CATEGORY_HYPERLOGLOG,PFSELFTEST_Keyspecs,0,NULL,0)},
 /* list */
 {MAKE_CMD("blmove","Pops an element from a list, pushes it to another list and returns it. Blocks until an element is available otherwise. Deletes the list if the last element was moved.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMOVE_History,0,BLMOVE_Tips,0,blmoveCommand,6,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMOVE_Keyspecs,2,NULL,5),.args=BLMOVE_Args},
+{MAKE_CMD("blmovem","Moves up to (or exactly) a number of elements from one list to another and returns them. Blocks until the elements are available otherwise. Deletes the source list if it becomes empty.","O(N) where N is the number of elements moved.","8.10.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMOVEM_History,0,BLMOVEM_Tips,0,blmovemCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMOVEM_Keyspecs,2,NULL,6),.args=BLMOVEM_Args},
 {MAKE_CMD("blmpop","Pops the first element from one of multiple lists. Blocks until an element is available otherwise. Deletes the list if the last element was popped.","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLMPOP_History,0,BLMPOP_Tips,0,blmpopCommand,-5,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BLMPOP_Keyspecs,1,blmpopGetKeys,5),.args=BLMPOP_Args},
 {MAKE_CMD("blpop","Removes and returns the first element in a list. Blocks until an element is available otherwise. Deletes the list if the last element was popped.","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BLPOP_History,1,BLPOP_Tips,0,blpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BLPOP_Keyspecs,1,NULL,2),.args=BLPOP_Args},
 {MAKE_CMD("brpop","Removes and returns the last element in a list. Blocks until an element is available otherwise. Deletes the list if the last element was popped.","O(N) where N is the number of provided keys.","2.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,BRPOP_History,1,BRPOP_Tips,0,brpopCommand,-3,CMD_WRITE|CMD_BLOCKING,ACL_CATEGORY_LIST,BRPOP_Keyspecs,1,NULL,2),.args=BRPOP_Args},
@@ -12538,6 +12925,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("linsert","Inserts an element before or after another element in a list.","O(N) where N is the number of elements to traverse before seeing the value pivot. This means that inserting somewhere on the left end on the list (head) can be considered O(1) and inserting somewhere on the right end (tail) is O(N).","2.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LINSERT_History,0,LINSERT_Tips,0,linsertCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LINSERT_Keyspecs,1,NULL,4),.args=LINSERT_Args},
 {MAKE_CMD("llen","Returns the length of a list.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LLEN_History,0,LLEN_Tips,0,llenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_LIST,LLEN_Keyspecs,1,NULL,1),.args=LLEN_Args},
 {MAKE_CMD("lmove","Returns an element after popping it from one list and pushing it to another. Deletes the list if the last element was moved.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMOVE_History,0,LMOVE_Tips,0,lmoveCommand,5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LMOVE_Keyspecs,2,NULL,4),.args=LMOVE_Args},
+{MAKE_CMD("lmovem","Moves up to (or exactly) a number of elements from one list to another and returns them. Deletes the source list if it becomes empty.","O(N) where N is the number of elements moved.","8.10.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMOVEM_History,0,LMOVEM_Tips,0,lmovemCommand,-5,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_LIST,LMOVEM_Keyspecs,2,NULL,5),.args=LMOVEM_Args},
 {MAKE_CMD("lmpop","Returns multiple elements from a list after removing them. Deletes the list if the last element was popped.","O(N+M) where N is the number of provided keys and M is the number of elements returned.","7.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LMPOP_History,0,LMPOP_Tips,0,lmpopCommand,-4,CMD_WRITE,ACL_CATEGORY_LIST,LMPOP_Keyspecs,1,lmpopGetKeys,4),.args=LMPOP_Args},
 {MAKE_CMD("lpop","Returns the first elements in a list after removing it. Deletes the list if the last element was popped.","O(N) where N is the number of elements returned","1.0.0",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LPOP_History,1,LPOP_Tips,0,lpopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_LIST,LPOP_Keyspecs,1,NULL,2),.args=LPOP_Args},
 {MAKE_CMD("lpos","Returns the index of matching elements in a list.","O(N) where N is the number of elements in the list, for the average case. When searching for elements near the head or the tail of the list, or when the MAXLEN option is provided, the command may run in constant time.","6.0.6",CMD_DOC_NONE,NULL,NULL,"list",COMMAND_GROUP_LIST,LPOS_History,0,LPOS_Tips,0,lposCommand,-3,CMD_READONLY,ACL_CATEGORY_LIST,LPOS_Keyspecs,1,NULL,5),.args=LPOS_Args},
@@ -12574,6 +12962,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("sentinel","A container for Redis Sentinel commands.","Depends on subcommand.","2.8.4",CMD_DOC_NONE,NULL,NULL,"sentinel",COMMAND_GROUP_SENTINEL,SENTINEL_History,0,SENTINEL_Tips,0,NULL,-2,CMD_ADMIN|CMD_SENTINEL|CMD_ONLY_SENTINEL,0,SENTINEL_Keyspecs,0,NULL,0),.subcommands=SENTINEL_Subcommands},
 /* server */
 {MAKE_CMD("acl","A container for Access List Control commands.","Depends on subcommand.","6.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,ACL_History,0,ACL_Tips,0,NULL,-2,CMD_SENTINEL,0,ACL_Keyspecs,0,NULL,0),.subcommands=ACL_Subcommands},
+{MAKE_CMD("backup","A container for backup management commands.","Depends on subcommand.","8.10.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BACKUP_History,0,BACKUP_Tips,0,NULL,2,0,0,BACKUP_Keyspecs,0,NULL,0),.subcommands=BACKUP_Subcommands},
 {MAKE_CMD("bgrewriteaof","Asynchronously rewrites the append-only file to disk.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BGREWRITEAOF_History,0,BGREWRITEAOF_Tips,0,bgrewriteaofCommand,1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,BGREWRITEAOF_Keyspecs,0,NULL,0)},
 {MAKE_CMD("bgsave","Asynchronously saves the database(s) to disk.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,BGSAVE_History,1,BGSAVE_Tips,0,bgsaveCommand,-1,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_NOSCRIPT,0,BGSAVE_Keyspecs,0,NULL,1),.args=BGSAVE_Args},
 {MAKE_CMD("command","Returns detailed information about all commands.","O(N) where N is the total number of Redis commands","2.8.13",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,COMMAND_History,0,COMMAND_Tips,1,commandCommand,-1,CMD_LOADING|CMD_STALE|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,COMMAND_Keyspecs,0,NULL,0),.subcommands=COMMAND_Subcommands},
