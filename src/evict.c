@@ -681,29 +681,36 @@ int performEvictions(void) {
             /* When evicting a random key, we try to evict a key for
              * each DB, so we use the static 'next_db' variable to
              * incrementally visit all DBs. */
-            for (i = 0; i < server.dbnum; i++) {
-                j = (++next_db) % server.dbnum;
-                db = server.db+j;
-                kvstore *kvs;
-                if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
-                    kvs = db->keys;
-                } else {
-                    kvs = db->expires;
+            int blessed_only_rounds = 0;
+            while (bestkey == NULL) {
+                unsigned long total_sampled_keys = 0;
+                for (i = 0; i < server.dbnum; i++) {
+                    j = (++next_db) % server.dbnum;
+                    db = server.db+j;
+                    kvstore *kvs;
+                    if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
+                        kvs = db->keys;
+                    } else {
+                        kvs = db->expires;
+                    }
+                    int slot = kvstoreGetFairRandomDictIndex(kvs, randomEvictionShouldSkipDictIndex, 16, 0);
+                    if (slot == -1) continue;
+                    /* Try a few random keys so blessed NOEVICT keys are skipped. */
+                    for (int attempts = 0; attempts < server.maxmemory_samples; attempts++) {
+                        de = kvstoreDictGetRandomKey(kvs, slot);
+                        if (de == NULL) break;
+                        total_sampled_keys++;
+                        kvobj *kv = dictGetKV(de);
+                        if (blessNoEvict(kv)) continue;
+                        bestkey = kvobjGetKey(kv);
+                        bestdbid = j;
+                        break;
+                    }
+                    if (bestkey) break;
                 }
-                int slot = kvstoreGetFairRandomDictIndex(kvs, randomEvictionShouldSkipDictIndex, 16, 0);
-                if (slot == -1) continue;
-                /* Try a few random keys so blessed NOEVICT keys are skipped. */
-                for (int attempts = 0; attempts < server.maxmemory_samples; attempts++) {
-                    de = kvstoreDictGetRandomKey(kvs, slot);
-                    if (de == NULL) break;
-                    kvobj *kv = dictGetKV(de);
-                    sds key = kvobjGetKey(kv);
-                    if (blessNoEvict(kv)) continue;
-                    bestkey = key;
-                    bestdbid = j;
+                if (bestkey || !total_sampled_keys) break;
+                if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS)
                     break;
-                }
-                if (bestkey) break;
             }
         }
 
