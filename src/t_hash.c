@@ -975,7 +975,6 @@ static hashTemplate *hashTemplateLpGetTemplate(unsigned char *lp) {
     hashTemplate *tmpl = hashTemplateGetById(hashTemplateLpGetTemplateId(lp));
     if (tmpl == NULL)
         serverPanic("TMPL_LP listpack references unknown template ID");
-    serverAssert(lpLength(lp) == tmpl->field_count + 1); /* +1 for template-id entry */
     return tmpl;
 }
 
@@ -1242,7 +1241,7 @@ typedef struct {
     sds field;
     sds value;
     unsigned long long insert_pos;
-    int arg_idx;          /* argv order, so the last of duplicate fields wins */
+    int arg_idx;          /* argv order, so the last of duplicate fields sets the value */
 } tmplNewField;
 
 /* qsort comparator: field name ascending, then argv position. */
@@ -1374,7 +1373,7 @@ static int hashTypeTmplSetFields(redisDb *db, robj *o, robj **argv, int n) {
          * neither. */
         if (num_new_fields > 1) {
             qsort(new_fields, num_new_fields, sizeof(*new_fields), tmplNewFieldCmp);
-            int uniq = 0;
+            int unique = 0;
             for (int i = 0; i < num_new_fields; i++) {
                 /* Skip the entry if the next one is the same field. */
                 if (i + 1 < num_new_fields &&
@@ -1382,9 +1381,9 @@ static int hashTypeTmplSetFields(redisDb *db, robj *o, robj **argv, int n) {
                 {
                     continue;
                 }
-                new_fields[uniq++] = new_fields[i];
+                new_fields[unique++] = new_fields[i];
             }
-            num_new_fields = uniq;
+            num_new_fields = unique;
         }
 
         /* So far insert_pos is where the field goes among the OLD template fields.
@@ -1444,7 +1443,8 @@ static void hashTypeTmplDropFields(robj *o, hashTemplate *tmpl,
         qsort(del_indexes, num_del_fields, sizeof(*del_indexes), tmplIdxCmp);
 
     if (num_del_fields == old_field_count) {
-        /* Losing the last field turns the hash into a plain empty listpack. */
+        /* Losing the last field turns the hash into a plain empty listpack.
+         * Caller will delete the key. */
         if (o->encoding == OBJ_ENCODING_TMPL_LP) {
             hashTemplateLpFree(o->ptr);
         } else {
