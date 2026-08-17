@@ -23,6 +23,7 @@ Update urgency: `SECURITY`: There are security fixes in the release.
 - Use-after-free in the TLS pending-data list when a command closes another pending connection
 - ACL key permission bypass in `SORT`, `GEORADIUS`/`GEORADIUSBYMEMBER` and `XREAD`/`XREADGROUP`: the keys validated by ACL could differ from the keys the command actually accesses
 - Out-of-bounds `argv` access during key extraction when checking ACL permissions of a KEYNUM keyspec command (e.g. `EVAL`) with wrong arity
+- Use-after-free in the blocked-client list when reprocessing a command evicts another client blocked on the same key
 
 
 ================================================================================
