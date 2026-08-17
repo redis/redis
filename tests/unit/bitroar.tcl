@@ -2635,6 +2635,41 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitop:not:containers:string:dest bitop:not:containers:roaring:dest
     }
 
+    test {BITOP NOT avoids RUN churn for fragmented ARRAY containers} {
+        set chunks 256
+        set chunk_bytes 8192
+        set source_cardinality [expr {$chunks * 4096}]
+        set raw_chunk [string repeat [binary format H* 8000] 4096]
+        set raw [string repeat $raw_chunk $chunks]
+        r del bitop:not:fragmented bitop:not:fragmented:dest
+        r set bitop:not:fragmented $raw
+        convert_string_bitmap_to_roaring r bitop:not:fragmented
+        unset raw raw_chunk
+
+        assert_equal $source_cardinality [r bitcount bitop:not:fragmented]
+        assert_lessthan [r memory usage bitop:not:fragmented] \
+            [expr {4 * 1024 * 1024}]
+        set track_allocations [expr {
+            [string match {*jemalloc*} [s mem_allocator]] &&
+            ![catch {r debug mallctl thread.allocated} allocated_before]
+        }]
+
+        set byte_len [expr {$chunks * $chunk_bytes}]
+        assert_equal $byte_len [r bitop not bitop:not:fragmented:dest \
+            bitop:not:fragmented]
+        if {$track_allocations} {
+            set allocated_after [r debug mallctl thread.allocated]
+            assert_lessthan [expr {$allocated_after - $allocated_before}] \
+                [expr {6 * 1024 * 1024}]
+        }
+        assert_equal [expr {$byte_len * 8 - $source_cardinality}] \
+            [r bitcount bitop:not:fragmented:dest]
+        assert_lessthan [r memory usage bitop:not:fragmented:dest] \
+            [expr {4 * 1024 * 1024}]
+
+        r del bitop:not:fragmented bitop:not:fragmented:dest
+    }
+
     test {non-NOT Roaring BITOP survives lowering proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
