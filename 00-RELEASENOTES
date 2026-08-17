@@ -13,6 +13,19 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 7.2.16    Released Mon 17 Aug 2026 10:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+### Security fixes
+
+- Use-after-free in the TLS pending-data list when a command closes another pending connection
+- ACL key permission bypass in `SORT`, `GEORADIUS`/`GEORADIUSBYMEMBER` and `XREAD`/`XREADGROUP`: the keys validated by ACL could differ from the keys the command actually accesses
+- Out-of-bounds `argv` access during key extraction when checking ACL permissions of a KEYNUM keyspec command (e.g. `EVAL`) with wrong arity
+
+
+================================================================================
 Redis 7.2.15    Released Thu 23 Jul 2026 22:00:00 IST
 ================================================================================
 
