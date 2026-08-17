@@ -2498,6 +2498,53 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitop:not:roaring:out bitop:not:roaring:sentinel
     }
 
+    test {BITOP NOT bounds work for compact high-length Roaring bitmaps} {
+        set not_limit [expr {512 * 1024 * 1024}]
+        set byte_len [expr {$not_limit + 1}]
+        set last_bit [expr {$byte_len * 8 - 1}]
+        set old_limit [config_get_set proto-max-bulk-len $byte_len]
+        set old_roaring [config_get_set bitmap-default-roaring yes]
+        r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
+            bitop:not:roaring:huge:copy
+
+        # SETBIT 0 extends the logical length without allocating a container.
+        # DUMP/RESTORE preserves that length in a compact portable payload even
+        # after the client-visible offset limit is lowered.
+        assert_equal 0 [r setbit bitop:not:roaring:huge $last_bit 0]
+        set payload [r dump bitop:not:roaring:huge]
+        assert_lessthan [string length $payload] 64
+        r del bitop:not:roaring:huge
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len 1048576
+        r restore bitop:not:roaring:huge 0 $payload
+        assert_equal bitmap [r type bitop:not:roaring:huge]
+        assert_lessthan [r memory usage bitop:not:roaring:huge] 65536
+
+        r set bitop:not:roaring:huge:dest keep
+        set dirty [s rdb_changes_since_last_save]
+        assert_error {ERR BITOP NOT result exceeds Roaring bitmap limit} {
+            r bitop not bitop:not:roaring:huge:dest bitop:not:roaring:huge
+        }
+        assert_equal keep [r get bitop:not:roaring:huge:dest]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+
+        # Aliasing is rejected before the source can be replaced. Other BITOPs
+        # retain wide sparse support and preserve the compact logical length.
+        assert_error {ERR BITOP NOT result exceeds Roaring bitmap limit} {
+            r bitop not bitop:not:roaring:huge bitop:not:roaring:huge
+        }
+        assert_equal $byte_len [r bitop or bitop:not:roaring:huge:copy \
+            bitop:not:roaring:huge]
+        assert_equal bitmap [r type bitop:not:roaring:huge:copy]
+        assert_equal 0 [r bitcount bitop:not:roaring:huge:copy]
+        assert_lessthan [r memory usage bitop:not:roaring:huge:copy] 65536
+
+        r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
+            bitop:not:roaring:huge:copy
+        r config set bitmap-default-roaring $old_roaring
+        r config set proto-max-bulk-len $old_limit
+    }
+
     test {non-NOT Roaring BITOP survives lowering proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]

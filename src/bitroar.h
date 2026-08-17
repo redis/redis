@@ -32,6 +32,13 @@
 #define BITROAR_MAX_BYTES_RAW (INT64_MAX >> 3)
 #define BITROAR_MAX_BYTES ((uint64_t)BITROAR_MAX_BYTES_RAW)
 
+/* BITOP NOT fills every missing 2^16-bit Roaring chunk in the logical range.
+ * Bound that synchronous work to 2^16 chunks (512 MiB) so a compact bitmap
+ * with a high logical length cannot amplify into unbounded allocations. This
+ * fixed limit is independent of proto-max-bulk-len, which may be changed after
+ * a value is created and may differ while commands are replayed. */
+#define BITROAR_BITOP_NOT_MAX_BYTES (512ULL * 1024 * 1024)
+
 /* Bitwise operations supported by bitroarApplyOp() (the BITOP command). */
 typedef enum bitroarOp {
     BITOP_AND = 0,
