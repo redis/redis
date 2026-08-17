@@ -337,12 +337,16 @@ void restoreCommand(client *c) {
         return;
     }
 
-    /* Preserve the replaced key's blessing if the payload didn't bring one. */
-    if (oldAttr && !(keymeta.metabits & KEY_ATTR_METABIT))
-        keyMetaSpecAdd(&keymeta, server.key_attr_class_id, oldAttr);
-
     /* Create the key and set the TTL if any */
     kvobj *kv = dbAddInternal(c->db, key, &obj, &link, &keymeta);
+
+    /* Preserve the replaced key's blessing if the payload didn't bring one. Done
+     * after the add (not via the spec) so keyMetaSetMetadata handles reallocation
+     * and metadata ordering; a payload that is itself blessed wins. */
+    if (oldAttr && !(kv->metabits & KEY_ATTR_METABIT)) {
+        kv = keyMetaSetMetadata(c->db, kv, server.key_attr_class_id, oldAttr);
+        keyAttrTrackKey(c->db, key->ptr, oldAttr);
+    }
 
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;
