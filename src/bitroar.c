@@ -1501,6 +1501,70 @@ static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSource *source) {
     return copy;
 }
 
+/* CRoaring negates an ARRAY container by first expanding it to an 8 KiB
+ * BITSET. A compact source with one ARRAY container per logical chunk would
+ * retain all of those bitsets until the final run-optimization pass. Build a
+ * borrowed source's complement one chunk at a time instead, converting ARRAY
+ * inputs to temporary RUN containers so sparse complements stay run-compressed
+ * throughout the operation. */
+static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
+                                              uint64_t bit_len)
+{
+    roaring64_bitmap_t *result = roaring64_bitmap_create();
+    serverAssert(result != NULL);
+    if (bit_len == 0) return result;
+
+    uint64_t last_high48 = (bit_len - 1) >> 16;
+    for (uint64_t high48 = 0; high48 <= last_high48; high48++) {
+        uint64_t chunk_start = high48 << 16;
+        uint64_t remaining = bit_len - chunk_start;
+        uint32_t chunk_end = remaining < (1U << 16) ?
+            (uint32_t)remaining : (1U << 16);
+        container_t *complement;
+        uint8_t complement_type;
+
+        roaring64_leaf_t *leaf = NULL;
+        if (source->roaring != NULL) {
+            art_key_chunk_t key[ART_KEY_BYTES];
+            bitroarArtKeyFromHigh48(high48, key);
+            leaf = (roaring64_leaf_t *)art_find(&source->roaring->art, key);
+        }
+
+        if (leaf == NULL) {
+            complement = container_range_of_ones(0, chunk_end,
+                                                  &complement_type);
+        } else {
+            uint8_t source_type = roaring64_leaf_typecode(*leaf);
+            const container_t *source_container = source->roaring->containers[
+                roaring64_leaf_index(*leaf)];
+            source_container = container_unwrap_shared(source_container,
+                                                       &source_type);
+
+            if (source_type == ARRAY_CONTAINER_TYPE) {
+                run_container_t *source_run = run_container_from_array(
+                    const_CAST_array(source_container));
+                serverAssert(source_run != NULL);
+                complement_type = (uint8_t)run_container_negation_range(
+                    source_run, 0, chunk_end, &complement);
+                run_container_free(source_run);
+            } else {
+                complement = container_not_range(source_container, source_type,
+                                                 0, chunk_end,
+                                                 &complement_type);
+            }
+        }
+
+        serverAssert(complement != NULL);
+        if (container_nonzero_cardinality(complement, complement_type)) {
+            bitroarAppendContainer(result, high48, complement,
+                                   complement_type);
+        } else {
+            container_free(complement, complement_type);
+        }
+    }
+    return result;
+}
+
 static roaring64_bitmap_t *bitroarUnionOpSources(bitroarOpSource *sources,
                                                  size_t start, size_t numkeys)
 {
@@ -1601,13 +1665,15 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys,
         }
         break;
     case BITOP_NOT:
-        if (sources[0].owned == NULL && sources[0].roaring != NULL &&
-            maxlen <= BITROAR_BITOP_FAST_RESULT_MAX_BYTES) {
-            optimize_result = 0;
-            shrink_result = 0;
+        if (sources[0].owned != NULL) {
+            /* String sources already occupy memory proportional to maxlen.
+             * Keep their converted temporary as the result so dense strings
+             * do not require a second full set of containers. */
+            result = bitroarCopyOpSource(&sources[0]);
+            roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
+        } else {
+            result = bitroarNotOpSource(&sources[0], maxlen * 8);
         }
-        result = bitroarCopyOpSource(&sources[0]);
-        roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
         break;
     case BITOP_DIFF:
         result = bitroarCopyOpSource(&sources[0]);
