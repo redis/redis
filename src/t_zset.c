@@ -43,12 +43,29 @@
 #include "fast_float_strtod.h"
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "memory_prefetch.h"
 #include <math.h>
 
 #define ZSL_OFFSET_MAX_ELE  UINT16_MAX
 #define ZSL_OFFSET_NO_ELE   UINT16_MAX
 
 const void *zslGetNodeElementForDict(const void *node);
+
+/* The zset dict stores a zskiplistNode* as its "key" (no_value=1); score is
+ * the node's leading field (server.h: zskiplistNode { double score; ... }),
+ * ahead of the embedded sds member that keyFromStoredKey extracts for
+ * comparison. Prefetching the node's base address -- needed anyway before
+ * keyCompare dereferences into the embedded sds -- warms score for free, so
+ * there's nothing separate for prefetchEntryValue to do. Mirrors
+ * dbDictPrefetchEntryKey/dbDictPrefetchEntryValue's pattern (server.c). */
+static void *zsetDictPrefetchEntryKey(const dictEntry *de) {
+    return dictEntryIsKey(de) ? NULL : dictGetKey(de);
+}
+
+static void *zsetDictPrefetchEntryValue(const dictEntry *de) {
+    UNUSED(de);
+    return NULL;
+}
 
 /* dictType for zset's dict (maps sds to zskiplistNode*) */
 dictType zsetDictType = {
@@ -61,6 +78,8 @@ dictType zsetDictType = {
     NULL,               /* allow to expand */
     .no_value = 1,      /* no values stored (only nodes) */
     .keyFromStoredKey = zslGetNodeElementForDict,  /* extract embedded sds from node */
+    .prefetchEntryKey = zsetDictPrefetchEntryKey,
+    .prefetchEntryValue = zsetDictPrefetchEntryValue,
 };
 
 /*-----------------------------------------------------------------------------
@@ -4119,12 +4138,39 @@ void zmscoreCommand(client *c) {
     if (server.memory_tracking_enabled && zobj != NULL)
         oldsize = kvobjAllocSize(zobj);
     addReplyArrayLen(c,c->argc - 2);
-    for (int j = 2; j < c->argc; j++) {
-        /* Treat a missing set the same way as an empty set */
-        if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
-            addReplyNull(c);
-        } else {
-            addReplyDouble(c,score);
+
+    /* Multiple independent lookups into the same dict in one call -- the
+     * textbook dictPrefetchKeys() shape (the zset analog of MGET's use of
+     * the same primitive). Skiplist only: listpack doesn't use a dict. */
+    if (zobj != NULL && zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
+        int nmembers = c->argc - 2;
+        for (int base = 0; base < nmembers; base += DICT_PREFETCH_MAX_SIZE) {
+            int chunk = nmembers - base;
+            if (chunk > DICT_PREFETCH_MAX_SIZE) chunk = DICT_PREFETCH_MAX_SIZE;
+            dict *dicts[DICT_PREFETCH_MAX_SIZE];
+            void *keys[DICT_PREFETCH_MAX_SIZE];
+            for (int i = 0; i < chunk; i++) {
+                dicts[i] = zs->dict;
+                keys[i] = c->argv[2 + base + i]->ptr;
+            }
+            dictPrefetchKeys(dicts, keys, chunk);
+            for (int i = 0; i < chunk; i++) {
+                if (zsetScore(zobj, c->argv[2 + base + i]->ptr, &score) == C_ERR) {
+                    addReplyNull(c);
+                } else {
+                    addReplyDouble(c,score);
+                }
+            }
+        }
+    } else {
+        for (int j = 2; j < c->argc; j++) {
+            /* Treat a missing set the same way as an empty set */
+            if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
+                addReplyNull(c);
+            } else {
+                addReplyDouble(c,score);
+            }
         }
     }
     if (server.memory_tracking_enabled && zobj != NULL)

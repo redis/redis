@@ -1678,6 +1678,29 @@ start_server {tags {"zset"}} {
         assert_match {*ERR*wrong*number*arg*} $e
     }
 
+    test {ZMSCORE on skiplist crosses the batched-prefetch chunk boundary (>64 members)} {
+        r del zmscoretest
+        r config set zset-max-listpack-entries 4
+        for {set i 0} {$i < 150} {incr i} {
+            r zadd zmscoretest $i member:$i
+        }
+        assert_encoding skiplist zmscoretest
+
+        # 150 members: chunk boundary at 64/128 -- exercise both full chunks
+        # and the trailing partial chunk, interleaved with misses so the
+        # batched path can't take a "found in this chunk" shortcut.
+        set query {}
+        set expected {}
+        for {set i 0} {$i < 150} {incr i} {
+            lappend query member:$i
+            lappend expected $i
+            lappend query missing:$i
+            lappend expected {}
+        }
+        assert_equal $expected [r zmscore zmscoretest {*}$query]
+        r config set zset-max-listpack-entries 128
+    }
+
     test "ZSET commands don't accept the empty strings as valid score" {
         assert_error "*not*float*" {r zadd myzset "" abc}
     }
