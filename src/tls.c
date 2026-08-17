@@ -665,10 +665,29 @@ static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t o
 
     if (nid == -1) return 0;
 
-    X509_NAME *subject = X509_get_subject_name(cert);
+    const X509_NAME *subject = X509_get_subject_name(cert);
     if (!subject) return 0;
 
-    return X509_NAME_get_text_by_NID(subject, nid, out, outlen) > 0;
+    int index = X509_NAME_get_index_by_NID(subject, nid, -1);
+    if (index < 0) return 0;
+
+    X509_NAME_ENTRY *entry = X509_NAME_get_entry(subject, index);
+    ASN1_STRING *data = X509_NAME_ENTRY_get_data(entry);
+
+    unsigned char *utf8 = NULL;
+    int len = ASN1_STRING_to_UTF8(&utf8, data);
+
+    if (len <= 0 || (size_t)len >= outlen) {
+        OPENSSL_free(utf8);
+        return 0;
+    }
+
+    memcpy(out, utf8, len);
+    out[len] = '\0';
+
+    OPENSSL_free(utf8);
+
+    return 1;
 }
 
 sds tlsGetPeerUsername(connection *conn_) {
