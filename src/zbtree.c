@@ -53,14 +53,15 @@ typedef struct zbtInner {
  *----------------------------------------------------------------------------*/
 
 /* Allocate an element with the member SDS embedded in the same allocation
- * (single block: zbtElem header + sds header + data). The caller keeps
- * ownership of 'ele' (it is copied). */
-zbtElem *zbtCreateElem(double score, sds ele) {
-    size_t ele_len = sdslen(ele);
-    char sds_type = sdsReqType(ele_len);
+ * (single block: zbtElem header + sds header + data). The member is copied
+ * from 'buf', which does not have to be an sds: callers holding plain bytes
+ * (listpack entries, integer members) can build an element without first
+ * materializing a temporary sds. */
+zbtElem *zbtCreateElemBuf(double score, const char *buf, size_t len) {
+    char sds_type = sdsReqType(len);
     size_t sds_hdr_len = sdsHdrSize(sds_type);
     size_t hdr = sizeof(zbtElem);
-    size_t sds_buf_size = sds_hdr_len + ele_len + 1;
+    size_t sds_buf_size = sds_hdr_len + len + 1;
     size_t total = hdr + sds_buf_size;
 
     zbtElem *e = zmalloc(total);
@@ -68,10 +69,16 @@ zbtElem *zbtCreateElem(double score, sds ele) {
     size_t sds_offset = hdr + sds_hdr_len;
     e->sdsoffset = (uint16_t)sds_offset;
 
-    char *buf = (char *)e + hdr;
-    sds emb = sdsnewplacement(buf, sds_buf_size, sds_type, ele, ele_len);
+    char *dst = (char *)e + hdr;
+    sds emb = sdsnewplacement(dst, sds_buf_size, sds_type, buf, len);
     serverAssert(emb == (sds)((char *)e + sds_offset));
     return e;
+}
+
+/* Same as zbtCreateElemBuf(), for callers that already hold an sds. The caller
+ * keeps ownership of 'ele' (it is copied). */
+zbtElem *zbtCreateElem(double score, sds ele) {
+    return zbtCreateElemBuf(score, ele, sdslen(ele));
 }
 
 /* Free a detached element that is not owned by any tree. Used by callers that

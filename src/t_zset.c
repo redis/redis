@@ -2525,6 +2525,13 @@ struct zrange_result_handler {
     void                                *userdata;
     int                                  withscores;
     int                                  should_emit_array_length;
+    /* Bulk-build staging used by the store consumer: when the result
+     * cardinality is known up front and the destination is a B+ tree, the
+     * elements are collected here and the tree is built in a single O(N) pass
+     * on finalization instead of N independent O(log N) insertions. */
+    zbtElem                            **staged;
+    unsigned long                        staged_cnt;
+    unsigned long                        staged_cap;
     zrangeResultBeginFunction            beginResultEmission;
     zrangeResultFinalizeFunction         finalizeResultEmission;
     zrangeResultEmitCBufferFunction      emitResultFromCBuffer;
@@ -2598,11 +2605,70 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
     handler->dstobj = zsetTypeCreate(length >= 0 ? length : 0, 0);
+
+    /* The bulk build needs the final element count in advance and a B+ tree to
+     * build into. A listpack destination (small range, or unknown length) keeps
+     * using the incremental zsetAdd() path, which also handles the conversion
+     * to a B+ tree if the destination outgrows the listpack limits. */
+    if (length > 0 && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+        handler->staged = zmalloc(sizeof(zbtElem *) * length);
+        handler->staged_cap = length;
+    }
+}
+
+/* Collect one element for the bulk tree build. Returns 0 when bulk staging is
+ * not active, in which case the caller falls back to zsetAdd(). The member is
+ * copied straight from the caller's buffer into the element, so the store path
+ * makes a single copy of it. */
+static int zrangeResultStageForStore(zrange_result_handler *handler,
+    const char *value, size_t value_length_in_bytes, double score)
+{
+    if (handler->staged == NULL) return 0;
+    serverAssert(handler->staged_cnt < handler->staged_cap);
+
+    zset *zs = handler->dstobj->ptr;
+    zbtElem *elem = zbtCreateElemBuf(score, value, value_length_in_bytes);
+    /* The range is taken from a sorted set, so members are unique. */
+    serverAssert(dictAdd(zs->dict, elem, NULL) == DICT_OK);
+    handler->staged[handler->staged_cnt++] = elem;
+    return 1;
+}
+
+/* Move the staged elements into the destination tree and release the staging
+ * array. Ownership of every element transfers to the tree. */
+static void zrangeResultBuildStagedTree(zrange_result_handler *handler)
+{
+    zbtElem **elems = handler->staged;
+    unsigned long n = handler->staged_cnt;
+
+    /* A range walk is monotonic in tree order, so the staged elements are
+     * either ascending or descending (REV). zbtBuildFromSorted() requires
+     * ascending input, so reverse the descending case. */
+    if (n > 1 && zbtCompare(elems[0]->score, zbtGetEle(elems[0]), elems[1]) > 0) {
+        for (unsigned long i = 0, j = n - 1; i < j; i++, j--) {
+            zbtElem *tmp = elems[i];
+            elems[i] = elems[j];
+            elems[j] = tmp;
+        }
+    }
+    for (unsigned long i = 1; i < n; i++) {
+        debugServerAssert(zbtCompare(elems[i - 1]->score,
+                                     zbtGetEle(elems[i - 1]), elems[i]) < 0);
+    }
+
+    zset *zs = handler->dstobj->ptr;
+    zbtBuildFromSorted(zs->tree, elems, n);
+    zfree(elems);
+    handler->staged = NULL;
+    handler->staged_cnt = handler->staged_cap = 0;
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     const void *value, size_t value_length_in_bytes, double score)
 {
+    if (zrangeResultStageForStore(handler, value, value_length_in_bytes, score))
+        return;
+
     double newscore;
     int retflags = 0;
     sds ele = sdsnewlen(value, value_length_in_bytes);
@@ -2614,9 +2680,15 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
 static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     long long value, double score)
 {
+    char buf[LONG_STR_SIZE];
+    int len = ll2string(buf, sizeof(buf), value);
+
+    if (zrangeResultStageForStore(handler, buf, len, score))
+        return;
+
     double newscore;
     int retflags = 0;
-    sds ele = sdsfromlonglong(value);
+    sds ele = sdsnewlen(buf, len);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
@@ -2624,6 +2696,11 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
 
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
 {
+    if (handler->staged) {
+        serverAssert(handler->staged_cnt == result_count);
+        zrangeResultBuildStagedTree(handler);
+    }
+
     if (result_count) {
         setKey(handler->client, handler->client->db, handler->dstkey, &handler->dstobj, 0);
         addReplyLongLong(handler->client, result_count);
