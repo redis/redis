@@ -3839,9 +3839,7 @@ void startCommandExecution(void);
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 
-/* Propagated commands without a measured duration (modules / self-rewriting
- * commands) are marked with this reserved value. The enclosing call()'s
- * duration is assigned once when pending ops are drained. */
+/* Propagated commands without duration marked with reserved value */
 #define PROP_DURATION_UNKNOWN -1
 
 void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long duration);
