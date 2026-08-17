@@ -175,10 +175,14 @@ size_t zbtAllocSize(const zbtree *t) { return t->alloc_size; }
  * Navigation helpers
  *----------------------------------------------------------------------------*/
 
-/* Minimum element of a subtree rooted at 'n' (assumes non-empty). */
+/* Minimum element of a subtree rooted at 'n' (assumes non-empty). An inner node
+ * records the minimum of every child in sep[], so sep[0] is already the minimum
+ * of the whole subtree and there is no need to descend to the leftmost leaf.
+ * Callers must therefore keep sep[] consistent bottom-up, which is what
+ * zbtUpdateToRoot() and the split/merge paths do. */
 static zbtElem *zbtNodeMin(zbtNode *n) {
-    while (!n->isleaf) n = ((zbtInner *)n)->child[0];
-    return ((zbtLeaf *)n)->elems[0];
+    if (n->isleaf) return ((zbtLeaf *)n)->elems[0];
+    return ((zbtInner *)n)->sep[0];
 }
 
 /* Number of elements contained in the subtree rooted at 'n'. */
@@ -227,15 +231,41 @@ static int zbtLeafSearch(zbtLeaf *lf, double score, sds ele, int *found) {
     return (int)lf->n.count;
 }
 
-/* Recompute csize/sep for every ancestor of 'n' up to the root. Used after
- * an insertion, deletion or in-place element replacement changed a subtree. */
+/* Refresh csize/sep for every ancestor of 'n' up to the root. Used after an
+ * insertion, deletion or in-place element replacement changed a subtree.
+ *
+ * The caller has already made 'n' itself consistent, and 'n' is the only child
+ * whose recorded size can be stale. It is stale by a fixed amount, and every
+ * ancestor's total is off by that same amount, so the subtree is sized once at
+ * the bottom and the difference is propagated upwards rather than re-summing
+ * csize[] at every level. The walk stops at the first level that turns out to
+ * be unchanged, because then no ancestor above it can change either: that makes
+ * sibling borrows and defrag replacements O(1) instead of O(height). */
 static void zbtUpdateToRoot(zbtree *t, zbtNode *n) {
     UNUSED(t);
+    long delta = 0;
+    int have_delta = 0;
+
     while (n->parent) {
         zbtInner *p = (zbtInner *)n->parent;
         int idx = zbtChildIdx(p, n);
-        p->csize[idx] = zbtSubtreeSize(n);
-        p->sep[idx] = zbtNodeMin(n);
+        unsigned long oldsize = p->csize[idx];
+        unsigned long newsize;
+
+        if (have_delta) {
+            newsize = (unsigned long)((long)oldsize + delta);
+        } else {
+            /* O(1) when the walk starts at a leaf, which is the common case;
+             * only the split/merge paths start at an inner node. */
+            newsize = zbtSubtreeSize(n);
+            delta = (long)newsize - (long)oldsize;
+            have_delta = 1;
+        }
+
+        zbtElem *newsep = zbtNodeMin(n);
+        if (newsize == oldsize && newsep == p->sep[idx]) return;
+        p->csize[idx] = newsize;
+        p->sep[idx] = newsep;
         n = (zbtNode *)p;
     }
 }
@@ -1041,6 +1071,14 @@ int zbtDefragNodesIncremental(zbtree *t, void *(*fn)(void *), unsigned int budge
 #include <assert.h>
 #include "testhelp.h"
 
+/* Subtree minimum obtained by descending to the leftmost leaf. zbtNodeMin()
+ * trusts sep[0] instead, so the verifier needs this independent version to
+ * actually check the separator invariant against the tree contents. */
+static zbtElem *zbtNodeMinDescend(zbtNode *n) {
+    while (!n->isleaf) n = ((zbtInner *)n)->child[0];
+    return ((zbtLeaf *)n)->elems[0];
+}
+
 static unsigned long zbtVerifyNode(zbtree *t, zbtNode *n, int depth,
                                    int *leafdepth) {
     if (n->isleaf) {
@@ -1062,7 +1100,7 @@ static unsigned long zbtVerifyNode(zbtree *t, zbtNode *n, int depth,
     unsigned long total = 0;
     for (uint32_t i = 0; i < n->count; i++) {
         serverAssert(in->child[i]->parent == n);
-        serverAssert(zbtNodeMin(in->child[i]) == in->sep[i]);
+        serverAssert(zbtNodeMinDescend(in->child[i]) == in->sep[i]);
         unsigned long cs = zbtVerifyNode(t, in->child[i], depth + 1, leafdepth);
         serverAssert(cs == in->csize[i]);
         total += cs;
