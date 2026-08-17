@@ -65,13 +65,17 @@ void keyAttrOnOverwrite(redisDb *db, robj *key, kvobj *kv) {
 
 static void attrRdbSave(RedisModuleIO *io, void *reserved, uint64_t *meta) {
     UNUSED(reserved);
-    if (rdbSaveLen(io->rio, *meta) == -1) io->error = 1;
+    if (rdbSaveLen(io->rio, RDB_MODULE_OPCODE_UINT) == -1 ||
+        rdbSaveLen(io->rio, *meta) == -1)
+        io->error = 1;
 }
 
 static int attrRdbLoad(RedisModuleIO *io, uint64_t *meta, int encver) {
     UNUSED(encver);
-    uint64_t v = rdbLoadLen(io->rio, NULL);
-    if (v == RDB_LENERR) { io->error = 1; return -1; }
+    uint64_t opcode = rdbLoadLen(io->rio, NULL);
+    if (opcode != RDB_MODULE_OPCODE_UINT) { io->error = 1; return -1; }
+    uint64_t v;
+    if (rdbLoadLenByRef(io->rio, NULL, &v) == -1) { io->error = 1; return -1; }
     *meta = v;
     return 1; /* attach; the DB indexes are populated later in dbAdd* (io has no key). */
 }
