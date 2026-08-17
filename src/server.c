@@ -93,6 +93,8 @@ long long stat_prev_total_client_process_input_buff_events = 0;
 
 static inline int isShutdownInitiated(void);
 static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg);
+static int handleRequestThrottling(client *c, int first_command);
+static void updateRequestThrottling(void);
 int isReadyToShutdown(void);
 int finishShutdown(void);
 const char *replstateToString(int replstate);
@@ -4414,6 +4416,36 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     pcmd->flags |= PENDING_CMD_KEYS_RESULT_VALID;
 }
 
+/* Return C_ERR when a parsed command should be postponed by replica output
+ * buffer throttling. Replication traffic and handshake commands must flow. */
+static int handleRequestThrottling(client *c, int first_command) {
+    if (!server.throttle_resume_time_ms) return C_OK;
+    if (first_command ||
+        (c->flags & (CLIENT_SLAVE | CLIENT_MASTER)) ||
+        c->cmd->proc == pingCommand ||
+        c->cmd->proc == authCommand ||
+        c->cmd->proc == replconfCommand ||
+        c->cmd->proc == syncCommand)
+    {
+        return C_OK;
+    }
+
+    return C_ERR;
+}
+
+static void updateRequestThrottling(void) {
+    if (!server.throttle_resume_time_ms) return;
+    /* Clear the pause as soon as either its timer expires or no replica is
+     * still mid-sync (e.g. the syncing replica just finished catching up),
+     * instead of always waiting out the full pause. */
+    if (server.mstime >= server.throttle_resume_time_ms ||
+        !anyReplicaSyncing())
+    {
+        server.throttle_resume_time_ms = 0;
+        unblockPostponedClients();
+    }
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -4435,7 +4467,10 @@ int processCommand(client *c) {
     /* in case we are starting to ProcessCommand and we already have a command we assume
      * this is a reprocessing of this command, so we do not want to perform some of the actions again. */
     int client_reprocessing_command = c->cmd ? 1 : 0;
-    int first_command = c->lastcmd == NULL;
+    /* Prefer a sticky flag over lastcmd==NULL: unknown commands set lastcmd to
+     * NULL and would otherwise reopen the first-command throttle bypass. */
+    int first_command = !(c->flags & CLIENT_COMMAND_SEEN);
+    c->flags |= CLIENT_COMMAND_SEEN;
 
     /* only run command filter if not reprocessing command */
     if (!client_reprocessing_command) {

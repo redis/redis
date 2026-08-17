@@ -2949,6 +2949,15 @@ static int setConfigReplicaOutputBufferThrottlingOption(standardConfig *config, 
     server.replica_obuf_throttle_repl_rate = rate;
     server.replica_obuf_throttle_max_delay_ms = (unsigned int) max_delay_ms;
 
+    /* If the feature was just disabled (or reconfigured to never arm), don't
+     * leave clients postponed until a stale pause timer happens to expire. */
+    if (server.throttle_resume_time_ms &&
+        (!threshold || !limit || !rate))
+    {
+        server.throttle_resume_time_ms = 0;
+        unblockPostponedClients();
+    }
+
     return 1;
 }
 

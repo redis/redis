@@ -451,6 +451,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
 #define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
 #define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
+#define CLIENT_COMMAND_SEEN (1ULL<<55) /* Client has entered processCommand at least once. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -1546,7 +1547,10 @@ typedef struct client {
                                            * any positive number means we found a slot and no violation yet. */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
-    time_t lastrequest;     /* Time of last client request (bytes read) */
+    time_t lastrequest;     /* Last time we read bytes from this client.
+                             * Used by replica output buffer throttling as the
+                             * sync-start approximation; unlike lastinteraction,
+                             * writes to the client do not refresh this. */
     time_t io_lastinteraction; /* Time of the last interaction as seen from
                                 * IO thread. When the client is moved to main
                                 * it updates its `lastinteraction` value from
@@ -3264,8 +3268,6 @@ int processInputBuffer(client *c);
 void statsUpdateActiveClients(client *c);
 int getActiveClientsInWindow(void);
 void acceptCommonHandler(connection *conn, int flags, char *ip);
-int handleRequestThrottling(client *c, int first_command);
-void updateRequestThrottling(void);
 void readQueryFromClient(connection *conn);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
@@ -3496,6 +3498,7 @@ void resizeReplicationBacklog(void);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
 void refreshGoodSlavesCount(void);
+int anyReplicaSyncing(void);
 int checkGoodReplicasStatus(void);
 void processClientsWaitingReplicas(void);
 void unblockClientWaitingReplicas(client *c);

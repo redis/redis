@@ -1875,6 +1875,24 @@ int anyOtherSlaveWaitRdb(client *except_me) {
     return 0;
 }
 
+/* Check if any replica is still mid-full-sync (including diskless ONLINE
+ * replicas still awaiting their first ACK). */
+int anyReplicaSyncing(void) {
+    listIter li;
+    listNode *ln;
+
+    listRewind(server.slaves, &li);
+    while((ln = listNext(&li))) {
+        client *slave = ln->value;
+        if (slave->replstate != SLAVE_STATE_ONLINE ||
+            slave->repl_start_cmd_stream_on_ack)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Remove the specified client from global lists where the client could
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
@@ -2321,6 +2339,13 @@ void freeClient(client *c) {
         if (clientTypeIsSlave(c) && listLength(server.slaves) == 0)
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
+        /* This replica may have been the one whose output buffer armed
+         * request throttling. If no other replica is still mid-sync, don't
+         * leave clients postponed for a pause with nothing left to protect. */
+        if (server.throttle_resume_time_ms && !anyReplicaSyncing()) {
+            server.throttle_resume_time_ms = 0;
+            unblockPostponedClients();
+        }
         /* Fire the replica change modules event. */
         if (c->replstate == SLAVE_STATE_ONLINE)
             moduleFireServerEvent(REDISMODULE_EVENT_REPLICA_CHANGE,
@@ -3830,32 +3855,6 @@ int processInputBuffer(client *c) {
     return C_OK;
 }
 
-/* Return C_ERR when a parsed command should be postponed by replica output
- * buffer throttling. Replication traffic and handshake commands must flow. */
-int handleRequestThrottling(client *c, int first_command) {
-    if (!server.throttle_resume_time_ms) return C_OK;
-    if (first_command ||
-        (c->flags & (CLIENT_SLAVE | CLIENT_MASTER)) ||
-        c->cmd->proc == pingCommand ||
-        c->cmd->proc == authCommand ||
-        c->cmd->proc == replconfCommand ||
-        c->cmd->proc == syncCommand)
-    {
-        return C_OK;
-    }
-
-    return C_ERR;
-}
-
-void updateRequestThrottling(void) {
-    if (server.throttle_resume_time_ms &&
-        server.mstime >= server.throttle_resume_time_ms)
-    {
-        server.throttle_resume_time_ms = 0;
-        unblockPostponedClients();
-    }
-}
-
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;
@@ -5315,23 +5314,32 @@ char *getClientTypeName(int class) {
     }
 }
 
+/* Return 1 if this client is not currently eligible to arm request
+ * throttling: feature disabled, wrong client type, a pause is already
+ * active, buffer still under threshold, replica already caught up (or
+ * diskless-ONLINE but still awaiting its first ACK), or being checked from
+ * an IO thread instead of the main thread. */
+static int replicaOutputBufferThrottlingIneligible(client *c, size_t used_mem) {
+    return !server.replica_obuf_throttle_threshold ||
+        !server.replica_obuf_throttle_repl_rate ||
+        !server.replica_obuf_throttle_limit ||
+        getClientType(c) != CLIENT_TYPE_SLAVE ||
+        server.throttle_resume_time_ms ||
+        used_mem <= server.replica_obuf_throttle_threshold ||
+        /* Diskless sync marks the replica ONLINE before it actually starts
+         * streaming (it waits for an ACK first); keep throttling active for
+         * that window instead of treating it like a caught-up replica. */
+        (c->replstate == SLAVE_STATE_ONLINE && !c->repl_start_cmd_stream_on_ack) ||
+        c->running_tid != IOTHREAD_MAIN_THREAD_ID;
+}
+
 /* If a syncing replica's output buffer is growing too fast, briefly pause
  * accepting requests from existing clients. */
 static void handleReplicaOutputBufferThrottling(client *c) {
     static time_t last_log_msg = 0;
-    int class = getClientType(c);
     size_t used_mem = getClientOutputBufferLogicalSize(c);
 
-    if (!server.replica_obuf_throttle_threshold ||
-        !server.replica_obuf_throttle_repl_rate ||
-        !server.replica_obuf_throttle_limit ||
-        class != CLIENT_TYPE_SLAVE ||
-        server.throttle_resume_time_ms ||
-        used_mem <= server.replica_obuf_throttle_threshold ||
-        c->replstate == SLAVE_STATE_ONLINE)
-    {
-        return;
-    }
+    if (replicaOutputBufferThrottlingIneligible(c, used_mem)) return;
 
     size_t dataset_bytes = zmalloc_used_memory();
     if (dataset_bytes > used_mem) dataset_bytes -= used_mem;
@@ -5339,20 +5347,30 @@ static void handleReplicaOutputBufferThrottling(client *c) {
 
     unsigned long estimated_repl_time =
         dataset_bytes / server.replica_obuf_throttle_repl_rate;
+    /* Integer division can floor this to 0 when the sync is estimated to
+     * take longer (as a raw number) than the configured limit in bytes -
+     * exactly the slow-sync case throttling exists to catch. Floor at 1
+     * instead of bailing out, mirroring estimated_repl_time's own floor. */
     size_t obuf_bytes_per_sec =
         server.replica_obuf_throttle_limit /
         (estimated_repl_time ? estimated_repl_time : 1);
+    if (!obuf_bytes_per_sec) obuf_bytes_per_sec = 1;
     time_t elapsed_repl_time = time(NULL) - c->lastrequest;
 
-    if (!obuf_bytes_per_sec ||
-        used_mem <= (unsigned long)elapsed_repl_time * obuf_bytes_per_sec)
-    {
-        return;
-    }
+    /* Cap at the configured limit. Without this, a long WAIT_BGSAVE (or other
+     * pre-transfer stall) grows elapsed_repl_time and the allowance forever,
+     * so a large backlog can stay under budget and never arm throttling. */
+    unsigned long long budget =
+        (unsigned long long)elapsed_repl_time * obuf_bytes_per_sec;
+    if (budget > server.replica_obuf_throttle_limit)
+        budget = server.replica_obuf_throttle_limit;
+    if (used_mem <= budget) return;
 
-    size_t bytes_exceeding = used_mem - ((unsigned long)elapsed_repl_time * obuf_bytes_per_sec);
-    unsigned long throttle_time_ms = bytes_exceeding * 1000 / obuf_bytes_per_sec;
+    unsigned long long bytes_exceeding = used_mem - budget;
+    unsigned long long throttle_time_ms =
+        bytes_exceeding * 1000ULL / obuf_bytes_per_sec;
 
+    /* Cap the pause so a huge backlog cannot request an unbounded delay. */
     if (server.replica_obuf_throttle_max_delay_ms &&
         throttle_time_ms > server.replica_obuf_throttle_max_delay_ms)
     {
