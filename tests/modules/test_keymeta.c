@@ -67,6 +67,8 @@ static int num_class_mappings = 0;
 
 /* Reverse lookup: given a class_id, find the 4-char-id name */
 static const char* lookupClassName(RedisModuleKeyMetaClassId class_id) {
+    if (class_id > 0 && class_id <= num_class_mappings)
+        return class_mappings[class_id - 1].name;
     for (int i = 0; i < num_class_mappings; i++) {
         if (class_mappings[i].class_id == class_id) {
             return class_mappings[i].name;
