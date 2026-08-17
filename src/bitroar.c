@@ -1504,9 +1504,9 @@ static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSource *source) {
 /* CRoaring negates an ARRAY container by first expanding it to an 8 KiB
  * BITSET. A compact source with one ARRAY container per logical chunk would
  * retain all of those bitsets until the final run-optimization pass. Build a
- * borrowed source's complement one chunk at a time instead, converting ARRAY
- * inputs to temporary RUN containers so sparse complements stay run-compressed
- * throughout the operation. */
+ * borrowed source's complement one chunk at a time instead, using a temporary
+ * RUN only when the complement's run representation is smaller than the
+ * direct ARRAY or BITSET result. */
 static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
                                               uint64_t bit_len)
 {
@@ -1541,12 +1541,42 @@ static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
                                                        &source_type);
 
             if (source_type == ARRAY_CONTAINER_TYPE) {
-                run_container_t *source_run = run_container_from_array(
-                    const_CAST_array(source_container));
-                serverAssert(source_run != NULL);
-                complement_type = (uint8_t)run_container_negation_range(
-                    source_run, 0, chunk_end, &complement);
-                run_container_free(source_run);
+                const array_container_t *source_array =
+                    const_CAST_array(source_container);
+                serverAssert(source_array->cardinality > 0);
+                serverAssert(source_array->array[
+                    source_array->cardinality - 1] < chunk_end);
+
+                int32_t complement_cardinality =
+                    (int32_t)chunk_end - source_array->cardinality;
+                int32_t complement_runs =
+                    array_container_number_of_runs(source_array) + 1;
+                if (source_array->array[0] == 0) complement_runs--;
+                if (source_array->array[source_array->cardinality - 1] ==
+                    chunk_end - 1)
+                    complement_runs--;
+                serverAssert(complement_cardinality >= 0);
+                serverAssert(complement_runs >= 0);
+
+                int32_t direct_size = complement_cardinality <= DEFAULT_MAX_SIZE ?
+                    array_container_serialized_size_in_bytes(
+                        complement_cardinality) :
+                    bitset_container_serialized_size_in_bytes();
+                int32_t run_size =
+                    run_container_serialized_size_in_bytes(complement_runs);
+
+                if (run_size < direct_size) {
+                    run_container_t *source_run = run_container_from_array(
+                        source_array);
+                    serverAssert(source_run != NULL);
+                    complement_type = (uint8_t)run_container_negation_range(
+                        source_run, 0, chunk_end, &complement);
+                    run_container_free(source_run);
+                } else {
+                    complement = container_not_range(source_container,
+                                                     source_type, 0, chunk_end,
+                                                     &complement_type);
+                }
             } else {
                 complement = container_not_range(source_container, source_type,
                                                  0, chunk_end,
