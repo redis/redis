@@ -13,6 +13,17 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis 6.2.24    Released Mon 17 Aug 2026 10:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There is a security fix in the release.
+
+### Security fixes
+
+- Use-after-free in the TLS pending-data list when a command closes another pending connection
+
+
+================================================================================
 Redis 6.2.23    Released Thu 23 Jul 2026 22:00:00 IST
 ================================================================================
 
