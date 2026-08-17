@@ -9,6 +9,41 @@ set aof_file "$server_path/$aof_dirname/${aof_basename}.1$::incr_aof_suffix$::ao
 set aof_manifest_file "$server_path/$aof_dirname/$aof_basename$::manifest_suffix"
 
 tags {"aof external:skip"} {
+    # Admission limits must not reject commands that an older version already
+    # accepted and persisted. Keep this fixture compact by extending an empty
+    # native bitmap with a zero bit just beyond the new NOT limit.
+    set not_limit [expr {512 * 1024 * 1024}]
+    set replay_byte_len [expr {$not_limit + 1}]
+    set replay_last_bit [expr {$replay_byte_len * 8 - 1}]
+    create_aof $aof_dirpath $aof_file {
+        append_to_aof [formatCommand bitconvert bitop:not:aof:source ROARING]
+        append_to_aof [formatCommand setbit bitop:not:aof:source \
+            $replay_last_bit 0]
+        append_to_aof [formatCommand set bitop:not:aof:dest keep]
+        append_to_aof [formatCommand bitop not bitop:not:aof:dest \
+            bitop:not:aof:source]
+    }
+
+    create_aof_manifest $aof_dirpath $aof_manifest_file {
+        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+    }
+
+    start_server_aof [list dir $server_path aof-load-truncated no] {
+        test "AOF replays native BITOP NOT above the current admission limit" {
+            set replay_byte_len [expr {512 * 1024 * 1024 + 1}]
+            set client [redis [srv host] [srv port] 0 $::tls]
+            wait_done_loading $client
+            assert_equal bitmap [$client type bitop:not:aof:dest]
+            assert_equal [expr {$replay_byte_len * 8}] \
+                [$client bitcount bitop:not:aof:dest]
+            assert_lessthan [$client memory usage bitop:not:aof:dest] \
+                [expr {8 * 1024 * 1024}]
+            assert_equal $replay_byte_len [$client bitop or bitop:not:aof:copy \
+                bitop:not:aof:dest]
+            $client close
+        }
+    }
+
     # Server can start when aof-load-truncated is set to yes and AOF
     # is truncated, with an incomplete MULTI block.
     create_aof $aof_dirpath $aof_file {

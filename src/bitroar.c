@@ -1648,7 +1648,6 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys,
 
     serverAssert(numkeys > 0);
     serverAssert(maxlen <= BITROAR_MAX_BYTES);
-    serverAssert(op != BITOP_NOT || maxlen <= BITROAR_BITOP_NOT_MAX_BYTES);
 
     if (bitroarUseMixedRawOp(objects, numkeys, maxlen)) {
         result = bitroarApplyMixedRawOp(op, objects, numkeys,
