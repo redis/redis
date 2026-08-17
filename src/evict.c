@@ -35,6 +35,7 @@
  * Empty entries have the key pointer set to NULL. */
 #define EVPOOL_SIZE 16
 #define EVPOOL_CACHED_SDS_SIZE 255
+#define EVICTION_MAX_BLESSED_ONLY_ROUNDS 8
 struct evictionPoolEntry {
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
     sds key;                    /* Key name. */
@@ -131,10 +132,11 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool, int *candidates) {
     int j, k, count;
-    int candidates = 0; /* Non-blessed sampled keys (drives sampling progress). */
     dictEntry *samples[server.maxmemory_samples];
+
+    *candidates = 0;
 
     /* Don't retry, since we will call evictionPoolPopulate multiple times if needed. */
     int slot = kvstoreGetFairRandomDictIndex(samplekvs, randomEvictionShouldSkipDictIndex, 1, 0);
@@ -147,11 +149,9 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         kvobj *kv = dictGetKV(de);
         sds key = kvobjGetKey(kv);
 
-        /* Blessed NOEVICT keys are never eviction candidates. Don't count them
-         * either, so an all-blessed sample reports 0 candidates and the caller
-         * stops sampling instead of spinning forever. */
+        /* Blessed NO-EVICT keys are never eviction candidates. */
         if (blessNoEvict(kv)) continue;
-        candidates++;
+        (*candidates)++;
 
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
@@ -228,7 +228,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         pool[k].slot = slot;
     }
 
-    return candidates;
+    return count;
 }
 
 /* ----------------------------------------------------------------------------
@@ -583,9 +583,11 @@ int performEvictions(void) {
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
+            int blessed_only_rounds = 0;
             while (bestkey == NULL) {
                 unsigned long total_keys = 0;
                 unsigned long total_sampled_keys = 0;
+                unsigned long total_candidates = 0;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
@@ -606,8 +608,11 @@ int performEvictions(void) {
                     int l = kvstoreNumNonEmptyDicts(kvs);
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
-                        sampled_keys += evictionPoolPopulate(db, kvs, pool);
-                        total_sampled_keys += sampled_keys;
+                        int candidates = 0;
+                        int sampled = evictionPoolPopulate(db, kvs, pool, &candidates);
+                        sampled_keys += sampled;
+                        total_sampled_keys += sampled;
+                        total_candidates += candidates;
                         /* We have sampled enough keys in the current db, exit the loop. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
@@ -619,10 +624,6 @@ int performEvictions(void) {
                     }
                 }
                 if (!total_keys) break; /* No keys to evict. */
-
-                /* If we iterated all the DBs and all non-empty slot dicts, then
-                 * did not sample any key, stop sampling. */
-                if (!total_sampled_keys) break;
 
                 /* Go backward from best to worst element to evict. */
                 for (k = EVPOOL_SIZE-1; k >= 0; k--) {
@@ -658,6 +659,18 @@ int performEvictions(void) {
                         /* Ghost... Iterate again. */
                     }
                 }
+                if (bestkey) break;
+
+                /* If we iterated all the DBs and all non-empty slot dicts, then
+                 * did not sample any key, stop sampling. */
+                if (!total_sampled_keys) break;
+
+                if (!total_candidates) {
+                    if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS)
+                        break;
+                    continue;
+                }
+                blessed_only_rounds = 0;
             }
         }
 
