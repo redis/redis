@@ -2554,6 +2554,87 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         set _ {}
     } {} {config:restore}
 
+    test {BITOP NOT keeps sparse per-chunk complements compact while building} {
+        set chunks 512
+        set chunk_bits [expr {1 << 16}]
+        set bit_len [expr {$chunks * $chunk_bits}]
+        set byte_len [expr {$bit_len / 8}]
+        r config set bitmap-default-roaring yes
+        r del bitop:not:roaring:arrays bitop:not:roaring:arrays:dest
+
+        # One set bit in every logical chunk creates compact ARRAY containers.
+        # Extending the final byte with zero makes every chunk full-length.
+        set source_bits {}
+        for {set chunk 0} {$chunk < $chunks} {incr chunk} {
+            set within [lindex {0 32768 65535} [expr {$chunk % 3}]]
+            set source_bit [expr {$chunk * $chunk_bits + $within}]
+            lappend source_bits $source_bit
+            assert_equal 0 [r setbit bitop:not:roaring:arrays \
+                $source_bit 1]
+        }
+        assert_equal 0 [r setbit bitop:not:roaring:arrays \
+            [expr {$bit_len - 1}] 0]
+        assert_equal $chunks [r bitcount bitop:not:roaring:arrays]
+        assert_lessthan [r memory usage bitop:not:roaring:arrays] 1048576
+
+        set track_allocations [expr {
+            [string match {*jemalloc*} [s mem_allocator]] &&
+            ![catch {r debug mallctl thread.allocated} allocated_before]
+        }]
+        assert_equal $byte_len [r bitop not bitop:not:roaring:arrays:dest \
+            bitop:not:roaring:arrays]
+        if {$track_allocations} {
+            set allocated_after [r debug mallctl thread.allocated]
+            assert_lessthan [expr {$allocated_after - $allocated_before}] \
+                [expr {2 * 1024 * 1024}]
+        }
+
+        assert_equal 0 [r getbit bitop:not:roaring:arrays:dest 0]
+        assert_equal 1 [r getbit bitop:not:roaring:arrays:dest 1]
+        assert_equal 1 [r getbit bitop:not:roaring:arrays:dest \
+            [expr {$bit_len - 1}]]
+        assert_equal [expr {$bit_len - $chunks}] \
+            [r bitcount bitop:not:roaring:arrays:dest]
+        assert_lessthan [r memory usage bitop:not:roaring:arrays:dest] 1048576
+
+        set reads [list bitfield_ro bitop:not:roaring:arrays:dest]
+        foreach source_bit $source_bits {
+            lappend reads get u1 $source_bit
+        }
+        assert_equal [lrepeat $chunks 0] [r {*}$reads]
+
+        r del bitop:not:roaring:arrays bitop:not:roaring:arrays:dest
+        set _ {}
+    } {} {config:restore}
+
+    test {BITOP NOT complements every Roaring container type and a partial tail} {
+        set raw [binary format H* 80]
+        append raw [string repeat [binary format H* 00] 8191]
+        append raw [string repeat [binary format H* ff] 8192]
+        append raw [string repeat [binary format H* aa] 8192]
+        append raw [binary format H* 80]
+        append raw [string repeat [binary format H* 00] 16]
+
+        r del bitop:not:containers:string bitop:not:containers:roaring \
+            bitop:not:containers:string:dest bitop:not:containers:roaring:dest
+        r set bitop:not:containers:string $raw
+        r set bitop:not:containers:roaring $raw
+        convert_string_bitmap_to_roaring r bitop:not:containers:roaring
+
+        set string_len [r bitop not bitop:not:containers:string:dest \
+            bitop:not:containers:string]
+        set roaring_len [r bitop not bitop:not:containers:roaring:dest \
+            bitop:not:containers:roaring]
+        assert_equal $string_len $roaring_len
+        assert_equal $string_len [string length $raw]
+        assert_equal [r get bitop:not:containers:string:dest] \
+            [r debug bitmap-raw bitop:not:containers:roaring:dest]
+        assert_equal bitmap [r type bitop:not:containers:roaring:dest]
+
+        r del bitop:not:containers:string bitop:not:containers:roaring \
+            bitop:not:containers:string:dest bitop:not:containers:roaring:dest
+    }
+
     test {non-NOT Roaring BITOP survives lowering proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
