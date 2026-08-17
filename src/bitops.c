@@ -1535,6 +1535,11 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 {
     robj *res_bitmap = NULL;
 
+    if (op == BITOP_NOT && maxlen > BITROAR_BITOP_NOT_MAX_BYTES) {
+        addReplyError(c, "BITOP NOT result exceeds Roaring bitmap limit");
+        return;
+    }
+
     if (maxlen)
         res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen);
     if (maxlen && res_bitmap == NULL) {
