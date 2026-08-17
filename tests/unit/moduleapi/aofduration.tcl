@@ -50,7 +50,7 @@ proc sum_duration_delta_vs_real {cmdname iterations setup cmd} {
     list $delta_sum $real_usec
 }
 
-start_server [list tags {"modules"} overrides [list loadmodule "$testmodule"]] {
+start_server [list tags {"modules external:skip"} overrides [list loadmodule "$testmodule"]] {
 
     test { AOF Duration - duration of module command counted by aof_cmd_duration } {
 
