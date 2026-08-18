@@ -3175,6 +3175,9 @@ int clusterProcessPacket(clusterLink *link) {
                                     sender->shard_id,
                                     (unsigned long long)senderConfigEpoch,
                                     (unsigned long long)sender->configEpoch);
+                            /* Ignore the rest of this stale packet to prevent it from reverting
+                             * newer topology changes and creating an invalid replication chain. */
+                            return 1;
                         } else {
                             /* A failover occurred in the shard where `sender` belongs to and `sender` is no longer
                              * a primary. Update slot assignment to `master`, which is the new primary in the shard */
@@ -3235,6 +3238,33 @@ int clusterProcessPacket(clusterLink *link) {
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
                 }
             }
+        }
+
+        /* Safeguard against sub-replicas: our master may have just been demoted
+         * above, or by an earlier packet. We cannot leave this to the same check
+         * in clusterUpdateSlotsConfigWith(), which is only reached when the
+         * sender claims slots we attribute to someone else: once the demotion
+         * handling above hands them to the new master, that difference is gone.
+         *
+         * This runs on every packet rather than only on the demotion itself, so
+         * it also recovers a node that learned of the demotion before it knew
+         * the new master. Only follow a grandmaster we believe is a master, so
+         * that a chain that has not settled yet cannot make us resync from a
+         * node that owns no slots. */
+        clusterNode *grandmaster = nodeIsSlave(myself) && myself->slaveof ?
+                                   myself->slaveof->slaveof : NULL;
+        if (grandmaster && clusterNodeIsMaster(grandmaster) && grandmaster != myself &&
+            !(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION))
+        {
+            serverLog(LL_NOTICE,
+                      "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s (%s)",
+                      grandmaster->name, grandmaster->human_nodename);
+            clusterSetMaster(grandmaster);
+            /* Save the new config and broadcast to the other nodes. */
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                 CLUSTER_TODO_UPDATE_STATE|
+                                 CLUSTER_TODO_FSYNC_CONFIG|
+                                 CLUSTER_TODO_BROADCAST_PONG);
         }
 
         /* Update our info about served slots.
