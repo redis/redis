@@ -33,11 +33,10 @@
 #define BITROAR_MAX_BYTES ((uint64_t)BITROAR_MAX_BYTES_RAW)
 
 /* BITOP NOT fills every missing 2^16-bit Roaring chunk in the logical range.
- * Reject new work above 2^16 chunks (512 MiB) so a compact bitmap with a high
- * logical length cannot amplify into unbounded allocations. This fixed limit
- * is independent of proto-max-bulk-len, which may be changed after a value is
- * created. Master and AOF clients bypass admission limits so commands accepted
- * by an older version can still be replayed. */
+ * Bound borrowed Roaring sources to 2^16 chunks (512 MiB) so a compact bitmap
+ * with a high logical length cannot amplify into unbounded allocations. Plain
+ * string sources already occupy memory proportional to their logical length
+ * and are not subject to this fixed, proto-max-bulk-len-independent limit. */
 #define BITROAR_BITOP_NOT_MAX_BYTES (512ULL * 1024 * 1024)
 
 /* Bitwise operations supported by bitroarApplyOp() (the BITOP command). */

@@ -1535,8 +1535,11 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 {
     robj *res_bitmap = NULL;
 
-    if (!mustObeyClient(c) && op == BITOP_NOT &&
-        maxlen > BITROAR_BITOP_NOT_MAX_BYTES)
+    /* Only borrowed Roaring sources can encode a huge logical range in very
+     * little resident memory. Plain strings already occupy space proportional
+     * to the work needed to complement them. */
+    if (op == BITOP_NOT && maxlen > BITROAR_BITOP_NOT_MAX_BYTES &&
+        objects[0] != NULL && objects[0]->type == OBJ_BITMAP)
     {
         addReplyError(c, "BITOP NOT result exceeds 512 MiB Roaring bitmap limit");
         return;
