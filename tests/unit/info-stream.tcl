@@ -455,8 +455,36 @@ proc test_all_stream_stats { {replMode 0} } {
 
 start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}} {
     r select 0
+    # Rebuild both histograms from the keyspace after every command and panic on
+    # any disagreement, so each test below also covers the bookkeeping: a missed
+    # update site, or one computed against mismatched state, fails immediately.
+    r debug stream-stats-assert 1
 
     test_all_stream_stats 0
+
+    # createComplexDataset drives streams with consumer groups through random
+    # XADD / XADD MAXLEN / XTRIM / XREADGROUP / XACKDEL / XDEL sequences, i.e. the
+    # PEL and lag traffic nobody hand-wrote a case for. Two checks run here: the
+    # armed DEBUG STREAM-STATS-ASSERT rebuilds after every one of those commands,
+    # and the cross-check below compares the final histograms with XINFO GROUPS.
+    test "STREAM-STATS - Test complex dataset" {
+        verify_pel {r FLUSHALL} {}
+        createComplexDataset r 1000
+        verify_pel {} {__EVAL__ 0}
+        verify_lag {} {__EVAL__ 0}
+
+        # A reload must reconstruct both metrics for a random dataset too.
+        set before_pel [get_info_stream_field r distrib_cgroups_pel]
+        set before_lag [get_info_stream_field r distrib_cgroups_lag]
+        r DEBUG RELOAD
+        assert_equal $before_pel [get_info_stream_field r distrib_cgroups_pel]
+        assert_equal $before_lag [get_info_stream_field r distrib_cgroups_lag]
+
+        verify_pel {r FLUSHALL} {}
+        createComplexDataset r 1000 {useexpire}
+        verify_pel {} {__EVAL__ 0}
+        verify_lag {} {__EVAL__ 0}
+    } {} {cluster:skip}
 
     test "STREAM-STATS - DEBUG RELOAD reconstructs the histogram from RDB" {
         r FLUSHALL
@@ -496,6 +524,10 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         wait_for_condition 50 100 { [s 0 role] eq {slave} } else { fail "Replication not started." }
 
         $primary select 0
+        # Arm the assertion on both sides: the replica maintains its histograms
+        # from the propagated commands, which is a separate path.
+        $primary debug stream-stats-assert 1
+        $replica debug stream-stats-assert 1
         test_all_stream_stats 1
     }
 }

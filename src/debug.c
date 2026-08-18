@@ -453,6 +453,8 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
+"STREAM-STATS-ASSERT <0|1>",
+"    Enable/disable INFO `stream` histogram assertion after each command.",
 "KEYMETA-AOF-DUMP <key>",
 "    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
@@ -592,6 +594,20 @@ NULL
             server.dbg_assert_flags |= DBG_ASSERT_KEYSIZES;
         else
             server.dbg_assert_flags &= ~DBG_ASSERT_KEYSIZES;
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"STREAM-STATS-ASSERT") && c->argc == 3) {
+        long long flag;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
+            return;
+        if (flag) {
+            /* Prime an exact baseline first: enabling stream-stats at runtime
+             * deliberately does not rescan the keyspace, so the gauges may be
+             * legitimately behind and that would look like corruption here. */
+            streamStatsRebuild();
+            server.dbg_assert_flags |= DBG_ASSERT_STREAM_STATS;
+        } else {
+            server.dbg_assert_flags &= ~DBG_ASSERT_STREAM_STATS;
+        }
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;

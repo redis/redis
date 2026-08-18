@@ -2728,6 +2728,7 @@ struct redisServer {
 /* Debug assertion flags for server.dbg_assert_flags */
 #define DBG_ASSERT_KEYSIZES    (1 << 0) /* Assert keysizes histogram */
 #define DBG_ASSERT_ALLOC_SLOT  (1 << 1) /* Assert per-slot alloc_size */
+#define DBG_ASSERT_STREAM_STATS (1 << 2) /* Assert INFO `stream` histograms */
 
 /* we use 6 so that all getKeyResult fits a cacheline */
 #define MAX_KEYS_BUFFER 6

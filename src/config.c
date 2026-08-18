@@ -3306,6 +3306,12 @@ static int applyStreamStats(const char **err) {
                        sizeof(meta->distrib_cgroups_lag));
             }
         }
+    } else if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
+        /* Enabling at runtime deliberately does not rescan, so the gauges are
+         * legitimately behind until each group is next touched -- which
+         * DEBUG STREAM-STATS-ASSERT would report as corruption on this very
+         * command. Re-prime an exact baseline while the assertion is armed. */
+        streamStatsRebuild();
     }
     return 1;
 }
