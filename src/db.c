@@ -65,17 +65,15 @@ void updateLRM(robj *o) {
     }
 }
 
-static_assert(MAX_KEYSIZES_ROWS == 6, "keysizesHistRow(): add/remove a row mapping");
-
 /* Return the histogram row that tracks `type`, or NULL if the type is untracked. */
 int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
     switch (type) {
-    case OBJ_STRING: return hist[0];
-    case OBJ_LIST:   return hist[1];
-    case OBJ_SET:    return hist[2];
-    case OBJ_ZSET:   return hist[3];
-    case OBJ_HASH:   return hist[4];
-    case OBJ_STREAM: return hist[5];
+    case OBJ_STRING: return hist[KEYSIZES_ROW_STRING];
+    case OBJ_LIST:   return hist[KEYSIZES_ROW_LIST];
+    case OBJ_SET:    return hist[KEYSIZES_ROW_SET];
+    case OBJ_ZSET:   return hist[KEYSIZES_ROW_ZSET];
+    case OBJ_HASH:   return hist[KEYSIZES_ROW_HASH];
+    case OBJ_STREAM: return hist[KEYSIZES_ROW_STREAM];
     default:         return NULL;
     }
 }

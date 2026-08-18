@@ -49,9 +49,9 @@
  *       operations destroying the object, we need to wait that all the
  *       background threads working with this object finished their work.
  *    B) When we modify the HNSW nodes bypassing the normal locking
- *       provided by the HNSW library. This only happens when we update
- *       an existing node attribute so far, in VSETATTR and when we call
- *       VADD to update a node with the SETATTR option.
+ *       provided by the HNSW library. This happens when we update an
+ *       existing node attribute (VSETATTR, VADD with SETATTR) or when
+ *       we delete a node from the graph (VREM).
  *
  *  3. Often during read operations performed by Redis commands in the
  *     main thread (VCARD, VEMB, VRANDMEMBER, ...) we don't acquire any
@@ -838,7 +838,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     /* Perform search */
     hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
     float *distances = RedisModule_Alloc(sizeof(float)*ef);
-    unsigned int found;
+    int found;
     if (ground_truth) {
         found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
                     distances, slot, 0,
@@ -865,7 +865,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
     long long arraylen = 0;
-    for (unsigned int i = 0; i < found && i < count; i++) {
+    for (int i = 0; i < found && (unsigned long)i < count; i++) {
         if (distances[i]/2 > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
         RedisModule_ReplyWithString(ctx, nv->item);
@@ -1251,6 +1251,10 @@ int VREM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (!node) {
         return RedisModule_ReplyWithBool(ctx, 0);
     }
+
+    /* Background VSIM operations read the nodes we are about to free,
+     * so wait for background operations before deleting from the graph. */
+    vectorSetWaitAllBackgroundClients(vset, 0);
 
     /* Remove from dictionary */
     RedisModule_DictDel(vset->dict, element, NULL);
