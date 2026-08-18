@@ -3376,3 +3376,33 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
         r del bitmap:checkrdb:sparse bitmap:checkrdb:dense
     }
 }
+
+run_solo {bitroar-large-memory} {
+start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
+    test {BITOP NOT over the Roaring limit still works for plain string sources} {
+        set not_limit [expr {512 * 1024 * 1024}]
+        set byte_len [expr {$not_limit + 1}]
+        r config set proto-max-bulk-len [expr {$byte_len + 16}]
+        r config set bitmap-default-roaring yes
+        r del bitop:not:string:src bitop:not:string:dest
+
+        # The source itself already occupies memory proportional to the work,
+        # so the sparse Roaring amplification limit does not apply.
+        assert_equal $byte_len [r setrange bitop:not:string:src \
+            [expr {$byte_len - 1}] [binary format H* 80]]
+        assert_equal string [r type bitop:not:string:src]
+
+        assert_equal $byte_len [r bitop not bitop:not:string:dest \
+            bitop:not:string:src]
+        assert_equal bitmap [r type bitop:not:string:dest]
+        assert_equal 1 [r getbit bitop:not:string:dest 0]
+        assert_equal 0 [r getbit bitop:not:string:dest \
+            [expr {($byte_len - 1) * 8}]]
+        assert_equal [expr {$byte_len * 8 - 1}] \
+            [r bitcount bitop:not:string:dest]
+
+        r del bitop:not:string:src bitop:not:string:dest
+        set _ {}
+    } {} {large-memory config:restore}
+}
+} ;# run_solo
