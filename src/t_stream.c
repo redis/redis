@@ -6535,6 +6535,107 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
     dictDelete(db->stream_idmp_keys, key);
 }
 
+/* --- DEBUG STREAM-STATS-ASSERT -------------------------------------------
+ * The INFO `stream` histograms are gauges maintained incrementally, so every
+ * path that changes a group's PEL size or lag has to update them. Rebuilding
+ * them from the keyspace after each command turns any existing stream test into
+ * coverage for that: a missed update site, or an update computed against
+ * mismatched state, shows up as a bin that disagrees with the scan. */
+
+/* Rebuild every db's INFO `stream` histograms from the keyspace. Primes the
+ * assertion: enabling stream-stats at runtime deliberately does not rescan (see
+ * the section comment at the top of this file), so the gauges may legitimately
+ * be behind, which the assertion would report as corruption. Bumps the
+ * generation as well, so an async slot-trim delta scheduled against the old
+ * contents is discarded rather than applied to the fresh counts. */
+void streamStatsRebuild(void) {
+    server.stream_stats_epoch++;
+    for (int j = 0; j < server.dbnum; j++) {
+        redisDb *db = &server.db[j];
+        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+        if (!meta) continue;
+        memset(meta->distrib_cgroups_pel, 0, sizeof(meta->distrib_cgroups_pel));
+        memset(meta->distrib_cgroups_lag, 0, sizeof(meta->distrib_cgroups_lag));
+        if (!server.stream_stats) continue; /* nothing is collected while off */
+
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, db->keys);
+        dictEntry *de;
+        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+            kvobj *kv = dictGetKV(de);
+            if (!kv || kv->type != OBJ_STREAM) continue;
+            streamUpdateCGroupsPelAll(db, kv->ptr, 1);
+            streamUpdateCGroupsLagAll(db, kv->ptr, 1);
+        }
+        kvstoreIteratorReset(&kvs_it);
+    }
+}
+
+/* Panic if 'live' disagrees with 'scan', rendering the non-empty bins of both. */
+static void dbgAssertStreamRow(const int64_t *scan, const int64_t *live, const char *name) {
+    for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
+        if (scan[i] == live[i]) continue;
+
+        char scanStr[500] = {0}, liveStr[500] = {0};
+        int l1 = 0, l2 = 0;
+        for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 400) && (l2 < 400); j++) {
+            if (scan[j])
+                l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1, "[%d]=%lld ", j, (long long) scan[j]);
+            if (live[j])
+                l2 += snprintf(liveStr + l2, sizeof(liveStr) - l2, "[%d]=%lld ", j, (long long) live[j]);
+        }
+        serverPanic("dbgAssertStreamStats: %s mismatch at bin %d\nscan=%s\nlive=%s\n",
+                    name, i, scanStr, liveStr);
+    }
+}
+
+/* Verify 'db's INFO `stream` histograms against a fresh scan of its streams.
+ * For debugging only; enabled by DEBUG STREAM-STATS-ASSERT 1. Binned through
+ * streamDistribBin() and sampled through the same helpers the live path uses, so
+ * this validates the bookkeeping (was every change accounted for, exactly once)
+ * rather than the definition of the metrics themselves. */
+void dbgAssertStreamStats(redisDb *db) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    if (!meta) return;
+
+    /* While stream-stats is off nothing is collected, so the scan would be
+     * pointless, but both rows (pel and lag) must still be empty. */
+    if (!server.stream_stats) {
+        static const int64_t empty[MAX_KEYSIZES_BINS] = {0};
+        dbgAssertStreamRow(empty, meta->distrib_cgroups_pel, "distrib_cgroups_pel");
+        dbgAssertStreamRow(empty, meta->distrib_cgroups_lag, "distrib_cgroups_lag");
+    } else {
+        int64_t scan_pel[MAX_KEYSIZES_BINS] = {0};
+        int64_t scan_lag[MAX_KEYSIZES_BINS] = {0};
+
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, db->keys);
+        dictEntry *de;
+        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+            kvobj *kv = dictGetKV(de);
+            if (!kv || kv->type != OBJ_STREAM) continue;
+            stream *s = kv->ptr;
+            if (!s->cgroups) continue;
+
+            raxIterator ri;
+            raxStart(&ri, s->cgroups);
+            raxSeek(&ri, "^", NULL, 0);
+            while (raxNext(&ri)) {
+                streamCG *cg = ri.data;
+                int bin = streamDistribBin((int64_t) raxSize(cg->pel));
+                if (bin >= 0) scan_pel[bin]++;
+                int lbin = streamDistribBin(streamCGLagSample(s, cg));
+                if (lbin >= 0) scan_lag[lbin]++;
+            }
+            raxStop(&ri);
+        }
+        kvstoreIteratorReset(&kvs_it);
+
+        dbgAssertStreamRow(scan_pel, meta->distrib_cgroups_pel, "distrib_cgroups_pel");
+        dbgAssertStreamRow(scan_lag, meta->distrib_cgroups_lag, "distrib_cgroups_lag");
+    }
+}
+
 /* Clean up expired idempotency entries from tracked streams. This function
  * is invoked regularly from serverCron() to remove expired entries
  * from the idmp_dict of streams that have idempotency tracking enabled,

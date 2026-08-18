@@ -52,6 +52,17 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    # Verify the INFO `stream` histograms against a keyspace rebuild after every
+    # command, this suite drives XADD/XTRIM/XDEL/XSETID hardest, whose lag updates go
+    # through streamLagGuard.
+    # Deliberately not tagged needs:debug: that would skip the entire suite where
+    # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
+    # the arming there.
+    if {!$::external && [lsearch $::denytags "needs:debug"] < 0} {
+        r config set stream-stats yes
+        r debug stream-stats-assert 1
+    }
+
     test "XADD wrong number of args" {
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
