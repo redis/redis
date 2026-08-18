@@ -194,6 +194,17 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
             break;
         }
     }
+    /* A '*' matches zero characters, so if the string is exhausted but the
+     * remaining pattern is only '*' (possibly several), it's a match. This
+     * fixes patterns such as "*" not matching the empty string, which
+     * silently dropped empty set/hash/list/zset members during
+     * SCAN ... MATCH *. See redis/redis#15643. */
+    if (stringLen == 0) {
+        while (patternLen && *pattern == '*') {
+            pattern++;
+            patternLen--;
+        }
+    }
     if (patternLen == 0 && stringLen == 0)
         return 1;
     return 0;
