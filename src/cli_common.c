@@ -26,14 +26,6 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <hiredis_ssl.h>
-
-#if CLI_TLS_SUPPORTS_GROUPS
-#if defined(SSL_CTX_set1_groups_list)
-#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
-#else
-#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
-#endif
-#endif
 #endif
 
 #define UNUSED(V) ((void) V)
@@ -88,17 +80,14 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             goto error;
         }
 #endif
-        if (config.groups) {
 #if CLI_TLS_SUPPORTS_GROUPS
+        if (config.groups) {
             if (!cliSslCtxSetGroupsList(ssl_ctx, config.groups)) {
                 *err = "Error while configuring TLS groups";
                 goto error;
             }
-#else
-            *err = "TLS groups are not supported by OpenSSL";
-            goto error;
-#endif
         }
+#endif
     }
 
     SSL *ssl = SSL_new(ssl_ctx);

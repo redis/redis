@@ -14,6 +14,14 @@
 #define CLI_TLS_SUPPORTS_GROUPS 0
 #endif
 
+#if CLI_TLS_SUPPORTS_GROUPS
+#if defined(SSL_CTX_set1_groups_list)
+#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
+#else
+#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
+#endif
+#endif
+
 typedef struct cliSSLconfig {
     /* Requested SNI, or NULL */
     char *sni;
