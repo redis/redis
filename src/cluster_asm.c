@@ -3124,8 +3124,7 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                      * live histogram exactly -- it clamps out-of-range values
                      * and maps "no sample" (a lag that is unknown due to
                      * fragmentation, or a degenerate negative lag) to -1, which
-                     * we skip. Duplicating the binning here previously caused an
-                     * out-of-bounds write on both. */
+                     * we skip. */
                     int bin = streamDistribBin((int64_t) raxSize(cg->pel));
                     if (bin >= 0) trim_job->bg->delta_distrib_cgroups_pel[bin]++;
 
@@ -3173,7 +3172,8 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
             }
         }
-        /* distrib_cgroups_pel is a single-row histogram (not per-type).
+        /* distrib_cgroups_pel and distrib_cgroups_lag are single-row
+         * histograms (not per-type).
          * Apply the delta only if the stream histogram still holds the same
          * generation of samples the job was scheduled against: stream-stats
          * was enabled at schedule (track_stream_stats) and has not been reset
