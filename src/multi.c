@@ -190,11 +190,13 @@ void execCommand(client *c) {
         c->cmd = c->realcmd = c->mstate.commands[j]->cmd;
 
         /* ACL permissions are also checked at the time of execution in case
-         * they were changed after the commands were queued. */
+         * they were changed after the commands were queued. Note we pass the
+         * queued command itself, so that the key permissions are checked against
+         * its keys and not against the EXEC command we are currently running. */
         int acl_errpos;
         int acl_retval = ACL_OK;
         if (!skip_acl_check) {
-            acl_retval = ACLCheckAllPerm(c,&acl_errpos);
+            acl_retval = ACLCheckAllPerm(c,c->mstate.commands[j],&acl_errpos);
         }
         if (acl_retval != ACL_OK) {
             char *reason;

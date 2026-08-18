@@ -4597,7 +4597,7 @@ int processCommand(client *c) {
     /* Check if the user can run this command according to the current
      * ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
+    int acl_retval = ACLCheckAllPerm(c,c->current_pending_cmd,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,(c->flags & CLIENT_MULTI) ? ACL_LOG_CTX_MULTI : ACL_LOG_CTX_TOPLEVEL,acl_errpos,NULL,NULL);
         sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);
@@ -4617,7 +4617,7 @@ int processCommand(client *c) {
     {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-            &c->slot,getClientCachedKeyResult(c),c->read_error,cmd_flags,&error_code);
+            &c->slot,getClientCachedKeyResult(c,c->current_pending_cmd),c->read_error,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
