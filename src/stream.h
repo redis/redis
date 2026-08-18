@@ -35,7 +35,8 @@ extern dictType idmpDictType;
 
 /* INFO `stream` section: per-database stream distribution histograms. Each
  * enumerator selects a per-db histogram (in kvstoreMetadata), so a single
- * update function serves every metric. STREAM_DISTRIB_MAX bounds loops. */
+ * update function serves every metric. STREAM_DISTRIB_MAX marks the end of the
+ * enum, keeping streamDistribHistRow's switch exhaustive. */
 typedef enum {
     STREAM_DISTRIB_CGROUPS_PEL = 0, /* distrib_cgroups_pel */
     STREAM_DISTRIB_CGROUPS_LAG,     /* distrib_cgroups_lag */
@@ -188,9 +189,10 @@ typedef struct streamReplyRangeArgs {
     size_t emitted_before;      /* Entries already emitted before this call. */
 } streamReplyRangeArgs;
 
-/* The scalar stream fields that feed a consumer group's lag (the only ones
- * streamCGLag reads). Snapshotting these lets us compute a group's "old" lag
- * after a mutation without keeping the whole pre-mutation stream around. */
+/* The scalar stream fields that feed a consumer group's lag -- all streamCGLag
+ * needs, directly or through streamEstimateDistanceFromFirstEverEntry.
+ * Snapshotting these lets us compute a group's "old" lag after a mutation
+ * without keeping the whole pre-mutation stream around. */
 typedef struct streamLagInputs {
     uint64_t entries_added;
     uint64_t length;
