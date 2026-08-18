@@ -2498,6 +2498,178 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitop:not:roaring:out bitop:not:roaring:sentinel
     }
 
+    test {BITOP NOT bounds work for compact high-length Roaring bitmaps} {
+        set not_limit [expr {512 * 1024 * 1024}]
+        set byte_len [expr {$not_limit + 1}]
+        set last_bit [expr {$byte_len * 8 - 1}]
+        r config set proto-max-bulk-len $byte_len
+        r config set bitmap-default-roaring yes
+        r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
+            bitop:not:roaring:huge:copy bitop:not:roaring:limit \
+            bitop:not:roaring:limit:dest
+
+        # The exact limit, whose flip endpoint is 2^32 bits, remains valid.
+        set limit_last_bit [expr {$not_limit * 8 - 1}]
+        assert_equal 0 [r setbit bitop:not:roaring:limit $limit_last_bit 0]
+        assert_equal $not_limit [r bitop not bitop:not:roaring:limit:dest \
+            bitop:not:roaring:limit]
+        assert_equal 1 [r getbit bitop:not:roaring:limit:dest 0]
+        assert_equal 1 [r getbit bitop:not:roaring:limit:dest $limit_last_bit]
+        r del bitop:not:roaring:limit bitop:not:roaring:limit:dest
+
+        # SETBIT 0 extends the logical length without allocating a container.
+        # DUMP/RESTORE preserves that length in a compact portable payload even
+        # after the client-visible offset limit is lowered.
+        assert_equal 0 [r setbit bitop:not:roaring:huge $last_bit 0]
+        set payload [r dump bitop:not:roaring:huge]
+        assert_lessthan [string length $payload] 64
+        r del bitop:not:roaring:huge
+        r config set bitmap-default-roaring no
+        r config set proto-max-bulk-len 1048576
+        r restore bitop:not:roaring:huge 0 $payload
+        assert_equal bitmap [r type bitop:not:roaring:huge]
+        assert_lessthan [r memory usage bitop:not:roaring:huge] 65536
+
+        r set bitop:not:roaring:huge:dest keep
+        set dirty [s rdb_changes_since_last_save]
+        assert_error {ERR BITOP NOT result exceeds 512 MiB Roaring bitmap limit} {
+            r bitop not bitop:not:roaring:huge:dest bitop:not:roaring:huge
+        }
+        assert_equal keep [r get bitop:not:roaring:huge:dest]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+
+        # Aliasing is rejected before the source can be replaced. Other BITOPs
+        # retain wide sparse support and preserve the compact logical length.
+        assert_error {ERR BITOP NOT result exceeds 512 MiB Roaring bitmap limit} {
+            r bitop not bitop:not:roaring:huge bitop:not:roaring:huge
+        }
+        assert_equal $byte_len [r bitop or bitop:not:roaring:huge:copy \
+            bitop:not:roaring:huge]
+        assert_equal bitmap [r type bitop:not:roaring:huge:copy]
+        assert_equal 0 [r bitcount bitop:not:roaring:huge:copy]
+        assert_lessthan [r memory usage bitop:not:roaring:huge:copy] 65536
+
+        r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
+            bitop:not:roaring:huge:copy
+        set _ {}
+    } {} {config:restore}
+
+    test {BITOP NOT keeps sparse per-chunk complements compact while building} {
+        set chunks 512
+        set chunk_bits [expr {1 << 16}]
+        set bit_len [expr {$chunks * $chunk_bits}]
+        set byte_len [expr {$bit_len / 8}]
+        r config set bitmap-default-roaring yes
+        r del bitop:not:roaring:arrays bitop:not:roaring:arrays:dest
+
+        # One set bit in every logical chunk creates compact ARRAY containers.
+        # Extending the final byte with zero makes every chunk full-length.
+        set source_bits {}
+        for {set chunk 0} {$chunk < $chunks} {incr chunk} {
+            set within [lindex {0 32768 65535} [expr {$chunk % 3}]]
+            set source_bit [expr {$chunk * $chunk_bits + $within}]
+            lappend source_bits $source_bit
+            assert_equal 0 [r setbit bitop:not:roaring:arrays \
+                $source_bit 1]
+        }
+        assert_equal 0 [r setbit bitop:not:roaring:arrays \
+            [expr {$bit_len - 1}] 0]
+        assert_equal $chunks [r bitcount bitop:not:roaring:arrays]
+        assert_lessthan [r memory usage bitop:not:roaring:arrays] 1048576
+
+        set track_allocations [expr {
+            [string match {*jemalloc*} [s mem_allocator]] &&
+            ![catch {r debug mallctl thread.allocated} allocated_before]
+        }]
+        assert_equal $byte_len [r bitop not bitop:not:roaring:arrays:dest \
+            bitop:not:roaring:arrays]
+        if {$track_allocations} {
+            set allocated_after [r debug mallctl thread.allocated]
+            assert_lessthan [expr {$allocated_after - $allocated_before}] \
+                [expr {2 * 1024 * 1024}]
+        }
+
+        assert_equal 0 [r getbit bitop:not:roaring:arrays:dest 0]
+        assert_equal 1 [r getbit bitop:not:roaring:arrays:dest 1]
+        assert_equal 1 [r getbit bitop:not:roaring:arrays:dest \
+            [expr {$bit_len - 1}]]
+        assert_equal [expr {$bit_len - $chunks}] \
+            [r bitcount bitop:not:roaring:arrays:dest]
+        assert_lessthan [r memory usage bitop:not:roaring:arrays:dest] 1048576
+
+        set reads [list bitfield_ro bitop:not:roaring:arrays:dest]
+        foreach source_bit $source_bits {
+            lappend reads get u1 $source_bit
+        }
+        assert_equal [lrepeat $chunks 0] [r {*}$reads]
+
+        r del bitop:not:roaring:arrays bitop:not:roaring:arrays:dest
+        set _ {}
+    } {} {config:restore}
+
+    test {BITOP NOT complements every Roaring container type and a partial tail} {
+        set raw [binary format H* 80]
+        append raw [string repeat [binary format H* 00] 8191]
+        append raw [string repeat [binary format H* ff] 8192]
+        append raw [string repeat [binary format H* aa] 8192]
+        append raw [binary format H* 80]
+        append raw [string repeat [binary format H* 00] 16]
+
+        r del bitop:not:containers:string bitop:not:containers:roaring \
+            bitop:not:containers:string:dest bitop:not:containers:roaring:dest
+        r set bitop:not:containers:string $raw
+        r set bitop:not:containers:roaring $raw
+        convert_string_bitmap_to_roaring r bitop:not:containers:roaring
+
+        set string_len [r bitop not bitop:not:containers:string:dest \
+            bitop:not:containers:string]
+        set roaring_len [r bitop not bitop:not:containers:roaring:dest \
+            bitop:not:containers:roaring]
+        assert_equal $string_len $roaring_len
+        assert_equal $string_len [string length $raw]
+        assert_equal [r get bitop:not:containers:string:dest] \
+            [r debug bitmap-raw bitop:not:containers:roaring:dest]
+        assert_equal bitmap [r type bitop:not:containers:roaring:dest]
+
+        r del bitop:not:containers:string bitop:not:containers:roaring \
+            bitop:not:containers:string:dest bitop:not:containers:roaring:dest
+    }
+
+    test {BITOP NOT avoids RUN churn for fragmented ARRAY containers} {
+        set chunks 256
+        set chunk_bytes 8192
+        set source_cardinality [expr {$chunks * 2048}]
+        set raw_chunk [string repeat [binary format H* 80000000] 2048]
+        set raw [string repeat $raw_chunk $chunks]
+        r del bitop:not:fragmented bitop:not:fragmented:dest
+        r set bitop:not:fragmented $raw
+        convert_string_bitmap_to_roaring r bitop:not:fragmented
+        unset raw raw_chunk
+
+        assert_equal $source_cardinality [r bitcount bitop:not:fragmented]
+        assert_lessthan [r memory usage bitop:not:fragmented] \
+            [expr {2 * 1024 * 1024}]
+        set track_allocations [expr {
+            [string match {*jemalloc*} [s mem_allocator]] &&
+            ![catch {r debug mallctl thread.allocated} allocated_before]
+        }]
+
+        set byte_len [expr {$chunks * $chunk_bytes}]
+        assert_equal $byte_len [r bitop not bitop:not:fragmented:dest \
+            bitop:not:fragmented]
+        if {$track_allocations} {
+            set allocated_after [r debug mallctl thread.allocated]
+            assert_lessthan [expr {$allocated_after - $allocated_before}] \
+                [expr {6 * 1024 * 1024}]
+        }
+        assert_equal [expr {$byte_len * 8 - $source_cardinality}] \
+            [r bitcount bitop:not:fragmented:dest]
+        assert_lessthan [r memory usage bitop:not:fragmented:dest] \
+            [expr {4 * 1024 * 1024}]
+
+        r del bitop:not:fragmented bitop:not:fragmented:dest
+    }
+
     test {non-NOT Roaring BITOP survives lowering proto-max-bulk-len} {
         set limit 1048576
         set oldval [config_get_set proto-max-bulk-len [expr {$limit + 1}]]
@@ -3204,3 +3376,33 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
         r del bitmap:checkrdb:sparse bitmap:checkrdb:dense
     }
 }
+
+run_solo {bitroar-large-memory} {
+start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
+    test {BITOP NOT over the Roaring limit still works for plain string sources} {
+        set not_limit [expr {512 * 1024 * 1024}]
+        set byte_len [expr {$not_limit + 1}]
+        r config set proto-max-bulk-len [expr {$byte_len + 16}]
+        r config set bitmap-default-roaring yes
+        r del bitop:not:string:src bitop:not:string:dest
+
+        # The source itself already occupies memory proportional to the work,
+        # so the sparse Roaring amplification limit does not apply.
+        assert_equal $byte_len [r setrange bitop:not:string:src \
+            [expr {$byte_len - 1}] [binary format H* 80]]
+        assert_equal string [r type bitop:not:string:src]
+
+        assert_equal $byte_len [r bitop not bitop:not:string:dest \
+            bitop:not:string:src]
+        assert_equal bitmap [r type bitop:not:string:dest]
+        assert_equal 1 [r getbit bitop:not:string:dest 0]
+        assert_equal 0 [r getbit bitop:not:string:dest \
+            [expr {($byte_len - 1) * 8}]]
+        assert_equal [expr {$byte_len * 8 - 1}] \
+            [r bitcount bitop:not:string:dest]
+
+        r del bitop:not:string:src bitop:not:string:dest
+        set _ {}
+    } {} {large-memory config:restore}
+}
+} ;# run_solo
