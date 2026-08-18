@@ -1971,21 +1971,23 @@ static stream streamFromLagInputs(streamLagInputs *in) {
     };
 }
 
-/* Guard for operations that change stream-wide lag inputs (entries_added,
- * length, first_id, max_deleted_entry_id) and so shift the lag of every consumer
- * group at once: the XADD, XTRIM, XDEL, XACKDEL, XDELEX and XSETID commands, and
- * the equivalent module APIs (RM_StreamAdd, RM_StreamDelete,
- * RM_StreamIteratorDelete, RM_StreamTrimByLength, RM_StreamTrimByID). Call
- * streamLagGuardBegin() before the mutation to snapshot those inputs, then
- * streamLagGuardEnd() after to move each group's sample from its old lag
- * (computed from the snapshot) to its new lag. The group's own
- * last_id/entries_read are unchanged by these ops, so the same 'cg' is used for
- * both. Gated on stream-stats; O(groups) only when enabled.
+/* Guard for operations that rewrite the stream's own lag inputs (entries_added,
+ * length, first_id, last_id, max_deleted_entry_id) and so shift every consumer
+ * group's lag at once: XADD, XTRIM, XDEL, XACKDEL, XDELEX and the module APIs
+ * RM_StreamAdd / RM_StreamDelete / RM_StreamIteratorDelete / RM_StreamTrimBy*.
+ * Begin() before the mutation, End() after. Gated on stream-stats; O(groups) only
+ * when enabled.
  *
- * The guard belongs at the entry point (command handler or module API), not
- * inside the shared helpers those paths call -- streamAppendItem and
- * streamDeleteItem are reached from both, so a guard pushed down into them would
- * double-count against the command-level guards. */
+ * Only the stream half is snapshotted -- the group half (entries_read, last_id) is
+ * read live at End -- so the body must not touch either, or the old lag is computed
+ * from mismatched state and the group is counted twice. If it does, bracket with
+ * streamUpdateCGroupsLagAll(db, s, 0/1) instead (remove all, mutate, re-add), as
+ * xsetidCommand does. If instead only one group's own counters move and nothing
+ * stream-wide does (XGROUP SETID, XCLAIM ... LASTID, XREADGROUP), skip the guard
+ * and sample that group's lag before and after.
+ *
+ * Keep it at the entry point: streamAppendItem and streamDeleteItem are shared with
+ * the command paths, so a guard pushed into them would double-count. */
 void streamLagGuardBegin(streamLagGuard *g, stream *s) {
     g->active = server.stream_stats && s->cgroups && raxSize(s->cgroups);
     if (g->active) streamLagInputsSnapshot(&g->pre, s);
@@ -4053,9 +4055,13 @@ void xsetidCommand(client *c) {
     }
 
     /* XSETID can change entries_added / last_id / max_deleted_entry_id, all of
-     * which feed every consumer group's lag. */
-    streamLagGuard lag_guard;
-    streamLagGuardBegin(&lag_guard, s);
+     * which feed every consumer group's lag -- and the entries_read clamp below
+     * moves per-group state as well. streamLagGuard is not usable here: it
+     * reconstructs each old lag from a snapshot of the stream's scalars combined
+     * with the group's *live* counters, so it is only correct while the group's
+     * own counters stay put. Drop every group's sample and re-add it afterwards
+     * instead, which is correct whatever the body below changes. */
+    streamUpdateCGroupsLagAll(c->db, s, 0);
     s->last_id = id;
     if (entries_added != -1) {
         uint64_t prev_entries_added = s->entries_added;
@@ -4086,7 +4092,7 @@ void xsetidCommand(client *c) {
     }
     if (!streamIDEqZero(&max_xdel_id))
         s->max_deleted_entry_id = max_xdel_id;
-    streamLagGuardEnd(&lag_guard, c->db, s);
+    streamUpdateCGroupsLagAll(c->db, s, 1);
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
