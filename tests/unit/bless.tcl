@@ -115,7 +115,7 @@ start_server {tags {"bless"}} {
         assert_equal 1 [r bless count]
         r flushall
         r select 9
-    }
+    } {OK} {cluster:skip}
 
     test {BLESS survives DEBUG RELOAD (RDB round-trip)} {
         r flushall
@@ -130,7 +130,7 @@ start_server {tags {"bless"}} {
         assert_equal {NO-EVICT} [r bless get b]
         assert_equal {NONE}     [r bless get c]
         assert_equal 1 [r get a]
-    }
+    } {} {needs:debug}
 
     test {BLESS survives DUMP/RESTORE} {
         r flushall
@@ -176,7 +176,7 @@ start_server {tags {"bless"}} {
         r debug reload
         assert_equal {NO-EVICT} [r bless get a]
         assert {[r ttl a] > 0}
-    }
+    } {} {needs:debug}
 
     test {BLESS NONE is the reset sentinel and is not persisted} {
         r flushall
