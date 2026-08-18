@@ -127,9 +127,10 @@ unsigned long streamLength(const robj *subject) {
  * INFO `stream` statistics
  *
  * Per-database base-2 logarithmic histograms of stream properties, reported by
- * the INFO `stream` section (e.g. distrib_cgroups_pel). They are maintained
- * directly from the stream commands that change the tracked property and from
- * the stream key lifecycle hooks (streamKeyLoaded / streamKeyRemoved).
+ * the INFO `stream` section (distrib_cgroups_pel, distrib_cgroups_lag). They are
+ * maintained directly from the stream commands and module APIs that change the
+ * tracked property, from the stream key lifecycle hooks (streamKeyLoaded /
+ * streamKeyRemoved), and from the async slot-trim delta path (lazyfree.c).
  *
  * An update moves one sample from the bin for the property's old value to the
  * bin for its new value; the caller passes both (either may be -1, meaning "no
@@ -164,9 +165,10 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
 
 /* Map a stream property value to its histogram bin, matching the keysizes
  * histogram: 0 -> bin 0, otherwise log2ceil(value)+1. A negative value means
- * "no sample" and maps to -1 (used when a sample enters or leaves, and also for
- * a degenerate negative lag -- entries_read pushed above entries_added -- which
- * has no histogram bucket and is excluded like XINFO's absent lag).
+ * "no sample" and maps to -1 (used when a sample enters or leaves, and
+ * defensively for a negative lag -- entries_read above entries_added -- which has
+ * no bucket and is excluded like XINFO's absent lag; XSETID clamps entries_read
+ * and RDB load rejects the state, so it should not arise).
  *
  * The bin is clamped to the last bin: unlike key sizes, some samples aren't
  * physically bounded -- e.g. a consumer group's lag is entries_added minus
@@ -1930,7 +1932,8 @@ static int64_t streamCGLagSample(stream *s, streamCG *cg) {
 
 /* Add (adding=1) or remove (adding=0) every consumer group of stream 's' from
  * the per-db distrib_cgroups_lag histogram. Mirrors streamUpdateCGroupsPelAll;
- * used by the stream key lifecycle hooks (load / removal). */
+ * used by the stream key lifecycle hooks (load / removal) and by xsetidCommand,
+ * which moves stream-wide and per-group lag inputs together. */
 static void streamUpdateCGroupsLagAll(redisDb *db, stream *s, int adding) {
     if (!server.stream_stats || !s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;

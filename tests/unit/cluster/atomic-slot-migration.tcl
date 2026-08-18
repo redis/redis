@@ -332,10 +332,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     # asmTrimCtx, caught under AddressSanitizer. A lag beyond the range is
     # reachable with a small entries_read and a huge entries_added (XSETID
     # ENTRIESADDED), which stays valid for migration (entries_read <=
-    # entries_added, so RDB/RESTORE accepts it). (A negative lag can't be
-    # exercised here: entries_read > entries_added is rejected on load, so such a
-    # stream can't be migrated; that case is covered on the live path in
-    # tests/unit/info-stream.tcl.)
+    # entries_added, so RDB/RESTORE accepts it). A negative lag cannot be
+    # exercised at all: XSETID clamps entries_read down to entries_added, and a
+    # stream that already breaks the invariant is rejected on load, so it cannot
+    # be migrated either. streamDistribBin() still maps it to "no sample"
+    # defensively.
     test "Slot bg-trim bins an out-of-range lag safely" {
         R 0 debug asm-trim-method bg
         R 0 flushall
