@@ -2,6 +2,15 @@ set testmodule [file normalize tests/modules/stream.so]
 
 start_server {tags {"modules external:skip"}} {
     r module load $testmodule
+    # Verify the INFO `stream` histograms against a keyspace rebuild after every
+    # command, so the module-API tests below also cover their bookkeeping.
+    # Deliberately not tagged needs:debug: that would skip the entire suite where
+    # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
+    # the arming there.
+    if {!$::external && [lsearch $::denytags "needs:debug"] < 0} {
+        r config set stream-stats yes
+        r debug stream-stats-assert 1
+    }
 
     test {Module stream add and delete} {
         r del mystream
