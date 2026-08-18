@@ -377,17 +377,50 @@ proc test_all_stream_stats { {replMode 0} } {
         assert_equal PONG [$server ping] ;# no crash / corruption
     }
 
-    test "STREAM-STATS - negative lag (entries_read > entries_added) is excluded $suffix" {
+    test "STREAM-STATS - XSETID clamping entries_read keeps the lag sample $suffix" {
         verify_lag {$server FLUSHALL} {}
         seed_stream $server st 10
         $server xgroup create st g 0
         $server xgroup setid st g 10-1 entriesread 10 ;# read pos at tail, entries_read=10
-        $server xtrim st maxlen 2                     ;# entries_added stays 10
-        # Dropping entries_added below the group's entries_read makes lag negative
-        # (3 - 10). A negative lag has no histogram bucket, so the group is
-        # excluded -- as on the live path, streamDistribBin maps it to "no
-        # sample" -- rather than feeding a negative into log2ceil (a heap OOB).
-        verify_lag {$server xsetid st 10-1 entriesadded 3} {}
+        verify_lag {$server xtrim st maxlen 2} {db0_LAG:0=1} ;# entries_added stays 10
+        # Dropping entries_added below the group's entries_read would make the lag
+        # negative (3 - 10), so XSETID clamps entries_read down to entries_added.
+        # That clamp is a per-group change made *inside* the stream-wide lag guard's
+        # window, which breaks the guard's premise that a group's own entries_read
+        # is untouched -- the old lag would be recomputed against the already
+        # clamped counter and the sample counted twice (0=2). The clamp therefore
+        # accounts for its own lag movement, leaving exactly one sample.
+        verify_lag {$server xsetid st 10-1 entriesadded 3} {db0_LAG:0=1}
+        verify_lag {} {__EVAL__ 0} ;# and it agrees with XINFO GROUPS
+        assert_equal PONG [$server ping]
+    }
+
+    test "STREAM-STATS - XSETID clamps only the groups that need it $suffix" {
+        # The clamp walks every group, so cover a mixed stream: one group above the
+        # new entries_added (clamped, and thus accounting for its own lag move) and
+        # one below it (untouched, so the guard alone must move its sample).
+        #
+        # The numbers matter. If the clamp runs inside the guard's window, the old
+        # lag is recomputed as entries_added(12) - clamped entries_read(4) = 8, and
+        # the guard decrements that bin instead of the group's real one. entriesread
+        # 11 puts g0's true old lag at 1, a *different* bin from 8, so the bogus
+        # decrement misses and g0's stale sample survives alongside its new one.
+        # Pick entriesread 8 instead and the wrong value (12-6=6) shares bin "4"
+        # with the right one (12-8=4), the decrement lands correctly by accident,
+        # and the test proves nothing.
+        verify_lag {$server FLUSHALL} {}
+        seed_stream $server st 12
+        $server xgroup create st g0 0
+        $server xgroup create st g1 0
+        $server xgroup setid st g0 12-1 entriesread 11 ;# above the new entries_added
+        $server xgroup setid st g1 3-1 entriesread 3   ;# below it, must stay as is
+        verify_lag {$server xtrim st maxlen 2} {db0_LAG:1=1,2=1}
+        # g0 is clamped to 4 (lag 0); g1 keeps entries_read 3 (lag stays at the live
+        # length, 2). Double-counting the clamp leaves g0's old "1" sample behind.
+        verify_lag {$server xsetid st 12-1 entriesadded 4} {db0_LAG:0=1,2=1}
+        verify_lag {} {__EVAL__ 0}
+        assert_equal 4 [dict get [lindex [$server xinfo groups st] 0] entries-read]
+        assert_equal 3 [dict get [lindex [$server xinfo groups st] 1] entries-read]
         assert_equal PONG [$server ping]
     }
 
