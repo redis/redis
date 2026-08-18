@@ -2124,8 +2124,19 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
             RedisModule_Free(params);
             goto ioerr;
         }
+        /* Element names must be unique. DictSet is try-insert (not replace):
+         * a failed insert would leave an HNSW node with no name map entry,
+         * so VCARD (node_count) would disagree with the dict. Reject as
+         * corruption. Node is already linked into the HNSW list; free via
+         * object teardown on ioerr. Only free the temporary RDB buffers. */
+        if (RedisModule_DictSet(vset->dict,ele,node) != REDISMODULE_OK) {
+            RedisModule_LogIOError(rdb,"warning",
+                                       "Duplicate vector set element name");
+            RedisModule_Free(vector);
+            RedisModule_Free(params);
+            goto ioerr;
+        }
         if (nv->attrib) vset->numattribs++;
-        RedisModule_DictSet(vset->dict,ele,node);
         RedisModule_Free(vector);
         RedisModule_Free(params);
     }
@@ -2133,6 +2144,13 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     uint64_t salt[2];
     RedisModule_GetRandomBytes((unsigned char*)salt,sizeof(salt));
     if (!hnsw_deserialize_index(vset->hnsw, salt[0], salt[1])) goto ioerr;
+
+    /* Final invariant: every HNSW node is reachable by name and vice versa. */
+    if (RedisModule_DictSize(vset->dict) != vset->hnsw->node_count) {
+        RedisModule_LogIOError(rdb,"warning",
+                                   "Vector set name map / graph size mismatch");
+        goto ioerr;
+    }
 
     return vset;
 
