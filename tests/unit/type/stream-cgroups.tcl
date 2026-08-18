@@ -1,6 +1,16 @@
 start_server {
     tags {"stream"}
 } {
+    # Verify the INFO `stream` histograms against a keyspace rebuild after every
+    # command, so this whole suite doubles as coverage for their bookkeeping.
+    # Deliberately not tagged needs:debug: that would skip the entire suite where
+    # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
+    # the arming there.
+    if {!$::external && [lsearch $::denytags "needs:debug"] < 0} {
+        r config set stream-stats yes
+        r debug stream-stats-assert 1
+    }
+
     test {XGROUP CREATE: creation and duplicate group name detection} {
         r DEL mystream
         r XADD mystream * foo bar

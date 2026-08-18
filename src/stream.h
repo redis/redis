@@ -255,6 +255,8 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 int streamCGLag(stream *s, streamCG *cg, long long *lag);
 int streamDistribBin(int64_t value);
+void streamStatsRebuild(void);
+void dbgAssertStreamStats(redisDb *db);
 void streamLagGuardBegin(streamLagGuard *g, stream *s);
 void streamLagGuardEnd(streamLagGuard *g, redisDb *db, stream *s);
 
