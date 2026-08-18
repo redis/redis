@@ -330,6 +330,15 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_lag {$server xgroup create st g 0} {db0_LAG:8=1}
         verify_lag {$server xgroup setid st g $} {db0_LAG:0=1} ;# jump to tail -> lag 0
         verify_lag {$server xgroup setid st g 0} {db0_LAG:8=1} ;# back to head -> lag 8
+        # ENTRIESREAD above entries_added is clamped down to it. Unlike XSETID's
+        # clamp, this one adjusts the parsed argument before it ever reaches
+        # cg->entries_read, and the old lag here is sampled directly rather than
+        # reconstructed -- so the sample moves once (8 -> 0) instead of being
+        # duplicated. Do not convert this path to streamLagGuard: XGROUP SETID
+        # changes the group's own counters, which is precisely what the guard
+        # cannot reconstruct an old lag across.
+        verify_lag {$server xgroup setid st g 8-1 entriesread 999} {db0_LAG:0=1}
+        verify_lag {} {__EVAL__ 0}
         verify_lag {$server xgroup destroy st g} {}
     }
 
