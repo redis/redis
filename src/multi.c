@@ -197,6 +197,7 @@ void execCommand(client *c) {
             acl_retval = ACLCheckAllPerm(c,&acl_errpos);
         }
         if (acl_retval != ACL_OK) {
+            consumeBitopModeOnRejectedCommand(c);
             char *reason;
             switch (acl_retval) {
             case ACL_DENIED_CMD:

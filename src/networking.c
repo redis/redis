@@ -2181,7 +2181,8 @@ void clearClientConnectionState(client *c) {
     
     /* Selectively clear state flags not covered above */
     c->flags &= ~(CLIENT_ASKING|CLIENT_READONLY|CLIENT_REPLY_OFF|
-                  CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT);
+                  CLIENT_REPLY_SKIP_NEXT|CLIENT_NO_TOUCH|CLIENT_NO_EVICT|
+                  CLIENT_BITOP_ROARING);
 }
 
 void deauthenticateAndCloseClient(client *c) {
