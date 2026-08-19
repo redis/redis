@@ -3920,6 +3920,7 @@ void freeMemoryOverheadData(struct redisMemOverhead *mh);
 void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
+void consumeBitopModeOnRejectedCommand(client *c);
 void *activeDefragAlloc(void *ptr);
 sds activeDefragSds(sds sdsptr);
 void *activeDefragAllocRaw(size_t size);

@@ -4306,7 +4306,7 @@ void call(client *c, int flags) {
  * it aborts the transaction.
  * The duration is reset, since we reject the command, and it did not record.
  * Note: 'reply' is expected to end with \r\n */
-static void consumeBitopModeOnRejectedCommand(client *c) {
+void consumeBitopModeOnRejectedCommand(client *c) {
     if (c->cmd && c->cmd->proc == bitopCommand)
         c->flags &= ~CLIENT_BITOP_ROARING;
 }
