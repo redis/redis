@@ -209,23 +209,24 @@ static void streamUpdateStat(redisDb *db, streamDistribMetric metric, int64_t ol
     if (new_bin >= 0) hist[new_bin]++;
 }
 
-/* Add (adding=1) or remove (adding=0) every consumer group of stream 's' from
- * the per-db distrib_cgroups_pel histogram. Used by the stream key lifecycle
- * hooks (streamKeyLoaded / streamKeyRemoved), where a whole stream's worth of
- * groups appears or vanishes at once (RDB/replica load, RESTORE, COPY, MOVE,
- * DEBUG RELOAD, key deletion). */
-static void streamUpdateCGroupsPelAll(redisDb *db, stream *s, int adding) {
+/* Add (adding=1) or remove (adding=0) every consumer group of stream 's' from the
+ * per-db histogram for 'metric'. Used by the stream key lifecycle hooks
+ * (streamKeyLoaded / streamKeyRemoved), where a whole stream's worth of groups
+ * appears or vanishes at once (RDB/replica load, RESTORE, COPY, MOVE, DEBUG
+ * RELOAD, key deletion), by streamStatsRebuild(), and by xsetidCommand, which
+ * moves stream-wide and per-group lag inputs together. */
+static void streamUpdateCGroupsAll(redisDb *db, stream *s, streamDistribMetric metric, int adding) {
     if (!server.stream_stats || !s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;
     raxStart(&ri, s->cgroups);
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
         streamCG *cg = ri.data;
-        int64_t pel = (int64_t) raxSize(cg->pel);
+        int64_t sample = streamCGroupSample(s, cg, metric);
         if (adding)
-            streamUpdateStat(db, STREAM_DISTRIB_CGROUPS_PEL, -1, pel);
+            streamUpdateStat(db, metric, -1, sample);
         else
-            streamUpdateStat(db, STREAM_DISTRIB_CGROUPS_PEL, pel, -1);
+            streamUpdateStat(db, metric, sample, -1);
     }
     raxStop(&ri);
 }
@@ -1930,24 +1931,18 @@ static int64_t streamCGLagSample(stream *s, streamCG *cg) {
     return streamCGLag(s, cg, &lag) ? (int64_t) lag : -1;
 }
 
-/* Add (adding=1) or remove (adding=0) every consumer group of stream 's' from
- * the per-db distrib_cgroups_lag histogram. Mirrors streamUpdateCGroupsPelAll;
- * used by the stream key lifecycle hooks (load / removal) and by xsetidCommand,
- * which moves stream-wide and per-group lag inputs together. */
-static void streamUpdateCGroupsLagAll(redisDb *db, stream *s, int adding) {
-    if (!server.stream_stats || !s->cgroups || !raxSize(s->cgroups)) return;
-    raxIterator ri;
-    raxStart(&ri, s->cgroups);
-    raxSeek(&ri, "^", NULL, 0);
-    while (raxNext(&ri)) {
-        streamCG *cg = ri.data;
-        int64_t sample = streamCGLagSample(s, cg);
-        if (adding)
-            streamUpdateStat(db, STREAM_DISTRIB_CGROUPS_LAG, -1, sample);
-        else
-            streamUpdateStat(db, STREAM_DISTRIB_CGROUPS_LAG, sample, -1);
+/* The histogram sample for one consumer group under 'metric': its PEL size, or
+ * its lag (-1 for "no sample", see streamCGLagSample). One definition so the live
+ * path, the key lifecycle hooks, the async slot-trim delta (lazyfree.c) and the
+ * debug assertion cannot drift apart -- duplicating the binning across two of
+ * those is what previously let an out-of-range value through. */
+int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) {
+    switch (metric) {
+    case STREAM_DISTRIB_CGROUPS_PEL: return (int64_t) raxSize(cg->pel);
+    case STREAM_DISTRIB_CGROUPS_LAG: return streamCGLagSample(s, cg);
+    case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
-    raxStop(&ri);
+    return -1; /* unreachable: every metric has a case above */
 }
 
 /* streamLagInputs (the scalar stream fields streamCGLag reads) and
@@ -4064,7 +4059,7 @@ void xsetidCommand(client *c) {
      * with the group's *live* counters, so it is only correct while the group's
      * own counters stay put. Drop every group's sample and re-add it afterwards
      * instead, which is correct whatever the body below changes. */
-    streamUpdateCGroupsLagAll(c->db, s, 0);
+    streamUpdateCGroupsAll(c->db, s, STREAM_DISTRIB_CGROUPS_LAG, 0);
     s->last_id = id;
     if (entries_added != -1) {
         uint64_t prev_entries_added = s->entries_added;
@@ -4095,7 +4090,7 @@ void xsetidCommand(client *c) {
     }
     if (!streamIDEqZero(&max_xdel_id))
         s->max_deleted_entry_id = max_xdel_id;
-    streamUpdateCGroupsLagAll(c->db, s, 1);
+    streamUpdateCGroupsAll(c->db, s, STREAM_DISTRIB_CGROUPS_LAG, 1);
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
@@ -6512,8 +6507,8 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
      * (RDB/replica load, DEBUG RELOAD, RESTORE, COPY, MOVE), so count each of
      * its consumer groups in the INFO `stream` histograms; mirror of
      * streamKeyRemoved. */
-    streamUpdateCGroupsPelAll(db, s, 1);
-    streamUpdateCGroupsLagAll(db, s, 1);
+    streamUpdateCGroupsAll(db, s, STREAM_DISTRIB_CGROUPS_PEL, 1);
+    streamUpdateCGroupsAll(db, s, STREAM_DISTRIB_CGROUPS_LAG, 1);
     if (s->idmp_producers != NULL) {
         robj *tracked_key = key;
         if (key->refcount == OBJ_STATIC_REFCOUNT)
@@ -6530,8 +6525,8 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
 void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
     /* Drop every consumer group of this stream from the INFO `stream`
      * histograms (mirror of streamKeyLoaded). */
-    streamUpdateCGroupsPelAll(db, val->ptr, 0);
-    streamUpdateCGroupsLagAll(db, val->ptr, 0);
+    streamUpdateCGroupsAll(db, val->ptr, STREAM_DISTRIB_CGROUPS_PEL, 0);
+    streamUpdateCGroupsAll(db, val->ptr, STREAM_DISTRIB_CGROUPS_LAG, 0);
     dictDelete(db->stream_idmp_keys, key);
 }
 
@@ -6564,8 +6559,8 @@ void streamStatsRebuild(void) {
         while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             kvobj *kv = dictGetKV(de);
             if (!kv || kv->type != OBJ_STREAM) continue;
-            streamUpdateCGroupsPelAll(db, kv->ptr, 1);
-            streamUpdateCGroupsLagAll(db, kv->ptr, 1);
+            streamUpdateCGroupsAll(db, kv->ptr, STREAM_DISTRIB_CGROUPS_PEL, 1);
+            streamUpdateCGroupsAll(db, kv->ptr, STREAM_DISTRIB_CGROUPS_LAG, 1);
         }
         kvstoreIteratorReset(&kvs_it);
     }
@@ -6622,9 +6617,9 @@ void dbgAssertStreamStats(redisDb *db) {
             raxSeek(&ri, "^", NULL, 0);
             while (raxNext(&ri)) {
                 streamCG *cg = ri.data;
-                int bin = streamDistribBin((int64_t) raxSize(cg->pel));
+                int bin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_PEL));
                 if (bin >= 0) scan_pel[bin]++;
-                int lbin = streamDistribBin(streamCGLagSample(s, cg));
+                int lbin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_LAG));
                 if (lbin >= 0) scan_lag[lbin]++;
             }
             raxStop(&ri);
