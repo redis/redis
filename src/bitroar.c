@@ -1501,12 +1501,109 @@ static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSource *source) {
     return copy;
 }
 
+/* Return whether complementing this borrowed Roaring source stays within the
+ * missing-chunk allocation budget. Every nonempty ART leaf accounts for one
+ * logical chunk that NOT does not have to create from nothing. Stop once
+ * enough leaves have been seen, so rejecting a huge sparse value is
+ * proportional to its resident containers rather than its logical length. */
+int bitroarBitopNotWithinMissingChunkLimit(const robj *o) {
+    bitroar *bitmap = bitroarGet(o);
+    if (bitmap->byte_len == 0) return 1;
+
+    uint64_t logical_chunks = ((bitmap->byte_len - 1) >> 13) + 1;
+    if (logical_chunks <= BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS) return 1;
+
+    uint64_t required_present =
+        logical_chunks - BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS;
+    uint64_t present = 0;
+    art_iterator_t it = art_init_iterator(&bitmap->roaring->art, true);
+    while (it.value != NULL && present < required_present) {
+        present++;
+        art_iterator_next(&it);
+    }
+    return present == required_present;
+}
+
+static uint32_t bitroarNotChunkEnd(uint64_t high48, uint64_t last_high48,
+                                   uint64_t bit_len)
+{
+    if (high48 != last_high48) return 1U << 16;
+    return (uint32_t)(bit_len - (high48 << 16));
+}
+
 /* CRoaring negates an ARRAY container by first expanding it to an 8 KiB
  * BITSET. A compact source with one ARRAY container per logical chunk would
  * retain all of those bitsets until the final run-optimization pass. Build a
  * borrowed source's complement one chunk at a time instead, using a temporary
  * RUN only when the complement's run representation is smaller than the
  * direct ARRAY or BITSET result. */
+static void bitroarAppendNotChunk(roaring64_bitmap_t *result,
+                                  const roaring64_bitmap_t *source,
+                                  const roaring64_leaf_t *leaf,
+                                  uint64_t high48, uint32_t chunk_end)
+{
+    container_t *complement;
+    uint8_t complement_type;
+
+    if (leaf == NULL) {
+        complement = container_range_of_ones(0, chunk_end, &complement_type);
+    } else {
+        uint8_t source_type = roaring64_leaf_typecode(*leaf);
+        const container_t *source_container =
+            source->containers[roaring64_leaf_index(*leaf)];
+        source_container = container_unwrap_shared(source_container, &source_type);
+
+        if (source_type == ARRAY_CONTAINER_TYPE) {
+            const array_container_t *source_array =
+                const_CAST_array(source_container);
+            serverAssert(source_array->cardinality > 0);
+            serverAssert(source_array->array[
+                source_array->cardinality - 1] < chunk_end);
+
+            int32_t complement_cardinality =
+                (int32_t)chunk_end - source_array->cardinality;
+            int32_t complement_runs =
+                array_container_number_of_runs(source_array) + 1;
+            if (source_array->array[0] == 0) complement_runs--;
+            if (source_array->array[source_array->cardinality - 1] ==
+                chunk_end - 1)
+                complement_runs--;
+            serverAssert(complement_cardinality >= 0);
+            serverAssert(complement_runs >= 0);
+
+            int32_t direct_size = complement_cardinality <= DEFAULT_MAX_SIZE ?
+                array_container_serialized_size_in_bytes(
+                    complement_cardinality) :
+                bitset_container_serialized_size_in_bytes();
+            int32_t run_size =
+                run_container_serialized_size_in_bytes(complement_runs);
+
+            if (run_size < direct_size) {
+                run_container_t *source_run =
+                    run_container_from_array(source_array);
+                serverAssert(source_run != NULL);
+                complement_type = (uint8_t)run_container_negation_range(
+                    source_run, 0, chunk_end, &complement);
+                run_container_free(source_run);
+            } else {
+                complement = container_not_range(source_container, source_type,
+                                                 0, chunk_end,
+                                                 &complement_type);
+            }
+        } else {
+            complement = container_not_range(source_container, source_type,
+                                             0, chunk_end, &complement_type);
+        }
+    }
+
+    serverAssert(complement != NULL);
+    if (container_nonzero_cardinality(complement, complement_type)) {
+        bitroarAppendContainer(result, high48, complement, complement_type);
+    } else {
+        container_free(complement, complement_type);
+    }
+}
+
 static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
                                               uint64_t bit_len)
 {
@@ -1514,83 +1611,34 @@ static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
     serverAssert(result != NULL);
     if (bit_len == 0) return result;
 
+    serverAssert(source->roaring != NULL);
     uint64_t last_high48 = (bit_len - 1) >> 16;
-    for (uint64_t high48 = 0; high48 <= last_high48; high48++) {
-        uint64_t chunk_start = high48 << 16;
-        uint64_t remaining = bit_len - chunk_start;
-        uint32_t chunk_end = remaining < (1U << 16) ?
-            (uint32_t)remaining : (1U << 16);
-        container_t *complement;
-        uint8_t complement_type;
+    uint64_t next_high48 = 0;
+    art_iterator_t it = art_init_iterator(
+        (art_t *)&source->roaring->art, true);
 
-        roaring64_leaf_t *leaf = NULL;
-        if (source->roaring != NULL) {
-            art_key_chunk_t key[ART_KEY_BYTES];
-            bitroarArtKeyFromHigh48(high48, key);
-            leaf = (roaring64_leaf_t *)art_find(&source->roaring->art, key);
+    while (it.value != NULL) {
+        uint64_t source_high48 = bitroarArtKeyToHigh48(it.key);
+        if (source_high48 > last_high48) break;
+        serverAssert(source_high48 >= next_high48);
+
+        while (next_high48 < source_high48) {
+            bitroarAppendNotChunk(result, source->roaring, NULL, next_high48,
+                bitroarNotChunkEnd(next_high48, last_high48, bit_len));
+            next_high48++;
         }
 
-        if (leaf == NULL) {
-            complement = container_range_of_ones(0, chunk_end,
-                                                  &complement_type);
-        } else {
-            uint8_t source_type = roaring64_leaf_typecode(*leaf);
-            const container_t *source_container = source->roaring->containers[
-                roaring64_leaf_index(*leaf)];
-            source_container = container_unwrap_shared(source_container,
-                                                       &source_type);
+        bitroarAppendNotChunk(result, source->roaring,
+            (const roaring64_leaf_t *)it.value, source_high48,
+            bitroarNotChunkEnd(source_high48, last_high48, bit_len));
+        next_high48 = source_high48 + 1;
+        art_iterator_next(&it);
+    }
 
-            if (source_type == ARRAY_CONTAINER_TYPE) {
-                const array_container_t *source_array =
-                    const_CAST_array(source_container);
-                serverAssert(source_array->cardinality > 0);
-                serverAssert(source_array->array[
-                    source_array->cardinality - 1] < chunk_end);
-
-                int32_t complement_cardinality =
-                    (int32_t)chunk_end - source_array->cardinality;
-                int32_t complement_runs =
-                    array_container_number_of_runs(source_array) + 1;
-                if (source_array->array[0] == 0) complement_runs--;
-                if (source_array->array[source_array->cardinality - 1] ==
-                    chunk_end - 1)
-                    complement_runs--;
-                serverAssert(complement_cardinality >= 0);
-                serverAssert(complement_runs >= 0);
-
-                int32_t direct_size = complement_cardinality <= DEFAULT_MAX_SIZE ?
-                    array_container_serialized_size_in_bytes(
-                        complement_cardinality) :
-                    bitset_container_serialized_size_in_bytes();
-                int32_t run_size =
-                    run_container_serialized_size_in_bytes(complement_runs);
-
-                if (run_size < direct_size) {
-                    run_container_t *source_run = run_container_from_array(
-                        source_array);
-                    serverAssert(source_run != NULL);
-                    complement_type = (uint8_t)run_container_negation_range(
-                        source_run, 0, chunk_end, &complement);
-                    run_container_free(source_run);
-                } else {
-                    complement = container_not_range(source_container,
-                                                     source_type, 0, chunk_end,
-                                                     &complement_type);
-                }
-            } else {
-                complement = container_not_range(source_container, source_type,
-                                                 0, chunk_end,
-                                                 &complement_type);
-            }
-        }
-
-        serverAssert(complement != NULL);
-        if (container_nonzero_cardinality(complement, complement_type)) {
-            bitroarAppendContainer(result, high48, complement,
-                                   complement_type);
-        } else {
-            container_free(complement, complement_type);
-        }
+    while (next_high48 <= last_high48) {
+        bitroarAppendNotChunk(result, source->roaring, NULL, next_high48,
+            bitroarNotChunkEnd(next_high48, last_high48, bit_len));
+        next_high48++;
     }
     return result;
 }

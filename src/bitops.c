@@ -1535,13 +1535,16 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 {
     robj *res_bitmap = NULL;
 
-    /* Only borrowed Roaring sources can encode a huge logical range in very
-     * little resident memory. Plain strings already occupy space proportional
-     * to the work needed to complement them. */
-    if (op == BITOP_NOT && maxlen > BITROAR_BITOP_NOT_MAX_BYTES &&
-        objects[0] != NULL && objects[0]->type == OBJ_BITMAP)
+    /* Only borrowed Roaring sources can encode many missing logical chunks in
+     * little resident memory. Bound that allocation amplification without
+     * rejecting dense sources solely because their byte length is large. */
+    if (op == BITOP_NOT && objects[0] != NULL &&
+        objects[0]->type == OBJ_BITMAP &&
+        !bitroarBitopNotWithinMissingChunkLimit(objects[0]))
     {
-        addReplyError(c, "BITOP NOT result exceeds 512 MiB Roaring bitmap limit");
+        addReplyErrorFormat(c,
+            "BITOP NOT would materialize more than %llu missing Roaring chunks",
+            (unsigned long long)BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS);
         return;
     }
 
