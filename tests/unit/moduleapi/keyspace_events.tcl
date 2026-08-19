@@ -235,6 +235,28 @@ tags "modules external:skip" {
             r config set bitmap-default-roaring no
         }
 
+        test "Keyspace notifications: conversion replays deterministic callback replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-replay-string:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_equal 0 [r setbit $key 0 1]
+                    set expected [binary format H* a0]
+                } else {
+                    assert_equal {32} [r bitfield $key SET u8 0 255]
+                    set expected [binary format H* ff]
+                }
+                assert_equal string [r type $key]
+                assert_equal $expected [r get $key]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
         test "Keyspace notifications: conversion rejects callback list replacement" {
             foreach command {setbit bitfield} {
                 set key bitmap:transition:replace-type-list:$command
@@ -685,6 +707,8 @@ tags "modules external:skip" {
                 set bitmap_bitfield bitmap:transition:delete-bitmap:repl-bitfield
                 set string_setbit bitmap:transition:replace-type-string:repl-setbit
                 set string_bitfield bitmap:transition:replace-type-string:repl-bitfield
+                set replay_string_setbit bitmap:transition:replace-replay-string:repl-setbit
+                set replay_string_bitfield bitmap:transition:replace-replay-string:repl-bitfield
                 set list_setbit bitmap:transition:replace-type-list:repl-setbit
                 set list_bitfield bitmap:transition:replace-type-list:repl-bitfield
                 set bitop_dest bitmap:transition:delete-type
@@ -694,6 +718,7 @@ tags "modules external:skip" {
                 $master del $type_setbit $type_bitfield \
                     $bitmap_setbit $bitmap_bitfield \
                     $string_setbit $string_bitfield \
+                    $replay_string_setbit $replay_string_bitfield \
                     $list_setbit $list_bitfield \
                     $bitop_dest $bitop_source
                 $master set $type_setbit [binary format H* 00]
@@ -702,6 +727,8 @@ tags "modules external:skip" {
                 $master set $bitmap_bitfield [binary format H* 00]
                 $master set $string_setbit [binary format H* 80]
                 $master set $string_bitfield [binary format H* 80]
+                $master set $replay_string_setbit [binary format H* 80]
+                $master set $replay_string_bitfield [binary format H* 80]
                 $master set $list_setbit [binary format H* 80]
                 $master set $list_bitfield [binary format H* 80]
                 $master set $bitop_source [binary format H* f0]
@@ -728,6 +755,8 @@ tags "modules external:skip" {
                 assert_equal {0} [$master bitfield $bitmap_bitfield SET u8 0 255]
                 assert_equal 0 [$master setbit $string_setbit 0 1]
                 assert_equal {32} [$master bitfield $string_bitfield SET u8 0 255]
+                assert_equal 0 [$master setbit $replay_string_setbit 0 1]
+                assert_equal {32} [$master bitfield $replay_string_bitfield SET u8 0 255]
                 assert_error {WRONGTYPE*} {$master setbit $list_setbit 0 1}
                 assert_error {WRONGTYPE*} {$master bitfield $list_bitfield SET u8 0 255}
                 assert_equal 1 [$master bitop or $bitop_dest $bitop_source]
@@ -736,7 +765,8 @@ tags "modules external:skip" {
                 foreach client [list $master $replica] {
                     foreach {key raw} [list \
                         $type_setbit 80 $type_bitfield ff \
-                        $string_setbit a0 $string_bitfield ff] {
+                        $string_setbit a0 $string_bitfield ff \
+                        $replay_string_setbit a0 $replay_string_bitfield ff] {
                         assert_equal string [$client type $key]
                         assert_equal [binary format H* $raw] [$client get $key]
                     }
@@ -759,7 +789,8 @@ tags "modules external:skip" {
                 assert_equal $replica_digest [$replica debug digest]
                 foreach {key raw} [list \
                     $type_setbit 80 $type_bitfield ff \
-                    $string_setbit a0 $string_bitfield ff] {
+                    $string_setbit a0 $string_bitfield ff \
+                    $replay_string_setbit a0 $replay_string_bitfield ff] {
                     assert_equal string [$replica type $key]
                     assert_equal [binary format H* $raw] [$replica get $key]
                 }
