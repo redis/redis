@@ -329,6 +329,36 @@ proc randomKey {} {
     }
 }
 
+# Creates an empty Roaring bitmap for a missing key, or re-encodes an existing
+# string bitmap without changing its logical value or TTL. BITCONVERT is an
+# internal replay primitive, so temporarily mark the test connection internal
+# and always restore its ordinary-client state. Callers must pass a connection
+# that is not already marked internal.
+proc convert_string_bitmap_to_roaring {client key} {
+    set code [catch {
+        {*}$client debug mark-internal-client
+        {*}$client bitconvert $key ROARING
+    } result opts]
+    set cleanup_code [catch {
+        {*}$client debug mark-internal-client unmark
+    } cleanup_result cleanup_opts]
+    if {$code != 0} {
+        return -options $opts $result
+    }
+    if {$cleanup_code != 0} {
+        return -options $cleanup_opts $cleanup_result
+    }
+    return $result
+}
+
+proc empty_roaring_bitmap_dump_payload {} {
+    # RDB_TYPE_BITMAP, zero logical byte length, an eight-byte portable
+    # Roaring payload with zero high-32 buckets, RDB_VERSION 16, followed by
+    # an all-zero checksum. RESTORE accepts the zero checksum in test-built
+    # payloads.
+    return [binary format H* 210008000000000000000010000000000000000000]
+}
+
 proc findKeyWithType {r type} {
     for {set j 0} {$j < 20} {incr j} {
         set k [{*}$r randomkey]
@@ -427,6 +457,10 @@ proc createComplexDataset {r ops {opt {}}} {
                 # both TMPL_LP and TMPL_ARRAY encodings.
                 {*}$r himport set $k fs $v [randomValue] [randomValue]
             } {
+                # Start with a native zero-length bitmap. Its later writes stay
+                # within 1 KiB so complex-data stress tests remain bounded.
+                convert_string_bitmap_to_roaring $r $k
+            } {
                 {*}$r del $k
             }
             set t [{*}$r type $k]
@@ -479,6 +513,16 @@ proc createComplexDataset {r ops {opt {}}} {
 
                 if { [{*}$r hexists $k $f] && $usehexpire && rand() < 0.5} {
                     {*}$r hexpire $k 1000 FIELDS 1 $f
+                }
+            }
+            {bitmap} {
+                randpath {
+                    {*}$r setbit $k [randomInt 8192] [randomInt 2]
+                } {
+                    {*}$r bitfield $k SET u8 [randomInt 8185] [randomInt 256]
+                } {
+                    # Preserve some empty bitmaps for zero-length coverage.
+                    {*}$r bitcount $k
                 }
             }
         }
@@ -558,6 +602,9 @@ proc csvdump r {
                         }
                     }
                     append o "\n"
+                }
+                bitmap {
+                    append o [csvstring [{*}$r debug bitmap-raw $k]] "\n"
                 }
             }
         }

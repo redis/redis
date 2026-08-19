@@ -12,8 +12,6 @@
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
 
-source tests/support/bitmap.tcl
-
 proc test_memory_efficiency {range} {
     r flushall
     set rd [redis_deferring_client]
@@ -161,8 +159,6 @@ if {$::debug_defrag} {
 }
 
 run_solo {defrag} {
-    source tests/support/bitmap.tcl
-
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
             [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
