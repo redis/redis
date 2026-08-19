@@ -33,11 +33,11 @@
 #define BITROAR_MAX_BYTES ((uint64_t)BITROAR_MAX_BYTES_RAW)
 
 /* BITOP NOT fills every missing 2^16-bit Roaring chunk in the logical range.
- * Bound borrowed Roaring sources to 2^16 chunks (512 MiB) so a compact bitmap
- * with a high logical length cannot amplify into unbounded allocations. Plain
- * string sources already occupy memory proportional to their logical length
- * and are not subject to this fixed, proto-max-bulk-len-independent limit. */
-#define BITROAR_BITOP_NOT_MAX_BYTES (512ULL * 1024 * 1024)
+ * Bound that allocation amplification rather than the source's byte length:
+ * dense sources above 512 MiB can remain cheap to complement, while a sparse
+ * source cannot make one command materialize an unbounded number of chunks.
+ * Plain strings already occupy memory proportional to their logical length. */
+#define BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS (1ULL << 16)
 
 /* Bitwise operations supported by bitroarApplyOp() (the BITOP command). */
 typedef enum bitroarOp {
@@ -85,6 +85,7 @@ long long bitroarBitpos(const robj *o, int bit, uint64_t start, uint64_t end, in
 int bitroarCanRepresentBit(uint64_t bitoffset);
 int bitroarGetBit(const robj *o, uint64_t bitoffset);
 uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bits);
+int bitroarBitopNotWithinMissingChunkLimit(const robj *o);
 
 /* Write operations */
 int bitroarSetBit(robj *o, uint64_t bitoffset, int on);
