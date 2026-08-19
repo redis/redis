@@ -77,7 +77,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r bitconvert bitmap_missing ROARING
         }
         assert_error {ERR unknown command 'bitopmode'*} {
-            r bitopmode ROARING
+            r bitopmode bitmap_out ROARING
         }
 
         r debug mark-internal-client
@@ -116,7 +116,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # by the ordinary BITOP syntax.
         r config set bitmap-default-roaring no
         r set bitmap_source [binary format H* f0]
-        assert_equal OK [r bitopmode ROARING]
+        assert_equal OK [r bitopmode bitmap_out ROARING]
         assert_equal 1 [r bitop or bitmap_out bitmap_source]
         assert_equal bitmap [r type bitmap_out]
         assert_equal [binary format H* f0] \
@@ -127,18 +127,36 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # pair also works inside its MULTI/EXEC wrapper.
         assert_equal 1 [r bitop or bitmap_out:string bitmap_source]
         assert_equal string [r type bitmap_out:string]
-        assert_equal OK [r bitopmode ROARING]
+        assert_equal OK [r bitopmode bitmap_out:after-ping ROARING]
         assert_equal PONG [r ping]
         assert_equal 1 [r bitop or bitmap_out:after-ping bitmap_source]
         assert_equal bitmap [r type bitmap_out:after-ping]
-        assert_equal OK [r bitopmode ROARING]
+        assert_equal OK [r bitopmode bitmap_out:invalid ROARING]
         assert_error {ERR syntax error*} {
             r bitop invalid bitmap_out:invalid bitmap_source
         }
         assert_equal 1 [r bitop or bitmap_out:after-error bitmap_source]
         assert_equal string [r type bitmap_out:after-error]
+
+        # Pre-dispatch rejections consume the marker too.
+        assert_equal OK [r bitopmode bitmap_out:bad-arity ROARING]
+        assert_error {ERR wrong number of arguments*} {
+            r bitop or bitmap_out:bad-arity
+        }
+        assert_equal 1 [r bitop or bitmap_out:after-arity bitmap_source]
+        assert_equal string [r type bitmap_out:after-arity]
+
+        # CLIENT RESET clears any pending session mode.
+        regexp {db=([0-9]+)} [r client info] _ selected_db
+        assert_equal OK [r bitopmode bitmap_out:reset ROARING]
+        assert_equal RESET [r reset]
+        r select $selected_db
+        r config set bitmap-default-roaring no
+        assert_equal 1 [r bitop or bitmap_out:after-reset bitmap_source]
+        assert_equal string [r type bitmap_out:after-reset]
+
         assert_equal OK [r multi]
-        assert_equal QUEUED [r bitopmode ROARING]
+        assert_equal QUEUED [r bitopmode bitmap_out:multi ROARING]
         assert_equal QUEUED [r bitop or bitmap_out:multi bitmap_source]
         assert_equal {OK 1} [r exec]
         assert_equal bitmap [r type bitmap_out:multi]
@@ -148,7 +166,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r bitconvert bitmap_missing ROARING
         }
         assert_error {ERR unknown command 'bitopmode'*} {
-            r bitopmode ROARING
+            r bitopmode bitmap_out ROARING
         }
     }
 
@@ -1394,7 +1412,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             [list bitfield bitmap:aof-incr:bitfield SET u1 0 1] \
             {exec} \
             {multi} \
-            [list bitopmode ROARING] \
+            [list bitopmode bitmap:aof-incr:bitop:out ROARING] \
             [list bitop or bitmap:aof-incr:bitop:out \
                 bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2] \
             {exec}] $transitions
@@ -1630,6 +1648,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "extern
             } {
                 foreach command {setbit bitfield bitop} {
                     set key bitmap:selective:$mode:$command
+                    set aof_size_before [status $master aof_current_size]
                     if {$command eq "setbit"} {
                         set script [format {
                             redis.set_repl(redis.%s)
@@ -1648,6 +1667,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "extern
                             return redis.call('BITOP', 'OR', KEYS[1], KEYS[2])
                         } $constant]
                         assert_equal 1 [$master eval $script 2 $key bitmap:selective:source]
+                    }
+                    if {!$in_aof} {
+                        assert_equal $aof_size_before [status $master aof_current_size]
                     }
                     assert_equal bitmap [$master type $key]
                     lappend cases $key $on_replica $in_aof

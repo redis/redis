@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "bitmap",
         "since": "8.12.0",
-        "arity": 2,
+        "arity": 3,
         "function": "bitopModeCommand",
         "doc_flags": [
             "SYSCMD"
@@ -17,7 +17,31 @@
         "acl_categories": [
             "BITMAP"
         ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
         "arguments": [
+            {
+                "name": "destkey",
+                "type": "key",
+                "key_spec_index": 0
+            },
             {
                 "name": "encoding",
                 "token": "ROARING",

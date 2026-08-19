@@ -988,11 +988,11 @@ void bitconvertCommand(client *c) {
 }
 
 /* BITOPMODE is a one-shot internal session setting used by replication and
- * AOF replay. The following ordinary BITOP consumes it before doing any work,
- * so errors and nested callbacks cannot leak the mode to a later command. */
+ * AOF replay. argv[1] is the following BITOP's destination key so slot
+ * migration can route the marker together with that command. */
 void bitopModeCommand(client *c) {
     c->flags &= ~CLIENT_BITOP_ROARING;
-    if (strcasecmp(c->argv[1]->ptr, "ROARING")) {
+    if (strcasecmp(c->argv[2]->ptr, "ROARING")) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
@@ -1532,16 +1532,17 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * observe the primary's result representation without duplicating BITOP's
  * syntax and key specifications in a second command. */
 static void bitroarPropagateBitopMode(client *c) {
-    robj *argv[2];
+    robj *argv[3];
     int target = bitroarPropagationTarget(c);
 
     argv[0] = createStringObject("BITOPMODE", 9);
-    argv[1] = createStringObject("ROARING", 7);
-    alsoPropagate(c->db->id, argv, 2, target);
+    argv[1] = c->argv[2];
+    argv[2] = createStringObject("ROARING", 7);
+    alsoPropagate(c->db->id, argv, 3, target);
     alsoPropagate(c->db->id, c->argv, c->argc, target);
     preventCommandPropagation(c);
     decrRefCount(argv[0]);
-    decrRefCount(argv[1]);
+    decrRefCount(argv[2]);
 }
 
 /* BITOP whose result is a Roaring bitmap. Sources come from
