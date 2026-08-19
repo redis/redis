@@ -3125,14 +3125,11 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                      * and maps "no sample" (a lag that is unknown due to
                      * fragmentation, or a degenerate negative lag) to -1, which
                      * we skip. */
-                    int bin = streamDistribBin((int64_t) raxSize(cg->pel));
+                    int bin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_PEL));
                     if (bin >= 0) trim_job->bg->delta_distrib_cgroups_pel[bin]++;
 
-                    long long lag;
-                    if (streamCGLag(s, cg, &lag)) {
-                        int lbin = streamDistribBin(lag);
-                        if (lbin >= 0) trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
-                    }
+                    int lbin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_LAG));
+                    if (lbin >= 0) trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
                 }
                 raxStop(&ri);
             }
