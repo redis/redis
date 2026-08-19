@@ -1710,43 +1710,34 @@ static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     return DEFRAG_DONE;
 }
 
-static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
-    unsigned long *cursor = ctx;
-    hashTemplateRegistry *reg = server.htemplates;
-    if (reg == NULL || reg->by_id == NULL) return DEFRAG_DONE;
-
-    unsigned long iterations = 0;
-    while (*cursor < reg->by_id_next) {
-        hashTemplate *tmpl = hashTemplateGetById(*cursor);
-        (*cursor)++;
-        if (tmpl == NULL) continue; /* freed or never-used slot */
-
-        hashTemplateDefrag(tmpl);
-
-        if (++iterations > 8) {
-            iterations = 0;
-            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
-        }
-    }
-    return DEFRAG_DONE;
-}
-
 static void defragTmplRegistryCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
-    UNUSED(privdata); 
-    UNUSED(de);
+    monotime endtime = *(monotime *)privdata;
     UNUSED(plink);
+    hashTemplateDefrag(dictGetKey(de), (dictEntry *)de, endtime);
 }
 
-/* Defrag a registry lookup dict. Keys/values (template/blob pointers) are
- * relocated by defragStageHashTemplates. */
-static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor, monotime endtime) {
+/* Defrag a registry lookup dict, invoking 'scan_fn' per entry, the way
+ * defragStageKvstoreHelper() does. */
+static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor,
+                                     dictScanFunction *scan_fn, monotime endtime)
+{
     dictDefragFunctions fns = { .defragAlloc = activeDefragAlloc };
-    unsigned long iterations = 0;
+    unsigned int iterations = 0;
+    unsigned long long prev_defragged = server.stat_active_defrag_hits;
+    unsigned long long prev_scanned = server.stat_active_defrag_scanned;
     do {
-        *cursor = dictScanDefrag(*dref, *cursor, defragTmplRegistryCb, &fns, NULL);
-        if (++iterations > 64) {
+        *cursor = dictScanDefrag(*dref, *cursor, scan_fn, &fns, &endtime);
+
+        if (++iterations > 16 ||
+            server.stat_active_defrag_hits - prev_defragged > 512 ||
+            server.stat_active_defrag_scanned - prev_scanned > 64)
+        {
             iterations = 0;
-            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+            prev_defragged = server.stat_active_defrag_hits;
+            prev_scanned = server.stat_active_defrag_scanned;
+
+            if (*cursor != 0 && getMonotonicUs() >= endtime)
+                return DEFRAG_NOT_DONE;
         }
     } while (*cursor != 0);
     dict *newd = dictDefragTables(*dref);
@@ -1756,12 +1747,12 @@ static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor, monotim
 
 static doneStatus defragStageHashTemplatesByFields(void *ctx, monotime endtime) {
     if (server.htemplates == NULL) return DEFRAG_DONE;
-    return defragRegistryDict(&server.htemplates->by_fields, ctx, endtime);
+    return defragRegistryDict(&server.htemplates->by_fields, ctx, defragTmplRegistryCb, endtime);
 }
 
 static doneStatus defragStageHashTemplatesByFieldsLp(void *ctx, monotime endtime) {
     if (server.htemplates == NULL) return DEFRAG_DONE;
-    return defragRegistryDict(&server.htemplates->by_fields_lp, ctx, endtime);
+    return defragRegistryDict(&server.htemplates->by_fields_lp, ctx, scanCallbackCountScanned, endtime);
 }
 
 static doneStatus defragStageHashTemplatesById(void *ctx, monotime endtime) {
@@ -2110,7 +2101,6 @@ static void beginDefragCycle(void) {
     addDefragStage(defragLuaScripts, NULL, NULL);
 
     /* Add stage for the hash template registry. */
-    addDefragStage(defragStageHashTemplates, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesByFields, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesByFieldsLp, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesById, zfree, zcalloc(sizeof(unsigned long)));

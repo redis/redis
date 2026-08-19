@@ -929,7 +929,10 @@ static void bitroarPropagateConvert(client *c, robj *key) {
  * result for key; the caller must already have rejected other value types and
  * strings beyond the Roaring bound, so the transition itself cannot fail. This
  * matters because callers queue the conversion for propagation first: nothing
- * may error between queueing and applying it. Callers must re-lookup the key
+ * may error between queueing and applying it. A callback that mutates the key
+ * must either run during replay too or propagate that mutation itself; keeping
+ * BITCONVERT first preserves both cases and places callback-propagated writes
+ * before the triggering bitmap command. Callers must re-lookup the key
  * afterwards: NOTIFY_NEW and NOTIFY_TYPE_CHANGED callbacks may replace or
  * delete it synchronously. */
 static void bitroarConvertKey(client *c, robj *key, kvobj *o, dictEntryLink link) {
