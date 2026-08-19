@@ -25,8 +25,6 @@
 # - LAZYFREE
 # ============================================================================
 
-source tests/support/bitmap.tcl
-
 set testmodule [file normalize tests/modules/test_keymeta.so]
 
 # Helper procedure to convert class ID to 4-char-id name
