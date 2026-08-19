@@ -3490,6 +3490,49 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
     }
 
+    test "ASM forwards config-selected BITOP representation" {
+        R 0 flushall
+        R 1 flushall
+
+        set source1 [slot_key 0 bitop:s1]
+        set source2 [slot_key 0 bitop:s2]
+        set dest [slot_key 0 bitop:out]
+        set old_source_default [lindex [R 0 config get bitmap-default-roaring] 1]
+        set old_dest_default [lindex [R 1 config get bitmap-default-roaring] 1]
+
+        R 0 config set bitmap-default-roaring yes
+        R 1 config set bitmap-default-roaring no
+        R 0 set $source1 [binary format H* f0]
+        R 0 set $source2 [binary format H* 0f]
+
+        # Keep the slot in the streaming phase while the live BITOP is issued.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 2 1000000]
+        assert_equal 1 [R 0 bitop or $dest $source1 $source2]
+        assert_equal bitmap [R 0 type $dest]
+        set source_digest [R 0 debug digest-value $source1 $source2 $dest]
+
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        # BITOPMODE carries the destination key for ASM routing, so the import
+        # stream preserves the source-selected representation despite the
+        # destination's opposite local default.
+        assert_equal bitmap [R 1 type $dest]
+        assert_equal [binary format H* ff] [R 1 debug bitmap-raw $dest]
+        assert_equal $source_digest [R 1 debug digest-value $source1 $source2 $dest]
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal bitmap [R 4 type $dest]
+        assert_equal $source_digest [R 4 debug digest-value $source1 $source2 $dest]
+
+        R 0 config set bitmap-default-roaring $old_source_default
+        R 1 config set bitmap-default-roaring $old_dest_default
+
+        # Restore slot ownership for the following tests.
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
+
     test "ASM stress: 4000 template keys, half streamed live during migration" {
         # Create template keys on node 0 in slot 0. Each template is shared by 2 keys
         proc asm_load_tmpl_keys {lo hi} {

@@ -3893,10 +3893,16 @@ static void propagatePendingCommands(void) {
         transaction = 0;
     }
 
+    int transaction_target = PROPAGATE_NONE;
     if (transaction) {
+        for (j = 0; j < server.also_propagate.numops; j++) {
+            serverAssert(server.also_propagate.ops[j].target);
+            transaction_target |= server.also_propagate.ops[j].target;
+        }
+
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
-        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.multi,1,transaction_target);
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
@@ -3907,7 +3913,7 @@ static void propagatePendingCommands(void) {
 
     if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
-        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.exec,1,transaction_target);
     }
 
     redisOpArrayFree(&server.also_propagate);
@@ -4300,7 +4306,13 @@ void call(client *c, int flags) {
  * it aborts the transaction.
  * The duration is reset, since we reject the command, and it did not record.
  * Note: 'reply' is expected to end with \r\n */
+static void consumeBitopModeOnRejectedCommand(client *c) {
+    if (c->cmd && c->cmd->proc == bitopCommand)
+        c->flags &= ~CLIENT_BITOP_ROARING;
+}
+
 void rejectCommand(client *c, robj *reply) {
+    consumeBitopModeOnRejectedCommand(c);
     flagTransaction(c);
     c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
@@ -4313,6 +4325,7 @@ void rejectCommand(client *c, robj *reply) {
 }
 
 void rejectCommandSds(client *c, sds s) {
+    consumeBitopModeOnRejectedCommand(c);
     flagTransaction(c);
     c->duration = 0;
     if (c->cmd) c->cmd->rejected_calls++;
@@ -4631,6 +4644,7 @@ int processCommand(client *c) {
             clusterRedirectClient(c,n,c->slot,error_code);
             c->duration = 0;
             c->cmd->rejected_calls++;
+            consumeBitopModeOnRejectedCommand(c);
             return C_OK;
         }
     }
