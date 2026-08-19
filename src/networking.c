@@ -6087,15 +6087,7 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
 getKeysResult *getClientCachedKeyResult(client *c, pendingCommand *pcmd) {
     if (!pcmd) return NULL;
 
-    /* Preprocess the command if needed. Only the command currently being read
-     * from the client may still be unprocessed: commands queued in a MULTI were
-     * preprocessed when they were parsed, and re-running preprocessCommand() on
-     * one of them here would look its command up again and overwrite pcmd->cmd
-     * after execCommand() already copied it into c->cmd. */
-    if (pcmd == c->current_pending_cmd && !(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED)) {
-        preprocessCommand(c, pcmd);
-        pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
-    }
+    serverAssert(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED);
 
     /* Return cached result if available */
     if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)

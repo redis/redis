@@ -383,6 +383,10 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
+    /* Set to 1 as soon as one of the filters modifies argv (insert, replace or
+     * delete), so that the caller knows it has to refresh whatever it cached
+     * about the command. */
+    int argv_changed;
     client *c;
 } RedisModuleCommandFilterCtx;
 
@@ -11999,6 +12003,7 @@ void moduleCallCommandFilters(client *c) {
         .argv = c->argv,
         .argv_len = c->argv_len,
         .argc = c->argc,
+        .argv_changed = 0,
         .c = c
     };
 
@@ -12014,6 +12019,9 @@ void moduleCallCommandFilters(client *c) {
         f->callback(&filter);
     }
 
+    /* Nothing was modified by the filters, there's nothing to refresh. */
+    if (!filter.argv_changed) return;
+
     /* If the filter sets a new command, including command or subcommand,
      * the command looked up will be invalid. */
     c->lookedcmd = NULL;
@@ -12022,7 +12030,9 @@ void moduleCallCommandFilters(client *c) {
     c->argv_len = filter.argv_len;
     c->argc = filter.argc;
 
-    /* Update pending command if it exists. */
+    /* Update pending command if it exists. Everything that was derived from the
+     * old argv (command, keys, slot, read error) is now stale, so we drop it and
+     * let preprocessCommand() compute it again from the new argv. */
     pendingCommand *pcmd = c->current_pending_cmd;
     if (pcmd) {
         pcmd->argv = filter.argv;
@@ -12031,10 +12041,19 @@ void moduleCallCommandFilters(client *c) {
         pcmd->cmd = NULL;
         pcmd->slot = INVALID_CLUSTER_SLOT;
         pcmd->flags = 0;
+        pcmd->read_error = 0;
 
         /* Reset keys result */
         getKeysFreeResult(&pcmd->keys_result);
         pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
+
+        preprocessCommand(c, pcmd);
+        pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
+
+        /* Keep the client fields we populated from the pending command in sync. */
+        c->lookedcmd = pcmd->cmd;
+        c->slot = pcmd->slot;
+        c->read_error = pcmd->read_error;
     }
 }
 
@@ -12075,6 +12094,7 @@ int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisM
     }
     fctx->argv[pos] = arg;
     fctx->argc++;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
@@ -12090,6 +12110,7 @@ int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *fctx, int pos, Redis
 
     decrRefCount(fctx->argv[pos]);
     fctx->argv[pos] = arg;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
@@ -12107,6 +12128,7 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
         fctx->argv[i] = fctx->argv[i+1];
     }
     fctx->argc--;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
