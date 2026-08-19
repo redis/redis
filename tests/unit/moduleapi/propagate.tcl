@@ -681,6 +681,92 @@ tags "modules external:skip" {
     }
 }
 
+tags "modules aof external:skip" {
+    start_server {} {
+        set replica [srv 0 client]
+        start_server [list overrides [list loadmodule "$miscmodule"]] {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            $master module load $keyspace_events
+            $master config set appendonly yes
+            $master config set appendfsync always
+            $master config set auto-aof-rewrite-percentage 0
+            waitForBgrewriteaof $master
+
+            foreach key {rmcall-none rmcall-repl-only rmcall-aof-only rmcall-all} {
+                $master sadd $key a b c d e
+            }
+
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            test {RM_Call effect commands honor replica propagation flags} {
+                # The counted form of SPOP propagates its effect as SREM.
+                assert_equal 2 [llength [$master test.rm_call spop rmcall-none 2]]
+                assert_equal 2 [llength [$master test.rm_call_flags !A spop rmcall-repl-only 2]]
+                assert_equal 2 [llength [$master test.rm_call_flags !R spop rmcall-aof-only 2]]
+                assert_equal 2 [llength [$master test.rm_call_flags ! spop rmcall-all 2]]
+
+                # A suppresses AOF propagation and R suppresses replica propagation.
+                $master set rmcall-spop-sentinel 1
+                wait_for_ofs_sync $master $replica
+
+                foreach key {rmcall-none rmcall-repl-only rmcall-aof-only rmcall-all} {
+                    assert_equal 3 [$master scard $key]
+                }
+                assert_equal 5 [$replica scard rmcall-none]
+                assert_equal 3 [$replica scard rmcall-repl-only]
+                assert_equal 5 [$replica scard rmcall-aof-only]
+                assert_equal 3 [$replica scard rmcall-all]
+                assert_equal 1 [$replica get rmcall-spop-sentinel]
+            }
+
+            test {Nested RM_Replicate honors outer RM_Call replica propagation flags} {
+                # keyspace.incr_case2 changes the key through RM_Call without
+                # `!`, then queues the same INCR through RM_Replicate.
+                assert_equal 1 [$master test.rm_call keyspace.incr_case2 rmcall-nested-none]
+                assert_equal 1 [$master test.rm_call_flags !A keyspace.incr_case2 rmcall-nested-repl-only]
+                assert_equal 1 [$master test.rm_call_flags !R keyspace.incr_case2 rmcall-nested-aof-only]
+                assert_equal 1 [$master test.rm_call_flags ! keyspace.incr_case2 rmcall-nested-all]
+
+                $master set rmcall-nested-sentinel 1
+                wait_for_ofs_sync $master $replica
+
+                foreach key {rmcall-nested-none rmcall-nested-repl-only rmcall-nested-aof-only rmcall-nested-all} {
+                    assert_equal 1 [$master get $key]
+                }
+                assert_equal {} [$replica get rmcall-nested-none]
+                assert_equal 1 [$replica get rmcall-nested-repl-only]
+                assert_equal {} [$replica get rmcall-nested-aof-only]
+                assert_equal 1 [$replica get rmcall-nested-all]
+                assert_equal 1 [$replica get rmcall-nested-sentinel]
+            }
+
+            test {RM_Call effect commands honor AOF propagation flags} {
+                # Reload only after checking the replica: DEBUG LOADAOF replaces
+                # the master's data set and intentionally makes it diverge.
+                $master debug loadaof
+
+                assert_equal 5 [$master scard rmcall-none]
+                assert_equal 5 [$master scard rmcall-repl-only]
+                assert_equal 3 [$master scard rmcall-aof-only]
+                assert_equal 3 [$master scard rmcall-all]
+                assert_equal 1 [$master get rmcall-spop-sentinel]
+            }
+
+            test {Nested RM_Replicate honors outer RM_Call AOF propagation flags} {
+                assert_equal {} [$master get rmcall-nested-none]
+                assert_equal {} [$master get rmcall-nested-repl-only]
+                assert_equal 1 [$master get rmcall-nested-aof-only]
+                assert_equal 1 [$master get rmcall-nested-all]
+                assert_equal 1 [$master get rmcall-nested-sentinel]
+            }
+        }
+    }
+}
+
 
 tags "modules aof external:skip" {
     foreach aofload_type {debug_cmd startup} {
