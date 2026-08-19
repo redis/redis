@@ -34,7 +34,6 @@ int asmDebugSetTrimMethod(const char *method, int active_trim_delay);
 
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
-int asmNotifyConfigUpdated(struct asmTask *task, sds *err);
 size_t asmGetPeakSyncBufferSize(void);
 size_t asmGetImportInputBufferSize(void);
 size_t asmGetMigrateOutputMemoryUsage(void);
@@ -47,7 +46,7 @@ int isSlotInTrimJob(int slot);
 sds asmCatInfoString(sds info);
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);
-struct asmTask *asmLookupTaskBySlotRangeArray(struct slotRangeArray *slots);
+const char *asmLookupTaskBySlotRangeArray(struct slotRangeArray *slots);
 void asmCancelTrimJobs(void);
 sds asmDumpActiveImportTask(void);
 int asmReplicaHandleMasterTask(sds task_info);

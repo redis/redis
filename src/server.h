@@ -885,7 +885,6 @@ typedef enum {
 #define OBJ_SET 2       /* Set object. */
 #define OBJ_ZSET 3      /* Sorted set object. */
 #define OBJ_HASH 4      /* Hash object. */
-#define OBJ_TYPE_BASIC_MAX 5 /* Max number of basic object types. */
 
 /* The "module" object type is a special one that signals that the object
  * is one directly managed by a Redis module. In this case the value points
@@ -1258,7 +1257,16 @@ typedef struct redisDb {
  * keysizesHistRow() rather than by object type, so untracked types in between
  * (OBJ_MODULE) cost no row and the histogram stays plain storage: zeroing
  * initializes it, and it can be copied or moved like any other array. */
-#define MAX_KEYSIZES_ROWS (OBJ_TYPE_BASIC_MAX + 2)  /* basic types + streams + bitmaps */
+enum {
+    KEYSIZES_ROW_STRING = 0,
+    KEYSIZES_ROW_LIST,
+    KEYSIZES_ROW_SET,
+    KEYSIZES_ROW_ZSET,
+    KEYSIZES_ROW_HASH,
+    KEYSIZES_ROW_STREAM,
+    KEYSIZES_ROW_BITMAP,
+    MAX_KEYSIZES_ROWS   /* must stay last */
+};
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
@@ -4017,6 +4025,7 @@ typedef struct hashTemplate {
                           * RESTORE find the template with one O(1) blob lookup.*/
     mstime_t fields_lp_last_used; /* Last time fields_lp was used, for cron idle reclaim. */
     unsigned int fits_in_listpack;  /* 1 if fields fit in listpack (DUMP serializes them as LP blob) */
+    unsigned int defrag_field;      /* Defrag resume point into 'fields'. */
 } hashTemplate;
 
 /* Global registry for hash templates. */
@@ -4029,6 +4038,7 @@ typedef struct hashTemplateRegistry {
     size_t by_id_cap;           /* How many chunk pointers by_id can hold. */
     size_t by_id_chunks;        /* How many chunks are currently allocated. */
     size_t by_id_next;          /* The next id that has never been used. */
+    size_t by_id_free_chunk_hint; /* Lowest chunk index that may hold a free id. */
     size_t total_key_refs;      /* Sum of key_refcount across all templates. */
     size_t fields_lp_cache_bytes; /* Total lpBytes() of cached fields listpack blobs. */
     size_t total_mem_size;      /* Sum of every live template's mem_size, plus any
@@ -4130,7 +4140,7 @@ void hashTemplatesInit(void);
 hashTemplate *hashTemplateGetOrCreate(sds *fields, unsigned long long field_count);
 hashTemplate *hashTemplateGetByFieldsLp(unsigned char *fields_lp);
 hashTemplate *hashTemplateGetById(uint64_t id);
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl);
+void hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime);
 int hashTemplateDefragByIdChunk(unsigned long chunk_idx);
 hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);
