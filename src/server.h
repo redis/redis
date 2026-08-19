@@ -1249,7 +1249,8 @@ typedef struct redisDb {
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
 } redisDb;
 
-/* maximum number of bins of keysizes histogram */
+/* Histogram bins 0 through 60. On 64-bit builds, native bitmap logical byte
+ * lengths can reach 2^60 - 1 bytes, which maps to the final bin. */
 #define MAX_KEYSIZES_BINS 61
 
 /* Per-type keysizes/allocsizes histograms: one row per tracked type, i.e. the
