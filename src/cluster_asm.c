@@ -3065,9 +3065,11 @@ void asmUnblockMasterAfterTrim(void) {
 }
 
 /* Create a trim job that takes ownership of slots. */
-static asmTrimJob *asmTrimJobCreate(slotRangeArray *slots) {
+static asmTrimJob *asmTrimJobCreate(slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
     asmTrimJob *job = zcalloc(sizeof(*job));
     job->slots = slots;
+    job->client_id = client_id;
+    job->migration_cleanup = migration_cleanup;
     return job;
 }
 
@@ -3250,18 +3252,13 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
  * If migration_cleanup is true, this is a migration cleanup of slots no longer owned. */
 
 /* Start a trim job and transfer its ownership to the selected trim method. */
-static int asmTrimJobStart(asmTrimJob *job, uint64_t client_id, int migration_cleanup) {
+static int asmTrimJobStart(asmTrimJob *job) {
     serverAssert(job != NULL);
 
     if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE) {
         asmTrimJobUnblockClientAndFree(job);
         return ASM_TRIM_METHOD_NONE;
     }
-
-    /* The trim implementation itself does not use the client ID, but the job
-     * keeps it so either completion path can unblock the waiting client. */
-    job->client_id = client_id;
-    job->migration_cleanup = migration_cleanup;
 
     /* Trigger active trim for the following cases:
      * 1. Debug override: trim method is set to 'active'.
@@ -3287,8 +3284,8 @@ static int asmTrimJobStart(asmTrimJob *job, uint64_t client_id, int migration_cl
 /* Trim slots using a job-owned copy. The caller retains ownership of slots. */
 int asmTrimSlots(slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
     serverAssert(slots != NULL);
-    return asmTrimJobStart(asmTrimJobCreate(slotRangeArrayDup(slots)),
-                           client_id, migration_cleanup);
+    return asmTrimJobStart(asmTrimJobCreate(slotRangeArrayDup(slots),
+                                            client_id, migration_cleanup));
 }
 
 /* Schedule a trim job for the specified slot ranges. The job will be
@@ -3297,7 +3294,7 @@ int asmTrimSlots(slotRangeArray *slots, uint64_t client_id, int migration_cleanu
  * For trim method details, see asmTrimSlots(). */
 void asmTrimJobSchedule(slotRangeArray *slots) {
     listAddNodeTail(asmManager->pending_trim_jobs,
-                    asmTrimJobCreate(slotRangeArrayDup(slots)));
+                    asmTrimJobCreate(slotRangeArrayDup(slots), CLIENT_ID_NONE, 1));
 }
 
 /* Process any pending trim jobs. */
@@ -3347,7 +3344,7 @@ void asmTrimJobProcessPending(void) {
          * for propagation after ownership transfer. */
         slotRangeArray *slots = slotRangeArrayDup(job->slots);
         listDelNode(asmManager->pending_trim_jobs, ln);
-        asmTrimJobStart(job, CLIENT_ID_NONE, 1);
+        asmTrimJobStart(job);
         propagateTrimSlots(slots);
         slotRangeArrayFree(slots);
     }
