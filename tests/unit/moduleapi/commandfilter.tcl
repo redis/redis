@@ -173,3 +173,53 @@ start_server {tags {"external:skip"}} {
         assert_equal [r lrange mylist 0 -1] {elem1 @delme elem2}
     }
 }
+
+# A command filter that changes argv invalidates everything the server already
+# derived from the pre-filter argv (looked up command, keys, slot, cross-slot
+# error). These tests make sure the outside world is refreshed accordingly.
+start_cluster 1 0 [list tags {modules cluster external:skip} config_lines [list "loadmodule [file normalize tests/modules/commandfilter.so] log-key 0"]] {
+    test {Command Filter refreshes cross-slot state when args are deleted} {
+        # "del {t}a @delme" is cross-slot before filtering, and a single-key
+        # command after the filter deleted @delme. It must not be rejected.
+        assert_equal 0 [r del "{t}a" @delme]
+
+        r set "{t}a" v1
+        assert_equal 1 [r del "{t}a" @delme]
+
+        # Same thing for a read command with more than one key left.
+        r mset "{t}a" v1 "{t}b" v2
+        assert_equal {v1 v2} [r mget "{t}a" @delme "{t}b"]
+    }
+
+    test {Command Filter refreshes cross-slot state when args are inserted} {
+        # "mget {t}a @insertafter" is a valid single-slot command before
+        # filtering, but the filter appends --inserted-after--, which turns it
+        # into a cross-slot command.
+        assert_error "CROSSSLOT*" {r mget "{t}a" @insertafter}
+    }
+
+    test {Command Filter refreshes cross-slot state on pipelined commands} {
+        # Pipelining makes the server parse and preprocess several commands
+        # up-front, so the filter runs against already-preprocessed state.
+        r del "{t}a"
+        set rd [redis_deferring_client]
+        $rd del "{t}a" @delme
+        $rd set "{t}a" v1
+        $rd del "{t}a" @delme
+        $rd mget "{t}a" @insertafter
+        $rd flush
+        assert_equal 0 [$rd read]
+        assert_equal {OK} [$rd read]
+        assert_equal 1 [$rd read]
+        assert_error "CROSSSLOT*" {$rd read}
+        $rd close
+    }
+
+    test {Command Filter refreshes the slot when a key argument is replaced} {
+        # The filter rewrites @replaceme into --replaced--, so the slot cached
+        # for the original key must not leak into the new command.
+        r set --replaced-- v1
+        assert_equal v1 [r get @replaceme]
+        assert_equal 1 [r del @replaceme]
+    }
+}

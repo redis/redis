@@ -6080,12 +6080,7 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
 getKeysResult *getClientCachedKeyResult(client *c) {
     pendingCommand *pcmd = c->current_pending_cmd;
     if (pcmd) {
-        /* Preprocess the command if needed */
-        if (!(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED)) {
-            preprocessCommand(c, pcmd);
-            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
-        }
-
+        serverAssert(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED);
         /* Return cached result if available */
         if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)
             return &c->current_pending_cmd->keys_result;
