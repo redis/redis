@@ -797,8 +797,7 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  */
 static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
                                        kvobj *o, dictEntryLink link,
-                                       size_t *strOldSize, size_t *strGrowSize,
-                                       int *created)
+                                       size_t *strOldSize, size_t *strGrowSize)
 {
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
@@ -807,13 +806,11 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
         dbAddByLink(c->db,c->argv[1],&o,&link);
-        *created = 1;
         *strGrowSize = byte + 1;
         *strOldSize = 0;
     } else {
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         *strOldSize  = sdslen(o->ptr);
-        *created = 0;
         if (server.memory_tracking_enabled)
             oldAllocSize = kvobjAllocSize(o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
@@ -1126,9 +1123,9 @@ void setbitCommand(client *c) {
     }
 
     size_t strOldSize, strGrowSize;
-    int created = 0;
+    int created = (o == NULL);
     o = lookupStringForBitCommand(c, bitoffset, o, link,
-                                  &strOldSize, &strGrowSize, &created);
+                                  &strOldSize, &strGrowSize);
     if (o == NULL) return;
 
     /* Get current values */
@@ -1149,15 +1146,9 @@ void setbitCommand(client *c) {
 
         /* If this is not a new key and size changed, then update the keysizes
          * histogram. Otherwise, the histogram already updated in
-         * lookupStringForBitCommand() by calling dbAdd(). Two deliberate
-         * differences from the upstream shape of this block, both caught by
-         * kvsUpdateHistogram's non-negative bin assert (see
-         * https://github.com/redis/redis/pull/15598): the guard is "not
-         * created" rather than "old size not 0", since a pre-existing empty
-         * string that grows would never leave the zero-size bin; and the
-         * histogram is updated before
-         * the keyspace notification, whose module callbacks may delete the
-         * key and decrement the new-size bin. */
+         * lookupStringForBitCommand() by calling dbAdd(). Use "not created"
+         * rather than "old size not 0", and update before notification; see
+         * #15598. */
         if (!created && strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
 
@@ -2055,8 +2046,8 @@ static void normalizeBitRange(bitRange *range, long long strlen, int isbit) {
     if (range->start > range->end) return;
 
     if (isbit) {
-        range->bit_start = range->start;
-        range->bit_end = range->end + 1;
+        range->bit_start = (uint64_t)range->start;
+        range->bit_end = (uint64_t)range->end + 1;
         range->first_byte_neg_mask = ~((1<<(8-(range->start&7)))-1) & 0xFF;
         range->last_byte_neg_mask = (1<<(7-(range->end&7)))-1;
         range->start >>= 3;
@@ -2174,6 +2165,7 @@ void bitcountCommand(client *c) {
 /* BITPOS key bit [start [end [BIT|BYTE]]] */
 void bitposCommand(client *c) {
     kvobj *o;
+    long long start, end;
     long bit;
     long long strlen;
     long slen;
@@ -2181,6 +2173,7 @@ void bitposCommand(client *c) {
     char llbuf[LONG_STR_SIZE];
     bitRange range;
     int isbit = 0, end_given = 0;
+    unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
     /* Parse the bit argument to understand what we are looking for, set
      * or clear bits. */
@@ -2193,7 +2186,7 @@ void bitposCommand(client *c) {
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5 || c->argc == 6) {
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&range.start,NULL) != C_OK)
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&start,NULL) != C_OK)
             return;
         if (c->argc == 6) {
             if (!strcasecmp(c->argv[5]->ptr,"bit")) isbit = 1;
@@ -2204,7 +2197,7 @@ void bitposCommand(client *c) {
             }
         }
         if (c->argc >= 5) {
-            if (getLongLongFromObjectOrReply(c,c->argv[4],&range.end,NULL) != C_OK)
+            if (getLongLongFromObjectOrReply(c,c->argv[4],&end,NULL) != C_OK)
                 return;
             end_given = 1;
         }
@@ -2221,10 +2214,16 @@ void bitposCommand(client *c) {
         }
 
         if (c->argc < 5) {
-            if (isbit) range.end = (strlen<<3) + 7;
-            else range.end = strlen-1;
+            if (isbit) end = (strlen<<3) + 7;
+            else end = strlen-1;
         }
+        range.start = start;
+        range.end = end;
         normalizeBitRange(&range, strlen, isbit);
+        start = range.start;
+        end = range.end;
+        first_byte_neg_mask = range.first_byte_neg_mask;
+        last_byte_neg_mask = range.last_byte_neg_mask;
     } else if (c->argc == 3) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
@@ -2239,9 +2238,13 @@ void bitposCommand(client *c) {
 
         /* The whole string. Roaring BITPOS still needs the derived bit interval
          * populated in range.bit_start/range.bit_end. */
-        range.start = 0;
-        range.end = strlen-1;
+        start = 0;
+        end = strlen-1;
+        range.start = start;
+        range.end = end;
         normalizeBitRange(&range, strlen, 0);
+        start = range.start;
+        end = range.end;
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -2267,37 +2270,37 @@ void bitposCommand(client *c) {
 
     /* For empty ranges (start > end) we return -1 as an empty range does
      * not contain a 0 nor a 1. */
-    if (range.start > range.end) {
+    if (start > end) {
         addReplyLongLong(c, -1);
     } else {
-        long bytes = range.end-range.start+1;
+        long bytes = end-start+1;
         long long pos;
         unsigned char tmpchar;
-        if (range.first_byte_neg_mask) {
-            if (bit) tmpchar = p[range.start] & ~range.first_byte_neg_mask;
-            else tmpchar = p[range.start] | range.first_byte_neg_mask;
+        if (first_byte_neg_mask) {
+            if (bit) tmpchar = p[start] & ~first_byte_neg_mask;
+            else tmpchar = p[start] | first_byte_neg_mask;
             /* Special case, there is only one byte */
-            if (range.last_byte_neg_mask && bytes == 1) {
-                if (bit) tmpchar = tmpchar & ~range.last_byte_neg_mask;
-                else tmpchar = tmpchar | range.last_byte_neg_mask;
+            if (last_byte_neg_mask && bytes == 1) {
+                if (bit) tmpchar = tmpchar & ~last_byte_neg_mask;
+                else tmpchar = tmpchar | last_byte_neg_mask;
             }
             pos = redisBitpos(&tmpchar,1,bit);
             /* If there are no more bytes or we get valid pos, we can exit early */
             if (bytes == 1 || (pos != -1 && pos != 8)) goto result;
-            range.start++;
+            start++;
             bytes--;
         }
         /* If the last byte has not bits in the range, we should exclude it */
-        long curbytes = bytes - (range.last_byte_neg_mask ? 1 : 0);
+        long curbytes = bytes - (last_byte_neg_mask ? 1 : 0);
         if (curbytes > 0) {
-            pos = redisBitpos(p+range.start,curbytes,bit);
+            pos = redisBitpos(p+start,curbytes,bit);
             /* If there is no more bytes or we get valid pos, we can exit early */
             if (bytes == curbytes || (pos != -1 && pos != (long long)curbytes<<3)) goto result;
-            range.start += curbytes;
+            start += curbytes;
             bytes -= curbytes;
         }
-        if (bit) tmpchar = p[range.end] & ~range.last_byte_neg_mask;
-        else tmpchar = p[range.end] | range.last_byte_neg_mask;
+        if (bit) tmpchar = p[end] & ~last_byte_neg_mask;
+        else tmpchar = p[end] | last_byte_neg_mask;
         pos = redisBitpos(&tmpchar,1,bit);
 
     result:
@@ -2312,7 +2315,7 @@ void bitposCommand(client *c) {
             addReplyLongLong(c,-1);
             return;
         }
-        if (pos != -1) pos += (long long)range.start<<3; /* Adjust for the bytes we skipped. */
+        if (pos != -1) pos += (long long)start<<3; /* Adjust for the bytes we skipped. */
         addReplyLongLong(c,pos);
     }
 }
@@ -2564,10 +2567,10 @@ static void bitfieldWriteString(client *c, kvobj *o, struct bitfieldOp *ops,
                                 dictEntryLink link, int transitioned)
 {
     size_t oldSize = 0, growSize = 0;
-    int created = 0;
+    int created = (o == NULL);
 
     o = lookupStringForBitCommand(c,highest_write_offset,o,link,
-                                  &oldSize,&growSize,&created);
+                                  &oldSize,&growSize);
     if (o == NULL) return; /* Wrong type, or the value can't be grown. */
 
     addReplyArrayLen(c,numops);
@@ -2581,9 +2584,8 @@ static void bitfieldWriteString(client *c, kvobj *o, struct bitfieldOp *ops,
 
     /* If this is not a new key and size changed, then update the
      * keysizes histogram. Otherwise, the histogram already updated
-     * in lookupStringForBitCommand() by calling dbAdd(). "Not
-     * created" rather than "old size not 0": see the same guard in
-     * setbitCommand() and https://github.com/redis/redis/pull/15598. */
+     * in lookupStringForBitCommand() by calling dbAdd(). "Not created" rather
+     * than "old size not 0": see the same guard in setbitCommand() and #15598. */
     if (!created && growSize != 0)
         updateKeysizesHist(c->db,OBJ_STRING,oldSize,oldSize+growSize);
 
