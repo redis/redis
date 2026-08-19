@@ -8,18 +8,16 @@
 #include <openssl/ssl.h>
 #endif
 
-#if !defined(TLS_NO_GROUPS) && (defined(SSL_CTX_set1_groups_list) || defined(SSL_CTX_set1_curves_list))
+#if defined(TLS_NO_GROUPS)
+#define CLI_TLS_SUPPORTS_GROUPS 0
+#elif defined(SSL_CTX_set1_groups_list)
 #define CLI_TLS_SUPPORTS_GROUPS 1
+#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
+#elif defined(SSL_CTX_set1_curves_list)
+#define CLI_TLS_SUPPORTS_GROUPS 1
+#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
 #else
 #define CLI_TLS_SUPPORTS_GROUPS 0
-#endif
-
-#if CLI_TLS_SUPPORTS_GROUPS
-#if defined(SSL_CTX_set1_groups_list)
-#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
-#else
-#define cliSslCtxSetGroupsList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
-#endif
 #endif
 
 typedef struct cliSSLconfig {
