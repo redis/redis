@@ -4826,6 +4826,16 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             if (!server.cluster_enabled) {
                 continue; /* Ignore gracefully. */
             }
+            /* slot_id comes straight from the RDB and is used as an index into the
+             * per-slot kvstore dictionaries. A malformed RDB can supply a value
+             * outside the valid slot range, which would be truncated to a negative or
+             * out-of-range int index inside the kvstore layer and cause an
+             * out-of-bounds access. Reject such records as corrupt before expanding. */
+            if (slot_id >= (uint64_t)kvstoreNumDicts(db->keys)) {
+                rdbReportCorruptRDB("SLOT_INFO slot id %llu is out of range (max %d)",
+                    (unsigned long long)slot_id, kvstoreNumDicts(db->keys));
+                return C_ERR;
+            }
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             kvstoreDictExpand(db->keys, slot_id, slot_size);
             kvstoreDictExpand(db->expires, slot_id, expires_slot_size);

@@ -652,8 +652,10 @@ static void tlsPendingRemove(tls_connection *conn) {
     }
 }
 
-static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t outlen) {
-    if (!cert || !field || !out) return 0;
+/* Returns the requested certificate subject field as a newly allocated,
+ * binary-safe sds, or NULL on failure. */
+static sds getCertFieldByName(X509 *cert, const char *field) {
+    if (!cert || !field) return NULL;
 
     int nid = -1;
 
@@ -663,12 +665,18 @@ static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t o
         nid = NID_organizationName;
     /* Add more mappings here as needed */
 
-    if (nid == -1) return 0;
+    if (nid == -1) return NULL;
 
     X509_NAME *subject = X509_get_subject_name(cert);
-    if (!subject) return 0;
+    if (!subject) return NULL;
 
-    return X509_NAME_get_text_by_NID(subject, nid, out, outlen) > 0;
+    /* The name may contain embedded NULs, so use the returned length, not
+     * strlen, to build the proper binary-safe string. */
+    char buf[256];
+    int len = X509_NAME_get_text_by_NID(subject, nid, buf, sizeof(buf));
+    if (len <= 0) return NULL;
+
+    return sdstrynewlen(buf, len);
 }
 
 sds tlsGetPeerUsername(connection *conn_) {
@@ -690,14 +698,9 @@ sds tlsGetPeerUsername(connection *conn_) {
     X509 *cert = SSL_get_peer_certificate(conn->ssl);
     if (!cert) return NULL;
 
-    char field_value[256];
-    sds result = NULL;
-
-    if (getCertFieldByName(cert, field, field_value, sizeof(field_value))) {
-        result = sdsnew(field_value);
-    } else {
+    sds result = getCertFieldByName(cert, field);
+    if (!result)
         serverLog(LL_NOTICE, "TLS: Failed to extract field '%s' from certificate", field);
-    }
 
     X509_free(cert);
     return result;
@@ -1270,15 +1273,14 @@ static int tlsHasPendingData(struct aeEventLoop *el) {
 }
 
 static int tlsProcessPendingData(struct aeEventLoop *el) {
-    listIter li;
-    listNode *ln;
-
     list *pending_list = el->privdata[1];
     if (!pending_list) return 0;
     int processed = listLength(pending_list);
-    listRewind(pending_list,&li);
-    while((ln = listNext(&li))) {
+    for (int i = 0; i < processed; i++) {
+        listNode *ln = listFirst(pending_list);
+        if (!ln) break;
         tls_connection *conn = listNodeValue(ln);
+        tlsPendingRemove(conn);
         tlsHandleEvent(conn, AE_READABLE);
     }
     return processed;

@@ -294,6 +294,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NODE_PFAIL      (1<<3)
 #define REDISMODULE_NODE_FAIL       (1<<4)
 #define REDISMODULE_NODE_NOFAILOVER (1<<5)
+#define REDISMODULE_NODE_PORT_TLS   (1<<6)
 
 #define REDISMODULE_CLUSTER_FLAG_NONE 0
 #define REDISMODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)

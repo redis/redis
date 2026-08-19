@@ -86,6 +86,21 @@ static const char *KeyTypeName(int type) {
     }
 }
 
+static int IsLiveMasterContext(RedisModuleCtx *ctx) {
+    int flags = RedisModule_GetContextFlags(ctx);
+    return (flags & REDISMODULE_CTX_FLAGS_MASTER) &&
+           !(flags & REDISMODULE_CTX_FLAGS_LOADING);
+}
+
+static int BitmapTransitionKeyIsBitmap(RedisModuleCtx *ctx,
+                                       RedisModuleString *key)
+{
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    int is_bitmap = RedisModule_KeyType(redis_key) == REDISMODULE_KEYTYPE_BITMAP;
+    RedisModule_CloseKey(redis_key);
+    return is_bitmap;
+}
+
 static const char *NotificationClassName(int type) {
     switch (type) {
     case REDISMODULE_NOTIFY_GENERIC: return "generic";
@@ -121,6 +136,27 @@ static void LogBitmapTransitionNotification(RedisModuleCtx *ctx, int type,
 
 static void DeleteBitmapTransitionKey(RedisModuleCtx *ctx, RedisModuleString *key) {
     RedisModuleCallReply *reply = RedisModule_Call(ctx, "DEL", "s!", key);
+    RedisModule_Assert(reply != NULL);
+    RedisModule_FreeCallReply(reply);
+}
+
+static void ReplaceBitmapTransitionKeyWithString(RedisModuleCtx *ctx,
+                                                 RedisModuleString *key,
+                                                 int propagate)
+{
+    const unsigned char value[] = {0x20};
+    RedisModuleCallReply *reply = RedisModule_Call(
+        ctx, "SET", propagate ? "sb!" : "sb", key, value, sizeof(value));
+    RedisModule_Assert(reply != NULL);
+    RedisModule_FreeCallReply(reply);
+}
+
+static void ReplaceBitmapTransitionKeyWithList(RedisModuleCtx *ctx,
+                                               RedisModuleString *key)
+{
+    DeleteBitmapTransitionKey(ctx, key);
+    RedisModuleCallReply *reply = RedisModule_Call(
+        ctx, "LPUSH", "sc!", key, "replacement");
     RedisModule_Assert(reply != NULL);
     RedisModule_FreeCallReply(reply);
 }
@@ -246,7 +282,8 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
 static int KeySpace_NotificationModuleBitmap(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     bitmap_callback_call_count++;
     LogBitmapTransitionNotification(ctx, type, event, key);
-    if (strncmp(RedisModule_StringPtrLen(key, NULL),
+    if (IsLiveMasterContext(ctx) &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
                 "bitmap:transition:delete-bitmap",
                 strlen("bitmap:transition:delete-bitmap")) == 0)
     {
@@ -260,19 +297,43 @@ static int KeySpace_NotificationBitmapTransition(RedisModuleCtx *ctx, int type,
                                                  RedisModuleString *key)
 {
     LogBitmapTransitionNotification(ctx, type, event, key);
-    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED &&
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
         strcmp(RedisModule_StringPtrLen(key, NULL),
                "bitmap:transition:delete-type") == 0)
     {
         DeleteBitmapTransitionKey(ctx, key);
     }
-    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED &&
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
         strncmp(RedisModule_StringPtrLen(key, NULL),
                 "bitmap:transition:delete-type-zero",
                 strlen("bitmap:transition:delete-type-zero")) == 0 &&
         !BitmapTransitionBitIsSet(ctx, key, 0))
     {
         DeleteBitmapTransitionKey(ctx, key);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:replace-type-string",
+                strlen("bitmap:transition:replace-type-string")) == 0 &&
+        BitmapTransitionKeyIsBitmap(ctx, key))
+    {
+        ReplaceBitmapTransitionKeyWithString(ctx, key, 1);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED && IsLiveMasterContext(ctx) &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:replace-type-list",
+                strlen("bitmap:transition:replace-type-list")) == 0 &&
+        BitmapTransitionKeyIsBitmap(ctx, key))
+    {
+        ReplaceBitmapTransitionKeyWithList(ctx, key);
+    }
+    if (type == REDISMODULE_NOTIFY_TYPE_CHANGED &&
+        strncmp(RedisModule_StringPtrLen(key, NULL),
+                "bitmap:transition:replace-replay-string",
+                strlen("bitmap:transition:replace-replay-string")) == 0 &&
+        BitmapTransitionKeyIsBitmap(ctx, key))
+    {
+        ReplaceBitmapTransitionKeyWithString(ctx, key, 0);
     }
     return REDISMODULE_OK;
 }
