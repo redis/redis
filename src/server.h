@@ -461,6 +461,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                              provenance stamp (see pubsubStampCurrentUser). Fast-path
                                              hint: while unset, every subscription is owned by
                                              c->user, so ACL scans can skip the client in O(1). */
+#define CLIENT_BITOP_ROARING (1ULL<<56) /* The next BITOP on this session must
+                                           store a Roaring bitmap result. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -4792,7 +4794,7 @@ void functionRestoreCommand(client *c);
 void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
-void bitopRoaringCommand(client *c);
+void bitopModeCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);

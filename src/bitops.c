@@ -858,9 +858,9 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
 /* Public commands create Roaring bitmaps, or convert string values they write
  * to, only when bitmap-default-roaring is enabled and never while obeying a
  * master or the AOF: the representation decision must stay a pure function
- * of replicated logical state, so masters propagate every type transition as
- * an explicit BITCONVERT instead of letting replicas re-derive it from their
- * local configuration. */
+ * of replicated logical state instead of being re-derived from node-local
+ * configuration. BITCONVERT carries write transitions and BITOPMODE carries
+ * config-selected BITOP results in the replicated command stream. */
 static int bitroarDefaultEnabled(client *c) {
     return server.bitmap_default_roaring && !mustObeyClient(c);
 }
@@ -984,6 +984,20 @@ void bitconvertCommand(client *c) {
     bitroarPropagateCurrentCommand(c);
     bitroarConvertKey(c, c->argv[1], o, link);
     server.dirty++;
+    addReply(c, shared.ok);
+}
+
+/* BITOPMODE is a one-shot internal session setting used by replication and
+ * AOF replay. The following ordinary BITOP consumes it before doing any work,
+ * so errors and nested callbacks cannot leak the mode to a later command. */
+void bitopModeCommand(client *c) {
+    c->flags &= ~CLIENT_BITOP_ROARING;
+    if (strcasecmp(c->argv[1]->ptr, "ROARING")) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+
+    c->flags |= CLIENT_BITOP_ROARING;
     addReply(c, shared.ok);
 }
 
@@ -1513,25 +1527,28 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX512 */
 
-/* Queue an internal BITOP_ROARING form of the current command. Unlike a
- * BITOP-then-BITCONVERT sequence, this performs the native result store and its
- * notifications identically on the primary, replicas, and AOF replay. */
-static void bitroarPropagateBitopRoaring(client *c) {
-    robj **argv = zmalloc(sizeof(*argv) * c->argc);
-    memcpy(argv, c->argv, sizeof(*argv) * c->argc);
-    argv[0] = createStringObject("BITOP_ROARING", 13);
+/* Queue a one-shot session mode followed by the ordinary BITOP. The two
+ * pending operations are emitted transactionally, so replicas and AOF replay
+ * observe the primary's result representation without duplicating BITOP's
+ * syntax and key specifications in a second command. */
+static void bitroarPropagateBitopMode(client *c) {
+    robj *argv[2];
+    int target = bitroarPropagationTarget(c);
 
-    alsoPropagate(c->db->id, argv, c->argc, bitroarPropagationTarget(c));
+    argv[0] = createStringObject("BITOPMODE", 9);
+    argv[1] = createStringObject("ROARING", 7);
+    alsoPropagate(c->db->id, argv, 2, target);
+    alsoPropagate(c->db->id, c->argv, c->argc, target);
     preventCommandPropagation(c);
     decrRefCount(argv[0]);
-    zfree(argv);
+    decrRefCount(argv[1]);
 }
 
 /* BITOP whose result is a Roaring bitmap. Sources come from
  * bitopCommandGeneric()'s lookup loop through objects[]. */
 static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
                                robj **objects, unsigned long numkeys,
-                               uint64_t maxlen, int propagate_forced)
+                               uint64_t maxlen, int propagate_mode)
 {
     robj *res_bitmap = NULL;
 
@@ -1556,19 +1573,19 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     }
 
     /* Store the computed value into the target key. Queue the command before
-     * notifications on every native path, including BITOP_ROARING replay on a
+     * notifications on every native path, including mode-forced replay on a
      * replica with AOF enabled. */
     if (maxlen) {
-        if (propagate_forced)
-            bitroarPropagateBitopRoaring(c);
+        if (propagate_mode)
+            bitroarPropagateBitopMode(c);
         else
             bitroarPropagateCurrentCommand(c);
         setKey(c, c->db, targetkey, &res_bitmap, 0);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
     } else if (lookupKeyWrite(c->db, targetkey) != NULL) {
-        if (propagate_forced)
-            bitroarPropagateBitopRoaring(c);
+        if (propagate_mode)
+            bitroarPropagateBitopMode(c);
         else
             bitroarPropagateCurrentCommand(c);
         serverAssert(dbDelete(c->db,targetkey));
@@ -1675,15 +1692,14 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
-    /* Roaring bitmap sources, the hidden force-native replication primitive,
-     * or a destination selected by bitmap-default-roaring take the dedicated
-     * path. A config-only decision is propagated as BITOP_ROARING so replay
-     * observes the exact same value type and notification sequence. */
-    int config_forced = maxlen && !has_roaring_bitmap &&
-                        (force_roaring || bitroarDefaultEnabled(c));
-    if (has_roaring_bitmap || config_forced) {
+    /* Roaring bitmap sources, a replay-session hint, or a destination selected
+     * by bitmap-default-roaring take the dedicated path. A mode-only decision
+     * is propagated as BITOPMODE ROARING followed by the ordinary BITOP. */
+    int mode_forced = maxlen && !has_roaring_bitmap &&
+                      (force_roaring || bitroarDefaultEnabled(c));
+    if (has_roaring_bitmap || mode_forced) {
         bitopCommandBitmap(c, op, targetkey, objects, numkeys,
-                           maxlen, config_forced && !force_roaring);
+                           maxlen, mode_forced);
         for (j = 0; j < numkeys; j++) {
             /* Borrowed Roaring operands may be freed by now: storing the
              * result overwrites (or deletes) the target key, which can be
@@ -2017,11 +2033,9 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
 }
 
 void bitopCommand(client *c) {
-    bitopCommandGeneric(c, 0);
-}
-
-void bitopRoaringCommand(client *c) {
-    bitopCommandGeneric(c, 1);
+    int force_roaring = !!(c->flags & CLIENT_BITOP_ROARING);
+    c->flags &= ~CLIENT_BITOP_ROARING;
+    bitopCommandGeneric(c, force_roaring);
 }
 
 typedef struct bitRange {
