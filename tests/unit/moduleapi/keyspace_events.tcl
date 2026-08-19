@@ -225,8 +225,8 @@ tags "modules external:skip" {
                     assert_equal 0 [r setbit $key 0 1]
                     set expected [binary format H* a0]
                 } else {
-                    assert_equal {32} [r bitfield $key SET u8 0 255]
-                    set expected [binary format H* ff]
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
                 }
                 assert_equal string [r type $key]
                 assert_equal $expected [r get $key]
@@ -247,8 +247,8 @@ tags "modules external:skip" {
                     assert_equal 0 [r setbit $key 0 1]
                     set expected [binary format H* a0]
                 } else {
-                    assert_equal {32} [r bitfield $key SET u8 0 255]
-                    set expected [binary format H* ff]
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
                 }
                 assert_equal string [r type $key]
                 assert_equal $expected [r get $key]
@@ -595,8 +595,8 @@ tags "modules external:skip" {
 
             r flushall
             r config set bitmap-default-roaring no
-            r set $type_setbit [binary format H* 00]
-            r set $type_bitfield [binary format H* 00]
+            r set $type_setbit [binary format H* 40]
+            r set $type_bitfield [binary format H* 40]
             r set $bitmap_setbit [binary format H* 00]
             r set $bitmap_bitfield [binary format H* 00]
             r set $bitop_source [binary format H* f0]
@@ -604,14 +604,14 @@ tags "modules external:skip" {
             waitForBgrewriteaof r
 
             r config set bitmap-default-roaring yes
-            assert_equal 0 [r setbit $type_setbit 0 1]
-            assert_equal {0} [r bitfield $type_bitfield SET u8 0 255]
+            assert_equal 0 [r setbit $type_setbit 2 1]
+            assert_equal {0} [r bitfield $type_bitfield SET u4 4 15]
             assert_equal 0 [r setbit $bitmap_setbit 0 1]
             assert_equal {0} [r bitfield $bitmap_bitfield SET u8 0 255]
             assert_equal 1 [r bitop or $bitop_dest $bitop_source]
 
             foreach {key raw} [list \
-                $type_setbit 80 $type_bitfield ff] {
+                $type_setbit 20 $type_bitfield 0f] {
                 assert_equal string [r type $key]
                 assert_equal [binary format H* $raw] [r get $key]
             }
@@ -630,7 +630,7 @@ tags "modules external:skip" {
 
             assert_equal $digests_before [r debug digest-value {*}$replay_keys]
             foreach {key raw} [list \
-                $type_setbit 80 $type_bitfield ff] {
+                $type_setbit 20 $type_bitfield 0f] {
                 assert_equal string [r type $key]
                 assert_equal [binary format H* $raw] [r get $key]
             }
@@ -721,8 +721,8 @@ tags "modules external:skip" {
                     $replay_string_setbit $replay_string_bitfield \
                     $list_setbit $list_bitfield \
                     $bitop_dest $bitop_source
-                $master set $type_setbit [binary format H* 00]
-                $master set $type_bitfield [binary format H* 00]
+                $master set $type_setbit [binary format H* 40]
+                $master set $type_bitfield [binary format H* 40]
                 $master set $bitmap_setbit [binary format H* 00]
                 $master set $bitmap_bitfield [binary format H* 00]
                 $master set $string_setbit [binary format H* 80]
@@ -749,14 +749,14 @@ tags "modules external:skip" {
                 waitForBgrewriteaof $replica
 
                 $master config set bitmap-default-roaring yes
-                assert_equal 0 [$master setbit $type_setbit 0 1]
-                assert_equal {0} [$master bitfield $type_bitfield SET u8 0 255]
+                assert_equal 0 [$master setbit $type_setbit 2 1]
+                assert_equal {0} [$master bitfield $type_bitfield SET u4 4 15]
                 assert_equal 0 [$master setbit $bitmap_setbit 0 1]
                 assert_equal {0} [$master bitfield $bitmap_bitfield SET u8 0 255]
                 assert_equal 0 [$master setbit $string_setbit 0 1]
-                assert_equal {32} [$master bitfield $string_bitfield SET u8 0 255]
+                assert_equal {0} [$master bitfield $string_bitfield SET u4 4 15]
                 assert_equal 0 [$master setbit $replay_string_setbit 0 1]
-                assert_equal {32} [$master bitfield $replay_string_bitfield SET u8 0 255]
+                assert_equal {0} [$master bitfield $replay_string_bitfield SET u4 4 15]
                 assert_error {WRONGTYPE*} {$master setbit $list_setbit 0 1}
                 assert_error {WRONGTYPE*} {$master bitfield $list_bitfield SET u8 0 255}
                 assert_equal 1 [$master bitop or $bitop_dest $bitop_source]
@@ -764,9 +764,9 @@ tags "modules external:skip" {
 
                 foreach client [list $master $replica] {
                     foreach {key raw} [list \
-                        $type_setbit 80 $type_bitfield ff \
-                        $string_setbit a0 $string_bitfield ff \
-                        $replay_string_setbit a0 $replay_string_bitfield ff] {
+                        $type_setbit 20 $type_bitfield 0f \
+                        $string_setbit a0 $string_bitfield 2f \
+                        $replay_string_setbit a0 $replay_string_bitfield 2f] {
                         assert_equal string [$client type $key]
                         assert_equal [binary format H* $raw] [$client get $key]
                     }
@@ -788,9 +788,9 @@ tags "modules external:skip" {
                 $replica debug loadaof
                 assert_equal $replica_digest [$replica debug digest]
                 foreach {key raw} [list \
-                    $type_setbit 80 $type_bitfield ff \
-                    $string_setbit a0 $string_bitfield ff \
-                    $replay_string_setbit a0 $replay_string_bitfield ff] {
+                    $type_setbit 20 $type_bitfield 0f \
+                    $string_setbit a0 $string_bitfield 2f \
+                    $replay_string_setbit a0 $replay_string_bitfield 2f] {
                     assert_equal string [$replica type $key]
                     assert_equal [binary format H* $raw] [$replica get $key]
                 }
