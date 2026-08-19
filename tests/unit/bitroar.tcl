@@ -161,6 +161,25 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal {OK 1} [r exec]
         assert_equal bitmap [r type bitmap_out:multi]
 
+        # ACL changes between queueing and EXEC reject a BITOP outside the
+        # ordinary dispatch path. That rejection must consume the marker too.
+        set acl_user bitopmode-exec-test
+        r acl setuser $acl_user reset on >bitopmode-pass ~* &* +@all
+        set acl_client [redis [srv 0 host] [srv 0 port]]
+        $acl_client auth $acl_user bitopmode-pass
+        $acl_client debug mark-internal-client
+        assert_equal OK [$acl_client multi]
+        assert_equal QUEUED [$acl_client bitopmode bitmap_out:acl ROARING]
+        assert_equal QUEUED [$acl_client bitop or bitmap_out:acl bitmap_source]
+        r acl setuser $acl_user -bitop
+        catch {$acl_client exec} acl_exec_reply
+        assert_match {*NOPERM*} $acl_exec_reply
+        r acl setuser $acl_user +bitop
+        assert_equal 1 [$acl_client bitop or bitmap_out:after-acl bitmap_source]
+        assert_equal string [r type bitmap_out:after-acl]
+        $acl_client close
+        r acl deluser $acl_user
+
         r debug mark-internal-client unmark
         assert_error {ERR unknown command 'bitconvert'*} {
             r bitconvert bitmap_missing ROARING
