@@ -1352,10 +1352,8 @@ static uint64_t bitroarRawOpWord(bitroarOp op,
     return output;
 }
 
-static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op,
-                                                  robj **objects,
-                                                  size_t numkeys,
-                                                  size_t maxlen)
+static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
+                                                  size_t numkeys, size_t maxlen)
 {
     bitroarRawOpSource *sources = zcalloc(sizeof(*sources) * numkeys);
     unsigned char **raw_sources = zmalloc(sizeof(*raw_sources) * numkeys);
@@ -1656,9 +1654,7 @@ static roaring64_bitmap_t *bitroarUnionOpSources(bitroarOpSource *sources,
     return result;
 }
 
-static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources,
-                                                       size_t numkeys)
-{
+static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources, size_t numkeys) {
     roaring64_bitmap_t *result = bitroarCopyOpSource(&sources[0]);
     roaring64_bitmap_t *multiple = roaring64_bitmap_create();
     serverAssert(multiple != NULL);
@@ -1686,9 +1682,7 @@ static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources,
  * string semantics where the destination length equals the longest source.
  * Sparse, large and Roaring-only operations stay entirely in Roaring space;
  * bounded dense mixed operands use the raw-word path above. */
-robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys,
-                     uint64_t maxlen)
-{
+robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen) {
     bitroarOpSource *sources;
     roaring64_bitmap_t *result = NULL;
     int optimize_result = 1;
