@@ -167,6 +167,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r acl setuser $acl_user reset on >bitopmode-pass ~* &* +@all
         set acl_client [redis [srv 0 host] [srv 0 port]]
         $acl_client auth $acl_user bitopmode-pass
+        $acl_client select $selected_db
         $acl_client debug mark-internal-client
         assert_equal OK [$acl_client multi]
         assert_equal QUEUED [$acl_client bitopmode bitmap_out:acl ROARING]
