@@ -3511,7 +3511,7 @@ void asmCancelPendingTrimJobs(void) {
 /* Finalize a trim job after completion or cancellation. If the job belongs to
  * a blocking SFLUSH client, reply with the trimmed slots and unblock it before
  * releasing all job-owned resources. */
-static void asmTrimJobUnblockClientAndFree(void *ptr) {
+void asmTrimJobUnblockClientAndFree(void *ptr) {
     asmTrimJob *job = ptr;
     if (job->client_id != 0) {
         /* Reply with the slot ranges that requested to be trimmed. Generally we
@@ -3640,7 +3640,7 @@ void asmActiveTrimStart(void) {
 }
 
 /* Schedule an active trim job, taking ownership of the job. */
-static void asmTriggerActiveTrim(asmTrimJob *job) {
+void asmTriggerActiveTrim(asmTrimJob *job) {
     listAddNodeTail(asmManager->active_trim_jobs, job);
     sds str = slotRangeArrayToString(job->slots);
     serverLog(LL_NOTICE, "Active trim scheduled for slots: %s", str);
