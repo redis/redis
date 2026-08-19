@@ -1,5 +1,3 @@
-source tests/support/bitmap.tcl
-
 set testmodule [file normalize tests/modules/misc.so]
 
 start_server {overrides {save {900 1}} tags {"modules external:skip"}} {

@@ -1,5 +1,3 @@
-source tests/support/bitmap.tcl
-
 set sparse_public_offset 65536
 set sparse_public_len 8193
 

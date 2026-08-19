@@ -1,7 +1,5 @@
 # tests of corrupt listpack payload with valid CRC
 
-source tests/support/bitmap.tcl
-
 # The fuzzer can cause corrupt the state in many places, which could
 # mess up the reply, so we decided to skip logreqres.
 tags {"dump" "corruption" "external:skip" "logreqres:skip"} {
