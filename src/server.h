@@ -1806,16 +1806,32 @@ struct sharedObjectsStruct {
  * paired with a dict mapping member -> element for O(1) score lookup. */
 
 /* A single sorted-set element. The member SDS is embedded in the same
- * allocation right after this header (located via sdsoffset), mirroring the
- * old skiplist node layout so the dict can store zbtElem* as keys. */
+ * allocation right after this header, mirroring the old skiplist node layout
+ * so the dict can store zbtElem* as keys.
+ *
+ * data[0] holds the offset from the element start to the embedded member data,
+ * followed by the sds header and the member bytes. The offset has to be stored
+ * because the sds header size depends on the sds type, so the member data does
+ * not sit at a fixed distance from the element start. It is kept outside the
+ * struct rather than as a trailing field because any field after 'score' would
+ * force the struct up to 16 bytes of alignment padding, which for short
+ * members costs a whole jemalloc size class per element. */
 typedef struct zbtElem {
     double score;
-    uint16_t sdsoffset;  /* offset from element start to embedded sds data */
+    char data[];
 } zbtElem;
+
+static inline uint8_t zbtGetOffset(const zbtElem *e) {
+    return (uint8_t)e->data[0];
+}
+
+static inline void zbtSetOffset(zbtElem *e, uint8_t off) {
+    e->data[0] = (char)off;
+}
 
 /* Recover the embedded member SDS from an element. */
 static inline sds zbtGetEle(const zbtElem *e) {
-    return (sds)((char *)e + e->sdsoffset);
+    return (sds)((char *)e + zbtGetOffset(e));
 }
 
 /* B+ tree node is opaque outside zbtree.c. */

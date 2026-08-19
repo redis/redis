@@ -21,7 +21,18 @@
 #include "server.h"
 
 /* Fanout of the tree. Nodes are allowed to temporarily hold one extra slot
- * (hence the "+1" sized arrays) before they are split. */
+ * (hence the "+1" sized arrays) before they are split.
+ *
+ * Every node holds at least its MIN, with three exceptions: the root, and the
+ * head and tail leaves, which zbtSplitLeaf() deliberately starts under-filled
+ * so that sorted insertion does not strand every leaf at half occupancy. */
+
+/* Which end of the leaf the element that overflowed it landed on. Sorted
+ * insertion never returns to the side the split leaves behind, so an even
+ * split would strand that side half full for the rest of its life. */
+#define ZBT_SPLIT_EVEN    0
+#define ZBT_SPLIT_APPEND  1  /* went in at the end of the tail leaf */
+#define ZBT_SPLIT_PREPEND 2  /* went in at the front of the head leaf */
 #define ZBT_LEAF_MAX   64
 #define ZBT_LEAF_MIN   (ZBT_LEAF_MAX/2)
 #define ZBT_INNER_MAX  64
@@ -52,6 +63,11 @@ typedef struct zbtInner {
  * Element allocation
  *----------------------------------------------------------------------------*/
 
+/* The member offset stored in zbtElem.data[0] is bounded by the largest sds
+ * header, so a single byte is always enough to hold it. */
+static_assert(sizeof(zbtElem) + 1 + sizeof(struct sdshdr64) <= UINT8_MAX,
+              "zbtElem member offset must fit in a byte");
+
 /* Allocate an element with the member SDS embedded in the same allocation
  * (single block: zbtElem header + sds header + data). The member is copied
  * from 'buf', which does not have to be an sds: callers holding plain bytes
@@ -60,14 +76,14 @@ typedef struct zbtInner {
 zbtElem *zbtCreateElemBuf(double score, const char *buf, size_t len) {
     char sds_type = sdsReqType(len);
     size_t sds_hdr_len = sdsHdrSize(sds_type);
-    size_t hdr = sizeof(zbtElem);
+    size_t hdr = sizeof(zbtElem) + 1;  /* score + the offset byte itself */
     size_t sds_buf_size = sds_hdr_len + len + 1;
     size_t total = hdr + sds_buf_size;
 
     zbtElem *e = zmalloc(total);
     e->score = score;
     size_t sds_offset = hdr + sds_hdr_len;
-    e->sdsoffset = (uint16_t)sds_offset;
+    zbtSetOffset(e, (uint8_t)sds_offset);
 
     char *dst = (char *)e + hdr;
     sds emb = sdsnewplacement(dst, sds_buf_size, sds_type, buf, len);
@@ -323,10 +339,29 @@ static void zbtSplitInner(zbtree *t, zbtInner *in) {
     zbtInsertChild(t, (zbtInner *)in->n.parent, (zbtNode *)in, (zbtNode *)r);
 }
 
-static void zbtSplitLeaf(zbtree *t, zbtLeaf *lf) {
+/* Split the overfull leaf 'lf' in two, biased by where the overflowing element
+ * landed (see the ZBT_SPLIT_* constants).
+ *
+ * An even split is right in the general case but wrong for sorted insertion:
+ * inserts never come back to the side left behind, so it stays half full for
+ * the rest of its life and a sorted bulk ZADD needs twice the leaves its
+ * contents call for. Peeling off just the overflowing element instead keeps the
+ * other side full. Ascending insertion leaves the left side full and starts a
+ * fresh tail; descending insertion is the mirror image, keeping one element in
+ * the head leaf and handing the full load to the new right leaf.
+ *
+ * Since ZBT_LEAF_MIN is ZBT_LEAF_MAX/2, no skew is possible without letting the
+ * under-filled side sit below the minimum -- which is why the head and tail
+ * leaves are exempt from it (see zbtVerifyNode()). Further inserts fill them
+ * again, and the delete paths need no special case: a full neighbour can always
+ * cover a short end leaf's deficit, and rebalancing only merges when the pair
+ * totals below 2 * ZBT_LEAF_MIN, so it can never overfill a leaf. */
+static void zbtSplitLeaf(zbtree *t, zbtLeaf *lf, int bias) {
     zbtLeaf *r = zbtNewLeaf(t);
     int total = (int)lf->n.count; /* == ZBT_LEAF_MAX + 1 */
     int keep = total / 2;
+    if (bias == ZBT_SPLIT_APPEND) keep = total - 1;
+    else if (bias == ZBT_SPLIT_PREPEND) keep = 1;
     int move = total - keep;
     memcpy(r->elems, &lf->elems[keep], move * sizeof(zbtElem *));
     r->n.count = move;
@@ -351,6 +386,14 @@ void zbtInsertElem(zbtree *t, zbtElem *e) {
     int idx = zbtLeafSearch(lf, score, ele, &found);
     serverAssert(!found);
 
+    /* Landing at either end of an end leaf means the tree is growing in sorted
+     * order; zbtSplitLeaf() then keeps the other side of the split full. Both
+     * cannot hold at once: that would need idx to be 0 and lf->n.count at the
+     * same time, and an empty leaf never overflows. */
+    int bias = ZBT_SPLIT_EVEN;
+    if (lf->next == NULL && idx == (int)lf->n.count) bias = ZBT_SPLIT_APPEND;
+    else if (lf->prev == NULL && idx == 0) bias = ZBT_SPLIT_PREPEND;
+
     memmove(&lf->elems[idx + 1], &lf->elems[idx],
             ((int)lf->n.count - idx) * sizeof(zbtElem *));
     lf->elems[idx] = e;
@@ -359,7 +402,7 @@ void zbtInsertElem(zbtree *t, zbtElem *e) {
     t->alloc_size += zmalloc_usable_size(e);
 
     if (lf->n.count > ZBT_LEAF_MAX)
-        zbtSplitLeaf(t, lf);
+        zbtSplitLeaf(t, lf, bias);
     else
         zbtUpdateToRoot(t, (zbtNode *)lf);
 }
@@ -476,9 +519,14 @@ static void zbtFixupInnerAfterShrink(zbtree *t, zbtInner *p, int slot) {
     }
 }
 
+/* Inner-node counterpart of zbtRebalanceLeaf(). A single borrowed child is
+ * enough here, unlike for leaves: every caller reaches this through one
+ * zbtRemoveChild() in zbtFixupInnerAfterShrink(), so 'in' is always short by
+ * exactly one child. */
 static void zbtRebalanceInner(zbtree *t, zbtInner *in) {
     zbtInner *p = (zbtInner *)in->n.parent;
     int idx = zbtChildIdx(p, (zbtNode *)in);
+    serverAssert(in->n.count == ZBT_INNER_MIN - 1);
 
     /* Borrow from left sibling. */
     if (idx > 0) {
@@ -522,6 +570,7 @@ static void zbtRebalanceInner(zbtree *t, zbtInner *in) {
     int ai;
     if (idx > 0) { a = (zbtInner *)p->child[idx - 1]; b = in; ai = idx - 1; }
     else { a = in; b = (zbtInner *)p->child[idx + 1]; ai = idx; }
+    serverAssert(a->n.count + b->n.count <= ZBT_INNER_MAX);
     for (uint32_t i = 0; i < b->n.count; i++) {
         a->child[a->n.count] = b->child[i];
         a->csize[a->n.count] = b->csize[i];
@@ -534,32 +583,56 @@ static void zbtRebalanceInner(zbtree *t, zbtInner *in) {
     zbtFixupInnerAfterShrink(t, p, ai);
 }
 
+/* Restore the minimum-occupancy invariant for a leaf that just dropped below
+ * ZBT_LEAF_MIN.
+ *
+ * The amount moved tracks how short the leaf is. The range-delete path removes
+ * a whole leaf slice per step, so 'lf' can arrive here short by many elements,
+ * or empty; shifting a single element would leave it below the minimum. Queries
+ * stay correct either way (they read count/csize, which stay consistent), but
+ * the occupancy invariant zbtVerifyNode() checks would not hold, and nothing
+ * would bound how empty leaves can get under repeated ZREMRANGEBY* traffic. */
 static void zbtRebalanceLeaf(zbtree *t, zbtLeaf *lf) {
     zbtInner *p = (zbtInner *)lf->n.parent;
     int idx = zbtChildIdx(p, (zbtNode *)lf);
 
-    /* Borrow from left sibling. */
+    /* Move exactly the deficit, no more: an element-at-a-time delete then costs
+     * the same single-element shift it always did, while a slice delete pulls
+     * across however many it takes. A sibling can cover the deficit precisely
+     * when the pair holds 2 * ZBT_LEAF_MIN between them. */
+    int deficit = ZBT_LEAF_MIN - (int)lf->n.count;
+    serverAssert(deficit > 0);
+
+    /* Take the tail of the left sibling onto the front of 'lf'. */
     if (idx > 0) {
         zbtLeaf *L = (zbtLeaf *)p->child[idx - 1];
-        if (L->n.count > ZBT_LEAF_MIN) {
-            memmove(&lf->elems[1], &lf->elems[0], lf->n.count * sizeof(zbtElem *));
-            lf->elems[0] = L->elems[L->n.count - 1];
-            L->n.count--;
-            lf->n.count++;
+        if ((int)L->n.count - deficit >= ZBT_LEAF_MIN) {
+            zbtElem **src = &L->elems[(int)L->n.count - deficit];
+            memmove(&lf->elems[deficit], &lf->elems[0],
+                    lf->n.count * sizeof(zbtElem *));
+            /* Single-element deletes are the common case and land here with a
+             * deficit of one; keep that a plain store rather than a call. */
+            if (deficit == 1) lf->elems[0] = *src;
+            else memcpy(&lf->elems[0], src, deficit * sizeof(zbtElem *));
+            L->n.count -= (uint32_t)deficit;
+            lf->n.count += (uint32_t)deficit;
             p->csize[idx - 1] = L->n.count; p->sep[idx - 1] = zbtNodeMin((zbtNode *)L);
             p->csize[idx] = lf->n.count;    p->sep[idx] = zbtNodeMin((zbtNode *)lf);
             zbtUpdateToRoot(t, (zbtNode *)p);
             return;
         }
     }
-    /* Borrow from right sibling. */
+    /* Take the head of the right sibling onto the end of 'lf'. */
     if (idx < (int)p->n.count - 1) {
         zbtLeaf *R = (zbtLeaf *)p->child[idx + 1];
-        if (R->n.count > ZBT_LEAF_MIN) {
-            lf->elems[lf->n.count] = R->elems[0];
-            memmove(&R->elems[0], &R->elems[1], (R->n.count - 1) * sizeof(zbtElem *));
-            R->n.count--;
-            lf->n.count++;
+        if ((int)R->n.count - deficit >= ZBT_LEAF_MIN) {
+            if (deficit == 1) lf->elems[lf->n.count] = R->elems[0];
+            else memcpy(&lf->elems[lf->n.count], &R->elems[0],
+                        deficit * sizeof(zbtElem *));
+            memmove(&R->elems[0], &R->elems[deficit],
+                    ((int)R->n.count - deficit) * sizeof(zbtElem *));
+            lf->n.count += (uint32_t)deficit;
+            R->n.count -= (uint32_t)deficit;
             p->csize[idx] = lf->n.count;     p->sep[idx] = zbtNodeMin((zbtNode *)lf);
             p->csize[idx + 1] = R->n.count;  p->sep[idx + 1] = zbtNodeMin((zbtNode *)R);
             zbtUpdateToRoot(t, (zbtNode *)p);
@@ -567,11 +640,14 @@ static void zbtRebalanceLeaf(zbtree *t, zbtLeaf *lf) {
         }
     }
 
-    /* Merge with a sibling. */
+    /* Merge with a sibling. Neither pair could spare enough to lift 'lf' to
+     * the minimum, so both pairs total below 2 * ZBT_LEAF_MIN and the survivor
+     * fits in a single leaf. */
     zbtLeaf *a, *b;
     int ai;
     if (idx > 0) { a = (zbtLeaf *)p->child[idx - 1]; b = lf; ai = idx - 1; }
     else { a = lf; b = (zbtLeaf *)p->child[idx + 1]; ai = idx; }
+    serverAssert(a->n.count + b->n.count <= ZBT_LEAF_MAX);
     memcpy(&a->elems[a->n.count], b->elems, b->n.count * sizeof(zbtElem *));
     a->n.count += b->n.count;
     a->next = b->next;
@@ -1083,7 +1159,12 @@ static unsigned long zbtVerifyNode(zbtree *t, zbtNode *n, int depth,
                                    int *leafdepth) {
     if (n->isleaf) {
         zbtLeaf *lf = (zbtLeaf *)n;
-        if (n->parent) serverAssert(n->count >= ZBT_LEAF_MIN);
+        /* The head and tail leaves are exempt: zbtSplitLeaf() starts one of
+         * them with a single element so sorted insertion can leave the leaf on
+         * the other side of the split full. */
+        if (n->parent && n != t->tail && n != t->head)
+            serverAssert(n->count >= ZBT_LEAF_MIN);
+        if (n->parent) serverAssert(n->count >= 1);
         serverAssert(n->count <= ZBT_LEAF_MAX);
         if (*leafdepth == -1) *leafdepth = depth;
         else serverAssert(*leafdepth == depth); /* all leaves same depth */
@@ -1233,11 +1314,13 @@ int zbtreeTest(int argc, char **argv, int flags) {
     zbtFree(t);
 
     /* --- Bottom-up bulk build and batched range deletion --- */
-    for (int trial = 0; trial < 3; trial++) {
-        /* Cover boundary sizes around leaf/inner fan-out multiples. */
-        static const int sizes[] = {1, ZBT_LEAF_MAX, ZBT_LEAF_MAX + 1,
-                                    ZBT_LEAF_MAX * ZBT_INNER_MAX + 3, 5000};
-        int M = sizes[trial % (int)(sizeof(sizes) / sizeof(sizes[0]))];
+    /* Cover boundary sizes around leaf/inner fan-out multiples. Every entry
+     * must run: the multi-leaf sizes are the only ones that exercise range
+     * deletes spanning whole leaves. */
+    static const int sizes[] = {1, ZBT_LEAF_MAX, ZBT_LEAF_MAX + 1,
+                                ZBT_LEAF_MAX * ZBT_INNER_MAX + 3, 5000};
+    for (int trial = 0; trial < (int)(sizeof(sizes) / sizeof(sizes[0])); trial++) {
+        int M = sizes[trial];
         dict *d = dictCreate(&zsetDictType);
         zbtElem **arr = zmalloc(sizeof(zbtElem *) * M);
         for (int i = 0; i < M; i++) {
@@ -1281,6 +1364,97 @@ int zbtreeTest(int argc, char **argv, int flags) {
         zbtFree(bt);
     }
     test_cond("Bulk build + range delete", 1);
+
+    /* --- Random-window range deletion, checking occupancy --- */
+    {
+        const int M = 20000;
+        dict *d = dictCreate(&zsetDictType);
+        zbtElem **arr = zmalloc(sizeof(zbtElem *) * M);
+        for (int i = 0; i < M; i++) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "fz:%08d", i);
+            sds sd = sdsnew(buf);
+            arr[i] = zbtCreateElem((double)i, sd);
+            sdsfree(sd);
+        }
+        zbtree *bt = zbtCreate();
+        zbtBuildFromSorted(bt, arr, M);
+        for (int i = 0; i < M; i++)
+            serverAssert(dictAdd(d, arr[i], NULL) == DICT_OK);
+        zfree(arr);
+
+        /* Delete windows wide enough to empty whole leaves, from positions
+         * that do not line up with leaf boundaries. zbtDebugVerify() asserts
+         * the minimum-occupancy invariant, which a single-element borrow
+         * cannot maintain against slice-at-a-time deletion. */
+        unsigned long seed = 12345;
+        while (bt->length > 200) {
+            seed = seed * 1103515245 + 12345;
+            unsigned long span = 1 + (seed >> 16) % (ZBT_LEAF_MAX * 2);
+            seed = seed * 1103515245 + 12345;
+            unsigned long lo = 1 + (seed >> 16) % bt->length;
+            unsigned long hi = lo + span;
+            if (hi > bt->length) hi = bt->length;
+            unsigned long before = bt->length;
+            unsigned long got = zbtDeleteRangeByRank(bt, lo, hi, d);
+            zbtDebugVerify(bt);
+            serverAssert(got == hi - lo + 1);
+            serverAssert(bt->length == before - got);
+            serverAssert(dictSize(d) == bt->length);
+            /* Ranks stay dense and ordered after every window removal. */
+            serverAssert(zbtRankByElem(bt, zbtElemByRank(bt, 1, NULL)) == 1);
+            serverAssert(zbtRankByElem(bt, zbtElemByRank(bt, bt->length, NULL))
+                         == bt->length);
+        }
+        zbtDeleteRangeByRank(bt, 1, bt->length, d);
+        serverAssert(bt->length == 0 && dictSize(d) == 0);
+        dictRelease(d);
+        zbtFree(bt);
+    }
+    test_cond("Random-window range delete keeps occupancy", 1);
+
+    /* --- Sorted insertion packs leaves, in both directions --- */
+    for (int desc = 0; desc < 2; desc++) {
+        const int M = 20000;
+        zbtree *at = zbtCreate();
+        for (int k = 0; k < M; k++) {
+            int i = desc ? M - 1 - k : k;   /* descending inserts prepend */
+            char buf[32];
+            snprintf(buf, sizeof(buf), "as:%08d", i);
+            sds sd = sdsnew(buf);
+            zbtInsert(at, (double)i, sd);
+            sdsfree(sd);
+        }
+        zbtDebugVerify(at);
+        serverAssert(at->length == (unsigned long)M);
+
+        /* Every leaf but the under-filled end one should be full, so the leaf
+         * count should match what a bottom-up bulk build of the same elements
+         * would use. An even split would need roughly twice as many. */
+        unsigned long leaves = 0, full = 0;
+        for (zbtLeaf *lf = (zbtLeaf *)at->head; lf; lf = lf->next) {
+            leaves++;
+            if (lf->n.count == ZBT_LEAF_MAX) full++;
+        }
+        unsigned long ideal = (M + ZBT_LEAF_MAX - 1) / ZBT_LEAF_MAX;
+        serverAssert(leaves == ideal);
+        serverAssert(full == leaves - 1);
+        /* The short leaf must be the end the inserts were arriving at. */
+        zbtLeaf *shortlf = desc ? (zbtLeaf *)at->head : (zbtLeaf *)at->tail;
+        serverAssert(shortlf->n.count < ZBT_LEAF_MAX);
+
+        /* Deleting from a packed tree must still hold the invariant, including
+         * when the short end leaf itself is the one that underflows. */
+        for (int k = 0; k < 3 * ZBT_LEAF_MAX; k++) {
+            unsigned long rank = desc ? 1 : at->length;
+            zbtElem *e = zbtElemByRank(at, rank, NULL);
+            zbtDeleteElem(at, e);
+            zbtDebugVerify(at);
+        }
+        serverAssert(at->length == (unsigned long)M - 3 * ZBT_LEAF_MAX);
+        zbtFree(at);
+    }
+    test_cond("Sorted insert packs leaves both directions", 1);
 
     /* --- Incremental node defragmentation --- */
     {
