@@ -1,5 +1,4 @@
 source tests/support/cluster.tcl
-source tests/support/bitmap.tcl
 
 start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-roaring}} {
     test "Roaring bitmap BITOP works with hash-slot-tagged keys" {

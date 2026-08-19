@@ -119,6 +119,10 @@ proc eval_db_histogram {server dbid} {
                 set value [$server xlen $key]
                 set type "STREAM"
             }
+            "bitmap" {
+                set value [string length [$server debug bitmap-raw $key]]
+                set type "BITMAP"
+            }
             default {
                 continue  ; # Skip unknown types
             }
@@ -132,7 +136,7 @@ proc eval_db_histogram {server dbid} {
     }
 
     set result {}
-    foreach type {STR LIST SET ZSET HASH STREAM} {
+    foreach type {STR LIST SET ZSET HASH STREAM BITMAP} {
         if {[array exists type_counts] && [array names type_counts $type,*] ne ""} {
             set sorted_powers [lsort -integer [lmap item [array names type_counts $type,*] {
                 lindex [split $item ,] 1  ; # Extracts only the numeric part
@@ -516,7 +520,7 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         createComplexDataset $server 1000 {useexpire usehexpire}
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
-    } {} {cluster:skip}
+    } {} {cluster:skip needs:debug}
     
     start_server {tags {"cluster:skip" "external:skip" "needs:debug"}} {
         test "KEYSIZES - Test DEBUG KEYSIZES-HIST-ASSERT command" {
