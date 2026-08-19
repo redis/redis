@@ -3110,8 +3110,7 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
  * Apply the histogram deltas, reply to the client, and free the trim job. */
 static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
     asmTrimJob *job = userdata;
-    serverAssert(job && job->bg);
-    serverAssert(job->client_id == client_id);
+    serverAssert(job && job->bg && job->client_id == client_id);
 
     kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
     /* Apply histogram deltas only if the target kvstore has not changed. */
