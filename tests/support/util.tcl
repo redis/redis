@@ -459,7 +459,7 @@ proc createComplexDataset {r ops {opt {}}} {
             } {
                 # Start with a native zero-length bitmap. Its later writes stay
                 # within 1 KiB so complex-data stress tests remain bounded.
-                convert_string_bitmap_to_roaring $r $k
+                {*}$r restore $k 0 [empty_roaring_bitmap_dump_payload]
             } {
                 {*}$r del $k
             }
