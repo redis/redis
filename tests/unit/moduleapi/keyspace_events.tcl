@@ -654,9 +654,9 @@ tags "modules external:skip" {
                 }
                 set replica_digest [$replica debug digest]
 
-                # Reload only the replica's local AOF. If BITCONVERT or
-                # BITOP_ROARING were appended after callback DELs, this state
-                # would change representation or resurrect a key here.
+                # Reload only the replica's local AOF. If BITCONVERT or the
+                # BITOPMODE/BITOP pair were appended after callback DELs, this
+                # state would change representation or resurrect a key here.
                 $replica replicaof no one
                 $replica debug loadaof
                 assert_equal $replica_digest [$replica debug digest]
