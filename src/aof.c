@@ -1839,9 +1839,8 @@ int loadSingleAppendOnlyFile(char *filename) {
 loaded_ok: /* DB loaded, cleanup and return success (AOF_OK or AOF_TRUNCATED). */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
-    /* Recompute estimate from actual AOF load wall-clock time (usec).
-     * Best-effort: not a live progress indicator during an in-progress load. */
-    server.aof_cmd_duration = ustime() - start;
+    /* Accumulate this file's load wall-clock into the estimate (usec). */
+    server.aof_cmd_duration += ustime() - start;
     goto cleanup;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -1953,6 +1952,8 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     startLoading(total_size, RDBFLAGS_AOF_PREAMBLE, 0);
+    /* Fresh estimate from this load; each file accumulates below. */
+    server.aof_cmd_duration = 0;
 
     /* Load BASE AOF if needed. */
     if (am->base_aof_info) {
@@ -2931,7 +2932,6 @@ int rewriteAppendOnlyFile(char *filename) {
     rio aof;
     FILE *fp = NULL;
     char tmpfile[256];
-    long long now = mstime();
 
     /* Note that we have to use a different temp name here compared to the
      * one used by rewriteAppendOnlyFileBackground() function. */
@@ -2979,10 +2979,6 @@ int rewriteAppendOnlyFile(char *filename) {
         stopSaving(0);
         return C_ERR;
     }
-
-    /* Recompute estimate from foreground rewrite wall-clock time (usec). */
-    server.aof_cmd_duration = 1000*(mstime() - now);
-
     stopSaving(1);
 
     return C_OK;

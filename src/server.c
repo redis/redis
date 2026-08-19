@@ -3887,12 +3887,17 @@ static void propagatePendingCommands(long totalDuration) {
         serverAssert(rop->target);
 
         /* If a command/module propagates ops without duration, upper-bound
-         * AOF duration with the enclosing call()'s total duration once. */
+         * AOF duration with the enclosing call()'s total duration once.
+         * Only AOF-targeted ops may take the credit; REPL-only must not. */
         if (rop->duration == PROP_DURATION_UNKNOWN) {
-            /* Assign onto the op so feedAppendOnlyFile only credits when AOF
-             * actually accepts the write (AOF-off / REPL-only must not bump). */
-            rop->duration = totalDuration;
-            totalDuration = 0;
+            if (rop->target & PROPAGATE_AOF) {
+                /* Assign onto the op so feedAppendOnlyFile only credits when
+                 * AOF actually accepts the write. */
+                rop->duration = totalDuration;
+                totalDuration = 0;
+            } else {
+                rop->duration = 0;
+            }
         }
 
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target,rop->duration);

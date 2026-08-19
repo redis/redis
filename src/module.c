@@ -8981,8 +8981,14 @@ void moduleHandleBlockedClients(void) {
         }
 
         /* If module replicated with unknown duration, credit measured
-         * background time toward the AOF duration estimate. */
-        if (bc->repl_unknown_duration) server.aof_cmd_duration += bc->background_duration;
+         * background time only when AOF would accept the write. */
+        if (bc->repl_unknown_duration &&
+            (server.aof_state == AOF_ON ||
+             (server.aof_state == AOF_WAIT_REWRITE &&
+              server.child_type == CHILD_TYPE_AOF)))
+        {
+            server.aof_cmd_duration += bc->background_duration;
+        }
 
         if (c != NULL) {
             /* Before unblocking the client, set the disconnect callback
