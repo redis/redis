@@ -3232,7 +3232,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
 
             first += spec->fk.keynum.firstkey;
             /* Reject a non-positive step and bound numkeys before it overflows 'last' below. */
-            if (step <= 0 || numkeys > (argc - first) / step)
+            if (step <= 0 || numkeys - 1 > (argc - 1 - first) / step)
                 goto invalid_spec;
             last = first + ((long)numkeys - 1) * step;
         } else {
