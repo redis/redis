@@ -2498,24 +2498,41 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitop:not:roaring:out bitop:not:roaring:sentinel
     }
 
-    test {BITOP NOT bounds work for compact high-length Roaring bitmaps} {
-        set not_limit [expr {512 * 1024 * 1024}]
-        set byte_len [expr {$not_limit + 1}]
+    test {BITOP NOT bounds missing Roaring chunk amplification} {
+        set missing_chunk_limit 65536
+        set chunk_bytes [expr {1 << 13}]
+        set allocation_envelope [expr {$missing_chunk_limit * $chunk_bytes}]
+        set byte_len [expr {$allocation_envelope + 1}]
         set last_bit [expr {$byte_len * 8 - 1}]
+        set missing_chunk_error \
+            {ERR BITOP NOT would materialize more than 65536 missing Roaring chunks}
         r config set proto-max-bulk-len $byte_len
         r config set bitmap-default-roaring yes
         r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
             bitop:not:roaring:huge:copy bitop:not:roaring:limit \
-            bitop:not:roaring:limit:dest
+            bitop:not:roaring:limit:dest bitop:not:roaring:dense:dest
 
-        # The exact limit, whose flip endpoint is 2^32 bits, remains valid.
-        set limit_last_bit [expr {$not_limit * 8 - 1}]
+        # An empty source at exactly 65,536 missing chunks remains valid.
+        set limit_last_bit [expr {$allocation_envelope * 8 - 1}]
         assert_equal 0 [r setbit bitop:not:roaring:limit $limit_last_bit 0]
-        assert_equal $not_limit [r bitop not bitop:not:roaring:limit:dest \
-            bitop:not:roaring:limit]
+        assert_equal $allocation_envelope \
+            [r bitop not bitop:not:roaring:limit:dest \
+                bitop:not:roaring:limit]
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest 0]
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest $limit_last_bit]
+
+        # The byte-length envelope is not itself a limit. The full result above
+        # has a present container in every chunk; extending it by one zero byte
+        # leaves only one missing chunk, so complementing it remains cheap.
+        assert_equal 0 [r setbit bitop:not:roaring:limit:dest $last_bit 0]
+        assert_equal $byte_len [r bitop not bitop:not:roaring:dense:dest \
+            bitop:not:roaring:limit:dest]
+        assert_equal 0 [r getbit bitop:not:roaring:dense:dest 0]
+        assert_equal 1 [r getbit bitop:not:roaring:dense:dest $last_bit]
+        assert_equal 8 [r bitcount bitop:not:roaring:dense:dest]
+        assert_lessthan [r memory usage bitop:not:roaring:dense:dest] 65536
         r del bitop:not:roaring:limit bitop:not:roaring:limit:dest
+        r del bitop:not:roaring:dense:dest
 
         # SETBIT 0 extends the logical length without allocating a container.
         # DUMP/RESTORE preserves that length in a compact portable payload even
@@ -2532,7 +2549,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         r set bitop:not:roaring:huge:dest keep
         set dirty [s rdb_changes_since_last_save]
-        assert_error {ERR BITOP NOT result exceeds 512 MiB Roaring bitmap limit} {
+        assert_error $missing_chunk_error {
             r bitop not bitop:not:roaring:huge:dest bitop:not:roaring:huge
         }
         assert_equal keep [r get bitop:not:roaring:huge:dest]
@@ -2540,7 +2557,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         # Aliasing is rejected before the source can be replaced. Other BITOPs
         # retain wide sparse support and preserve the compact logical length.
-        assert_error {ERR BITOP NOT result exceeds 512 MiB Roaring bitmap limit} {
+        assert_error $missing_chunk_error {
             r bitop not bitop:not:roaring:huge bitop:not:roaring:huge
         }
         assert_equal $byte_len [r bitop or bitop:not:roaring:huge:copy \
@@ -3379,15 +3396,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
 
 run_solo {bitroar-large-memory} {
 start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
-    test {BITOP NOT over the Roaring limit still works for plain string sources} {
-        set not_limit [expr {512 * 1024 * 1024}]
-        set byte_len [expr {$not_limit + 1}]
+    test {BITOP NOT missing-chunk budget does not apply to string sources} {
+        set allocation_envelope [expr {65536 * (1 << 13)}]
+        set byte_len [expr {$allocation_envelope + 1}]
         r config set proto-max-bulk-len [expr {$byte_len + 16}]
         r config set bitmap-default-roaring yes
         r del bitop:not:string:src bitop:not:string:dest
 
         # The source itself already occupies memory proportional to the work,
-        # so the sparse Roaring amplification limit does not apply.
+        # so the Roaring missing-chunk amplification budget does not apply.
         assert_equal $byte_len [r setrange bitop:not:string:src \
             [expr {$byte_len - 1}] [binary format H* 80]]
         assert_equal string [r type bitop:not:string:src]
