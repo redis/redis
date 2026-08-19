@@ -11,6 +11,17 @@ proc make_hashtmpl {key args} {
     r himport set $key $fsname {*}$values
 }
 
+# Assert two hashes hold exactly the same field/value pairs. Order-insensitive:
+# the two keys may use different encodings.
+proc assert_same_hash_content {key1 key2} {
+    set a {}
+    foreach {f v} [r hgetall $key1] { lappend a [list $f $v] }
+    set b {}
+    foreach {f v} [r hgetall $key2] { lappend b [list $f $v] }
+    assert_equal [lsort $a] [lsort $b]
+    assert_equal [r exists $key1] [r exists $key2]
+}
+
 # A key ref released by a BIO lazyfree thread (flushall etc.) is
 # dropped on that background thread, so num_template_keys is eventually
 # consistent: it settles once the BIO free job runs.
@@ -510,6 +521,9 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         make_hashtmpl basic:incr counter 10
         assert_equal [r hincrby basic:incr counter 5] 15
         assert_equal [r hget basic:incr counter] 15
+
+        assert_equal 5 [r hincrby basic:incr newcnt 5]
+        assert_equal [r hget basic:incr newcnt] 5
         assert_encoding $encoding basic:incr
     }
 
@@ -517,6 +531,9 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         make_hashtmpl basic:incrfloat value 10.5
         set result [r hincrbyfloat basic:incrfloat value 0.1]
         assert_range $result 10.5 10.7
+
+        set result [r hincrbyfloat basic:incrfloat newval 1.5]
+        assert_range $result 1.4 1.6
         assert_encoding $encoding basic:incrfloat
     }
 
@@ -564,6 +581,39 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r exists hdel:all] 0
     }
 
+    test {HDEL counts a repeated field once} {
+        make_hashtmpl hdel:dup a 1 b 2 c 3
+        assert_equal [r hdel hdel:dup a a b zzz] 2
+        assert_equal [r hgetall hdel:dup] {c 3}
+    }
+
+    test {HDEL/HGETDEL with unsorted and non-adjacent repeated fields} {
+        # Fields given out of order, one of them twice.
+        make_hashtmpl hdel:unsorted a 1 b 2 c 3 d 4 e 5
+        assert_equal 2 [r hdel hdel:unsorted d a d]
+        assert_equal {b 2 c 3 e 5} [r hgetall hdel:unsorted]
+
+        make_hashtmpl hgetdel:unsorted a 1 b 2 c 3 d 4 e 5
+        assert_equal {3 1 {} 5} [r hgetdel hgetdel:unsorted FIELDS 4 c a c e]
+        assert_equal {b 2 d 4} [r hgetall hgetdel:unsorted]
+        assert_encoding $encoding hgetdel:unsorted
+    }
+
+    test {HSET and HDEL move the key to an existing template, not a duplicate} {
+        # Two keys ending up with the same fields must share one template,
+        # no matter how they got there (PREPARE, HSET add or HDEL drop).
+        make_hashtmpl same:1 a 1 b 2 c 3
+        make_hashtmpl same:2 a 1 b 2
+        set base [s hash_templates]
+        # Adding c moves same:2 to same:1's template, no new one.
+        r hset same:2 c 9
+        assert_equal $base [s hash_templates]
+        # Deleting c moves same:1 to same:2's old template.
+        r hdel same:1 c
+        assert_equal $base [s hash_templates]
+        assert_encoding $encoding same:1
+    }
+
     test {HGETDEL returns value and keeps template encoding} {
         make_hashtmpl hgetdel:test a 1 b 2 c 3 d 4
         assert_encoding $encoding hgetdel:test
@@ -577,6 +627,9 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r hgetdel hgetdel:multi FIELDS 2 b d] {2 4}
         assert_encoding $encoding hgetdel:multi
         assert_equal [r hgetall hgetdel:multi] {a 1 c 3 e 5}
+
+        assert_equal [r hgetdel hgetdel:multi FIELDS 2 a a] {1 {}}
+        assert_equal [r hgetall hgetdel:multi] {c 3 e 5}
     }
 
     test {HGETDEL non-existent field returns nil and keeps encoding} {
@@ -591,6 +644,12 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         make_hashtmpl hgetdel:all a 1 b 2
         assert_equal [r hgetdel hgetdel:all FIELDS 2 a b] {1 2}
         assert_equal [r exists hgetdel:all] 0
+    }
+
+    test {HGETDEL replies a repeated field once, then nil} {
+        make_hashtmpl hgetdel:dup a 1 b 2 c 3
+        assert_equal [r hgetdel hgetdel:dup FIELDS 4 a a b zzz] {1 {} 2 {}}
+        assert_equal [r hgetall hgetdel:dup] {c 3}
     }
 
     test {HGETEX without options returns values and keeps template encoding} {
@@ -654,6 +713,41 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         r hset hset:multi b 2 c 3 d 4
         assert_encoding $encoding hset:multi
         assert_equal {a 1 b 2 c 3 d 4} [r hgetall hset:multi]
+
+        # New fields land before, between and after the old ones.
+        make_hashtmpl hset:multi2 c 3 f 6
+        assert_equal 3 [r hset hset:multi2 h 8 a 1 d 4]
+        assert_encoding $encoding hset:multi2
+        assert_equal {a 1 c 3 d 4 f 6 h 8} [r hgetall hset:multi2]
+    }
+
+    test {HSET on template-based hash returns number of new fields} {
+        make_hashtmpl hset:count a 1 b 2
+        # Updating existing fields creates nothing.
+        assert_equal 0 [r hset hset:count a 10 b 20]
+        # A mixed update and add counts only the added field.
+        assert_equal 1 [r hset hset:count a 11 c 3]
+        assert_equal 3 [r hlen hset:count]
+        assert_encoding $encoding hset:count
+    }
+
+    test {HSET with a field repeated in one command: last value wins} {
+        make_hashtmpl hset:repeat a 1
+        # A repeated new field is created once and keeps the last value.
+        assert_equal 1 [r hset hset:repeat b 1 b 2 b 3]
+        assert_equal 3 [r hget hset:repeat b]
+        # Also when another new field sits between the repeats.
+        assert_equal 2 [r hset hset:repeat c 1 d 4 c 3]
+        assert_equal 3 [r hget hset:repeat c]
+        assert_equal 4 [r hget hset:repeat d]
+        # A repeated existing field: two in-place overwrites, last value wins.
+        assert_equal 0 [r hset hset:repeat a 9 a 10]
+        assert_equal 10 [r hget hset:repeat a]
+        # A new field between the repeats of an existing one.
+        assert_equal 1 [r hset hset:repeat a 11 e 5 a 12]
+        assert_equal 12 [r hget hset:repeat a]
+        assert_equal 5 [r hget hset:repeat e]
+        assert_encoding $encoding hset:repeat
     }
 
     test {HSETNX on existing field in template-based hash} {
@@ -667,6 +761,39 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         assert_equal [r hsetnx hsetnx:new email alice@example.com] 1
         assert_encoding $encoding hsetnx:new
         assert_equal [r hget hsetnx:new email] alice@example.com
+    }
+
+    # One command mutating more than 128 fields spills the batch bookkeeping
+    # from stack buffers to the heap. Exercise that path with HSET/HGETDEL/HDEL
+    test {wide batch HSET/HGETDEL/HDEL on template-based hash} {
+        make_hashtmpl wide:batch a 1 b 2 c 3 d 4
+
+        # Add 200 new fields (f0 v0 .. f199 v199) in a single HSET.
+        set pairs {}
+        for {set i 0} {$i < 200} {incr i} { lappend pairs f$i v$i }
+        assert_equal 200 [r hset wide:batch {*}$pairs]
+        assert_equal 204 [r hlen wide:batch]
+        assert_encoding $encoding wide:batch
+
+        # Take back the first 150 (f0 .. f149) in a single HGETDEL; it must
+        # reply their values in argument order (v0 .. v149).
+        set fields {}
+        set values {}
+        for {set i 0} {$i < 150} {incr i} {
+            lappend fields f$i
+            lappend values v$i
+        }
+        assert_equal $values [r hgetdel wide:batch FIELDS 150 {*}$fields]
+        assert_equal 54 [r hlen wide:batch]
+
+        # Drop the remaining 50 (f150 .. f199) in a single HDEL.
+        set fields {}
+        for {set i 150} {$i < 200} {incr i} { lappend fields f$i }
+        assert_equal 50 [r hdel wide:batch {*}$fields]
+
+        # Only the four seed fields are left, untouched.
+        assert_equal [r hgetall wide:batch] {a 1 b 2 c 3 d 4}
+        assert_encoding $encoding wide:batch
     }
 
     # HSCAN on template-based hash
@@ -845,10 +972,20 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
     test {HSETEX without expiration keeps template encoding} {
         make_hashtmpl hfe:noexp name alice
         # HSETEX with no expiration token only sets fields, so the hash must
-        # stay template-encoded just like a plain HSET.
-        assert_equal [r hsetex hfe:noexp FIELDS 1 email alice@example.com] 1
+        # stay template-encoded just like a plain HSET. One command may both
+        # update an existing field and add a new one.
+        assert_equal [r hsetex hfe:noexp FIELDS 2 email alice@example.com name bob] 1
         assert_encoding $encoding hfe:noexp
         assert_equal [r hget hfe:noexp email] alice@example.com
+        assert_equal [r hget hfe:noexp name] bob
+        # A repeated new field is created once, last value wins.
+        assert_equal [r hsetex hfe:noexp FIELDS 2 age 25 age 26] 1
+        assert_equal [r hget hfe:noexp age] 26
+        # KEEPTTL sets no expiration either, so it stays as template encoded.
+        assert_equal [r hsetex hfe:noexp KEEPTTL FIELDS 2 name carol title dev] 1
+        assert_equal [r hget hfe:noexp name] carol
+        assert_equal [r hget hfe:noexp title] dev
+        assert_encoding $encoding hfe:noexp
     }
 
     test {HSETEX with expiration converts template key to regular hash} {
@@ -1010,6 +1147,74 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
         r copy copy:replace:src copy:replace:dst REPLACE
         assert_equal [r type copy:replace:dst] hash
         assert_encoding $encoding copy:replace:dst
+    }
+
+    # Differential fuzz for the batch mutation paths: feed the same random
+    # multi-field HSET/HDEL/HGETDEL commands to a template hash and to a
+    # regular hash and require identical replies and identical content after
+    # every command.
+    test "random batch HSET/HDEL/HGETDEL match a regular hash ($encoding)" {
+        # A random field from a pool of 30 (f0 .. f29). The pool is small so
+        # commands hit a mix of existing, new, missing and repeated fields.
+        proc rand_field {} { return f[expr {int(rand()*30)}] }
+        
+        for {set round 0} {$round < 300} {incr round} {
+            # Start each round with both keys holding the same 4..11 fields.
+            r del fuzz:tmpl fuzz:plain
+            unset -nocomplain seed
+            set nseed [expr {4 + int(rand()*8)}]
+            for {set i 0} {$i < $nseed} {incr i} { set seed([rand_field]) seed$i }
+            set pairs {}
+            foreach f [array names seed] { lappend pairs $f $seed($f) }
+
+            make_hashtmpl fuzz:tmpl {*}$pairs
+            r hset fuzz:plain {*}$pairs
+            assert_encoding $encoding fuzz:tmpl
+
+            # 25 random commands of 1..6 fields each, HSET twice as likely as
+            # each other command. Both keys are compared after every command.
+            for {set op 0} {$op < 25} {incr op} {
+                set n [expr {1 + int(rand()*6)}]
+                set cmd [lindex {hset hset hsetex hdel hgetdel} [expr {int(rand()*5)}]]
+                switch $cmd {
+                    hset - hsetex {
+                        # Values are unique per command ("v<round>.<op>.<i>")
+                        # so a stale value can never match.
+                        set args {}
+                        for {set i 0} {$i < $n} {incr i} {
+                            set v v$round.$op.$i
+                            if {rand() < 0.1} { append v [string repeat x 100] }
+                            lappend args [rand_field] $v
+                        }
+                        if {$cmd eq "hset"} {
+                            assert_equal [r hset fuzz:plain {*}$args] \
+                                         [r hset fuzz:tmpl {*}$args] "hset $args"
+                        } else {
+                            assert_equal [r hsetex fuzz:plain FIELDS $n {*}$args] \
+                                         [r hsetex fuzz:tmpl FIELDS $n {*}$args] \
+                                         "hsetex $args"
+                        }
+                    }
+                    hdel {
+                        set fields {}
+                        for {set i 0} {$i < $n} {incr i} { lappend fields [rand_field] }
+                        assert_equal [r hdel fuzz:plain {*}$fields] \
+                                     [r hdel fuzz:tmpl {*}$fields] "hdel $fields"
+                    }
+                    hgetdel {
+                        set fields {}
+                        for {set i 0} {$i < $n} {incr i} { lappend fields [rand_field] }
+                        assert_equal [r hgetdel fuzz:plain FIELDS $n {*}$fields] \
+                                     [r hgetdel fuzz:tmpl FIELDS $n {*}$fields] \
+                                     "hgetdel $fields"
+                    }
+                }
+                assert_same_hash_content fuzz:tmpl fuzz:plain
+
+                # Deleting the last field deletes the key; start a new round.
+                if {![r exists fuzz:tmpl]} break
+            }
+        }
     }
 }
 
@@ -1698,6 +1903,24 @@ start_server {tags {"hash" "convert" "needs:debug" "cluster:skip"}
         assert_encoding template-array key
         assert_equal [r hlen key] 9
         for {set i 0} {$i < 9} {incr i} { assert_equal [r hget key f$i] v$i }
+
+        r del key
+        r himport discard fieldset
+    }
+
+    test {convert: TMPL_LP -> TMPL_ARRAY when one HSET crosses hash-max-listpack-entries mid-batch} {
+        # Start below the limit of 8 and cross it in the middle of a single
+        # multi field HSET: the conversion happens while some of the command's
+        # values are still waiting to be stored.
+        r himport prepare fieldset a b c d
+        r himport set key fieldset 1 2 3 4
+        assert_encoding template-listpack key
+
+        r hset key n0 0 n1 1 n2 2 n3 3 n4 4 n5 5
+        assert_encoding template-array key
+        assert_equal [r hlen key] 10
+        assert_equal [r hget key a] 1
+        assert_equal [r hget key n5] 5
 
         r del key
         r himport discard fieldset
@@ -2782,5 +3005,67 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"} overrides {hash-min-tem
             assert_encoding $enc k_${variant}_copy
             assert_equal $expect [r hgetall k_${variant}_copy]
         }
+    }
+}
+
+start_server {tags {"hash" "external:skip" "cluster:skip"} overrides {hash-min-template-entries 0}} {
+    test {Stress test for template creation and deletion} {
+        # Create 10000 templates
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 10000} {incr j} {
+            $rd himport prepare rec$j a$j b$j c$j
+            $rd himport set reck:$j rec$j 1 2 3
+        }
+        for {set j 0} {$j < 20000} {incr j} { $rd read }
+        $rd close ;# releases the PREPARE holds
+        assert_equal 10000 [s hash_templates]
+
+        # Free every other template
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 10000} {incr j 2} { $rd del reck:$j }
+        for {set j 0} {$j < 5000} {incr j} { $rd read }
+        $rd close
+        wait_num_templates 5000
+
+        # Create another 5000 template
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 5000} {incr j} {
+            $rd himport prepare rec2_$j x$j y$j z$j
+            $rd himport set reck2:$j rec2_$j 1 2 3
+        }
+        for {set j 0} {$j < 10000} {incr j} { $rd read }
+        $rd close
+        assert_equal 10000 [s hash_templates]
+
+        # Free a contiguous batch, then refill it.
+        set rd [redis_deferring_client]
+        for {set j 1} {$j < 1000} {incr j 2} { $rd del reck:$j }
+        for {set j 0} {$j < 500} {incr j} { $rd del reck2:$j }
+        for {set j 0} {$j < 1000} {incr j} { $rd read }
+        $rd close
+        wait_num_templates 9000
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 1000} {incr j} {
+            $rd himport prepare rec3_$j p$j q$j w$j
+            $rd himport set reck3:$j rec3_$j 1 2 3
+        }
+        for {set j 0} {$j < 2000} {incr j} { $rd read }
+        $rd close
+        assert_equal 10000 [s hash_templates]
+
+        # Delete one, create one, back and forth.
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 100} {incr j} {
+            $rd del reck:[expr {2001 + 2*$j}]
+            $rd himport prepare rec4_$j f$j g$j h$j
+            $rd himport set reck4:$j rec4_$j 1 2 3
+        }
+        for {set j 0} {$j < 300} {incr j} { $rd read }
+        $rd close
+        assert_equal 10000 [s hash_templates]
+
+        r flushall
+        wait_num_template_keys 0
+        wait_num_templates 0
     }
 }

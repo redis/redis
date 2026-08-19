@@ -213,6 +213,70 @@ tags "modules external:skip" {
             r config set bitmap-default-roaring no
         }
 
+        test "Keyspace notifications: conversion follows callback string replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-type-string:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_equal 0 [r setbit $key 0 1]
+                    set expected [binary format H* a0]
+                } else {
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
+                }
+                assert_equal string [r type $key]
+                assert_equal $expected [r get $key]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion replays deterministic callback replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-replay-string:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_equal 0 [r setbit $key 0 1]
+                    set expected [binary format H* a0]
+                } else {
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
+                }
+                assert_equal string [r type $key]
+                assert_equal $expected [r get $key]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion rejects callback list replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-type-list:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_error {WRONGTYPE*} {r setbit $key 0 1}
+                } else {
+                    assert_error {WRONGTYPE*} {r bitfield $key SET u8 0 255}
+                }
+                assert_equal list [r type $key]
+                assert_equal replacement [r lindex $key 0]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
         test "Keyspace notifications: conversion callbacks observe pre-write bits" {
             set key bitmap:transition:delete-type-zero
             r config set bitmap-default-roaring no
@@ -326,6 +390,18 @@ tags "modules external:skip" {
             r himport discard bigfs
         }
 
+        test "Subkey notification: HSETEX on a template hash triggers hset" {
+            r himport prepare fieldset2 f1 f2
+            r himport set myhash fieldset2 v1 v2
+            r keyspace.reset_subkey_events
+            r hsetex myhash FIELDS 2 f1 v9 f3 v3
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f3" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset2
+        }
+
         test "Subkey notification: HDEL triggers module subkey callback" {
             r hset myhash f1 v1 f2 v2
             r keyspace.reset_subkey_events
@@ -334,6 +410,30 @@ tags "modules external:skip" {
             assert_equal 1 [llength $events]
             assert_equal "hdel myhash 1 f1" [lindex $events 0]
             r del myhash
+        }
+
+        test "Subkey notification: HDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset3 f1 f2 f3
+            r himport set myhash fieldset3 v1 v2 v3
+            r keyspace.reset_subkey_events
+            r hdel myhash f1 f1 f2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset3
+        }
+
+        test "Subkey notification: HGETDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset4 f1 f2 f3
+            r himport set myhash fieldset4 v1 v2 v3
+            r keyspace.reset_subkey_events
+            assert_equal {v1 {} v2} [r hgetdel myhash FIELDS 3 f1 f1 f2]
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset4
         }
 
         test "Subkey notification: non-subkey event calls subkey callback with count=0" {
@@ -495,8 +595,8 @@ tags "modules external:skip" {
 
             r flushall
             r config set bitmap-default-roaring no
-            r set $type_setbit [binary format H* 00]
-            r set $type_bitfield [binary format H* 00]
+            r set $type_setbit [binary format H* 40]
+            r set $type_bitfield [binary format H* 40]
             r set $bitmap_setbit [binary format H* 00]
             r set $bitmap_bitfield [binary format H* 00]
             r set $bitop_source [binary format H* f0]
@@ -504,14 +604,14 @@ tags "modules external:skip" {
             waitForBgrewriteaof r
 
             r config set bitmap-default-roaring yes
-            assert_equal 0 [r setbit $type_setbit 0 1]
-            assert_equal {0} [r bitfield $type_bitfield SET u8 0 255]
+            assert_equal 0 [r setbit $type_setbit 2 1]
+            assert_equal {0} [r bitfield $type_bitfield SET u4 4 15]
             assert_equal 0 [r setbit $bitmap_setbit 0 1]
             assert_equal {0} [r bitfield $bitmap_bitfield SET u8 0 255]
             assert_equal 1 [r bitop or $bitop_dest $bitop_source]
 
             foreach {key raw} [list \
-                $type_setbit 80 $type_bitfield ff] {
+                $type_setbit 20 $type_bitfield 0f] {
                 assert_equal string [r type $key]
                 assert_equal [binary format H* $raw] [r get $key]
             }
@@ -530,7 +630,7 @@ tags "modules external:skip" {
 
             assert_equal $digests_before [r debug digest-value {*}$replay_keys]
             foreach {key raw} [list \
-                $type_setbit 80 $type_bitfield ff] {
+                $type_setbit 20 $type_bitfield 0f] {
                 assert_equal string [r type $key]
                 assert_equal [binary format H* $raw] [r get $key]
             }
@@ -605,17 +705,32 @@ tags "modules external:skip" {
                 set type_bitfield bitmap:transition:delete-type-zero:repl-bitfield
                 set bitmap_setbit bitmap:transition:delete-bitmap:repl-setbit
                 set bitmap_bitfield bitmap:transition:delete-bitmap:repl-bitfield
+                set string_setbit bitmap:transition:replace-type-string:repl-setbit
+                set string_bitfield bitmap:transition:replace-type-string:repl-bitfield
+                set replay_string_setbit bitmap:transition:replace-replay-string:repl-setbit
+                set replay_string_bitfield bitmap:transition:replace-replay-string:repl-bitfield
+                set list_setbit bitmap:transition:replace-type-list:repl-setbit
+                set list_bitfield bitmap:transition:replace-type-list:repl-bitfield
                 set bitop_dest bitmap:transition:delete-type
                 set bitop_source bitmap:transition:repl-bitop-source
 
                 $master config set bitmap-default-roaring no
                 $master del $type_setbit $type_bitfield \
                     $bitmap_setbit $bitmap_bitfield \
+                    $string_setbit $string_bitfield \
+                    $replay_string_setbit $replay_string_bitfield \
+                    $list_setbit $list_bitfield \
                     $bitop_dest $bitop_source
-                $master set $type_setbit [binary format H* 00]
-                $master set $type_bitfield [binary format H* 00]
+                $master set $type_setbit [binary format H* 40]
+                $master set $type_bitfield [binary format H* 40]
                 $master set $bitmap_setbit [binary format H* 00]
                 $master set $bitmap_bitfield [binary format H* 00]
+                $master set $string_setbit [binary format H* 80]
+                $master set $string_bitfield [binary format H* 80]
+                $master set $replay_string_setbit [binary format H* 80]
+                $master set $replay_string_bitfield [binary format H* 80]
+                $master set $list_setbit [binary format H* 80]
+                $master set $list_bitfield [binary format H* 80]
                 $master set $bitop_source [binary format H* f0]
                 wait_for_ofs_sync $master $replica
 
@@ -634,18 +749,30 @@ tags "modules external:skip" {
                 waitForBgrewriteaof $replica
 
                 $master config set bitmap-default-roaring yes
-                assert_equal 0 [$master setbit $type_setbit 0 1]
-                assert_equal {0} [$master bitfield $type_bitfield SET u8 0 255]
+                assert_equal 0 [$master setbit $type_setbit 2 1]
+                assert_equal {0} [$master bitfield $type_bitfield SET u4 4 15]
                 assert_equal 0 [$master setbit $bitmap_setbit 0 1]
                 assert_equal {0} [$master bitfield $bitmap_bitfield SET u8 0 255]
+                assert_equal 0 [$master setbit $string_setbit 0 1]
+                assert_equal {0} [$master bitfield $string_bitfield SET u4 4 15]
+                assert_equal 0 [$master setbit $replay_string_setbit 0 1]
+                assert_equal {0} [$master bitfield $replay_string_bitfield SET u4 4 15]
+                assert_error {WRONGTYPE*} {$master setbit $list_setbit 0 1}
+                assert_error {WRONGTYPE*} {$master bitfield $list_bitfield SET u8 0 255}
                 assert_equal 1 [$master bitop or $bitop_dest $bitop_source]
                 wait_for_ofs_sync $master $replica
 
                 foreach client [list $master $replica] {
                     foreach {key raw} [list \
-                        $type_setbit 80 $type_bitfield ff] {
+                        $type_setbit 20 $type_bitfield 0f \
+                        $string_setbit a0 $string_bitfield 2f \
+                        $replay_string_setbit a0 $replay_string_bitfield 2f] {
                         assert_equal string [$client type $key]
                         assert_equal [binary format H* $raw] [$client get $key]
+                    }
+                    foreach key [list $list_setbit $list_bitfield] {
+                        assert_equal list [$client type $key]
+                        assert_equal replacement [$client lindex $key 0]
                     }
                     assert_equal bitmap [$client type $bitop_dest]
                     assert_equal [binary format H* f0] \
@@ -661,9 +788,15 @@ tags "modules external:skip" {
                 $replica debug loadaof
                 assert_equal $replica_digest [$replica debug digest]
                 foreach {key raw} [list \
-                    $type_setbit 80 $type_bitfield ff] {
+                    $type_setbit 20 $type_bitfield 0f \
+                    $string_setbit a0 $string_bitfield 2f \
+                    $replay_string_setbit a0 $replay_string_bitfield 2f] {
                     assert_equal string [$replica type $key]
                     assert_equal [binary format H* $raw] [$replica get $key]
+                }
+                foreach key [list $list_setbit $list_bitfield] {
+                    assert_equal list [$replica type $key]
+                    assert_equal replacement [$replica lindex $key 0]
                 }
                 assert_equal bitmap [$replica type $bitop_dest]
                 assert_equal [binary format H* f0] \

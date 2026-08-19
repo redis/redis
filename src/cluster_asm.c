@@ -618,9 +618,9 @@ asmTask *asmLookupTaskById(const char *id) {
     return asmLookupTaskAt(asmManager->tasks, id);
 }
 
-/* Returns the ASM task that is identical to the given slot range array, or NULL
- * if no such task exists. */
-asmTask *asmLookupTaskBySlotRangeArray(slotRangeArray *slots) {
+/* Returns the ID of the ASM task whose slot ranges equal the given ranges,
+ * or NULL if no such task exists. */
+const char *asmLookupTaskBySlotRangeArray(slotRangeArray *slots) {
     listIter li;
     listNode *ln;
 
@@ -628,7 +628,7 @@ asmTask *asmLookupTaskBySlotRangeArray(slotRangeArray *slots) {
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
         if (slotRangeArrayIsEqual(task->slots, slots))
-            return task;
+            return task->id;
     }
     return NULL;
 }
@@ -2922,10 +2922,17 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
     return C_OK;
 }
 
-/* Notify Redis that the config is updated for the task. */
-int asmNotifyConfigUpdated(asmTask *task, sds *err) {
-    int event = -1;
+/* Import/Migrate task is done, config is updated. */
+int clusterAsmDone(const char *task_id, sds *err) {
+    serverAssert(task_id);
 
+    asmTask *task = asmLookupTaskById(task_id);
+    if (!task) {
+        *err = sdscatprintf(sdsempty(), "No ASM task found for id: %s", task_id);
+        return C_ERR;
+    }
+
+    int event = -1;
     if (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER) {
         event = ASM_EVENT_IMPORT_COMPLETED;
     } else if (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_EOF) {
@@ -2951,18 +2958,6 @@ int asmNotifyConfigUpdated(asmTask *task, sds *err) {
         asmTrimJobSchedule(task->slots);
 
     return C_OK;
-}
-
-/* Import/Migrate task is done, config is updated. */
-int clusterAsmDone(const char *task_id, sds *err) {
-    serverAssert(task_id);
-
-    asmTask *task = asmLookupTaskById(task_id);
-    if (!task) {
-        *err = sdscatprintf(sdsempty(), "No ASM task found for id: %s", task_id);
-        return C_ERR;
-    }
-    return asmNotifyConfigUpdated(task, err);
 }
 
 int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
