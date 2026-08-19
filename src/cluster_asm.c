@@ -200,12 +200,12 @@ static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
 void asmCancelPendingTrimJobs(void);
-static void asmTriggerActiveTrim(asmTrimJob *job);
+void asmTriggerActiveTrim(asmTrimJob *job);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
-static void asmTrimJobUnblockClientAndFree(void *ptr);
+void asmTrimJobUnblockClientAndFree(void *ptr);
 
 void asmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
