@@ -368,6 +368,7 @@ sds asmCatInfoString(sds info) {
     return sdscatprintf(info ? info : sdsempty(),
                         "cluster_slot_migration_active_tasks:%d\r\n"
                         "cluster_slot_migration_active_trim_running:%lu\r\n"
+                        "cluster_slot_migration_background_trim_running:%zu\r\n"
                         "cluster_slot_migration_active_trim_current_job_keys:%llu\r\n"
                         "cluster_slot_migration_active_trim_current_job_trimmed:%llu\r\n"
                         "cluster_slot_migration_stats_active_trim_started:%llu\r\n"
@@ -375,6 +376,7 @@ sds asmCatInfoString(sds info) {
                         "cluster_slot_migration_stats_active_trim_cancelled:%llu\r\n",
                         active_tasks,
                         listLength(asmManager->active_trim_jobs),
+                        asmManager->bg_trim_running,
                         asmManager->active_trim_current_job_keys,
                         asmManager->active_trim_current_job_trimmed,
                         asmManager->active_trim_started,
