@@ -96,6 +96,13 @@ static inline int log2ceil(size_t x) {
 #endif
 }
 
+/* Same as log2ceil() but for a value that is not bounded by the address space,
+ * so it must not be narrowed to a size_t on a 32-bit build. Works only for
+ * 0 < x < 2^64. */
+static inline int log2ceil64(uint64_t x) {
+    return 63 - __builtin_clzll(x);
+}
+
 /* Return the smallest power of 2 >= count (e.g. 5 -> 8, 8 -> 8). */
 static inline int nearestNextPowerOf2(unsigned int count) {
     if (count <= 1) return 1;
