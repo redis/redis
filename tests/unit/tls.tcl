@@ -104,7 +104,7 @@ start_server {tags {"tls"}} {
 
             # The client and server both allow prime256v1, so the handshake
             # should complete.
-            assert_equal {PONG} [string trim [tls_redis_cli [srv 0 host] [srv 0 port] prime256v1]]
+            assert_equal {PONG} [tls_redis_cli [srv 0 host] [srv 0 port] prime256v1]
 
             r CONFIG SET tls-groups ""
             r CONFIG SET tls-protocols ""
@@ -120,7 +120,7 @@ start_server {tags {"tls"}} {
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
             assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
-            assert_no_match {*PONG*} $e
+            assert_match {*sslv3 alert handshake failure*} $e
 
             r CONFIG SET tls-groups ""
             r CONFIG SET tls-protocols ""
