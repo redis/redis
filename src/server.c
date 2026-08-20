@@ -3047,7 +3047,6 @@ void initServer(void) {
     /* clients_timeout_table key = 8 bytes BE mstime + 8 bytes client ID
      * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
     server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);
-    server.replication_allowed = 1;
     server.also_propagate_mask = PROPAGATE_AOF|PROPAGATE_REPL;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
@@ -3734,7 +3733,7 @@ int mustObeyClient(client *c) {
 }
 
 int shouldPropagate(int target) {
-    if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
+    if (target == PROPAGATE_NONE || server.loading)
         return 0;
 
     if (target & PROPAGATE_AOF) {
@@ -4088,13 +4087,17 @@ void call(client *c, int flags) {
 
     /* Narrow the targets allowed for alsoPropagate() to the ones enabled for
      * this invocation, so effect commands queued by the implementation honor
-     * Lua redis.set_repl() and selective RM_Call propagation. Nested call()s
-     * can only narrow the mask further, never widen what an outer level
-     * suppressed. */
+     * Lua redis.set_repl() and selective RM_Call propagation, including when a
+     * blocked RM_Call is reprocessed. Nested call()s can only narrow the mask
+     * further, never widen what an outer level suppressed. */
+    int call_propagate_mask = PROPAGATE_NONE;
+    if ((flags & CMD_CALL_PROPAGATE_AOF) && !(c->flags & CLIENT_MODULE_PREVENT_AOF_PROP))
+        call_propagate_mask |= PROPAGATE_AOF;
+    if ((flags & CMD_CALL_PROPAGATE_REPL) && !(c->flags & CLIENT_MODULE_PREVENT_REPL_PROP))
+        call_propagate_mask |= PROPAGATE_REPL;
+
     int prev_also_propagate_mask = server.also_propagate_mask;
-    server.also_propagate_mask &=
-        ((flags & CMD_CALL_PROPAGATE_AOF) ? PROPAGATE_AOF : 0) |
-        ((flags & CMD_CALL_PROPAGATE_REPL) ? PROPAGATE_REPL : 0);
+    server.also_propagate_mask &= call_propagate_mask;
 
     c->cmd->proc(c);
 

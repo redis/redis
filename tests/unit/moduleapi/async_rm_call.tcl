@@ -297,6 +297,33 @@ start_server {tags {"modules external:skip"}} {
         wait_for_blocked_clients_count 0
         $rd close
     }
+
+    test {Test no propagation of effect command after blocking RM_Call} {
+        r flushall
+        r xgroup create s g $ MKSTREAM
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async_no_replicate xreadgroup group g c block 0 streams s >
+        wait_for_blocked_clients_count 1
+        r xadd s * f v
+        assert {[$rd read] ne {}}
+
+        # XREADGROUP propagates its effect as XCLAIM. The RM_Call did not use
+        # `!`, so neither the command nor its effect should be propagated.
+        r set x 1
+
+        assert_replication_stream $repl {
+            {select *}
+            {xadd s * f v}
+            {set x 1}
+        }
+        close_replication_stream $repl
+
+        wait_for_blocked_clients_count 0
+        $rd close
+    }
 }
 
 start_server {tags {"modules external:skip"}} {
