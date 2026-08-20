@@ -1095,6 +1095,17 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
 
+    /* Resetting the live INFO `stream` histograms starts a new generation. The
+     * async path replaces the kvstore, which kvsAsyncFreeDoneCB() already detects
+     * via target_kvstore, but a synchronous flush empties it in place: the
+     * histograms are zeroed by kvstoreOnEmpty() while the kvstore keeps its
+     * identity, and a background slot-trim job already handed to BIO is not
+     * cancelled. Bump the epoch here, at the live-DB reset, so such an in-flight
+     * delta is discarded instead of subtracted from samples counted after the
+     * flush. Not done in kvstoreOnEmpty() itself: that callback is generic and can
+     * run for a non-live kvstore (see discardTempDb). */
+    server.stream_stats_epoch++;
+
     if (dbnum == -1) flushSlaveKeysWithExpireList();
 
     if (with_functions) {
