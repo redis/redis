@@ -3449,7 +3449,7 @@ void unprotectClient(client *c);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
-getKeysResult *getClientCachedKeyResult(client *c, pendingCommand *pcmd);
+getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd);
 /* reply macros */
 #define ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c, str) addReplyBulkCBuffer(c, str, strlen(str))
 

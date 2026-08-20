@@ -6083,7 +6083,7 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
  * handing over an unrelated pendingCommand (for instance the client's current
  * pending command while a queued MULTI command is being executed) would return
  * key positions that have nothing to do with the command being checked. */
-getKeysResult *getClientCachedKeyResult(client *c, pendingCommand *pcmd) {
+getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd) {
     if (!pcmd) return NULL;
 
     serverAssert(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED);

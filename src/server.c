@@ -4629,7 +4629,7 @@ int processCommand(client *c) {
     {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-            &c->slot,getClientCachedKeyResult(c,c->current_pending_cmd),c->read_error,cmd_flags,&error_code);
+            &c->slot,getClientCachedKeyResult(c->current_pending_cmd),c->read_error,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
