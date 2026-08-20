@@ -300,9 +300,11 @@ start_server {tags {"modules external:skip"}} {
 
     test {Test no propagation of effect command after blocking RM_Call} {
         r flushall
-        r config set appendonly yes
+        # Keep AOF deterministic through DEBUG LOADAOF: fsync each command and
+        # prevent automatic rewrites from snapshotting the in-memory PEL.
         r config set appendfsync always
         r config set auto-aof-rewrite-percentage 0
+        r config set appendonly yes
         waitForBgrewriteaof r
         r xgroup create s g $ MKSTREAM
         set repl [attach_to_replication_stream]
@@ -327,11 +329,10 @@ start_server {tags {"modules external:skip"}} {
 
         r debug loadaof
         assert_equal 0 [lindex [r xpending s g] 0]
-        r config set appendonly no
 
         wait_for_blocked_clients_count 0
         $rd close
-    }
+    } undefined {config:restore}
 
     test {Test inherited propagation suppression after nested blocking RM_Call} {
         r flushall

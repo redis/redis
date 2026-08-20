@@ -7169,11 +7169,16 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
 
-    /* Preserve inherited restrictions if the command blocks and is later
-     * reprocessed after the outer call's propagation mask was restored. */
-    int effective_propagate_mask = server.also_propagate_mask &
-        (((call_flags & CMD_CALL_PROPAGATE_AOF) ? PROPAGATE_AOF : 0) |
-         ((call_flags & CMD_CALL_PROPAGATE_REPL) ? PROPAGATE_REPL : 0));
+    /* An inner RM_Call with `!` must not re-enable targets suppressed by an
+     * outer RM_Call without `!`. Snapshot the effective targets so a blocking
+     * call keeps those inherited restrictions after the outer mask is restored.
+     * Keep this calculation in sync with call()'s target narrowing. */
+    int effective_propagate_mask = PROPAGATE_NONE;
+    if ((call_flags & CMD_CALL_PROPAGATE_AOF) && !(c->flags & CLIENT_MODULE_PREVENT_AOF_PROP))
+        effective_propagate_mask |= PROPAGATE_AOF;
+    if ((call_flags & CMD_CALL_PROPAGATE_REPL) && !(c->flags & CLIENT_MODULE_PREVENT_REPL_PROP))
+        effective_propagate_mask |= PROPAGATE_REPL;
+    effective_propagate_mask &= server.also_propagate_mask;
     call(c,call_flags);
 
     if (c->flags & CLIENT_BLOCKED) {

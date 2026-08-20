@@ -1743,8 +1743,8 @@ start_server {tags {"scripting repl external:skip"}} {
                 redis.call('hget',KEYS[1],ARGV[1]);
                 redis.set_repl(redis.REPL_ALL);
             } 1 myhash field
-            # Hash field expiration is an implicit deletion and must propagate
-            # even while the script suppresses its explicit command effects.
+            # Hash field expiration is an implicit deletion and must remain
+            # propagated while the script suppresses its explicit command effects.
             if {$is_eval} {
                 assert_replication_stream $repl {
                     {select *}
