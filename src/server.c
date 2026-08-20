@@ -3882,19 +3882,26 @@ static void propagatePendingCommands(long totalDuration) {
         propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL,0);
     }
 
+    /* An unknown-duration op may only claim what known AOF ops didn't. */
+    long long leftover = totalDuration;
+    for (j = 0; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        if (rop->duration != PROP_DURATION_UNKNOWN &&
+            (rop->target & PROPAGATE_AOF))
+        {
+            leftover -= rop->duration;
+        }
+    }
+    if (leftover < 0) leftover = 0;
+
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
 
-        /* If a command/module propagates ops without duration, upper-bound
-         * AOF duration with the enclosing call()'s total duration once.
-         * Only AOF-targeted ops may take the credit; REPL-only must not. */
         if (rop->duration == PROP_DURATION_UNKNOWN) {
             if (rop->target & PROPAGATE_AOF) {
-                /* Assign onto the op so feedAppendOnlyFile only credits when
-                 * AOF actually accepts the write. */
-                rop->duration = totalDuration;
-                totalDuration = 0;
+                rop->duration = leftover;
+                leftover = 0;
             } else {
                 rop->duration = 0;
             }

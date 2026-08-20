@@ -3078,6 +3078,9 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
+        /* We just opened an empty INCR AOF, and the base being dumped is not
+         * counted, so the estimate restarts from the commands appended now on. */
+        server.aof_cmd_duration = 0;
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -3674,10 +3677,6 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal) {
             (int)server.child_pid);
 
         serverAssert(server.aof_manifest != NULL);
-        /* Reset the duration as we ignore the time it took to dump the data
-         * in the fork. After BGREWRITEAOF the estimate covers only subsequent
-         * incr AOF commands, not the new base file's reconstruction cost. */
-        server.aof_cmd_duration = 0;
 
         /* Dup a temporary aof_manifest for subsequent modifications. */
         temp_am = aofManifestDup(server.aof_manifest);
