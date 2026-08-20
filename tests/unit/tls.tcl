@@ -68,6 +68,21 @@ start_server {tags {"tls"}} {
     if {$::tls} {
         package require tls
 
+        proc tls_redis_cli {host port groups} {
+            set tlsdir [file join [pwd] tests tls]
+            set cmd [list src/redis-cli \
+                -h $host \
+                -p $port \
+                --tls \
+                --cert [file join $tlsdir client.crt] \
+                --key [file join $tlsdir client.key] \
+                --cacert [file join $tlsdir ca.crt] \
+                --tls-ciphers ECDHE-RSA-AES128-GCM-SHA256 \
+                --tls-groups $groups \
+                PING]
+            exec {*}$cmd 2>@1
+        }
+
         test {TLS: Not accepting non-TLS connections on a TLS port} {
             set s [redis [srv 0 host] [srv 0 port]]
             catch {$s PING} e
@@ -136,6 +151,46 @@ start_server {tags {"tls"}} {
 
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers "DEFAULT"
+        }
+
+        test {TLS: Verify tls-groups validates group names} {
+            assert_equal {OK} [r CONFIG SET tls-groups "prime256v1"]
+
+            catch {r CONFIG SET tls-groups "invalid-group"} e
+            assert_match {*Unable to update TLS configuration*} $e
+
+            r CONFIG SET tls-groups ""
+        }
+
+        test {TLS: Verify tls-groups with a common group} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
+
+            # The client and server both allow prime256v1, so the handshake
+            # should complete.
+            assert_equal {PONG} [tls_redis_cli [srv 0 host] [srv 0 port] prime256v1]
+
+            r CONFIG SET tls-groups ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
+        }
+
+        test {TLS: Verify tls-groups with disjoint groups} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
+
+            # The client and server expose disjoint group lists, so the TLS
+            # handshake must fail.
+            assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
+            assert_match {*sslv3 alert handshake failure*} $e
+
+            r CONFIG SET tls-groups ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
         }
 
         test {TLS: Verify tls-prefer-server-ciphers behaves as expected} {
