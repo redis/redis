@@ -461,8 +461,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                              provenance stamp (see pubsubStampCurrentUser). Fast-path
                                              hint: while unset, every subscription is owned by
                                              c->user, so ACL scans can skip the client in O(1). */
-#define CLIENT_BITOP_ROARING (1ULL<<56) /* The next BITOP on this session must
-                                           store a Roaring bitmap result. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -3929,7 +3927,6 @@ void freeMemoryOverheadData(struct redisMemOverhead *mh);
 void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
-void consumeBitopModeOnRejectedCommand(client *c);
 void *activeDefragAlloc(void *ptr);
 sds activeDefragSds(sds sdsptr);
 void *activeDefragAllocRaw(size_t size);
@@ -4420,6 +4417,7 @@ int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int bitopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
 
@@ -4806,7 +4804,6 @@ void functionRestoreCommand(client *c);
 void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
-void bitopModeCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);
