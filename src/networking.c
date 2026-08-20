@@ -6085,7 +6085,6 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
  * key positions that have nothing to do with the command being checked. */
 getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd) {
     if (!pcmd) return NULL;
-
     serverAssert(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED);
 
     /* Return cached result if available */
