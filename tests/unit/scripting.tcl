@@ -1731,6 +1731,36 @@ start_server {tags {"scripting repl external:skip"}} {
             r debug set-active-expire 1
         }
 
+        test "Lazy hash field expiration is propagated despite set_repl(REPL_NONE)" {
+            r debug set-active-expire 0
+            r del myhash
+            r hset myhash field value keep alive
+            r hpexpire myhash 1 fields 1 field
+            after 10
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('hget',KEYS[1],ARGV[1]);
+                redis.set_repl(redis.REPL_ALL);
+            } 1 myhash field
+            # Hash field expiration is an implicit deletion and must propagate
+            # even while the script suppresses its explicit command effects.
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {select *}
+                    {hdel myhash field}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {hdel myhash field}
+                }
+            }
+            close_replication_stream $repl
+            r debug set-active-expire 1
+        }
+
         test "PRNG is seeded randomly for command replication" {
             if {$is_eval eq 1} {
                 # on is_eval Lua we need to call redis.replicate_commands() to get real randomization

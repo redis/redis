@@ -7168,6 +7168,12 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
+
+    /* Preserve inherited restrictions if the command blocks and is later
+     * reprocessed after the outer call's propagation mask was restored. */
+    int effective_propagate_mask = server.also_propagate_mask &
+        (((call_flags & CMD_CALL_PROPAGATE_AOF) ? PROPAGATE_AOF : 0) |
+         ((call_flags & CMD_CALL_PROPAGATE_REPL) ? PROPAGATE_REPL : 0));
     call(c,call_flags);
 
     if (c->flags & CLIENT_BLOCKED) {
@@ -7186,11 +7192,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         };
         reply = callReplyCreatePromise(promise);
         c->bstate.async_rm_call_handle = promise;
-        if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
+        if (!(effective_propagate_mask & PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
         }
-        if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
+        if (!(effective_propagate_mask & PROPAGATE_REPL)) {
             /* No need for replication propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
         }
