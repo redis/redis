@@ -192,10 +192,9 @@ start_cluster 1 0 [list tags {modules cluster external:skip} config_lines [list 
     }
 
     test {Command Filter refreshes cross-slot state when args are inserted} {
-        # "mget {t}a @insertafter" is a valid single-slot command before
-        # filtering, but the filter appends --inserted-after--, which turns it
-        # into a cross-slot command.
-        assert_error "CROSSSLOT*" {r mget a{t} @insertafter}
+        # Both keys hash to the same slot before filtering, but the filter
+        # appends --inserted-after--, which turns it into a cross-slot command.
+        assert_error "CROSSSLOT*" {r mget a{@insertafter} @insertafter}
     }
 
     test {Command Filter refreshes the slot when a key argument is replaced} {
