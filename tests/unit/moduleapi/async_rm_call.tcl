@@ -297,6 +297,71 @@ start_server {tags {"modules external:skip"}} {
         wait_for_blocked_clients_count 0
         $rd close
     }
+
+    test {Test no propagation of effect command after blocking RM_Call} {
+        r flushall
+        # Keep AOF deterministic through DEBUG LOADAOF: fsync each command and
+        # prevent automatic rewrites from snapshotting the in-memory PEL.
+        r config set appendfsync always
+        r config set auto-aof-rewrite-percentage 0
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r xgroup create s g $ MKSTREAM
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        $rd do_rm_call_async_no_replicate xreadgroup group g c block 0 streams s >
+        wait_for_blocked_clients_count 1
+        r xadd s * f v
+        assert {[$rd read] ne {}}
+
+        # XREADGROUP propagates its effect as XCLAIM. The RM_Call did not use
+        # `!`, so neither the command nor its effect should be propagated.
+        r set x 1
+
+        assert_replication_stream $repl {
+            {select *}
+            {xadd s * f v}
+            {set x 1}
+        }
+        close_replication_stream $repl
+
+        r debug loadaof
+        assert_equal 0 [lindex [r xpending s g] 0]
+
+        wait_for_blocked_clients_count 0
+        $rd close
+    } undefined {config:restore}
+
+    test {Test inherited propagation suppression after nested blocking RM_Call} {
+        r flushall
+        r xgroup create s g $ MKSTREAM
+        set repl [attach_to_replication_stream]
+
+        set rd [redis_deferring_client]
+
+        # The outer RM_Call omits `!`, while the inner RM_Call requests
+        # propagation and blocks. Its resumed execution must retain the outer
+        # suppression after the outer call's mask has been restored.
+        $rd do_rm_call_async_no_replicate do_rm_call_async \
+            xreadgroup group g c block 0 streams s >
+        wait_for_blocked_clients_count 1
+        r xadd s * f v
+        assert {[$rd read] ne {}}
+
+        r set x 1
+
+        assert_replication_stream $repl {
+            {select *}
+            {xadd s * f v}
+            {set x 1}
+        }
+        close_replication_stream $repl
+
+        wait_for_blocked_clients_count 0
+        $rd close
+    }
 }
 
 start_server {tags {"modules external:skip"}} {

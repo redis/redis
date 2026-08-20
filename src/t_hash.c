@@ -4323,7 +4323,7 @@ void himportSetCommand(client *c) {
      *
      * In the future this can be improved to send the fields only once instead of
      * on every SET, lowering the propagation cost further. */
-    if (shouldPropagate(PROPAGATE_AOF | PROPAGATE_REPL)) {
+    if (shouldPropagate((PROPAGATE_AOF | PROPAGATE_REPL) & server.also_propagate_mask)) {
         /* Presize the payload: field-name footprint + value bytes (over-estimate ok). */
         sds payload = createRawDumpPayload(o, c->argv[2], c->db->id, 0,
                                            tmpl->mem_size + total_values_length);
@@ -5957,12 +5957,9 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
     };
 
     enterExecutionUnit(1, 0);
-    int prev_replication_allowed = server.replication_allowed;
     int prev_also_propagate_mask = server.also_propagate_mask;
-    server.replication_allowed = 1;
     server.also_propagate_mask = PROPAGATE_AOF|PROPAGATE_REPL;
     alsoPropagate(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
-    server.replication_allowed = prev_replication_allowed;
     server.also_propagate_mask = prev_also_propagate_mask;
     exitExecutionUnit();
 

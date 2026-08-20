@@ -7160,15 +7160,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
-    /* We need to use a global replication_allowed flag in order to prevent
-     * replication of nested RM_Calls. Example:
-     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
-     * 2. module2.bar internally calls RM_Call of INCR with '!'
-     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
-     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar */
-    int prev_replication_allowed = server.replication_allowed;
-    server.replication_allowed = replicate && server.replication_allowed;
-
     /* Run the command */
     int call_flags = CMD_CALL_FROM_MODULE;
     if (replicate) {
@@ -7177,8 +7168,18 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         if (!(flags & REDISMODULE_ARGV_NO_REPLICAS))
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
+
+    /* An inner RM_Call with `!` must not re-enable targets suppressed by an
+     * outer RM_Call without `!`. Snapshot the effective targets so a blocking
+     * call keeps those inherited restrictions after the outer mask is restored.
+     * Keep this calculation in sync with call()'s target narrowing. */
+    int effective_propagate_mask = PROPAGATE_NONE;
+    if ((call_flags & CMD_CALL_PROPAGATE_AOF) && !(c->flags & CLIENT_MODULE_PREVENT_AOF_PROP))
+        effective_propagate_mask |= PROPAGATE_AOF;
+    if ((call_flags & CMD_CALL_PROPAGATE_REPL) && !(c->flags & CLIENT_MODULE_PREVENT_REPL_PROP))
+        effective_propagate_mask |= PROPAGATE_REPL;
+    effective_propagate_mask &= server.also_propagate_mask;
     call(c,call_flags);
-    server.replication_allowed = prev_replication_allowed;
 
     if (c->flags & CLIENT_BLOCKED) {
         serverAssert(flags & REDISMODULE_ARGV_ALLOW_BLOCK);
@@ -7196,11 +7197,11 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         };
         reply = callReplyCreatePromise(promise);
         c->bstate.async_rm_call_handle = promise;
-        if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
+        if (!(effective_propagate_mask & PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
         }
-        if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
+        if (!(effective_propagate_mask & PROPAGATE_REPL)) {
             /* No need for replication propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
         }

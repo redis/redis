@@ -2423,7 +2423,6 @@ struct redisServer {
                                        flags, so effect commands honor Lua
                                        redis.set_repl() and selective RM_Call
                                        propagation. */
-    int replication_allowed;        /* Are we allowed to replicate? */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
