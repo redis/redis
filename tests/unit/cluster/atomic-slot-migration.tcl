@@ -3514,9 +3514,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
         R 0 config set rdb-key-save-delay 0
 
-        # BITOPMODE carries the destination key for ASM routing, so the import
-        # stream preserves the source-selected representation despite the
-        # destination's opposite local default.
+        # The propagated BITOP carries its explicit result mode and destination,
+        # so the import stream preserves the source-selected representation
+        # despite the destination's opposite local default.
         assert_equal bitmap [R 1 type $dest]
         assert_equal [binary format H* ff] [R 1 debug bitmap-raw $dest]
         assert_equal $source_digest [R 1 debug digest-value $source1 $source2 $dest]

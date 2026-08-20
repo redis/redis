@@ -782,7 +782,7 @@ tags "modules external:skip" {
                 set replica_digest [$replica debug digest]
 
                 # Reload only the replica's local AOF. If BITCONVERT or the
-                # BITOPMODE/BITOP pair were appended after callback DELs, this
+                # mode-qualified BITOP were appended after callback DELs, this
                 # state would change representation or resurrect a key here.
                 $replica replicaof no one
                 $replica debug loadaof
