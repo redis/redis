@@ -2004,6 +2004,8 @@ typedef struct redisTLSContextConfig {
     int session_cache_timeout;
     char *expected_peer_name;       /* Space-separated SAN(s) to verify on outbound
                                        server-to-server TLS connections. NULL = disabled. */
+    int expected_peer_name_allow_parent_domain; /* Permit leading "." parent-domain
+                                       entries in expected_peer_name */
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------

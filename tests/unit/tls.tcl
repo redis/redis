@@ -516,5 +516,49 @@ if {$::tls} {
             assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
             r config set tls-expected-peer-name ""
         }
+
+        test {TLS: tls-expected-peer-name rejects parent-domain entries by default} {
+            # A leading dot is an OpenSSL parent-domain pattern matching subdomains
+            # at any depth, which is much broader than pinning explicit hosts, so it
+            # must be opted in to.
+            assert_equal {no} [lindex [r config get tls-expected-peer-name-allow-parent-domain] 1]
+            catch {r config set tls-expected-peer-name ".example.com"} e
+            assert_match {*any depth*} $e
+            # Also rejected when it is only one entry of a space-separated list.
+            catch {r config set tls-expected-peer-name "redis.local .example.com"} e
+            assert_match {*any depth*} $e
+
+            # Once enabled, the same value is accepted.
+            r config set tls-expected-peer-name-allow-parent-domain yes
+            r config set tls-expected-peer-name ".example.com"
+            assert_equal {.example.com} [lindex [r config get tls-expected-peer-name] 1]
+
+            # Turning the option back off while such a name is still configured
+            # would silently leave the broad match in effect, so it is refused.
+            catch {r config set tls-expected-peer-name-allow-parent-domain no} e
+            assert_match {*starting with*} $e
+
+            # Clearing the name first makes disabling it possible again.
+            r config set tls-expected-peer-name ""
+            r config set tls-expected-peer-name-allow-parent-domain no
+            assert_equal {no} [lindex [r config get tls-expected-peer-name-allow-parent-domain] 1]
+        }
+
+        test {TLS: tls-expected-peer-name matches a parent domain when allowed} {
+            # The shared master presents san.crt (SAN: redis.local, cluster.local),
+            # so the parent-domain entry ".local" must match it once permitted.
+            start_server [list overrides [list \
+                    tls-expected-peer-name-allow-parent-domain yes \
+                    tls-expected-peer-name ".local"]] {
+                set replica [srv 0 client]
+                assert_equal {.local} [lindex [$replica config get tls-expected-peer-name] 1]
+                $replica replicaof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } else {
+                    fail "Replication link did not come up with a matching parent-domain name"
+                }
+            }
+        }
     }
 }

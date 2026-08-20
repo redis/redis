@@ -2823,6 +2823,21 @@ int updateClusterHumanNodename(const char **err) {
     return 1;
 }
 
+/* Return 1 if any of the space-separated names in val is a parent-domain pattern,
+ * i.e. begins with a dot (".example.com"). OpenSSL treats such a name as a suffix
+ * that matches subdomains at any depth -- ".example.com" also matches
+ * a.b.example.com, and ".com" matches every name in the TLD -- which is far broader
+ * than pinning explicit hosts, so it is opt-in. */
+static int tlsPeerNameHasParentDomain(const char *val) {
+    int at_token_start = 1;
+    for (const char *p = val; *p; p++) {
+        if (*p == ' ') { at_token_start = 1; continue; }
+        if (at_token_start && *p == '.') return 1;
+        at_token_start = 0;
+    }
+    return 0;
+}
+
 /* Validate tls-expected-peer-name at config time (startup and CONFIG SET). An
  * empty value clears the option and is always allowed. A non-empty value must
  * carry at least one usable name token and must not contain embedded whitespace
@@ -2855,6 +2870,32 @@ static int isValidTlsExpectedPeerName(char *val, const char **err) {
         return 0;
     }
 
+    /* Peer identity should be pinned to the hosts actually being allowed, so a
+     * parent-domain entry, which accepts any subdomain at any depth, must be
+     * explicitly opted in to. */
+    if (!server.tls_ctx_config.expected_peer_name_allow_parent_domain &&
+        tlsPeerNameHasParentDomain(val))
+    {
+        *err = "tls-expected-peer-name entry starting with '.' matches subdomains at "
+               "any depth; set tls-expected-peer-name-allow-parent-domain yes first "
+               "to permit it";
+        return 0;
+    }
+
+    return 1;
+}
+
+/* Refuse to turn parent-domain matching off while a parent-domain name is still
+ * configured. The names are applied per connection without being re-validated
+ * there, so allowing this would silently leave the broad match in effect. */
+static int isValidTlsExpectedPeerNameAllowParentDomain(int val, const char **err) {
+    if (val) return 1;
+    const char *name = server.tls_ctx_config.expected_peer_name;
+    if (name && tlsPeerNameHasParentDomain(name)) {
+        *err = "tls-expected-peer-name currently has an entry starting with '.'; "
+               "change or clear it before disabling this option";
+        return 0;
+    }
     return 1;
 }
 
@@ -3529,6 +3570,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-groups", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.groups, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
+    createBoolConfig("tls-expected-peer-name-allow-parent-domain", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.expected_peer_name_allow_parent_domain, 0, isValidTlsExpectedPeerNameAllowParentDomain, NULL),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
