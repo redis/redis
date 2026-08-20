@@ -383,10 +383,8 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
-    /* Set to 1 as soon as one of the filters modifies argv (insert, replace or
-     * delete), so that the caller knows it has to refresh whatever it cached
-     * about the command. */
-    int argv_changed;
+    int argv_changed; /* Set when a filter modified argv, so the caller knows
+                       * it must refresh what it cached about the command. */
     client *c;
 } RedisModuleCommandFilterCtx;
 

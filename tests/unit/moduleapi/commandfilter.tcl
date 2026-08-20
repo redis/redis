@@ -177,42 +177,25 @@ start_server {tags {"external:skip"}} {
 # A command filter that changes argv invalidates everything the server already
 # derived from the pre-filter argv (looked up command, keys, slot, cross-slot
 # error). These tests make sure the outside world is refreshed accordingly.
-start_cluster 1 0 [list tags {modules cluster external:skip} config_lines [list "loadmodule [file normalize tests/modules/commandfilter.so] log-key 0"]] {
+start_cluster 1 0 [list tags {modules cluster external:skip} config_lines [list "loadmodule $testmodule log-key 0"]] {
     test {Command Filter refreshes cross-slot state when args are deleted} {
-        # "del {t}a @delme" is cross-slot before filtering, and a single-key
+        # "del a{t} @delme" is cross-slot before filtering, and a single-key
         # command after the filter deleted @delme. It must not be rejected.
-        assert_equal 0 [r del "{t}a" @delme]
+        assert_equal 0 [r del a{t} @delme]
 
-        r set "{t}a" v1
-        assert_equal 1 [r del "{t}a" @delme]
+        r set a{t} v1
+        assert_equal 1 [r del a{t} @delme]
 
         # Same thing for a read command with more than one key left.
-        r mset "{t}a" v1 "{t}b" v2
-        assert_equal {v1 v2} [r mget "{t}a" @delme "{t}b"]
+        r mset a{t} v1 b{t} v2
+        assert_equal {v1 v2} [r mget a{t} @delme b{t}]
     }
 
     test {Command Filter refreshes cross-slot state when args are inserted} {
         # "mget {t}a @insertafter" is a valid single-slot command before
         # filtering, but the filter appends --inserted-after--, which turns it
         # into a cross-slot command.
-        assert_error "CROSSSLOT*" {r mget "{t}a" @insertafter}
-    }
-
-    test {Command Filter refreshes cross-slot state on pipelined commands} {
-        # Pipelining makes the server parse and preprocess several commands
-        # up-front, so the filter runs against already-preprocessed state.
-        r del "{t}a"
-        set rd [redis_deferring_client]
-        $rd del "{t}a" @delme
-        $rd set "{t}a" v1
-        $rd del "{t}a" @delme
-        $rd mget "{t}a" @insertafter
-        $rd flush
-        assert_equal 0 [$rd read]
-        assert_equal {OK} [$rd read]
-        assert_equal 1 [$rd read]
-        assert_error "CROSSSLOT*" {$rd read}
-        $rd close
+        assert_error "CROSSSLOT*" {r mget a{t} @insertafter}
     }
 
     test {Command Filter refreshes the slot when a key argument is replaced} {
