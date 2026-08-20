@@ -34,16 +34,14 @@ static void populateDeltaHistograms(kvstore *kvs, asmTrimCtx *ctx) {
 
         /* Update keysizes_hist delta */
         size_t len = getObjectLength(kv);
-        int sizeBin = (len == 0) ? 0 : log2ceil(len) + 1; /* Strings, streams and bitmaps can be empty */
-        debugServerAssert(sizeBin < MAX_KEYSIZES_BINS);
+        int sizeBin = keysizesHistBin(len); /* Strings, streams and bitmaps can be empty */
         keysizesRow[sizeBin]++;
 
         /* Update allocsizes_hist delta */
         if (server.memory_tracking_enabled) {
             int64_t *allocsizesRow = keysizesHistRow(ctx->delta_allocsizes_hist, kv->type);
             size_t alloc_size = kvobjAllocSize(kv);
-            int allocBin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(allocBin < MAX_KEYSIZES_BINS);
+            int allocBin = keysizesHistBin(alloc_size);
             allocsizesRow[allocBin]++;
         }
     }
