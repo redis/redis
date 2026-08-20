@@ -164,7 +164,7 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
 }
 
 /* Map a stream property value to its histogram bin, matching the keysizes
- * histogram: 0 -> bin 0, otherwise log2ceil(value)+1. A negative value means
+ * histogram: 0 -> bin 0, otherwise floor(log2(value)) + 1. A negative value means
  * "no sample" and maps to -1 (used when a sample enters or leaves, and
  * defensively for a negative lag -- entries_read above entries_added -- which has
  * no bucket and is excluded like XINFO's absent lag; XSETID clamps entries_read
@@ -173,14 +173,21 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
  * The bin is clamped to the last bin: unlike key sizes, some samples aren't
  * physically bounded -- e.g. a consumer group's lag is entries_added minus
  * entries_read, and XSETID ... ENTRIESADDED lets entries_added reach ~2^63,
- * whose log2ceil+1 would index past the histogram. Clamping keeps the top bin a
- * "this large or larger" bucket and prevents an out-of-bounds write.
+ * whose bin would index past the histogram. Clamping keeps the top bin a "this
+ * large or larger" bucket and prevents an out-of-bounds write.
+ *
+ * Binned with log2ceil64() rather than log2ceil(), whose argument is a size_t: on
+ * a 32-bit build that narrows the value before its magnitude is known, so a ~2^63
+ * lag would be binned by its low 32 bits (landing in "2G") and the clamp above
+ * would never see it. Key sizes cannot hit that -- they are bounded by addressable
+ * memory -- but a lag is entries_added minus entries_read, and XSETID sets
+ * entries_added independently of how much the stream actually holds.
  *
  * Non-static so the async slot-trim delta (lazyfree.c) bins through the exact
  * same logic instead of duplicating it. */
 int streamDistribBin(int64_t value) {
     if (value < 0) return -1;
-    int bin = (value == 0) ? 0 : log2ceil(value) + 1;
+    int bin = (value == 0) ? 0 : log2ceil64((uint64_t) value) + 1;
     if (bin >= MAX_KEYSIZES_BINS) bin = MAX_KEYSIZES_BINS - 1;
     return bin;
 }
