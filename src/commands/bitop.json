@@ -6,6 +6,13 @@
         "since": "2.6.0",
         "arity": -4,
         "function": "bitopCommand",
+        "get_keys_function": "bitopGetKeys",
+        "history": [
+            [
+                "8.12.0",
+                "Added the optional `ROARING` result encoding."
+            ]
+        ],
         "command_flags": [
             "WRITE",
             "DENYOOM"
@@ -15,39 +22,29 @@
         ],
         "key_specs": [
             {
+                "notes": "The destination follows an optional ROARING result mode, so its position is determined by bitopGetKeys.",
                 "flags": [
                     "OW",
                     "UPDATE"
                 ],
                 "begin_search": {
-                    "index": {
-                        "pos": 2
-                    }
+                    "unknown": null
                 },
                 "find_keys": {
-                    "range": {
-                        "lastkey": 0,
-                        "step": 1,
-                        "limit": 0
-                    }
+                    "unknown": null
                 }
             },
             {
+                "notes": "Source keys follow the destination, whose position depends on the optional ROARING result mode.",
                 "flags": [
                     "RO",
                     "ACCESS"
                 ],
                 "begin_search": {
-                    "index": {
-                        "pos": 3
-                    }
+                    "unknown": null
                 },
                 "find_keys": {
-                    "range": {
-                        "lastkey": -1,
-                        "step": 1,
-                        "limit": 0
-                    }
+                    "unknown": null
                 }
             }
         ],
@@ -97,6 +94,13 @@
                         "token": "ONE"
                     }
                 ]
+            },
+            {
+                "name": "result-encoding",
+                "token": "ROARING",
+                "type": "pure-token",
+                "optional": true,
+                "since": "8.12.0"
             },
             {
                 "name": "destkey",
