@@ -3870,7 +3870,6 @@ int processInputBuffer(client *c) {
                 pcmd->reploff = c->io_read_reploff - sdslen(c->querybuf) + c->qb_pos;
 
             preprocessCommand(c, pcmd);
-            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
             resetClientQbufState(c);
         }
 

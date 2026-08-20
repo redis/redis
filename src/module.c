@@ -12028,25 +12028,14 @@ void moduleCallCommandFilters(client *c) {
     c->argv_len = filter.argv_len;
     c->argc = filter.argc;
 
-    /* Update pending command if it exists. Everything that was derived from the
-     * old argv (command, keys, slot, read error) is now stale, so we drop it and
-     * let preprocessCommand() compute it again from the new argv. */
+    /* Everything the pending command derived from the old argv (command, keys,
+     * slot, read error) is stale now, so preprocess it again. */
     pendingCommand *pcmd = c->current_pending_cmd;
     if (pcmd) {
         pcmd->argv = filter.argv;
         pcmd->argc = filter.argc;
         pcmd->argv_len = filter.argv_len;
-        pcmd->cmd = NULL;
-        pcmd->slot = INVALID_CLUSTER_SLOT;
-        pcmd->flags = 0;
-        pcmd->read_error = 0;
-
-        /* Reset keys result */
-        getKeysFreeResult(&pcmd->keys_result);
-        pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
-
         preprocessCommand(c, pcmd);
-        pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
 
         /* Keep the client fields we populated from the pending command in sync. */
         c->lookedcmd = pcmd->cmd;
