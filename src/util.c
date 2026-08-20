@@ -1853,11 +1853,27 @@ static void test_reclaimFilePageCache(void) {
 }
 #endif
 
+static void test_stringmatchlen(void) {
+    assert(stringmatchlen("*", 1, "", 0, 0) == 1);
+    assert(stringmatchlen("**", 2, "", 0, 0) == 1);
+    assert(stringmatchlen("*", 1, "", 0, 1) == 1);
+    assert(stringmatchlen("*", 1, "abc", 3, 0) == 1);
+    assert(stringmatchlen("a*", 2, "a", 1, 0) == 1);
+    assert(stringmatchlen("a*", 2, "abc", 3, 0) == 1);
+    assert(stringmatchlen("*x", 2, "ax", 2, 0) == 1);
+    assert(stringmatchlen("*x", 2, "x", 1, 0) == 1);
+    assert(stringmatchlen("*x", 2, "", 0, 0) == 0);
+    assert(stringmatchlen("", 0, "", 0, 0) == 1);
+    assert(stringmatchlen("", 0, "a", 1, 0) == 0);
+    printf("stringmatchlen test is ok\n");
+}
+
 int utilTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
 
+    test_stringmatchlen();
     test_string2ll();
     test_string2l();
     test_string2d();
