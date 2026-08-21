@@ -1246,17 +1246,9 @@ typedef struct redisDb {
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
 } redisDb;
 
-/* Histogram bins 0 through 64 cover zero and every positive uint64_t value.
- * Native bitmap logical byte lengths are limited to 2^60 - 1 (bin 60), but
- * the allocation-size histogram uses the same storage and also includes key,
- * object and CRoaring overhead, so it needs the remaining bins. */
-#define MAX_KEYSIZES_BINS 65
-
-/* Map zero to bin 0 and positive sizes in [2^(i-1), 2^i) to bin i. */
-static inline int keysizesHistBin(uint64_t size) {
-    if (size == 0) return 0;
-    return 64 - __builtin_clzll((unsigned long long)size);
-}
+/* Histogram bins 0 through 60. On 64-bit builds, native bitmap logical byte
+ * lengths can reach 2^60 - 1 bytes, which maps to the final bin. */
+#define MAX_KEYSIZES_BINS 61
 
 /* Per-type keysizes/allocsizes histograms: one row per tracked type, i.e. the
  * basic types plus streams and bitmaps. Rows are addressed with
@@ -4301,7 +4293,7 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
 int64_t *keysizesHistRow(keysizesHist hist, uint32_t type);
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen);
 void updateKeysizesHist(redisDb *db, uint32_t type, int64_t oldLen, int64_t newLen);
-void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, size_t oldsize, size_t newsize);
+void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize);
 void dbgRunAssertions(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
