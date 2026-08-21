@@ -2026,6 +2026,324 @@ GetFieldRes hashTypeGetFromListpack(robj *o, sds field,
     return GETF_NOT_FOUND;
 }
 
+/* -----------------------------------------------------------------------------
+ * Single-pass multi-field lookup on listpack encoded hashes
+ *
+ * hashTypeGetFromListpack() walks the listpack from the head for every field,
+ * so resolving N fields one by one costs O(N x entries). The helpers below
+ * resolve all the requested fields in a single walk instead, by indexing the
+ * requested field names in a small open-addressing table and probing it once
+ * per listpack tuple.
+ *
+ * The scratch space needed is proportional to the number of requested fields,
+ * not to the size of the hash: ~40 bytes per requested field, held only for the
+ * duration of the command, and taken from the stack for small requests. That is
+ * a fraction of what the client already paid to send the field names in argv.
+ * -------------------------------------------------------------------------- */
+
+/* Up to this number of requested fields the scratch space is kept on the stack.
+ * Above it, it is allocated on the heap. */
+#define HASH_MULTIGET_STACK_FIELDS 64
+
+/* Up to this number of requested fields the single pass lookup compares each
+ * visited field name against all of them, instead of building a hash index of
+ * the requested names. Hashing costs one dictGenHashFunction() call per
+ * requested field to build the index plus one per visited field to probe it,
+ * which for a handful of fields is more than just comparing them. */
+#define HASH_MULTIGET_LINEAR_FIELDS 8
+
+/* Result of resolving one requested field. 'vstr'/'vlen'/'vll' follow the
+ * hashTypeGetValue() convention. Note that 'vstr' points INTO the listpack, so
+ * all the fields below become invalid as soon as the hash object is modified.
+ * 'expiredAt' is only meaningful when 'found' is set. The field order keeps the
+ * struct at 32 bytes, i.e. a 2KB array for HASH_MULTIGET_STACK_FIELDS fields. */
+typedef struct hashFieldRes {
+    unsigned char *vstr;
+    unsigned int vlen;
+    int found;
+    long long vll;
+    uint64_t expiredAt; /* EB_EXPIRE_TIME_INVALID if the field has no TTL */
+} hashFieldRes;
+
+/* Returns the size of the index table to use for 'numFields' needles. It is a
+ * power of two, keeping the load factor at 0.5 or below. */
+static size_t hashFieldsIndexSize(int numFields) {
+    size_t size = 2;
+    while (size < (size_t) numFields * 2)
+        size *= 2;
+    return size;
+}
+
+/* Scratch space for one single pass lookup of 'numFields' fields: the resolved
+ * values, plus the index of the requested names when there are enough of them to
+ * be worth hashing (see HASH_MULTIGET_LINEAR_FIELDS). Requests of up to
+ * HASH_MULTIGET_STACK_FIELDS fields are served from the embedded arrays, larger
+ * ones from a single heap block. */
+typedef struct hashMultiGetScratch {
+    hashFieldRes *res;  /* [numFields] resolved values, in request order */
+    int *index;         /* [mask+1] needle indexes, -1 empty. NULL if linear */
+    int *dupNext;       /* [numFields] same-name chains. NULL if linear */
+    size_t mask;        /* Number of slots in 'index' minus one */
+    void *heap;         /* Backing allocation, NULL when the arrays below are used */
+    hashFieldRes stackRes[HASH_MULTIGET_STACK_FIELDS];
+    int stackIndex[HASH_MULTIGET_STACK_FIELDS * 2];
+    int stackDupNext[HASH_MULTIGET_STACK_FIELDS];
+} hashMultiGetScratch;
+
+/* Set up 's' for a lookup of 'numFields' fields. When 'linear' is set, no index
+ * is built and the requested names are compared one by one instead. */
+static void hashMultiGetScratchInit(hashMultiGetScratch *s, int numFields, int linear) {
+    size_t size = linear ? 0 : hashFieldsIndexSize(numFields);
+
+    s->mask = linear ? 0 : size - 1;
+
+    if (numFields > HASH_MULTIGET_STACK_FIELDS) {
+        /* Requests this large are never served by the linear variant, which is
+         * capped at HASH_MULTIGET_LINEAR_FIELDS fields. One allocation for all
+         * the arrays, hashFieldRes first so the ints that follow are aligned. */
+        serverAssert(!linear);
+        s->heap = zmalloc(sizeof(hashFieldRes) * numFields +
+                          sizeof(int) * (size + numFields));
+        s->res = s->heap;
+        s->index = (int *) (s->res + numFields);
+        s->dupNext = s->index + size;
+        return;
+    }
+
+    /* Sizing invariant of the embedded arrays: at load factor 0.5 the index of
+     * the largest stack served request still fits in stackIndex[]. */
+    serverAssert(size <= HASH_MULTIGET_STACK_FIELDS * 2);
+    s->heap = NULL;
+    s->res = s->stackRes;
+    s->index = linear ? NULL : s->stackIndex;
+    s->dupNext = linear ? NULL : s->stackDupNext;
+}
+
+static void hashMultiGetScratchRelease(hashMultiGetScratch *s) {
+    zfree(s->heap);
+}
+
+/* Index fields[0..numFields-1] into 's->index', an open-addressing table of
+ * 's->mask'+1 slots (a power of two, as returned by hashFieldsIndexSize())
+ * holding needle indexes, where -1 means "empty". Needles sharing the same name
+ * are linked together through 's->dupNext' (also -1 terminated) so that a single
+ * slot refers to all of them, in request order.
+ *
+ * Returns 1 if any field name appears more than once. */
+static int hashFieldsIndexBuild(hashMultiGetScratch *s, robj **fields, int numFields)
+{
+    int hasDups = 0;
+    int *index = s->index, *dupNext = s->dupNext;
+    size_t mask = s->mask;
+
+    for (size_t i = 0; i <= mask; i++)
+        index[i] = -1;
+
+    /* Walk backwards and prepend, so that duplicate chains end up ordered by
+     * position in the command. */
+    for (int i = numFields - 1; i >= 0; i--) {
+        sds field = fields[i]->ptr;
+        size_t len = sdslen(field);
+        size_t slot = dictGenHashFunction(field, len) & mask;
+
+        dupNext[i] = -1;
+        while (index[slot] != -1) {
+            sds other = fields[index[slot]]->ptr;
+            if (sdslen(other) == len && memcmp(other, field, len) == 0) {
+                dupNext[i] = index[slot]; /* Same name, prepend to its chain. */
+                hasDups = 1;
+                break;
+            }
+            slot = (slot + 1) & mask; /* Different name, keep probing. */
+        }
+        index[slot] = i;
+    }
+
+    return hasDups;
+}
+
+/* Returns 1 if the same field name appears more than once in
+ * fields[0..numFields-1], comparing the names pairwise. Only used below
+ * HASH_MULTIGET_LINEAR_FIELDS fields, where that beats hashing them; above it
+ * hashFieldsIndexBuild() reports duplicates as a side effect of indexing.
+ *
+ * Duplicates matter to the commands that both read and modify fields, where the
+ * reply of a repeated field depends on what the previous occurrence did, and so
+ * replies and modifications cannot be reordered. */
+static int hashFieldsHaveDupsLinear(robj **fields, int numFields) {
+    for (int i = 1; i < numFields; i++) {
+        sds field = fields[i]->ptr;
+        size_t len = sdslen(field);
+        for (int j = 0; j < i; j++) {
+            sds other = fields[j]->ptr;
+            if (sdslen(other) == len && memcmp(other, field, len) == 0)
+                return 1;
+        }
+    }
+    return 0;
+}
+
+/* Returns 1 if fields[0..numFields-1] can be resolved by a single pass over the
+ * listpack, which requires more than one field requested from a listpack encoded
+ * hash. Callers must check this before calling addHashMultiFieldsToReply(). */
+static inline int hashTypeMultiGetApplies(kvobj *o, int numFields) {
+    return o != NULL && numFields > 1 &&
+           (o->encoding == OBJ_ENCODING_LISTPACK ||
+            o->encoding == OBJ_ENCODING_LISTPACK_EX);
+}
+
+/* State of the single listpack walk done by hashTypeGetMultiFromListpack(). */
+struct lpMultiGetArgs {
+    unsigned char *lp;   /* [in] Listpack being walked */
+    size_t lpbytes;      /* [in] Cached lpBytes(lp) */
+    int listpackex;      /* [in] 1 if tuples are field-value-ttl, 0 if field-value */
+    robj **fields;       /* [in] Requested fields */
+    int numFields;       /* [in] Number of requested fields */
+    int *index;          /* [in] Index of requested fields, see hashFieldsIndexBuild().
+                          *      NULL when the fields are compared one by one. */
+    int *dupNext;        /* [in] Chains of same-name fields, unused without 'index' */
+    size_t mask;         /* [in] Size of 'index' minus one */
+    hashFieldRes *res;   /* [out] One entry per requested field */
+    int found;           /* [out] Number of fields resolved so far */
+};
+
+/* Callback for lpFindCb(). Invoked once per tuple of a listpack encoded hash,
+ * with 'p' pointing at the field name. Resolves every requested field matching
+ * it and stops the walk as soon as all of them have been resolved. */
+static int cbGetMultiFromListpack(const unsigned char *lp, unsigned char *p,
+                                  void *user, unsigned char *s, long long slen)
+{
+    (void) lp;
+    struct lpMultiGetArgs *r = user;
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    int first = -1; /* First requested field with this name, -1 if none. */
+
+    if (s) {
+        len = (size_t) slen;
+    } else {
+        /* Integer encoded field name. Comparing the requested names against its
+         * canonical decimal representation matches exactly the same needles as
+         * lpFindCmp() does, because lpStringToInt64() only accepts canonical
+         * decimal (no sign for positives, no leading zeros, no padding). */
+        len = ll2string(buf, sizeof(buf), slen);
+        s = (unsigned char *) buf;
+    }
+
+    if (r->index) {
+        for (size_t slot = dictGenHashFunction(s, len) & r->mask;
+             r->index[slot] != -1;
+             slot = (slot + 1) & r->mask)
+        {
+            int i = r->index[slot];
+            sds field = r->fields[i]->ptr;
+
+            /* Compare the names: a slot can hold an unrelated needle, either
+             * because its own hash landed here or because it probed into this
+             * slot. Those keep the loop going to the next slot. */
+            if (sdslen(field) == len && memcmp(field, s, len) == 0) {
+                first = i;
+                break;
+            }
+        }
+    } else {
+        for (int i = 0; i < r->numFields; i++) {
+            sds field = r->fields[i]->ptr;
+            if (sdslen(field) == len && memcmp(field, s, len) == 0) {
+                first = i;
+                break;
+            }
+        }
+    }
+
+    if (first == -1)
+        return 1;
+
+    /* Decode the tuple once, then hand it to all the fields that ask for this
+     * name. */
+    unsigned char *vptr = lpNextWithBytes(r->lp, p, r->lpbytes);
+    serverAssert(vptr != NULL);
+
+    unsigned char *vstr;
+    unsigned int vlen = 0;
+    long long vll = 0;
+    uint64_t expiredAt = EB_EXPIRE_TIME_INVALID;
+
+    vstr = lpGetValue(vptr, &vlen, &vll);
+
+    if (r->listpackex) {
+        long long expire;
+        unsigned char *tptr = lpNextWithBytes(r->lp, vptr, r->lpbytes);
+        serverAssert(tptr && lpGetIntegerValue(tptr, &expire));
+        if (expire != HASH_LP_NO_TTL)
+            expiredAt = (uint64_t) expire;
+    }
+
+    for (int i = first; i != -1; ) {
+        r->res[i].vstr = vstr;
+        r->res[i].vlen = vlen;
+        r->res[i].vll = vll;
+        r->res[i].expiredAt = expiredAt;
+        r->res[i].found = 1;
+        r->found++;
+
+        if (r->index) {
+            i = r->dupNext[i];
+        } else {
+            /* No index to chain duplicates through, look for the next request
+             * of the same name. */
+            for (i++; i < r->numFields; i++) {
+                sds field = r->fields[i]->ptr;
+                if (sdslen(field) == len && memcmp(field, s, len) == 0)
+                    break;
+            }
+            if (i == r->numFields) i = -1;
+        }
+    }
+
+    return (r->found == r->numFields) ? 0 : 1;
+}
+
+/* Resolve fields[0..numFields-1] of a listpack or listpackEx encoded hash in a
+ * single pass over the listpack, instead of one lpFind() walk per field, into
+ * 's->res' which is fully initialized here.
+ *
+ * 's' must have been set up by hashMultiGetScratchInit(), and its index built by
+ * hashFieldsIndexBuild() unless the fields are compared one by one.
+ *
+ * Note that expired fields are reported as found, with their expiration time in
+ * 'expiredAt': it is up to the caller to apply the lazy expiration logic. */
+static void hashTypeGetMultiFromListpack(kvobj *o, robj **fields, int numFields,
+                                         hashMultiGetScratch *s)
+{
+    serverAssert(o->encoding == OBJ_ENCODING_LISTPACK ||
+                 o->encoding == OBJ_ENCODING_LISTPACK_EX);
+    serverAssert(numFields > 0);
+
+    struct lpMultiGetArgs r;
+
+    r.lp = hashTypeListpackGetLp(o);
+    r.lpbytes = lpBytes(r.lp);
+    r.listpackex = (o->encoding == OBJ_ENCODING_LISTPACK_EX);
+    r.fields = fields;
+    r.numFields = numFields;
+    r.index = s->index;
+    r.dupNext = s->dupNext;
+    r.mask = s->mask;
+    r.res = s->res;
+    r.found = 0;
+
+    for (int i = 0; i < numFields; i++) {
+        s->res[i].vstr = NULL;
+        s->res[i].vlen = 0;
+        s->res[i].vll = 0;
+        s->res[i].expiredAt = EB_EXPIRE_TIME_INVALID;
+        s->res[i].found = 0;
+    }
+
+    lpFindCb(r.lp, NULL, &r, cbGetMultiFromListpack, r.listpackex ? 2 : 1);
+}
+
 /* Get the value from a hash table encoded hash, identified by field.
  * Returns NULL when the field cannot be found, otherwise the SDS value
  * is returned. */
@@ -2045,6 +2363,15 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value, uint64_t *e
     *expiredAt = entryGetExpiry(entry);
     *value = entryGetValue(entry);
     return GETF_OK;
+}
+
+/* Returns 1 if a field whose expiration time is 'expiredAt' has to be treated
+ * as logically expired, and 0 if it can be returned as a valid field. */
+static inline int hashTypeFieldNeedsLazyExpire(uint64_t expiredAt, int hfeFlags) {
+    if (server.allow_access_expired) return 0;
+    if (expiredAt >= (uint64_t) commandTimeSnapshot()) return 0;
+    if (hfeFlags & HFE_LAZY_ACCESS_EXPIRED) return 0;
+    return 1;
 }
 
 /* Higher level function of hashTypeGet*() that returns the hash value
@@ -2113,9 +2440,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         serverPanic("Unknown hash encoding");
     }
 
-    if ((server.allow_access_expired) ||
-        (*expiredAt >= (uint64_t) commandTimeSnapshot()) ||
-        (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
+    if (!hashTypeFieldNeedsLazyExpire(*expiredAt, hfeFlags))
         return GETF_OK;
 
     if (server.masterhost || server.cluster_enabled) {
@@ -5155,8 +5480,13 @@ void hincrbyfloatCommand(client *c) {
     decrRefCount(newobj);
 }
 
-static GetFieldRes addHashFieldToReply(client *c, kvobj *o, sds field, int hfeFlags) {
+/* Reply with the value of 'field'. If 'expiredAt' is not NULL, it is set to the
+ * expiration time of the field, or to EB_EXPIRE_TIME_INVALID if it has none. */
+static GetFieldRes addHashFieldToReply(client *c, kvobj *o, sds field, int hfeFlags,
+                                       uint64_t *expiredAt)
+{
     if (o == NULL) {
+        if (expiredAt) *expiredAt = EB_EXPIRE_TIME_INVALID;
         addReplyNull(c);
         return GETF_NOT_FOUND;
     }
@@ -5165,7 +5495,7 @@ static GetFieldRes addHashFieldToReply(client *c, kvobj *o, sds field, int hfeFl
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, hfeFlags, NULL);
+    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, hfeFlags, expiredAt);
     if (res == GETF_OK) {
         if (vstr) {
             addReplyBulkCBuffer(c, vstr, vlen);
@@ -5178,18 +5508,120 @@ static GetFieldRes addHashFieldToReply(client *c, kvobj *o, sds field, int hfeFl
     return res;
 }
 
+/* Reply with the values of fields[from..numFields-1], in request order, looking
+ * up one field at a time.
+ *
+ * 'resOut' must have room for 'numFields' entries and receives the per-field
+ * GetFieldRes. If 'expiredOut' is not NULL, it receives the per-field
+ * expiration time (EB_EXPIRE_TIME_INVALID when there is none). */
+static void addHashFieldsToReplyOneByOne(client *c, kvobj *o, robj **fields,
+                                         int numFields, int from, int hfeFlags,
+                                         GetFieldRes *resOut, uint64_t *expiredOut)
+{
+    for (int i = from; i < numFields; i++) {
+        if (o == NULL) {
+            /* No such key, or the hash was deleted because the last of its
+             * fields expired. */
+            addReplyNull(c);
+            resOut[i] = GETF_NOT_FOUND;
+            if (expiredOut) expiredOut[i] = EB_EXPIRE_TIME_INVALID;
+            continue;
+        }
+        resOut[i] = addHashFieldToReply(c, o, fields[i]->ptr, hfeFlags,
+                                        expiredOut ? &expiredOut[i] : NULL);
+        if (resOut[i] == GETF_EXPIRED_HASH)
+            o = NULL;
+    }
+}
+
+/* Reply with the values of fields[0..numFields-1], in request order, resolving
+ * all of them in a single pass over the listpack rather than with one lpFind()
+ * walk each. Requires hashTypeMultiGetApplies(o, numFields).
+ *
+ * Fields requiring hash-field-expiration work - which modifies the hash and
+ * invalidates the resolved pointers - are delegated to addHashFieldToReply(),
+ * and so is every field after them.
+ *
+ * 'resOut' and 'expiredOut' are as in addHashFieldsToReplyOneByOne().
+ *
+ * Note that this function only reads. Callers that also modify the fields must
+ * do so after it returns, and must set 'rejectDups' because the reply of a field
+ * requested twice depends on what the previous occurrence modified: nothing is
+ * replied and 0 is returned when a duplicate is found, and the caller then has
+ * to reply one field at a time, interleaving its modifications. Returns 1 after
+ * replying to all the fields (always, when 'rejectDups' is not set).
+ *
+ * Not inlined on purpose: its ~3KB of scratch space would otherwise end up in
+ * the frame of callers that never resolve a single field through it. */
+static __attribute__((noinline))
+int addHashMultiFieldsToReply(client *c, kvobj *o, robj **fields, int numFields,
+                              int hfeFlags, int rejectDups,
+                              GetFieldRes *resOut, uint64_t *expiredOut)
+{
+    hashMultiGetScratch s;
+    int linear = (numFields <= HASH_MULTIGET_LINEAR_FIELDS);
+    int i = 0;
+
+    serverAssert(hashTypeMultiGetApplies(o, numFields));
+
+    if (linear) {
+        if (rejectDups && hashFieldsHaveDupsLinear(fields, numFields))
+            return 0;
+        hashMultiGetScratchInit(&s, numFields, linear);
+    } else {
+        hashMultiGetScratchInit(&s, numFields, linear);
+        if (hashFieldsIndexBuild(&s, fields, numFields) && rejectDups) {
+            hashMultiGetScratchRelease(&s);
+            return 0;
+        }
+    }
+
+    hashTypeGetMultiFromListpack(o, fields, numFields, &s);
+
+    while (i < numFields) {
+        hashFieldRes *res = &s.res[i];
+
+        /* Lazy expiration deletes the field and may delete the whole hash,
+         * invalidating every pointer resolved above. Let the single-field path
+         * own it, and fall back for the remaining fields as well. */
+        if (res->found && hashTypeFieldNeedsLazyExpire(res->expiredAt, hfeFlags))
+            break;
+
+        if (!res->found) {
+            addReplyNull(c);
+            resOut[i] = GETF_NOT_FOUND;
+            if (expiredOut) expiredOut[i] = EB_EXPIRE_TIME_INVALID;
+        } else {
+            if (res->vstr)
+                addReplyBulkCBuffer(c, res->vstr, res->vlen);
+            else
+                addReplyBulkLongLong(c, res->vll);
+            resOut[i] = GETF_OK;
+            if (expiredOut) expiredOut[i] = res->expiredAt;
+        }
+        i++;
+    }
+
+    hashMultiGetScratchRelease(&s);
+
+    if (i < numFields) {
+        addHashFieldsToReplyOneByOne(c, o, fields, numFields, i, hfeFlags,
+                                     resOut, expiredOut);
+    }
+    return 1;
+}
+
 void hgetCommand(client *c) {
     kvobj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    addHashFieldToReply(c, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE);
+    addHashFieldToReply(c, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE, NULL);
 }
 
 void hmgetCommand(client *c) {
-    GetFieldRes res = GETF_OK;
-    int i, deleted = 0;
+    int numFields = c->argc - 2;
 
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * hashes, where HMGET should respond with a series of null bulks. */
@@ -5198,22 +5630,29 @@ void hmgetCommand(client *c) {
 
     /* Track expired fields for subkey notification. */
     fieldvec fvexpired;
-    vec *vexpired = fieldvecInit(&fvexpired, c->argc-2);
+    vec *vexpired = fieldvecInit(&fvexpired, numFields);
 
-    addReplyArrayLen(c, c->argc-2);
-    for (i = 2; i < c->argc ; i++) {
-        if (!deleted) {
-            res = addHashFieldToReply(c, o, c->argv[i]->ptr, HFE_LAZY_NO_NOTIFICATION);
-            if (res == GETF_EXPIRED) {
-                vecPush(vexpired, c->argv[i]);
-            }
-            deleted += (res == GETF_EXPIRED_HASH);
-        } else {
-            /* If hash got lazy expired since all fields are expired (o is invalid),
-             * then fill the rest with trivial nulls and return. */
-            addReplyNull(c);
-        }
+    GetFieldRes stackres[HASH_MULTIGET_STACK_FIELDS];
+    GetFieldRes *resOut = (numFields <= HASH_MULTIGET_STACK_FIELDS) ?
+                          stackres : zmalloc(sizeof(GetFieldRes) * numFields);
+
+    addReplyArrayLen(c, numFields);
+    if (!hashTypeMultiGetApplies(o, numFields) ||
+        !addHashMultiFieldsToReply(c, o, &c->argv[2], numFields,
+                                   HFE_LAZY_NO_NOTIFICATION, 0, resOut, NULL))
+    {
+        addHashFieldsToReplyOneByOne(c, o, &c->argv[2], numFields, 0,
+                                     HFE_LAZY_NO_NOTIFICATION, resOut, NULL);
     }
+
+    int deleted = 0;
+    for (int i = 0; i < numFields; i++) {
+        if (resOut[i] == GETF_EXPIRED)
+            vecPush(vexpired, c->argv[2 + i]);
+        deleted += (resOut[i] == GETF_EXPIRED_HASH);
+    }
+
+    if (resOut != stackres) zfree(resOut);
 
     if (vecSize(vexpired)) {
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
@@ -5274,19 +5713,44 @@ void hgetdelCommand(client *c) {
     vec *vexpired = fieldvecInit(&fvexpired, num_fields);
     vec *vdeleted = fieldvecInit(&fvdeleted, num_fields);
 
+    const int flags = HFE_LAZY_NO_NOTIFICATION |
+                      HFE_LAZY_NO_SIGNAL |
+                      HFE_LAZY_AVOID_HASH_DEL |
+                      HFE_LAZY_NO_UPDATE_KEYSIZES |
+                      HFE_LAZY_NO_UPDATE_ALLOCSIZES;
+
     addReplyArrayLen(c, num_fields);
+
+    int numFields = (int) num_fields; /* Bounded by argc, see the check above. */
+    GetFieldRes stackres[HASH_MULTIGET_STACK_FIELDS];
+    GetFieldRes *resOut = (numFields <= HASH_MULTIGET_STACK_FIELDS) ?
+                          stackres : zmalloc(sizeof(GetFieldRes) * numFields);
+
     if (o && hashTypeIsTemplate(o)) {
         /* Template hash: reply every value, then drop all the fields in one
          * template switch. */
         hashTypeTmplDeleteFields(o, c->argv + 4, c->argc - 4, vdeleted, c);
+    } else if (hashTypeMultiGetApplies(o, numFields) &&
+               addHashMultiFieldsToReply(c, o, &c->argv[4], numFields, flags,
+                                         1, resOut, NULL))
+    {
+        /* Replied to all the fields in a single pass over the listpack. Delete
+         * them afterwards: doing it as we reply would invalidate the values the
+         * single pass resolved. */
+        for (int i = 0; i < numFields; i++) {
+            if (resOut[i] == GETF_EXPIRED) {
+                vecPush(vexpired, c->argv[4 + i]);
+            } else if (resOut[i] == GETF_OK) {
+                vecPush(vdeleted, c->argv[4 + i]);
+                serverAssert(hashTypeDelete(o, c->argv[4 + i]->ptr) == 1);
+            }
+        }
     } else {
+        /* Not a listpack, or the same field was requested twice - the reply of
+         * the second occurrence depends on the deletion done by the first one,
+         * so replies and deletions have to stay interleaved. */
         for (int i = 4; i < c->argc; i++) {
-            const int flags = HFE_LAZY_NO_NOTIFICATION |
-                              HFE_LAZY_NO_SIGNAL |
-                              HFE_LAZY_AVOID_HASH_DEL |
-                              HFE_LAZY_NO_UPDATE_KEYSIZES |
-                              HFE_LAZY_NO_UPDATE_ALLOCSIZES;
-            res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
+            res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags, NULL);
             if (res == GETF_EXPIRED) {
                 vecPush(vexpired, c->argv[i]);
             }
@@ -5297,6 +5761,8 @@ void hgetdelCommand(client *c) {
             }
         }
     }
+
+    if (resOut != stackres) zfree(resOut);
 
     /* Return if no modification has been made. */
     if (vecSize(vexpired) == 0 && vecSize(vdeleted) == 0) {
@@ -5396,31 +5862,86 @@ void hgetexCommand(client *c) {
     vec *vdeleted = fieldvecInit(&fvdeleted, num_fields);
     vec *vupdated = fieldvecInit(&fvupdated, num_fields);
 
+    const int flags = HFE_LAZY_NO_NOTIFICATION |
+                      HFE_LAZY_NO_SIGNAL |
+                      HFE_LAZY_AVOID_HASH_DEL |
+                      HFE_LAZY_NO_UPDATE_KEYSIZES |
+                      HFE_LAZY_NO_UPDATE_ALLOCSIZES;
+
+    if (parse_flags & HFE_PERSIST)
+        expire_time = EB_EXPIRE_TIME_INVALID;
+
     addReplyArrayLen(c, num_fields);
-    for (int i = first_field_pos; i < first_field_pos + num_fields; i++) {
-        const int flags = HFE_LAZY_NO_NOTIFICATION |
-                          HFE_LAZY_NO_SIGNAL |
-                          HFE_LAZY_AVOID_HASH_DEL |
-                          HFE_LAZY_NO_UPDATE_KEYSIZES |
-                          HFE_LAZY_NO_UPDATE_ALLOCSIZES;
-        sds field = c->argv[i]->ptr;
-        int res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
-        if (res == GETF_EXPIRED) {
-            vecPush(vexpired, c->argv[i]);
-        }
 
-        /* Set expiration only if the field exists and not expired lazily. */
-        if (res == GETF_OK && parse_flags) {
-            if (parse_flags & HFE_PERSIST)
-                expire_time = EB_EXPIRE_TIME_INVALID;
+    GetFieldRes stackres[HASH_MULTIGET_STACK_FIELDS];
+    uint64_t stackexpired[HASH_MULTIGET_STACK_FIELDS];
+    GetFieldRes *resOut = stackres;
+    uint64_t *expiredOut = stackexpired;
 
-            res = hashTypeSetEx(o, field, expire_time, &setex);
+    if (num_fields > HASH_MULTIGET_STACK_FIELDS) {
+        resOut = zmalloc(sizeof(GetFieldRes) * num_fields);
+        expiredOut = zmalloc(sizeof(uint64_t) * num_fields);
+    }
+
+    /* Reply to all the fields first - which takes a single pass over a listpack
+     * encoded hash - and update their expiration afterwards, since updating one
+     * would invalidate the values the single pass resolved. */
+    if (hashTypeMultiGetApplies(o, num_fields) &&
+        addHashMultiFieldsToReply(c, o, &c->argv[first_field_pos], num_fields,
+                                  flags, 1, resOut, expiredOut))
+    {
+        for (int i = 0; i < num_fields; i++) {
+            robj *fieldobj = c->argv[first_field_pos + i];
+
+            if (resOut[i] == GETF_EXPIRED) {
+                vecPush(vexpired, fieldobj);
+                continue;
+            }
+
+            /* Set expiration only if the field exists and not expired lazily. */
+            if (resOut[i] != GETF_OK || !parse_flags)
+                continue;
+
+            /* PERSIST on a field that has no TTL: hashTypeSetEx() would just
+             * return HSETEX_NO_CONDITION_MET without any side effect, so skip
+             * the lookup it would do to figure that out. */
+            if ((parse_flags & HFE_PERSIST) && expiredOut[i] == EB_EXPIRE_TIME_INVALID)
+                continue;
+
+            int res = hashTypeSetEx(o, fieldobj->ptr, expire_time, &setex);
             if (res == HSETEX_DELETED) {
-                vecPush(vdeleted, c->argv[i]);
+                vecPush(vdeleted, fieldobj);
             } else if (res == HSETEX_OK) {
-                vecPush(vupdated, c->argv[i]);
+                vecPush(vupdated, fieldobj);
             }
         }
+
+    } else {
+        /* Not a listpack, or the same field was requested twice - the reply of
+         * the second occurrence depends on what the first one did to its TTL, so
+         * replies and expiration updates have to stay interleaved. */
+        for (int i = first_field_pos; i < first_field_pos + num_fields; i++) {
+            sds field = c->argv[i]->ptr;
+            int res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags, NULL);
+            if (res == GETF_EXPIRED) {
+                vecPush(vexpired, c->argv[i]);
+            }
+
+            /* Set expiration only if the field exists and not expired lazily. */
+            if (res == GETF_OK && parse_flags) {
+                res = hashTypeSetEx(o, field, expire_time, &setex);
+                if (res == HSETEX_DELETED) {
+                    vecPush(vdeleted, c->argv[i]);
+                } else if (res == HSETEX_OK) {
+                    vecPush(vupdated, c->argv[i]);
+                }
+            }
+        }
+    }
+
+    if (resOut != stackres) {
+        zfree(resOut);
+        zfree(expiredOut);
     }
 
     if (parse_flags)

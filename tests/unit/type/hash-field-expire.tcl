@@ -1116,6 +1116,238 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
+        test "HGETEX - PERSIST on fields without TTL is a no-op ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            set repl [attach_to_replication_stream]
+            set dirty [s rdb_changes_since_last_save]
+            assert_equal [r hgetex myhash PERSIST FIELDS 3 f1 f2 f3] "v1 v2 v3"
+            assert_equal [s rdb_changes_since_last_save] $dirty
+
+            # Only fields that actually lost a TTL are persisted and propagated.
+            r hexpire myhash 100 FIELDS 1 f2
+            assert_equal [r hgetex myhash PERSIST FIELDS 3 f1 f2 f3] "v1 v2 v3"
+            assert_equal [r httl myhash FIELDS 3 f1 f2 f3] "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
+
+            assert_replication_stream $repl {
+                {select *}
+                {hpexpireat myhash * FIELDS 1 f2}
+                {hpersist myhash FIELDS 3 f1 f2 f3}
+            }
+            close_replication_stream $repl
+        } {} {needs:repl}
+
+        test "HGETEX - Multiple fields mixing present, absent and expired ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4
+            r hpexpire myhash 1 FIELDS 1 f2
+            after 10
+
+            # f2 lazily expires in the middle of the reply, which mutates the
+            # hash: the fields after it must still be resolved correctly.
+            assert_equal [r hgetex myhash FIELDS 5 f1 f2 nofield f3 f4] "v1 {} {} v3 v4"
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f3 v3 f4 v4"]
+
+            # Same, with the last live fields expiring so the hash is removed.
+            r hpexpire myhash 1 FIELDS 3 f1 f3 f4
+            after 10
+            assert_equal [r hgetex myhash FIELDS 4 nofield f1 f3 f4] "{} {} {} {}"
+            assert_equal [r exists myhash] 0
+
+            r debug set-active-expire 1
+        }
+
+        test "HGETEX - Duplicate fields ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+
+            # Reads only: every occurrence gets the value.
+            assert_equal [r hgetex myhash FIELDS 4 f1 f1 f2 f1] "v1 v1 v2 v1"
+
+            # Setting a TTL in the past deletes the field, so the second
+            # occurrence must not see it anymore.
+            assert_equal [r hgetex myhash PXAT 1 FIELDS 3 f1 f1 f2] "v1 {} v2"
+            assert_equal [r hgetall myhash] ""
+            assert_equal [r exists myhash] 0
+        }
+
+        test "HGETDEL - Duplicate fields ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hexpire myhash 100 FIELDS 1 f3
+
+            assert_equal [r hgetdel myhash FIELDS 3 f1 f1 f2] "v1 {} v2"
+            assert_equal [r hgetdel myhash FIELDS 2 f3 f3] "v3 {}"
+            assert_equal [r exists myhash] 0
+        }
+
+        test "HGETEX - Lazy expiry and past TTL deletions are both propagated ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+            r hset myhash f1 v1 f2 v2
+            r hpexpire myhash 1 FIELDS 1 f2
+            after 10
+
+            set repl [attach_to_replication_stream]
+            # f2 is already logically expired, so reading it deletes it, while
+            # f1 is deleted by the past timestamp of this very command.
+            assert_equal [r hgetex myhash PXAT 1 FIELDS 2 f1 f2] "v1 {}"
+
+            if {$type eq "listpackex"} {
+                # The single pass replies to every field before mutating any of
+                # them, so the lazy expiration HDEL comes first.
+                set expected {
+                    {multi}
+                    {select *}
+                    {hdel myhash f2}
+                    {hdel myhash f1}
+                    {exec}
+                }
+            } else {
+                # The per-field path interleaves reads and mutations, so the
+                # HDELs follow the order of the requested fields.
+                set expected {
+                    {multi}
+                    {select *}
+                    {hdel myhash f1}
+                    {hdel myhash f2}
+                    {exec}
+                }
+            }
+            assert_replication_stream $repl $expected
+            close_replication_stream $repl
+
+            assert_equal [r exists myhash] 0
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
+
+        # Cross check multi field lookups against single field HGET on hashes
+        # holding a random mix of TTL-free, live, far future and already
+        # logically expired fields.
+        test "Multi field lookup fuzzing with TTLs ($type)" {
+            set orig_maxval [lindex [r config get hash-max-listpack-value] 1]
+            # randomValue returns values of up to 256 bytes, which would
+            # otherwise convert the hash away from listpackex.
+            r config set hash-max-listpack-value 1024
+            r debug set-active-expire 0
+
+            set err [catch {
+            for {set times 0} {$times < 20} {incr times} {
+                r del myhash
+                catch {unset hash}
+                array set hash {}
+
+                set nfields [randomRange 2 60]
+                for {set j 0} {$j < $nfields} {incr j} {
+                    set value [randomValue]
+                    r hset myhash "f$j" $value
+                    set hash(f$j) $value
+                }
+
+                # f0 keeps no TTL so that the hash cannot be deleted from
+                # under the encoding assertion, f1 always gets one so the
+                # encoding is listpackex rather than plain listpack.
+                set expiring {}
+                for {set j 1} {$j < $nfields} {incr j} {
+                    set field "f$j"
+                    if {$j == 1} {
+                        r hexpire myhash 1000 FIELDS 1 $field
+                        continue
+                    }
+                    randpath {
+                        # Keep it TTL free.
+                    } {
+                        r hexpire myhash 1000 FIELDS 1 $field
+                    } {
+                        r hpexpireat myhash [expr {[clock milliseconds] + 100000000}] \
+                            FIELDS 1 $field
+                    } {
+                        # Logically expired below, but still stored since
+                        # active expiration is off.
+                        r hpexpire myhash 10 FIELDS 1 $field
+                        lappend expiring $field
+                    }
+                }
+
+                if {[llength $expiring] > 0} {
+                    after 20
+                    foreach field $expiring {
+                        unset -nocomplain hash($field)
+                    }
+                }
+
+                if {$type eq "listpackex"} {
+                    assert_encoding listpackex myhash
+                } else {
+                    assert_encoding hashtable myhash
+                }
+
+                # Cover the linear (< 8), stack indexed (<= 64) and heap
+                # indexed (> 64) request sizes.
+                set numfields [randomRange 1 71]
+                set fields {}
+                set expected {}
+                for {set j 0} {$j < $numfields} {incr j} {
+                    randpath {
+                        set field "f[randomInt $nfields]"
+                    } {
+                        set field "nofield[randomInt 10]"
+                    } {
+                        if {[llength $fields] > 0} {
+                            set field [lindex $fields [randomInt [llength $fields]]]
+                        } else {
+                            set field "f0"
+                        }
+                    }
+                    lappend fields $field
+                    if {[info exists hash($field)]} {
+                        lappend expected $hash($field)
+                    } else {
+                        lappend expected ""
+                    }
+                }
+
+                assert_equal $expected [r hmget myhash {*}$fields]
+                assert_equal $expected \
+                    [r hgetex myhash FIELDS [llength $fields] {*}$fields]
+
+                # HGETDEL removes a field on its first occurrence, so a
+                # repeated one replies nil from the second occurrence on.
+                set expected_del {}
+                array set seen {}
+                foreach field $fields {
+                    if {[info exists hash($field)] && ![info exists seen($field)]} {
+                        lappend expected_del $hash($field)
+                    } else {
+                        lappend expected_del ""
+                    }
+                    set seen($field) 1
+                }
+                unset seen
+                assert_equal $expected_del \
+                    [r hgetdel myhash FIELDS [llength $fields] {*}$fields]
+
+                # Everything that was requested is gone now, the rest is intact.
+                foreach field $fields {
+                    unset -nocomplain hash($field)
+                    assert_equal "" [r hget myhash $field]
+                }
+                foreach {k v} [array get hash] {
+                    assert_equal $v [r hget myhash $k]
+                }
+            }
+            } res opts]
+
+            # Restore even on failure, so that one assertion does not cascade
+            # into every later test in this file.
+            r config set hash-max-listpack-value $orig_maxval
+            r debug set-active-expire 1
+            return -options $opts $res
+        }
+
 
         test "HSETEX - input validation ($type)" {
             assert_error {*wrong number of arguments*} {r hsetex myhash}
