@@ -87,4 +87,53 @@ test "MODULE with len overflow is rejected" {
     assert_equal [R 0 PING] {PONG}
 }
 
+test "FORGOTTEN_NODE cannot delete the active packet sender" {
+    set CLUSTERMSG_TYPE_PING 0
+    set CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE 2
+    set CLUSTERMSG_FLAG0_EXT_DATA 4
+    set CLUSTER_NODE_MASTER 1
+    set CLUSTERMSG_MIN_LEN 2256
+    set FORGOTTEN_NODE_EXT_LEN 56
+
+    set target_host [srv 0 host]
+    set target_bus_port [expr {[srv 0 port] + 10000}]
+    set node_id [R 1 CLUSTER MYID]
+    set sender_port [srv -1 port]
+    set sender_cport [expr {$sender_port + 10000}]
+    set totlen [expr {$CLUSTERMSG_MIN_LEN + $FORGOTTEN_NODE_EXT_LEN}]
+
+    set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
+        $CLUSTERMSG_TYPE_PING $totlen 1 $CLUSTER_NODE_MASTER $CLUSTERMSG_FLAG0_EXT_DATA]
+    # Set "slaveof" (offset 2128 in the header) to the null node name, so the
+    # sender keeps being treated as a master and the packet does not alter
+    # its role or slot ownership.
+    set packet [string replace $packet 2128 2167 [string repeat 0 40]]
+    append packet [binary format I $FORGOTTEN_NODE_EXT_LEN]
+    append packet [binary format S $CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE]
+    append packet [binary format S 0]               ;# unused
+    append packet [binary format a40 $node_id]
+    append packet [binary format W 60]              ;# blacklist TTL
+
+    if {$::tls} {
+        set fd [::tls::socket \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
+            $target_host $target_bus_port]
+    } else {
+        set fd [socket $target_host $target_bus_port]
+    }
+    fconfigure $fd -translation binary -buffering full
+    puts -nonewline $fd $packet
+    flush $fd
+
+    wait_for_log_messages 0 {"*Ignoring FORGOTTEN_NODE for active sender*"} 0 20 500
+    close $fd
+
+    # The sender must still be part of the cluster, with its slots intact.
+    assert_equal [R 0 PING] {PONG}
+    assert_match "*$node_id*" [R 0 CLUSTER NODES]
+    wait_for_cluster_state "ok"
+}
+
 }
