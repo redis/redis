@@ -102,12 +102,11 @@ test "FORGOTTEN_NODE cannot delete the active packet sender" {
     set sender_cport [expr {$sender_port + 10000}]
     set totlen [expr {$CLUSTERMSG_MIN_LEN + $FORGOTTEN_NODE_EXT_LEN}]
 
+    # build_cluster_bus_header already encodes 'slaveof' as 40 NUL bytes
+    # which is CLUSTER_NODE_MASTER so the sender is treated like master
+    # and packet doesnt alter its slot ownership
     set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
         $CLUSTERMSG_TYPE_PING $totlen 1 $CLUSTER_NODE_MASTER $CLUSTERMSG_FLAG0_EXT_DATA]
-    # Set "slaveof" (offset 2128 in the header) to the null node name, so the
-    # sender keeps being treated as a master and the packet does not alter
-    # its role or slot ownership.
-    set packet [string replace $packet 2128 2167 [string repeat 0 40]]
     append packet [binary format I $FORGOTTEN_NODE_EXT_LEN]
     append packet [binary format S $CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE]
     append packet [binary format S 0]               ;# unused
