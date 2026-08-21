@@ -1507,34 +1507,26 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX512 */
 
-/* Queue the historical BITOP command followed by an explicit conversion of its
- * destination. The primary computes the native result directly, while replicas
- * and AOF replay first reproduce BITOP's logical string result and then convert
- * it without consulting their local bitmap-default-roaring setting.
- *
- * Capture one target for both commands and queue the pair before local
- * notifications. This keeps target filtering stable across the pair and places
- * callback-propagated writes after it. Multiple pending operations are emitted
- * transactionally by propagatePendingCommands(). */
-static void bitroarPropagateBitopAndConvert(client *c) {
-    robj *argv[3];
-    int target = bitroarPropagationTarget(c);
+/* Queue an internal BITOP_ROARING form of the current command. It constructs
+ * the native result directly, so replicas and AOF replay do not allocate a
+ * dense intermediate or expose string-set/type-change callbacks that the
+ * primary never emitted. */
+static void bitroarPropagateBitopRoaring(client *c) {
+    robj **argv = zmalloc(sizeof(*argv) * c->argc);
+    memcpy(argv, c->argv, sizeof(*argv) * c->argc);
+    argv[0] = createStringObject("BITOP_ROARING", 13);
 
-    alsoPropagate(c->db->id, c->argv, c->argc, target);
-    argv[0] = createStringObject("BITCONVERT", 10);
-    argv[1] = c->argv[2];
-    argv[2] = createStringObject("ROARING", 7);
-    alsoPropagate(c->db->id, argv, 3, target);
+    alsoPropagate(c->db->id, argv, c->argc, bitroarPropagationTarget(c));
     preventCommandPropagation(c);
     decrRefCount(argv[0]);
-    decrRefCount(argv[2]);
+    zfree(argv);
 }
 
 /* BITOP whose result is a Roaring bitmap. Sources come from
- * bitopCommand()'s lookup loop through objects[]. */
+ * bitopCommandGeneric()'s lookup loop through objects[]. */
 static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
                                robj **objects, unsigned long numkeys,
-                               uint64_t maxlen, int propagate_conversion)
+                               uint64_t maxlen, int propagate_forced)
 {
     robj *res_bitmap = NULL;
 
@@ -1561,16 +1553,16 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     /* Store the computed value into the target key. Queue propagation before
      * notifications on every native path. */
     if (maxlen) {
-        if (propagate_conversion)
-            bitroarPropagateBitopAndConvert(c);
+        if (propagate_forced)
+            bitroarPropagateBitopRoaring(c);
         else
             bitroarPropagateCurrentCommand(c);
         setKey(c, c->db, targetkey, &res_bitmap, 0);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
     } else if (lookupKeyWrite(c->db, targetkey) != NULL) {
-        if (propagate_conversion)
-            bitroarPropagateBitopAndConvert(c);
+        if (propagate_forced)
+            bitroarPropagateBitopRoaring(c);
         else
             bitroarPropagateCurrentCommand(c);
         serverAssert(dbDelete(c->db,targetkey));
@@ -1584,7 +1576,7 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
-void bitopCommand(client *c) {
+static void bitopCommandGeneric(client *c, int force_roaring) {
     char *opname = c->argv[1]->ptr;
     robj *targetkey = c->argv[2];
     bitroarOp op;
@@ -1677,14 +1669,15 @@ void bitopCommand(client *c) {
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
-    /* Roaring bitmap sources or a destination selected by
-     * bitmap-default-roaring take the dedicated path. A config-only decision
-     * is propagated as ordinary BITOP followed by BITCONVERT. */
-    int mode_forced = maxlen && !has_roaring_bitmap &&
-                      bitroarDefaultEnabled(c);
-    if (has_roaring_bitmap || mode_forced) {
+    /* Roaring bitmap sources, the hidden force-native replay primitive, or a
+     * destination selected by bitmap-default-roaring take the dedicated path.
+     * A config-only decision is propagated as BITOP_ROARING so replay observes
+     * the same allocation behavior, value type, and notification sequence. */
+    int config_forced = maxlen && !has_roaring_bitmap &&
+                        (force_roaring || bitroarDefaultEnabled(c));
+    if (has_roaring_bitmap || config_forced) {
         bitopCommandBitmap(c, op, targetkey, objects, numkeys,
-                           maxlen, mode_forced);
+                           maxlen, config_forced && !force_roaring);
         for (j = 0; j < numkeys; j++) {
             /* Borrowed Roaring operands may be freed by now: storing the
              * result overwrites (or deletes) the target key, which can be
@@ -2015,6 +2008,14 @@ void bitopCommand(client *c) {
         server.dirty++;
     }
     addReplyLongLong(c,(long long)maxlen); /* Return the output string length in bytes. */
+}
+
+void bitopCommand(client *c) {
+    bitopCommandGeneric(c, 0);
+}
+
+void bitopRoaringCommand(client *c) {
+    bitopCommandGeneric(c, 1);
 }
 
 typedef struct bitRange {
