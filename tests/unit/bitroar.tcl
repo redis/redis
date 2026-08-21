@@ -64,50 +64,27 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal no [lindex [r config get bitmap-default-roaring] 1]
     }
 
-    test {BITOP accepts an explicit Roaring result mode} {
+    test {BITOP preserves a destination key named ROARING and fixed key specs} {
         r config set bitmap-default-roaring no
+        r del ROARING bitmap_source
         r set bitmap_source [binary format H* f0]
 
-        assert_equal 1 [r bitop or bitmap_out:string bitmap_source]
-        assert_equal string [r type bitmap_out:string]
-        assert_equal 1 [r bitop or ROARING bitmap_out bitmap_source]
-        assert_equal bitmap [r type bitmap_out]
-        assert_equal [binary format H* f0] [r debug bitmap-raw bitmap_out]
+        assert_equal {ROARING bitmap_source} \
+            [r command getkeys bitop and ROARING bitmap_source]
+        assert_equal {{ROARING {OW update}} {bitmap_source {RO access}}} \
+            [r command getkeysandflags bitop and ROARING bitmap_source]
 
-        r set bitmap_mode:s1 [binary format H* a55a]
-        r set bitmap_mode:s2 [binary format H* 3cc3]
-        foreach op {and or xor diff diff1 andor one} {
-            assert_equal 2 [r bitop $op bitmap_mode:string bitmap_mode:s1 bitmap_mode:s2]
-            set expected [r get bitmap_mode:string]
-            assert_equal 2 [r bitop $op ROARING bitmap_mode:roaring bitmap_mode:s1 bitmap_mode:s2]
-            assert_equal bitmap [r type bitmap_mode:roaring]
-            assert_equal $expected [r debug bitmap-raw bitmap_mode:roaring]
-        }
-        assert_equal 2 [r bitop not bitmap_mode:string bitmap_mode:s1]
-        set expected [r get bitmap_mode:string]
-        assert_equal 2 [r bitop not ROARING bitmap_mode:roaring bitmap_mode:s1]
-        assert_equal bitmap [r type bitmap_mode:roaring]
-        assert_equal $expected [r debug bitmap-raw bitmap_mode:roaring]
+        # ROARING remains an ordinary destination key under the historical
+        # grammar, regardless of the configured destination representation.
+        assert_equal 1 [r bitop and ROARING bitmap_source]
+        assert_equal string [r type ROARING]
+        assert_equal [binary format H* f0] [r get ROARING]
 
-        assert_equal {bitmap_out bitmap_source} \
-            [r command getkeys bitop or ROARING bitmap_out bitmap_source]
-        assert_equal {{bitmap_out {OW update}} {bitmap_source {RO access}}} \
-            [r command getkeysandflags bitop or ROARING bitmap_out bitmap_source]
-
-        assert_equal OK [r multi]
-        assert_equal QUEUED [r bitop or ROARING bitmap_out:multi bitmap_source]
-        assert_equal {1} [r exec]
-        assert_equal bitmap [r type bitmap_out:multi]
-
-        assert_error {ERR wrong number of arguments*} {
-            r bitop or ROARING bitmap_out:missing-source
-        }
-        assert_error {ERR Invalid arguments specified for command*} {
-            r command getkeys bitop or ROARING bitmap_out:missing-source
-        }
-        assert_error {ERR BITOP NOT must be called with a single source key.*} {
-            r bitop not ROARING bitmap_out:not bitmap_source bitmap_source
-        }
+        r config set bitmap-default-roaring yes
+        assert_equal 1 [r bitop and ROARING bitmap_source]
+        assert_equal bitmap [r type ROARING]
+        assert_equal [binary format H* f0] [r debug bitmap-raw ROARING]
+        r config set bitmap-default-roaring no
     }
 
     test {Internal BITCONVERT replay primitive has narrow semantics} {
@@ -659,9 +636,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* ff] [r debug bitmap-raw bitop:dest:out]
     }
 
-    test {BITOP destination always uses Roaring with bitmap-default-roaring yes} {
+    test {BITOP uses Roaring for nonempty results with bitmap-default-roaring yes} {
         r config set bitmap-default-roaring no
-        r del bitop:imp:s1 bitop:imp:s2 bitop:imp:out
+        r del bitop:imp:s1 bitop:imp:s2 bitop:imp:out \
+            bitop:imp:zero bitop:imp:empty bitop:imp:missing
         r set bitop:imp:s1 [binary format H* cc]
         r set bitop:imp:s2 [binary format H* aa]
 
@@ -669,6 +647,24 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal 1 [r bitop xor bitop:imp:out bitop:imp:s1 bitop:imp:s2]
         assert_equal bitmap [r type bitop:imp:out]
         assert_equal [binary format H* 66] [r debug bitmap-raw bitop:imp:out]
+
+        # A nonempty all-zero result still carries its logical byte length and
+        # is converted during replay.
+        assert_equal 1 [r bitop xor bitop:imp:zero bitop:imp:s1 bitop:imp:s1]
+        assert_equal bitmap [r type bitop:imp:zero]
+        assert_equal [binary format H* 00] [r debug bitmap-raw bitop:imp:zero]
+
+        # Destination/source aliasing remains valid when replay needs the
+        # BITOP/BITCONVERT pair.
+        assert_equal 1 [r bitop not bitop:imp:s1 bitop:imp:s1]
+        assert_equal bitmap [r type bitop:imp:s1]
+        assert_equal [binary format H* 33] [r debug bitmap-raw bitop:imp:s1]
+
+        # An empty logical result deletes the destination. It must not be
+        # followed by BITCONVERT, which would recreate an empty bitmap.
+        r set bitop:imp:empty keep
+        assert_equal 0 [r bitop or bitop:imp:empty bitop:imp:missing]
+        assert_equal none [r type bitop:imp:empty]
         r config set bitmap-default-roaring no
     }
 
@@ -1356,13 +1352,16 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal {1} [r bitfield bitmap:aof-incr:bitfield SET u1 0 1]
         r config set bitmap-default-roaring no
 
-        # A config-driven BITOP propagates one mode-qualified BITOP so its store
-        # and notification sequence is identical during replay.
+        # A config-driven BITOP propagates its historical command followed by
+        # an explicit destination conversion.
         r set bitmap:aof-incr:bitop:s1 [binary format H* f0]
         r set bitmap:aof-incr:bitop:s2 [binary format H* 0f]
         r config set bitmap-default-roaring yes
         assert_equal 1 [r bitop or bitmap:aof-incr:bitop:out \
             bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2]
+        r set bitmap:aof-incr:bitop:empty keep
+        assert_equal 0 [r bitop or bitmap:aof-incr:bitop:empty \
+            bitmap:aof-incr:bitop:missing]
         r config set bitmap-default-roaring no
 
         set fp [open $aof r]
@@ -1397,8 +1396,13 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             [list bitconvert bitmap:aof-incr:bitfield ROARING] \
             [list bitfield bitmap:aof-incr:bitfield SET u1 0 1] \
             {exec} \
-            [list bitop or ROARING bitmap:aof-incr:bitop:out \
-                bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2]] $transitions
+            {multi} \
+            [list bitop or bitmap:aof-incr:bitop:out \
+                bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2] \
+            [list bitconvert bitmap:aof-incr:bitop:out ROARING] \
+            {exec} \
+            [list bitop or bitmap:aof-incr:bitop:empty \
+                bitmap:aof-incr:bitop:missing]] $transitions
         assert_equal 0 $transition_restores
 
         set digest_before [debug_digest]
@@ -1413,6 +1417,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal $bitfield_expire [r pexpiretime bitmap:aof-incr:bitfield]
         assert_equal bitmap [r type bitmap:aof-incr:bitop:out]
         assert_equal [binary format H* ff] [r debug bitmap-raw bitmap:aof-incr:bitop:out]
+        assert_equal 0 [r exists bitmap:aof-incr:bitop:empty]
     }
 }
 
@@ -1502,8 +1507,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
 
         test {BITOP destinations replicate deterministically across modes} {
             # String-only sources with a bitmap-default-roaring yes master: the
-            # destination decision is master-local, so the stream carries an
-            # explicit ROARING result mode on BITOP.
+            # destination decision is master-local, so the stream carries the
+            # ordinary BITOP followed by an explicit BITCONVERT.
             $master del bitop:repl:s1 bitop:repl:s2 bitop:repl:out
             $master set bitop:repl:s1 [binary format H* f0]
             $master set bitop:repl:s2 [binary format H* 0f]
@@ -1524,17 +1529,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             assert_equal string [$replica type bitop:repl:out2]
             assert_equal [$master debug digest] [$replica debug digest]
             $replica config set bitmap-default-roaring no
-
-            # An explicit result mode is itself replayable and does not depend
-            # on either node's default.
-            $master bitop or ROARING bitop:repl:out3 \
-                bitop:repl:s1 bitop:repl:s2
-            wait_for_ofs_sync $master $replica
-            assert_equal bitmap [$master type bitop:repl:out3]
-            assert_equal bitmap [$replica type bitop:repl:out3]
-            assert_equal [binary format H* ff] \
-                [$replica debug bitmap-raw bitop:repl:out3]
-            assert_equal [$master debug digest] [$replica debug digest]
         }
 
         test {Roaring bitmaps survive a full resync as bitmaps} {

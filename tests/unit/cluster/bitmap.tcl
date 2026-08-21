@@ -32,18 +32,6 @@ start_cluster 3 0 {tags {external:skip cluster bitmap bitmap-roaring}} {
         assert_equal 0 [$owner getbit "{bitop}not" 1]
         assert_equal 1 [$owner getbit "{bitop}foo" 1]
 
-        # The explicit result mode shifts key positions; cluster routing must
-        # still identify the destination and every source.
-        $owner set "{bitop}mode:s1" [binary format H* f0]
-        $owner set "{bitop}mode:s2" [binary format H* 0f]
-        assert_equal 1 [$owner bitop or ROARING "{bitop}mode:dest" \
-            "{bitop}mode:s1" "{bitop}mode:s2"]
-        assert_equal bitmap [$owner type "{bitop}mode:dest"]
-        assert_equal [binary format H* ff] \
-            [$owner debug bitmap-raw "{bitop}mode:dest"]
-        assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} \
-            [list $owner bitop or ROARING "{bitop}mode:cross" \
-                "{bitop}mode:s1" "{other}mode:s2"]
         assert_equal PONG [$owner ping]
 
         $cluster close
