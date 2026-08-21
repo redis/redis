@@ -542,9 +542,28 @@ if {$::tls} {
             r config set tls-expected-peer-name ""
             r config set tls-expected-peer-name-allow-parent-domain no
             assert_equal {no} [lindex [r config get tls-expected-peer-name-allow-parent-domain] 1]
+
+            # The two options are checked once all values are stored, so a single
+            # CONFIG SET works regardless of the order they are given in.
+            r config set tls-expected-peer-name ".example.com" tls-expected-peer-name-allow-parent-domain yes
+            assert_equal {.example.com} [lindex [r config get tls-expected-peer-name] 1]
+            r config set tls-expected-peer-name "" tls-expected-peer-name-allow-parent-domain no
+        }
+
+        test {TLS: parent-domain entry is rejected at startup} {
+            # The combination is checked after the whole configuration is parsed, so
+            # it is reported regardless of the order of the two directives and even
+            # when TLS is not enabled at all.
+            catch {exec src/redis-server --port 0 --tls-expected-peer-name .example.com} err
+            assert_match {*matches subdomains at any depth*} $err
+            catch {exec src/redis-server --port 0 \
+                --tls-expected-peer-name "redis.local .example.com"} err
+            assert_match {*matches subdomains at any depth*} $err
         }
 
         test {TLS: tls-expected-peer-name matches a parent domain when allowed} {
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
             # The shared master presents san.crt (SAN: redis.local, cluster.local),
             # so the parent-domain entry ".local" must match it once permitted.
             start_server [list overrides [list \
@@ -558,6 +577,33 @@ if {$::tls} {
                 } else {
                     fail "Replication link did not come up with a matching parent-domain name"
                 }
+            }
+        }
+
+        test {TLS: parent-domain config survives CONFIG REWRITE and restart} {
+            # tls-expected-peer-name is already in the config file, so CONFIG REWRITE
+            # rewrites it in place and appends tls-expected-peer-name-allow-parent-domain
+            # after it. The combination is validated once the whole config is loaded,
+            # so the rewritten file must still be accepted on restart.
+            start_server [list overrides [list tls-expected-peer-name "redis.local"]] {
+                r config set tls-expected-peer-name-allow-parent-domain yes
+                r config set tls-expected-peer-name ".local"
+                r config rewrite
+
+                # Restart without restart_server's own readiness wait: that loop is
+                # unbounded, so a rejected config would hang the suite instead of
+                # failing it. Wait for readiness explicitly with a bounded condition.
+                set prev_ready [count_log_message 0 "Ready to accept"]
+                restart_server 0 false false 0
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > $prev_ready
+                } else {
+                    fail "server did not come back up: the rewritten config was rejected"
+                }
+                reconnect 0
+
+                assert_equal {.local} [lindex [r config get tls-expected-peer-name] 1]
+                assert_equal {yes} [lindex [r config get tls-expected-peer-name-allow-parent-domain] 1]
             }
         }
     }
