@@ -588,7 +588,7 @@ tags "modules external:skip" {
             set type_bitfield bitmap:transition:delete-type-zero:aof-bitfield
             set bitmap_setbit bitmap:transition:delete-bitmap:aof-setbit
             set bitmap_bitfield bitmap:transition:delete-bitmap:aof-bitfield
-            set bitop_dest bitmap:transition:delete-type
+            set bitop_dest bitmap:transition:replace-replay-string:aof-bitop
             set bitop_source bitmap:transition:aof-bitop-source
             set replay_keys [list $type_setbit $type_bitfield \
                 $bitmap_setbit $bitmap_bitfield $bitop_dest $bitop_source]
@@ -608,6 +608,9 @@ tags "modules external:skip" {
             assert_equal {0} [r bitfield $type_bitfield SET u4 4 15]
             assert_equal 0 [r setbit $bitmap_setbit 0 1]
             assert_equal {0} [r bitfield $bitmap_bitfield SET u8 0 255]
+            # This destination is replaced with a string by any replay-only
+            # type_changed callback, so the reload assertions below also prove
+            # BITOP replay follows the primary's single native set path.
             assert_equal 1 [r bitop or $bitop_dest $bitop_source]
 
             foreach {key raw} [list \
@@ -711,7 +714,7 @@ tags "modules external:skip" {
                 set replay_string_bitfield bitmap:transition:replace-replay-string:repl-bitfield
                 set list_setbit bitmap:transition:replace-type-list:repl-setbit
                 set list_bitfield bitmap:transition:replace-type-list:repl-bitfield
-                set bitop_dest bitmap:transition:delete-type
+                set bitop_dest bitmap:transition:replace-replay-string:repl-bitop
                 set bitop_source bitmap:transition:repl-bitop-source
 
                 $master config set bitmap-default-roaring no
@@ -759,6 +762,8 @@ tags "modules external:skip" {
                 assert_equal {0} [$master bitfield $replay_string_bitfield SET u4 4 15]
                 assert_error {WRONGTYPE*} {$master setbit $list_setbit 0 1}
                 assert_error {WRONGTYPE*} {$master bitfield $list_bitfield SET u8 0 255}
+                # A transient BITCONVERT type_changed event would make this
+                # destination a string on the replica.
                 assert_equal 1 [$master bitop or $bitop_dest $bitop_source]
                 wait_for_ofs_sync $master $replica
 
@@ -781,9 +786,8 @@ tags "modules external:skip" {
                 }
                 set replica_digest [$replica debug digest]
 
-                # Reload only the replica's local AOF. If the BITOP/BITCONVERT
-                # pair were appended after callback DELs, this state would
-                # change representation or resurrect a key here.
+                # Reload only the replica's local AOF. BITOP replay must not
+                # introduce a type_changed callback that replaces its result.
                 $replica replicaof no one
                 $replica debug loadaof
                 assert_equal $replica_digest [$replica debug digest]

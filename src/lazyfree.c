@@ -42,8 +42,7 @@ static void populateDeltaHistograms(kvstore *kvs, asmTrimCtx *ctx) {
         if (server.memory_tracking_enabled) {
             int64_t *allocsizesRow = keysizesHistRow(ctx->delta_allocsizes_hist, kv->type);
             size_t alloc_size = kvobjAllocSize(kv);
-            int allocBin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(allocBin < MAX_KEYSIZES_BINS);
+            int allocBin = allocsizesHistBin(alloc_size);
             allocsizesRow[allocBin]++;
         }
     }
