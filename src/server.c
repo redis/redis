@@ -361,8 +361,7 @@ static void dictDestructorKV(dict *d, void *key) {
         if (hist) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
-            int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
+            int old_bin = allocsizesHistBin(alloc_size);
             hist[old_bin]--;
         }
     }
@@ -8033,6 +8032,29 @@ typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
+
+static int allocsizesHistogramTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    test_cond("allocation histogram maps zero to bin 0", allocsizesHistBin(0) == 0);
+    test_cond("allocation histogram maps one to bin 1", allocsizesHistBin(1) == 1);
+    test_cond("allocation histogram keeps three in bin 2", allocsizesHistBin(3) == 2);
+#if SIZE_MAX > UINT32_MAX
+    test_cond("allocation histogram maps 2^60 - 1 to the final bin",
+              allocsizesHistBin((UINT64_C(1) << 60) - 1) == MAX_KEYSIZES_BINS - 1);
+    test_cond("allocation histogram saturates 2^60 in the final bin",
+              allocsizesHistBin(UINT64_C(1) << 60) == MAX_KEYSIZES_BINS - 1);
+    test_cond("allocation histogram saturates INT64_MAX in the final bin",
+              allocsizesHistBin(INT64_MAX) == MAX_KEYSIZES_BINS - 1);
+#endif
+    test_cond("allocation histogram accepts the full size_t range",
+              allocsizesHistBin(SIZE_MAX) ==
+                  min((int)(sizeof(size_t) * CHAR_BIT), MAX_KEYSIZES_BINS - 1));
+    return 0;
+}
+
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -8058,6 +8080,7 @@ struct redisTest {
     {"ebuckets", ebucketsTest},
     {"vector", vectorTest},
     {"bitmap", bitopsTest},
+    {"allocsizes-histogram", allocsizesHistogramTest},
     {"rax", raxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
