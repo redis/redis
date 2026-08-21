@@ -4045,25 +4045,3 @@ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResu
     }
     return 1;
 }
-
-/* BITOP accepts an optional ROARING result mode between the operation and the
- * destination key, so the destination and source positions cannot be
- * represented by one fixed key specification. */
-int bitopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
-    UNUSED(cmd);
-
-    int has_mode = argc > 2 && !strcasecmp(argv[2]->ptr, "ROARING");
-    int dest = has_mode ? 3 : 2;
-    if (argc <= dest + 1) return 0;
-
-    int numkeys = argc - dest;
-    keyReference *keys = getKeysPrepareResult(result, numkeys);
-    keys[0].pos = dest;
-    keys[0].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
-    for (int i = 1; i < numkeys; i++) {
-        keys[i].pos = dest + i;
-        keys[i].flags = CMD_KEY_RO | CMD_KEY_ACCESS;
-    }
-    result->numkeys = numkeys;
-    return numkeys;
-}
