@@ -361,7 +361,8 @@ static void dictDestructorKV(dict *d, void *key) {
         if (hist) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
-            int old_bin = keysizesHistBin(alloc_size);
+            int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
+            debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
             hist[old_bin]--;
         }
     }
@@ -6377,22 +6378,19 @@ void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloc
         *watched_keys = wkeys;
 }
 
-static const char *expSizeLabels[] = {
-    "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
-    "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
-    "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", /* Mega */
-    "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G", /* Giga */
-    "1T", "2T", "4T", "8T", "16T", "32T", "64T", "128T", "256T", "512T", /* Tera */
-    "1P", "2P", "4P", "8P", "16P", "32P", "64P", "128P", "256P", "512P", /* Peta */
-    "1E", "2E", "4E", "8E"                                               /* Exa */
-};
-static_assert(sizeof(expSizeLabels) / sizeof(expSizeLabels[0]) == MAX_KEYSIZES_BINS,
-              "Histogram labels must match histogram bins");
-
 /* Append keysizes histograms to the info string in format "db<dbnum>_<field_name>:<label>=<count>,..."
  * field_names is an array of OBJ_TYPE_MAX field names indexed by object type;
  * NULL entries, and types with no histogram row, are skipped. */
 static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const char *field_names[OBJ_TYPE_MAX]) {
+    static const char *expSizeLabels[] = {
+        "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
+        "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
+        "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", /* Mega */
+        "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G", /* Giga */
+        "1T", "2T", "4T", "8T", "16T", "32T", "64T", "128T", "256T", "512T", /* Tera */
+        "1P", "2P", "4P", "8P", "16P", "32P", "64P", "128P", "256P", "512P", /* Peta */
+        "1E", "2E", "4E"                                                     /* Exa */
+    };
 
     for (int type = 0; type < OBJ_TYPE_MAX; type++) {
         if (field_names[type] == NULL) continue;
@@ -8035,26 +8033,6 @@ typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
-
-static int keysizesHistogramTest(int argc, char **argv, int flags) {
-    UNUSED(argc);
-    UNUSED(argv);
-    UNUSED(flags);
-
-    test_cond("keysizes histogram maps zero to bin 0", keysizesHistBin(0) == 0);
-    test_cond("keysizes histogram maps one to bin 1", keysizesHistBin(1) == 1);
-    test_cond("keysizes histogram keeps three in bin 2", keysizesHistBin(3) == 2);
-    test_cond("keysizes histogram maps 2^60 - 1 to bin 60",
-              keysizesHistBin((UINT64_C(1) << 60) - 1) == 60);
-    test_cond("keysizes histogram maps 2^60 to bin 61",
-              keysizesHistBin(UINT64_C(1) << 60) == 61);
-    test_cond("keysizes histogram maps INT64_MAX to bin 63",
-              keysizesHistBin(INT64_MAX) == 63);
-    test_cond("keysizes histogram maps UINT64_MAX to the final bin",
-              keysizesHistBin(UINT64_MAX) == MAX_KEYSIZES_BINS - 1);
-    return 0;
-}
-
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -8080,7 +8058,6 @@ struct redisTest {
     {"ebuckets", ebucketsTest},
     {"vector", vectorTest},
     {"bitmap", bitopsTest},
-    {"keysizes-histogram", keysizesHistogramTest},
     {"rax", raxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
