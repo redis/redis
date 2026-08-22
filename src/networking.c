@@ -5073,11 +5073,11 @@ void helloCommand(client *c) {
 
     if (username && password) {
         size_t prev_bufpos = c->bufpos;
-        size_t prev_reply_len = listLength(c->reply);
+        unsigned long long prev_reply_bytes = c->reply_bytes;
         robj *err = NULL;
         int auth_result = ACLAuthenticateUser(c, username, password, &err);
         if (auth_result == AUTH_ERR) {
-            if (c->bufpos == prev_bufpos && listLength(c->reply) == prev_reply_len)
+            if (c->bufpos == prev_bufpos && c->reply_bytes == prev_reply_bytes)
                 addAuthErrReply(c, err);
         }
         if (err) decrRefCount(err);

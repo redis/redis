@@ -3392,13 +3392,13 @@ void authCommand(client *c) {
     }
 
     size_t prev_bufpos = c->bufpos;
-    size_t prev_reply_len = listLength(c->reply);
+    unsigned long long prev_reply_bytes = c->reply_bytes;
     robj *err = NULL;
     int result = ACLAuthenticateUser(c, username, password, &err);
     if (result == AUTH_OK) {
         addReply(c, shared.ok);
     } else if (result == AUTH_ERR) {
-        if (c->bufpos == prev_bufpos && listLength(c->reply) == prev_reply_len)
+        if (c->bufpos == prev_bufpos && c->reply_bytes == prev_reply_bytes)
             addAuthErrReply(c, err);
     }
     if (err) decrRefCount(err);
