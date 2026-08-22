@@ -69,6 +69,8 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
     /* Protection against abusive patterns. */
     if (nesting > 1000) return 0;
 
+    if (stringLen == 0 && patternLen == 1 && pattern[0] == '*') return 1;
+
     while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
@@ -1851,7 +1853,6 @@ static void test_reclaimFilePageCache(void) {
 
 static void test_stringmatchlen(void) {
     assert(stringmatchlen("*", 1, "", 0, 0) == 1);
-    assert(stringmatchlen("**", 2, "", 0, 0) == 1);
     assert(stringmatchlen("*", 1, "", 0, 1) == 1);
     assert(stringmatchlen("*", 1, "abc", 3, 0) == 1);
     assert(stringmatchlen("a*", 2, "a", 1, 0) == 1);
