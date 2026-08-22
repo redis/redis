@@ -69,10 +69,6 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
     /* Protection against abusive patterns. */
     if (nesting > 1000) return 0;
 
-    if (patternLen != 0 && stringLen == 0) {
-        return strspn(pattern, "*") >= (size_t)patternLen;
-    }
-
     while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':

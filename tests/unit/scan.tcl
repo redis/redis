@@ -394,10 +394,10 @@ proc test_scan {type} {
         lsort -unique [lindex $res 1]
     } {foo foobar}
 
-    test "{$type} SSCAN MATCH ** returns empty-string member" {
+    test "{$type} SSCAN MATCH * returns empty-string member" {
         r del mykey
         r sadd mykey "" a b
-        set res [r sscan mykey 0 MATCH ** COUNT 10000]
+        set res [r sscan mykey 0 MATCH * COUNT 10000]
         assert_equal [lsort -unique [list "" a b]] [lsort -unique [lindex $res 1]]
     }
 
