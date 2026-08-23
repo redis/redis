@@ -187,7 +187,7 @@ start_server {tags {"bless"}} {
         r debug reload
         assert_equal 0 [r bless count]
         assert_equal {NONE} [r bless get a]
-    }
+    } {} {needs:debug}
 }
 
 start_server {tags {"bless" "maxmemory" "external:skip"}} {
