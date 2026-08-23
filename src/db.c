@@ -88,9 +88,10 @@ int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
  * 
  * The histogram is a base-2 logarithmic histogram, with 61 bins. For positive
  * sizes, bin i represents the number of keys in the range 2^(i-1) through 2^i
- * exclusive. oldLen/newLen must be smaller than 2^60, and if their value equals
- * -1, it means that the key is being created/deleted, respectively. Each data
- * type has its own histogram and it is maintained per database.
+ * exclusive. Logical lengths are smaller than 2^60; allocation sizes may exceed
+ * that bound and saturate into the final bin. A value of -1 for oldLen/newLen
+ * means that the key is being created/deleted, respectively. Each data type has
+ * its own histogram and it is maintained per database.
  *
  * Example mapping of key lengths to bins:
  *               [1,2)->1 [2,4)->2 [4,8)->3 [8,16)->4 ...
@@ -104,8 +105,7 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
         return;
 
     if (oldLen > 0) {
-        int old_bin = log2ceil(oldLen) + 1;
-        debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
+        int old_bin = min(log2ceil(oldLen) + 1, MAX_KEYSIZES_BINS - 1);
         hist[old_bin]--;
         debugServerAssert(hist[old_bin] >= 0);
     } else {
@@ -119,8 +119,7 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
     }
 
     if (newLen > 0) {
-        int new_bin = log2ceil(newLen) + 1;
-        debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
+        int new_bin = min(log2ceil(newLen) + 1, MAX_KEYSIZES_BINS - 1);
         hist[new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
@@ -132,71 +131,36 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
     }
 }
 
-static void kvsUpdateAllocHistogram(keysizesHist kvstoreHist, uint32_t type,
-                                    int old_exists, size_t oldsize,
-                                    int new_exists, size_t newsize)
-{
-    int64_t *hist = keysizesHistRow(kvstoreHist, type);
-    if (unlikely(hist == NULL)) /* untracked type, e.g. OBJ_MODULE */
-        return;
-
-    if (old_exists) {
-        int old_bin = allocsizesHistBin(oldsize);
-        hist[old_bin]--;
-        debugServerAssert(hist[old_bin] >= 0);
-    }
-    if (new_exists) {
-        int new_bin = allocsizesHistBin(newsize);
-        hist[new_bin]++;
-    }
-}
-
 void updateKeysizesHist(redisDb *db, uint32_t type, int64_t oldLen, int64_t newLen) {
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
     kvsUpdateHistogram(kvstoreMeta->keysizes_hist, type, oldLen, newLen);
 }
 
-static void updateSlotAllocSizeInternal(redisDb *db, int didx, kvobj *kv,
-                                        int old_exists, size_t oldsize,
-                                        int new_exists, size_t newsize)
-{
+void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize) {
     debugServerAssert(server.memory_tracking_enabled);
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
 
     /* Early return if nothing changed */
-    if (old_exists && new_exists && oldsize == newsize) return;
+    if (oldsize == newsize) return;
 
     if (dictMeta) {
-        if (old_exists) {
-            debugServerAssert(oldsize <= dictMeta->alloc_size);
+        /* Handle -1 as a marker for deletion or type change */
+        if (oldsize >= 0) {
+            debugServerAssert((size_t)oldsize <= dictMeta->alloc_size);
             dictMeta->alloc_size -= oldsize;
         }
-        if (new_exists) {
+        if (newsize >= 0) {
             dictMeta->alloc_size += newsize;
         }
     }
 
     /* Update allocation size histogram */
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
-    kvsUpdateAllocHistogram(kvstoreMeta->allocsizes_hist, kv->type,
-                            old_exists, oldsize, new_exists, newsize);
-}
-
-void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, size_t oldsize, size_t newsize) {
-    updateSlotAllocSizeInternal(db, didx, kv, 1, oldsize, 1, newsize);
-}
-
-static void addSlotAllocSize(redisDb *db, int didx, kvobj *kv, size_t newsize) {
-    updateSlotAllocSizeInternal(db, didx, kv, 0, 0, 1, newsize);
-}
-
-static void removeSlotAllocSize(redisDb *db, int didx, kvobj *kv, size_t oldsize) {
-    updateSlotAllocSizeInternal(db, didx, kv, 1, oldsize, 0, 0);
+    kvsUpdateHistogram(kvstoreMeta->allocsizes_hist, kv->type, oldsize, newsize);
 }
 
 static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
-                          size_t (*fn)(kvobj *), int allocsizes,
-                          const char *name) {
+                          size_t (*fn)(kvobj *), const char *name) {
     /* Scan DB and build expected histogram by scanning all keys. Rows are
      * addressed like hist[]'s, via keysizesHistRow(); untracked types stay 0. */
     keysizesHist scanHist = {{0}};
@@ -207,11 +171,8 @@ static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
         kvobj *kv = dictGetKV(de);
         int64_t *scanRow = keysizesHistRow(scanHist, kv->type);
         if (scanRow) {
-            size_t len = fn(kv);
-            int bin = allocsizes ? allocsizesHistBin(len) :
-                                  ((len == 0) ? 0 : log2ceil(len) + 1);
-            debugServerAssert(bin < MAX_KEYSIZES_BINS);
-            scanRow[bin]++;
+            int64_t len = fn(kv);
+            scanRow[(len == 0) ? 0 : min(log2ceil(len) + 1, MAX_KEYSIZES_BINS - 1)]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
@@ -244,8 +205,7 @@ static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
 /* Assert keysizes histogram (For debugging only) */
 static void dbgAssertKeysizesHist(redisDb *db) {
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-    dbgAssertHist(db->keys, meta->keysizes_hist, getObjectLength,
-                  0, "dbgAssertKeysizesHist");
+    dbgAssertHist(db->keys, meta->keysizes_hist, getObjectLength, "dbgAssertKeysizesHist");
 }
 
 /* Assert per-slot alloc_size (For debugging only) */
@@ -254,8 +214,7 @@ static void dbgAssertAllocSizePerSlot(redisDb *db) {
     
     /* Check allocsizes histogram per db */
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-    dbgAssertHist(db->keys, meta->allocsizes_hist, kvobjAllocSize,
-                  1, "dbgAssertAllocsizesHist");
+    dbgAssertHist(db->keys, meta->allocsizes_hist, kvobjAllocSize, "dbgAssertAllocsizesHist");
     
     /* Check alloc_size per slot */    
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
@@ -505,7 +464,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, kv->type, -1, getObjectLength(kv)); /* add hist */
     if (server.memory_tracking_enabled)
-        addSlotAllocSize(db, slot, kv, kvobjAllocSize(kv));
+        updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     *valref = kv;
     return kv;
 }
@@ -610,7 +569,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
 
     updateKeysizesHist(db, kv->type, -1, (int64_t) getObjectLength(kv));
     if (server.memory_tracking_enabled)
-        addSlotAllocSize(db, slot, kv, kvobjAllocSize(kv));
+        updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     return *valref = kv;
 }
 
@@ -750,8 +709,8 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         if (oldtype == kvNew->type) {
             updateSlotAllocSize(db, slot, kvNew, oldsize, kvobjAllocSize(kvNew));
         } else {
-            removeSlotAllocSize(db, slot, old, oldsize);
-            addSlotAllocSize(db, slot, kvNew, kvobjAllocSize(kvNew));
+            updateSlotAllocSize(db, slot, old, oldsize, -1);
+            updateSlotAllocSize(db, slot, kvNew, -1, kvobjAllocSize(kvNew));
         }
     }
 
@@ -953,7 +912,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         if (async) {
             if (server.memory_tracking_enabled)
-                removeSlotAllocSize(db, slot, kv, kvobjAllocSize(kv));
+                updateSlotAllocSize(db, slot, kv, kvobjAllocSize(kv), -1);
             freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
