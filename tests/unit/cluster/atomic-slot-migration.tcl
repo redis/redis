@@ -764,6 +764,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             # Cancel the task
             R 0 CLUSTER MIGRATION CANCEL ID $task_id
             R 1 CLUSTER MIGRATION CANCEL ID $task_id
+            wait_for_asm_done
 
             R 1 config set rdb-key-save-delay 0
             R 0 config set key-load-delay 0
