@@ -90,7 +90,7 @@ endif
 .DEFAULT:
 	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
-# `install` is an alias for `deploy` — same args, same PREFIX/DESTDIR.
+# `install` is an alias for `deploy` — same args, same PREFIX.
 install: deploy
 
 # clean [<name> ...|all|.|redis|none] — Redis core + selected modules.
@@ -114,7 +114,7 @@ build:
 bootstrap:
 	+@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
-# deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
+# deploy [<name> ...|all|.|redis|none] [PREFIX=<path>]
 #   Install Redis core + selected modules (default: every cloned module),
 #   then rewrite the `loadmodule` paths in redis-full.conf (and redis.conf, if
 #   it carries a Modules block) to point at the installed .so paths under
@@ -122,9 +122,9 @@ bootstrap:
 #   `make install`). Done directly by scripts/deploy.sh — no apply step.
 deploy: PREFIX ?= /usr/local
 deploy:
-	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
+	@PREFIX='$(PREFIX)' scripts/deploy.sh $(DEPLOY_ARGS)
 
-# uninstall [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
+# uninstall [<name> ...|all|.|redis|none] [PREFIX=<path>]
 #   Exact inverse of `make install` / `make deploy`: removes the core binaries
 #   and symlinks from $(PREFIX)/bin and the selected modules' .so files from
 #   $(PREFIX)/lib/redis/modules (default: every module in modules.yaml, so a
@@ -132,7 +132,7 @@ deploy:
 #   `redis`/`none` uninstall the core only. See scripts/uninstall.sh.
 uninstall: PREFIX ?= /usr/local
 uninstall:
-	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/uninstall.sh $(UNINSTALL_ARGS)
+	@PREFIX='$(PREFIX)' scripts/uninstall.sh $(UNINSTALL_ARGS)
 
 # run [<name> ...|all|.|none] [ARGS="<redis-server flags>"]
 run:

@@ -7,7 +7,6 @@
 #                                                     -benchmark + the three
 #                                                     redis-server symlinks
 #                     $PREFIX/lib/redis/modules/    - per-module .so files
-#         DESTDIR   optional staging root prepended to PREFIX (for packaging).
 #
 # Tokens (same grammar as deploy.sh):
 #   (no args) | all | . | '*'   core + every module in modules.yaml
@@ -19,7 +18,7 @@
 # may since have been cleaned. rm -f on a path that was never installed is a
 # no-op, so over-listing is free.
 #
-# Nothing outside $DESTDIR$PREFIX is touched — the in-tree redis.conf /
+# Nothing outside $PREFIX is touched — the in-tree redis.conf /
 # redis-full.conf are left as they are.
 
 set -eu
@@ -29,14 +28,13 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 cd "$REPO_ROOT"
 
 PREFIX="${PREFIX:-/usr/local}"
-DESTDIR="${DESTDIR:-}"
 
 modules="$(resolve_modules "$*" "$(manifest_modules)" "redis none")"
 
-INSTALL_BIN_DIR="$DESTDIR$PREFIX/bin"
-INSTALL_MOD_DIR="$DESTDIR$PREFIX/lib/redis/modules"
+INSTALL_BIN_DIR="$PREFIX/bin"
+INSTALL_MOD_DIR="$PREFIX/lib/redis/modules"
 
-echo "==> Uninstalling from PREFIX=$PREFIX${DESTDIR:+ (DESTDIR=$DESTDIR)}"
+echo "==> Uninstalling from PREFIX=$PREFIX"
 echo
 
 for f in redis-server redis-cli redis-benchmark \
@@ -57,7 +55,7 @@ if [ -n "$modules" ]; then
   done
   # Prune the directories we created in deploy, but only when empty — a
   # user's own files under lib/redis are none of our business.
-  rmdir "$INSTALL_MOD_DIR" "$DESTDIR$PREFIX/lib/redis" 2>/dev/null || true
+  rmdir "$INSTALL_MOD_DIR" "$PREFIX/lib/redis" 2>/dev/null || true
 fi
 
 echo

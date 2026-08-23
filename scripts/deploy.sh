@@ -5,7 +5,6 @@
 # Env:    PREFIX    install root (default /usr/local). Files land in:
 #                     $PREFIX/bin/                  - redis-server, -cli, -benchmark
 #                     $PREFIX/lib/redis/modules/    - per-module .so files
-#         DESTDIR   optional staging root prepended to PREFIX (for packaging).
 #         MAKE      make binary (defaults to `make`); only used when shelling
 #                   into build.sh, which itself respects it.
 #
@@ -31,7 +30,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 cd "$REPO_ROOT"
 
 PREFIX="${PREFIX:-/usr/local}"
-DESTDIR="${DESTDIR:-}"
 
 cloned="$(cloned_modules)"
 modules="$(resolve_modules "$*" "$cloned" "redis none")"
@@ -74,13 +72,13 @@ if [ "$build_rc" != 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2: copy artifacts to $DESTDIR$PREFIX. Pure file ops, no recursive make.
+# Phase 2: copy artifacts to $PREFIX. Pure file ops, no recursive make.
 # ---------------------------------------------------------------------------
-INSTALL_BIN_DIR="$DESTDIR$PREFIX/bin"
-INSTALL_MOD_DIR="$DESTDIR$PREFIX/lib/redis/modules"
+INSTALL_BIN_DIR="$PREFIX/bin"
+INSTALL_MOD_DIR="$PREFIX/lib/redis/modules"
 
 echo
-echo "==> Deploying to PREFIX=$PREFIX${DESTDIR:+ (DESTDIR=$DESTDIR)}"
+echo "==> Deploying to PREFIX=$PREFIX"
 echo
 
 # Redis core binaries + the three symlinks that point to redis-server.
