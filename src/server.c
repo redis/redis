@@ -3932,7 +3932,7 @@ static void propagatePendingCommands(long totalDuration) {
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
  * after the entire chain finished. */
-static void postExecutionUnitOperationsEx(long duration) {
+void postExecutionUnitOperationsEx(long duration) {
     if (server.execution_nesting)
         return;
 
@@ -4351,10 +4351,25 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
-    afterCommandEx(c, 0);
+    afterCommandEx(c, c->duration);
 }
 
 static void afterCommandEx(client *c, long duration) {
+    /* Nested call (script / RM_Call): stamp this call's time onto UNKNOWN
+     * ops it queued so the outer unit does not dump leftover VM time on them. */
+    if (server.execution_nesting && server.also_propagate.numops) {
+        long leftover = duration;
+        for (int j = 0; j < server.also_propagate.numops; j++) {
+            redisOp *rop = &server.also_propagate.ops[j];
+            if (rop->duration == PROP_DURATION_UNKNOWN &&
+                (rop->target & PROPAGATE_AOF))
+            {
+                rop->duration = leftover;
+                leftover = 0;
+            }
+        }
+    }
+
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperationsEx(duration);

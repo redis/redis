@@ -364,4 +364,26 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
             r -1 config set appendonly no
         }
     }
+
+    test { AOF Duration - EVAL SET+SPOP counts inner calls not Lua time } {
+        # Sleep inside Lua is not an AOF write. Only SET and SPOP should
+        # move aof_cmd_duration; leftover must not dump the sleep onto SREM.
+        r del k s
+        r sadd s a b c d e
+        reset_aof_duration
+        r eval {redis.call('aofd.sleep_usec','50000'); redis.call('SET','k','1'); redis.call('SPOP','s',2); return 1} 2 k s
+        set d [s aof_cmd_duration]
+        assert_range_exclude $d 0 50000
+    }
+
+    test { AOF Duration - blocked RM_Replicate+sleep is counted once not twice } {
+        set delayusec 50000
+        reset_aof_duration
+        RedisModule_run_steps_bg r \
+            [list "rm_replicate" "set" "x" "1"] \
+            [list "sleep_usec" $delayusec]
+        set d [s aof_cmd_duration]
+        assert_morethan_equal $d $delayusec
+        assert_lessthan $d [expr {$delayusec * 2}]
+    }
 }

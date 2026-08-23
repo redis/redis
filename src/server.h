@@ -3842,6 +3842,7 @@ void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long dura
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 int shouldPropagate(int target);
 void postExecutionUnitOperations(void);
+void postExecutionUnitOperationsEx(long duration);
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target, long long duration);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);

@@ -39,6 +39,9 @@ void aof_background_fsync_and_close(int fd);
  * the temp INCR AOF. This variable is used to record the start offset, and
  * set the start offset of the real INCR AOF when the AOFRW is done. */
 static long long tempIncAofStartReplOffset = 0;
+/* Parent snapshot of aof_cmd_duration at BGREWRITEAOF fork. Restored if
+ * rewrite fails and the old AOF is still in use. */
+static long long aof_cmd_duration_at_rewrite = 0;
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -1086,6 +1089,7 @@ void stopAppendOnly(void) {
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
     server.aof_cmd_duration = 0;
+    aof_cmd_duration_at_rewrite = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
     server.aof_last_incr_fsync_offset = 0;
@@ -3078,8 +3082,9 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
-        /* We just opened an empty INCR AOF, and the base being dumped is not
-         * counted, so the estimate restarts from the commands appended now on. */
+        /* Restart the estimate from commands going into the new INCR.
+         * Remember the old value in case rewrite fails and old AOF remains. */
+        aof_cmd_duration_at_rewrite = server.aof_cmd_duration;
         server.aof_cmd_duration = 0;
         return C_OK;
     }
@@ -3820,6 +3825,17 @@ cleanup:
         sdsfree(server.aof_buf);
         server.aof_buf = sdsempty();
         aofDelTempIncrAofFile();
+    }
+    if (rewrite_success) {
+        aof_cmd_duration_at_rewrite = 0;
+    } else if (server.aof_state == AOF_WAIT_REWRITE) {
+        /* Temp INCR was discarded; nothing durable to replay. */
+        server.aof_cmd_duration = 0;
+        aof_cmd_duration_at_rewrite = 0;
+    } else {
+        /* Old AOF still on disk; put its estimate back. Keep incr-during-rewrite. */
+        server.aof_cmd_duration += aof_cmd_duration_at_rewrite;
+        aof_cmd_duration_at_rewrite = 0;
     }
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
