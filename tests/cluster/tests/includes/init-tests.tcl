@@ -26,36 +26,62 @@ test "Cluster nodes are reachable" {
 }
 
 test "Cluster nodes hard reset" {
-    foreach_redis_id id {
-        if {$::valgrind} {
-            set node_timeout 10000
-        } else {
-            set node_timeout 3000
+    if {$::valgrind} {
+        set node_timeout 10000
+    } else {
+        set node_timeout 3000
+    }
+
+    # A reset node can learn stale topology from nodes that have not been
+    # reset yet. Repeat until every node is an isolated master.
+    for {set attempts 3} {$attempts > 0} {incr attempts -1} {
+        foreach_redis_id id {
+            # Wait until slave is synced. Otherwise, it may reply -LOADING
+            # for any commands below.
+            if {[RI $id role] eq {slave}} {
+                wait_for_condition 50 1000 {
+                    [RI $id master_link_status] eq {up}
+                } else {
+                    fail "Slave were not able to sync."
+                }
+            }
+
+            # Make FLUSHALL executable regardless of whether the node is currently
+            # a replica. Run it in the same transaction as CLUSTER RESET so a node
+            # cannot be promoted with data in between the two commands.
+            R $id config set replica-read-only no
+            R $id MULTI
+            R $id flushall
+            R $id cluster reset hard
+            R $id cluster set-config-epoch [expr {$id+1}]
+            set reset_results [R $id EXEC]
+            R $id config set replica-read-only yes
+            assert_equal OK [lindex $reset_results 0]
+            assert_equal OK [lindex $reset_results 1]
+            assert_equal OK [lindex $reset_results 2]
+            R $id config set cluster-node-timeout $node_timeout
+            R $id config set cluster-slave-validity-factor 10
+            R $id config set loading-process-events-interval-bytes 2097152
+            R $id config set key-load-delay 0
+            R $id config set repl-diskless-load disabled
+            R $id config set cluster-announce-hostname ""
+            R $id DEBUG DROP-CLUSTER-PACKET-FILTER -1
+            R $id config rewrite
         }
 
-        # Wait until slave is synced. Otherwise, it may reply -LOADING
-        # for any commands below.
-        if {[RI $id role] eq {slave}} {
-            wait_for_condition 50 1000 {
-                [RI $id master_link_status] eq {up}
-            } else {
-                fail "Slave were not able to sync."
+        set reset_complete 1
+        foreach_redis_id id {
+            if {[RI $id role] ne {master} || [CI $id cluster_known_nodes] != 1} {
+                set reset_complete 0
+                break
             }
         }
-
-        catch {R $id flushall} ; # May fail for readonly slaves.
-        R $id MULTI
-        R $id cluster reset hard
-        R $id cluster set-config-epoch [expr {$id+1}]
-        R $id EXEC
-        R $id config set cluster-node-timeout $node_timeout
-        R $id config set cluster-slave-validity-factor 10
-        R $id config set loading-process-events-interval-bytes 2097152
-        R $id config set key-load-delay 0
-        R $id config set repl-diskless-load disabled
-        R $id config set cluster-announce-hostname ""
-        R $id DEBUG DROP-CLUSTER-PACKET-FILTER -1
-        R $id config rewrite
+        if {$reset_complete} {
+            break
+        }
+    }
+    if {!$reset_complete} {
+        fail "Cluster nodes did not become isolated masters after hard reset"
     }
 }
 
