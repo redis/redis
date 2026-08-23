@@ -237,7 +237,7 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         r config set maxmemory 0
     }
 
-    test {All-blessed keyspace gives a clean OOM (no hang); unbless relieves it} {
+    test {All-blessed: bounded overshoot tolerated, OOM past the factor, unbless relieves} {
         r flushall
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
@@ -247,14 +247,44 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         }
         assert_equal 500 [r bless count]
         set used [s used_memory]
-        r config set maxmemory [expr {$used + 50000}]
-        # every key is protected -> eviction can free nothing -> clean OOM, no hang
-        assert_error {*OOM*} {r set toobig [string repeat z 200000]}
-        # remove all protections -> eviction can proceed again
+
+        # Over maxmemory but within the 1.25x factor, and every key is blessed so
+        # eviction can free nothing -> tolerate: a small write still succeeds.
+        r config set maxmemory [expr {int($used * 0.9)}]
+        assert_equal OK [r set small [string repeat z 100]]
+
+        # Far past the 1.25x ceiling -> clean OOM (the hard limit still holds).
+        r config set maxmemory [expr {int($used * 0.5)}]
+        assert_error {*OOM*} {r set nope [string repeat z 100]}
+
+        # Unbless -> keys become evictable, so eviction works again (no OOM).
         for {set j 0} {$j < 500} {incr j} { r bless set b:$j none }
         assert_equal 0 [r bless count]
-        r set toobig [string repeat z 100000]
-        assert_equal 1 [r exists toobig]
+        r config set maxmemory [expr {$used - 50000}]
+        assert_equal OK [r set afterunbless v]
+        r config set maxmemory 0
+    }
+
+    test {Blessed overshoot: tolerated just under the 1.25x factor, OOM just over it} {
+        r flushall
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-random
+        for {set j 0} {$j < 500} {incr j} {
+            r set b:$j [string repeat y 1000]
+            r bless set b:$j no-evict
+        }
+        set used [s used_memory]
+
+        # used ~= 1.15x maxmemory: over the limit but within the 1.25x factor.
+        # All keys blessed -> eviction frees nothing -> tolerate: the write succeeds.
+        r config set maxmemory [expr {int($used / 1.15)}]
+        assert {[lindex [r config get maxmemory] 1] < $used}   ;# genuinely over the limit
+        assert_equal OK [r set within [string repeat z 100]]
+
+        # used ~= 1.4x maxmemory: past the 1.25x factor -> OOM.
+        r config set maxmemory [expr {int($used / 1.4)}]
+        assert_error {*OOM*} {r set past [string repeat z 100]}
+
         r config set maxmemory 0
     }
 

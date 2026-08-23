@@ -36,6 +36,10 @@
 #define EVPOOL_SIZE 16
 #define EVPOOL_CACHED_SDS_SIZE 255
 #define EVICTION_MAX_BLESSED_ONLY_ROUNDS 8
+/* When eviction can't free memory because blessed (NO-EVICT) keys hold it,
+ * tolerate used memory up to 1.25x maxmemory. Core has no separate hard
+ * ceiling (unlike RoF's max_process_mem), so this is the ceiling. */
+#define EVICTION_OVERUSE_DIVISOR 4
 struct evictionPoolEntry {
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
     sds key;                    /* Key name. */
@@ -547,6 +551,7 @@ int performEvictions(void) {
     mstime_t latency;
     int slaves = listLength(server.slaves);
     int result = EVICT_FAIL;
+    int blessed_blocked = 0; /* set if eviction gave up because sampling only hit blessed keys */
 
     if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK) {
         result = EVICT_OK;
@@ -666,8 +671,11 @@ int performEvictions(void) {
                 if (!total_sampled_keys) break;
 
                 if (!total_candidates) {
-                    if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS)
+                    /* Sampled keys, but every one was blessed (NO-EVICT). */
+                    if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS) {
+                        blessed_blocked = 1;
                         break;
+                    }
                     continue;
                 }
                 blessed_only_rounds = 0;
@@ -709,8 +717,11 @@ int performEvictions(void) {
                     if (bestkey) break;
                 }
                 if (bestkey || !total_sampled_keys) break;
-                if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS)
+                /* Sampled keys, but every one was blessed (NO-EVICT). */
+                if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS) {
+                    blessed_blocked = 1;
                     break;
+                }
             }
         }
 
@@ -783,6 +794,18 @@ cant_free:
         }
         latencyEndMonitor(lazyfree_latency);
         latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
+    }
+
+    /* If we still couldn't free enough and blessed (NO-EVICT) keys exist, the
+     * blessing is likely why - failing the write with OOM would punish the user
+     * for a limit they deliberately raised. Tolerate a bounded overshoot: let the
+     * command run (EVICT_OK) while used memory stays within maxmemory*factor; we
+     * reclaim on later commands. Past the factor we still OOM (the hard ceiling). */
+    if (result == EVICT_FAIL && blessed_blocked) {
+        size_t mem_tofree;
+        if (getMaxmemoryState(NULL, NULL, &mem_tofree, NULL) == C_OK ||
+            mem_tofree <= server.maxmemory / EVICTION_OVERUSE_DIVISOR)
+            result = EVICT_OK;
     }
 
     latencyEndMonitor(latency);
