@@ -121,64 +121,84 @@ if [ -n "$modules" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 3: rewrite the loadmodule paths in redis-full.conf and redis.conf
-# in-place. Only the LOADMODULE_BEGIN/END block is replaced — the rest of
-# each file is untouched. Runs even when some modules failed to copy so that
-# the successfully-installed ones get correct absolute paths.
+# Phase 3: repoint the loadmodule paths at $INSTALL_MOD_DIR. Path rewrite
+# ONLY — inside the LOADMODULE_BEGIN/END block every line keeps its identity
+# and its comment state: a commented placeholder stays commented, an active
+# line stays active, and no line is ever added or removed. Which modules are
+# enabled is sync-redis-conf's call (it tests the .so on disk); deploy must
+# not re-author the config just because a module failed to build or wasn't
+# part of this run.
 # ---------------------------------------------------------------------------
 REDIS_FULL_CONF="${REDIS_GEN_CONF:-redis-full.conf}"
 REDIS_CONF="${REDIS_CONF:-redis.conf}"
 LOADMODULE_BEGIN="# >>> BEGIN: loadmodule paths (replaced by make deploy) <<<"
 LOADMODULE_END="# <<< END: loadmodule paths <<<"
 
-# Build the list of successfully-installed modules (i.e. those NOT in $failed).
-installed_modules=""
-for name in $modules; do
-  case " $failed " in *" $name "*) continue ;; esac
-  installed_modules="$installed_modules $name"
-done
-installed_modules="${installed_modules# }"
+_patch_conf() {
+  conf="$1"
+  [ -f "$conf" ] || return 0
+  grep -qF "$LOADMODULE_BEGIN" "$conf" 2>/dev/null || return 0
+  tmp="$(mktemp "${conf}.deploy.XXXXXX")"
+  # Swap each loadmodule line's directory for $INSTALL_MOD_DIR, keeping the
+  # leading '#' (if any), the .so basename and any trailing module args.
+  awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v dir="$INSTALL_MOD_DIR" '
+    $0 == begin { inblock = 1; print; next }
+    $0 == end   { inblock = 0; print; next }
+    inblock && match($0, /^[ \t]*#?[ \t]*loadmodule[ \t]+/) {
+      head = substr($0, 1, RLENGTH)
+      rest = substr($0, RLENGTH + 1)
+      sp = index(rest, " ")
+      path = (sp ? substr(rest, 1, sp - 1) : rest)
+      args = (sp ? substr(rest, sp)        : "")
+      n = split(path, parts, "/")
+      print head dir "/" parts[n] args
+      next
+    }
+    { print }
+  ' "$conf" > "$tmp"
+  mv "$tmp" "$conf"
+  echo "==> Repointed loadmodule paths in $conf -> $INSTALL_MOD_DIR/"
+}
 
-if [ -n "$installed_modules" ]; then
-  new_lines=""
-  for name in $installed_modules; do
+_patch_conf "$REDIS_FULL_CONF"
+_patch_conf "$REDIS_CONF"
+
+# ---------------------------------------------------------------------------
+# Phase 4: report modules the installed server cannot load — those that
+# failed to build / had no artifact to copy, plus manifest modules whose
+# source was never cloned. Nothing is edited on their behalf: the user
+# comments the matching loadmodule line out (or fixes the build).
+# ---------------------------------------------------------------------------
+not_cloned=""
+for name in $(manifest_modules); do
+  case " $cloned " in *" $name "*) continue ;; esac
+  case " $failed " in *" $name "*) continue ;; esac   # already reported above
+  not_cloned="$not_cloned $name"
+done
+
+_report_unloadable() {
+  reason="$1"
+  shift
+  for name in "$@"; do
     target="$(manifest_field "$name" target_module)"
     [ -z "$target" ] && continue
-    so_basename="$(basename "$target")"
-    new_lines="${new_lines}loadmodule $INSTALL_MOD_DIR/$so_basename
-"
+    printf '    %-16s no .so at %s/%s (%s)\n' \
+      "$name" "$INSTALL_MOD_DIR" "$(basename "$target")" "$reason"
   done
+}
 
-  # Write new_lines to a temp file so awk can read it with getline — BSD awk
-  # (macOS /usr/bin/awk) rejects embedded newlines in -v values.
-  new_lines_file="$(mktemp)"
-  printf '%s' "$new_lines" > "$new_lines_file"
-
-  _patch_conf() {
-    local conf="$1"
-    [ -f "$conf" ] || return 0
-    grep -qF "$LOADMODULE_BEGIN" "$conf" 2>/dev/null || return 0
-    local tmp
-    tmp="$(mktemp "${conf}.deploy.XXXXXX")"
-    trap 'rm -f "$tmp" "$new_lines_file"' EXIT
-    awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v newfile="$new_lines_file" '
-      $0 == begin {
-        print
-        while ((getline line < newfile) > 0) print line
-        close(newfile)
-        skip=1; next
-      }
-      $0 == end   { skip=0 }
-      !skip        { print }
-    ' "$conf" > "$tmp"
-    mv "$tmp" "$conf"
-    trap - EXIT
-    echo "==> Updated loadmodule paths in $conf"
-  }
-
-  _patch_conf "$REDIS_FULL_CONF"
-  _patch_conf "$REDIS_CONF"
-  rm -f "$new_lines_file"
+if [ -n "$failed$not_cloned" ]; then
+  echo
+  echo "==> WARNING: the following modules have no installed .so —"
+  echo "    redis-server will abort on their loadmodule line:"
+  [ -n "$failed" ]     && _report_unloadable "build failed or artifact missing" $failed
+  [ -n "$not_cloned" ] && _report_unloadable "source not cloned" $not_cloned
+  echo
+  echo "    To start the server without them, comment out their loadmodule"
+  echo "    lines in the conf you pass to redis-server, e.g.:"
+  echo "      # loadmodule $INSTALL_MOD_DIR/<module>.so"
+  echo "    (deploy leaves those lines exactly as they are — it only rewrites"
+  echo "     their directory. Fix the build, or run 'make sync-redis-conf'.)"
 fi
 
 echo
