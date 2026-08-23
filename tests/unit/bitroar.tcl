@@ -87,26 +87,23 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
-    test {Internal bitmap replay primitives have narrow semantics} {
+    test {Internal BITCONVERT replay primitive has narrow semantics} {
         set raw [binary format H* 80400100080000]
-        r del bitmap_missing bitmap_string bitmap_list bitmap_bitop_source bitmap_bitop_out
+        r del bitmap_missing bitmap_string bitmap_list
 
-        # Ordinary clients cannot discover the primitives through COMMAND or execute them.
+        # Ordinary clients cannot discover the primitive through COMMAND or execute it.
         assert_equal {{}} [r command info bitconvert]
-        assert_equal {{}} [r command info bitop_roaring]
         assert_error {ERR unknown command 'bitconvert'*} {
             r bitconvert bitmap_missing ROARING
-        }
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_bitop_out bitmap_bitop_source
         }
 
         r debug mark-internal-client
 
-        assert_equal {bitmap_bitop_out bitmap_bitop_source} \
-            [r command getkeys bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
-        assert_equal {{bitmap_bitop_out {OW update}} {bitmap_bitop_source {RO access}}} \
-            [r command getkeysandflags bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
+        # Key specs stay introspectable for the internal primitive.
+        assert_equal {bitmap_missing} \
+            [r command getkeys bitconvert bitmap_missing ROARING]
+        assert_equal {{bitmap_missing {RW access update}}} \
+            [r command getkeysandflags bitconvert bitmap_missing ROARING]
 
         # A missing key becomes an empty native bitmap.
         assert_equal OK [r bitconvert bitmap_missing ROARING]
@@ -138,26 +135,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r bitconvert bitmap_missing STRING
         }
 
-        # Config-independent BITOP replay performs the native store directly.
-        r set bitmap_bitop_source [binary format H* f0]
-        assert_equal 1 [r bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
-        assert_equal bitmap [r type bitmap_bitop_out]
-        assert_equal [binary format H* f0] [r debug bitmap-raw bitmap_bitop_out]
-
         r debug mark-internal-client unmark
         assert_error {ERR unknown command 'bitconvert'*} {
             r bitconvert bitmap_missing ROARING
         }
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_bitop_out bitmap_bitop_source
-        }
     }
 
     test {Internal bitmap propagation primitives cannot be renamed} {
-        foreach command {bitconvert bitop_roaring} {
-            catch {exec src/redis-server --rename-command $command renamed} err
-            assert_match {*Cannot rename an internal command*} $err
-        }
+        catch {exec src/redis-server --rename-command bitconvert renamed} err
+        assert_match {*Cannot rename an internal command*} $err
     } {} {external:skip}
 
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
@@ -669,18 +655,19 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal [binary format H* 66] [r debug bitmap-raw bitop:imp:out]
 
         # A nonempty all-zero result still carries its logical byte length and
-        # native representation during replay.
+        # is converted during replay.
         assert_equal 1 [r bitop xor bitop:imp:zero bitop:imp:s1 bitop:imp:s1]
         assert_equal bitmap [r type bitop:imp:zero]
         assert_equal [binary format H* 00] [r debug bitmap-raw bitop:imp:zero]
 
-        # Destination/source aliasing remains valid with force-native replay.
+        # Destination/source aliasing remains valid when replay needs the
+        # BITOP/BITCONVERT pair.
         assert_equal 1 [r bitop not bitop:imp:s1 bitop:imp:s1]
         assert_equal bitmap [r type bitop:imp:s1]
         assert_equal [binary format H* 33] [r debug bitmap-raw bitop:imp:s1]
 
-        # An empty logical result deletes the destination and replay must not
-        # recreate an empty bitmap.
+        # An empty logical result deletes the destination. It must not be
+        # followed by BITCONVERT, which would recreate an empty bitmap.
         r set bitop:imp:empty keep
         assert_equal 0 [r bitop or bitop:imp:empty bitop:imp:missing]
         assert_equal none [r type bitop:imp:empty]
@@ -1371,7 +1358,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal {1} [r bitfield bitmap:aof-incr:bitfield SET u1 0 1]
         r config set bitmap-default-roaring no
 
-        # A config-driven BITOP propagates one force-native replay command.
+        # A config-driven BITOP propagates its historical command followed by
+        # an explicit destination conversion.
         r set bitmap:aof-incr:bitop:s1 [binary format H* f0]
         r set bitmap:aof-incr:bitop:s2 [binary format H* 0f]
         r config set bitmap-default-roaring yes
@@ -1392,7 +1380,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             set cmd [read_from_aof $fp]
             if {$cmd eq ""} break
             set name [lindex $cmd 0]
-            if {$name in {multi exec bitconvert setbit bitfield bitop bitop_roaring}} {
+            if {$name in {multi exec bitconvert setbit bitfield bitop}} {
                 lappend transitions $cmd
             }
             if {$name eq "restore" && [string match "bitmap:aof-incr:*" [lindex $cmd 1]]} {
@@ -1414,8 +1402,11 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             [list bitconvert bitmap:aof-incr:bitfield ROARING] \
             [list bitfield bitmap:aof-incr:bitfield SET u1 0 1] \
             {exec} \
-            [list bitop_roaring or bitmap:aof-incr:bitop:out \
+            {multi} \
+            [list bitop or bitmap:aof-incr:bitop:out \
                 bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2] \
+            [list bitconvert bitmap:aof-incr:bitop:out ROARING] \
+            {exec} \
             [list bitop or bitmap:aof-incr:bitop:empty \
                 bitmap:aof-incr:bitop:missing]] $transitions
         assert_equal 0 $transition_restores
@@ -1523,7 +1514,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
         test {BITOP destinations replicate deterministically across modes} {
             # String-only sources with a bitmap-default-roaring yes master: the
             # destination decision is master-local, so the stream carries the
-            # force-native BITOP_ROARING primitive.
+            # ordinary BITOP followed by an explicit BITCONVERT.
             $master del bitop:repl:s1 bitop:repl:s2 bitop:repl:out
             $master set bitop:repl:s1 [binary format H* f0]
             $master set bitop:repl:s2 [binary format H* 0f]
@@ -1689,7 +1680,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "extern
             }
 
             # Detach before replacing the master's live dataset from its AOF;
-            # only REPL_AOF and REPL_ALL transition commands should be present.
+            # only REPL_AOF and REPL_ALL transition pairs should be present.
             $replica replicaof no one
             $master debug loadaof
             foreach {key on_replica in_aof} $cases {

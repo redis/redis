@@ -3514,7 +3514,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
         R 0 config set rdb-key-save-delay 0
 
-        # The propagated BITOP_ROARING command preserves the source-selected
+        # The propagated BITOP/BITCONVERT pair carries the destination through
+        # both commands, so the import stream preserves the source-selected
         # representation despite the destination's opposite local default.
         assert_equal bitmap [R 1 type $dest]
         assert_equal [binary format H* ff] [R 1 debug bitmap-raw $dest]
