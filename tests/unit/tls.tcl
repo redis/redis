@@ -186,7 +186,10 @@ start_server {tags {"tls"}} {
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
             assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
-            assert_match {*sslv3 alert handshake failure*} $e
+            # OpenSSL reports this alert differently across platforms:
+            # CentOS reports "ssl/tls alert handshake failure"
+            # Ubuntu reports "sslv3 alert handshake failure"
+            assert_match {*ssl* alert handshake failure*} $e
 
             r CONFIG SET tls-groups ""
             r CONFIG SET tls-protocols ""
