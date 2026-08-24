@@ -177,7 +177,7 @@ start_server {tags {"external:skip"}} {
 # A command filter that changes argv invalidates everything the server already
 # derived from the pre-filter argv (looked up command, keys, slot, cross-slot
 # error). These tests make sure the outside world is refreshed accordingly.
-start_cluster 1 0 [list tags {modules cluster external:skip} config_lines [list "loadmodule $testmodule log-key 0"]] {
+start_cluster 1 0 [list tags {modules cluster external:skip} config_lines [list loadmodule "$testmodule log-key 0"]] {
     test {Command Filter refreshes cross-slot state when args are deleted} {
         # "del a{t} @delme" is cross-slot before filtering, and a single-key
         # command after the filter deleted @delme. It must not be rejected.
