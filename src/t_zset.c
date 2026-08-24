@@ -68,17 +68,15 @@ const void *zslGetNodeElementForDict(const void *node);
  * the node header, which holds for low-level nodes but not for tall ones,
  * where level[] pushes the member past the prefetched line. keyCompare then
  * eats that miss. Warming it properly would need a second prefetch address,
- * which the current one-address-per-callback interface has no room for;
- * prefetchEntryValue therefore has nothing distinct to point at and returns
- * NULL. This costs cache misses, never correctness: these callbacks are pure
- * hints and the score is looked up identically either way. */
+ * which the current one-address-per-callback interface has no room for --
+ * there is nothing distinct for prefetchEntryValue to point at here, so
+ * zsetDictType leaves it unset rather than register a callback that always
+ * returns NULL (memory_prefetch.c only calls prefetchEntryValue when the
+ * dictType sets one). This costs cache misses, never correctness: these
+ * callbacks are pure hints and the score is looked up identically either
+ * way. */
 static void *zsetDictPrefetchEntryKey(const dictEntry *de) {
     return dictEntryIsKey(de) ? NULL : dictGetKey(de);
-}
-
-static void *zsetDictPrefetchEntryValue(const dictEntry *de) {
-    UNUSED(de);
-    return NULL;
 }
 
 /* dictType for zset's dict (maps sds to zskiplistNode*) */
@@ -93,7 +91,6 @@ dictType zsetDictType = {
     .no_value = 1,      /* no values stored (only nodes) */
     .keyFromStoredKey = zslGetNodeElementForDict,  /* extract embedded sds from node */
     .prefetchEntryKey = zsetDictPrefetchEntryKey,
-    .prefetchEntryValue = zsetDictPrefetchEntryValue,
 };
 
 /*-----------------------------------------------------------------------------
