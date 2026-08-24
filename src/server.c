@@ -3047,7 +3047,7 @@ void initServer(void) {
     /* clients_timeout_table key = 8 bytes BE mstime + 8 bytes client ID
      * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
     server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);
-    server.replication_allowed = 1;
+    server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
@@ -3732,8 +3732,18 @@ int mustObeyClient(client *c) {
     return c->id == CLIENT_ID_AOF || c->flags & CLIENT_MASTER;
 }
 
+/* Return true if any of the given targets can currently receive commands, that
+ * is, if the AOF is enabled or if there is a replica (or a slot migration) to
+ * feed.
+ *
+ * Note that this ignores server.allowed_propagate_targets on purpose: whether
+ * the command running now may reach a target is decided once, when the op is
+ * queued by alsoPropagate(), and the target stored with the op is final. Doing
+ * it here as well would also apply it while flushing ops queued earlier, where
+ * it could only drop an op that was legitimately queued. The callers that do
+ * need to account for it narrow 'target' themselves. */
 int shouldPropagate(int target) {
-    if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
+    if (target == PROPAGATE_NONE || server.loading)
         return 0;
 
     if (target & PROPAGATE_AOF) {
@@ -3764,6 +3774,12 @@ int shouldPropagate(int target) {
  * to replicate SELECT for this command (used for database neutral commands).
  */
 static void propagateNow(int dbid, robj **argv, int argc, int target) {
+    /* No need to intersect 'target' with server.allowed_propagate_targets: it is
+     * already the final one, either decided when the op was queued by
+     * alsoPropagate() (or deliberately left unrestricted by
+     * alsoPropagateForced()), or the MULTI / EXEC wrapping the ops. Restricting
+     * it again by what the command running now may reach could only drop an op
+     * that was legitimately queued. */
     if (!shouldPropagate(target))
         return;
 
@@ -3795,6 +3811,11 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
+    /* Drop the targets the command currently running is not allowed to reach,
+     * so that its effect commands don't end up in an AOF / replica excluded by
+     * Lua redis.set_repl() or by a selective RM_Call(). */
+    target &= server.allowed_propagate_targets;
+
     if (!shouldPropagate(target))
         return;
 
@@ -3804,6 +3825,18 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
         incrRefCount(argv[j]);
     }
     redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
+}
+
+/* Like alsoPropagate(), but ignoring the targets that were excluded for the
+ * command currently running. To be used only for implicit changes the server
+ * decided to make by itself (expired or evicted keys, slots trimmed after a
+ * migration): those must always reach the AOF and the replicas, no matter what
+ * the command that happened to trigger them asked for. */
+void alsoPropagateForced(int dbid, robj **argv, int argc, int target) {
+    int prev_targets = server.allowed_propagate_targets;
+    server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
+    alsoPropagate(dbid,argv,argc,target);
+    server.allowed_propagate_targets = prev_targets;
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
@@ -3830,6 +3863,26 @@ void preventCommandAOF(client *c) {
 /* Replication specific version of preventCommandPropagation(). */
 void preventCommandReplication(client *c) {
     c->flags |= CLIENT_PREVENT_REPL_PROP;
+}
+
+/* Return the PROPAGATE_* targets that a call() of the given client with the
+ * given flags is allowed to reach: the ones the caller of call() asked for,
+ * minus the ones the module owning the client vetoed.
+ *
+ * The CLIENT_MODULE_PREVENT_*_PROP flags outlive the call() that set them, so
+ * that an RM_Call() that got blocked keeps its restrictions once the command is
+ * reprocessed by a brand new call() (see RM_Call()).
+ *
+ * Everything the command propagates is limited to these targets: the command
+ * itself, at the end of call(), and the effect commands its implementation
+ * queues via alsoPropagate() while it runs. */
+int callPropagateTargets(client *c, int flags) {
+    int targets = PROPAGATE_NONE;
+    if ((flags & CMD_CALL_PROPAGATE_AOF) && !(c->flags & CLIENT_MODULE_PREVENT_AOF_PROP))
+        targets |= PROPAGATE_AOF;
+    if ((flags & CMD_CALL_PROPAGATE_REPL) && !(c->flags & CLIENT_MODULE_PREVENT_REPL_PROP))
+        targets |= PROPAGATE_REPL;
+    return targets;
 }
 
 /* Log the last command a client executed into the slowlog. */
@@ -4077,7 +4130,25 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* We need to use a global flag with the propagation targets allowed for the
+     * command we are about to run, in order to prevent propagation of nested
+     * calls to a target that an outer call excluded. Example:
+     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
+     * 2. module2.bar internally calls RM_Call of INCR with '!'
+     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
+     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar
+     *
+     * Restricting the targets while the command runs, and not just when call()
+     * propagates it verbatim at the end, is what makes the effect commands
+     * queued via alsoPropagate() (SPOP propagated as SREM, RM_Replicate(), and
+     * so forth) honor Lua redis.set_repl() and selective RM_Call() too. */
+    int call_targets = callPropagateTargets(c, flags);
+    int prev_targets = server.allowed_propagate_targets;
+    server.allowed_propagate_targets = prev_targets & call_targets;
+
     c->cmd->proc(c);
+
+    server.allowed_propagate_targets = prev_targets;
 
     exitExecutionUnit();
 
@@ -4201,16 +4272,11 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
-         * implementation called preventCommandPropagation() or similar,
-         * or if we don't have the call() flags to do so. */
-        if (c->flags & CLIENT_PREVENT_REPL_PROP        ||
-            c->flags & CLIENT_MODULE_PREVENT_REPL_PROP ||
-            !(flags & CMD_CALL_PROPAGATE_REPL))
-                propagate_flags &= ~PROPAGATE_REPL;
-        if (c->flags & CLIENT_PREVENT_AOF_PROP        ||
-            c->flags & CLIENT_MODULE_PREVENT_AOF_PROP ||
-            !(flags & CMD_CALL_PROPAGATE_AOF))
-                propagate_flags &= ~PROPAGATE_AOF;
+         * implementation called preventCommandPropagation() or similar, or if
+         * this call() is not allowed to reach the target at all. */
+        if (c->flags & CLIENT_PREVENT_REPL_PROP) propagate_flags &= ~PROPAGATE_REPL;
+        if (c->flags & CLIENT_PREVENT_AOF_PROP) propagate_flags &= ~PROPAGATE_AOF;
+        propagate_flags &= call_targets;
 
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */

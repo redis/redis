@@ -5771,6 +5771,12 @@ void processEventsWhileBlocked(void) {
     mstime_t prev_cmd_time_snapshot = server.cmd_time_snapshot;
     server.cmd_time_snapshot = server.mstime;
 
+    /* The commands processed here belong to other clients, so they must not
+     * inherit the propagation restrictions of the command we are currently
+     * blocked in (see server.allowed_propagate_targets). */
+    int prev_propagate_targets = server.allowed_propagate_targets;
+    server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
+
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
@@ -5796,6 +5802,7 @@ void processEventsWhileBlocked(void) {
     ProcessingEventsWhileBlocked--;
     serverAssert(ProcessingEventsWhileBlocked >= 0);
 
+    server.allowed_propagate_targets = prev_propagate_targets;
     server.cmd_time_snapshot = prev_cmd_time_snapshot;
 }
 

@@ -6242,10 +6242,9 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
     };
 
     enterExecutionUnit(1, 0);
-    int prev_replication_allowed = server.replication_allowed;
-    server.replication_allowed = 1;
-    alsoPropagate(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
-    server.replication_allowed = prev_replication_allowed;
+    /* Field expiration is decided by the server, so it must be propagated even
+     * if the command that triggered it asked not to propagate. */
+    alsoPropagateForced(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
     exitExecutionUnit();
 
     /* Propagate the HDEL command */
