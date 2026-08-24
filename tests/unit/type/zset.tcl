@@ -1733,6 +1733,28 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZMSCORE single member on skiplist (below the prefetch threshold)} {
+        # nmembers>1 gates the batched path, so a 1-member call always takes
+        # the plain loop regardless of encoding -- verify both a hit and a
+        # miss take that path correctly on a skiplist-encoded zset (the
+        # pre-existing single-member ZMSCORE tests above stay listpack).
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 4
+        r del zmscoretest
+        for {set i 0} {$i < 10} {incr i} {
+            r zadd zmscoretest $i member:$i
+        }
+        assert_encoding skiplist zmscoretest
+
+        assert_equal {3} [r zmscore zmscoretest member:3]
+        assert_equal {{}} [r zmscore zmscoretest missing]
+
+        # And the other side of the threshold: 2 members is where batching
+        # first turns on, mixing a hit and a miss.
+        assert_equal {3 {}} [r zmscore zmscoretest member:3 missing]
+        r config set zset-max-listpack-entries $original_max
+    }
+
     test {ZMSCORE on skiplist with prefetching disabled} {
         # prefetch-batch-max-size 0 is the operator kill-switch for the whole
         # prefetch subsystem; ZMSCORE must then take the plain lookup loop
