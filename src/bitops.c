@@ -810,6 +810,9 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldAllocSize, kvobjAllocSize(o));
         *strGrowSize = sdslen(o->ptr) - *strOldSize;
+        
+        if (*strGrowSize != 0)
+            updateKeysizesHist(c->db, OBJ_STRING, *strOldSize, *strOldSize + *strGrowSize);
     }
     return o;
 }
@@ -886,12 +889,6 @@ void setbitCommand(client *c) {
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty++;
-
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
     }
 
     /* Return original value. */
@@ -2108,13 +2105,6 @@ void bitfieldGeneric(client *c, int flags) {
     }
 
     if (changes) {
-
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
-        
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty += changes;
