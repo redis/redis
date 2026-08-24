@@ -2104,10 +2104,12 @@ void bitfieldGeneric(client *c, int flags) {
         }
     }
 
-    if (changes) {
+    if (changes || strGrowSize) {
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty += changes;
+        /* OVERFLOW FAIL can reject every write after the string has already
+         * grown. Account for that growth as one mutation. */
+        server.dirty += changes ? changes : 1;
     }
     zfree(ops);
 }

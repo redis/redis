@@ -165,6 +165,20 @@ start_server {tags {"bitops"}} {
         }
     }
 
+    test {BITFIELD OVERFLOW FAIL accounts for string growth} {
+        r set bits {}
+        set dirty [s rdb_changes_since_last_save]
+        set result [r bitfield bits overflow fail set u1 63 2]
+        assert_equal {} [lindex $result 0]
+        assert_equal 8 [r strlen bits]
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+
+        set dirty [s rdb_changes_since_last_save]
+        set result [r bitfield bits overflow fail set u1 0 2]
+        assert_equal {} [lindex $result 0]
+        assert_equal $dirty [s rdb_changes_since_last_save]
+    }
+
     test {BITFIELD overflow wrap fuzzing} {
         for {set j 0} {$j < 1000} {incr j} {
             set bits [expr {[randomInt 64]+1}]
@@ -262,6 +276,23 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 255 [$master bitfield bits set u8 0 100]
             wait_for_ofs_sync $master $slave
             assert_equal 100 [$slave bitfield_ro bits get u8 0]
+        }
+
+        test {BITFIELD OVERFLOW FAIL growth is replicated} {
+            $master del bitfield-fail-created bitfield-fail-grown
+            $master set bitfield-fail-grown {}
+            wait_for_ofs_sync $master $slave
+
+            set created_result [$master bitfield bitfield-fail-created overflow fail set u1 0 2]
+            set grown_result [$master bitfield bitfield-fail-grown overflow fail set u1 63 2]
+            assert_equal {} [lindex $created_result 0]
+            assert_equal {} [lindex $grown_result 0]
+            wait_for_ofs_sync $master $slave
+
+            assert_equal 1 [$slave strlen bitfield-fail-created]
+            assert_equal "\x00" [$slave get bitfield-fail-created]
+            assert_equal 8 [$slave strlen bitfield-fail-grown]
+            assert_equal [string repeat "\x00" 8] [$slave get bitfield-fail-grown]
         }
 
         test {BITFIELD_RO with only key as argument on read-only replica} {
