@@ -3454,12 +3454,12 @@ void cliSetPreferences(char **argv, int argc, int interactive) {
         if (!strcasecmp(argv[1],"hints")) pref.hints = 1;
         else if (!strcasecmp(argv[1],"nohints")) pref.hints = 0;
         else {
-            printf("%sunknown redis-cli preference '%s'\n",
+            fprintf(stderr, "%sunknown redis-cli preference '%s'\n",
                 interactive ? "" : ".redisclirc: ",
                 argv[1]);
         }
     } else {
-        printf("%sunknown redis-cli internal command '%s'\n",
+        fprintf(stderr, "%sunknown redis-cli internal command '%s'\n",
             interactive ? "" : ".redisclirc: ",
             argv[0]);
     }
@@ -3842,7 +3842,7 @@ static int evalMode(int argc, char **argv) {
                 cliReadReply(0);
                 break; /* Return to the caller. */
             } else {
-                strncpy(config.prompt,"lua debugger> ",sizeof(config.prompt));
+                snprintf(config.prompt,sizeof(config.prompt),"%s","lua debugger> ");
                 repl();
                 /* Restart the session if repl() returned. */
                 cliConnect(CC_FORCE);
@@ -10949,8 +10949,8 @@ static int displayKeyStatsType(unsigned long long sampled,
             bytesToHuman(total_size, sizeof(total_size), memkey_type->totalsize);
             bytesToHuman(size_avg, sizeof(size_avg), memkey_type->totalsize/memkey_type->count);
 
-            strncpy(total_length, " - ", sizeof(total_length));
-            strncpy(length_avg, " - ", sizeof(length_avg));
+            snprintf(total_length, sizeof(total_length), "%s", " - ");
+            snprintf(length_avg, sizeof(length_avg), "%s", " - ");
 
             /* bigkeys info */
             dictEntry *bk_de = dictFind(bigkeys_types_dict, memkey_type->name);
