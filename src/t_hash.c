@@ -5508,29 +5508,60 @@ static GetFieldRes addHashFieldToReply(client *c, kvobj *o, sds field, int hfeFl
     return res;
 }
 
-/* Reply with the values of fields[from..numFields-1], in request order, looking
- * up one field at a time.
+/* Where the multi-field reply helpers report what each requested field resolved
+ * to. All the members are optional, so that a caller only pays for what it uses:
  *
- * 'resOut' must have room for 'numFields' entries and receives the per-field
- * GetFieldRes. If 'expiredOut' is not NULL, it receives the per-field
- * expiration time (EB_EXPIRE_TIME_INVALID when there is none). */
+ * - 'res' and 'expiredAt' hold the per-field result and expiration time, and are
+ *   what a caller that modifies the fields afterwards needs to drive its
+ *   modification pass.
+ * - 'expired' and 'hashDeleted' hold just what is needed to notify about fields
+ *   the reply pass expired lazily, gathered while replying. A read-only caller
+ *   passes these alone and is then spared an array store per field and a second
+ *   pass over the array to find results it makes no other use of. */
+typedef struct hashMultiGetOut {
+    GetFieldRes *res;     /* room for numFields entries, or NULL */
+    uint64_t *expiredAt;  /* room for numFields entries, or NULL. EB_EXPIRE_TIME_INVALID
+                             for fields without an expiration time */
+    vec *expired;         /* receives the fields that were expired lazily, or NULL */
+    int hashDeleted;      /* set when the hash was deleted, its last field having
+                             expired lazily */
+} hashMultiGetOut;
+
+/* Report what fields[i] resolved to. */
+static inline void hashMultiGetOutSet(hashMultiGetOut *out, robj **fields, int i,
+                                      GetFieldRes res, uint64_t expiredAt)
+{
+    if (out->res) out->res[i] = res;
+    if (out->expiredAt) out->expiredAt[i] = expiredAt;
+    if (out->expired) {
+        if (res == GETF_EXPIRED)
+            vecPush(out->expired, fields[i]);
+        else if (res == GETF_EXPIRED_HASH)
+            out->hashDeleted = 1;
+    }
+}
+
+/* Reply with the values of fields[from..numFields-1], in request order, looking
+ * up one field at a time, reporting the results in 'out'. */
 static void addHashFieldsToReplyOneByOne(client *c, kvobj *o, robj **fields,
                                          int numFields, int from, int hfeFlags,
-                                         GetFieldRes *resOut, uint64_t *expiredOut)
+                                         hashMultiGetOut *out)
 {
     for (int i = from; i < numFields; i++) {
+        uint64_t expiredAt = EB_EXPIRE_TIME_INVALID;
+        GetFieldRes res;
+
         if (o == NULL) {
             /* No such key, or the hash was deleted because the last of its
              * fields expired. */
             addReplyNull(c);
-            resOut[i] = GETF_NOT_FOUND;
-            if (expiredOut) expiredOut[i] = EB_EXPIRE_TIME_INVALID;
-            continue;
+            res = GETF_NOT_FOUND;
+        } else {
+            res = addHashFieldToReply(c, o, fields[i]->ptr, hfeFlags, &expiredAt);
+            if (res == GETF_EXPIRED_HASH)
+                o = NULL;
         }
-        resOut[i] = addHashFieldToReply(c, o, fields[i]->ptr, hfeFlags,
-                                        expiredOut ? &expiredOut[i] : NULL);
-        if (resOut[i] == GETF_EXPIRED_HASH)
-            o = NULL;
+        hashMultiGetOutSet(out, fields, i, res, expiredAt);
     }
 }
 
@@ -5542,7 +5573,7 @@ static void addHashFieldsToReplyOneByOne(client *c, kvobj *o, robj **fields,
  * invalidates the resolved pointers - are delegated to addHashFieldToReply(),
  * and so is every field after them.
  *
- * 'resOut' and 'expiredOut' are as in addHashFieldsToReplyOneByOne().
+ * Results are reported in 'out', as in addHashFieldsToReplyOneByOne().
  *
  * Note that this function only reads. Callers that also modify the fields must
  * do so after it returns, and must set 'rejectDups' because the reply of a field
@@ -5555,8 +5586,7 @@ static void addHashFieldsToReplyOneByOne(client *c, kvobj *o, robj **fields,
  * the frame of callers that never resolve a single field through it. */
 static __attribute__((noinline))
 int addHashMultiFieldsToReply(client *c, kvobj *o, robj **fields, int numFields,
-                              int hfeFlags, int rejectDups,
-                              GetFieldRes *resOut, uint64_t *expiredOut)
+                              int hfeFlags, int rejectDups, hashMultiGetOut *out)
 {
     hashMultiGetScratch s;
     int linear = (numFields <= HASH_MULTIGET_LINEAR_FIELDS);
@@ -5587,17 +5617,20 @@ int addHashMultiFieldsToReply(client *c, kvobj *o, robj **fields, int numFields,
         if (res->found && hashTypeFieldNeedsLazyExpire(res->expiredAt, hfeFlags))
             break;
 
+        /* Every field replied to here is either missing or alive - the loop
+         * breaks out above on the first one that needs lazy expiration - so
+         * 'out->expired' cannot have anything to collect and is left alone. */
         if (!res->found) {
             addReplyNull(c);
-            resOut[i] = GETF_NOT_FOUND;
-            if (expiredOut) expiredOut[i] = EB_EXPIRE_TIME_INVALID;
+            if (out->res) out->res[i] = GETF_NOT_FOUND;
+            if (out->expiredAt) out->expiredAt[i] = EB_EXPIRE_TIME_INVALID;
         } else {
             if (res->vstr)
                 addReplyBulkCBuffer(c, res->vstr, res->vlen);
             else
                 addReplyBulkLongLong(c, res->vll);
-            resOut[i] = GETF_OK;
-            if (expiredOut) expiredOut[i] = res->expiredAt;
+            if (out->res) out->res[i] = GETF_OK;
+            if (out->expiredAt) out->expiredAt[i] = res->expiredAt;
         }
         i++;
     }
@@ -5605,8 +5638,7 @@ int addHashMultiFieldsToReply(client *c, kvobj *o, robj **fields, int numFields,
     hashMultiGetScratchRelease(&s);
 
     if (i < numFields) {
-        addHashFieldsToReplyOneByOne(c, o, fields, numFields, i, hfeFlags,
-                                     resOut, expiredOut);
+        addHashFieldsToReplyOneByOne(c, o, fields, numFields, i, hfeFlags, out);
     }
     return 1;
 }
@@ -5632,33 +5664,24 @@ void hmgetCommand(client *c) {
     fieldvec fvexpired;
     vec *vexpired = fieldvecInit(&fvexpired, numFields);
 
-    GetFieldRes stackres[HASH_MULTIGET_STACK_FIELDS];
-    GetFieldRes *resOut = (numFields <= HASH_MULTIGET_STACK_FIELDS) ?
-                          stackres : zmalloc(sizeof(GetFieldRes) * numFields);
+    /* HMGET only reads, so it has no use for the per-field results: collecting
+     * the fields to notify about while replying is all it needs. */
+    hashMultiGetOut out = { .expired = vexpired };
 
     addReplyArrayLen(c, numFields);
     if (!hashTypeMultiGetApplies(o, numFields) ||
         !addHashMultiFieldsToReply(c, o, &c->argv[2], numFields,
-                                   HFE_LAZY_NO_NOTIFICATION, 0, resOut, NULL))
+                                   HFE_LAZY_NO_NOTIFICATION, 0, &out))
     {
         addHashFieldsToReplyOneByOne(c, o, &c->argv[2], numFields, 0,
-                                     HFE_LAZY_NO_NOTIFICATION, resOut, NULL);
+                                     HFE_LAZY_NO_NOTIFICATION, &out);
     }
-
-    int deleted = 0;
-    for (int i = 0; i < numFields; i++) {
-        if (resOut[i] == GETF_EXPIRED)
-            vecPush(vexpired, c->argv[2 + i]);
-        deleted += (resOut[i] == GETF_EXPIRED_HASH);
-    }
-
-    if (resOut != stackres) zfree(resOut);
 
     if (vecSize(vexpired)) {
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", c->argv[1],
                                        c->db->id, (robj**)vecData(vexpired), vecSize(vexpired));
     }
-    if (deleted)
+    if (out.hashDeleted)
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
 
     vecRelease(vexpired);
@@ -5725,6 +5748,7 @@ void hgetdelCommand(client *c) {
     GetFieldRes stackres[HASH_MULTIGET_STACK_FIELDS];
     GetFieldRes *resOut = (numFields <= HASH_MULTIGET_STACK_FIELDS) ?
                           stackres : zmalloc(sizeof(GetFieldRes) * numFields);
+    hashMultiGetOut out = { .res = resOut };
 
     if (o && hashTypeIsTemplate(o)) {
         /* Template hash: reply every value, then drop all the fields in one
@@ -5732,7 +5756,7 @@ void hgetdelCommand(client *c) {
         hashTypeTmplDeleteFields(o, c->argv + 4, c->argc - 4, vdeleted, c);
     } else if (hashTypeMultiGetApplies(o, numFields) &&
                addHashMultiFieldsToReply(c, o, &c->argv[4], numFields, flags,
-                                         1, resOut, NULL))
+                                         1, &out))
     {
         /* Replied to all the fields in a single pass over the listpack. Delete
          * them afterwards: doing it as we reply would invalidate the values the
@@ -5882,13 +5906,14 @@ void hgetexCommand(client *c) {
         resOut = zmalloc(sizeof(GetFieldRes) * num_fields);
         expiredOut = zmalloc(sizeof(uint64_t) * num_fields);
     }
+    hashMultiGetOut out = { .res = resOut, .expiredAt = expiredOut };
 
     /* Reply to all the fields first - which takes a single pass over a listpack
      * encoded hash - and update their expiration afterwards, since updating one
      * would invalidate the values the single pass resolved. */
     if (hashTypeMultiGetApplies(o, num_fields) &&
         addHashMultiFieldsToReply(c, o, &c->argv[first_field_pos], num_fields,
-                                  flags, 1, resOut, expiredOut))
+                                  flags, 1, &out))
     {
         for (int i = 0; i < num_fields; i++) {
             robj *fieldobj = c->argv[first_field_pos + i];
