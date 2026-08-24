@@ -3878,7 +3878,7 @@ void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void alsoPropagateForced(int dbid, robj **argv, int argc, int target);
 int callPropagateTargets(client *c, int flags);
-int shouldPropagate(int target, int apply_allowed_targets);
+int shouldPropagate(int target);
 void postExecutionUnitOperations(void);
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target);
 void redisOpArrayFree(redisOpArray *oa);
