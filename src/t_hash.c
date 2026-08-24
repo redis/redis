@@ -4587,8 +4587,7 @@ void himportSetCommand(client *c) {
      *
      * In the future this can be improved to send the fields only once instead of
      * on every SET, lowering the propagation cost further. */
-    int prop_target = (PROPAGATE_AOF | PROPAGATE_REPL) & server.allowed_propagate_targets;
-    if (shouldPropagate(prop_target)) {
+    if (shouldPropagate(PROPAGATE_AOF | PROPAGATE_REPL, 1)) {
         /* Presize the payload: field-name footprint + value bytes (over-estimate ok). */
         sds payload = createRawDumpPayload(o, c->argv[2], c->db->id, 0,
                                            tmpl->mem_size + total_values_length);
@@ -4600,7 +4599,7 @@ void himportSetCommand(client *c) {
                 restore_pl,
                 shared.replace
         };
-        alsoPropagate(c->db->id, rargv, 5, prop_target);
+        alsoPropagate(c->db->id, rargv, 5, PROPAGATE_AOF | PROPAGATE_REPL);
         decrRefCount(restore_pl);
     }
     preventCommandPropagation(c);

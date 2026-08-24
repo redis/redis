@@ -3736,13 +3736,20 @@ int mustObeyClient(client *c) {
  * is, if the AOF is enabled or if there is a replica (or a slot migration) to
  * feed.
  *
- * Note that this ignores server.allowed_propagate_targets on purpose: whether
- * the command running now may reach a target is decided once, when the op is
- * queued by alsoPropagate(), and the target stored with the op is final. Doing
- * it here as well would also apply it while flushing ops queued earlier, where
- * it could only drop an op that was legitimately queued. The callers that do
- * need to account for it narrow 'target' themselves. */
-int shouldPropagate(int target) {
+ * With 'apply_allowed_targets' set, 'target' is first narrowed to the targets
+ * the command currently running is allowed to reach (see
+ * server.allowed_propagate_targets): that is what commands building an
+ * expensive payload for alsoPropagate() want, so that they don't build it for
+ * an AOF / replica excluded by Lua redis.set_repl() or by a selective
+ * RM_Call().
+ *
+ * It must be left off when 'target' is already the final one decided when the
+ * op was queued (see propagateNow()): narrowing it again by what the command
+ * running now may reach could only drop an op that was legitimately queued. */
+int shouldPropagate(int target, int apply_allowed_targets) {
+    if (apply_allowed_targets)
+        target &= server.allowed_propagate_targets;
+
     if (target == PROPAGATE_NONE || server.loading)
         return 0;
 
@@ -3774,13 +3781,13 @@ int shouldPropagate(int target) {
  * to replicate SELECT for this command (used for database neutral commands).
  */
 static void propagateNow(int dbid, robj **argv, int argc, int target) {
-    /* No need to intersect 'target' with server.allowed_propagate_targets: it is
-     * already the final one, either decided when the op was queued by
-     * alsoPropagate() (or deliberately left unrestricted by
+    /* No need to intersect 'target' with server.allowed_propagate_targets (hence
+     * the 0 below): it is already the final one, either decided when the op was
+     * queued by alsoPropagate() (or deliberately left unrestricted by
      * alsoPropagateForced()), or the MULTI / EXEC wrapping the ops. Restricting
      * it again by what the command running now may reach could only drop an op
      * that was legitimately queued. */
-    if (!shouldPropagate(target))
+    if (!shouldPropagate(target, 0))
         return;
 
     /* This needs to be unreachable since the dataset should be fixed during
@@ -3816,7 +3823,7 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
      * Lua redis.set_repl() or by a selective RM_Call(). */
     target &= server.allowed_propagate_targets;
 
-    if (!shouldPropagate(target))
+    if (!shouldPropagate(target, 0))
         return;
 
     argvcopy = zmalloc(sizeof(robj*)*argc);
