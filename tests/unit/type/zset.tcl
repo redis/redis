@@ -1706,15 +1706,10 @@ start_server {tags {"zset"}} {
     }
 
     test {ZMSCORE on skiplist at prefetch batch-size boundaries} {
-        # A fixed-size chunk loop leaves a trailing chunk of exactly one
-        # member whenever the member count is 1 (mod chunk size), and the
-        # prefetch primitive cannot help a chunk that small. ZMSCORE instead
-        # uses the shared adaptive sizing helper (prefetchNextBatchSize() in
-        # memory_prefetch.h), which folds such a remainder into the previous
-        # batch. Results are correct either way -- this locks in that the
-        # counts which used to degenerate are handled, and guards the
-        # batch-boundary arithmetic against future retuning of the batch
-        # size.
+        # Adaptive batch sizing folds a too-small trailing remainder into the
+        # previous batch rather than leaving a chunk of 1 (which the prefetch
+        # primitive can't help). Results are correct either way -- this locks
+        # in the batch-boundary arithmetic against future retuning.
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 4
         r del zmscoretest
