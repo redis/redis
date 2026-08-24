@@ -683,18 +683,15 @@ void getrangeCommand(client *c) {
     }
 }
 
-/* Batch size for intra-command key prefetching. */
-#define PREFETCH_BATCH_SIZE 16
-
 /* Pick the next prefetch batch starting at argv[start] and warm it via
  * dictPrefetchKeys. 'stride' is 1 for keys-only args (MGET) or 2 for
  * key/value pairs (MSET). Returns the chosen batch size in items. */
 static int prefetchKeysBatch(client *c, int slot, int start, int stride) {
-    int batch = (c->argc - start) / stride;
-
-    /* If at least two full batches remain, take one; otherwise fall
-     * through with batch = remaining keys, doing them in one go. */
-    if (batch >= PREFETCH_BATCH_SIZE*2) batch = PREFETCH_BATCH_SIZE;
+    /* If at least two full batches remain, take one; otherwise fall through
+     * with batch = remaining keys, doing them in one go. The sizing rule is
+     * shared with the other intra-command prefetch call sites — see
+     * prefetchNextBatchSize() in memory_prefetch.h. */
+    int batch = prefetchNextBatchSize((c->argc - start) / stride, PREFETCH_BATCH_SIZE);
 
     dict *d = kvstoreGetDict(c->db->keys, slot);
     if (d != NULL && dictSize(d) > 0) {

@@ -43,7 +43,6 @@
 #include "fast_float_strtod.h"
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
-#include "memory_prefetch.h"
 #include <math.h>
 
 #define ZSL_OFFSET_MAX_ELE  UINT16_MAX
@@ -51,13 +50,28 @@
 
 const void *zslGetNodeElementForDict(const void *node);
 
-/* The zset dict stores a zskiplistNode* as its "key" (no_value=1); score is
- * the node's leading field (server.h: zskiplistNode { double score; ... }),
- * ahead of the embedded sds member that keyFromStoredKey extracts for
- * comparison. Prefetching the node's base address -- needed anyway before
- * keyCompare dereferences into the embedded sds -- warms score for free, so
- * there's nothing separate for prefetchEntryValue to do. Mirrors
- * dbDictPrefetchEntryKey/dbDictPrefetchEntryValue's pattern (server.c). */
+/* Prefetch hooks for zsetDictType, mirroring the shape of
+ * dbDictPrefetchEntryKey/dbDictPrefetchEntryValue (server.c).
+ *
+ * The zset dict stores a zskiplistNode* as its "key" (no_value=1) and has no
+ * value side at all, so the only address worth handing to the prefetcher is
+ * the node itself -- which the state machine needs anyway, before keyCompare
+ * dereferences it via keyFromStoredKey. That single prefetch warms the node
+ * header, and with it 'score' (zskiplistNode's leading field, server.h), for
+ * free.
+ *
+ * What it does NOT warm, and where this is narrower than the dbDictType
+ * precedent: unlike dbDictPrefetchEntryValue -- which points at a genuinely
+ * separate payload allocation (kv->ptr for RAW strings) -- the sds member
+ * embedded at node + sdsoffset (see zslGetNodeElement) gets no prefetch of
+ * its own. It rides along only when it happens to share a cache line with
+ * the node header, which holds for low-level nodes but not for tall ones,
+ * where level[] pushes the member past the prefetched line. keyCompare then
+ * eats that miss. Warming it properly would need a second prefetch address,
+ * which the current one-address-per-callback interface has no room for;
+ * prefetchEntryValue therefore has nothing distinct to point at and returns
+ * NULL. This costs cache misses, never correctness: these callbacks are pure
+ * hints and the score is looked up identically either way. */
 static void *zsetDictPrefetchEntryKey(const dictEntry *de) {
     return dictEntryIsKey(de) ? NULL : dictGetKey(de);
 }
@@ -4140,28 +4154,56 @@ void zmscoreCommand(client *c) {
     addReplyArrayLen(c,c->argc - 2);
 
     /* Multiple independent lookups into the same dict in one call -- the
-     * textbook dictPrefetchKeys() shape (the zset analog of MGET's use of
-     * the same primitive). Skiplist only: listpack doesn't use a dict. */
-    if (zobj != NULL && zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = zobj->ptr;
-        int nmembers = c->argc - 2;
-        for (int base = 0; base < nmembers; base += DICT_PREFETCH_MAX_SIZE) {
-            int chunk = nmembers - base;
-            if (chunk > DICT_PREFETCH_MAX_SIZE) chunk = DICT_PREFETCH_MAX_SIZE;
-            dict *dicts[DICT_PREFETCH_MAX_SIZE];
-            void *keys[DICT_PREFETCH_MAX_SIZE];
-            for (int i = 0; i < chunk; i++) {
-                dicts[i] = zs->dict;
-                keys[i] = c->argv[2 + base + i]->ptr;
+     * textbook dictPrefetchKeys() shape, and the zset analog of what
+     * mgetCommand() does with the same primitive. Skiplist encoding only:
+     * listpack has no dict to prefetch into.
+     *
+     * Gated on prefetch-batch-max-size, the operator kill-switch for the
+     * whole prefetch subsystem (config.c), exactly as MGET/MSET are. When it
+     * is 0 we fall through to the plain loop below rather than merely
+     * skipping the dictPrefetchKeys() call, so a disabled config also costs
+     * nothing in batch-array bookkeeping.
+     *
+     * Unlike MGET/MSET there is deliberately no PENDING_CMD_KEYS_PREFETCHED
+     * ("already prefetched by the cross-command batch") check here. That
+     * path (addCommandToBatch, memory_prefetch.c) only ever warms the main
+     * keyspace dict -- the lookup of the zset key itself, done above -- and
+     * never a zset's internal member dict, which is what is warmed below.
+     * The two touch disjoint dicts, so there is no double-prefetch to guard
+     * against; adding that check would only disable prefetching here for no
+     * reason. */
+    int nmembers = c->argc - 2;
+    if (zobj != NULL && zobj->encoding == OBJ_ENCODING_SKIPLIST &&
+        server.prefetch_batch_max_size && nmembers > 1)
+    {
+        /* A skiplist-encoded zset always has a live, non-empty member dict. */
+        dict *d = ((zset*)zobj->ptr)->dict;
+        int j = 0;
+        while (j < nmembers) {
+            /* If at least two full batches remain, take one; otherwise take
+             * everything left in one go. Shared with the other
+             * intra-command prefetch call sites -- see
+             * prefetchNextBatchSize() in memory_prefetch.h. Folding the
+             * remainder in this way is what keeps a trailing batch from
+             * degenerating to a single member, which dictPrefetchKeys()
+             * cannot help with (it early-returns at nkeys <= 1). */
+            int batch = prefetchNextBatchSize(nmembers - j, PREFETCH_BATCH_SIZE);
+            void *keys[PREFETCH_BATCH_SIZE*2];
+            dict *dicts[PREFETCH_BATCH_SIZE*2];
+            for (int k = 0; k < batch; k++) {
+                keys[k]  = c->argv[2 + j + k]->ptr;
+                dicts[k] = d;
             }
-            dictPrefetchKeys(dicts, keys, chunk);
-            for (int i = 0; i < chunk; i++) {
-                if (zsetScore(zobj, c->argv[2 + base + i]->ptr, &score) == C_ERR) {
+            dictPrefetchKeys(dicts, keys, batch);
+
+            for (int k = 0; k < batch; k++) {
+                if (zsetScore(zobj, c->argv[2 + j + k]->ptr, &score) == C_ERR) {
                     addReplyNull(c);
                 } else {
                     addReplyDouble(c,score);
                 }
             }
+            j += batch;
         }
     } else {
         for (int j = 2; j < c->argc; j++) {

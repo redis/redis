@@ -1678,17 +1678,21 @@ start_server {tags {"zset"}} {
         assert_match {*ERR*wrong*number*arg*} $e
     }
 
-    test {ZMSCORE on skiplist crosses the batched-prefetch chunk boundary (>64 members)} {
-        r del zmscoretest
+    test {ZMSCORE on large skiplist member counts} {
+        # Skiplist-encoded ZMSCORE looks its members up in batches (see
+        # zmscoreCommand). Query far more members than one batch holds, and
+        # interleave hits with misses so a batch cannot take a "everything
+        # in this batch was found" shortcut. No existing ZMSCORE test went
+        # past 2 members, so nothing else here would catch a batch-indexing
+        # bug.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 4
+        r del zmscoretest
         for {set i 0} {$i < 150} {incr i} {
             r zadd zmscoretest $i member:$i
         }
         assert_encoding skiplist zmscoretest
 
-        # 150 members: chunk boundary at 64/128 -- exercise both full chunks
-        # and the trailing partial chunk, interleaved with misses so the
-        # batched path can't take a "found in this chunk" shortcut.
         set query {}
         set expected {}
         for {set i 0} {$i < 150} {incr i} {
@@ -1698,7 +1702,71 @@ start_server {tags {"zset"}} {
             lappend expected {}
         }
         assert_equal $expected [r zmscore zmscoretest {*}$query]
-        r config set zset-max-listpack-entries 128
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZMSCORE on skiplist at prefetch batch-size boundaries} {
+        # A fixed-size chunk loop leaves a trailing chunk of exactly one
+        # member whenever the member count is 1 (mod chunk size), and the
+        # prefetch primitive cannot help a chunk that small. ZMSCORE instead
+        # uses the shared adaptive sizing helper (prefetchNextBatchSize() in
+        # memory_prefetch.h), which folds such a remainder into the previous
+        # batch. Results are correct either way -- this locks in that the
+        # counts which used to degenerate are handled, and guards the
+        # batch-boundary arithmetic against future retuning of the batch
+        # size.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 4
+        r del zmscoretest
+        for {set i 0} {$i < 260} {incr i} {
+            r zadd zmscoretest $i member:$i
+        }
+        assert_encoding skiplist zmscoretest
+
+        # Single/double member; one batch exactly, and one either side of it;
+        # N*batch+1 (the straggler shape) for both the 16- and 64-sized
+        # batches this code has used; and a large multi-batch count.
+        foreach n {1 2 15 16 17 31 32 33 63 64 65 129 257} {
+            set query {}
+            set expected {}
+            for {set i 0} {$i < $n} {incr i} {
+                lappend query member:$i
+                lappend expected $i
+            }
+            assert_equal $expected [r zmscore zmscoretest {*}$query]
+        }
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZMSCORE on skiplist with prefetching disabled} {
+        # prefetch-batch-max-size 0 is the operator kill-switch for the whole
+        # prefetch subsystem; ZMSCORE must then take the plain lookup loop
+        # and still answer identically.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        set original_prefetch [lindex [r config get prefetch-batch-max-size] 1]
+        r config set zset-max-listpack-entries 4
+        r del zmscoretest
+        for {set i 0} {$i < 40} {incr i} {
+            r zadd zmscoretest $i member:$i
+        }
+        assert_encoding skiplist zmscoretest
+
+        set query {}
+        set expected {}
+        for {set i 0} {$i < 40} {incr i} {
+            lappend query member:$i
+            lappend expected $i
+            lappend query missing:$i
+            lappend expected {}
+        }
+        set with_prefetch [r zmscore zmscoretest {*}$query]
+        r config set prefetch-batch-max-size 0
+        set without_prefetch [r zmscore zmscoretest {*}$query]
+        r config set prefetch-batch-max-size $original_prefetch
+
+        assert_equal $expected $with_prefetch
+        assert_equal $expected $without_prefetch
+        r config set zset-max-listpack-entries $original_max
     }
 
     test "ZSET commands don't accept the empty strings as valid score" {
