@@ -1702,6 +1702,31 @@ start_server {tags {"scripting repl external:skip"}} {
             assert_equal {3 5 3 3} [lmap key $keys {r scard $key}]
         }
 
+        test "Test selective replication of HIMPORT SET from Lua" {
+            # HIMPORT SET replaces its own propagation with a RESTORE queued via
+            # alsoPropagate(), so it must honor set_repl() too. The fieldset
+            # prepared by HIMPORT PREPARE is per-client state, hence both calls
+            # have to happen inside the same script.
+            r del ht1{t} ht2{t}
+            run_script {
+                redis.call('himport','prepare','fs','f1','f2');
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('himport','set',KEYS[1],'fs','v1','v2');
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('himport','set',KEYS[2],'fs','v3','v4');
+            } 2 ht1{t} ht2{t}
+
+            assert_equal {v1 v2} [r hmget ht1{t} f1 f2]
+            assert_equal {v3 v4} [r hmget ht2{t} f1 f2]
+
+            wait_for_condition 50 100 {
+                [r -1 hmget ht2{t} f1 f2] eq {v3 v4}
+            } else {
+                fail "The RESTORE of ht2 should be replicated to replica"
+            }
+            assert_equal 0 [r -1 exists ht1{t}]
+        }
+
         test "Test implicit deletions are replicated despite set_repl(REPL_NONE)" {
             # Keys and hash fields deleted because they expired are an implicit
             # decision of the server, so they must always be propagated, no
