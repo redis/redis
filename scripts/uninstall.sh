@@ -7,6 +7,8 @@
 #                                                     -benchmark + the three
 #                                                     redis-server symlinks
 #                     $PREFIX/lib/redis/modules/    - per-module .so files
+#         PROG_SUFFIX  suffix the core programs were installed with
+#                   (see `make PROG_SUFFIX=…`).
 #         DESTDIR   optional staging root prepended to PREFIX (for packaging).
 #
 # Tokens (same grammar as deploy.sh):
@@ -30,6 +32,7 @@ cd "$REPO_ROOT"
 
 PREFIX="${PREFIX:-/usr/local}"
 DESTDIR="${DESTDIR:-}"
+PROG_SUFFIX="${PROG_SUFFIX:-}"
 
 modules="$(resolve_modules "$*" "$(manifest_modules)" "redis none")"
 
@@ -41,7 +44,7 @@ echo
 
 for f in redis-server redis-cli redis-benchmark \
          redis-check-rdb redis-check-aof redis-sentinel; do
-  rm -f "$INSTALL_BIN_DIR/$f"
+  rm -f "$INSTALL_BIN_DIR/$f$PROG_SUFFIX"
 done
 echo "==> Removed Redis core binaries from $INSTALL_BIN_DIR"
 

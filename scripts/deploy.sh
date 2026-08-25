@@ -7,6 +7,8 @@
 #                     $PREFIX/lib/redis/modules/    - per-module .so files
 #         DESTDIR   optional staging root prepended to PREFIX (for packaging).
 #                   Where files are copied; never part of the conf's paths.
+#         PROG_SUFFIX  suffix appended to the core program names, matching
+#                   `make PROG_SUFFIX=…` (src/Makefile). Modules are unaffected.
 #         MAKE      make binary (defaults to `make`); only used when shelling
 #                   into build.sh, which itself respects it.
 #
@@ -33,6 +35,7 @@ cd "$REPO_ROOT"
 
 PREFIX="${PREFIX:-/usr/local}"
 DESTDIR="${DESTDIR:-}"
+PROG_SUFFIX="${PROG_SUFFIX:-}"
 
 cloned="$(cloned_modules)"
 modules="$(resolve_modules "$*" "$cloned" "redis none")"
@@ -89,12 +92,12 @@ echo
 # Redis core binaries + the three symlinks that point to redis-server.
 echo "==> Installing Redis core binaries to $INSTALL_BIN_DIR"
 install -d "$INSTALL_BIN_DIR"
-install -m 0755 src/redis-server     "$INSTALL_BIN_DIR/redis-server"
-install -m 0755 src/redis-cli        "$INSTALL_BIN_DIR/redis-cli"
-install -m 0755 src/redis-benchmark  "$INSTALL_BIN_DIR/redis-benchmark"
-ln -sf redis-server "$INSTALL_BIN_DIR/redis-check-rdb"
-ln -sf redis-server "$INSTALL_BIN_DIR/redis-check-aof"
-ln -sf redis-server "$INSTALL_BIN_DIR/redis-sentinel"
+install -m 0755 "src/redis-server$PROG_SUFFIX"    "$INSTALL_BIN_DIR/redis-server$PROG_SUFFIX"
+install -m 0755 "src/redis-cli$PROG_SUFFIX"       "$INSTALL_BIN_DIR/redis-cli$PROG_SUFFIX"
+install -m 0755 "src/redis-benchmark$PROG_SUFFIX" "$INSTALL_BIN_DIR/redis-benchmark$PROG_SUFFIX"
+ln -sf "redis-server$PROG_SUFFIX" "$INSTALL_BIN_DIR/redis-check-rdb$PROG_SUFFIX"
+ln -sf "redis-server$PROG_SUFFIX" "$INSTALL_BIN_DIR/redis-check-aof$PROG_SUFFIX"
+ln -sf "redis-server$PROG_SUFFIX" "$INSTALL_BIN_DIR/redis-sentinel$PROG_SUFFIX"
 
 # Per-module `.so` files. After scripts/build.sh, each cloned module has its
 # .so copied to modules/<name>/<basename> by common.mk (the `cp $(TARGET_MODULE) ./`
@@ -188,7 +191,7 @@ fi
 
 echo
 echo "==> Deploy complete."
-echo "    redis-server: $INSTALL_BIN_DIR/redis-server"
+echo "    redis-server: $INSTALL_BIN_DIR/redis-server$PROG_SUFFIX"
 if [ -n "$modules" ]; then
   echo "    Module .so directory: $INSTALL_MOD_DIR/"
 fi
