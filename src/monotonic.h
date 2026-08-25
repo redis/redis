@@ -38,6 +38,12 @@ const char *monotonicInit(void);
 /* Return a string indicating the type of monotonic clock being used. */
 const char *monotonicInfoString(void);
 
+/* Return a note from the clock detection/calibration fallback paths (e.g. an
+ * unconfirmed TSC rate), or an empty string if none was recorded. This is
+ * deliberately not printed to stderr by monotonic.c itself -- callers with a
+ * logging facility (the server) should log it themselves. */
+const char *monotonicDiagnostics(void);
+
 /* Return the type of monotonic clock being used. */
 monotonic_clock_type monotonicGetType(void);
 

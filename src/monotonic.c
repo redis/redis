@@ -13,6 +13,12 @@ monotime (*getMonotonicUs)(void) = NULL;
 
 static char monotonic_info_string[32];
 
+/* Notes from clock detection/calibration fallback paths (e.g. an unconfirmed
+ * TSC rate, a missing 'constant_tsc' flag). Not written directly to stderr:
+ * this file is linked into every binary (redis-server, redis-cli,
+ * redis-check-aof, ...), and some callers treat any child stderr as failure.
+ * The server logs it via monotonicDiagnostics(); other callers may ignore it. */
+static char monotonic_diag_string[160];
 
 /* Using the processor clock (aka TSC on x86) can provide improved performance
  * throughout Redis wherever the monotonic clock is used.  The processor clock
@@ -137,7 +143,8 @@ static void monotonicInit_x86linux(void) {
     FILE *cs = fopen("/sys/devices/system/clocksource/clocksource0/current_clocksource", "r");
     if (cs == NULL || fgets(buf, bufflen, cs) == NULL || strncmp(buf, "tsc", 3) != 0) {
         if (cs) fclose(cs);
-        fprintf(stderr, "monotonic: x86 linux, kernel clocksource is not 'tsc'\n");
+        snprintf(monotonic_diag_string, sizeof(monotonic_diag_string),
+                "x86 linux, kernel clocksource is not 'tsc'");
         return;
     }
     fclose(cs);
@@ -176,7 +183,8 @@ static void monotonicInit_x86linux(void) {
     regfree(&constTscRegex);
 
     if (!constantTsc) {
-        fprintf(stderr, "monotonic: x86 linux, 'constant_tsc' flag not present\n");
+        snprintf(monotonic_diag_string, sizeof(monotonic_diag_string),
+                "x86 linux, 'constant_tsc' flag not present");
         return;
     }
 
@@ -211,9 +219,10 @@ static void monotonicInit_x86linux(void) {
         if (measured > 0 && labs(measured - nominal_model) * 1000 <= nominal_model) { /* within 0.1% */
             mono_ticksPerMicrosecond = nominal_model;
         } else {
-            fprintf(stderr, "monotonic: x86 linux, advertised clock rate "
+            snprintf(monotonic_diag_string, sizeof(monotonic_diag_string),
+                    "x86 linux, advertised clock rate "
                     "(%ld ticks/us) unconfirmed by the measured rate "
-                    "(%ld ticks/us), using calibration\n",
+                    "(%ld ticks/us), using calibration",
                     nominal_model, measured);
         }
     }
@@ -243,7 +252,8 @@ static void monotonicInit_x86linux(void) {
     }
 
     if (mono_ticksPerMicrosecond == 0) {
-        fprintf(stderr, "monotonic: x86 linux, unable to determine clock rate\n");
+        snprintf(monotonic_diag_string, sizeof(monotonic_diag_string),
+                "x86 linux, unable to determine clock rate");
         return;
     }
 
@@ -282,7 +292,8 @@ static monotime getMonotonicUs_aarch64(void) {
 static void monotonicInit_aarch64(void) {
     mono_ticksPerMicrosecond = (long)cntfrq_hz() / 1000L / 1000L;
     if (mono_ticksPerMicrosecond == 0) {
-        fprintf(stderr, "monotonic: aarch64, unable to determine clock rate\n");
+        snprintf(monotonic_diag_string, sizeof(monotonic_diag_string),
+                "aarch64, unable to determine clock rate");
         return;
     }
 
@@ -339,7 +350,8 @@ static monotime getMonotonicUs_riscv(void) {
 static void monotonicInit_riscv(void) {
     mono_ticksPerMicrosecond = (long)get_timebase_frequency() / 1000L / 1000L;
     if (mono_ticksPerMicrosecond == 0) {
-        fprintf(stderr, "monotonic: riscv, unable to determine clock rate\n");
+        snprintf(monotonic_diag_string, sizeof(monotonic_diag_string),
+                "riscv, unable to determine clock rate");
         return;
     }
     snprintf(monotonic_info_string, sizeof(monotonic_info_string),
@@ -393,6 +405,13 @@ const char * monotonicInit(void) {
 
 const char *monotonicInfoString(void) {
     return monotonic_info_string;
+}
+
+/* Return a note from the clock detection/calibration fallback paths, or an
+ * empty string if none was recorded. Callers with a logger (i.e. the server)
+ * should log it; callers without one may ignore it. */
+const char *monotonicDiagnostics(void) {
+    return monotonic_diag_string;
 }
 
 monotonic_clock_type monotonicGetType(void) {

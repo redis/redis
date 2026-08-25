@@ -3091,6 +3091,8 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
+    const char *clk_diag = monotonicDiagnostics();
+    if (clk_diag[0] != '\0') serverLog(LL_NOTICE, "monotonic clock: %s", clk_diag);
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
