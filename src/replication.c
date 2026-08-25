@@ -41,7 +41,6 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
-void replicationDiscardCachedMaster(void);
 void replicationResurrectCachedMaster(connection *conn);
 void replicationSendAck(void);
 int replicaPutOnline(client *slave);
