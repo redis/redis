@@ -1,17 +1,11 @@
-source "../tests/includes/init-tests.tcl"
+source tests/support/cluster.tcl
 
-test "Create a 3 nodes cluster" {
-    cluster_create_with_continuous_slots 3 3
-}
+start_cluster 3 3 {tags {external:skip cluster}} {
 
-test "Cluster is up" {
-    assert_cluster_state ok
-}
-
-set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
 
 proc get_addr_replica_serving_slot slot {
-    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
     array set node [$cluster masternode_for_slot $slot]
 
     set replicanodeinfo [$cluster cluster replicas $node(id)]
@@ -19,6 +13,7 @@ proc get_addr_replica_serving_slot slot {
     set addr [lindex [split [lindex $args 1] @] 0]
     set replicahost [lindex [split $addr :] 0]
     set replicaport [lindex [split $addr :] 1]
+    $cluster close
     return [list $replicahost $replicaport]
 }
 
@@ -44,7 +39,7 @@ test "Migrate a slot, verify client receives sunsubscribe on primary serving the
     assert_equal {smessage mychannel hello} [$subscribeclient read]
 
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
-   
+
     set msg [$subscribeclient read]
     assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
@@ -165,6 +160,7 @@ test "Move a replica to another primary, verify client receives sunsubscribe on 
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
 
+    $replica_client close
     $subscribeclient close
 }
 
@@ -185,7 +181,7 @@ test "Delete a slot, verify sunsubscribe message" {
     assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
-    
+
     $subscribeclient close
 }
 
@@ -244,7 +240,9 @@ test "Reset cluster, verify sunsubscribe message" {
     assert {"sunsubscribe" eq [lindex $msg 0]}
     assert {$channelname eq [lindex $msg 1]}
     assert {"0" eq [lindex $msg 2]}
-    
+
     $cluster close
     $subscribeclient close
 }
+
+} ;# start_cluster

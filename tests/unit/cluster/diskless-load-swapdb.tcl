@@ -1,24 +1,16 @@
 # Check that replica keys and keys to slots map are right after failing to diskless load using SWAPDB.
 
-source "../tests/includes/init-tests.tcl"
-
-test "Create a primary with a replica" {
-    create_cluster 1 1
-}
-
-test "Cluster should start ok" {
-    assert_cluster_state ok
-}
+start_cluster 1 1 {tags {external:skip cluster}} {
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 test "Main db not affected when fail to diskless load" {
-    set master [Rn 0]
-    set replica [Rn 1]
     set master_id 0
     set replica_id 1
+    set master [srv -$master_id "client"]
+    set replica [srv -$replica_id "client"]
 
     $replica READONLY
     $replica config set repl-diskless-load swapdb
@@ -42,7 +34,7 @@ test "Main db not affected when fail to diskless load" {
 
     # Save an RDB and kill the replica
     $replica save
-    kill_instance redis $replica_id
+    cluster_kill_node $replica_id
 
     # Delete the key from master
     $master del $slot0_key
@@ -51,7 +43,7 @@ test "Main db not affected when fail to diskless load" {
     # backlog size is very small, and dumping rdb will cost several seconds.
     set num 10000
     set value [string repeat A 1024]
-    set rd [redis_deferring_client redis $master_id]
+    set rd [redis_deferring_client $master_id]
     for {set j 0} {$j < $num} {incr j} {
         $rd set $j $value
 
@@ -63,22 +55,23 @@ test "Main db not affected when fail to diskless load" {
     }
 
     # Start the replica again
-    restart_instance redis $replica_id
+    cluster_restart_node $replica_id
+    set replica [srv -$replica_id "client"]
     $replica READONLY
 
     # Start full sync, wait till after db started loading in background
     wait_for_condition 500 10 {
-        [s $replica_id async_loading] eq 1
+        [s -$replica_id async_loading] eq 1
     } else {
         fail "Fail to full sync"
     }
 
     # Kill master, abort full sync
-    kill_instance redis $master_id
+    cluster_kill_node $master_id
 
     # Start full sync, wait till the replica detects the disconnection
     wait_for_condition 500 10 {
-        [s $replica_id async_loading] eq 0
+        [s -$replica_id async_loading] eq 0
     } else {
         fail "Fail to full sync"
     }
@@ -94,3 +87,5 @@ test "Main db not affected when fail to diskless load" {
 
     assert_equal $slot0_key [$replica CLUSTER GETKEYSINSLOT 0 1]
 }
+
+} ;# start_cluster
