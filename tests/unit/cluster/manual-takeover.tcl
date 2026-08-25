@@ -1,17 +1,13 @@
 # Manual takeover test
 
-source "../tests/includes/init-tests.tcl"
-
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 # For this test, disable replica failover until
@@ -23,9 +19,9 @@ foreach id $replica_ids {
 }
 
 test "Killing majority of master nodes" {
-    kill_instance redis 0
-    kill_instance redis 1
-    kill_instance redis 2
+    cluster_kill_node 0
+    cluster_kill_node 1
+    cluster_kill_node 2
 }
 
 foreach id $replica_ids {
@@ -33,7 +29,7 @@ foreach id $replica_ids {
 }
 
 test "Cluster should eventually be down" {
-    assert_cluster_state fail
+    wait_for_cluster_state fail {0 1 2}
 }
 
 test "Use takeover to bring slaves back" {
@@ -43,29 +39,31 @@ test "Use takeover to bring slaves back" {
 }
 
 test "Cluster should eventually be up again" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok {0 1 2}
 }
 
 test "Cluster is writable" {
-    cluster_write_test 4
+    cluster_write_test [srv -4 port]
 }
 
 test "Instance #5, #6, #7 are now masters" {
-    foreach id $replica_ids {
-        assert {[RI $id role] eq {master}}
-    }
+    assert {[s -5 role] eq {master}}
+    assert {[s -6 role] eq {master}}
+    assert {[s -7 role] eq {master}}
 }
 
 test "Restarting the previously killed master nodes" {
-    restart_instance redis 0
-    restart_instance redis 1
-    restart_instance redis 2
+    cluster_restart_node 0
+    cluster_restart_node 1
+    cluster_restart_node 2
 }
 
 test "Instance #0, #1, #2 gets converted into a slaves" {
     wait_for_condition 1000 50 {
-        [RI 0 role] eq {slave} && [RI 1 role] eq {slave} && [RI 2 role] eq {slave}
+        [s 0 role] eq {slave} && [s -1 role] eq {slave} && [s -2 role] eq {slave}
     } else {
         fail "Old masters not converted into slaves"
     }
 }
+
+} ;# start_cluster

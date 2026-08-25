@@ -1,64 +1,39 @@
-# Failover stress test.
-# In this test a different node is killed in a loop for N
-# iterations. The test checks that certain properties
-# are preserved across iterations.
+# Stress writes while redis-cli performs a live reshard, then verify AOF
+# persistence and replica consistency across process restarts.
 
-source "../tests/includes/init-tests.tcl"
-source "../../../tests/support/cli.tcl"
-
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster slow valgrind:skip} overrides {appendonly yes appendfsync no}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Enable AOF in all the instances" {
-    foreach_redis_id id {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
         R $id config set appendonly yes
-        # We use "appendfsync no" because it's fast but also guarantees that
-        # write(2) is performed before replying to client.
+        # This is fast while still ensuring write(2) happens before the reply.
         R $id config set appendfsync no
     }
 
-    foreach_redis_id id {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
         wait_for_condition 1000 500 {
-            [RI $id aof_rewrite_in_progress] == 0 &&
-            [RI $id aof_enabled] == 1
+            [s -$id aof_rewrite_in_progress] == 0 &&
+            [s -$id aof_enabled] == 1
         } else {
             fail "Failed to enable AOF on instance #$id"
         }
     }
 }
 
-# Return non-zero if the specified PID is about a process still in execution,
-# otherwise 0 is returned.
-proc process_is_running {pid} {
-    # PS should return with an error if PID is non existing,
-    # and catch will return non-zero. We want to return non-zero if
-    # the PID exists, so we invert the return value with expr not operator.
-    expr {![catch {exec ps -p $pid}]}
-}
-
-# Our resharding test performs the following actions:
-#
-# - N commands are sent to the cluster in the course of the test.
-# - Every command selects a random key from key:0 to key:MAX-1.
-# - The operation RPUSH key <randomvalue> is performed.
-# - Tcl remembers into an array all the values pushed to each list.
-# - After N/2 commands, the resharding process is started in background.
-# - The test continues while the resharding is in progress.
-# - At the end of the test, we wait for the resharding process to stop.
-# - Finally the keys are checked to see if they contain the value they should.
-
+# The test sends N commands to random keys and starts a background reshard
+# halfway through. Tcl records every list value so the logical and physical
+# contents can be compared after the reshard and again after process restarts.
 set numkeys 50000
 set numops 200000
-set start_node_port [get_instance_attrib redis 0 port]
+set start_node_port [srv 0 port]
 set cluster [redis_cluster 127.0.0.1:$start_node_port]
 if {$::tls} {
-    # setup a non-TLS cluster client to the TLS cluster
-    set plaintext_port [get_instance_attrib redis 0 plaintext-port]
+    # Exercise both TLS and plaintext connections to the TLS cluster.
+    set plaintext_port [srv 0 pport]
     set cluster_plaintext [redis_cluster 127.0.0.1:$plaintext_port 0]
     puts "Testing TLS cluster on start node 127.0.0.1:$start_node_port, plaintext port $plaintext_port"
 } else {
@@ -67,44 +42,37 @@ if {$::tls} {
 }
 catch {unset content}
 array set content {}
-set tribpid {}
+set reshard_pid {}
+set reshard_output [tmpfile redis-cli-reshard.log]
 
 test "Cluster consistency during live resharding" {
     set ele 0
     for {set j 0} {$j < $numops} {incr j} {
-        # Trigger the resharding once we execute half the ops.
-        if {$tribpid ne {} &&
+        if {$reshard_pid ne {} &&
             ($j % 10000) == 0 &&
-            ![process_is_running $tribpid]} {
-            set tribpid {}
+            ![is_alive $reshard_pid]} {
+            set reshard_pid {}
         }
 
-        if {$j >= $numops/2 && $tribpid eq {}} {
+        if {$j >= $numops/2 && $reshard_pid eq {}} {
             puts -nonewline "...Starting resharding..."
             flush stdout
-            set target [dict get [get_myself [randomInt 5]] id]
-            set tribpid [lindex [exec \
-                ../../../src/redis-cli --cluster reshard \
-                127.0.0.1:[get_instance_attrib redis 0 port] \
+            set target [dict get [cluster_get_myself [randomInt 5]] id]
+            set reshard_pid [lindex [exec \
+                src/redis-cli --cluster reshard \
+                127.0.0.1:[srv 0 port] \
                 --cluster-from all \
                 --cluster-to $target \
                 --cluster-slots 100 \
                 --cluster-yes \
-                {*}[rediscli_tls_config "../../../tests"] \
-                | [info nameofexecutable] \
-                ../tests/helpers/onlydots.tcl \
-                &] 0]
+                {*}[rediscli_tls_config "./tests"] \
+                > $reshard_output 2>@1 &] 0]
         }
 
-        # Write random data to random list.
         set listid [randomInt $numkeys]
         set key "key:$listid"
         incr ele
-        # We write both with Lua scripts and with plain commands.
-        # This way we are able to stress Lua -> Redis command invocation
-        # as well, that has tests to prevent Lua to write into wrong
-        # hash slots.
-        # We also use both TLS and plaintext connections.
+        # Cover direct, plaintext, and Lua-originated writes.
         if {$listid % 3 == 0} {
             $cluster rpush $key $ele
         } elseif {$listid % 3 == 1} {
@@ -115,21 +83,22 @@ test "Cluster consistency during live resharding" {
         lappend content($key) $ele
 
         if {($j % 1000) == 0} {
-            puts -nonewline W; flush stdout
+            puts -nonewline W
+            flush stdout
         }
     }
 
-    # Wait for the resharding process to end
     wait_for_condition 1000 500 {
-        [process_is_running $tribpid] == 0
+        ![is_alive $reshard_pid]
     } else {
-        fail "Resharding is not terminating after some time."
+        set fd [open $reshard_output r]
+        set output [read $fd]
+        close $fd
+        fail "Resharding did not terminate. redis-cli output:\n$output"
     }
-
 }
 
 test "Verify $numkeys keys for consistency with logical content" {
-    # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
         if {[$cluster lrange $key 0 -1] ne $value} {
             fail "Key $key expected to hold '$value' but actual content is [$cluster lrange $key 0 -1]"
@@ -138,20 +107,20 @@ test "Verify $numkeys keys for consistency with logical content" {
 }
 
 test "Terminate and restart all the instances" {
-    foreach_redis_id id {
-        # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        # Stop AOF so an initial AOFRW cannot delay process termination. The
+        # configured value is still yes, so the restarted server loads AOF.
         R $id config set appendonly no
-        kill_instance redis $id
-        restart_instance redis $id
+        cluster_kill_node $id
+        cluster_restart_node $id
     }
 }
 
 test "Cluster should eventually be up again" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Verify $numkeys keys after the restart" {
-    # Check that the Redis Cluster content matches our logical content.
     foreach {key value} [array get content] {
         if {[$cluster lrange $key 0 -1] ne $value} {
             fail "Key $key expected to hold '$value' but actual content is [$cluster lrange $key 0 -1]"
@@ -160,27 +129,27 @@ test "Verify $numkeys keys after the restart" {
 }
 
 test "Disable AOF in all the instances" {
-    foreach_redis_id id {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
         R $id config set appendonly no
     }
 }
 
-test "Verify slaves consistency" {
+test "Verify replicas consistency" {
     set verified_masters 0
-    foreach_redis_id id {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
         set role [R $id role]
-        lassign $role myrole myoffset slaves
+        lassign $role myrole myoffset replicas
         if {$myrole eq {slave}} continue
-        set masterport [get_instance_attrib redis $id port]
+        set masterport [srv -$id port]
         set masterdigest [R $id debug digest]
-        foreach_redis_id sid {
-            set srole [R $sid role]
-            if {[lindex $srole 0] eq {master}} continue
-            if {[lindex $srole 2] != $masterport} continue
+        for {set replica_id 0} {$replica_id < [llength $::servers]} {incr replica_id} {
+            set replica_role [R $replica_id role]
+            if {[lindex $replica_role 0] eq {master}} continue
+            if {[lindex $replica_role 2] != $masterport} continue
             wait_for_condition 1000 500 {
-                [R $sid debug digest] eq $masterdigest
+                [R $replica_id debug digest] eq $masterdigest
             } else {
-                fail "Master and slave data digest are different"
+                fail "Master and replica data digests are different"
             }
             incr verified_masters
         }
@@ -189,8 +158,14 @@ test "Verify slaves consistency" {
 }
 
 test "Dump sanitization was skipped for migrations" {
-    set verified_masters 0
-    foreach_redis_id id {
-        assert {[RI $id dump_payload_sanitizations] == 0}
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        assert {[s -$id dump_payload_sanitizations] == 0}
     }
 }
+
+if {$cluster_plaintext ne $cluster} {
+    $cluster_plaintext close
+}
+$cluster close
+
+} ;# start_cluster

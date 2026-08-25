@@ -2,15 +2,11 @@
 # Check that if there is a disconnection time limit, the slave will not try
 # to failover its master.
 
-source "../tests/includes/init-tests.tcl"
-
 # Create a cluster with 5 master and 5 slaves.
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "The first master has actually one slave" {
@@ -22,13 +18,13 @@ test "The first master has actually one slave" {
 }
 
 test {Slaves of #0 is instance #5 as expected} {
-    set port0 [get_instance_attrib redis 0 port]
+    set port0 [srv 0 port]
     assert {[lindex [R 5 role] 2] == $port0}
 }
 
 test "Instance #5 synced with the master" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up}
+        [s -5 master_link_status] eq {up}
     } else {
         fail "Instance #5 master link status is not up"
     }
@@ -60,7 +56,7 @@ test "Break master-slave link and prevent further reconnections" {
     assert {[R 5 read] eq {OK OK}}
 
     # Kill the master so that a reconnection will not be possible.
-    kill_instance redis 0
+    cluster_kill_node 0
 }
 
 test "Slave #5 is reachable and alive" {
@@ -69,9 +65,11 @@ test "Slave #5 is reachable and alive" {
 
 test "Slave #5 should not be able to failover" {
     after 10000
-    assert {[RI 5 role] eq {slave}}
+    assert {[s -5 role] eq {slave}}
 }
 
 test "Cluster should be down" {
-    assert_cluster_state fail
+    wait_for_cluster_state fail {0}
 }
+
+} ;# start_cluster

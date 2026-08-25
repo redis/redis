@@ -1,22 +1,18 @@
-source "../tests/includes/init-tests.tcl"
-source "../../../tests/support/cli.tcl"
-
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
 
 test "Cluster should start ok" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 proc find_non_empty_master {} {
     set master_id_no {}
-    foreach_redis_id id {
-        if {[RI $id role] eq {master} && [R $id dbsize] > 0} {
+
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        if {[s -$id role] eq {master} && [R $id dbsize] > 0} {
             set master_id_no $id
             break
         }
@@ -35,7 +31,7 @@ proc get_one_of_my_replica {id} {
 
     # To avoid -LOADING reply, wait until replica syncs with master.
     wait_for_condition 1000 50 {
-        [RI $replica_id_num master_link_status] eq {up} &&
+        [s -$replica_id_num master_link_status] eq {up} &&
         [R $replica_id_num dbsize] eq [R $id dbsize]
     } else {
         fail "Replica did not sync in time."
@@ -45,7 +41,7 @@ proc get_one_of_my_replica {id} {
 
 proc cluster_write_keys_with_expire {id ttl} {
     set prefix [randstring 20 20 alpha]
-    set port [get_instance_attrib redis $id port]
+    set port [srv -$id port]
     set cluster [redis_cluster 127.0.0.1:$port]
     for {set j 100} {$j < 200} {incr j} {
         $cluster setex key_expire.$j $ttl $prefix.$j
@@ -78,7 +74,7 @@ proc test_slave_load_expired_keys {aof} {
 
         # wait for replica to be in sync with master
         wait_for_condition 500 10 {
-            [RI $replica_id master_link_status] eq {up} &&
+            [s -$replica_id master_link_status] eq {up} &&
             [R $replica_id dbsize] eq [R $master_id dbsize]
         } else {
             fail "replica didn't sync"
@@ -90,10 +86,11 @@ proc test_slave_load_expired_keys {aof} {
         # make replica create persistence file
         if {$aof == "yes"} {
             # we need to wait for the initial AOFRW to be done, otherwise
-            # kill_instance (which now uses SIGTERM will fail ("Writing initial AOF, can't exit")
+            # cluster_kill_node (which uses SIGTERM) will fail
+            # ("Writing initial AOF, can't exit")
             wait_for_condition 100 10 {
-                [RI $replica_id aof_rewrite_scheduled] eq 0 &&
-                [RI $replica_id aof_rewrite_in_progress] eq 0
+                [s -$replica_id aof_rewrite_scheduled] eq 0 &&
+                [s -$replica_id aof_rewrite_in_progress] eq 0
             } else {
                 fail "AOFRW didn't finish"
             }
@@ -102,7 +99,7 @@ proc test_slave_load_expired_keys {aof} {
         }
 
         # kill the replica (would stay down until re-started)
-        kill_instance redis $replica_id
+        cluster_kill_node $replica_id
 
         # Make sure the master doesn't do active expire (sending DELs to the replica)
         R $master_id DEBUG SET-ACTIVE-EXPIRE 0
@@ -111,7 +108,7 @@ proc test_slave_load_expired_keys {aof} {
         after [expr $data_ttl*1000]
 
         # start the replica again (loading an RDB or AOF file)
-        restart_instance redis $replica_id
+        cluster_restart_node $replica_id
 
         # Replica may start a full sync after restart, trying in a loop to avoid
         # -LOADING reply in that case.
@@ -129,7 +126,7 @@ proc test_slave_load_expired_keys {aof} {
 
         # wait for the master to expire all keys and replica to get the DELs
         wait_for_condition 500 10 {
-            [RI $replica_id master_link_status] eq {up} &&
+            [s -$replica_id master_link_status] eq {up} &&
             [R $replica_id dbsize] eq $master_dbsize_0
         } else {
             fail "keys didn't expire"
@@ -139,3 +136,5 @@ proc test_slave_load_expired_keys {aof} {
 
 test_slave_load_expired_keys no
 test_slave_load_expired_keys yes
+
+} ;# start_cluster

@@ -1,21 +1,19 @@
 # Check that the no-failover option works
 
-source "../tests/includes/init-tests.tcl"
+source tests/support/cluster.tcl
 
-test "Create a 5 nodes cluster" {
-    create_cluster 5 5
-}
+start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 test "Instance #5 is a slave" {
-    assert {[RI 5 role] eq {slave}}
+    assert {[s -5 role] eq {slave}}
 
     # Configure it to never failover the master
     R 5 CONFIG SET cluster-slave-no-failover yes
@@ -23,39 +21,39 @@ test "Instance #5 is a slave" {
 
 test "Instance #5 synced with the master" {
     wait_for_condition 1000 50 {
-        [RI 5 master_link_status] eq {up}
+        [s -5 master_link_status] eq {up}
     } else {
         fail "Instance #5 master link status is not up"
     }
 }
 
 test "The nofailover flag is propagated" {
-    set slave5_id [dict get [get_myself 5] id]
+    set slave5_id [dict get [cluster_get_myself 5] id]
 
-    foreach_redis_id id {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
         wait_for_condition 1000 50 {
-            [has_flag [get_node_by_id $id $slave5_id] nofailover]
+            [cluster_has_flag [cluster_get_node_by_id $j $slave5_id] nofailover]
         } else {
-            fail "Instance $id can't see the nofailover flag of slave"
+            fail "Instance $j can't see the nofailover flag of slave"
         }
     }
 }
 
-set current_epoch [CI 1 cluster_current_epoch]
-
 test "Killing one master node" {
-    kill_instance redis 0
+    cluster_kill_node 0
 }
 
 test "Cluster should be still down after some time" {
     after 10000
-    assert_cluster_state fail
+    wait_for_cluster_state fail {0}
 }
 
 test "Instance #5 is still a slave" {
-    assert {[RI 5 role] eq {slave}}
+    assert {[s -5 role] eq {slave}}
 }
 
 test "Restarting the previously killed master node" {
-    restart_instance redis 0
+    cluster_restart_node 0
 }
+
+} ;# start_cluster

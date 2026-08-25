@@ -236,6 +236,16 @@ proc redis_client {args} {
     return $client
 }
 
+proc redis_deferring_client_by_addr {host port} {
+    set client [redis $host $port 1 $::tls]
+    return $client
+}
+
+proc redis_client_by_addr {host port} {
+    set client [redis $host $port 0 $::tls]
+    return $client
+}
+
 # Provide easy access to INFO properties. Same semantic as "proc r".
 proc s {args} {
     set level 0

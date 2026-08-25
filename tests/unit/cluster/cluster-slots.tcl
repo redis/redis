@@ -1,39 +1,27 @@
-source "../tests/includes/init-tests.tcl"
-
-proc cluster_allocate_mixedSlots {n} {
+proc cluster_allocate_mixedSlots {masters replicas} {
     set slot 16383
     while {$slot >= 0} {
-        set node [expr {$slot % $n}]
+        set node [expr {$slot % $masters}]
         lappend slots_$node $slot
         incr slot -1
     }
-    for {set j 0} {$j < $n} {incr j} {
+    for {set j 0} {$j < $masters} {incr j} {
         R $j cluster addslots {*}[set slots_${j}]
     }
 }
 
-proc create_cluster_with_mixedSlot {masters slaves} {
-    cluster_allocate_mixedSlots $masters
-    if {$slaves} {
-        cluster_allocate_slaves $masters $slaves
-    }
-    assert_cluster_state ok
-}
-
-test "Create a 5 nodes cluster" {
-    create_cluster_with_mixedSlot 5 15
-}
+start_cluster 5 15 {tags {external:skip cluster valgrind:skip}} {
 
 test "Cluster is up" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Cluster is writable" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 test "Instance #5 is a slave" {
-    assert {[RI 5 role] eq {slave}}
+    assert {[s -5 role] eq {slave}}
 }
 
 test "client do not break when cluster slot" {
@@ -44,13 +32,13 @@ test "client do not break when cluster slot" {
 }
 
 test "client can handle keys with hash tag" {
-    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
     $cluster set foo{tag} bar
     $cluster close
 }
 
 test "slot migration is valid from primary to another primary" {
-    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
     set key order1
     set slot [$cluster cluster keyslot $key]
     array set nodefrom [$cluster masternode_for_slot $slot]
@@ -58,19 +46,20 @@ test "slot migration is valid from primary to another primary" {
 
     assert_equal {OK} [$nodefrom(link) cluster setslot $slot node $nodeto(id)]
     assert_equal {OK} [$nodeto(link) cluster setslot $slot node $nodeto(id)]
+    $cluster close
 }
 
 test "Client unblocks after slot migration from one primary to another" {
-    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
     set key mystream
     set slot [$cluster cluster keyslot $key]
     array set nodefrom [$cluster masternode_for_slot $slot]
     array set nodeto [$cluster masternode_notfor_slot $slot]
 
-    # Create a stream group on the source node
-    $nodefrom(link) XGROUP CREATE $key mygroup $ MKSTREAM 
+    # Create a stream group on the source node.
+    $nodefrom(link) XGROUP CREATE $key mygroup $ MKSTREAM
 
-    # block another client on xreadgroup
+    # Block another client on XREADGROUP.
     set rd [redis_deferring_client_by_addr $nodefrom(host) $nodefrom(port)]
     $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS $key ">"
     wait_for_condition 1000 50 {
@@ -79,29 +68,29 @@ test "Client unblocks after slot migration from one primary to another" {
         fail "client wasn't blocked"
     }
 
-    # Start slot migration from the source node to the target node.
-    # Because the `unblock_on_nokey` option of xreadgroup is set to 1, the client
-    # will be unblocked when the key `mystream` is migrated.
+    # Migrating the stream deletes it from the source. XREADGROUP's
+    # unblock_on_nokey behavior must release the blocked client.
     assert_equal {OK} [$nodefrom(link) CLUSTER SETSLOT $slot MIGRATING $nodeto(id)]
     assert_equal {OK} [$nodeto(link) CLUSTER SETSLOT $slot IMPORTING $nodefrom(id)]
     $nodefrom(link) MIGRATE $nodeto(host) $nodeto(port) $key 0 5000
+    $rd close
+    $cluster close
 }
 
 test "slot migration is invalid from primary to replica" {
-    set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
+    set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
     set key order1
     set slot [$cluster cluster keyslot $key]
     array set nodefrom [$cluster masternode_for_slot $slot]
 
     # Get replica node serving slot.
     set replicanodeinfo [$cluster cluster replicas $nodefrom(id)]
-    puts $replicanodeinfo
     set args [split $replicanodeinfo " "]
     set replicaid [lindex [split [lindex $args 0] \{] 1]
-    puts $replicaid
 
     catch {[$nodefrom(link) cluster setslot $slot node $replicaid]} err
     assert_match "*Target node is not a master" $err
+    $cluster close
 }
 
 proc count_bound_slots {n} {
@@ -144,8 +133,8 @@ proc count_bound_slots {n} {
 if {$::tls} {
     test {CLUSTER SLOTS from non-TLS client in TLS cluster} {
         set slots_tls [R 0 cluster slots]
-        set host [get_instance_attrib redis 0 host]
-        set plaintext_port [get_instance_attrib redis 0 plaintext-port]
+        set host [srv 0 host]
+        set plaintext_port [srv 0 pport]
         set client_plain [redis $host $plaintext_port 0 0]
         set slots_plain [$client_plain cluster slots]
         $client_plain close
@@ -153,3 +142,5 @@ if {$::tls} {
         assert_no_match [lindex $slots_tls 0 3 1] [lindex $slots_plain 0 3 1]
     }
 }
+
+} cluster_allocate_mixedSlots cluster_allocate_replicas ;# start_cluster

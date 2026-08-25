@@ -1,20 +1,74 @@
 # Check the basic monitoring and failover capabilities.
 
-source "../tests/includes/init-tests.tcl"
+# make sure the test infra won't use SELECT
+set old_singledb $::singledb
+set ::singledb 1
 
-if {$::simulate_error} {
-    test "This test will fail" {
-        fail "Simulated error"
+tags {external:skip cluster valgrind:skip} {
+
+set base_conf [list cluster-enabled yes]
+start_multiple_servers 5 [list overrides $base_conf] {
+
+test "Cluster nodes are reachable" {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        # Every node should be reachable.
+        wait_for_condition 1000 50 {
+            ([catch {R $id ping} ping_reply] == 0) &&
+            ($ping_reply eq {PONG})
+        } else {
+            catch {R $id ping} err
+            fail "Node #$id keeps replying '$err' to PING."
+        }
     }
+}
+
+test "Cluster nodes hard reset" {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
+        if {$::valgrind} {
+            set node_timeout 10000
+        } else {
+            set node_timeout 3000
+        }
+        catch {R $id flushall} ; # May fail for readonly slaves.
+        R $id MULTI
+        R $id cluster reset hard
+        R $id cluster set-config-epoch [expr {$id+1}]
+        R $id EXEC
+        R $id config set cluster-node-timeout $node_timeout
+        R $id config set cluster-slave-validity-factor 10
+        R $id config set loading-process-events-interval-bytes 2097152
+        R $id config set key-load-delay 0
+        R $id config set repl-diskless-load disabled
+        R $id config set cluster-announce-hostname ""
+        R $id DEBUG DROP-CLUSTER-PACKET-FILTER -1
+        R $id config rewrite
+    }
+}
+
+test "Cluster Join and auto-discovery test" {
+    # Use multiple attempts since sometimes nodes timeout
+    # while attempting to connect.
+    for {set attempts 3} {$attempts > 0} {incr attempts -1} {
+        if {[join_nodes_in_cluster] == 1} {
+            break
+        }
+    }
+    if {$attempts == 0} {
+        fail "Cluster failed to form full mesh"
+    }
+}
+
+test "Before slots allocation, all nodes report cluster failure" {
+    wait_for_cluster_state fail
 }
 
 test "Different nodes have different IDs" {
     set ids {}
     set numnodes 0
-    foreach_redis_id id {
+    for {set id 0} {$id < [llength $::servers]} {incr id} {
         incr numnodes
         # Every node should just know itself.
-        set nodeid [dict get [get_myself $id] id]
+        set nodeid [dict get [cluster_get_myself $id] id]
         assert {$nodeid ne {}}
         lappend ids $nodeid
     }
@@ -23,7 +77,7 @@ test "Different nodes have different IDs" {
 }
 
 test "It is possible to perform slot allocation" {
-    cluster_allocate_slots 5
+    cluster_allocate_slots 5 0
 }
 
 test "After the join, every node gets a different config epoch" {
@@ -31,7 +85,7 @@ test "After the join, every node gets a different config epoch" {
     while {[incr trynum -1] != 0} {
         # We check that this condition is true for *all* the nodes.
         set ok 1 ; # Will be set to 0 every time a node is not ok.
-        foreach_redis_id id {
+        for {set id 0} {$id < [llength $::servers]} {incr id} {
             set epochs {}
             foreach n [get_cluster_nodes $id] {
                 lappend epochs [dict get $n config_epoch]
@@ -51,7 +105,7 @@ test "After the join, every node gets a different config epoch" {
 }
 
 test "Nodes should report cluster_state is ok now" {
-    assert_cluster_state ok
+    wait_for_cluster_state ok
 }
 
 test "Sanity for CLUSTER COUNTKEYSINSLOT" {
@@ -60,19 +114,19 @@ test "Sanity for CLUSTER COUNTKEYSINSLOT" {
 }
 
 test "It is possible to write and read from the cluster" {
-    cluster_write_test 0
+    cluster_write_test [srv 0 port]
 }
 
 test "CLUSTER RESET SOFT test" {
-    set last_epoch_node0 [get_info_field [R 0 cluster info] cluster_current_epoch]
+    set last_epoch_node0 [CI 0 cluster_current_epoch]
     R 0 FLUSHALL
     R 0 CLUSTER RESET
-    assert {[get_info_field [R 0 cluster info] cluster_current_epoch] eq $last_epoch_node0}
+    assert {[CI 0 cluster_current_epoch] eq $last_epoch_node0}
 
-    set last_epoch_node1 [get_info_field [R 1 cluster info] cluster_current_epoch]
+    set last_epoch_node1 [CI 1 cluster_current_epoch]
     R 1 FLUSHALL
     R 1 CLUSTER RESET SOFT
-    assert {[get_info_field [R 1 cluster info] cluster_current_epoch] eq $last_epoch_node1}
+    assert {[CI 1 cluster_current_epoch] eq $last_epoch_node1}
 }
 
 test "Coverage: CLUSTER HELP" {
@@ -91,3 +145,9 @@ test "CLUSTER SLAVES and CLUSTER REPLICAS with zero replicas" {
 test "CLUSTER FORGET with invalid node ID" {
     assert_error {*ERR Unknown node*} {R 0 cluster forget 1}
 }
+
+} ;# stop servers
+
+} ;# tags
+
+set ::singledb $old_singledb
