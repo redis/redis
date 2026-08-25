@@ -544,7 +544,8 @@ lcov:
 	@lcov --version
 	$(MAKE) gcov
 	@(set -e; cd ..; ./runtest)
-	@#geninfo_unexecuted_blocks=1 count partially executed lines as uncovered. May lower coverage but gives a strict result
+	# geninfo_unexecuted_blocks=1 count partially executed lines as uncovered.
+	# May lower coverage but gives a strict result
 	@geninfo --rc geninfo_unexecuted_blocks=1 -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
 
