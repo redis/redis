@@ -18,13 +18,9 @@ static char monotonic_info_string[32];
  * paths (e.g. an unconfirmed TSC rate, a missing 'constant_tsc' flag). Not
  * written directly to stderr: this file is linked into every binary
  * (redis-server, redis-cli, redis-check-aof, ...), and some callers treat
- * any child stderr as failure. Unset (NULL) by default; the server registers
- * one via monotonicSetLogger(), same pattern as zmalloc_set_oom_handler(). */
+ * any child stderr as failure. Set via monotonicInit()'s argument; NULL
+ * (the default) discards these notes. */
 static void (*monotonic_logger)(const char *msg) = NULL;
-
-void monotonicSetLogger(void (*logger)(const char *msg)) {
-    monotonic_logger = logger;
-}
 
 static void monotonicLog(const char *fmt, ...) {
     if (!monotonic_logger) return;
@@ -395,7 +391,13 @@ static void monotonicInit_posix(void) {
 
 
 
-const char * monotonicInit(void) {
+const char * monotonicInit(void (*logger)(const char *msg)) {
+    /* Only the first call (the one that actually runs detection) sets the
+     * logger -- matches this function's existing "may be called additional
+     * times without impact" contract, and avoids a later no-op call (e.g.
+     * ae.c's fallback) clobbering the logger a prior caller registered. */
+    if (getMonotonicUs == NULL) monotonic_logger = logger;
+
     #if defined(__x86_64__) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif

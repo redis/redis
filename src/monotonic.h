@@ -32,19 +32,19 @@ typedef enum monotonic_clock_type {
 /* Call once at startup to initialize the monotonic clock.  Though this only
  * needs to be called once, it may be called additional times without impact.
  * Returns a printable string indicating the type of clock initialized.
- * (The returned string is static and doesn't need to be freed.)  */
-const char *monotonicInit(void);
+ * (The returned string is static and doesn't need to be freed.)
+ *
+ * 'logger', if non-NULL, is invoked with a one-line note for anything found
+ * on the clock detection/calibration fallback paths (e.g. an unconfirmed TSC
+ * rate). Not written directly to stderr by monotonic.c itself, since some
+ * callers (this file is linked into every binary) treat any child stderr as
+ * failure. Pass NULL to discard these notes -- e.g. the server passes a
+ * wrapper around serverLog(), other callers pass NULL. Only the first call
+ * (the one that runs detection) uses 'logger'; later calls ignore it. */
+const char *monotonicInit(void (*logger)(const char *msg));
 
 /* Return a string indicating the type of monotonic clock being used. */
 const char *monotonicInfoString(void);
-
-/* Register a callback for notes from the clock detection/calibration
- * fallback paths (e.g. an unconfirmed TSC rate). Not written directly to
- * stderr by monotonic.c itself, since some callers (this file is linked
- * into every binary) treat any child stderr as failure. Pass NULL (the
- * default) to discard these notes -- e.g. the server registers one via
- * serverLog(), matching zmalloc_set_oom_handler()'s callback pattern. */
-void monotonicSetLogger(void (*logger)(const char *msg));
 
 /* Return the type of monotonic clock being used. */
 monotonic_clock_type monotonicGetType(void);
