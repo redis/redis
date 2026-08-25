@@ -3,7 +3,7 @@
 # iterations. The test checks that certain properties
 # are preserved across iterations.
 
-start_cluster 5 5 {tags {external:skip cluster slow} overrides {appendonly yes appendfsync no}} {
+start_cluster 5 5 {tags {external:skip cluster slow valgrind:skip} overrides {appendonly yes appendfsync no}} {
 
 test "Enable AOF in all the instances" {
     for {set id 0} {$id < [llength $::servers]} {incr id} {
