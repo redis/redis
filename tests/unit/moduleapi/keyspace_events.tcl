@@ -363,8 +363,6 @@ tags "modules external:skip" {
                 r bitfield stringdel_bitfield_fail overflow fail set u8 72 256
                 assert_equal 0 [r exists stringdel_bitfield_fail]
             }
-
-            # Future callback-ordering tests for other commands can be placed here.
         }
     }
 
