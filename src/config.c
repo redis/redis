@@ -1068,6 +1068,7 @@ struct rewriteConfigState {
     int force_write;      /* True if we want all keywords to be force
                              written. Currently only used for testing
                              and debug information. */
+    mode_t file_mode;     /* Config file mode to use on rewrite. */
 };
 
 /* Free the configuration rewrite state. */
@@ -1087,6 +1088,7 @@ struct rewriteConfigState *rewriteConfigCreateState(void) {
     state->lines = NULL;
     state->needs_signature = 1;
     state->force_write = 0;
+    state->file_mode = 0644 & ~server.umask;
     return state;
 }
 
@@ -1138,6 +1140,7 @@ struct rewriteConfigState *rewriteConfigReadOldFile(char *path) {
     if (fp == NULL) {
         return state;
     }
+    state->file_mode = sb.st_mode & 0777;
 
     if (sb.st_size == 0) {
         fclose(fp);
@@ -1697,7 +1700,7 @@ sds getConfigDebugInfo(void) {
  *
  * The function returns 0 on success, otherwise -1 is returned and errno
  * is set accordingly. */
-int rewriteConfigOverwriteFile(char *configfile, sds content) {
+int rewriteConfigOverwriteFile(char *configfile, sds content, mode_t file_mode) {
     int fd = -1;
     int retval = -1;
     char tmp_conffile[PATH_MAX];
@@ -1737,7 +1740,7 @@ int rewriteConfigOverwriteFile(char *configfile, sds content) {
 
     if (fsync(fd))
         serverLog(LL_WARNING, "Could not sync tmp config file to disk (%s)", strerror(errno));
-    else if (fchmod(fd, 0644 & ~server.umask) == -1)
+    else if (fchmod(fd, file_mode) == -1)
         serverLog(LL_WARNING, "Could not chmod config file (%s)", strerror(errno));
     else if (rename(tmp_conffile, configfile) == -1)
         serverLog(LL_WARNING, "Could not rename tmp config file (%s)", strerror(errno));
@@ -1804,7 +1807,7 @@ int rewriteConfig(char *path, int force_write) {
     /* Step 4: generate a new configuration file from the modified state
      * and write it into the original file. */
     newcontent = rewriteConfigGetContentFromState(state);
-    retval = rewriteConfigOverwriteFile(path, newcontent);
+    retval = rewriteConfigOverwriteFile(path, newcontent, state->file_mode);
 
     sdsfree(newcontent);
     rewriteConfigReleaseState(state);
