@@ -10,7 +10,7 @@ proc cluster_allocate_mixedSlots {masters replicas} {
     }
 }
 
-start_cluster 5 15 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 15 {tags {external:skip cluster} overrides {cluster-node-timeout 60000}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok

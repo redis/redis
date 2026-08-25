@@ -1,6 +1,6 @@
 # Test PUBLISH propagation across the cluster.
 
-start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 proc test_cluster_publish {instance instances} {
     # Subscribe all the instances but the one we use to send.

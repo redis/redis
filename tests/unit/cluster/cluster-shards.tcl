@@ -29,7 +29,7 @@ proc cluster_shards_get_node_info {node_id reference {type node}} {
 
 # The legacy runner provided a pool of 20 servers. Only nodes 0-7 initially
 # belong to the four shards; nodes 8-19 remain unassigned for later tests.
-start_cluster 4 4 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 4 4 {tags {external:skip cluster} overrides {cluster-allow-replica-migration no}} {
 
 test "Cluster should start ok" {
     wait_for_cluster_state ok

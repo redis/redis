@@ -1,5 +1,5 @@
 # Check the manual failover
-start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok
@@ -92,7 +92,7 @@ test "Instance #0 gets converted into a slave" {
 } ;# start_cluster
 
 ## Check that manual failover does not happen if we can't talk with the master.
-start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok
@@ -136,7 +136,7 @@ test "Wait for instance #0 to return back alive" {
 } ;# start_cluster
 
 ## Check with "force" failover happens anyway.
-start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok

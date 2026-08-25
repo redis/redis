@@ -1,6 +1,6 @@
 # Manual takeover test
 
-start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok

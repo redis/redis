@@ -3,7 +3,7 @@
 
 # Create a cluster with 5 master and 10 slaves, so that we have 2
 # slaves for each master.
-start_cluster 5 10 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 10 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok
@@ -109,7 +109,7 @@ test "Node #10 should eventually replicate node #5" {
 
 # Create a cluster with 3 master and 15 slaves, so that we have 5
 # slaves for each master.
-start_cluster 3 15 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 3 15 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok

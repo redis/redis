@@ -2,7 +2,7 @@
 # In this test a different node is killed in a loop for N iterations. The test
 # checks that certain properties are preserved across iterations.
 
-start_cluster 5 5 {tags {external:skip cluster valgrind:skip} overrides {appendonly yes}} {
+start_cluster 5 5 {tags {external:skip cluster} overrides {appendonly yes}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok

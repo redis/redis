@@ -3,7 +3,7 @@
 # to failover its master.
 
 # Create a cluster with 5 master and 5 slaves.
-start_cluster 5 5 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 5 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok

@@ -1,6 +1,6 @@
 # Check that replica keys and keys to slots map are right after failing to diskless load using SWAPDB.
 
-start_cluster 1 1 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
 
 test "Cluster should start ok" {
     wait_for_cluster_state ok

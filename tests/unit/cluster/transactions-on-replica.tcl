@@ -1,6 +1,6 @@
 # Check basic transactions on a replica.
 
-start_cluster 1 1 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
 
 test "Cluster should start ok" {
     wait_for_cluster_state ok

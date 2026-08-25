@@ -3,7 +3,7 @@
 source tests/support/cluster.tcl
 
 # Start a cluster with 3 masters and 3 replicas.
-start_cluster 3 3 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 3 3 {tags {external:skip cluster}} {
 
 set cluster [redis_cluster 127.0.0.1:[srv 0 port]]
 

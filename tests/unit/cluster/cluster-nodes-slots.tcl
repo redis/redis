@@ -1,6 +1,6 @@
 # Optimize CLUSTER NODES command by generating all nodes slot topology firstly
 
-start_cluster 2 2 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 2 2 {tags {external:skip cluster}} {
 
 test "Cluster should start ok" {
     wait_for_cluster_state ok

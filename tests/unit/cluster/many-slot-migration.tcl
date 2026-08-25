@@ -9,7 +9,7 @@ if {false} {
 # happen on lower-end CI platforms) are still not handled properly by the
 # cluster during slot migration (related to #6339).
 
-start_cluster 10 0 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 10 0 {tags {external:skip cluster}} {
     config_set_all_nodes cluster-allow-replica-migration no
 
 test "Cluster is up" {

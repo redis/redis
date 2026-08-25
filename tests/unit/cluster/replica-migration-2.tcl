@@ -6,7 +6,7 @@
 
 # Use three replicas per master so that no master is empty and rebalancing is
 # easier to reason about during the test.
-start_cluster 5 15 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 15 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok

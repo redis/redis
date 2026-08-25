@@ -4,7 +4,7 @@
 set old_singledb $::singledb
 set ::singledb 1
 
-tags {external:skip cluster valgrind:skip} {
+tags {external:skip cluster} {
 
 set base_conf [list cluster-enabled yes]
 start_multiple_servers 5 [list overrides $base_conf] {

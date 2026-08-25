@@ -4,7 +4,7 @@
 
 # Create a cluster with 5 masters and 10 replicas, so that each master has 2
 # replicas.
-start_cluster 5 10 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 10 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok
@@ -42,7 +42,7 @@ for {set id 0} {$id < 5} {incr id} {
 
 # Test migration to a master that used to be a replica before a failover. Use
 # a fresh cluster, matching the reset performed by the legacy test.
-start_cluster 5 10 {tags {external:skip cluster valgrind:skip}} {
+start_cluster 5 10 {tags {external:skip cluster}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok
