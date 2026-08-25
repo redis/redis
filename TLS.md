@@ -126,24 +126,8 @@ Notes:
 * Multiple names may be supplied as a single space-separated value (quote it in
   the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
   a match against any one of them succeeds.
-* Wildcards are matched from the **certificate**, not from this option. A
-  certificate whose SAN is a full-label wildcard (`*.example.com`) matches a
-  concrete name configured here (`node.example.com`); a partial-label wildcard in
-  the certificate (`f*.example.com`) never matches. Configuring a wildcard as the
-  expected name does not perform wildcard matching.
-* Every configured name must be a concrete host name. A name beginning with a dot
-  (`.example.com`) is an OpenSSL *parent-domain* pattern matching subdomains at
-  **any depth** — `.example.com` also accepts `a.b.example.com`, and `.com`
-  accepts every name in that TLD — which is much broader than pinning the hosts
-  you intend to allow. Such entries are rejected unless
-  `tls-expected-peer-name-allow-parent-domain` is enabled (default `no`). The two
-  options are validated together, so their order does not matter in a config file
-  or within a single `CONFIG SET`; across separate `CONFIG SET` commands it does —
-  enable the option before configuring a parent-domain name, and clear or change
-  the name before disabling the option again. Enabling it does not otherwise
-  change matching: parent-domain entries then behave exactly as OpenSSL defines
-  them, i.e. any depth. To keep the scope tight, prefer a deeper parent
-  (`.dc1.example.com`) or list several names rather than a short suffix.
+* Full-label wildcards (`*.example.com`) match; partial-label wildcards
+  (`f*.example.com`) do not.
 * The option is opt-in and defaults to unset (no peer-name check), preserving the
   previous behavior.
 * It does **not** apply to ordinary client connections on the data port, whose

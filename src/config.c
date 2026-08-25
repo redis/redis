@@ -26,9 +26,6 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
-/* Defined further below, but used by loadServerConfigFromString()'s sanity checks. */
-static const char *tlsCheckExpectedPeerNameConfig(void);
-
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
  *----------------------------------------------------------------------------*/
@@ -628,12 +625,6 @@ void loadServerConfigFromString(char *config) {
         err = "replicaof directive not allowed in cluster mode";
         goto loaderr;
     }
-
-    /* Checked here, once every directive has been parsed, so that the result does
-     * not depend on the order tls-expected-peer-name and
-     * tls-expected-peer-name-allow-parent-domain appear in, and so that an invalid
-     * combination is reported even when TLS is not enabled. */
-    if ((err = tlsCheckExpectedPeerNameConfig()) != NULL) goto loaderr;
 
     /* in case cluster mode is enabled dbnum must be 1 */
     if (server.cluster_enabled && server.dbnum > 1) {
@@ -2832,21 +2823,6 @@ int updateClusterHumanNodename(const char **err) {
     return 1;
 }
 
-/* Return 1 if any of the space-separated names in val is a parent-domain pattern,
- * i.e. begins with a dot (".example.com"). OpenSSL treats such a name as a suffix
- * that matches subdomains at any depth -- ".example.com" also matches
- * a.b.example.com, and ".com" matches every name in the TLD -- which is far broader
- * than pinning explicit hosts, so it is opt-in. */
-static int tlsPeerNameHasParentDomain(const char *val) {
-    int at_token_start = 1;
-    for (const char *p = val; *p; p++) {
-        if (*p == ' ') { at_token_start = 1; continue; }
-        if (at_token_start && *p == '.') return 1;
-        at_token_start = 0;
-    }
-    return 0;
-}
-
 /* Validate tls-expected-peer-name at config time (startup and CONFIG SET). An
  * empty value clears the option and is always allowed. A non-empty value must
  * carry at least one usable name token and must not contain embedded whitespace
@@ -2879,46 +2855,6 @@ static int isValidTlsExpectedPeerName(char *val, const char **err) {
         return 0;
     }
 
-    /* Note: whether a parent-domain entry is permitted depends on
-     * tls-expected-peer-name-allow-parent-domain, which is a different config and
-     * may not have been parsed yet. That combination is therefore checked once the
-     * whole configuration is in place; see tlsCheckExpectedPeerNameConfig(). */
-    return 1;
-}
-
-/* Check the tls-expected-peer-name / tls-expected-peer-name-allow-parent-domain
- * combination. Returns NULL when consistent, otherwise a message describing the
- * problem.
- *
- * A name beginning with a dot is an OpenSSL parent-domain pattern that matches
- * subdomains at any depth, so it requires an explicit opt-in. Because this spans
- * two configs, it cannot be validated from either one's is_valid_fn: those run
- * while the configuration is still being parsed, which would make the result
- * depend on the order the two directives appear in (including the order
- * CONFIG REWRITE happens to emit them). It is instead called from places that run
- * after all values are in place: the post-load sanity checks in
- * loadServerConfigFromString(), and the apply callback shared by both configs. */
-static const char *tlsCheckExpectedPeerNameConfig(void) {
-    const char *name = server.tls_ctx_config.expected_peer_name;
-    if (!name || !name[0]) return NULL;
-    if (server.tls_ctx_config.expected_peer_name_allow_parent_domain) return NULL;
-    if (!tlsPeerNameHasParentDomain(name)) return NULL;
-    return "tls-expected-peer-name has an entry starting with '.', which matches "
-           "subdomains at any depth; enable "
-           "tls-expected-peer-name-allow-parent-domain to permit it";
-}
-
-/* Apply callback shared by tls-expected-peer-name and
- * tls-expected-peer-name-allow-parent-domain. It only validates the resulting
- * combination -- it deliberately does not reconfigure TLS, since neither option
- * is an input to the SSL_CTX. Runs after every value in a CONFIG SET has been
- * stored, so the two can be set in either order. */
-static int applyTlsExpectedPeerName(const char **err) {
-    const char *msg = tlsCheckExpectedPeerNameConfig();
-    if (msg) {
-        *err = msg;
-        return 0;
-    }
     return 1;
 }
 
@@ -3592,8 +3528,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-groups", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.groups, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, applyTlsExpectedPeerName),
-    createBoolConfig("tls-expected-peer-name-allow-parent-domain", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.expected_peer_name_allow_parent_domain, 0, NULL, applyTlsExpectedPeerName),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
