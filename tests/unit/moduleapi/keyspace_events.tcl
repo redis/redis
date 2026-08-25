@@ -339,6 +339,35 @@ tags "modules external:skip" {
         }
     }
 
+    # Keep callback-ordering regression tests in a dedicated server because
+    # they enable the keysizes histogram assertion. Future tests for other
+    # commands can share this isolated server without leaking that state.
+    start_server [list overrides [list loadmodule "$testmodule" enable-debug-command yes]] {
+        tags {"modules" "regression"} {
+            test "SETBIT and BITFIELD should update keysizes before module callbacks" {
+                # Enable keysizes histogram assertion for this isolated server.
+                r DEBUG KEYSIZES-HIST-ASSERT 1
+
+                # SETBIT callback deletion.
+                r set stringdel_setbit x
+                r setbit stringdel_setbit 16 1
+                assert_equal 0 [r exists stringdel_setbit]
+
+                # BITFIELD SET callback deletion.
+                r set stringdel_bitfield x
+                r bitfield stringdel_bitfield set u8 16 1
+                assert_equal 0 [r exists stringdel_bitfield]
+
+                # BITFIELD OVERFLOW FAIL still grows the string before rejecting the write.
+                r set stringdel_bitfield_fail x
+                r bitfield stringdel_bitfield_fail overflow fail set u8 72 256
+                assert_equal 0 [r exists stringdel_bitfield_fail]
+            }
+
+            # Future callback-ordering tests for other commands can be placed here.
+        }
+    }
+
     # Replication test: replica module receives subkey notifications
     start_server [list overrides [list loadmodule "$testmodule"]] {
         set master [srv 0 client]
