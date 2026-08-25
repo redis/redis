@@ -3048,6 +3048,7 @@ void initServer(void) {
      * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
     server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);
     server.replication_allowed = 1;
+    server.call_propagation_flags = PROPAGATE_AOF|PROPAGATE_REPL;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
@@ -3795,6 +3796,14 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
     robj **argvcopy;
     int j;
 
+    /* Honor the propagation flags of the innermost active call(), so that
+     * selective propagation (e.g. redis.set_repl() in scripts, or RM_Call
+     * flags in modules) applies to commands queued here exactly like it
+     * applies to the verbatim propagation done by call(). CMD_CALL_PROPAGATE_*
+     * and PROPAGATE_* are numerically identical. Outside of call() the mask
+     * is full (set at startup and restored by call()). */
+    target &= server.call_propagation_flags;
+
     if (!shouldPropagate(target))
         return;
 
@@ -3892,10 +3901,19 @@ static void propagatePendingCommands(void) {
         transaction = 0;
     }
 
+    /* The targets of the MULTI/EXEC wrapper are the union of the targets of
+     * the queued commands, so that, e.g., when all the queued commands were
+     * restricted to the AOF by selective propagation (redis.set_repl()), the
+     * wrapper is not sent to the replicas as an empty transaction. */
+    int transaction_target = PROPAGATE_NONE;
+    for (j = 0; j < server.also_propagate.numops; j++) {
+        transaction_target |= server.also_propagate.ops[j].target;
+    }
+
     if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
-        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.multi,1,transaction_target);
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
@@ -3906,7 +3924,7 @@ static void propagatePendingCommands(void) {
 
     if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
-        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.exec,1,transaction_target);
     }
 
     redisOpArrayFree(&server.also_propagate);
@@ -4017,6 +4035,13 @@ void call(client *c, int flags) {
     struct redisCommand *real_cmd = c->realcmd;
     client *prev_client = server.executing_client;
     server.executing_client = c;
+
+    /* Restrict alsoPropagate() targets (see alsoPropagate()) to what this
+     * call() is allowed to propagate. CMD_CALL_PROPAGATE_* and PROPAGATE_*
+     * are numerically identical. Restore before returning, since call() can
+     * be executed recursively. */
+    int prev_call_propagation_flags = server.call_propagation_flags;
+    server.call_propagation_flags = flags & CMD_CALL_PROPAGATE;
 
     /* When call() is issued during loading the AOF we don't want commands called
      * from module, exec or LUA to go into the slowlog or to populate statistics. */
@@ -4288,6 +4313,7 @@ void call(client *c, int flags) {
     }
 
     server.executing_client = prev_client;
+    server.call_propagation_flags = prev_call_propagation_flags;
 }
 
 /* Used when a command that is ready for execution needs to be rejected, due to

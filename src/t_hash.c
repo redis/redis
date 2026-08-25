@@ -6243,9 +6243,12 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
 
     enterExecutionUnit(1, 0);
     int prev_replication_allowed = server.replication_allowed;
+    int prev_call_propagation_flags = server.call_propagation_flags;
     server.replication_allowed = 1;
+    server.call_propagation_flags = PROPAGATE_AOF|PROPAGATE_REPL;
     alsoPropagate(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
+    server.call_propagation_flags = prev_call_propagation_flags;
     exitExecutionUnit();
 
     /* Propagate the HDEL command */

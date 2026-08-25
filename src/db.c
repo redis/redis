@@ -2943,11 +2943,16 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
     incrRefCount(argv[1]);
 
     /* If the master decided to delete a key we must propagate it to replicas no matter what.
-     * Even if module executed a command without asking for propagation. */
+     * Even if module executed a command without asking for propagation.
+     * Likewise bypass the call() propagation-flags mask, e.g. when a lazy
+     * expiry happens inside a script running with redis.set_repl(). */
     int prev_replication_allowed = server.replication_allowed;
+    int prev_call_propagation_flags = server.call_propagation_flags;
     server.replication_allowed = 1;
+    server.call_propagation_flags = PROPAGATE_AOF|PROPAGATE_REPL;
     alsoPropagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
+    server.call_propagation_flags = prev_call_propagation_flags;
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);

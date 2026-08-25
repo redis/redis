@@ -3024,9 +3024,12 @@ static void propagateTrimSlots(slotRangeArray *slots) {
     enterExecutionUnit(1, 0);
 
     int prev_replication_allowed = server.replication_allowed;
+    int prev_call_propagation_flags = server.call_propagation_flags;
     server.replication_allowed = 1;
+    server.call_propagation_flags = PROPAGATE_AOF|PROPAGATE_REPL;
     alsoPropagate(-1, argv, argc, PROPAGATE_AOF | PROPAGATE_REPL);
     server.replication_allowed = prev_replication_allowed;
+    server.call_propagation_flags = prev_call_propagation_flags;
 
     exitExecutionUnit();
     postExecutionUnitOperations();

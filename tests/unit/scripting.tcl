@@ -1667,6 +1667,51 @@ start_server {tags {"scripting repl external:skip"}} {
             assert {[r mget a b c d] eq {1 {} 3 4}}
         }
 
+        test "Selective replication applies to alsoPropagate()'d commands" {
+            # SPOP with a count propagates its effects as SREM commands
+            # queued via alsoPropagate(), which used to ignore
+            # redis.set_repl(). (The single-element SPOP, instead, is
+            # rewritten to a verbatim SREM, which call() masks already.)
+            r del myset myset2 marker
+            r sadd myset a b c d
+            r sadd myset2 w x y z
+            wait_for_condition 50 100 {
+                [r -1 scard myset] eq 4 &&
+                [r -1 scard myset2] eq 4
+            } else {
+                fail "Replica did not receive the initial sets"
+            }
+
+            run_script {
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('spop','myset',1);
+                redis.set_repl(redis.REPL_AOF);
+                redis.call('spop','myset2',1);
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('set','marker','done');
+            } 3 myset myset2 marker
+
+            # Master lost one element from both sets
+            assert {[r scard myset] eq 3}
+            assert {[r scard myset2] eq 3}
+
+            # Wait for the marker, replicated with REPL_ALL. Since the
+            # replication stream is ordered, any SREM queued by the two SPOP
+            # commands would have reached the replica before it.
+            wait_for_condition 50 100 {
+                [r -1 get marker] eq {done}
+            } else {
+                fail "Replica did not receive the marker"
+            }
+            assert {[r -1 scard myset] eq 4}
+            assert {[r -1 scard myset2] eq 4}
+
+            # After an AOF reload only myset2 (REPL_AOF) keeps its SPOP effect
+            r debug loadaof
+            assert {[r scard myset] eq 4}
+            assert {[r scard myset2] eq 3}
+        }
+
         test "PRNG is seeded randomly for command replication" {
             if {$is_eval eq 1} {
                 # on is_eval Lua we need to call redis.replicate_commands() to get real randomization

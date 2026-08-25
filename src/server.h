@@ -2426,6 +2426,10 @@ struct redisServer {
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
     int replication_allowed;        /* Are we allowed to replicate? */
+    int call_propagation_flags;     /* PROPAGATE_AOF/PROPAGATE_REPL mask allowed
+                                       by the innermost active call(). Set by
+                                       call() from its flags, applied by
+                                       alsoPropagate(). Full outside call(). */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
