@@ -24,10 +24,6 @@ test "Killing majority of master nodes" {
     cluster_kill_node 2
 }
 
-foreach id $replica_ids {
-    R $id config set cluster-replica-no-failover no
-}
-
 test "Cluster should eventually be down" {
     wait_for_cluster_state fail {0 1 2}
 }

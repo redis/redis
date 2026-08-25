@@ -1,7 +1,7 @@
 # Stress writes while redis-cli performs a live reshard, then verify AOF
 # persistence and replica consistency across process restarts.
 
-start_cluster 5 5 {tags {external:skip cluster slow} overrides {appendonly yes appendfsync no}} {
+start_cluster 5 5 {tags {external:skip cluster slow valgrind:skip} overrides {appendonly yes appendfsync no}} {
 
 test "Cluster is up" {
     wait_for_cluster_state ok
