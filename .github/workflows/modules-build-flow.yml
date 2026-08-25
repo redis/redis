@@ -18,19 +18,24 @@ name: Modules Build Flow
 # that OS and this workflow exists to catch exactly that.
 
 on:
-  # Only when the module pin manifest changes — a bump to any module's ref is
-  # exactly what can break the from-source build/load on some OS — or manually.
+  # Run when the module build flow, module pins, or build scripts change — all
+  # of those can break the from-source build/load on some OS — or manually.
   pull_request:
     paths:
+      - '.github/workflows/modules-build-flow.yml'
+      - 'Makefile'
+      - 'scripts/**'
+      - 'src/**'
+      - 'modules/**'
       - 'modules/modules.yaml'
   workflow_dispatch:
     inputs:
       use_repo:
         description: 'repo owner and name'
-        default: 'redis/redis'
+        default: ''
       use_git_ref:
         description: 'git branch or sha to use'
-        default: 'unstable'
+        default: ''
 
 jobs:
 
@@ -142,8 +147,8 @@ jobs:
           git remote add origin "https://github.com/${{ github.repository }}.git"
           git fetch --depth 1 origin "+refs/pull/${{ github.event.pull_request.number }}/merge"
         else
-          git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
-          git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
+          git remote add origin "https://github.com/${{ github.event.inputs.use_repo || github.repository }}.git"
+          git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || github.sha }}"
         fi
         git checkout FETCH_HEAD
     - name: make modules-update
