@@ -499,6 +499,37 @@ if {$::tls} {
             assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
         }
 
+        test {TLS: tls-expected-peer-name warns about parent-domain entries} {
+            # A leading dot is a legitimate OpenSSL parent-domain pattern, but it
+            # matches subdomains at any depth, so its scope is surfaced in the log
+            # rather than left silent.
+            set base [count_log_message 0 "beginning with a dot"]
+
+            r config set tls-expected-peer-name ".example.com"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 1 entry beginning with a dot"]
+
+            # An explicit host name adds no advisory.
+            r config set tls-expected-peer-name "redis.local"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+
+            # Several parent-domain entries are reported on one line, with their number.
+            r config set tls-expected-peer-name "redis.local .a.example.com .b.example.com"
+            assert_equal [expr {$base + 2}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 2 entries beginning with a dot"]
+
+            r config set tls-expected-peer-name ""
+        }
+
+        test {TLS: parent-domain advisory is logged at startup} {
+            # The advisory is emitted from the post-load config checks, so it appears
+            # for a value that comes from the config file, not only from CONFIG SET.
+            start_server [list overrides [list tls-expected-peer-name ".local"]] {
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                assert_equal {.local} [lindex [r config get tls-expected-peer-name] 1]
+            }
+        }
+
         test {TLS: tls-expected-peer-name rejects a whitespace-only value} {
             # A value with no usable name (only spaces) would otherwise be stored
             # and then refuse every connection; it must be rejected at config time.
