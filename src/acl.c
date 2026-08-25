@@ -1963,7 +1963,7 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
 int ACLCheckAllPerm(client *c, pendingCommand *pcmd, int *idxptr) {
     /* The cached key result holds key positions within pcmd->argv, so it is only
      * usable for the command we are actually about to check. */
-    debugServerAssert(!pcmd || (pcmd->cmd == c->cmd));
+    serverAssert(!pcmd || (pcmd->cmd == c->cmd));
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc,
                 getClientCachedKeyResult(pcmd), idxptr);
 }
