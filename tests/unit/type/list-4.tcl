@@ -98,6 +98,47 @@ foreach {type large} [array get largevalue] {
     }
 }
 
+    test {LMOVE and LMOVEM emit keyspace notifications push-before-pop} {
+        # All move paths must share one event order: the destination push
+        # event is emitted before the source pop event.
+
+        # LMOVE
+        r del src{t} dst{t}
+        r rpush src{t} a b c
+        r config set notify-keyspace-events KEA
+        set rd [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd __keyevent@*__:*]
+        r lmove src{t} dst{t} left right
+        assert_match "*rpush*dst{t}*" [$rd read]
+        assert_match "*lpop*src{t}*" [$rd read]
+        $rd close
+        r config set notify-keyspace-events ""
+
+        # LMOVEM, distinct keys
+        r del src{t} dst{t}
+        r rpush src{t} a b c
+        r config set notify-keyspace-events KEA
+        set rd [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd __keyevent@*__:*]
+        r lmovem src{t} dst{t} left right count 2 bulk
+        assert_match "*rpush*dst{t}*" [$rd read]
+        assert_match "*lpop*src{t}*" [$rd read]
+        $rd close
+        r config set notify-keyspace-events ""
+
+        # LMOVEM, same source and destination
+        r del k{t}
+        r rpush k{t} 1 2 3 4
+        r config set notify-keyspace-events KEA
+        set rd [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd __keyevent@*__:*]
+        r lmovem k{t} k{t} left right count 2 bulk
+        assert_match "*rpush*k{t}*" [$rd read]
+        assert_match "*lpop*k{t}*" [$rd read]
+        $rd close
+        r config set notify-keyspace-events ""
+    }
+
     test {LMOVEM missing or empty source} {
         r del src{t} dst{t}
         assert_equal {} [r lmovem src{t} dst{t} left right]
