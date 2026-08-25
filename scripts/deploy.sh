@@ -5,6 +5,8 @@
 # Env:    PREFIX    install root (default /usr/local). Files land in:
 #                     $PREFIX/bin/                  - redis-server, -cli, -benchmark
 #                     $PREFIX/lib/redis/modules/    - per-module .so files
+#         DESTDIR   optional staging root prepended to PREFIX (for packaging).
+#                   Where files are copied; never part of the conf's paths.
 #         MAKE      make binary (defaults to `make`); only used when shelling
 #                   into build.sh, which itself respects it.
 #
@@ -30,6 +32,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 cd "$REPO_ROOT"
 
 PREFIX="${PREFIX:-/usr/local}"
+DESTDIR="${DESTDIR:-}"
 
 cloned="$(cloned_modules)"
 modules="$(resolve_modules "$*" "$cloned" "redis none")"
@@ -72,13 +75,15 @@ if [ "$build_rc" != 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2: copy artifacts to $PREFIX. Pure file ops, no recursive make.
+# Phase 2: copy artifacts to $DESTDIR$PREFIX. Pure file ops, no recursive make.
 # ---------------------------------------------------------------------------
-INSTALL_BIN_DIR="$PREFIX/bin"
-INSTALL_MOD_DIR="$PREFIX/lib/redis/modules"
+INSTALL_BIN_DIR="$DESTDIR$PREFIX/bin"
+INSTALL_MOD_DIR="$DESTDIR$PREFIX/lib/redis/modules"
+# Path on the *target* system (no staging root) — what the conf must say.
+CONF_MOD_DIR="$PREFIX/lib/redis/modules"
 
 echo
-echo "==> Deploying to PREFIX=$PREFIX"
+echo "==> Deploying to PREFIX=$PREFIX${DESTDIR:+ (DESTDIR=$DESTDIR)}"
 echo
 
 # Redis core binaries + the three symlinks that point to redis-server.
@@ -121,7 +126,7 @@ if [ -n "$modules" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 3: repoint the loadmodule paths at $INSTALL_MOD_DIR. Path rewrite
+# Phase 3: repoint the loadmodule paths at $CONF_MOD_DIR. Path rewrite
 # ONLY — inside the LOADMODULE_BEGIN/END block every line keeps its identity
 # and its comment state: a commented placeholder stays commented, an active
 # line stays active, and no line is ever added or removed. Which modules are
@@ -139,9 +144,9 @@ _patch_conf() {
   [ -f "$conf" ] || return 0
   grep -qF "$LOADMODULE_BEGIN" "$conf" 2>/dev/null || return 0
   tmp="$(mktemp "${conf}.deploy.XXXXXX")"
-  # Swap each loadmodule line's directory for $INSTALL_MOD_DIR, keeping the
+  # Swap each loadmodule line's directory for $CONF_MOD_DIR, keeping the
   # leading '#' (if any), the .so basename and any trailing module args.
-  awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v dir="$INSTALL_MOD_DIR" '
+  awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v dir="$CONF_MOD_DIR" '
     $0 == begin { inblock = 1; print; next }
     $0 == end   { inblock = 0; print; next }
     inblock && match($0, /^[ \t]*#?[ \t]*loadmodule[ \t]+/) {
@@ -157,7 +162,7 @@ _patch_conf() {
     { print }
   ' "$conf" > "$tmp"
   mv "$tmp" "$conf"
-  echo "==> Repointed loadmodule paths in $conf -> $INSTALL_MOD_DIR/"
+  echo "==> Repointed loadmodule paths in $conf -> $CONF_MOD_DIR/"
 }
 
 _patch_conf "$REDIS_FULL_CONF"
@@ -183,7 +188,7 @@ _report_unloadable() {
     target="$(manifest_field "$name" target_module)"
     [ -z "$target" ] && continue
     printf '    %-16s no .so at %s/%s (%s)\n' \
-      "$name" "$INSTALL_MOD_DIR" "$(basename "$target")" "$reason"
+      "$name" "$CONF_MOD_DIR" "$(basename "$target")" "$reason"
   done
 }
 
@@ -196,7 +201,7 @@ if [ -n "$failed$not_cloned" ]; then
   echo
   echo "    To start the server without them, comment out their loadmodule"
   echo "    lines in the conf you pass to redis-server, e.g.:"
-  echo "      # loadmodule $INSTALL_MOD_DIR/<module>.so"
+  echo "      # loadmodule $CONF_MOD_DIR/<module>.so"
   echo "    (deploy leaves those lines exactly as they are — it only rewrites"
   echo "     their directory. Fix the build, or run 'make sync-redis-conf'.)"
 fi
