@@ -38,11 +38,13 @@ const char *monotonicInit(void);
 /* Return a string indicating the type of monotonic clock being used. */
 const char *monotonicInfoString(void);
 
-/* Return a note from the clock detection/calibration fallback paths (e.g. an
- * unconfirmed TSC rate), or an empty string if none was recorded. This is
- * deliberately not printed to stderr by monotonic.c itself -- callers with a
- * logging facility (the server) should log it themselves. */
-const char *monotonicDiagnostics(void);
+/* Register a callback for notes from the clock detection/calibration
+ * fallback paths (e.g. an unconfirmed TSC rate). Not written directly to
+ * stderr by monotonic.c itself, since some callers (this file is linked
+ * into every binary) treat any child stderr as failure. Pass NULL (the
+ * default) to discard these notes -- e.g. the server registers one via
+ * serverLog(), matching zmalloc_set_oom_handler()'s callback pattern. */
+void monotonicSetLogger(void (*logger)(const char *msg));
 
 /* Return the type of monotonic clock being used. */
 monotonic_clock_type monotonicGetType(void);

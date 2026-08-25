@@ -3006,6 +3006,10 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+static void monotonicLogCallback(const char *msg) {
+    serverLog(LL_NOTICE, "monotonic clock: %s", msg);
+}
+
 void initServer(void) {
     int j;
 
@@ -3089,10 +3093,9 @@ void initServer(void) {
     hashTemplatesInit();
     createSharedObjects();
     adjustOpenFilesLimit();
+    monotonicSetLogger(monotonicLogCallback);
     const char *clk_msg = monotonicInit();
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
-    const char *clk_diag = monotonicDiagnostics();
-    if (clk_diag[0] != '\0') serverLog(LL_NOTICE, "monotonic clock: %s", clk_diag);
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
