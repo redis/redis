@@ -210,11 +210,6 @@ static void monotonicInit_x86linux(void) {
          * overflow a signed long and is undefined behavior in C). */
         if (measured > 0 && labs(measured - nominal_model) * 1000 <= nominal_model) { /* within 0.1% */
             mono_ticksPerMicrosecond = nominal_model;
-        } else {
-            fprintf(stderr, "monotonic: x86 linux, advertised clock rate "
-                    "(%ld ticks/us) unconfirmed by the measured rate "
-                    "(%ld ticks/us), using calibration\n",
-                    nominal_model, measured);
         }
     }
 
