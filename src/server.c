@@ -3876,7 +3876,7 @@ void preventCommandReplication(client *c) {
  * Everything the command propagates is limited to these targets: the command
  * itself, at the end of call(), and the effect commands its implementation
  * queues via alsoPropagate() while it runs. */
-int callPropagateTargets(client *c, int flags) {
+int getPropagateTargetsForCall(client *c, int flags) {
     int targets = PROPAGATE_NONE;
     if ((flags & CMD_CALL_PROPAGATE_AOF) && !(c->flags & CLIENT_MODULE_PREVENT_AOF_PROP))
         targets |= PROPAGATE_AOF;
@@ -4142,7 +4142,7 @@ void call(client *c, int flags) {
      * propagates it verbatim at the end, is what makes the effect commands
      * queued via alsoPropagate() (SPOP propagated as SREM, RM_Replicate(), and
      * so forth) honor Lua redis.set_repl() and selective RM_Call() too. */
-    int call_targets = callPropagateTargets(c, flags);
+    int call_targets = getPropagateTargetsForCall(c, flags);
     int prev_targets = server.allowed_propagate_targets;
     server.allowed_propagate_targets = prev_targets & call_targets;
 

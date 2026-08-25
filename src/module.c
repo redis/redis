@@ -7192,7 +7192,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
          * these client flags are the only state surviving until then: record in
          * them every target it may not reach, the ones excluded by the outer
          * call() included (call() restored its targets before returning). */
-        int targets = callPropagateTargets(c, call_flags) & server.allowed_propagate_targets;
+        int targets = getPropagateTargetsForCall(c, call_flags) & server.allowed_propagate_targets;
         if (!(targets & PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
