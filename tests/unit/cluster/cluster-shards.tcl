@@ -46,9 +46,9 @@ proc cluster_shards_hostnames_propagated {} {
     return 1
 }
 
-# The legacy runner provided a pool of 20 servers. Only nodes 0-7 initially
-# belong to the four shards; nodes 8-19 remain unassigned for later tests.
-start_cluster 4 4 {tags {external:skip cluster}} {
+# Nodes 0-7 initially belong to the four shards; node 8 remains unassigned
+# for the no-slot, handshake, and new-replica tests.
+start_cluster 4 4 {tags {external:skip cluster} overrides {cluster-allow-replica-migration no}} {
 
 test "Set cluster hostnames and verify they are propagated" {
     for {set id 0} {$id < $::cluster_master_nodes + $::cluster_replica_nodes} {incr id} {
@@ -207,16 +207,16 @@ test "Test the replica reports a loading state while it's loading" {
 }
 
 test "Regression test for a crash when calling SHARDS during handshake" {
-    # Reset forget a node, so we can use it to establish handshaking connections
-    set id [R 19 CLUSTER MYID]
-    R 19 CLUSTER RESET HARD
-    for {set other 0} {$other < 19} {incr other} {
+    # Reset and forget the spare node, so we can use it to establish handshaking connections
+    set id [R 8 CLUSTER MYID]
+    R 8 CLUSTER RESET HARD
+    for {set other 0} {$other < 8} {incr other} {
         R $other CLUSTER FORGET $id
     }
-    R 19 cluster meet 127.0.0.1 [srv 0 port]
+    R 8 cluster meet 127.0.0.1 [srv 0 port]
     # This should line would previously crash, since all the outbound
     # connections were in handshake state.
-    R 19 CLUSTER SHARDS
+    R 8 CLUSTER SHARDS
 }
 
 test "Cluster is up" {
@@ -284,4 +284,4 @@ test "CLUSTER MYSHARDID reports same shard id after cluster restart" {
     }
 }
 
-} cluster_shards_split_slot_allocation default_replica_allocation 20 ;# start_cluster
+} cluster_shards_split_slot_allocation default_replica_allocation 9 ;# start_cluster

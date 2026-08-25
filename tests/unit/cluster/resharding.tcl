@@ -3,7 +3,6 @@
 # iterations. The test checks that certain properties
 # are preserved across iterations.
 
-tags {"slow"} {
 run_solo {cluster-resharding} {
 start_cluster 5 5 {tags {external:skip cluster} overrides {appendonly yes appendfsync no cluster-node-timeout 60000}} {
 
@@ -186,4 +185,3 @@ $cluster close
 
 } ;# start_cluster
 } ;# run_solo
-} ;# tags
