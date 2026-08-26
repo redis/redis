@@ -546,6 +546,16 @@ jobs:
     - name: warm up
       run: |
         ./src/redis-server --daemonize yes --logfile /dev/null
+        # Wait up to 10 seconds for the daemonized child to finish startup after its parent exit
+        for attempt in {1..100}; do
+          ./src/redis-cli ping 2>/dev/null | grep -q PONG && break
+          if [ "$attempt" -eq 100 ]; then
+            echo "Redis on port 6379 did not become ready"
+            exit 1
+          fi
+          sleep 0.1
+        done
+
         ./src/redis-benchmark -n 1 > /dev/null
         ./src/redis-cli save | grep OK > /dev/null
         vmtouch -v ./dump.rdb > /dev/null
