@@ -14,6 +14,19 @@ monotime (*getMonotonicUs)(void) = NULL;
 
 static char monotonic_info_string[32];
 
+/* Only the hardware-clock paths below ever have a fallback note to log
+ * (the plain POSIX clock has no failure branch), so gate the logger itself
+ * on whichever of them (if any) is being compiled -- same as how each path's
+ * own helpers (e.g. monotonicCalibrateOnce_x86linux) are excluded on
+ * platforms that don't use them. Ungated, a build with none of these arch
+ * blocks compiled in (e.g. 32-bit x86) would leave monotonicLog() with no
+ * caller and fail -Werror=unused-function. */
+#if (defined(__x86_64__) && defined(__linux__)) || defined(__aarch64__) || \
+    (defined(USE_PROCESSOR_CLOCK) && defined(__riscv) && defined(__linux__))
+#define MONOTONIC_HAS_LOG_FALLBACK 1
+#endif
+
+#ifdef MONOTONIC_HAS_LOG_FALLBACK
 /* Optional callback for notes from clock detection/calibration fallback
  * paths (e.g. an unconfirmed TSC rate, a missing 'constant_tsc' flag). Not
  * written directly to stderr: this file is linked into every binary
@@ -31,6 +44,7 @@ static void monotonicLog(const char *fmt, ...) {
     va_end(ap);
     monotonic_logger(buf);
 }
+#endif
 
 /* Using the processor clock (aka TSC on x86) can provide improved performance
  * throughout Redis wherever the monotonic clock is used.  The processor clock
@@ -392,11 +406,15 @@ static void monotonicInit_posix(void) {
 
 
 const char * monotonicInit(void (*logger)(const char *msg)) {
+    #ifdef MONOTONIC_HAS_LOG_FALLBACK
     /* Only the first call (the one that actually runs detection) sets the
      * logger -- matches this function's existing "may be called additional
      * times without impact" contract, and avoids a later no-op call (e.g.
      * ae.c's fallback) clobbering the logger a prior caller registered. */
     if (getMonotonicUs == NULL) monotonic_logger = logger;
+    #else
+    (void)logger; /* no arch path here has a fallback note to log */
+    #endif
 
     #if defined(__x86_64__) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
