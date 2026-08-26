@@ -604,9 +604,16 @@ jobs:
         
         # The daemonized parent can exit before the child listens, so tolerate
         # connection failures until INFO is available, then wait for RDB loading.
-        while ! ./src/redis-cli -p 8080 info persistence 2>/dev/null |
-          grep "^loading:0" > /dev/null; do
+        for attempt in {1..600}; do
+          if ./src/redis-cli -p 8080 info persistence 2>/dev/null |
+            grep "^loading:0" > /dev/null; then
+            break
+          fi
           sleep 1
+          if [ "$attempt" -eq 600 ]; then
+            echo "Redis on port 8080 did not finish loading within 10 minutes"
+            exit 1
+          fi
         done
         sleep 1 # wait for the completion of cache reclaim bio
         
