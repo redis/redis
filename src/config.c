@@ -2823,14 +2823,20 @@ int updateClusterHumanNodename(const char **err) {
     return 1;
 }
 
-/* Warn if val contains entries beginning with a dot, reporting how many in a single
- * line so the log stays bounded regardless of how many are configured. OpenSSL
+/* Warn if tls-expected-peer-name contains entries beginning with a dot, reporting
+ * how many in a single line so the log stays bounded regardless of how many are
+ * configured. OpenSSL
  * treats such a name as a parent-domain pattern rather than a host name: it matches
  * subdomains at any depth (".example.com" also accepts a.b.example.com, and ".com"
  * accepts every name in that TLD) and does not match the domain itself. That is
  * legitimate but much broader than pinning explicit hosts, and a leading dot is easy
- * to introduce unintentionally, so make it visible in the log rather than silent. */
-static void tlsWarnExpectedPeerNameScope(const char *val) {
+ * to introduce unintentionally, so make it visible in the log rather than silent.
+ * Called from tlsConfigure() when TLS is first configured and from the option's
+ * apply callback on CONFIG SET. */
+void tlsWarnExpectedPeerNameScope(void) {
+    const char *val = server.tls_ctx_config.expected_peer_name;
+    if (!val) return;
+
     int count = 0;
     const char *p = val;
     while (*p) {
@@ -2847,6 +2853,15 @@ static void tlsWarnExpectedPeerNameScope(const char *val) {
         "(for example \".example.com\" also accepts a.b.example.com) and does not "
         "accept the domain itself. Use explicit host names if that is not intended.",
         count, count == 1 ? "y" : "ies");
+}
+
+/* Apply callback for tls-expected-peer-name: emits the parent-domain advisory once
+ * the new value is stored. It deliberately does not reconfigure TLS, since the option
+ * is not an input to the SSL_CTX and is applied per connection. */
+static int applyTlsExpectedPeerName(const char **err) {
+    UNUSED(err);
+    tlsWarnExpectedPeerNameScope();
+    return 1;
 }
 
 /* Validate tls-expected-peer-name at config time (startup and CONFIG SET). An
@@ -2880,12 +2895,6 @@ static int isValidTlsExpectedPeerName(char *val, const char **err) {
                "use an empty string to disable it";
         return 0;
     }
-
-    /* The value is acceptable. Report parent-domain entries from here, rather than
-     * once the whole configuration is loaded, so that each configured value is
-     * reported exactly once: "include" recursively reloads a config, which would
-     * otherwise repeat the message for every nesting level. */
-    tlsWarnExpectedPeerNameScope(val);
 
     return 1;
 }
@@ -3560,7 +3569,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-groups", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.groups, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, applyTlsExpectedPeerName),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),

@@ -530,6 +530,24 @@ if {$::tls} {
             }
         }
 
+        test {TLS: parent-domain advisory is not repeated for included configs} {
+            # "include" recursively reloads an entire config file, so an advisory
+            # emitted once per completed load is repeated for every nesting level.
+            # It must be reported once for the configured value instead.
+            # The path must be absolute: the generated config sets "dir" before the
+            # overrides, and that chdir()s the server away from the test root.
+            set inner [file normalize [tmpfile "peer-name-include"]]
+            set fd [open $inner w]
+            puts $fd "tls-expected-peer-name .example.com"
+            close $fd
+
+            start_server [list overrides [list include $inner]] {
+                assert_equal {.example.com} [lindex [r config get tls-expected-peer-name] 1]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+            }
+            file delete $inner
+        }
+
         test {TLS: tls-expected-peer-name rejects a whitespace-only value} {
             # A value with no usable name (only spaces) would otherwise be stored
             # and then refuse every connection; it must be rejected at config time.

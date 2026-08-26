@@ -315,6 +315,7 @@ static int tlsConfigure(void *priv, int reconfigure) {
     char errbuf[256];
     SSL_CTX *ctx = NULL;
     SSL_CTX *client_ctx = NULL;
+    int first_configure = (redis_tls_ctx == NULL);
 
     if (!reconfigure && redis_tls_ctx) {
         return C_OK;
@@ -430,6 +431,13 @@ static int tlsConfigure(void *priv, int reconfigure) {
     SSL_CTX_free(redis_tls_client_ctx);
     redis_tls_ctx = ctx;
     redis_tls_client_ctx = client_ctx;
+
+    /* Report the scope of parent-domain entries in tls-expected-peer-name when
+     * TLS is configured for the first time. This runs once config parsing is
+     * complete, so the advisory honors a "logfile" directive that appears after
+     * the option, and it also covers TLS being enabled at runtime. Later changes
+     * of the option itself are reported by its apply callback. */
+    if (first_configure) tlsWarnExpectedPeerNameScope();
 
     return C_OK;
 
