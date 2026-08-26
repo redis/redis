@@ -307,7 +307,7 @@ make -j "$(nproc)"
 > `.so`.** The config still lists modules that weren't built successfully — a
 > release tarball's `redis.conf` carries `loadmodule` lines for every bundled
 > module, and a module whose build failed leaves no `.so` behind. Either build
-> them (`make bootstrap && make`, or `make <name>` for the one that failed), or
+> them (`make bootstrap && make`, or `make build <name>` for the one that failed), or
 > comment out everything that isn't Redis core in the config you pass: the
 > `loadmodule <path>` lines *and* that module's own settings below them (e.g.
 > `search-*`, `ts-*`, `bf-*`, `json-*`). Core-only alternative: `./src/redis-server`
