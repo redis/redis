@@ -26,9 +26,6 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
-/* Defined further below, but used by loadServerConfigFromString()'s sanity checks. */
-static void tlsLogExpectedPeerNameScope(void);
-
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
  *----------------------------------------------------------------------------*/
@@ -628,11 +625,6 @@ void loadServerConfigFromString(char *config) {
         err = "replicaof directive not allowed in cluster mode";
         goto loaderr;
     }
-
-    /* Warn about parent-domain entries in tls-expected-peer-name. Done here, once
-     * every directive has been parsed, so the message is independent of where the
-     * directive appears and reaches the configured logfile. */
-    tlsLogExpectedPeerNameScope();
 
     /* in case cluster mode is enabled dbnum must be 1 */
     if (server.cluster_enabled && server.dbnum > 1) {
@@ -2831,6 +2823,32 @@ int updateClusterHumanNodename(const char **err) {
     return 1;
 }
 
+/* Warn if val contains entries beginning with a dot, reporting how many in a single
+ * line so the log stays bounded regardless of how many are configured. OpenSSL
+ * treats such a name as a parent-domain pattern rather than a host name: it matches
+ * subdomains at any depth (".example.com" also accepts a.b.example.com, and ".com"
+ * accepts every name in that TLD) and does not match the domain itself. That is
+ * legitimate but much broader than pinning explicit hosts, and a leading dot is easy
+ * to introduce unintentionally, so make it visible in the log rather than silent. */
+static void tlsWarnExpectedPeerNameScope(const char *val) {
+    int count = 0;
+    const char *p = val;
+    while (*p) {
+        while (*p == ' ') p++;
+        const char *start = p;
+        while (*p && *p != ' ') p++;
+        if (p > start && *start == '.') count++;
+    }
+    if (!count) return;
+
+    serverLog(LL_WARNING,
+        "tls-expected-peer-name has %d entr%s beginning with a dot, which OpenSSL "
+        "matches as a parent domain: such an entry accepts any subdomain at any depth "
+        "(for example \".example.com\" also accepts a.b.example.com) and does not "
+        "accept the domain itself. Use explicit host names if that is not intended.",
+        count, count == 1 ? "y" : "ies");
+}
+
 /* Validate tls-expected-peer-name at config time (startup and CONFIG SET). An
  * empty value clears the option and is always allowed. A non-empty value must
  * carry at least one usable name token and must not contain embedded whitespace
@@ -2863,50 +2881,12 @@ static int isValidTlsExpectedPeerName(char *val, const char **err) {
         return 0;
     }
 
-    return 1;
-}
+    /* The value is acceptable. Report parent-domain entries from here, rather than
+     * once the whole configuration is loaded, so that each configured value is
+     * reported exactly once: "include" recursively reloads a config, which would
+     * otherwise repeat the message for every nesting level. */
+    tlsWarnExpectedPeerNameScope(val);
 
-/* Warn if tls-expected-peer-name contains entries that begin with a dot, reporting
- * how many in a single line. OpenSSL treats such a name as a parent-domain pattern
- * rather than a host name:
- * it matches subdomains at any depth (".example.com" also accepts
- * a.b.example.com, and ".com" accepts every name in that TLD) and does not match
- * the domain itself. That is legitimate but much broader than pinning explicit
- * hosts, and a leading dot is easy to introduce unintentionally, so make it
- * visible in the log rather than silent.
- *
- * Called from the post-load sanity checks at startup and from the config's apply
- * callback on CONFIG SET. */
-static void tlsLogExpectedPeerNameScope(void) {
-    const char *val = server.tls_ctx_config.expected_peer_name;
-    if (!val) return;
-
-    /* Count the space-separated names that begin with a dot, and report them in a
-     * single line so the log stays bounded regardless of how many are configured. */
-    int count = 0;
-    const char *p = val;
-    while (*p) {
-        while (*p == ' ') p++;
-        const char *start = p;
-        while (*p && *p != ' ') p++;
-        if (p > start && *start == '.') count++;
-    }
-    if (!count) return;
-
-    serverLog(LL_WARNING,
-        "tls-expected-peer-name has %d entr%s beginning with a dot, which OpenSSL "
-        "matches as a parent domain: such an entry accepts any subdomain at any depth "
-        "(for example \".example.com\" also accepts a.b.example.com) and does not "
-        "accept the domain itself. Use explicit host names if that is not intended.",
-        count, count == 1 ? "y" : "ies");
-}
-
-/* Apply callback for tls-expected-peer-name. It only emits the parent-domain
- * advisory -- it deliberately does not reconfigure TLS, since the option is not an
- * input to the SSL_CTX and is applied per connection. */
-static int applyTlsExpectedPeerName(const char **err) {
-    UNUSED(err);
-    tlsLogExpectedPeerNameScope();
     return 1;
 }
 
@@ -3580,7 +3560,7 @@ standardConfig static_configs[] = {
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-groups", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.groups, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, applyTlsExpectedPeerName),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),
