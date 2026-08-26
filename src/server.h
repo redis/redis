@@ -3464,7 +3464,7 @@ void unprotectClient(client *c);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
-getKeysResult *getClientCachedKeyResult(client *c);
+getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd);
 /* reply macros */
 #define ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c, str) addReplyBulkCBuffer(c, str, strlen(str))
 
@@ -3594,6 +3594,7 @@ void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
+void replicationDiscardCachedMaster(void);
 void resizeReplicationBacklog(void);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
@@ -3754,7 +3755,7 @@ int ACLUserHasUnrestrictedKeyAccess(user *u, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int *idxptr);
 int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
-int ACLCheckAllPerm(client *c, int *idxptr);
+int ACLCheckAllPerm(client *c, pendingCommand *pcmd, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
