@@ -3006,7 +3006,14 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
-static void monotonicLogCallback(const char *msg) {
+/* printf-alike handed to monotonicInit(), so clock detection fallbacks end up
+ * in the server log instead of stderr. */
+static void monotonicLogCallback(const char *fmt, ...) {
+    char msg[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
     serverLog(LL_NOTICE, "monotonic clock: %s", msg);
 }
 
