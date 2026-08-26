@@ -123,7 +123,7 @@ bootstrap:
 #   `make install`). Done directly by scripts/deploy.sh — no apply step.
 deploy: PREFIX ?= /usr/local
 deploy:
-	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' PROG_SUFFIX='$(PROG_SUFFIX)' \
+	+@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' PROG_SUFFIX='$(PROG_SUFFIX)' \
 	    scripts/deploy.sh $(DEPLOY_ARGS)
 
 # uninstall [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
