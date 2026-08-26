@@ -1771,6 +1771,36 @@ start_server {tags {"scripting repl external:skip"}} {
             r debug set-active-expire 1
         }
 
+        test "Test no empty MULTI/EXEC is replicated for AOF-only effects" {
+            # Both SREM the SPOP calls queue are restricted to the AOF, so the
+            # replica must receive nothing at all: not even the MULTI / EXEC
+            # that wraps them in the AOF.
+            r del myset{t} sentinel{t}
+            r sadd myset{t} a b c d e
+
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.set_repl(redis.REPL_AOF);
+                redis.call('spop',KEYS[1],2);
+                redis.call('spop',KEYS[1],2);
+            } 1 myset{t}
+            r set sentinel{t} 1
+
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {select *}
+                    {set sentinel{t} 1}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {set sentinel{t} 1}
+                }
+            }
+            close_replication_stream $repl
+        }
+
         test "PRNG is seeded randomly for command replication" {
             if {$is_eval eq 1} {
                 # on is_eval Lua we need to call redis.replicate_commands() to get real randomization

@@ -3614,6 +3614,7 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
     op->argc = argc;
     op->target = target;
     oa->numops++;
+    oa->targets |= target;
     return oa->numops;
 }
 
@@ -3630,6 +3631,7 @@ void redisOpArrayFree(redisOpArray *oa) {
     }
     /* no need to free the actual op array, we reuse the memory for future commands */
     serverAssert(!oa->numops);
+    oa->targets = PROPAGATE_NONE;
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -3931,9 +3933,12 @@ static void propagatePendingCommands(void) {
     redisOp *rop;
 
     /* If we got here it means we have finished an execution-unit.
-     * If that unit has caused propagation of multiple commands, they
-     * should be propagated as a transaction */
-    int transaction = server.also_propagate.numops > 1;
+     * If that unit has caused propagation of multiple commands, they should be
+     * propagated as a transaction, to the targets the ops reach: the ops may
+     * have been restricted to a subset of them (see alsoPropagate()), and the
+     * excluded target would just get an empty MULTI / EXEC pair. */
+    int transaction_target = server.also_propagate.numops > 1 ?
+                             server.also_propagate.targets : PROPAGATE_NONE;
 
     /* In case a command that may modify random keys was run *directly*
      * (i.e. not from within a script, MULTI/EXEC, RM_Call, etc.) we want
@@ -3942,13 +3947,13 @@ static void propagatePendingCommands(void) {
         server.current_client->cmd &&
         server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS)
     {
-        transaction = 0;
+        transaction_target = PROPAGATE_NONE;
     }
 
-    if (transaction) {
+    if (transaction_target) {
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
-        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.multi,1,transaction_target);
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
@@ -3957,9 +3962,9 @@ static void propagatePendingCommands(void) {
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
     }
 
-    if (transaction) {
+    if (transaction_target) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
-        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.exec,1,transaction_target);
     }
 
     redisOpArrayFree(&server.also_propagate);
