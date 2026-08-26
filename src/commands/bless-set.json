@@ -17,8 +17,7 @@
         "key_specs": [
             {
                 "flags": [
-                    "RW",
-                    "UPDATE"
+                    "RW"
                 ],
                 "begin_search": {
                     "index": {

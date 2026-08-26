@@ -8,7 +8,7 @@
  * the combined mask of the bits they manage.
  *
  * Reserved ATTR bits (each owner defines its masks in its own file):
- *   bit 0    : bless NO-EVICT   (t_bless.c)
+ *   bit 0    : bless NO-EVICT   (bless.c)
  *   bits 1.. : free
  */
 
