@@ -386,4 +386,18 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
         assert_morethan_equal $d $delayusec
         assert_lessthan $d [expr {$delayusec * 2}]
     }
+
+    test { AOF Duration - RM_Replicate then RM_Call SET keeps leftover on replicate } {
+        # Outer RM_Replicate is UNKNOWN. Inner RM_Call SET must not stamp its
+        # time onto that replicate (that would count SET twice and drop sleep).
+        set delayusec 50000
+        reset_aof_duration
+        RedisModule_run_steps r \
+            [list "rm_replicate" "set" "x" "1"] \
+            [list "rm_call_flags" "!" "set" "y" "1"] \
+            [list "sleep_usec" $delayusec]
+        set d [s aof_cmd_duration]
+        assert_morethan_equal $d $delayusec
+        assert_lessthan $d [expr {$delayusec * 2}]
+    }
 }

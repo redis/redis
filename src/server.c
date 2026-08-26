@@ -3851,6 +3851,36 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
     hdr_record_value(*latency_histogram,duration_hist);
 }
 
+/* Give leftover call() time to UNKNOWN AOF ops in also_propagate[start..).
+ * Known AOF ops keep their own times; REPL-only UNKNOWN gets 0. */
+static void assignLeftoverDurationToUnknownOps(int start, long totalDuration) {
+    long leftover = totalDuration;
+    int j;
+    redisOp *rop;
+
+    for (j = start; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        if (rop->duration != PROP_DURATION_UNKNOWN &&
+            (rop->target & PROPAGATE_AOF))
+        {
+            leftover -= rop->duration;
+        }
+    }
+    if (leftover < 0) leftover = 0;
+
+    for (j = start; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        if (rop->duration == PROP_DURATION_UNKNOWN) {
+            if (rop->target & PROPAGATE_AOF) {
+                rop->duration = leftover;
+                leftover = 0;
+            } else {
+                rop->duration = 0;
+            }
+        }
+    }
+}
+
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
@@ -3883,30 +3913,11 @@ static void propagatePendingCommands(long totalDuration) {
     }
 
     /* An unknown-duration op may only claim what known AOF ops didn't. */
-    long long leftover = totalDuration;
-    for (j = 0; j < server.also_propagate.numops; j++) {
-        rop = &server.also_propagate.ops[j];
-        if (rop->duration != PROP_DURATION_UNKNOWN &&
-            (rop->target & PROPAGATE_AOF))
-        {
-            leftover -= rop->duration;
-        }
-    }
-    if (leftover < 0) leftover = 0;
+    assignLeftoverDurationToUnknownOps(0, totalDuration);
 
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
-
-        if (rop->duration == PROP_DURATION_UNKNOWN) {
-            if (rop->target & PROPAGATE_AOF) {
-                rop->duration = leftover;
-                leftover = 0;
-            } else {
-                rop->duration = 0;
-            }
-        }
-
         propagateNow(rop->dbid,rop->argv,rop->argc,rop->target,rop->duration);
     }
 
@@ -4021,7 +4032,7 @@ static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
  * preventCommandReplication(client *c);
  *
  */
-static void afterCommandEx(client *c, long duration);
+static void afterCommandEx(client *c, long duration, int ops_before);
 
 void call(client *c, int flags) {
     long long dirty;
@@ -4089,6 +4100,7 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    int ops_before = server.also_propagate.numops;
     c->cmd->proc(c);
 
     exitExecutionUnit();
@@ -4268,7 +4280,7 @@ void call(client *c, int flags) {
     /* Do some maintenance job and cleanup.
      * Use total_duration (not stack duration) so blocked-client reprocessing
      * still credits accumulated time when pending UNKNOWN ops are drained. */
-    afterCommandEx(c, total_duration);
+    afterCommandEx(c, total_duration, ops_before);
 
     /* The afterCommand updates the replication network bytes. At this point we
      * are ready to update the ingress/egress net bytes and cleanup tracking
@@ -4351,23 +4363,16 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
-    afterCommandEx(c, c->duration);
+    afterCommandEx(c, c->duration, server.also_propagate.numops);
 }
 
-static void afterCommandEx(client *c, long duration) {
-    /* Nested call (script / RM_Call): stamp this call's time onto UNKNOWN
-     * ops it queued so the outer unit does not dump leftover VM time on them. */
-    if (server.execution_nesting && server.also_propagate.numops) {
-        long leftover = duration;
-        for (int j = 0; j < server.also_propagate.numops; j++) {
-            redisOp *rop = &server.also_propagate.ops[j];
-            if (rop->duration == PROP_DURATION_UNKNOWN &&
-                (rop->target & PROPAGATE_AOF))
-            {
-                rop->duration = leftover;
-                leftover = 0;
-            }
-        }
+static void afterCommandEx(client *c, long duration, int ops_before) {
+    /* Nested call (script / RM_Call): stamp only UNKNOWN ops this call
+     * queued so leftover does not land on an outer command's UNKNOWN. */
+    if (server.execution_nesting &&
+        server.also_propagate.numops > ops_before)
+    {
+        assignLeftoverDurationToUnknownOps(ops_before, duration);
     }
 
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
