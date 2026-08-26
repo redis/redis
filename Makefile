@@ -111,7 +111,7 @@ clean:
 
 # build [<name> ...|all|.|redis|core|none] — Redis core + selected modules.
 build:
-	+@scripts/build.sh $(BUILD_ARGS)
+	+@PROG_SUFFIX='$(PROG_SUFFIX)' scripts/build.sh $(BUILD_ARGS)
 
 # bootstrap [<name> ...|all|.] — install per-module build/test prereqs.
 bootstrap:
@@ -144,11 +144,11 @@ uninstall:
 
 # run [<name> ...|all|.|none] [ARGS="<redis-server flags>"]
 run:
-	@ARGS='$(ARGS)' scripts/run.sh $(RUN_ARGS)
+	@ARGS='$(ARGS)' PROG_SUFFIX='$(PROG_SUFFIX)' scripts/run.sh $(RUN_ARGS)
 
 # test [redis|all|<module> [<test_name>]] [TEST=<name>] — see scripts/test.sh.
 test:
-	+@TEST='$(TEST)' scripts/test.sh $(TEST_ARGS)
+	+@TEST='$(TEST)' PROG_SUFFIX='$(PROG_SUFFIX)' scripts/test.sh $(TEST_ARGS)
 
 # modules-update [<name> ...|all|.] [MODULES_UPDATE_SHALLOW=1]
 #   Idempotent clone/refresh per modules.yaml.
