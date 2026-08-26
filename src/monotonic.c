@@ -379,7 +379,7 @@ static void monotonicInit_posix(void) {
 
 
 const char * monotonicInit(void (*logger)(const char *fmt, ...)) {
-    monotonic_logger = logger;
+    if (getMonotonicUs == NULL) monotonic_logger = logger;
 
     #if defined(__x86_64__) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
