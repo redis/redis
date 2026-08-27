@@ -2834,7 +2834,20 @@ int updateClusterHumanNodename(const char **err) {
  * Called from tlsConfigure() when TLS is first configured and from the option's
  * apply callback on CONFIG SET. */
 void tlsWarnExpectedPeerNameScope(void) {
+    /* The advisory has two triggers, and one value can reach both: the apply
+     * callback reports it when set by CONFIG SET, and the initial TLS
+     * configuration reports it again when TLS is enabled afterwards (possibly
+     * by the same command). Remember the last value seen so each value is
+     * reported once. The state must be updated on every call, not only when
+     * reporting, or restoring a previously seen value would go unreported; and
+     * it must stay in this single translation unit, shared by both triggers,
+     * which is why this function cannot become a header inline. */
+    static char *last_seen = NULL;
     const char *val = server.tls_ctx_config.expected_peer_name;
+
+    if (val && last_seen && !strcmp(val, last_seen)) return;
+    zfree(last_seen);
+    last_seen = val ? zstrdup(val) : NULL;
     if (!val) return;
 
     int count = 0;

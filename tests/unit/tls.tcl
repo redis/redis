@@ -548,6 +548,46 @@ if {$::tls} {
             file delete $inner
         }
 
+        test {TLS: parent-domain advisory is not repeated when TLS is enabled later} {
+            # The advisory has two triggers: the option's apply callback and the
+            # first TLS configuration, and one value can reach both. The suite's
+            # servers configure TLS at startup, which would consume the second
+            # trigger, so boot with TLS fully disabled and talk over the plain
+            # port: set the option (first trigger), then enable TLS (second
+            # trigger). The advisory must be reported exactly once.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com"
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                # srv 0 port is the overridden tls-port (0), so allocate a fresh one.
+                $rr config set tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
+        }
+
+        test {TLS: parent-domain advisory is not repeated for a combined CONFIG SET} {
+            # A single command setting both the option and tls-port fires both
+            # triggers in one go: the option's apply callback and, through
+            # tls-port, the first TLS configuration. Still one advisory.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com" tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
+        }
+
         test {TLS: tls-expected-peer-name rejects a whitespace-only value} {
             # A value with no usable name (only spaces) would otherwise be stored
             # and then refuse every connection; it must be rejected at config time.
