@@ -1460,9 +1460,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # set timeout to 0, so the task will fail immediately when checking timeout
         R 0 config set cluster-slot-migration-write-pause-timeout 0
-        # The destination cron will be paused before migration starts, so its first
-        # ACK must enter handoff even when TSan increases the accumulated stream lag.
-        R 0 config set cluster-slot-migration-handoff-max-lag-bytes 9223372036854775807
+        # The destination cron will be paused before migration starts. Increase the
+        # lag threshold so its first ACK can enter handoff under TSan's slower timing.
+        R 0 config set cluster-slot-migration-handoff-max-lag-bytes 100mb
         R 1 debug asm-failpoint "import-main-channel" "takeover"
         R 1 debug pause-cron 1 ;# prevent retrying the failed import task
 
