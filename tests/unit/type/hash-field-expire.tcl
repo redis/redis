@@ -295,7 +295,7 @@ start_server {tags {"external:skip needs:debug"}} {
         
         test "HPEXPIRETIME persists after RDB reload ($type)" {
             # Retry with a longer TTL when DEBUG RELOAD is slow.
-            assert_with_retry 8 iter {
+            assert_with_retry 3 iter {
                 r del myhash
                 r hset myhash field1 value1 field2 value2
                 set ttl_ms [expr {500 * $iter}]
