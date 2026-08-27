@@ -113,6 +113,9 @@ struct asmManager {
     size_t sync_buffer_peak;            /* Peak size of sync buffer */
     asmTask *master_task;               /* The task that is currently active on the master */
 
+    /* Bitmap for O(1) slot-in-trim-job lookups (covers pending + active trim jobs) */
+    uint32_t trim_slots_bitmap[CLUSTER_SLOTS/32];
+
     /* Fail point injection for debugging */
     int debug_fail_channel;       /* Channel where the task will fail */
     int debug_fail_state;         /* State where the task will fail */
@@ -199,6 +202,32 @@ int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
 void activeTrimJobFreeMethod(void *ptr);
+
+/* --- Trim bitmap helpers --- */
+static inline void trimBitmapSetSlotRange(slotRangeArray *slots) {
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int s = slots->ranges[i].start; s <= slots->ranges[i].end; s++) {
+            asmManager->trim_slots_bitmap[s >> 5] |= (1U << (s & 31));
+        }
+    }
+}
+
+/* Rebuild the entire trim bitmap from pending and active trim job lists. */
+static void trimBitmapRebuild(void) {
+    memset(asmManager->trim_slots_bitmap, 0, sizeof(asmManager->trim_slots_bitmap));
+
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->pending_trim_jobs, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        trimBitmapSetSlotRange(listNodeValue(ln));
+    }
+    listRewind(asmManager->active_trim_jobs, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        activeTrimJob *job = listNodeValue(ln);
+        trimBitmapSetSlotRange(job->slots);
+    }
+}
 
 void asmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
@@ -2883,28 +2912,8 @@ int isSlotInAsmTask(int slot) {
 /* Check if the slot is in a pending trim job. It may happen if we can't trim
  * the slots immediately due to a write pause or when active trim is in progress. */
 int isSlotInTrimJob(int slot) {
-    slotRange req = {slot, slot};
-
-    if (!asmManager || !asmIsTrimInProgress()) return 0;
-
-    /* Check if the slot is in any pending trim job. */
-    listIter li;
-    listNode *ln;
-    listRewind(asmManager->pending_trim_jobs, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        if (slotRangeArrayOverlaps(slots, &req))
-            return 1;
-    }
-
-    /* Check if the slot is in any active trim job. */
-    listRewind(asmManager->active_trim_jobs, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        activeTrimJob *job = listNodeValue(ln);
-        if (slotRangeArrayOverlaps(job->slots, &req))
-            return 1;
-    }
-    return 0;
+    if (!asmManager) return 0;
+    return (asmManager->trim_slots_bitmap[slot >> 5] >> (slot & 31)) & 1;
 }
 
 int clusterAsmHandoff(const char *task_id, sds *err) {
@@ -3234,6 +3243,7 @@ int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
  * For trim method details, see asmTrimSlots(). */
 void asmTrimJobSchedule(slotRangeArray *slots) {
     listAddNodeTail(asmManager->pending_trim_jobs, slotRangeArrayDup(slots));
+    trimBitmapSetSlotRange(slots);
 }
 
 /* Process any pending trim jobs. */
@@ -3287,6 +3297,7 @@ void asmTrimJobProcessPending(void) {
         listDelNode(asmManager->pending_trim_jobs, ln);
         asmTrimCtxRelease(ctx); /* Release ctx (if bg trim, released later by kvsAsyncFreeDoneCB) */
     }
+    trimBitmapRebuild();
 }
 
 /* Trim keys in slots not owned by this node (if any). */
@@ -3446,6 +3457,7 @@ void asmCancelPendingTrimJobs(void) {
         sdsfree(str);
         slotRangeArrayFree(slots);
     }
+    trimBitmapRebuild();
 }
 
 /* Free an activeTrimJob and unblock pending client if needed. */
@@ -3478,6 +3490,7 @@ void asmCancelTrimJobs(void) {
     asmManager->active_trim_cancelled += listLength(asmManager->active_trim_jobs);
     asmActiveTrimEnd();
     listEmpty(asmManager->active_trim_jobs);
+    trimBitmapRebuild();
 }
 
 /* It's used to trim slots after the migration is completed or import is failed.
@@ -3586,6 +3599,7 @@ void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int migrati
     job->migration_cleanup = migration_cleanup;
 
     listAddNodeTail(asmManager->active_trim_jobs, job);
+    trimBitmapSetSlotRange(slots);
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim scheduled for slots: %s", str);
     sdsfree(str);
@@ -3627,6 +3641,7 @@ void asmActiveTrimEnd(void) {
     sdsfree(str);
     listDelNode(asmManager->active_trim_jobs, listFirst(asmManager->active_trim_jobs));
     asmManager->active_trim_completed++;
+    trimBitmapRebuild();
 }
 
 /* Check if the slot range array overlaps with any trim job. */
