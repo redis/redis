@@ -98,6 +98,7 @@
 #endif
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define RDB_OPCODE_KEY_NOEVICT 240  /* Per-key attribute: bless NO-EVICT. No payload; presence flags the key. */
 #define RDB_OPCODE_HASH_TEMPLATE 242 /* One hash template record. */
 #define RDB_OPCODE_KEY_META   243   /* Key metadata (module metadata classes). */
 #define RDB_OPCODE_SLOT_INFO  244   /* Individual slot info, such as slot id and size (cluster mode only). */

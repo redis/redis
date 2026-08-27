@@ -31,11 +31,22 @@ struct RedisModuleIO;
 /* Create the ATTR keymeta class (once at startup, before owners register). */
 void keyAttrInit(void);
 
-/* Register an attribute owner: the bits it manages plus its callbacks.
+/* RDB wire mapping the owner supplies: one payload-less opcode per attribute
+ * bit. The opcode's presence on disk sets the bit; nothing about the RAM layout
+ * is serialized. Keeps the opcode's identity with its owner, not in this layer. */
+typedef struct keyAttrWire {
+    uint64_t bit;    /* attribute bit within the ATTR mask */
+    int rdbOpcode;   /* RDB opcode that represents it on disk */
+} keyAttrWire;
+
+/* Register an attribute owner: the bits it manages, its RDB wire mapping, and
+ * its callbacks.
+ *   wire/wireLen - bit -> RDB opcode entries (may be NULL/0 if not persisted)
  *   track   - key gained a managed bit -> add to the owner's index
  *   untrack - key removed              -> drop from the owner's index
  *   aof     - re-emit the owner's command(s) on AOF rewrite (may be NULL) */
 void keyAttrRegister(uint64_t flags,
+                     const keyAttrWire *wire, int wireLen,
                      void (*track)(struct redisDb *db, sds key, uint64_t mask),
                      void (*untrack)(struct redisDb *db, sds key),
                      void (*aof)(struct RedisModuleIO *io, uint64_t mask));
@@ -49,5 +60,11 @@ uint64_t keyAttrGet(kvobj *kv);
 /* Re-attach a key's attributes to their indexes after a value overwrite, whose
  * generic unlink handling detached them (called from dbSetValue). */
 void keyAttrOnOverwrite(struct redisDb *db, robj *key, kvobj *kv);
+
+/* RDB serialization: each attribute bit is written as its own payload-less
+ * opcode. keyAttrRdbSave writes them for a key; keyAttrBitForOpcode maps an
+ * opcode back to its RAM bit (0 if the opcode isn't an attribute opcode). */
+int keyAttrRdbSave(rio *rdb, kvobj *kv);
+uint64_t keyAttrBitForOpcode(int opcode);
 
 #endif /* __KEYATTR_H */

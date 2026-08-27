@@ -91,9 +91,13 @@ static void blessAof(RedisModuleIO *io, uint64_t mask) {
 }
 
 /* Register bless as the owner of the NO-EVICT bit. Called at startup, after
- * keyAttrInit() created the ATTR class. */
+ * keyAttrInit() created the ATTR class. The wire mapping ties our bit to its own
+ * RDB opcode, so the on-disk format is decoupled from the in-RAM bit. */
 void blessInit(void) {
-    keyAttrRegister(BLESS_NOEVICT, blessTrack, blessUntrack, blessAof);
+    static const keyAttrWire blessWire[] = {
+        { BLESS_NOEVICT, RDB_OPCODE_KEY_NOEVICT },
+    };
+    keyAttrRegister(BLESS_NOEVICT, blessWire, 1, blessTrack, blessUntrack, blessAof);
 }
 
 /* ---- commands ---- */

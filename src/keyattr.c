@@ -10,25 +10,39 @@
 
 #include "server.h"
 
+/* at most 8 serialized bits per owner; bump if an owner ever needs more. */
+#define KEY_ATTR_MAX_WIRE 8
+
 typedef struct keyAttrOwner {
     uint64_t flags;                                     /* bits this owner manages */
     void (*track)(redisDb *db, sds key, uint64_t mask); /* key gained a bit -> its index */
     void (*untrack)(redisDb *db, sds key);              /* key removed -> drop from index */
     void (*aof)(RedisModuleIO *io, uint64_t mask);      /* re-emit its command(s) */
+    keyAttrWire wire[KEY_ATTR_MAX_WIRE];                /* bit -> RDB opcode (this owner's) */
+    int wireLen;
 } keyAttrOwner;
 
 /* ponytail: fixed small table; one slot per owner (module), not per bit. Bump
  * KEY_ATTR_MAX_OWNERS if more attribute-owning modules than this are added. */
 #define KEY_ATTR_MAX_OWNERS 8
+/* Registered owners, packed from slot 0. A registered owner always has flags!=0,
+ * so a zero-flags slot marks the end of the table (no separate count needed). */
 static keyAttrOwner owners[KEY_ATTR_MAX_OWNERS];
-static int ownerCount = 0;
 
 void keyAttrRegister(uint64_t flags,
+                     const keyAttrWire *wire, int wireLen,
                      void (*track)(redisDb *, sds, uint64_t),
                      void (*untrack)(redisDb *, sds),
                      void (*aof)(RedisModuleIO *, uint64_t)) {
-    serverAssert(ownerCount < KEY_ATTR_MAX_OWNERS);
-    owners[ownerCount++] = (keyAttrOwner){flags, track, untrack, aof};
+    serverAssert(flags != 0);                    /* 0 flags marks an empty slot */
+    serverAssert(wireLen <= KEY_ATTR_MAX_WIRE);
+    int i = 0;
+    while (i < KEY_ATTR_MAX_OWNERS && owners[i].flags) i++;
+    serverAssert(i < KEY_ATTR_MAX_OWNERS);
+    keyAttrOwner *o = &owners[i];
+    o->flags = flags; o->track = track; o->untrack = untrack; o->aof = aof;
+    o->wireLen = wireLen;
+    for (int j = 0; j < wireLen; j++) o->wire[j] = wire[j];
 }
 
 /* Read a key's attribute mask inline from its keymeta (0 if none / uninit). */
@@ -43,12 +57,12 @@ uint64_t keyAttrGet(kvobj *kv) {
  * where key + metadata first meet (RDB load, RESTORE, migration, COPY/MOVE/RENAME);
  * the keymeta rdb_load callback has no key name, so this is the point that does. */
 void keyAttrTrackKey(redisDb *db, sds key, uint64_t mask) {
-    for (int i = 0; i < ownerCount; i++)
+    for (int i = 0; i < KEY_ATTR_MAX_OWNERS && owners[i].flags; i++)
         if (mask & owners[i].flags) owners[i].track(db, key, mask);
 }
 
 static void keyAttrUntrackKey(redisDb *db, sds key, uint64_t mask) {
-    for (int i = 0; i < ownerCount; i++)
+    for (int i = 0; i < KEY_ATTR_MAX_OWNERS && owners[i].flags; i++)
         if (mask & owners[i].flags) owners[i].untrack(db, key);
 }
 
@@ -61,24 +75,37 @@ void keyAttrOnOverwrite(redisDb *db, robj *key, kvobj *kv) {
     if (mask) keyAttrTrackKey(db, key->ptr, mask);
 }
 
-/* ---- ATTR keymeta class callbacks (generic; operate on the raw mask) ---- */
+/* ---- RDB / DUMP serialization ----
+ * Each attribute bit serializes as its OWN payload-less opcode (supplied by the
+ * owner via keyAttrRegister), so the on-disk format is fully independent of the
+ * RAM bit layout - change how a bit is stored in RAM and only the owner's wire
+ * entry moves; the opcode on disk stays fixed. Written to the RDB file per-key
+ * before TYPE by rdb.c, read back in rdbResolveKeyType. */
 
-static void attrRdbSave(RedisModuleIO *io, void *reserved, uint64_t *meta) {
-    UNUSED(reserved);
-    if (rdbSaveLen(io->rio, RDB_MODULE_OPCODE_UINT) == -1 ||
-        rdbSaveLen(io->rio, *meta) == -1)
-        io->error = 1;
+/* Write one opcode for each attribute bit the key carries. 0 ok, -1 on I/O error. */
+int keyAttrRdbSave(rio *rdb, kvobj *kv) {
+    /* Fast path: the metabit says the key has no ATTR value, so skip the keymeta
+     * lookup and the owner scan entirely (the case for almost every key). */
+    if (!(kv->metabits & KEY_ATTR_METABIT)) return 0;
+    uint64_t mask = keyAttrGet(kv);
+    for (int i = 0; i < KEY_ATTR_MAX_OWNERS && owners[i].flags; i++) {
+        if (!(mask & owners[i].flags)) continue;   /* key has none of this owner's bits */
+        for (int j = 0; j < owners[i].wireLen; j++)
+            if (mask & owners[i].wire[j].bit)
+                if (rdbSaveType(rdb, owners[i].wire[j].rdbOpcode) == -1) return -1;
+    }
+    return 0;
 }
 
-static int attrRdbLoad(RedisModuleIO *io, uint64_t *meta, int encver) {
-    UNUSED(encver);
-    uint64_t opcode = rdbLoadLen(io->rio, NULL);
-    if (opcode != RDB_MODULE_OPCODE_UINT) { io->error = 1; return -1; }
-    uint64_t v;
-    if (rdbLoadLenByRef(io->rio, NULL, &v) == -1) { io->error = 1; return -1; }
-    *meta = v;
-    return 1; /* attach; the DB indexes are populated later in dbAdd* (io has no key). */
+/* If `opcode` is an attribute opcode, return the RAM bit it maps to; else 0. */
+uint64_t keyAttrBitForOpcode(int opcode) {
+    for (int i = 0; i < KEY_ATTR_MAX_OWNERS && owners[i].flags; i++)
+        for (int j = 0; j < owners[i].wireLen; j++)
+            if (owners[i].wire[j].rdbOpcode == opcode) return owners[i].wire[j].bit;
+    return 0;
 }
+
+/* ---- ATTR keymeta class lifecycle callbacks (generic; operate on the raw mask) ---- */
 
 /* Main-thread removal (DEL, expire, overwrite): drop the key from every owner's
  * index. unlink (not free) because free() may run on a lazyfree thread and must
@@ -107,7 +134,7 @@ static int attrKeep(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 /* AOF rewrite carries no keymeta, so each owner re-emits its own command(s). */
 static void attrAofRewrite(RedisModuleIO *io, void *reserved, uint64_t meta) {
     UNUSED(reserved);
-    for (int i = 0; i < ownerCount; i++)
+    for (int i = 0; i < KEY_ATTR_MAX_OWNERS && owners[i].flags; i++)
         if ((meta & owners[i].flags) && owners[i].aof) owners[i].aof(io, meta);
 }
 
@@ -118,8 +145,8 @@ void keyAttrInit(void) {
     memset(&conf, 0, sizeof(conf));
     conf.flags = (1u << KEY_META_FLAG_ALLOW_IGNORE); /* older servers skip gracefully */
     conf.reset_value = 0;                            /* empty mask = not present */
-    conf.rdb_save = attrRdbSave;
-    conf.rdb_load = attrRdbLoad;
+    /* No rdb_save/rdb_load: attributes serialize via their own RDB opcodes
+     * (keyAttrRdbSave / keyAttrBitForOpcode), not the generic keymeta format. */
     conf.unlink = attrUnlink;
     conf.rename = attrRename;
     conf.copy = attrKeep;
