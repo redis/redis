@@ -148,6 +148,29 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
+# Run body until condition evaluates to true, up to max_iter attempts.
+proc assert_with_retry {max_iter iter_var body condition} {
+    if {$max_iter < 1} {
+        error "max_iter must be greater than 0"
+    }
+
+    upvar 1 $iter_var iter
+    set iter 1
+    while 1 {
+        uplevel 1 $body
+        if {[uplevel 1 [list expr $condition]]} {
+            return
+        }
+
+        if {$iter >= $max_iter} {
+            set context "(context: [info frame -1])"
+            error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context (gave up after ${iter} attempts)"
+        }
+        puts "Retrying assertion in $::cur_test (attempt ${iter}/${max_iter})"
+        incr iter
+    }
+}
+
 # try to match a value to a list of patterns that are either regex (starts with "/") or plain string.
 # The caller can specify to use only glob-pattern match
 proc search_pattern_list {value pattern_list {glob_pattern false}} {
