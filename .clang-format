@@ -1,0 +1,38 @@
+# Redis code style. Only code changed by a pull request is checked; see
+# utils/check-format.sh. Do not run clang-format over the entire repository.
+BasedOnStyle: LLVM
+
+ColumnLimit: 0
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: false
+  AfterControlStatement: Never
+  BeforeElse: false
+
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+
+ReflowComments: false
+SortIncludes: Never
+AlignTrailingComments: false
+AlignConsecutiveMacros: false
+AlignEscapedNewlines: DontAlign
+InsertBraces: false
+KeepEmptyLinesAtTheStartOfBlocks: true
+MaxEmptyLinesToKeep: 3
+
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+IndentCaseLabels: false
+IndentGotoLabels: false
+PointerAlignment: Right
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements

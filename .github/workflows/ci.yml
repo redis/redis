@@ -8,6 +8,20 @@ concurrency:
 
 jobs:
 
+  check-format:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        run: python3 -m pip install clang-format==22.1.8
+
+      - name: Check changed C code formatting
+        run: ./utils/check-format.sh "${{ github.event.pull_request.base.sha }}"
+
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:

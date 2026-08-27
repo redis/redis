@@ -115,4 +115,26 @@ view, and so forth. This helps.
 
 4. For minor fixes - open a pull request on GitHub.
 
+# Code style
+
+Redis does not run a repository-wide formatter. Pull requests are checked from
+their modified C and header lines, but clang-format can adjust adjacent lines
+in the same syntax unit. Include those related changes in the pull request.
+CI only reports formatting issues; it does not commit a repair.
+If a pull request changes a large table whose manual layout must be preserved,
+add `clang-format off/on` markers around that table in the same pull request.
+
+Install the required formatter and check or repair a pull request locally:
+
+```sh
+python3 -m pip install clang-format==22.1.8
+
+./utils/check-format.sh
+./utils/check-format.sh unstable
+FIX=1 ./utils/check-format.sh unstable
+```
+
+Only tracked files are checked, so add newly created C and header files before
+running the command.
+
 Additional information on the RSALv2/SSPLv1/AGPLv3 tri-license is also found in the LICENSE.txt file.
