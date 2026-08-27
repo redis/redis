@@ -549,12 +549,10 @@ if {$::tls} {
         }
 
         test {TLS: parent-domain advisory is not repeated when TLS is enabled later} {
-            # The advisory has two triggers: the option's apply callback and the
-            # first TLS configuration, and one value can reach both. The suite's
-            # servers configure TLS at startup, which would consume the second
-            # trigger, so boot with TLS fully disabled and talk over the plain
-            # port: set the option (first trigger), then enable TLS (second
-            # trigger). The advisory must be reported exactly once.
+            # The advisory is reported when the option is set; configuring TLS
+            # afterwards must not repeat it. Boot with TLS fully disabled and
+            # talk over the plain port (the suite's servers configure TLS at
+            # startup): set the option, then enable TLS. Exactly one advisory.
             start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
                 wait_for_condition 50 100 {
                     [count_log_message 0 "Ready to accept"] > 0
@@ -572,9 +570,9 @@ if {$::tls} {
         }
 
         test {TLS: parent-domain advisory is not repeated for a combined CONFIG SET} {
-            # A single command setting both the option and tls-port fires both
-            # triggers in one go: the option's apply callback and, through
-            # tls-port, the first TLS configuration. Still one advisory.
+            # A single command setting both the option and tls-port applies the
+            # option and performs the initial TLS configuration in one go.
+            # Still exactly one advisory.
             start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
                 wait_for_condition 50 100 {
                     [count_log_message 0 "Ready to accept"] > 0

@@ -448,6 +448,13 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
  * abnormal aggregate `save T C` functionality. Remove in the future. */
 static int reading_config_file;
 
+/* Nesting depth of loadServerConfigFromString(): "include" re-enters it, and
+ * post-load advisories must run only when the outermost load finishes. */
+static int config_load_depth;
+
+/* Defined with the TLS config hooks below; used by the post-load checks. */
+static void tlsWarnExpectedPeerNameScope(void);
+
 void loadServerConfigFromString(char *config) {
     deprecatedConfig deprecated_configs[] = {
         {"list-max-ziplist-entries", 2, 2},
@@ -464,6 +471,7 @@ void loadServerConfigFromString(char *config) {
     int argc;
 
     reading_config_file = 1;
+    config_load_depth++;
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
@@ -635,6 +643,12 @@ void loadServerConfigFromString(char *config) {
     /* To ensure backward compatibility and work while hz is out of range */
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
     if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
+
+    /* Advisories about the loaded configuration, emitted only when the
+     * outermost load finishes: a nested load ends before the directives that
+     * follow its "include" line (such as "logfile") have been parsed. */
+    config_load_depth--;
+    if (config_load_depth == 0) tlsWarnExpectedPeerNameScope();
 
     sdsfreesplitres(lines,totlines);
     reading_config_file = 0;
@@ -2831,23 +2845,11 @@ int updateClusterHumanNodename(const char **err) {
  * accepts every name in that TLD) and does not match the domain itself. That is
  * legitimate but much broader than pinning explicit hosts, and a leading dot is easy
  * to introduce unintentionally, so make it visible in the log rather than silent.
- * Called from tlsConfigure() when TLS is first configured and from the option's
- * apply callback on CONFIG SET. */
-void tlsWarnExpectedPeerNameScope(void) {
-    /* The advisory has two triggers, and one value can reach both: the apply
-     * callback reports it when set by CONFIG SET, and the initial TLS
-     * configuration reports it again when TLS is enabled afterwards (possibly
-     * by the same command). Remember the last value seen so each value is
-     * reported once. The state must be updated on every call, not only when
-     * reporting, or restoring a previously seen value would go unreported; and
-     * it must stay in this single translation unit, shared by both triggers,
-     * which is why this function cannot become a header inline. */
-    static char *last_seen = NULL;
+ * Called once the outermost config load finishes and from the option's apply
+ * callback on CONFIG SET; the two cannot report the same value twice, since the
+ * former runs before any CONFIG SET and the latter only when the value changes. */
+static void tlsWarnExpectedPeerNameScope(void) {
     const char *val = server.tls_ctx_config.expected_peer_name;
-
-    if (val && last_seen && !strcmp(val, last_seen)) return;
-    zfree(last_seen);
-    last_seen = val ? zstrdup(val) : NULL;
     if (!val) return;
 
     int ntokens, count = 0;
