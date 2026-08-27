@@ -33,7 +33,11 @@
 #define ZBT_SPLIT_EVEN    0
 #define ZBT_SPLIT_APPEND  1  /* went in at the end of the tail leaf */
 #define ZBT_SPLIT_PREPEND 2  /* went in at the front of the head leaf */
-#define ZBT_LEAF_MAX   64
+/* Leaf fanout is the nearest jemalloc-class fill below the old 64. On 64-bit
+ * a leaf is 32 bytes of header plus (MAX+1) element pointers; 35 pointers of
+ * payload plus the overflow slot is exactly the 320-byte class (the first
+ * class that fits a half-sized leaf). Inner fanout is unchanged. */
+#define ZBT_LEAF_MAX   35
 #define ZBT_LEAF_MIN   (ZBT_LEAF_MAX/2)
 #define ZBT_INNER_MAX  64
 #define ZBT_INNER_MIN  (ZBT_INNER_MAX/2)
@@ -51,6 +55,11 @@ typedef struct zbtLeaf {
     struct zbtLeaf *prev, *next;         /* sibling leaves (sorted order) */
     zbtElem *elems[ZBT_LEAF_MAX + 1];
 } zbtLeaf;
+
+#if UINTPTR_MAX == UINT64_MAX
+static_assert(sizeof(zbtLeaf) == 320,
+              "zbtLeaf should fill the jemalloc 320-byte size class");
+#endif
 
 typedef struct zbtInner {
     zbtNode n;
