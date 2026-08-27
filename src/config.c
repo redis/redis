@@ -2850,14 +2850,12 @@ void tlsWarnExpectedPeerNameScope(void) {
     last_seen = val ? zstrdup(val) : NULL;
     if (!val) return;
 
-    int count = 0;
-    const char *p = val;
-    while (*p) {
-        while (*p == ' ') p++;
-        const char *start = p;
-        while (*p && *p != ' ') p++;
-        if (p > start && *start == '.') count++;
+    int ntokens, count = 0;
+    sds *tokens = sdssplitlen(val, strlen(val), " ", 1, &ntokens);
+    for (int i = 0; i < ntokens; i++) {
+        if (sdslen(tokens[i]) && tokens[i][0] == '.') count++;
     }
+    sdsfreesplitres(tokens, ntokens);
     if (!count) return;
 
     serverLog(LL_WARNING,
