@@ -143,10 +143,11 @@ static void attrAofRewrite(RedisModuleIO *io, void *reserved, uint64_t meta) {
 void keyAttrInit(void) {
     KeyMetaClassConf conf;
     memset(&conf, 0, sizeof(conf));
-    conf.flags = (1u << KEY_META_FLAG_ALLOW_IGNORE); /* older servers skip gracefully */
     conf.reset_value = 0;                            /* empty mask = not present */
     /* No rdb_save/rdb_load: attributes serialize via their own RDB opcodes
-     * (keyAttrRdbSave / keyAttrBitForOpcode), not the generic keymeta format. */
+     * (keyAttrRdbSave / keyAttrBitForOpcode), not the generic keymeta format. A
+     * new opcode isn't skippable by old servers, so the RDB version is bumped -
+     * old servers reject a newer RDB up front (upgrade-only, like any format). */
     conf.unlink = attrUnlink;
     conf.rename = attrRename;
     conf.copy = attrKeep;

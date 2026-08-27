@@ -132,40 +132,34 @@ start_server {tags {"bless"}} {
         assert_equal 1 [r get a]
     } {} {needs:debug}
 
-    test {BLESS survives DUMP/RESTORE} {
+    test {DUMP/RESTORE does not carry the blessing} {
         r flushall
+        # The blessing is a local attribute, not part of the key's data, so a
+        # DUMP payload never carries it - RESTORE brings back a plain key.
         r set a hello
         r bless set a no-evict
         set d [r dump a]
         r del a
-        assert_equal 0 [r bless count]
         r restore a 0 $d
-        assert_equal {NO-EVICT} [r bless get a]
-        assert_equal 1 [r bless count]
+        assert_equal {NONE} [r bless get a]
+        assert_equal 0 [r bless count]
     }
 
-    test {RESTORE REPLACE keeps the destination blessing (payload wins if blessed)} {
+    test {RESTORE REPLACE keeps the destination's blessing (payload carries none)} {
         r flushall
-        # unblessed payload over a blessed destination -> destination blessing kept
+        # Payloads never carry a blessing, so RESTORE REPLACE over a blessed
+        # destination keeps the destination's blessing.
         r set plain pv
-        set unblessed_dump [r dump plain]
+        set d [r dump plain]
         r set k old
         r bless set k no-evict
-        r restore k 0 $unblessed_dump replace
+        r restore k 0 $d replace
         assert_equal {NO-EVICT} [r bless get k]
         assert_equal 1 [r exists k]
-        # a blessed payload wins over an unblessed destination
-        r set src sv
-        r bless set src no-evict
-        set blessed_dump [r dump src]
+        # over an unblessed destination -> stays unblessed
         r set d2 old
-        r restore d2 0 $blessed_dump replace
-        assert_equal {NO-EVICT} [r bless get d2]
-        # blessed payload over a blessed destination -> still blessed
-        r set d3 x
-        r bless set d3 no-evict
-        r restore d3 0 $blessed_dump replace
-        assert_equal {NO-EVICT} [r bless get d3]
+        r restore d2 0 $d replace
+        assert_equal {NONE} [r bless get d2]
     }
 
     test {BLESS and TTL coexist across DEBUG RELOAD} {

@@ -115,10 +115,8 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
      * metadata separately through keyMetaOnAof(). */
     if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
-    /* Per-key attributes (bless) ride the payload so DUMP/RESTORE and cluster slot
-     * migration (ASM) carry them. Gated like keymeta: AOF re-emits them as commands. */
-    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META))
-        serverAssert(keyAttrRdbSave(payload, o) != -1);
+    /* Per-key attributes (bless) are NOT in the payload: DUMP/RESTORE drop them
+     * (a local decision), and ASM carries them as a follow-up command like TTL. */
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 

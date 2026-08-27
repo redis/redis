@@ -2278,6 +2278,17 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Write ABSTTL */
         if (rioWriteBulkString(rdb, "ABSTTL", 6) == 0) return C_ERR;
+
+        /* Bless isn't in the payload; send it as a follow-up command right here,
+         * same as we handle the TTL. (The AOF path below emits it via
+         * keyMetaOnAof.) */
+        if (blessNoEvict(o)) {
+            if (rioWriteBulkCount(rdb, '*', 4) == 0) return C_ERR;
+            if (rioWriteBulkString(rdb, "BLESS", 5) == 0) return C_ERR;
+            if (rioWriteBulkString(rdb, "SET", 3) == 0) return C_ERR;
+            if (rioWriteBulkObject(rdb, &key) == 0) return C_ERR;
+            if (rioWriteBulkString(rdb, "NO-EVICT", 8) == 0) return C_ERR;
+        }
     } else {
         /* Use AOF format to migrate data */
         if (rewriteObject(rdb, &key, o, dbid, expiretime) == C_ERR) return C_ERR;
