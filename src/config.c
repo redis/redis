@@ -634,21 +634,23 @@ void loadServerConfigFromString(char *config) {
         goto loaderr;
     }
 
-    /* in case cluster mode is enabled dbnum must be 1 */
-    if (server.cluster_enabled && server.dbnum > 1) {
-        serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
-        server.dbnum = 1;
-    }
-
     /* To ensure backward compatibility and work while hz is out of range */
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
     if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
 
-    /* Advisories about the loaded configuration, emitted only when the
-     * outermost load finishes: a nested load ends before the directives that
-     * follow its "include" line (such as "logfile") have been parsed. */
+    /* Post-load checks that must observe the final configuration, run only
+     * when the outermost load finishes: a nested load ends before the
+     * directives that follow its "include" line (such as "logfile") have
+     * been parsed. */
     config_load_depth--;
-    if (config_load_depth == 0) tlsWarnExpectedPeerNameScope();
+    if (config_load_depth == 0) {
+        /* in case cluster mode is enabled dbnum must be 1 */
+        if (server.cluster_enabled && server.dbnum > 1) {
+            serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
+            server.dbnum = 1;
+        }
+        tlsWarnExpectedPeerNameScope();
+    }
 
     sdsfreesplitres(lines,totlines);
     reading_config_file = 0;
