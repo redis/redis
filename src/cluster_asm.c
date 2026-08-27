@@ -96,11 +96,18 @@ typedef struct asmTask {
     redisOpArray *post_stream_module_cmds;  /* Module commands to be propagated at the end of slot migration, just before STREAM-EOF */
 } asmTask;
 
-typedef struct activeTrimJob {
-    slotRangeArray *slots;      /* Slots being trimmed */
-    uint64_t client_id;         /* Client ID waiting for active trim completion (0 if none) */
-    int migration_cleanup;      /* Whether this is a migration cleanup of slots no longer owned */
-} activeTrimJob;
+typedef struct asmBgTrimState {
+    kvstore *target_kvstore;
+    keysizesHist delta_keysizes_hist;
+    keysizesHist delta_allocsizes_hist;
+} asmBgTrimState;
+
+typedef struct asmTrimJob {
+    slotRangeArray *slots; /* Slots being trimmed */
+    uint64_t client_id;    /* Client ID waiting for trim completion (0 if none) */
+    int migration_cleanup; /* Whether this is a migration cleanup of slots no longer owned */
+    asmBgTrimState *bg;    /* Allocated only for background trim */
+} asmTrimJob;
 
 /* ASM Manager: Global singleton that manages all ASM operations.
  * Coordinates migration tasks, trim jobs, and maintains statistics. */
@@ -193,12 +200,12 @@ static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
 void asmCancelPendingTrimJobs(void);
-void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
+void asmTriggerActiveTrim(asmTrimJob *job);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
-void activeTrimJobFreeMethod(void *ptr);
+void asmTrimJobUnblockClientAndFree(void *ptr);
 
 void asmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
@@ -215,7 +222,7 @@ void asmInit(void) {
     asmManager->active_trim_started = 0;
     asmManager->active_trim_completed = 0;
     asmManager->active_trim_cancelled = 0;
-    listSetFreeMethod(asmManager->active_trim_jobs, activeTrimJobFreeMethod);
+    listSetFreeMethod(asmManager->active_trim_jobs, asmTrimJobUnblockClientAndFree);
 }
 
 char *asmTaskStateToString(int state) {
@@ -2892,15 +2899,15 @@ int isSlotInTrimJob(int slot) {
     listNode *ln;
     listRewind(asmManager->pending_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        if (slotRangeArrayOverlaps(slots, &req))
+        asmTrimJob *job = listNodeValue(ln);
+        if (slotRangeArrayOverlaps(job->slots, &req))
             return 1;
     }
 
     /* Check if the slot is in any active trim job. */
     listRewind(asmManager->active_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
-        activeTrimJob *job = listNodeValue(ln);
+        asmTrimJob *job = listNodeValue(ln);
         if (slotRangeArrayOverlaps(job->slots, &req))
             return 1;
     }
@@ -3059,23 +3066,99 @@ void asmUnblockMasterAfterTrim(void) {
     }
 }
 
-/* Background Trim: Delete migrated keys asynchronously in BIO thread.
+/* Create a trim job that takes ownership of slots. */
+static asmTrimJob *asmTrimJobCreate(slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
+    asmTrimJob *job = zcalloc(sizeof(*job));
+    job->slots = slots;
+    job->client_id = client_id;
+    job->migration_cleanup = migration_cleanup;
+    return job;
+}
+
+/* Populate the histogram deltas while the detached slot dictionaries are
+ * owned by the BIO thread. The completion callback applies these deltas in
+ * the main thread before freeing the trim job. */
+static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
+    asmTrimJob *trim_job = userdata;
+    serverAssert(trim_job && trim_job->bg);
+
+    kvstoreIterator kvs_it;
+    kvstoreIteratorInit(&kvs_it, kvs);
+    dictEntry *de;
+
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+        kvobj *kv = dictGetKV(de);
+        if (!kv) continue;
+        int64_t *keysizes_row = keysizesHistRow(trim_job->bg->delta_keysizes_hist, kv->type);
+        if (!keysizes_row) continue; /* untracked type, e.g. OBJ_MODULE */
+
+        size_t len = getObjectLength(kv);
+        int size_bin = (len == 0) ? 0 : log2ceil(len) + 1; /* Only strings can be empty */
+        debugServerAssert(size_bin < MAX_KEYSIZES_BINS);
+        keysizes_row[size_bin]++;
+
+        if (server.memory_tracking_enabled) {
+            int64_t *allocsizes_row = keysizesHistRow(trim_job->bg->delta_allocsizes_hist, kv->type);
+            size_t alloc_size = kvobjAllocSize(kv);
+            int alloc_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
+            debugServerAssert(alloc_bin < MAX_KEYSIZES_BINS);
+            allocsizes_row[alloc_bin]++;
+        }
+    }
+    kvstoreIteratorReset(&kvs_it);
+}
+
+/* Complete a background trim in the main thread after lazyfree finishes.
+ * Apply the histogram deltas, reply to the client, and free the trim job. */
+static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
+    asmTrimJob *job = userdata;
+    serverAssert(job && job->bg && job->client_id == client_id);
+
+    kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
+    /* Apply histogram deltas only if the target kvstore has not changed. */
+    if (job->bg->target_kvstore == server.db[0].keys && meta) {
+        for (int row = 0; row < MAX_KEYSIZES_ROWS; row++) {
+            for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+                meta->keysizes_hist[row][bin] -= job->bg->delta_keysizes_hist[row][bin];
+                meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
+            }
+        }
+    }
+
+    /* Decrement counter unconditionally to track job completion. If kvstore was
+     * replaced (e.g., by FLUSHALL), the new histogram is already consistent (reset
+     * to 0 for empty DB), so it's safe to resume assertions when counter reaches 0. */
+    debugServerAssert(asmManager->bg_trim_running > 0);
+    asmManager->bg_trim_running--;
+
+    /* Unblock and reply to the client if needed, then free the job. */
+    asmTrimJobUnblockClientAndFree(job);
+}
+
+/* Start a background trim and take ownership of the job.
  *
- * It works by moving entire slot data structures (dictionaries) to temporary
- * kvstores, then handing them off to BIO thread for deletion.
- *
- * @param trim_ctx Context for slot ranges and histogram tracking  
- * @param migration_cleanup True if this is post-migration cleanup (fires module events)
- */
-void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
-    slotRangeArray *slots = trim_ctx->slots;
+ * Initialize the background state and move the slot data structures to temporary
+ * kvstores. Queue a lazyfree job to collect histogram deltas and release the
+ * detached data, followed by a completion request that notifies the main thread
+ * to apply the deltas, reply to the client if needed. */
+static void asmTriggerBackgroundTrim(asmTrimJob *job) {
+    /* Allocate histogram tracking state only for background trim. */
+    serverAssert(job && job->bg == NULL);
+    job->bg = zcalloc(sizeof(*job->bg));
+    /* Save the target kvstore for completion validation. */
+    job->bg->target_kvstore = server.db[0].keys;
+
+    /* Increment background trim counter. */
+    asmManager->bg_trim_running++;
+
+    slotRangeArray *slots = job->slots;
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
     /* Fire the trim event to modules only if this is a migration cleanup. */
-    if (migration_cleanup)
+    if (job->migration_cleanup)
         moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
                 REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
                 &fsi);
@@ -3107,7 +3190,11 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
     /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
     streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
 
-    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, trim_ctx);
+    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys,
+                     asmTrimJobPopulateDeltaHistograms, job);
+
+    /* Queue completion after the lazyfree job on the same BIO worker. */
+    bioCreateCompRq(BIO_WORKER_LAZY_FREE, asmBackgroundTrimDoneCB, job->client_id, job);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);
@@ -3165,40 +3252,14 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
  * If client_id is non-zero, the client will be unblocked when trim completes.
  * If migration_cleanup is true, this is a migration cleanup of slots no longer owned. */
 
-/* Create ASM trim context with refcount=1 */
-asmTrimCtx *asmTrimCtxCreate(slotRangeArray *slots, kvstore *target_kvstore) {
-    asmTrimCtx *ctx = zcalloc(sizeof(asmTrimCtx));
-    ctx->refcount = 1;
-    ctx->slots = slots;
-    ctx->target_kvstore = target_kvstore;
-    /* delta histograms are zero-initialized by zcalloc */
-    return ctx;
-}
+/* Start a trim job and transfer its ownership to the selected trim method. */
+static int asmTrimJobStart(asmTrimJob *job) {
+    serverAssert(job != NULL);
 
-/* Increment refcount */
-void asmTrimCtxRetain(asmTrimCtx *ctx) {
-    if (!ctx) return;
-    ctx->refcount++;
-}
-
-/* Decrement refcount, free if reaches 0 */
-void asmTrimCtxRelease(asmTrimCtx *ctx) {
-    if (!ctx) return;
-
-    serverAssert(ctx->refcount > 0);
-    ctx->refcount--;
-
-    if (ctx->refcount == 0) {
-        slotRangeArrayFree(ctx->slots);
-        zfree(ctx);
-    }
-}
-
-int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
-    serverAssert(ctx != NULL);
-
-    if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
+    if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE) {
+        asmTrimJobUnblockClientAndFree(job);
         return ASM_TRIM_METHOD_NONE;
+    }
 
     /* Trigger active trim for the following cases:
      * 1. Debug override: trim method is set to 'active'.
@@ -3213,19 +3274,19 @@ int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT &&
                       moduleHasSubscribersForKeyspaceEvent(NOTIFY_KEY_TRIMMED));
     if (activetrim) {
-        asmTriggerActiveTrim(ctx->slots, client_id, migration_cleanup);
+        asmTriggerActiveTrim(job);
     } else {
-        /* Background trim:
-         * - Retain ctx for kvsAsyncFreeDoneCB() to release ctx later
-         * - Trigger background trim. Also updates ctx delta histogram.
-         * - Schedule completion cb to deduce delta histogram from DB */
-        asmBgTrimCounterIncr();
-        asmTrimCtxRetain(ctx);
-        asmTriggerBackgroundTrim(ctx, migration_cleanup);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, client_id, ctx);
+        asmTriggerBackgroundTrim(job);
     }
 
     return activetrim ? ASM_TRIM_METHOD_ACTIVE : ASM_TRIM_METHOD_BG;
+}
+
+/* Trim slots using a job-owned copy. The caller retains ownership of slots. */
+int asmTrimSlots(slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
+    serverAssert(slots != NULL);
+    return asmTrimJobStart(asmTrimJobCreate(slotRangeArrayDup(slots),
+                                            client_id, migration_cleanup));
 }
 
 /* Schedule a trim job for the specified slot ranges. The job will be
@@ -3233,7 +3294,8 @@ int asmTrimSlots(asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup) {
  * asmBeforeSleep() to ensure it only runs when there is no write pause. 
  * For trim method details, see asmTrimSlots(). */
 void asmTrimJobSchedule(slotRangeArray *slots) {
-    listAddNodeTail(asmManager->pending_trim_jobs, slotRangeArrayDup(slots));
+    listAddNodeTail(asmManager->pending_trim_jobs,
+                    asmTrimJobCreate(slotRangeArrayDup(slots), CLIENT_ID_NONE, 1));
 }
 
 /* Process any pending trim jobs. */
@@ -3276,16 +3338,16 @@ void asmTrimJobProcessPending(void) {
     }
     logged = 0;
 
-    listIter li;
     listNode *ln;
-    listRewind(asmManager->pending_trim_jobs, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        asmTrimCtx *ctx = asmTrimCtxCreate(slots, server.db[0].keys);
-        asmTrimSlots(ctx, CLIENT_ID_NONE, 1);  
-        propagateTrimSlots(slots);
+    while ((ln = listFirst(asmManager->pending_trim_jobs)) != NULL) {
+        asmTrimJob *job = listNodeValue(ln);
+        /* asmTrimJobStart() consumes the job. Keep an independent slots copy
+         * for propagation after ownership transfer. */
+        slotRangeArray *slots = slotRangeArrayDup(job->slots);
         listDelNode(asmManager->pending_trim_jobs, ln);
-        asmTrimCtxRelease(ctx); /* Release ctx (if bg trim, released later by kvsAsyncFreeDoneCB) */
+        asmTrimJobStart(job);
+        propagateTrimSlots(slots);
+        slotRangeArrayFree(slots);
     }
 }
 
@@ -3439,24 +3501,27 @@ void asmCancelPendingTrimJobs(void) {
     listNode *ln;
     listRewind(asmManager->pending_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        listDelNode(asmManager->pending_trim_jobs, ln);
-        sds str = slotRangeArrayToString(slots);
+        asmTrimJob *job = listNodeValue(ln);
+        sds str = slotRangeArrayToString(job->slots);
         serverLog(LL_NOTICE, "Cancelling the pending trim job for slots: %s", str);
         sdsfree(str);
-        slotRangeArrayFree(slots);
+        listDelNode(asmManager->pending_trim_jobs, ln);
+        asmTrimJobUnblockClientAndFree(job);
     }
 }
 
-/* Free an activeTrimJob and unblock pending client if needed. */
-void activeTrimJobFreeMethod(void *ptr) {
-    activeTrimJob *job = ptr;
+/* Finalize a trim job after completion or cancellation. If the job belongs to
+ * a blocking SFLUSH client, reply with the trimmed slots and unblock it before
+ * releasing all job-owned resources. */
+void asmTrimJobUnblockClientAndFree(void *ptr) {
+    asmTrimJob *job = ptr;
     if (job->client_id != 0) {
         /* Reply with the slot ranges that requested to be trimmed. Generally we
          * cancel trim jobs as the dataset is reset, no need to trim anymore. */
         unblockClientForAsyncFlush(job->client_id, job->slots);
     }
-    if (job->slots) slotRangeArrayFree(job->slots);
+    slotRangeArrayFree(job->slots);
+    if (job->bg) zfree(job->bg);
     zfree(job);
 }
 
@@ -3477,6 +3542,7 @@ void asmCancelTrimJobs(void) {
     serverLog(LL_NOTICE, "Cancelling all active trim jobs");
     asmManager->active_trim_cancelled += listLength(asmManager->active_trim_jobs);
     asmActiveTrimEnd();
+    /* The list free method unblocks clients and frees the remaining jobs. */
     listEmpty(asmManager->active_trim_jobs);
 }
 
@@ -3521,7 +3587,6 @@ void trimslotsCommand(client *c) {
          * command may have an update for the same key that is supposed to be
          * trimmed. We have to trim the keys synchronously. */
         clusterDelKeysInSlotRangeArray(slots, 1);
-        slotRangeArrayFree(slots);
     } else {
         /* We cannot trim any slot served by this node. */
         if (clusterNodeIsMaster(getMyClusterNode())) {
@@ -3535,11 +3600,9 @@ void trimslotsCommand(client *c) {
                 }
             }
         }
-        asmTrimCtx *ctx = asmTrimCtxCreate(slots, server.db[0].keys);
-        asmTrimSlots(ctx, CLIENT_ID_NONE, 1);
-        /* Release ctx - if bg trim, will be freed when BIO completes */
-        asmTrimCtxRelease(ctx);
+        asmTrimSlots(slots, CLIENT_ID_NONE, 1);
     }
+    slotRangeArrayFree(slots);
 
     /* Command will not be propagated automatically since it does not modify
      * the dataset. */
@@ -3549,7 +3612,7 @@ void trimslotsCommand(client *c) {
 
 /* Start the active trim job. */
 void asmActiveTrimStart(void) {
-    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    asmTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
     slotRangeArray *slots = job->slots;
 
     serverAssert(asmManager->active_trim_it == NULL);
@@ -3578,15 +3641,10 @@ void asmActiveTrimStart(void) {
     sdsfree(str);
 }
 
-/* Schedule an active trim job with optional client waiting for completion. */
-void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int migration_cleanup) {
-    activeTrimJob *job = zmalloc(sizeof(*job));
-    job->slots = slotRangeArrayDup(slots);
-    job->client_id = client_id;
-    job->migration_cleanup = migration_cleanup;
-
+/* Schedule an active trim job, taking ownership of the job. */
+void asmTriggerActiveTrim(asmTrimJob *job) {
     listAddNodeTail(asmManager->active_trim_jobs, job);
-    sds str = slotRangeArrayToString(slots);
+    sds str = slotRangeArrayToString(job->slots);
     serverLog(LL_NOTICE, "Active trim scheduled for slots: %s", str);
     sdsfree(str);
 
@@ -3599,7 +3657,7 @@ void asmTriggerActiveTrim(slotRangeArray *slots, uint64_t client_id, int migrati
 
 /* End the active trim job. */
 void asmActiveTrimEnd(void) {
-    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    asmTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
     slotRangeArray *slots = job->slots;
 
     if (asmManager->active_trim_it) {
@@ -3625,6 +3683,8 @@ void asmActiveTrimEnd(void) {
     serverLog(LL_NOTICE, "Active trim completed for slots: %s, %llu keys trimmed.",
               str, asmManager->active_trim_current_job_trimmed);
     sdsfree(str);
+    /* Removing the node invokes the list free method, which unblocks the
+     * client if needed and frees the job. */
     listDelNode(asmManager->active_trim_jobs, listFirst(asmManager->active_trim_jobs));
     asmManager->active_trim_completed++;
 }
@@ -3638,19 +3698,6 @@ int asmIsAnyTrimJobOverlaps(slotRangeArray *slots) {
         }
     }
     return 0;
-}
-
-/* Decrement background trim counter. Called from completion callback. */
-void asmBgTrimCounterDecr(void) {
-    if (!asmManager) return;
-    debugServerAssert(asmManager->bg_trim_running > 0);
-    asmManager->bg_trim_running--;
-}
-
-/* Increment background trim counter. */
-void asmBgTrimCounterIncr(void) {
-    if (!asmManager) return;
-    asmManager->bg_trim_running++;
 }
 
 /* Check if background trim is running (for skipping debug assertions). */
@@ -3756,7 +3803,7 @@ void asmActiveTrimCycle(void) {
     timelimit = 1000000 * trim_cycle_time_perc / server.hz / 100;
     if (timelimit <= 0) timelimit = 1;
 
-    activeTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
+    asmTrimJob *job = listNodeValue(listFirst(asmManager->active_trim_jobs));
 
     serverAssert(asmManager->active_trim_it);
     int slot = slotRangeArrayGetCurrentSlot(asmManager->active_trim_it);
