@@ -3,6 +3,7 @@ set ::num_passed 0
 set ::num_failed 0
 set ::num_skipped 0
 set ::num_aborted 0
+set ::num_timing_skips 0
 set ::tests_failed {}
 set ::cur_test ""
 
@@ -145,6 +146,32 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     if {$maxtries == -1} {
         set errcode [catch {uplevel 1 $elsescript} result]
         return -code $errcode $result
+    }
+}
+
+# Run 'body', then evaluate 'condition' (always executed, regardless of
+# timing, so any reads/commands it contains always happen - chain multiple
+# checks with && if needed). The result is only asserted to be true if the
+# total time elapsed since 'body' started - including evaluating
+# 'condition' - is within 'limit_ms' milliseconds. This lets a test exercise
+# the same code path on every run, while only failing when a short-lived
+# condition (e.g. a TTL) is guaranteed not to have already changed due to a
+# slow environment.
+proc assert_within_time_limit {limit_ms body condition} {
+    set start [clock milliseconds]
+    uplevel 1 $body
+    set result [uplevel 1 [list expr $condition]]
+    set elapsed [expr {[clock milliseconds] - $start}]
+    if {$elapsed >= $limit_ms} {
+        incr ::num_timing_skips
+        set msg "$::cur_test (elapsed ${elapsed}ms >= limit ${limit_ms}ms)"
+        puts "Warning: assert_within_time_limit skipped verification: $msg"
+        catch {send_data_packet $::test_server_fd timing_skip $msg}
+        return
+    }
+    if {!$result} {
+        set context "(context: [info frame -1])"
+        error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context (elapsed: ${elapsed}ms)"
     }
 }
 

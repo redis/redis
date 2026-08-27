@@ -310,6 +310,7 @@ proc test_server_main {} {
     array set ::clients_start_time {}
     set ::clients_time_history {}
     set ::failed_tests {}
+    set ::timing_skips {}
 
     # Enter the event loop to handle clients I/O
     after 100 test_server_cron
@@ -353,6 +354,8 @@ proc accept_test_clients {fd addr port} {
 # exception: there was a runtime exception while executing the test.
 # done: all the specified test file was processed, this test client is
 #       ready to accept a new task.
+# timing_skip: a timing-sensitive assertion (assert_within_time_limit) was
+#              skipped because the environment was too slow.
 proc read_from_test_client fd {
     set bytes [gets $fd]
     set payload [encoding convertfrom utf-8 [read $fd $bytes]]
@@ -413,6 +416,9 @@ proc read_from_test_client fd {
     } elseif {$status eq {server-killed}} {
         set ::active_servers [lsearch -all -inline -not -exact $::active_servers $data]
         set ::active_clients_task($fd) "(KILLED SERVER) pid:$data"
+    } elseif {$status eq {timing_skip}} {
+        puts "\[[colorstr yellow $status]\]: $data"
+        lappend ::timing_skips $data
     } elseif {$status eq {run_solo}} {
         lappend ::run_solo_tests $data
     } else {
@@ -506,6 +512,12 @@ proc the_end {} {
     puts "Execution time of different units:"
     foreach {time name} $::clients_time_history {
         puts "  $time seconds - $name"
+    }
+    if {[llength $::timing_skips]} {
+        puts "\n[colorstr bold-yellow {!!! NOTICE}] [llength $::timing_skips] timing-sensitive check(s) were skipped due to a slow environment:\n"
+        foreach skip $::timing_skips {
+            puts "*** $skip"
+        }
     }
     if {[llength $::failed_tests]} {
         puts "\n[colorstr bold-red {!!! WARNING}] The following tests failed:\n"
