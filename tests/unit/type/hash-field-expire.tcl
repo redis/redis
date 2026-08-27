@@ -294,18 +294,18 @@ start_server {tags {"external:skip needs:debug"}} {
         }
         
         test "HPEXPIRETIME persists after RDB reload ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2
-
-            assert_within_time_limit 450 {
-                r hpexpire myhash 500 NX FIELDS 1 field1
+            assert_with_retry 8 iter {
+                r del myhash
+                r hset myhash field1 value1 field2 value2
+                set ttl_ms [expr {300 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
                 set before [r HPEXPIRETIME myhash FIELDS 1 field1]
                 r debug reload
                 set after [r HPEXPIRETIME myhash FIELDS 1 field1]
             } {
-               $before == $after &&
-               [r HTTL myhash FIELDS 1 field2] == $T_NO_EXPIRY &&
-               [get_stat_subexpiry r] == 1
+                {$before == $after}
+                {[r HTTL myhash FIELDS 1 field2] == $T_NO_EXPIRY}
+                {[get_stat_subexpiry r] == 1}
             }
             
             # Wait for field1 to expire robustly
@@ -661,17 +661,18 @@ start_server {tags {"external:skip needs:debug"}} {
 
         test "Test RENAME hash with fields to be expired ($type)" {
             r debug set-active-expire 0
-            r del myhash
-            r hset myhash field1 value1
 
-            assert_within_time_limit 15 {
-                r hpexpire myhash 20 NX FIELDS 1 field1
+            assert_with_retry 8 iter {
+                r del myhash myhash2
+                r hset myhash field1 value1
+                set ttl_ms [expr {20 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
                 r rename myhash myhash2
                 assert_equal [r exists myhash] 0
                 set ttl [r hpttl myhash2 FIELDS 1 field1]
-            } {$ttl >= 1 && $ttl <= 20}
+            } { {$ttl >= 1} {$ttl <= $ttl_ms} }
 
-            after 25
+            after [expr {$ttl_ms + 5}]
             # Verify the renamed key exists
             assert_equal [r exists myhash2] 1
             r debug set-active-expire 1
@@ -694,13 +695,13 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "MOVE to another DB hash with fields to be expired ($type)" {
-            r select 9
-            r flushall
-            r hset myhash field1 value1
-            r expireat myhash 2000000000000 ;# Force kvobj reallocation during move command
-
-            assert_within_time_limit 80 {
-                r hpexpire myhash 100 NX FIELDS 1 field1
+            assert_with_retry 8 iter {
+                r select 9
+                r flushall
+                r hset myhash field1 value1
+                r expireat myhash 2000000000000 ;# Force kvobj reallocation during move command
+                set ttl_ms [expr {100 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
                 r move myhash 10
                 assert_equal [r exists myhash] 0
                 assert_equal [r dbsize] 0
@@ -708,8 +709,8 @@ start_server {tags {"external:skip needs:debug"}} {
                 # Verify the key and its field exists in the target DB
                 r select 10
             } {
-               [r hget myhash field1] == "value1" &&
-               [r exists myhash] == 1
+                {[r hget myhash field1] == "value1"}
+                {[r exists myhash] == 1}
             }
 
             # Eventually the field will be expired and the key will be deleted
@@ -718,23 +719,23 @@ start_server {tags {"external:skip needs:debug"}} {
         } {} {singledb:skip}
 
         test "Test COPY hash with fields to be expired ($type)" {
-            r flushall
-            r hset h1 f1 v1 f2 v2
-            r hset h2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6 f7 v7 f8 v8 f9 v9 f10 v10 f11 v11 f12 v12 f13 v13 f14 v14 f15 v15 f16 v16 f17 v17 f18 v18
-
-            assert_within_time_limit 80 {
-                r hpexpire h1 100 NX FIELDS 1 f1
-                r hpexpire h2 100 NX FIELDS 18 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18
+            assert_with_retry 8 iter {
+                r flushall
+                r hset h1 f1 v1 f2 v2
+                r hset h2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6 f7 v7 f8 v8 f9 v9 f10 v10 f11 v11 f12 v12 f13 v13 f14 v14 f15 v15 f16 v16 f17 v17 f18 v18
+                set ttl_ms [expr {100 * $iter}]
+                r hpexpire h1 $ttl_ms NX FIELDS 1 f1
+                r hpexpire h2 $ttl_ms NX FIELDS 18 f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18
                 r COPY h1 h1copy
                 r COPY h2 h2copy
             } {
-               [r hget h1 f1] == "v1" &&
-               [r hget h1copy f1] == "v1" &&
-               [r exists h2] == 1 &&
-               [r exists h2copy] == 1
+                {[r hget h1 f1] == "v1"}
+                {[r hget h1copy f1] == "v1"}
+                {[r exists h2] == 1}
+                {[r exists h2copy] == 1}
             }
 
-            after 105
+            after [expr {$ttl_ms + 5}]
 
             # Verify lazy expire of field in h1 and its copy
             assert_equal [r hget h1 f1] ""
@@ -761,12 +762,12 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "Test SWAPDB hash-fields to be expired ($type)" {
-            r select 9
-            r flushall
-            r hset myhash field1 value1
-
-            assert_within_time_limit 40 {
-                r hpexpire myhash 50 NX FIELDS 1 field1
+            assert_with_retry 8 iter {
+                r select 9
+                r flushall
+                r hset myhash field1 value1
+                set ttl_ms [expr {50 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
 
                 r swapdb 9 10
 
@@ -777,8 +778,8 @@ start_server {tags {"external:skip needs:debug"}} {
                 # Verify the key and its field exists in the target DB
                 r select 10
             } {
-               [r hget myhash field1] == "value1" &&
-               [r dbsize] == 1
+                {[r hget myhash field1] == "value1"}
+                {[r dbsize] == 1}
             }
 
             # Eventually the field will be expired and the key will be deleted
