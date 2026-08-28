@@ -126,8 +126,21 @@ Notes:
 * Multiple names may be supplied as a single space-separated value (quote it in
   the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
   a match against any one of them succeeds.
-* Full-label wildcards (`*.example.com`) match; partial-label wildcards
-  (`f*.example.com`) do not.
+* Wildcards are matched from the **certificate**, not from this option: a
+  certificate whose SAN is a full-label wildcard (`*.example.com`) matches a
+  concrete name configured here (`node.example.com`), while a partial-label
+  wildcard in the certificate (`f*.example.com`) never matches. Configuring a
+  wildcard as the expected name does not perform wildcard matching.
+* A name beginning with a dot (e.g. `.example.com`) is **not** a host name.
+  OpenSSL treats it as a *parent domain*: it accepts any subdomain at **any
+  depth** (`node.example.com`, `a.b.example.com`, ...) and does **not** accept
+  `example.com` itself. A short suffix is correspondingly broad — `.com` accepts
+  every name in that TLD, which under a shared or public CA is close to accepting
+  any CA-signed certificate. This is a legitimate pattern, but much wider than
+  pinning explicit hosts, so Redis logs a warning reporting how many such entries
+  are configured, at startup and on `CONFIG SET`, to make the scope visible.
+  Prefer explicit host names, a deeper parent (`.dc1.example.com`), or several
+  space-separated names.
 * The option is opt-in and defaults to unset (no peer-name check), preserving the
   previous behavior.
 * It does **not** apply to ordinary client connections on the data port, whose
