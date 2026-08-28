@@ -20,7 +20,7 @@
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
  * update the expiration time of the hash object in global HFE DS. */
-#define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
+#define HASH_NEW_EXPIRE_DIFF_THRESHOLD 4000
 
 /* Reserve 2 bits out of hash-field expiration time for possible future lightweight
  * indexing/categorizing of fields. It can be achieved by hacking HFE as follows:
