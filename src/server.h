@@ -3863,6 +3863,8 @@ unsigned long zsetLength(const robj *zobj);
 size_t zsetAllocSize(const robj *o);
 void zsetConvert(robj *zobj, int encoding);
 void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelelen);
+void zsetBuildTreeFromElems(zset *zs, zbtElem **elems, unsigned long n);
+void zsetBuildTreeFromDict(zset *zs);
 int zsetScore(robj *zobj, sds member, double *score);
 int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore);
 long zsetRank(robj *zobj, sds ele, int reverse, double *score);

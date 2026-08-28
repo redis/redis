@@ -1767,8 +1767,14 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
             return;
 
     } else if (o->type == OBJ_ZSET) {
-        char buf[MAX_LONG_DOUBLE_CHARS];
-        int len = ld2string(buf, sizeof(buf), znode->score, LD_STR_AUTO);
+        /* Format the score the same way every other reply path does. A
+         * listpack-encoded zset stores scores already rendered by d2string(),
+         * so scanning a small and a large zset holding the same score used to
+         * hand back two different strings ("0.1" vs "0.10000000000000001"),
+         * neither matching ZSCORE for the large one. d2string() is also the
+         * cheaper conversion: no long double promotion and no snprintf(). */
+        char buf[MAX_D2STRING_CHARS];
+        int len = d2string(buf, sizeof(buf), znode->score);
         key = sdsdup(keyStr);
         val = sdsnewlen(buf, len);
     } else {

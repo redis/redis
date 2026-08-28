@@ -809,9 +809,15 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         int i;
         size_t maxelelen = 0, totelelen = 0;
 
+        zbtElem **staged = NULL;
+
         if (returned_items) {
             zobj = createZsetObject();
             zs = zobj->ptr;
+            /* The result count is exact here, so sizing the member index once
+             * costs nothing and spares the inserts below every rehash. */
+            dictExpand(zs->dict,returned_items);
+            staged = zmalloc(sizeof(zbtElem *) * returned_items);
         }
 
         for (i = 0; i < returned_items; i++) {
@@ -823,13 +829,21 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
             if (maxelelen < elelen) maxelelen = elelen;
             totelelen += elelen;
-            znode = zbtInsert(zs->tree,score,gp->member);
-            serverAssert(dictAdd(zs->dict, znode, NULL) == DICT_OK);
-            sdsfree(gp->member); /* zbtInsert copies the sds, so free the original */
+            /* Detached element: results come out in match or distance order,
+             * so the tree is packed in one pass below rather than reached
+             * through one insert per result. */
+            znode = zbtCreateElem(score,gp->member);
+            staged[i] = znode;
+            sdsfree(gp->member); /* zbtCreateElem copies the sds, so free the original */
             gp->member = NULL;
         }
 
         if (returned_items) {
+            /* Geo results carry unique members, so index them in one
+             * duplicate-scan-free batch. */
+            dictAddNonExistingBatch(zs->dict, (void **)staged, returned_items);
+            zsetBuildTreeFromElems(zs,staged,returned_items);
+            zfree(staged);
             zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
             setKey(c,c->db,storekey,&zobj,0);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,

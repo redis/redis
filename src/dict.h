@@ -257,6 +257,8 @@ int dictTryExpand(dict *d, unsigned long size);
 int dictShrink(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key __stored_key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key __stored_key, dictEntry **existing);
+dictEntry *dictAddNonExisting(dict *d, void *key __stored_key);
+void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n);
 dictEntry *dictAddOrFind(dict *d, void *key __stored_key);
 int dictReplace(dict *d, void *key __stored_key, void *val);
 int dictDelete(dict *d, const void *key);

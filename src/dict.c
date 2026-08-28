@@ -579,6 +579,102 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink li
     return entry;
 }
 
+/* Bucket a key with the given hash must be inserted into, having advanced
+ * rehashing and grown the table exactly as dictFindLinkForInsert() would.
+ * Unlike that function it never scans the bucket for an existing copy of the
+ * key, so the caller must guarantee the key is not already present. This is the
+ * authoritative bucket used for the insert itself. */
+static dictEntryLink dictBucketForInsertByHash(dict *d, uint64_t hash) {
+    unsigned long idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+
+    /* Rehash and expand in the same order as the insert lookup would, so the
+     * table we hand back is the one dictInsertKeyAtLink() expects. */
+    _dictRehashStepIfNeeded(d, idx);
+    _dictExpandIfNeeded(d);
+
+    int htidx = dictIsRehashing(d) ? 1 : 0;
+    return &d->ht_table[htidx][hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])];
+}
+
+/* Advisory-only bucket address for prefetching: it reflects the table state
+ * right now and neither steps rehashing nor grows the table. By insert time the
+ * address may be stale (a rehash step can flip the active table), which only
+ * wastes a prefetch hint and never corrupts anything. */
+static inline dictEntryLink dictBucketHint(dict *d, uint64_t hash) {
+    int htidx = dictIsRehashing(d) ? 1 : 0;
+    return &d->ht_table[htidx][hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])];
+}
+
+/* Add a key the caller knows is absent, skipping the duplicate scan that
+ * dictAdd()/dictAddRaw() perform. On the bulk sorted-set paths every member is
+ * unique by construction, so that scan is pure overhead (a cache-missing bucket
+ * load plus a dependent deref per chained entry). The debug assertion turns the
+ * "known absent" promise into a checked precondition under -DDEBUG_ASSERTIONS,
+ * which CI builds with, while release builds pay nothing. Returns the inserted
+ * entry. */
+dictEntry *dictAddNonExisting(dict *d, void *key __stored_key) {
+    const void *lookup_key = dictStoredKey2Key(d, key);
+    debugAssert(dictFind(d, lookup_key) == NULL);
+
+    uint64_t hash = dictGetHash(d, lookup_key);
+    dictEntryLink bucket = dictBucketForInsertByHash(d, hash);
+    if (d->type->keyDup) key = d->type->keyDup(d, key);
+    return dictInsertKeyAtLink(d, key, bucket);
+}
+
+/* Batch form of dictAddNonExisting() for an array of known-absent keys, with a
+ * software pipeline that hides the two dependent cache misses each insert would
+ * otherwise stall on: the destination bucket, and the member bytes needed to
+ * hash it. The table is grown once up front so it does not resize mid-batch. */
+void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
+    if (n == 0) return;
+
+    /* PF is the prefetch distance in elements and must stay a power of two so
+     * the ring index is a mask. Elements are pulled in 2*PF ahead, hashed and
+     * their buckets prefetched PF ahead, and inserted using the hash stored a
+     * window earlier. */
+    enum { PF = 8 };
+    uint64_t hring[PF];
+
+    /* Size to the final element count once. Repeated mid-batch growth would
+     * reallocate the table and strand the buckets we prefetch ahead. */
+    dictExpand(d, dictSize(d) + n);
+
+    /* Prime the hash window for the first PF inserts. */
+    size_t primed = n < PF ? n : PF;
+    for (size_t j = 0; j < primed; j++) {
+        uint64_t h = dictGetHash(d, dictStoredKey2Key(d, keys[j]));
+        hring[j & (PF - 1)] = h;
+        redis_prefetch_write((void *)dictBucketHint(d, h));
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        /* Two windows ahead: bring the element (and its embedded member bytes,
+         * which share the allocation) into cache before it is hashed. */
+        if (i + 2 * PF < n)
+            redis_prefetch_read(keys[i + 2 * PF]);
+
+        /* Insert element i with the hash computed a window ago; the bucket is
+         * resolved authoritatively here, so a stale prefetch hint is harmless.
+         * This read must precede the one-window-ahead store below, which lands
+         * on the same ring slot. */
+        void *key = keys[i];
+        debugAssert(dictFind(d, dictStoredKey2Key(d, key)) == NULL);
+        uint64_t h = hring[i & (PF - 1)];
+        dictEntryLink bucket = dictBucketForInsertByHash(d, h);
+        if (d->type->keyDup) key = d->type->keyDup(d, key);
+        dictInsertKeyAtLink(d, key, bucket);
+
+        /* One window ahead: hash the member and prefetch its bucket for a
+         * future iteration. */
+        if (i + PF < n) {
+            uint64_t hn = dictGetHash(d, dictStoredKey2Key(d, keys[i + PF]));
+            hring[(i + PF) & (PF - 1)] = hn;
+            redis_prefetch_write((void *)dictBucketHint(d, hn));
+        }
+    }
+}
+
 /* Add or Overwrite:
  * Add an element, discarding the old value if the key already exists.
  * Return 1 if the key was added from scratch, 0 if there was already an
@@ -2389,6 +2485,78 @@ int dictTest(int argc, char **argv, int flags) {
             zfree(nonExistingKey);
         }
 
+        dictRelease(d);
+    }
+
+    TEST("dictAddNonExisting() adds a known-absent key") {
+        dictType dt = BenchmarkDictType;
+        dt.no_value = 1;
+        dict *d = dictCreate(&dt);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+
+        long n = 1000;
+        for (long i = 0; i < n; i++) {
+            dictEntry *de = dictAddNonExisting(d, stringFromLongLong(i));
+            assert(de != NULL);
+        }
+        assert((long)dictSize(d) == n);
+        for (long i = 0; i < n; i++) {
+            char *probe = stringFromLongLong(i);
+            assert(dictFind(d, probe) != NULL);
+            zfree(probe);
+        }
+        dictRelease(d); /* freeCallback releases the stored keys */
+    }
+
+    TEST("dictAddNonExistingBatch() inserts a batch into a fresh dict") {
+        dictType dt = BenchmarkDictType;
+        dt.no_value = 1;
+        dict *d = dictCreate(&dt);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+
+        long n = 5000;
+        void **keys = zmalloc(sizeof(void *) * n);
+        for (long i = 0; i < n; i++) keys[i] = stringFromLongLong(i);
+
+        dictAddNonExistingBatch(d, keys, n);
+        assert((long)dictSize(d) == n);
+        for (long i = 0; i < n; i++) {
+            char *probe = stringFromLongLong(i);
+            assert(dictFind(d, probe) != NULL);
+            zfree(probe);
+        }
+        zfree(keys);
+        dictRelease(d);
+    }
+
+    TEST("dictAddNonExistingBatch() stays correct across a rehash") {
+        /* Seed a dict, then start incremental rehashing and leave it unfinished
+         * so the batch runs against two live tables. The batch resolves each
+         * insert bucket freshly, so the advisory prefetch hints going stale as
+         * the active table flips must not corrupt anything. */
+        dictType dt = BenchmarkDictType;
+        dt.no_value = 1;
+        dict *d = dictCreate(&dt);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+
+        long seed = 1024;
+        for (long i = 0; i < seed; i++)
+            assert(dictAdd(d, stringFromLongLong(i), NULL) == DICT_OK);
+        assert(dictExpand(d, seed * 4) == DICT_OK);
+        assert(dictIsRehashing(d));
+
+        long n = 2000;
+        void **keys = zmalloc(sizeof(void *) * n);
+        for (long i = 0; i < n; i++) keys[i] = stringFromLongLong(seed + i);
+        dictAddNonExistingBatch(d, keys, n);
+        assert((long)dictSize(d) == seed + n);
+
+        for (long i = 0; i < seed + n; i++) {
+            char *probe = stringFromLongLong(i);
+            assert(dictFind(d, probe) != NULL);
+            zfree(probe);
+        }
+        zfree(keys);
         dictRelease(d);
     }
 

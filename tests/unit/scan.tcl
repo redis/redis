@@ -425,6 +425,29 @@ proc test_scan {type} {
         assert {$first_score != 0}
     }
 
+    test "{$type} ZSCAN scores are formatted like ZSCORE, in every encoding" {
+        # A score used to come back from ZSCAN in a different notation than
+        # ZSCORE reported for the same member, but only once the sorted set had
+        # outgrown the listpack encoding.
+        set scores {0.1 3.3333333333333335 1 -0 1e+100 9.8813129168249309e-323
+                    0.3333333333333333 -1.5e-8 inf -inf}
+        foreach enc {listpack btree} {
+            r del mykey
+            r config set zset-max-listpack-entries [expr {$enc eq "listpack" ? 128 : 0}]
+            set i 0
+            foreach s $scores { r zadd mykey $s "m:[incr i]" }
+            assert_encoding $enc mykey
+
+            unset -nocomplain scanned
+            array set scanned [lindex [r zscan mykey 0] 1]
+            assert_equal [llength $scores] [array size scanned]
+            foreach member [array names scanned] {
+                assert_equal [r zscore mykey $member] $scanned($member)
+            }
+        }
+        r config set zset-max-listpack-entries 128
+    }
+
     test "{$type} SCAN regression test for issue #4906" {
         for {set k 0} {$k < 100} {incr k} {
             r del set
