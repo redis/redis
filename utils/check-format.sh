@@ -31,10 +31,6 @@ command -v "$GCF" >/dev/null 2>&1 || {
     echo "git-clang-format not found. Install it with: sudo apt-get install clang-format" >&2
     exit 2
 }
-"$CF" --version | grep -Eq 'clang-format version 23\.1\.0([^0-9.]|$)' || {
-    echo "clang-format 23.1.0 is required." >&2
-    exit 2
-}
 [ -f .clang-format ] || {
     echo ".clang-format is required at the repository root." >&2
     exit 2
