@@ -8,6 +8,7 @@ ContinuationIndentWidth: 8
 TabWidth: 4
 UseTab: Never
 
+# Keep opening braces on the same line as functions and control statements.
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterFunction: false
@@ -28,11 +29,13 @@ AlignConsecutiveMacros: false
 AlignEscapedNewlines: DontAlign
 InsertBraces: false
 KeepEmptyLinesAtTheStartOfBlocks: true
-MaxEmptyLinesToKeep: 3
+MaxEmptyLinesToKeep: 1
 
+# Use continuation indentation instead of aligning with an opening parenthesis.
+# Indent case/default labels once under switch; indent their bodies again.
 AlignAfterOpenBracket: DontAlign
 AlignOperands: Align
-IndentCaseLabels: false
+IndentCaseLabels: true
 IndentGotoLabels: false
 PointerAlignment: Right
 SpaceAfterCStyleCast: false
