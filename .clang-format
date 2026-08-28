@@ -4,6 +4,7 @@ BasedOnStyle: LLVM
 
 ColumnLimit: 0
 IndentWidth: 4
+ContinuationIndentWidth: 8
 TabWidth: 4
 UseTab: Never
 
@@ -29,7 +30,7 @@ InsertBraces: false
 KeepEmptyLinesAtTheStartOfBlocks: true
 MaxEmptyLinesToKeep: 3
 
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: DontAlign
 AlignOperands: Align
 IndentCaseLabels: false
 IndentGotoLabels: false

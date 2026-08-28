@@ -17,10 +17,10 @@ jobs:
           fetch-depth: 0
 
       - name: Install clang-format
-        run: python3 -m pip install clang-format==22.1.8
+        run: sudo apt-get install -y clang-format-23
 
       - name: Check changed C code formatting
-        run: ./utils/check-format.sh "${{ github.event.pull_request.base.sha }}"
+        run: make format BASE="${{ github.event.pull_request.base.sha }}"
 
   test-ubuntu-latest:
     runs-on: ubuntu-latest

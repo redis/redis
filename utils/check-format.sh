@@ -1,15 +1,29 @@
 #!/bin/sh
 # Check C and header lines changed from a base revision.
 #
-#   ./utils/check-format.sh            # working tree vs. HEAD
-#   ./utils/check-format.sh unstable   # current branch vs. unstable
-#   FIX=1 ./utils/check-format.sh      # apply fixes instead of reporting them
+#   make format                         # working tree vs. HEAD
+#   make format BASE=unstable           # current branch vs. unstable
+#   make format BASE=unstable FIX=1     # apply fixes instead of reporting them
 
 set -eu
 
 BASE=${1:-HEAD}
-CF=${CLANG_FORMAT:-clang-format}
-GCF=${GIT_CLANG_FORMAT:-git-clang-format}
+
+if [ -n "${CLANG_FORMAT:-}" ]; then
+    CF=$CLANG_FORMAT
+elif command -v clang-format-23 >/dev/null 2>&1; then
+    CF=clang-format-23
+else
+    CF=clang-format
+fi
+
+if [ -n "${GIT_CLANG_FORMAT:-}" ]; then
+    GCF=$GIT_CLANG_FORMAT
+elif command -v git-clang-format-23 >/dev/null 2>&1; then
+    GCF=git-clang-format-23
+else
+    GCF=git-clang-format
+fi
 
 if [ "$#" -gt 1 ]; then
     echo "Usage: $0 [<base>]" >&2
@@ -23,15 +37,15 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 cd "$ROOT"
 
 command -v "$CF" >/dev/null 2>&1 || {
-    echo "clang-format not found. Install it with: python3 -m pip install clang-format==22.1.8" >&2
+    echo "clang-format not found. Install it with: sudo apt-get install clang-format-23" >&2
     exit 2
 }
 command -v "$GCF" >/dev/null 2>&1 || {
-    echo "git-clang-format not found. Install it with: python3 -m pip install clang-format==22.1.8" >&2
+    echo "git-clang-format not found. Install it with: sudo apt-get install clang-format-23" >&2
     exit 2
 }
-"$CF" --version | grep -Eq 'clang-format version 22\.1\.8([^0-9.]|$)' || {
-    echo "clang-format 22.1.8 is required." >&2
+"$CF" --version | grep -Eq 'clang-format version 23\.1\.0([^0-9.]|$)' || {
+    echo "clang-format 23.1.0 is required." >&2
     exit 2
 }
 [ -f .clang-format ] || {
@@ -52,9 +66,11 @@ if [ -n "${FIX:-}" ]; then
     "$GCF" --binary "$CF" --extensions c,h --style file --force \
         "$DIFF_BASE" -- ':!deps/**' || status=$?
     case "$status" in
-        0|1) exit 0 ;;
+        0|1) ;;
         *) exit "$status" ;;
     esac
+    FIX= "$0" "$BASE"
+    exit $?
 fi
 
 status=0
@@ -69,7 +85,7 @@ case "$status" in
     1)
         printf '%s\n\n' "$out"
         echo "The lines above are not formatted as expected."
-        echo "Run 'FIX=1 ./utils/check-format.sh $BASE' to fix them."
+        echo "Run 'make format BASE=$BASE FIX=1' to fix them."
         exit 1
         ;;
     *)
