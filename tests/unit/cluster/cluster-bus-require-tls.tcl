@@ -25,10 +25,10 @@ tags {external:skip cluster} {
         assert_match {*'cluster-bus-require-tls no'*} $err
     }
 
-    test {cluster-bus-require-tls only applies to cluster mode} {
-        # A standalone instance opens no cluster bus, so the default requirement
-        # must not stop it from starting with plain TCP everywhere.
-        start_server {overrides {cluster-bus-require-tls yes tls-cluster no}} {
+    # A standalone instance opens no cluster bus, so the default requirement must
+    # not stop it from starting with plain TCP everywhere.
+    start_server {overrides {cluster-bus-require-tls yes tls-cluster no}} {
+        test {cluster-bus-require-tls only applies to cluster mode} {
             assert_equal {cluster-bus-require-tls yes} [r config get cluster-bus-require-tls]
             assert_equal {tls-cluster no} [r config get tls-cluster]
             assert_equal 0 [s cluster_enabled]
@@ -38,6 +38,18 @@ tags {external:skip cluster} {
             r config set cluster-bus-require-tls no
             r config set cluster-bus-require-tls yes
             assert_equal 0 [count_log_message 0 "cluster bus is not protected by TLS"]
+        }
+
+        test {the cluster-mode gate of the requirement cannot be opened at runtime} {
+            # Gating the requirement on cluster mode is only sound because
+            # cluster-enabled is IMMUTABLE_CONFIG. Could it be set, this very
+            # server - requirement enabled, tls-cluster off - would open a
+            # plaintext cluster bus without ever facing the startup check. The
+            # immutable mechanism itself is covered by "CONFIG SET set immutable"
+            # in unit/introspection; what is pinned here is that cluster-enabled
+            # in particular still carries the flag.
+            assert_error {*can't set immutable config*} {r config set cluster-enabled yes}
+            assert_equal 0 [s cluster_enabled]
         }
     }
 
