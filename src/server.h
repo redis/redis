@@ -2624,6 +2624,8 @@ struct redisServer {
     unsigned int watching_clients; /* # of clients are watching keys */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
+    int cluster_bus_require_tls; /* Refuse to run a cluster node whose bus is
+                                    plain TCP (see cluster-bus-require-tls). */
     int cluster_port;         /* Set the cluster port for a node. */
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
     mstime_t cluster_ping_interval;    /* A debug configuration for setting how often cluster nodes send ping messages. */

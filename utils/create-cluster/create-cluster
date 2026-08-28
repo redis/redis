@@ -10,6 +10,9 @@ TIMEOUT=2000
 NODES=6
 REPLICAS=1
 PROTECTED_MODE=yes
+# The nodes talk over a plaintext cluster bus on loopback, which a cluster node
+# refuses to do by default, so the requirement has to be waived explicitly.
+BUS_REQUIRE_TLS=no
 ADDITIONAL_OPTIONS=""
 
 # You may want to put the above config parameters into config.sh in order to
@@ -28,7 +31,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
+        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-bus-require-tls $BUS_REQUIRE_TLS --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
 fi
@@ -70,7 +73,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
+        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-bus-require-tls $BUS_REQUIRE_TLS --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
 fi
