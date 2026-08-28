@@ -12,6 +12,22 @@
 # starts (non-TLS runs have no TLS to offer), so the tests below that care about
 # the default state must set the option, or bypass default.conf altogether.
 
+# Writes a two-file configuration into $dir: the given directives go to
+# inner.conf, which main.conf pulls in with "include" before setting the port and
+# the directory. Anything in inner.conf is therefore parsed before the rest of
+# main.conf, which is what the include test below needs to exercise.
+proc write_included_conf {dir port inner_lines} {
+    set fd [open $dir/inner.conf w]
+    foreach line $inner_lines { puts $fd $line }
+    close $fd
+
+    set fd [open $dir/main.conf w]
+    puts $fd "include $dir/inner.conf"
+    puts $fd "port $port"
+    puts $fd "dir $dir"
+    close $fd
+}
+
 tags {external:skip cluster} {
 
     test {cluster-bus-require-tls defaults to yes and refuses a plaintext cluster bus} {
@@ -23,6 +39,42 @@ tags {external:skip cluster} {
         assert_match {*FATAL CONFIG FILE ERROR*} $err
         assert_match {*cluster-bus-require-tls is enabled but tls-cluster is disabled*} $err
         assert_match {*'cluster-bus-require-tls no'*} $err
+    }
+
+    test {the requirement is judged after the whole configuration is loaded} {
+        # The check runs when the OUTERMOST config load finishes, so directives
+        # that reach the server through "include" are accounted for. This matters
+        # because an included file ends at the position of its "include" line,
+        # before the rest of the parent file has been parsed. start_server cannot
+        # be used here: it generates the config file itself and offers no way to
+        # place directives behind an include.
+        set dir [file normalize [tmpdir cluster-bus-include]]
+        set logf $dir/redis.log
+        set port [find_available_port $::baseport $::portcount]
+
+        # cluster mode arrives via the include: the node does open a cluster bus,
+        # so the default requirement must still refuse the plaintext one.
+        write_included_conf $dir $port {"cluster-enabled yes"}
+        catch {exec src/redis-server $dir/main.conf --daemonize yes} err
+        assert_match {*cluster-bus-require-tls is enabled but tls-cluster is disabled*} $err
+
+        # And the waiver arrives via the include too: it is honoured, and the
+        # node starts with a plaintext bus.
+        write_included_conf $dir $port {"cluster-enabled yes" "cluster-bus-require-tls no"}
+        exec src/redis-server $dir/main.conf --daemonize yes --logfile $logf
+        wait_for_condition 100 100 {
+            [count_message_lines $logf "Ready to accept"] > 0
+        } else {
+            fail "Server did not start; log: $logf"
+        }
+        # Connect over the plain port: this server knows nothing about the
+        # suite's TLS configuration, in a --tls run just as much as without it.
+        set rd [redis 127.0.0.1 $port 0 0]
+        assert_equal {cluster-bus-require-tls no} [$rd config get cluster-bus-require-tls]
+        assert_equal 1 [status $rd cluster_enabled]
+        assert_equal 1 [count_message_lines $logf "cluster bus is not protected by TLS"]
+        catch {$rd shutdown nosave}
+        $rd close
     }
 
     # A standalone instance opens no cluster bus, so the default requirement must
