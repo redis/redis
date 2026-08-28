@@ -151,7 +151,7 @@ test:
 	+@TEST='$(TEST)' PROG_SUFFIX='$(PROG_SUFFIX)' scripts/test.sh $(TEST_ARGS)
 
 # format [BASE=<revision>] [FIX=1] — check or fix changed C and header lines.
-format: BASE ?= HEAD
+format: BASE ?= unstable
 format:
 	@./utils/check-format.sh '$(BASE)'
 

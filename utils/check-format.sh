@@ -1,13 +1,13 @@
 #!/bin/sh
 # Check C and header lines changed from a base revision.
 #
-#   make format                         # working tree vs. HEAD
-#   make format BASE=unstable           # current branch vs. unstable
-#   make format BASE=unstable FIX=1     # apply fixes instead of reporting them
+#   make format                         # current branch vs. unstable
+#   make format FIX=1                   # apply fixes instead of reporting them
+#   make format BASE=HEAD               # working tree vs. HEAD
 
 set -eu
 
-BASE=${1:-HEAD}
+BASE=${1:-unstable}
 
 CF=${CLANG_FORMAT:-clang-format}
 GCF=${GIT_CLANG_FORMAT:-git-clang-format}
@@ -68,7 +68,7 @@ case "$status" in
     1)
         printf '%s\n\n' "$out"
         echo "The lines above are not formatted as expected."
-        echo "Run 'make format BASE=$BASE FIX=1' to fix them."
+        echo "Run 'make format FIX=1' to fix them."
         exit 1
         ;;
     *)

@@ -128,9 +128,12 @@ Check or repair a pull request locally with the Make target:
 
 ```sh
 make format
-make format BASE=unstable
-make format BASE=unstable FIX=1
+make format FIX=1
+make format BASE=HEAD
 ```
+
+The default base is the local `unstable` branch. Use `BASE=HEAD` to check only
+uncommitted changes.
 
 Only tracked files are checked, so add newly created C and header files before
 running the command.

@@ -20,12 +20,10 @@ jobs:
 
       - name: Check changed C code formatting
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            BASE="origin/$DEFAULT_BRANCH"
-          fi
+          BASE="${PR_BASE:-origin/$DEFAULT_BRANCH}"
           make format BASE="$BASE"
 
   test-ubuntu-latest:
