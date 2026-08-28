@@ -9,21 +9,8 @@ set -eu
 
 BASE=${1:-HEAD}
 
-if [ -n "${CLANG_FORMAT:-}" ]; then
-    CF=$CLANG_FORMAT
-elif command -v clang-format-23 >/dev/null 2>&1; then
-    CF=clang-format-23
-else
-    CF=clang-format
-fi
-
-if [ -n "${GIT_CLANG_FORMAT:-}" ]; then
-    GCF=$GIT_CLANG_FORMAT
-elif command -v git-clang-format-23 >/dev/null 2>&1; then
-    GCF=git-clang-format-23
-else
-    GCF=git-clang-format
-fi
+CF=${CLANG_FORMAT:-clang-format}
+GCF=${GIT_CLANG_FORMAT:-git-clang-format}
 
 if [ "$#" -gt 1 ]; then
     echo "Usage: $0 [<base>]" >&2
@@ -37,11 +24,11 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 cd "$ROOT"
 
 command -v "$CF" >/dev/null 2>&1 || {
-    echo "clang-format not found. Install it with: sudo apt-get install clang-format-23" >&2
+    echo "clang-format not found. Install it with: sudo apt-get install clang-format" >&2
     exit 2
 }
 command -v "$GCF" >/dev/null 2>&1 || {
-    echo "git-clang-format not found. Install it with: sudo apt-get install clang-format-23" >&2
+    echo "git-clang-format not found. Install it with: sudo apt-get install clang-format" >&2
     exit 2
 }
 "$CF" --version | grep -Eq 'clang-format version 23\.1\.0([^0-9.]|$)' || {

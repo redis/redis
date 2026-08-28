@@ -16,7 +16,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install clang-format
-        run: sudo apt-get install -y clang-format-23
+        run: sudo apt-get install -y clang-format
 
       - name: Check changed C code formatting
         env:
