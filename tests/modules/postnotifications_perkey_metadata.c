@@ -15,6 +15,11 @@
  *   pkmeta.rmcall_blocked  - how many RM_Call attempts were refused
  *   pkmeta.notify_blocked  - how many RM_NotifyKeyspaceEvent attempts were refused
  *   pkmeta.reset           - zero the counters and clear the log
+ *   pkmeta.notifycount, pkmeta.expired_notifycount - KSN callback counts
+ *   pkmeta.job_enqueued, pkmeta.job_enqueue_errors - post-job enqueue results
+ *   pkmeta.job_run_count    - metadata per-key job executions
+ *   pkmeta.last_expired_key, pkmeta.last_expired_event - last expired KSN
+ *   pkmeta.expired_notify_elapsed, pkmeta.job_elapsed - ms since pkmeta.reset
  *   pkmeta.try_outside     - call the API outside a KSN handler (must fail)
  *
  * Copyright (c) 2006-Present, Redis Ltd.
@@ -69,6 +74,25 @@ static long long empty_fire_count = 0;
 static char *empty_fire_log[FIRELOG_CAP];
 static int empty_fire_log_len = 0;
 
+/* Diagnostics for the expiration -> notification -> post-job pipeline. */
+static long long notify_count = 0;
+static long long expired_notify_count = 0;
+static long long post_job_enqueued_count = 0;
+static long long post_job_enqueue_error_count = 0;
+static long long perkey_job_run_count = 0;
+static mstime_t diagnostics_mark_ms = 0;
+static mstime_t last_expired_notify_elapsed_ms = -1;
+static mstime_t last_job_elapsed_ms = -1;
+#define LAST_KEY_CAP 128
+static char last_expired_notify_key[LAST_KEY_CAP];
+static char last_expired_notify_event[LAST_KEY_CAP];
+
+static void SaveLastString(char *dst, size_t cap, const char *src, size_t len) {
+    if (len >= cap) len = cap - 1;
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+}
+
 static void EmptyFireLogAppend(const char *name) {
     if (empty_fire_log_len < FIRELOG_CAP)
         empty_fire_log[empty_fire_log_len++] = strdup(name);
@@ -87,6 +111,9 @@ static void MetaFreeCallback(const char *keyname, uint64_t meta) {
 /* Per-key job: attaches a "notified" string as metadata. */
 static void PerKeyMetadataJob(RedisModuleCtx *ctx, RedisModuleString *key, void *pd) {
     REDISMODULE_NOT_USED(pd);
+    perkey_job_run_count++;
+    if (diagnostics_mark_ms != 0)
+        last_job_elapsed_ms = RedisModule_Milliseconds() - diagnostics_mark_ms;
     if (meta_class_id < 0) return;
 
     RedisModuleKey *k = RedisModule_OpenKey(ctx, key, REDISMODULE_WRITE);
@@ -150,16 +177,27 @@ static void PerKeyNotifyProbeJob(RedisModuleCtx *ctx, RedisModuleString *key, vo
 /* KSN handler: enqueues a per-key job instead of writing inline. */
 static int NotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                           RedisModuleString *key) {
-    REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
-    const char *kname = RedisModule_StringPtrLen(key, NULL);
-    if (strncmp(kname, "probe_", 6) == 0) {
-        RedisModule_AddPostNotificationJobForKey(ctx, PerKeyRMCallProbeJob, key, NULL, NULL);
-    } else if (strncmp(kname, "notifyprobe_", 12) == 0) {
-        RedisModule_AddPostNotificationJobForKey(ctx, PerKeyNotifyProbeJob, key, NULL, NULL);
-    } else {
-        RedisModule_AddPostNotificationJobForKey(ctx, PerKeyMetadataJob, key, NULL, NULL);
+    notify_count++;
+    int rc;
+    size_t klen;
+    const char *kname = RedisModule_StringPtrLen(key, &klen);
+    if (type & REDISMODULE_NOTIFY_EXPIRED) {
+        expired_notify_count++;
+        if (diagnostics_mark_ms != 0)
+            last_expired_notify_elapsed_ms = RedisModule_Milliseconds() - diagnostics_mark_ms;
+        SaveLastString(last_expired_notify_key, sizeof(last_expired_notify_key), kname, klen);
+        SaveLastString(last_expired_notify_event, sizeof(last_expired_notify_event),
+                       event, strlen(event));
     }
+    if (strncmp(kname, "probe_", 6) == 0) {
+        rc = RedisModule_AddPostNotificationJobForKey(ctx, PerKeyRMCallProbeJob, key, NULL, NULL);
+    } else if (strncmp(kname, "notifyprobe_", 12) == 0) {
+        rc = RedisModule_AddPostNotificationJobForKey(ctx, PerKeyNotifyProbeJob, key, NULL, NULL);
+    } else {
+        rc = RedisModule_AddPostNotificationJobForKey(ctx, PerKeyMetadataJob, key, NULL, NULL);
+    }
+    if (rc == REDISMODULE_OK) post_job_enqueued_count++;
+    else post_job_enqueue_error_count++;
     return REDISMODULE_OK;
 }
 
@@ -238,6 +276,60 @@ static int EmptyFireLogCommand(RedisModuleCtx *ctx, RedisModuleString **argv, in
     return REDISMODULE_OK;
 }
 
+static int NotifyCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, notify_count);
+}
+
+static int ExpiredNotifyCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, expired_notify_count);
+}
+
+static int PostJobEnqueuedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, post_job_enqueued_count);
+}
+
+static int PostJobEnqueueErrorsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, post_job_enqueue_error_count);
+}
+
+static int JobRunCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, perkey_job_run_count);
+}
+
+static int LastExpiredNotifyKeyCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithCString(ctx, last_expired_notify_key);
+}
+
+static int LastExpiredNotifyEventCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithCString(ctx, last_expired_notify_event);
+}
+
+static int LastExpiredNotifyElapsedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, last_expired_notify_elapsed_ms);
+}
+
+static int LastJobElapsedCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithLongLong(ctx, last_job_elapsed_ms);
+}
+
 static int ResetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -245,6 +337,16 @@ static int ResetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     rmcall_blocked_count = 0;
     notify_blocked_count = 0;
     empty_fire_count = 0;
+    notify_count = 0;
+    expired_notify_count = 0;
+    post_job_enqueued_count = 0;
+    post_job_enqueue_error_count = 0;
+    perkey_job_run_count = 0;
+    diagnostics_mark_ms = RedisModule_Milliseconds();
+    last_expired_notify_elapsed_ms = -1;
+    last_job_elapsed_ms = -1;
+    last_expired_notify_key[0] = '\0';
+    last_expired_notify_event[0] = '\0';
     FireLogClear();
     EmptyFireLogClear();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -304,6 +406,33 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.empty_firelog", EmptyFireLogCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.notifycount", NotifyCountCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.expired_notifycount", ExpiredNotifyCountCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.job_enqueued", PostJobEnqueuedCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.job_enqueue_errors", PostJobEnqueueErrorsCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.job_run_count", JobRunCountCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.last_expired_key", LastExpiredNotifyKeyCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.last_expired_event", LastExpiredNotifyEventCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.expired_notify_elapsed", LastExpiredNotifyElapsedCommand,
+                                  "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "pkmeta.job_elapsed", LastJobElapsedCommand,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "pkmeta.reset", ResetCommand,
