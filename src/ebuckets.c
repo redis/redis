@@ -350,9 +350,11 @@ int ebSingleSegExpire(FirstSegHdr *firstSegHdr,
     while (info->itemsExpired < info->maxToExpire) {
         itemExpTime = ebGetMetaExpTime(mIter);
 
-        /* Items are arranged in ascending expire-time order in a segment. Stops
-         * active expiration when an item's expire time is greater than `now`. */
-        if (itemExpTime > info->now)
+        /* Items are arranged in ascending expire-time order in a segment. Stop
+         * active expiration on the first item that is not yet expired (an item
+         * is expired iff its expire time is strictly less than `now`, matching
+         * lazy-expiry semantics such as keyIsExpired()). */
+        if (itemExpTime >= info->now)
             break;
 
         /* keep aside next before deletion of iter */
@@ -661,9 +663,11 @@ static int ebListExpire(ebuckets *eb,
         metaItem = type->getExpireMeta(item);
         uint64_t itemExpTime = ebGetMetaExpTime(metaItem);
 
-        /* Items are arranged in ascending expire-time order in a list. Stops list
-         * active expiration when an item's expiration time is greater than `now`. */
-        if (itemExpTime > info->now)
+        /* Items are arranged in ascending expire-time order in a list. Stop list
+         * active expiration on the first item that is not yet expired (an item
+         * is expired iff its expire time is strictly less than `now`, matching
+         * lazy-expiry semantics such as keyIsExpired()). */
+        if (itemExpTime >= info->now)
             break;
 
         if (info->itemsExpired == info->maxToExpire)
@@ -1444,7 +1448,8 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
 }
 
 /**
- * Performs expiration on the given ebucket, removing items that have expired.
+ * Performs expiration on the given ebucket, removing items that have expired,
+ * that is, items with expiration time strictly less than `info->now`.
  *
  * If all items in the data structure are expired, 'eb' will be set to NULL.
  *
@@ -1537,7 +1542,8 @@ END_ACTEXP:
     return;
 }
 
-/* Performs active expiration dry-run to evaluate number of expired items
+/* Performs active expiration dry-run to evaluate number of expired items,
+ * that is, items with expiration time strictly less than `now`.
  *
  * It is faster than actual active-expire because it iterates only over the
  * headers of the buckets until the first non-expired bucket, and no more than
@@ -2156,12 +2162,7 @@ void distributeTest(int lowestTime,
         /* Active expire according to the ranges */
         for (int i = 0 ; i < numRanges ; i++) {
 
-            /* The rax path visits only buckets with keys that are "<" info->now
-             * (and not "<="), whereas the list path expires items with
-             * expire-time "<=" info->now. The '-1' in case of list makes both
-             * cases aligned to have same result */
-            uint64_t now = expireRanges[i] + (ebIsList(eb) ? -1 : 0);
-
+            uint64_t now = expireRanges[i];
             TimeRange range = {startRange, expireRanges[i]};
             ExpireInfo info = {
                     .maxToExpire = 0xFFFFFFFF,
@@ -2403,6 +2404,34 @@ int ebucketsTest(int argc, char **argv, int flags) {
                     assert(info.nextExpireTime == expireTime);
                 }
             }
+        }
+    }
+
+    TEST("ebuckets - active expire with `now` equal to expiration time") {
+        ebuckets eb = NULL;
+        /* Cover the list, rax single-segment and rax extended-segment paths */
+        struct { int numItems; int step; } tc[] = {
+                {EB_LIST_MAX_ITEMS, 1},     /* list */
+                {3 * EB_SEG_MAX_ITEMS, 1},  /* rax, single segments */
+                {3 * EB_SEG_MAX_ITEMS, 0},  /* rax, extended-segment */
+        };
+        for (uint32_t t = 0; t < ARRAY_SIZE(tc); t++) {
+            uint64_t startTime = 1000;
+            addItems(&eb, startTime, tc[t].step, tc[t].numItems, NULL);
+
+            /* An item is expired iff its expire-time is strictly less than
+             * `now`. With now == startTime nothing must be expired */
+            ExpireInfo info = {
+                    .maxToExpire = 0xFFFFFFFF,
+                    .onExpireItem = expireItemCb,
+                    .ctx = NULL,
+                    .now = startTime,
+                    .itemsExpired = 0};
+            ebExpire(&eb, &myEbucketsType, &info);
+            assert(info.itemsExpired == 0);
+            assert(info.nextExpireTime == startTime);
+            assert(ebGetTotalItems(eb, &myEbucketsType) == (uint64_t) tc[t].numItems);
+            ebDestroy(&eb, &myEbucketsType, NULL);
         }
     }
 
