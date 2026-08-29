@@ -64,6 +64,7 @@ static ExpireMeta* hentryGetExpireMeta(const eItem field);
 static void hexpireGenericCommand(client *c, long long basetime, int unit);
 static void hfieldPersist(robj *hashObj, Entry *entry);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
+static void propagateHashFieldDeletionBatch(redisDb *db, robj *keyobj, vec *fields);
 
 /* hash dictType funcs */
 static void dictEntryDestructor(dict *d, void *entry);
@@ -139,8 +140,11 @@ EbucketsType hashFieldExpireBucketsType = {
 /* OnFieldExpireCtx passed to OnFieldExpire() */
 typedef struct OnFieldExpireCtx {
     robj *hashObj;
+    robj *keyObj;
     redisDb *db;
     int activeEx; /* 1 for active expire, 0 for lazy expire */
+    int batchPropagate; /* 1 to flush HDEL propagation at the end of the batch */
+    vec *vpropagate; /* Expired fields vector for batched HDEL propagation */
     vec *vexpired; /* Expired fields vector */
 } OnFieldExpireCtx;
 
@@ -3948,13 +3952,22 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
     fieldvec fvexpired;
     vec *vexpired = isSubkeyNotifyEnabled(NOTIFY_HASH) ?
                         fieldvecInit(&fvexpired, FIELDS_STACK_SIZE) : NULL;
+    fieldvec fvpropagate;
+    vec *vpropagate = NULL;
 
-    OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db, .activeEx = activeEx, .vexpired = vexpired };
+    OnFieldExpireCtx onFieldExpireCtx = {
+        .hashObj = o,
+        .db = db,
+        .activeEx = activeEx,
+        .vexpired = vexpired
+    };
     ExpireInfo info = (ExpireInfo) {
                 .maxToExpire = *quota,
                 .now = commandTimeSnapshot(),
                 .ctx = &onFieldExpireCtx,
                 .itemsExpired = 0};
+    uint64_t ht_old_len = 0;
+    int ht_expire = 0;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackExExpire(db, o, &info);
@@ -3963,6 +3976,13 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
 
         dict *d = o->ptr;
         htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
+        ht_old_len = dictSize(d);
+        ht_expire = 1;
+        onFieldExpireCtx.batchPropagate = activeEx;
+        if (onFieldExpireCtx.batchPropagate) {
+            vpropagate = fieldvecInit(&fvpropagate, FIELDS_STACK_SIZE);
+            onFieldExpireCtx.vpropagate = vpropagate;
+        }
 
         info.onExpireItem = onFieldExpire;
         ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
@@ -3971,12 +3991,19 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
     /* Update quota left */
     *quota -= info.itemsExpired;
 
+    if (ht_expire && info.itemsExpired) {
+        if (onFieldExpireCtx.batchPropagate) {
+            propagateHashFieldDeletionBatch(db, onFieldExpireCtx.keyObj, vpropagate);
+        }
+        updateKeysizesHist(db, OBJ_HASH, ht_old_len, ht_old_len - info.itemsExpired);
+    }
+
     /* In some cases, a field might have been deleted without updating the global DS.
      * As a result, active-expire might not expire any fields, in such cases,
      * we don't need to send notifications or perform other operations for this key. */
     if (info.itemsExpired) {
         sds keystr = kvobjGetKey(o);
-        robj *key = createStringObject(keystr, sdslen(keystr));
+        robj *key = onFieldExpireCtx.keyObj ? onFieldExpireCtx.keyObj : createStringObject(keystr, sdslen(keystr));
 
         /* Send subkey notification with all expired fields */
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", key, db->id,
@@ -4002,6 +4029,8 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
 
         keyModified(NULL, db, key, deleted ? NULL : o, 1);
         decrRefCount(key);
+    } else if (onFieldExpireCtx.keyObj) {
+        decrRefCount(onFieldExpireCtx.keyObj);
     }
 
     /* Free collected expired fields */
@@ -4010,6 +4039,12 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
             decrRefCount(vecGet(vexpired, i));
         }
         vecRelease(vexpired);
+    }
+    if (vpropagate) {
+        for (size_t i = 0; i < vecSize(vpropagate); i++) {
+            decrRefCount(vecGet(vpropagate, i));
+        }
+        vecRelease(vpropagate);
     }
 
     /* return 0 if hash got deleted, EB_EXPIRE_TIME_INVALID if no more fields
@@ -6233,11 +6268,10 @@ static void hfieldPersist(robj *hashObj, Entry *entry) {
 /*-----------------------------------------------------------------------------
  * Hash Field Expiration (HFE)
  *----------------------------------------------------------------------------*/
-/*  Can be called either by active-expire cron job or query from the client */
-static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen) {
+static void propagateHashFieldDeletionObj(redisDb *db, robj *keyobj, char *field, size_t fieldLen) {
     robj *argv[] = {
         shared.hdel,
-        createStringObject((char*) key, sdslen(key)),
+        keyobj,
         createStringObject(field, fieldLen)
     };
 
@@ -6251,8 +6285,39 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
     /* Propagate the HDEL command */
     postExecutionUnitOperations();
 
-    decrRefCount(argv[1]);
     decrRefCount(argv[2]);
+}
+
+static void propagateHashFieldDeletionBatch(redisDb *db, robj *keyobj, vec *fields) {
+    size_t numFields = vecSize(fields);
+    if (numFields == 0)
+        return;
+
+    serverAssert(numFields <= INT_MAX - 2);
+    int argc = (int)(2 + numFields);
+    robj **argv = zmalloc(sizeof(robj*) * argc);
+    argv[0] = shared.hdel;
+    argv[1] = keyobj;
+    memcpy(argv + 2, vecData(fields), sizeof(robj*) * numFields);
+
+    enterExecutionUnit(1, 0);
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = 1;
+    alsoPropagate(db->id, argv, argc, PROPAGATE_AOF|PROPAGATE_REPL);
+    server.replication_allowed = prev_replication_allowed;
+    exitExecutionUnit();
+
+    /* Propagate the HDEL command */
+    postExecutionUnitOperations();
+
+    zfree(argv);
+}
+
+/*  Can be called either by active-expire cron job or query from the client */
+static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen) {
+    robj *keyobj = createStringObject((char*) key, sdslen(key));
+    propagateHashFieldDeletionObj(db, keyobj, field, fieldLen);
+    decrRefCount(keyobj);
 }
 
 /* Called during active expiration of hash-fields. Propagate to replica & Delete. */
@@ -6262,22 +6327,30 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     kvobj *kv = expCtx->hashObj;
     size_t oldsize = 0;
     sds key = kvobjGetKey(kv);
+    if (!expCtx->keyObj)
+        expCtx->keyObj = createStringObject((char*)key, sdslen(key));
 
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(kv);
     sds field = entryGetField(e);
 
+    robj *fieldObj = NULL;
+    if (expCtx->vexpired || expCtx->batchPropagate)
+        fieldObj = createStringObject(field, sdslen(field));
+
     /* Collect expired field for subkey notification (before deletion) */
     if (expCtx->vexpired)
-        vecPush(expCtx->vexpired, createStringObject(field, sdslen(field)));
+        vecPush(expCtx->vexpired, fieldObj);
 
-    propagateHashFieldDeletion(expCtx->db, key, field, sdslen(field));
+    if (expCtx->batchPropagate) {
+        if (expCtx->vexpired)
+            incrRefCount(fieldObj);
+        vecPush(expCtx->vpropagate, fieldObj);
+    } else {
+        propagateHashFieldDeletionObj(expCtx->db, expCtx->keyObj, field, sdslen(field));
+    }
 
-    /* update keysizes */
-    unsigned long l = hashTypeLength(expCtx->hashObj, 0);
-    updateKeysizesHist(expCtx->db, OBJ_HASH, l, l - 1);
-
-    serverAssert(hashTypeDelete(expCtx->hashObj, field) == 1);
+    serverAssert(hashTypeDelete(kv, field) == 1);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(expCtx->db, getKeySlot(key), kv, oldsize, kvobjAllocSize(kv));
     server.stat_expired_subkeys++;

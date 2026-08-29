@@ -696,6 +696,19 @@ proc test_all_keysizes { {replMode 0} } {
 
             $server debug set-active-expire 1
         } {OK} {cluster:skip needs:debug}
+
+        if {$type eq "hashtable"} {
+            test "KEYSIZES - Test Hash field active expiration batch ($type) $suffixRepl" {
+                $server debug set-active-expire 0
+
+                run_cmd_verify_hist {$server FLUSHALL} {}
+                run_cmd_verify_hist {$server HSETEX h1 PX 50 FIELDS 4 f1 v1 f2 v2 f3 v3 f4 v4} {db0_HASH:4=1}
+                run_cmd_verify_hist {after 100} {db0_HASH:4=1}
+                $server debug set-active-expire 1
+                run_cmd_verify_hist {after 100} {} 1
+                $server debug set-active-expire 1
+            } {OK} {cluster:skip needs:debug}
+        }
     }
     
     test "KEYSIZES - Test STRING BITS $suffixRepl" {

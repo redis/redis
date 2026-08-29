@@ -217,11 +217,12 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
     estoreActiveExpire(db->subexpires, slot, &info);
 
     /* Drain module post-notification jobs queued by the "hexpired"/"del" events.
-     * The per-field propagation in propagateHashFieldDeletion() runs before those
-     * notifications fire, so its own drain cannot pick them up and they would
-     * otherwise linger until the tail of the next command's call(). No execution
-     * unit is wrapped around the walk: that would suppress the per-field drains
-     * and batch the HDELs into a single MULTI/EXEC. */
+     * Propagation of the expired fields, batched per key for hashtable hashes and
+     * per field for listpackex, runs before those notifications fire, so its own
+     * drain cannot pick them up and they would otherwise linger until the tail of
+     * the next command's call(). No execution unit is wrapped around the walk:
+     * that would suppress those drains and wrap the propagated commands in
+     * MULTI/EXEC. */
     postExecutionUnitOperations();
 
     /* Return number of fields active-expired */
