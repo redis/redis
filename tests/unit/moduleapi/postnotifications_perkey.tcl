@@ -396,6 +396,7 @@ tags "modules external:skip" {
     test "perkey-expire: active expire (cron) fires the per-key job without a read" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             r debug set-active-expire 1
+            set expire_test_start [clock milliseconds]
             r set ak v px 50
             r pkmeta.reset
             # Never touch ak — let the active-expire cycle reap it. The poll loop
@@ -403,6 +404,12 @@ tags "modules external:skip" {
             wait_for_condition 50 20 {
                 [r pkmeta.empty_firecount] == 1
             } else {
+                set expire_test_elapsed [expr {[clock milliseconds] - $expire_test_start}]
+                puts "active-expire diagnostics: elapsed=${expire_test_elapsed}ms"
+                puts "active-expire diagnostics: empty_firecount=[r pkmeta.empty_firecount]"
+                puts "active-expire diagnostics: empty_firelog=[r pkmeta.empty_firelog]"
+                puts "active-expire diagnostics: INFO stats:\n[r info stats]"
+                puts "active-expire diagnostics: INFO keyspace:\n[r info keyspace]"
                 fail "active expire did not fire the per-key job for ak"
             }
             assert_equal {ak} [r pkmeta.empty_firelog]
