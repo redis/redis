@@ -408,20 +408,10 @@ tags "modules external:skip" {
                 puts "active-expire diagnostics: elapsed=${expire_test_elapsed}ms"
                 puts "active-expire diagnostics: empty_firecount=[r pkmeta.empty_firecount]"
                 puts "active-expire diagnostics: empty_firelog=[r pkmeta.empty_firelog]"
-                puts "active-expire diagnostics: notify_count=[r pkmeta.notifycount]"
-                puts "active-expire diagnostics: expired_notify_count=[r pkmeta.expired_notifycount]"
-                puts "active-expire diagnostics: post_job_enqueued=[r pkmeta.job_enqueued]"
-                puts "active-expire diagnostics: post_job_enqueue_errors=[r pkmeta.job_enqueue_errors]"
-                puts "active-expire diagnostics: perkey_job_run_count=[r pkmeta.job_run_count]"
-                puts "active-expire diagnostics: last_expired_key=[r pkmeta.last_expired_key]"
-                puts "active-expire diagnostics: last_expired_event=[r pkmeta.last_expired_event]"
-                puts "active-expire diagnostics: expired_notify_elapsed_ms=[r pkmeta.expired_notify_elapsed]"
-                puts "active-expire diagnostics: job_elapsed_ms=[r pkmeta.job_elapsed]"
                 puts "active-expire diagnostics: INFO stats:\n[r info stats]"
                 puts "active-expire diagnostics: INFO keyspace:\n[r info keyspace]"
                 fail "active expire did not fire the per-key job for ak"
             }
-            puts "active-expire diagnostics: success notify_elapsed_ms=[r pkmeta.expired_notify_elapsed] job_elapsed_ms=[r pkmeta.job_elapsed] notify_count=[r pkmeta.notifycount] expired_notify_count=[r pkmeta.expired_notifycount] post_job_enqueued=[r pkmeta.job_enqueued] job_run_count=[r pkmeta.job_run_count]"
             assert_equal {ak} [r pkmeta.empty_firelog]
         }
     }
