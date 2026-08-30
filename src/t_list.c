@@ -1613,12 +1613,12 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
 
     if (samekey) {
         /* In-place rotation: the length is unchanged, so there is no key
-         * creation/deletion and no histogram change. Fire the pop notification
-         * before the push notification, matching the distinct-key path and the
-         * documented move order, and account for the (possibly re-encoded) object. */
-        notifyKeyspaceEvent(NOTIFY_LIST, wherefrom == LIST_HEAD ? "lpop" : "rpop",
-                            srckey, c->db->id);
+         * creation/deletion and no histogram change. Fire the push notification
+         * before the pop notification, matching LMOVE and the distinct-key path,
+         * and account for the (possibly re-encoded) object. */
         notifyKeyspaceEvent(NOTIFY_LIST, whereto == LIST_HEAD ? "lpush" : "rpush",
+                            srckey, c->db->id);
+        notifyKeyspaceEvent(NOTIFY_LIST, wherefrom == LIST_HEAD ? "lpop" : "rpop",
                             srckey, c->db->id);
         keyModified(c, c->db, srckey, srcobj, 1);
         if (server.memory_tracking_enabled)
@@ -1627,10 +1627,6 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
         server.dirty += count;
         return;
     }
-
-    /* Source accounting is done first so the pop notification (and a possible
-     * deletion notification) precedes the destination push notification. */
-    listElementsRemoved(c, srckey, wherefrom, srcobj, count, src_oldsize, 1, NULL);
 
     /* Destination accounting (a batched version of lmoveHandlePush). */
     updateKeysizesHist(c->db, OBJ_LIST, dst_oldlen, dst_oldlen + count);
@@ -1644,6 +1640,10 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
         signalKeyAsReadyNonEmptyList(c->db, dstkey);
     notifyKeyspaceEvent(NOTIFY_LIST, whereto == LIST_HEAD ? "lpush" : "rpush",
                         dstkey, c->db->id);
+
+    /* Source accounting: notifications, histogram, deletion if emptied and the
+     * dirty counter (dirty += count) are all handled here. */
+    listElementsRemoved(c, srckey, wherefrom, srcobj, count, src_oldsize, 1, NULL);
 }
 
 /* Core of LMOVEM, also reused by BLMOVEM once the source has enough elements. */
