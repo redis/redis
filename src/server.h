@@ -2533,6 +2533,7 @@ struct redisServer {
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     int key_attr_class_id;          /* keymeta class id for per-key attributes (0 = uninit). */
+    int bless_max_keys;             /* max NO-EVICT keys BLESS SET may create (0 = unlimited). */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */

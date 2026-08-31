@@ -60,6 +60,15 @@ static void blessedSetDel(redisDb *db, sds keyname) {
     kvstoreDictDelete(db->blessed_keys, getKeySlot(keyname), keyname);
 }
 
+/* Total NO-EVICT keys across all DBs, summed on demand (like dbTotalServerKeyCount).
+ * BLESS SET is cold, so no maintained counter - just sum the per-DB indexes. */
+static unsigned long long blessedCount(void) {
+    unsigned long long n = 0;
+    for (int i = 0; i < server.dbnum; i++)
+        n += kvstoreSize(server.db[i].blessed_keys);
+    return n;
+}
+
 /* True if the key must not be evicted. Reads the NO-EVICT bit inline from the
  * key's keymeta - no index, no lookup. Safe for unblessed keys (mask 0). */
 int blessNoEvict(kvobj *kv) {
@@ -132,6 +141,18 @@ static void blessSetCommand(client *c) {
 
     uint64_t cur = keyAttrGet(o);
     if (mask == cur) { addReply(c, shared.czero); return; }    /* no change */
+
+    /* Enforce bless-max-keys, but only on a NONE->NO-EVICT transition (a new
+     * blessed key). Re-bless / unbless never grow the count, so they're exempt.
+     * Command-time guard only: load/RESTORE/ASM never check the cap. */
+    if ((mask & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT) &&
+        server.bless_max_keys &&
+        blessedCount() >= (unsigned long long)server.bless_max_keys)
+    {
+        addReplyError(c, "BLESS: bless-max-keys limit reached");
+        return;
+    }
+
     if (keyMetaSetMetadata(c->db, o, server.key_attr_class_id, mask) == NULL) {
         addReplyError(c, "failed to update key attribute metadata");
         return;
