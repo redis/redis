@@ -2639,8 +2639,6 @@ int ebucketsTest(int argc, char **argv, int flags) {
         }
     }
 
-//    TEST("segment - Add smaller item to full segment that all share same expiration time")
-//    TEST("segment - Add item to full segment and make it extended-segment (all share same expiration time)")
 //    TEST("ebuckets - Create rax tree with extended-segment and add item before")
 
     return 0;
