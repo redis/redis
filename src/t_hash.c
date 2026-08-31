@@ -3978,7 +3978,11 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
          * first the deletion is propagated (a single HDEL per chunk for
          * active-expire, per-field HDEL for lazy-expire), only then the fields
          * are deleted. Bounded chunks keep the collection array on the stack
-         * and cap the size of a single propagated HDEL, regardless of quota. */
+         * and cap the size of a single propagated HDEL, regardless of quota.
+         * Deferring the deletion is safe: ebExpire() detaches the entry from
+         * ebuckets before invoking this callback and never accesses it
+         * afterwards; the hash dict still owns it until hashTypeDelete()
+         * below. */
         eItem entries[FIELDS_STACK_SIZE];
         onFieldExpireCtx.entries = entries;
         info.onExpireItem = onFieldExpire;
@@ -6357,10 +6361,8 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
 
 /* Called during expiration of hash-fields. Only collects the expired entries;
  * hashTypeExpire() propagates the deletions and deletes the fields afterwards.
- * Deferring the deletion is safe: ebExpire() detaches the entry from ebuckets
- * before invoking this callback and never accesses it afterwards. The entries
- * array cannot overflow since ebExpire() is called with maxToExpire that is
- * bounded to FIELDS_STACK_SIZE. */
+ * The entries array cannot overflow since ebExpire() is called with maxToExpire
+ * that is bounded to FIELDS_STACK_SIZE. */
 static ExpireAction onFieldExpire(eItem item, void *ctx) {
     OnFieldExpireCtx *expCtx = ctx;
     debugServerAssert(expCtx->numEntries < FIELDS_STACK_SIZE);

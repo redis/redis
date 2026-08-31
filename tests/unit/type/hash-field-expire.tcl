@@ -2242,35 +2242,42 @@ start_server {tags {"external:skip needs:debug"}} {
         }
     } {} {needs:debug}
 
-    test "Active Expire - propagated HDELs are chunked (hashtable)" {
+    test "Active Expire - HDEL propagation is chunked at field stack size (hashtable)" {
         start_server {overrides {appendonly {yes} appendfsync always hash-max-listpack-entries 0} tags {external:skip}} {
             r debug set-active-expire 0
             set aof [get_last_incr_aof_path r]
 
             set fields {}
-            set fieldvals {}
-            for {set i 1} {$i <= 100} {incr i} {
-                lappend fields f$i
-                lappend fieldvals f$i v$i
+            set hset_cmd [list hset hchunk]
+            for {set j 0} {$j < 65} {incr j} {
+                lappend fields f$j
+                lappend hset_cmd f$j v$j
             }
-            r hset h1 {*}$fieldvals
-            r hpexpire h1 10 FIELDS 100 {*}$fields
+
+            r hset hchunk {*}[lrange $hset_cmd 2 end]
+            r hpexpire hchunk 10 FIELDS 65 {*}$fields
             after 20
             r debug set-active-expire 1
 
-            wait_for_condition 50 100 { [r exists h1] == 0 } else { fail "hash h1 wasn't deleted" }
+            wait_for_condition 50 100 { [r exists hchunk] == 0 } else { fail "hash hchunk wasn't deleted" }
 
-            # 100 expired fields are propagated in chunks of at most
-            # FIELDS_STACK_SIZE (64) fields, that is two HDEL commands. The
-            # trailing empty pattern asserts nothing else was propagated.
-            assert_aof_content $aof {
-                {select *}
-                {hset h1 *}
-                {hpexpireat h1 * FIELDS 100 *}
-                {hdel h1 *}
-                {hdel h1 *}
-                {}
+            set hpexpire_cmd [list hpexpireat hchunk * FIELDS 65]
+            foreach field $fields {
+                lappend hpexpire_cmd $field
             }
+            set hdel_chunk1 [list hdel hchunk]
+            for {set j 0} {$j < 64} {incr j} {
+                lappend hdel_chunk1 *
+            }
+            set hdel_chunk2 [list hdel hchunk *]
+
+            assert_aof_content $aof [list \
+                {select *} \
+                $hset_cmd \
+                $hpexpire_cmd \
+                $hdel_chunk1 \
+                $hdel_chunk2 \
+                {}]
         }
     } {} {needs:debug}
 }
