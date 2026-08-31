@@ -7,8 +7,6 @@
 #                     $PREFIX/lib/redis/modules/    - per-module .so files
 #         DESTDIR   optional staging root prepended to PREFIX (for packaging).
 #                   Where files are copied; never part of the conf's paths.
-#         SKIP_BUILD  1 = install what is already built, skip phase 1 entirely
-#                   (the default for `make install`; `make deploy` builds).
 #         PROG_SUFFIX  suffix appended to the core program names, matching
 #                   `make PROG_SUFFIX=…` (src/Makefile). Modules are unaffected.
 #         MAKE      make binary (defaults to `make`); only used when shelling
@@ -46,10 +44,8 @@ modules="$(resolve_modules "$*" "$cloned" "redis none")"
 # Phase 1: build via the shared orchestrator. Pass the resolved module list
 # verbatim so build.sh sees the same selection we intend to install.
 # ---------------------------------------------------------------------------
-if [ "${SKIP_BUILD:-0}" = 0 ]; then
-  echo "==> Building before deploy (delegating to scripts/build.sh)"
-  echo
-fi
+echo "==> Building before deploy (delegating to scripts/build.sh)"
+echo
 # Build artifacts always go to the dev tree — PREFIX is irrelevant to the
 # build phase. Two scrubs needed before handing off to build.sh:
 #   1. PREFIX env shadow — so anything reading $PREFIX in build.sh / scripts
@@ -71,9 +67,7 @@ build_makeflags="$(printf '%s' " ${MAKEFLAGS:-} " | sed -E 's/ PREFIX=[^ ]*/ /g;
 # phase 2 below filters out modules that genuinely don't have a .so to copy,
 # so we'd rather install what's available than bail out wholesale.
 build_rc=0
-if [ "${SKIP_BUILD:-0}" != 0 ]; then
-  echo "==> SKIP_BUILD=$SKIP_BUILD — installing the artifacts already in the tree"
-elif [ -z "$modules" ]; then
+if [ -z "$modules" ]; then
   MAKEFLAGS="$build_makeflags" PREFIX="" "$SCRIPT_DIR/build.sh" redis || build_rc=$?
 else
   MAKEFLAGS="$build_makeflags" PREFIX="" "$SCRIPT_DIR/build.sh" $modules || build_rc=$?
