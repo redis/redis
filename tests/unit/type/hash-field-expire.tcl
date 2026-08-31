@@ -2241,6 +2241,38 @@ start_server {tags {"external:skip needs:debug"}} {
             }
         }
     } {} {needs:debug}
+
+    test "Active Expire - propagated HDELs are chunked (hashtable)" {
+        start_server {overrides {appendonly {yes} appendfsync always hash-max-listpack-entries 0} tags {external:skip}} {
+            r debug set-active-expire 0
+            set aof [get_last_incr_aof_path r]
+
+            set fields {}
+            set fieldvals {}
+            for {set i 1} {$i <= 100} {incr i} {
+                lappend fields f$i
+                lappend fieldvals f$i v$i
+            }
+            r hset h1 {*}$fieldvals
+            r hpexpire h1 10 FIELDS 100 {*}$fields
+            after 20
+            r debug set-active-expire 1
+
+            wait_for_condition 50 100 { [r exists h1] == 0 } else { fail "hash h1 wasn't deleted" }
+
+            # 100 expired fields are propagated in chunks of at most
+            # FIELDS_STACK_SIZE (64) fields, that is two HDEL commands. The
+            # trailing empty pattern asserts nothing else was propagated.
+            assert_aof_content $aof {
+                {select *}
+                {hset h1 *}
+                {hpexpireat h1 * FIELDS 100 *}
+                {hdel h1 *}
+                {hdel h1 *}
+                {}
+            }
+        }
+    } {} {needs:debug}
 }
 
 # Comprehensive tests for flexible parsing improvements and field validation fixes
