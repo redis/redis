@@ -8,6 +8,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
+#include <stdlib.h> /* abort(), used by assert() on non-GCC-compatible builds */
 #include <string.h>
 
 #include "vector.h"
