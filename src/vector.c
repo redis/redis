@@ -8,8 +8,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "vector.h"
@@ -27,9 +25,10 @@
  * - stack == NULL && initcap == 0: start heap-backed with no initial storage.
  */
 void vecInit(vec *v, void **stack, size_t initcap) {
-    /* If stack is provided, initcap must be > 0 and at the size of the stack */
+    /* If a stack buffer is provided, initcap must be > 0 and must match the
+     * capacity of that buffer (the latter cannot be verified here). */
     assert(initcap > 0 || stack == NULL);
-    
+
     v->size = 0;
     v->cap = initcap;
     v->stack = stack; /* stack is NULL if not used */
@@ -64,12 +63,6 @@ void vecClear(vec *v) {
             v->free(v->data[i]);
     }
     v->size = 0;
-}
-
-/* Get element at index. index must be < vecSize(v). */
-void *vecGet(const vec *v, size_t index) {
-    assert(index < v->size);
-    return v->data[index];
 }
 
 /* Ensure capacity is at least mincap. */
@@ -180,6 +173,13 @@ int vectorTest(int argc, char **argv, int flags)
     test_cond("vecPush() works after vecReserve() on empty vector",
               vecSize(&v) == 2 &&
               vecGet(&v, 0) == &five && vecGet(&v, 1) == &six);
+    vecRelease(&v);
+
+    vecInit(&v, NULL, 0);
+    vecPush(&v, &one);
+    test_cond("vecPush() grows empty vector to default capacity",
+              vecSize(&v) == 1 && v.cap == VEC_DEFAULT_INITCAP &&
+              vecGet(&v, 0) == &one);
     vecRelease(&v);
 
     /* vecSetFreeMethod: element free callback is invoked on release. */
