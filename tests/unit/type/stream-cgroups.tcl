@@ -4485,6 +4485,56 @@ start_server {
 }
 
 start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no}} {
+    test "Deleted pending entries survive AOF rewrite" {
+        r DEL mystream
+        r XADD mystream 1-0 f v1
+        r XADD mystream 2-0 f v2
+        r XADD mystream 3-0 f v3
+        r XGROUP CREATE mystream grp 0
+
+        # The restore option is private to the AOF loading client. Normal
+        # clients cannot use it to extend the public FORCE semantics.
+        assert_error {*Unrecognized XCLAIM option 'AOFRESTORE'*} {
+            r XCLAIM mystream grp c1 0 9-0 FORCE JUSTID AOFRESTORE
+        }
+        assert_error {*Unrecognized XNACK option 'AOFRESTORE'*} {
+            r XNACK mystream grp FAIL IDS 1 9-0 FORCE AOFRESTORE
+        }
+
+        r XREADGROUP GROUP grp c1 COUNT 3 STREAMS mystream >
+
+        # Keep one deleted pending entry owned and move the other into the
+        # unowned NACK zone. Use distinct delivery counts so the rewrite must
+        # preserve more than just their IDs.
+        r XCLAIM mystream grp c1 0 1-0 TIME [expr {[clock milliseconds] - 60000}] RETRYCOUNT 7 JUSTID
+        r XNACK mystream grp FAIL IDS 1 2-0 RETRYCOUNT 9
+        r XDEL mystream 1-0 2-0
+
+        set pending_before [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_before] 3
+        assert_match {1-0 c1 * 7} [lindex $pending_before 0]
+        assert_equal [lindex $pending_before 1] {2-0 {} -1 9}
+        assert_match {3-0 c1 * 1} [lindex $pending_before 2]
+
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+
+        set pending_after [r XPENDING mystream grp - + 10]
+        assert_equal [llength $pending_after] 3
+        assert_match {1-0 c1 * 7} [lindex $pending_after 0]
+        assert {[lindex $pending_after 0 2] > 50000}
+        assert_equal [lindex $pending_after 1] {2-0 {} -1 9}
+        assert_match {3-0 c1 * 1} [lindex $pending_after 2]
+
+        set info [r XINFO STREAM mystream FULL]
+        set group [lindex [dict get $info groups] 0]
+        assert_equal [dict get $group nacked-count] 1
+
+        # The rewrite must not recreate the deleted stream payloads.
+        assert_equal [r XRANGE mystream - +] {{3-0 {f v3}}}
+    }
+
     # Verify that NACKed entries are correctly emitted during AOF rewrite
     # and fully restored via `debug loadaof`. After rewrite + reload,
     # delivery_counts, unowned status, and NACK zone claim order must
