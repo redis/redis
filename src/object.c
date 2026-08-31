@@ -1549,14 +1549,23 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
+        /* The bless NO-EVICT index (db->blessed_keys) is a derived per-DB kvstore
+         * like db->expires; count it as overhead, not dataset. */
+        mem = kvstoreMemUsage(db->blessed_keys);
+        mh->db[mh->num_dbs].overhead_ht_blessed = mem;
+        mem_total+=mem;
+
         mh->num_dbs++;
 
         mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->keys);
         mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->expires);
+        mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->blessed_keys);
         mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->keys);
         mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->expires);
+        mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->blessed_keys);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->keys);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->expires);
+        mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->blessed_keys);
     }
 
     /* Hotkeys memory overhead */
@@ -1910,13 +1919,16 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,2);
+            addReplyMapLen(c,3);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
+
+            addReplyBulkCString(c,"overhead.hashtable.blessed");
+            addReplyLongLong(c,mh->db[j].overhead_ht_blessed);
         }
 
         addReplyBulkCString(c,"overhead.db.hashtable.lut");
