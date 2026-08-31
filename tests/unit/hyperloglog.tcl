@@ -637,7 +637,7 @@ start_server {tags {"hll"}} {
         assert_error {*different precisions*} {r pfmerge dst{t} a13{t} c14{t}}
         r config set hll-sparse-max-bytes 3000
     }
-    test {ULL type: ultra config promotes new key to OBJ_HLL} {
+    test {ULL type: ultra config promotes new key to OBJ_HLL_ULTRA} {
         r config set hll-dense-encoding ultra
         r del t
         r pfadd t a b c d e
@@ -684,7 +684,7 @@ start_server {tags {"hll"}} {
         close_replication_stream $repl
         r config set hll-dense-encoding classic
     } undefined {needs:repl external:skip}
-    test {ULL type: MEMORY USAGE and OBJECT work on an OBJ_HLL key} {
+    test {ULL type: MEMORY USAGE and OBJECT work on an OBJ_HLL_ULTRA key} {
         r config set hll-dense-encoding ultra
         r del t
         r pfadd t a b c d e
@@ -693,7 +693,7 @@ start_server {tags {"hll"}} {
         assert_equal {raw} [r object encoding t]
         r config set hll-dense-encoding classic
     }
-    test {ULL type: string commands are rejected on an OBJ_HLL key} {
+    test {ULL type: string commands are rejected on an OBJ_HLL_ULTRA key} {
         r config set hll-dense-encoding ultra
         r del t
         r pfadd t a b c
@@ -716,7 +716,7 @@ start_server {tags {"hll"}} {
         assert_equal $dig [r debug digest-value t]
         r config set hll-dense-encoding classic
     } undefined {needs:debug}
-    test {ULL type: DUMP/RESTORE preserves the OBJ_HLL type} {
+    test {ULL type: DUMP/RESTORE preserves the OBJ_HLL_ULTRA type} {
         r config set hll-dense-encoding ultra
         r del k{t} k2{t}
         r pfadd k{t} a b c d e
@@ -726,7 +726,7 @@ start_server {tags {"hll"}} {
         assert_equal [r pfcount k{t}] [r pfcount k2{t}]
         r config set hll-dense-encoding classic
     }
-    test {ULL type: COPY preserves the OBJ_HLL type} {
+    test {ULL type: COPY preserves the OBJ_HLL_ULTRA type} {
         r config set hll-dense-encoding ultra
         r del k{t} k2{t}
         r pfadd k{t} a b c d e
@@ -735,7 +735,7 @@ start_server {tags {"hll"}} {
         assert_equal [r pfcount k{t}] [r pfcount k2{t}]
         r config set hll-dense-encoding classic
     }
-    test {ULL type: AOF rewrite reconstructs the OBJ_HLL key} {
+    test {ULL type: AOF rewrite reconstructs the OBJ_HLL_ULTRA key} {
         r config set hll-dense-encoding ultra
         r config set appendonly yes
         waitForBgrewriteaof r

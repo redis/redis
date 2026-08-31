@@ -722,7 +722,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
         return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
-    case OBJ_HLL:
+    case OBJ_HLL_ULTRA:
         return rdbSaveType(rdb,RDB_TYPE_HLL);
 #ifdef ENABLE_GCRA
     case OBJ_GCRA:
@@ -1478,7 +1478,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         /* Save the all-time count of duplicate IIDs detected. */
         if ((n = rdbSaveLen(rdb,s->iids_duplicates)) == -1) return -1;
         nwritten += n;
-    } else if (o->type == OBJ_HLL) {
+    } else if (o->type == OBJ_HLL_ULTRA) {
         /* Save the HyperLogLog blob verbatim; it is a plain raw sds. */
         if ((n = rdbSaveRawString(rdb,o->ptr,sdslen(o->ptr))) == -1) return -1;
         nwritten += n;

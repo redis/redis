@@ -1946,8 +1946,8 @@ robj *createHLLObject(void) {
 /* Check that the raw blob held by 'o' is a structurally valid HLL: "HYLL"
  * magic, a known encoding, and the exact length for the dense and ultra
  * encodings. Reads the blob via sdslen(), so it works whether 'o' is an
- * OBJ_STRING (classic HLL) or an OBJ_HLL, and does not reply to any client.
- * Returns C_OK / C_ERR. */
+ * OBJ_STRING (classic HLL) or an OBJ_HLL_ULTRA, and does not reply to any
+ * client. Returns C_OK / C_ERR. */
 int isHLLObject(robj *o) {
     struct hllhdr *hdr;
 
@@ -1976,13 +1976,13 @@ int isHLLObject(robj *o) {
 }
 
 /* Check if the object holds a valid HLL representation. An HLL value is stored
- * either as a plain string (classic) or, once promoted, as an OBJ_HLL; both
- * carry the same raw blob, so either type is accepted here.
+ * either as a plain string (classic) or, once promoted, as an OBJ_HLL_ULTRA;
+ * both carry the same raw blob, so either type is accepted here.
  * Return C_OK if this is true, otherwise reply to the client
  * with an error and return C_ERR. */
 int isHLLObjectOrReply(client *c, robj *o) {
     /* Key exists, check type */
-    if (o->type != OBJ_STRING && o->type != OBJ_HLL) {
+    if (o->type != OBJ_STRING && o->type != OBJ_HLL_ULTRA) {
         addReplyErrorObject(c,shared.wrongtypeerr);
         return C_ERR;
     }
@@ -1997,19 +1997,20 @@ int isHLLObjectOrReply(client *c, robj *o) {
 }
 
 /* Wrap an existing HLL blob 'blob' (a raw sds, ownership transferred) as an
- * OBJ_HLL object. The caller must have validated it with isHLLObject(). */
+ * OBJ_HLL_ULTRA object. The caller must have validated it with
+ * isHLLObject(). */
 robj *createHLLObjectFromBlob(sds blob) {
-    robj *o = createObject(OBJ_HLL, blob);
+    robj *o = createObject(OBJ_HLL_ULTRA, blob);
     o->encoding = OBJ_ENCODING_RAW;
     return o;
 }
 
 /* Prepare the destination value of an HLL write for in-place modification:
  * create it if 'kv' is NULL (a fresh sparse string), or unshare a plain string
- * value (an OBJ_HLL value is always a private raw sds and needs no unsharing).
- * 'link' must come from the lookupKeyWriteWithLink() that produced 'kv'.
- * Captures the type and blob length before the write into oldtype and oldlen,
- * for a later hllWriteFinalize() call. */
+ * value (an OBJ_HLL_ULTRA value is always a private raw sds and needs no
+ * unsharing). 'link' must come from the lookupKeyWriteWithLink() that produced
+ * 'kv'. Captures the type and blob length before the write into oldtype and
+ * oldlen, for a later hllWriteFinalize() call. */
 static kvobj *hllPrepareWriteDest(client *c, robj *keyarg, kvobj *kv,
                                   dictEntryLink *link, int *oldtype, uint64_t *oldlen)
 {
@@ -2024,14 +2025,15 @@ static kvobj *hllPrepareWriteDest(client *c, robj *keyarg, kvobj *kv,
     return kv;
 }
 
-/* Finalize an HLL write: promote the value to the OBJ_HLL type when the ultra
- * dense backend is selected (the blob is unchanged) and update the per-type
- * keysizes histogram for the size change and any type move. Returns 1 if the
- * type was promoted, so the caller can propagate the change even when the
- * registers were untouched (otherwise a replica would keep the old type). */
+/* Finalize an HLL write: promote the value to the OBJ_HLL_ULTRA type when the
+ * ultra dense backend is selected (the blob is unchanged) and update the
+ * per-type keysizes histogram for the size change and any type move. Returns
+ * 1 if the type was promoted, so the caller can propagate the change even when
+ * the registers were untouched (otherwise a replica would keep the old
+ * type). */
 static int hllWriteFinalize(redisDb *db, kvobj *kv, int oldtype, uint64_t oldlen) {
     if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA && kv->type == OBJ_STRING)
-        kv->type = OBJ_HLL;
+        kv->type = OBJ_HLL_ULTRA;
     uint64_t newlen = sdslen(kv->ptr);
     if (kv->type == oldtype) {
         updateKeysizesHist(db, kv->type, oldlen, newlen);
@@ -2219,7 +2221,8 @@ void pfcountCommand(client *c) {
         if (isHLLObjectOrReply(c,o) != C_OK) return;
         /* PFCOUNT caches the cardinality in the header, so it may modify the
          * value, but as a read command it does not change the object type; an
-         * OBJ_HLL value is already a private raw sds and needs no unsharing. */
+         * OBJ_HLL_ULTRA value is already a private raw sds and needs no
+         * unsharing. */
         if (o->type == OBJ_STRING)
             o = dbUnshareStringValue(c->db,c->argv[1],o);
 
@@ -2465,8 +2468,8 @@ void pfmergeCommand(client *c) {
 
 /* PFSETVALUE key value
  *
- * Internal command used to reconstruct an OBJ_HLL key during AOF rewrite and
- * replication. An HLL that was promoted to its own type can't be recreated
+ * Internal command used to reconstruct an OBJ_HLL_ULTRA key during AOF
+ * rewrite and replication. An HLL that was promoted to its own type can't be recreated
  * with SET (that would make a plain string), so its blob is replayed through
  * this command. Not intended for direct use. */
 void pfSetValueCommand(client *c) {

@@ -2579,8 +2579,8 @@ static int aofEmitSliceElements(rio *r, robj *key, arSlice *s, uint64_t slice_id
 
 /* Emit the commands needed to rebuild an array object.
  * The function returns 0 on error, 1 on success. */
-/* Emit PFSETVALUE <key> <blob> to reconstruct an OBJ_HLL key, whose blob is a
- * plain raw sds. */
+/* Emit PFSETVALUE <key> <blob> to reconstruct an OBJ_HLL_ULTRA key, whose
+ * blob is a plain raw sds. */
 int rewriteHLLObject(rio *r, robj *key, robj *o) {
     /* PFSETVALUE <key> <value> */
     if (rioWriteBulkCount(r,'*',3) == 0) return 0;
@@ -2657,7 +2657,7 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rewriteHashObject(r,key,o) == 0) return C_ERR;
     } else if (o->type == OBJ_STREAM) {
         if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
-    } else if (o->type == OBJ_HLL) {
+    } else if (o->type == OBJ_HLL_ULTRA) {
         if (rewriteHLLObject(r,key,o) == 0) return C_ERR;
 #ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
