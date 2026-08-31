@@ -464,46 +464,52 @@ static int tls_cluster_applied;
 /* Defined with the TLS config hooks below; used by the post-load checks. */
 static void tlsWarnExpectedPeerNameScope(void);
 
-/* The cluster bus has no authentication of its own: the sender of a packet is
- * identified solely by the node ID in its header, which is public, so any peer
- * able to reach the bus port can speak the protocol. The bus also carries
- * sensitive information shared between the nodes, which must not leak outside
- * the cluster. A plaintext bus exposes both to anyone able to reach or eavesdrop
- * on the bus port, which can threaten the whole cluster, so cluster-bus-require-tls
- * refuses such a setup by default and makes running a plaintext bus an explicit
- * choice, in the spirit of protected-mode. Only cluster mode opens the bus, so a
- * standalone instance is never affected.
+/* The cluster bus protocol has no authentication of its own: the sender of a
+ * packet is identified solely by the node ID in its header, which is public
+ * information, so any host that can reach the port can speak the protocol and
+ * threaten the whole cluster. Enabling tls-cluster is what authenticates the bus:
+ * a peer then has to present, in either direction, a certificate that verifies
+ * against the CA that tls-cluster makes mandatory. It does so regardless of
+ * tls-auth-clients, which governs the client port only - clusterAcceptHandler()
+ * always demands a peer certificate.
  *
- * Returns non-zero when the current configuration violates the requirement. */
-static int clusterBusTlsRequirementUnmet(void) {
-    return server.cluster_enabled && server.cluster_bus_require_tls && !server.tls_cluster;
+ * cluster-bus-port-protected-mode therefore refuses an unauthenticated bus by
+ * default, and makes running one an explicit choice, exactly as protected-mode
+ * does for unauthenticated client access. Only cluster mode opens the bus port,
+ * so a standalone instance is never affected.
+ *
+ * Returns non-zero when the current configuration leaves the bus unprotected
+ * while protected mode asks for it. */
+static int clusterBusPortProtectionUnmet(void) {
+    return server.cluster_enabled && server.cluster_bus_port_protected_mode && !server.tls_cluster;
 }
 
-/* Reported when the requirement above is violated at startup. The CONFIG SET
- * path names the option it refuses to change instead. */
-#define CLUSTER_BUS_REQUIRE_TLS_ERR \
-    "cluster-bus-require-tls is enabled but tls-cluster is disabled: the cluster bus " \
-    "of this node would run on plain TCP. The cluster bus is not authenticated and it " \
-    "carries sensitive information shared between the nodes, which must not leak " \
-    "outside the cluster, so any host able to reach or eavesdrop on the cluster bus " \
-    "port can potentially threaten the whole cluster. Either set 'tls-cluster yes' to " \
-    "protect the cluster bus with TLS, or set 'cluster-bus-require-tls no' to " \
-    "acknowledge that the cluster bus port is reachable by trusted hosts only, for " \
-    "instance because a firewall blocks it."
+/* Reported when the check above trips at startup. The CONFIG SET path names the
+ * option it refuses to change instead. */
+#define CLUSTER_BUS_PORT_PROTECTED_MODE_ERR \
+    "cluster-bus-port-protected-mode is enabled but tls-cluster is disabled, which " \
+    "leaves the cluster bus port of this node unauthenticated: the sender of a cluster " \
+    "bus packet is identified only by the node ID in its header, which is public " \
+    "information, so any host able to reach the port can speak the cluster protocol and " \
+    "threaten the whole cluster. Either set 'tls-cluster yes', which makes every cluster " \
+    "bus peer present a certificate verified against your CA, or set " \
+    "'cluster-bus-port-protected-mode no' to acknowledge that the cluster bus port is " \
+    "reachable by trusted hosts only, for instance because a firewall blocks it."
 
-/* Counterpart of the check above: report a cluster node running a plaintext bus
- * once the operator has waived the requirement. Called when the outermost config
- * load finishes and from the tls-cluster apply callback, which covers every way
- * the bus can become plaintext at runtime (leaving TLS always changes
- * tls-cluster, whether alone or together with cluster-bus-require-tls). */
-static void clusterBusWarnIfPlaintextBus(void) {
-    if (!server.cluster_enabled || server.tls_cluster || server.cluster_bus_require_tls) return;
+/* Counterpart of the check above: report a cluster node whose bus port is left
+ * unauthenticated once the operator has waived protected mode. Called when the
+ * outermost config load finishes and from the tls-cluster apply callback, which
+ * covers every way the bus can lose its authentication at runtime (leaving TLS
+ * always changes tls-cluster, whether alone or together with 
+ * cluster_bus_port_protected_mode). */
+static void clusterBusWarnIfUnprotected(void) {
+    if (!server.cluster_enabled || server.tls_cluster || server.cluster_bus_port_protected_mode) return;
 
     serverLog(LL_WARNING,
-        "WARNING: the cluster bus is not protected by TLS: 'tls-cluster' is disabled and "
-        "the requirement was waived with 'cluster-bus-require-tls no'. The cluster bus is "
-        "not authenticated and it carries sensitive information shared between the nodes, "
-        "so make sure the cluster bus port is reachable by trusted hosts only.");
+        "WARNING: the cluster bus port is not authenticated: 'tls-cluster' is disabled and "
+        "protected mode was waived with 'cluster-bus-port-protected-mode no'. Any host able "
+        "to reach the cluster bus port can speak the cluster protocol, so make sure the port "
+        "is reachable by trusted hosts only.");
 }
 
 void loadServerConfigFromString(char *config) {
@@ -695,11 +701,11 @@ void loadServerConfigFromString(char *config) {
      * been parsed. */
     config_load_depth--;
     if (config_load_depth == 0) {
-        /* Refuse a cluster node whose bus would run on plain TCP, unless the
-         * operator waived the requirement. Checked before anything else in this
-         * block so that a fatal error is not preceded by unrelated warnings. */
-        if (clusterBusTlsRequirementUnmet()) {
-            err = CLUSTER_BUS_REQUIRE_TLS_ERR;
+        /* Refuse a cluster node whose bus port would be left unauthenticated,
+         * unless the operator waived protection. Checked before anything else in
+         * this block so that a fatal error is not preceded by unrelated warnings. */
+        if (clusterBusPortProtectionUnmet()) {
+            err = CLUSTER_BUS_PORT_PROTECTED_MODE_ERR;
             goto loaderr;
         }
 
@@ -712,7 +718,7 @@ void loadServerConfigFromString(char *config) {
          * from it, and the server exits if that fails. */
         tls_cluster_applied = server.tls_cluster;
 
-        clusterBusWarnIfPlaintextBus();
+        clusterBusWarnIfUnprotected();
         tlsWarnExpectedPeerNameScope();
     }
 
@@ -2998,14 +3004,14 @@ static int applyTlsCfg(const char **err) {
 static int applyTlsCluster(const char **err) {
     /* Checked before any side effect, so a rejected CONFIG SET leaves the TLS
      * context and the module topology notifications untouched. The check reads
-     * cluster-bus-require-tls as it is *after* the whole CONFIG SET was stored:
-     * configSetCommand() runs every setter before the first apply callback, so a
-     * single command disabling both options is accepted whatever the order of
-     * its arguments, while disabling tls-cluster alone is not. */
-    if (clusterBusTlsRequirementUnmet()) {
-        *err = "can't disable tls-cluster while cluster-bus-require-tls is enabled, "
-               "as that would move the cluster bus to plain TCP; disable "
-               "cluster-bus-require-tls in the same CONFIG SET call to allow it";
+     * cluster-bus-port-protected-mode as it is *after* the whole CONFIG SET was
+     * stored: configSetCommand() runs every setter before the first apply
+     * callback, so a single command disabling both options is accepted whatever
+     * the order of its arguments, while disabling tls-cluster alone is not. */
+    if (clusterBusPortProtectionUnmet()) {
+        *err = "can't disable tls-cluster while cluster-bus-port-protected-mode is enabled, "
+               "as that would leave the cluster bus port unauthenticated; disable "
+               "cluster-bus-port-protected-mode in the same CONFIG SET call to allow it";
         return 0;
     }
 
@@ -3025,18 +3031,18 @@ static int applyTlsCluster(const char **err) {
     clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 
     tls_cluster_applied = server.tls_cluster;
-    clusterBusWarnIfPlaintextBus();
+    clusterBusWarnIfUnprotected();
     return 1;
 }
 
-/* Apply callback for cluster-bus-require-tls. The value drives no machinery of
- * its own, it only has to stay consistent with tls-cluster; see applyTlsCluster()
- * for why the check belongs here rather than in a set handler. */
-static int applyClusterBusRequireTls(const char **err) {
-    if (clusterBusTlsRequirementUnmet()) {
-        *err = "can't enable cluster-bus-require-tls while tls-cluster is disabled, "
-               "as the cluster bus is running on plain TCP; enable tls-cluster in the "
-               "same CONFIG SET call to protect the cluster bus with TLS";
+/* Apply callback for cluster-bus-port-protected-mode. The value drives no
+ * machinery of its own, it only has to stay consistent with tls-cluster; see
+ * applyTlsCluster() for why the check belongs here rather than in a set handler. */
+static int applyClusterBusPortProtectedMode(const char **err) {
+    if (clusterBusPortProtectionUnmet()) {
+        *err = "can't enable cluster-bus-port-protected-mode while tls-cluster is disabled, "
+               "as that leaves the cluster bus port unauthenticated; enable tls-cluster in "
+               "the same CONFIG SET call to authenticate the cluster bus";
         return 0;
     }
     return 1;
@@ -3478,7 +3484,7 @@ standardConfig static_configs[] = {
     createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
-    createBoolConfig("cluster-bus-require-tls", NULL, MODIFIABLE_CONFIG, server.cluster_bus_require_tls, 1, NULL, applyClusterBusRequireTls),
+    createBoolConfig("cluster-bus-port-protected-mode", NULL, MODIFIABLE_CONFIG, server.cluster_bus_port_protected_mode, 1, NULL, applyClusterBusPortProtectedMode),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),

@@ -46,7 +46,7 @@ jobs:
       run: make REDIS_CFLAGS=-Werror
     - name: Start redis-server
       run: |
-        ./src/redis-server --cluster-enabled yes --cluster-bus-require-tls no --daemonize yes --save "" --logfile external-redis-cluster.log \
+        ./src/redis-server --cluster-enabled yes --cluster-bus-port-protected-mode no --daemonize yes --save "" --logfile external-redis-cluster.log \
           --enable-protected-configs yes --enable-debug-command yes --enable-module-command yes
     - name: Create a single node cluster
       run: ./src/redis-cli cluster addslots $(for slot in {0..16383}; do echo $slot; done); sleep 5

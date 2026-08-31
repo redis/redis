@@ -19,7 +19,7 @@ proc main {} {
     parse_options
     spawn_instance redis $::redis_base_port $::instances_count {
         "cluster-enabled yes"
-        "cluster-bus-require-tls no"
+        "cluster-bus-port-protected-mode no"
         "appendonly yes"
         "enable-protected-configs yes"
         "enable-debug-command yes"

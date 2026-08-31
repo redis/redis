@@ -324,8 +324,8 @@ start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list 
             # where it started, so nothing may be reported - the notification is
             # not only a module event, it also cancels the ASM tasks invalidated
             # by the new topology. Here the failure comes from the unusable
-            # certificate, with cluster-bus-require-tls not involved at all.
-            R 0 config set cluster-bus-require-tls no
+            # certificate, with cluster-bus-port-protected-mode not involved at all.
+            R 0 config set cluster-bus-port-protected-mode no
 
             set before [dict get [topo_stats 0] node]
             assert_error {*Unable to update TLS configuration*} {
@@ -355,13 +355,13 @@ start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list 
         }
 
         test "ClusterTopologyChange is not reported when a tls-cluster change is refused" {
-            # cluster-bus-require-tls refuses to move the cluster bus to plain
-            # TCP. A refused CONFIG SET must change nothing, which is not free:
-            # configSetCommand() restores the previous value and calls the apply
-            # callback a second time, and this notification is not only a module
-            # event - it also cancels the ASM tasks invalidated by the new
-            # topology. The suite waives the requirement, so enable it here.
-            R 0 config set cluster-bus-require-tls yes
+            # cluster-bus-port-protected-mode refuses to leave the cluster bus
+            # port unauthenticated. A refused CONFIG SET must change nothing,
+            # which is not free: configSetCommand() restores the previous value
+            # and calls the apply callback a second time, and this notification is
+            # not only a module event - it also cancels the ASM tasks invalidated
+            # by the new topology. The suite waives protection, so enable it here.
+            R 0 config set cluster-bus-port-protected-mode yes
 
             set before [dict get [topo_stats 0] node]
             assert_error {*can't disable tls-cluster*} {R 0 config set tls-cluster no}
@@ -371,7 +371,7 @@ start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list 
             assert_equal $before [dict get [topo_stats 0] node]
             assert_equal {tls-cluster yes} [R 0 config get tls-cluster]
 
-            R 0 config set cluster-bus-require-tls no
+            R 0 config set cluster-bus-port-protected-mode no
         }
     }
 }
