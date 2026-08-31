@@ -448,6 +448,13 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
  * abnormal aggregate `save T C` functionality. Remove in the future. */
 static int reading_config_file;
 
+/* Nesting depth of loadServerConfigFromString(): "include" re-enters it, and
+ * post-load advisories must run only when the outermost load finishes. */
+static int config_load_depth;
+
+/* Defined with the TLS config hooks below; used by the post-load checks. */
+static void tlsWarnExpectedPeerNameScope(void);
+
 void loadServerConfigFromString(char *config) {
     deprecatedConfig deprecated_configs[] = {
         {"list-max-ziplist-entries", 2, 2},
@@ -464,6 +471,7 @@ void loadServerConfigFromString(char *config) {
     int argc;
 
     reading_config_file = 1;
+    config_load_depth++;
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
@@ -626,15 +634,23 @@ void loadServerConfigFromString(char *config) {
         goto loaderr;
     }
 
-    /* in case cluster mode is enabled dbnum must be 1 */
-    if (server.cluster_enabled && server.dbnum > 1) {
-        serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
-        server.dbnum = 1;
-    }
-
     /* To ensure backward compatibility and work while hz is out of range */
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
     if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
+
+    /* Post-load checks that must observe the final configuration, run only
+     * when the outermost load finishes: a nested load ends before the
+     * directives that follow its "include" line (such as "logfile") have
+     * been parsed. */
+    config_load_depth--;
+    if (config_load_depth == 0) {
+        /* in case cluster mode is enabled dbnum must be 1 */
+        if (server.cluster_enabled && server.dbnum > 1) {
+            serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
+            server.dbnum = 1;
+        }
+        tlsWarnExpectedPeerNameScope();
+    }
 
     sdsfreesplitres(lines,totlines);
     reading_config_file = 0;
@@ -2823,6 +2839,46 @@ int updateClusterHumanNodename(const char **err) {
     return 1;
 }
 
+/* Warn if tls-expected-peer-name contains entries beginning with a dot, reporting
+ * how many in a single line so the log stays bounded regardless of how many are
+ * configured. OpenSSL
+ * treats such a name as a parent-domain pattern rather than a host name: it matches
+ * subdomains at any depth (".example.com" also accepts a.b.example.com, and ".com"
+ * accepts every name in that TLD) and does not match the domain itself. That is
+ * legitimate but much broader than pinning explicit hosts, and a leading dot is easy
+ * to introduce unintentionally, so make it visible in the log rather than silent.
+ * Called once the outermost config load finishes and from the option's apply
+ * callback on CONFIG SET; the two cannot report the same value twice, since the
+ * former runs before any CONFIG SET and the latter only when the value changes. */
+static void tlsWarnExpectedPeerNameScope(void) {
+    const char *val = server.tls_ctx_config.expected_peer_name;
+    if (!val) return;
+
+    int ntokens, count = 0;
+    sds *tokens = sdssplitlen(val, strlen(val), " ", 1, &ntokens);
+    for (int i = 0; i < ntokens; i++) {
+        if (sdslen(tokens[i]) && tokens[i][0] == '.') count++;
+    }
+    sdsfreesplitres(tokens, ntokens);
+    if (!count) return;
+
+    serverLog(LL_WARNING,
+        "tls-expected-peer-name has %d entr%s beginning with a dot, which OpenSSL "
+        "matches as a parent domain: such an entry accepts any subdomain at any depth "
+        "(for example \".example.com\" also accepts a.b.example.com) and does not "
+        "accept the domain itself. Use explicit host names if that is not intended.",
+        count, count == 1 ? "y" : "ies");
+}
+
+/* Apply callback for tls-expected-peer-name: emits the parent-domain advisory once
+ * the new value is stored. It deliberately does not reconfigure TLS, since the option
+ * is not an input to the SSL_CTX and is applied per connection. */
+static int applyTlsExpectedPeerName(const char **err) {
+    UNUSED(err);
+    tlsWarnExpectedPeerNameScope();
+    return 1;
+}
+
 /* Validate tls-expected-peer-name at config time (startup and CONFIG SET). An
  * empty value clears the option and is always allowed. A non-empty value must
  * carry at least one usable name token and must not contain embedded whitespace
@@ -3527,7 +3583,8 @@ standardConfig static_configs[] = {
     createStringConfig("tls-protocols", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.protocols, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphers", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphers, NULL, NULL, applyTlsCfg),
     createStringConfig("tls-ciphersuites", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.ciphersuites, NULL, NULL, applyTlsCfg),
-    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, NULL),
+    createStringConfig("tls-groups", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.groups, NULL, NULL, applyTlsCfg),
+    createStringConfig("tls-expected-peer-name", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.expected_peer_name, NULL, isValidTlsExpectedPeerName, applyTlsExpectedPeerName),
 
     /* Special configs */
     createSpecialConfig("dir", NULL, MODIFIABLE_CONFIG | PROTECTED_CONFIG | DENY_LOADING_CONFIG, setConfigDirOption, getConfigDirOption, rewriteConfigDirOption, NULL),

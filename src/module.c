@@ -383,6 +383,8 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
+    int argv_changed; /* Set when a filter modified argv, so the caller knows
+                       * it must refresh what it cached about the command. */
     client *c;
 } RedisModuleCommandFilterCtx;
 
@@ -10013,6 +10015,7 @@ size_t RM_GetClusterSize(void) {
  * * REDISMODULE_NODE_PFAIL:        We see the node as failing
  * * REDISMODULE_NODE_FAIL:         The cluster agrees the node is failing
  * * REDISMODULE_NODE_NOFAILOVER:   The slave is configured to never failover
+ * * REDISMODULE_NODE_PORT_TLS:     The returned port is a TLS port (added in Redis 8.12)
  */
 int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
     UNUSED(ctx);
@@ -10046,6 +10049,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         if (clusterNodeTimedOut(node)) *flags |= REDISMODULE_NODE_PFAIL;
         if (clusterNodeIsFailing(node)) *flags |= REDISMODULE_NODE_FAIL;
         if (clusterNodeIsNoFailover(node)) *flags |= REDISMODULE_NODE_NOFAILOVER;
+        if (clusterDefaultClientPortIsTLS()) *flags |= REDISMODULE_NODE_PORT_TLS;
     }
     return REDISMODULE_OK;
 }
@@ -11997,6 +12001,7 @@ void moduleCallCommandFilters(client *c) {
         .argv = c->argv,
         .argv_len = c->argv_len,
         .argc = c->argc,
+        .argv_changed = 0,
         .c = c
     };
 
@@ -12012,6 +12017,9 @@ void moduleCallCommandFilters(client *c) {
         f->callback(&filter);
     }
 
+    /* Nothing was modified by the filters, there's nothing to refresh. */
+    if (!filter.argv_changed) return;
+
     /* If the filter sets a new command, including command or subcommand,
      * the command looked up will be invalid. */
     c->lookedcmd = NULL;
@@ -12020,19 +12028,19 @@ void moduleCallCommandFilters(client *c) {
     c->argv_len = filter.argv_len;
     c->argc = filter.argc;
 
-    /* Update pending command if it exists. */
+    /* Everything the pending command derived from the old argv (command, keys,
+     * slot, read error) is stale now, so preprocess it again. */
     pendingCommand *pcmd = c->current_pending_cmd;
     if (pcmd) {
         pcmd->argv = filter.argv;
         pcmd->argc = filter.argc;
         pcmd->argv_len = filter.argv_len;
-        pcmd->cmd = NULL;
-        pcmd->slot = INVALID_CLUSTER_SLOT;
-        pcmd->flags = 0;
+        preprocessCommand(c, pcmd);
 
-        /* Reset keys result */
-        getKeysFreeResult(&pcmd->keys_result);
-        pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
+        /* Keep the client fields we populated from the pending command in sync. */
+        c->lookedcmd = pcmd->cmd;
+        c->slot = pcmd->slot;
+        c->read_error = pcmd->read_error;
     }
 }
 
@@ -12073,6 +12081,7 @@ int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisM
     }
     fctx->argv[pos] = arg;
     fctx->argc++;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
@@ -12088,6 +12097,7 @@ int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *fctx, int pos, Redis
 
     decrRefCount(fctx->argv[pos]);
     fctx->argv[pos] = arg;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
@@ -12105,6 +12115,7 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
         fctx->argv[i] = fctx->argv[i+1];
     }
     fctx->argc--;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }

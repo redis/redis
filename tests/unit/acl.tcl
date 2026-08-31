@@ -1039,6 +1039,46 @@ start_server {tags {"acl external:skip"}} {
         r ACL SETUSER antirez -incr
     }
 
+    test {ACL key permissions are rechecked at EXEC time} {
+        # Same scenario as the test above, but revoking the key pattern instead
+        # of the command, so that the key half of the EXEC time re-check is the
+        # one being exercised.
+        set rd1 [redis_deferring_client]
+        r ACL LOG RESET
+        r SET object:1234 original
+        r ACL SETUSER antirez +get
+
+        r AUTH antirez foo
+        r MULTI
+        r GET object:1234
+        r SET object:1234 written-by-revoked-user
+        # Revoke the key pattern while the transaction is still parked.
+        $rd1 ACL SETUSER antirez resetkeys ~other:*
+        $rd1 read
+        catch {r EXEC} e
+        $rd1 close
+        r AUTH default ""
+
+        # The queued read is refused...
+        assert_match {*NOPERM*no permission to touch the specified keys*} $e
+        # ...and so is the queued write, so the value is left untouched.
+        assert_equal {original} [r GET object:1234]
+
+        # Both refusals are logged, and grouped into a single entry since they
+        # share username, context, reason and object.
+        set entry [lindex [r ACL LOG] 0]
+        assert_equal {multi} [dict get $entry context]
+        assert_equal {key} [dict get $entry reason]
+        assert_equal {object:1234} [dict get $entry object]
+        assert_equal {antirez} [dict get $entry username]
+        assert_equal 2 [dict get $entry count]
+        assert_match {*cmd=exec*} [dict get $entry client-info]
+
+        # Restore the user to the state the following tests expect.
+        r ACL SETUSER antirez -get resetkeys ~object:1234
+        r DEL object:1234
+    }
+
     test {ACL can log errors in the context of Lua scripting} {
         r AUTH antirez foo
         catch {r EVAL {redis.call('incr','foo')} 0}

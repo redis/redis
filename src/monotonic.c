@@ -5,22 +5,63 @@
 #include <time.h>
 #include "redisassert.h"
 #include <string.h>
+#include <errno.h>
+#include <limits.h>
 
 /* The function pointer for clock retrieval.  */
 monotime (*getMonotonicUs)(void) = NULL;
 
 static char monotonic_info_string[32];
 
+/* Optional log callback, set via monotonicInit(). */
+static void (*monotonic_logger)(const char *fmt, ...) __attribute__((format(printf, 1, 2))) = NULL;
+#define monotonicLog(...) do { \
+    if (monotonic_logger) monotonic_logger(__VA_ARGS__); \
+} while (0)
 
 /* Using the processor clock (aka TSC on x86) can provide improved performance
  * throughout Redis wherever the monotonic clock is used.  The processor clock
- * is significantly faster than calling 'clock_getting' (POSIX).  While this is
+ * is significantly faster than calling 'clock_gettime' (POSIX).  While this is
  * generally safe on modern systems, this link provides additional information
  * about use of the x86 TSC: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage
  *
+ * On x86_64 Linux the hardware clock is enabled by default, with two safety
+ * gates and a layered frequency-detection chain.  The reasoning, for future
+ * generations:
+ *
+ * Reliability: rather than replicating the kernel's knowledge of broken TSCs
+ * (known-bad CPU quirk lists, boot-time sync tests, the clocksource watchdog
+ * that demotes a TSC that drifts at runtime), we simply require that the
+ * kernel's ACTIVE clocksource is "tsc".  Machines where Linux distrusts the
+ * TSC never satisfy that, so they transparently stay on the POSIX clock.
+ * 'constant_tsc' in /proc/cpuinfo is additionally required (fixed tick rate
+ * regardless of frequency scaling).
+ *
+ * Speed vs the VDSO: clock_gettime(CLOCK_MONOTONIC) on a tsc clocksource is
+ * a fast VDSO call (no context switch), but it still costs ~2-3x a raw
+ * RDTSC: the seqlock-protected read of the timekeeper data, the mult/shift
+ * conversion, ns scaling and the libc call.  The monotonic clock is read
+ * several times per command, so the difference is measurable end-to-end
+ * once the network stops being the bottleneck (measured on bare-metal
+ * Sapphire Rapids at 1KiB SET/GET, 2000 connections: +7-9% throughput at
+ * 8-16 io-threads; flat at 0-4 io-threads, which are network-bound).
+ *
+ * Tick rate: the frequency advertised in the "model name" cpuinfo string is
+ * the marketing value and can differ from the real TSC rate by a few tenths
+ * of a percent (e.g. a "2.30GHz" part whose TSC ticks at ~2294 MHz) — a rate
+ * error that size skews every measured duration and accumulates as drift.
+ * The kernel measures the true rate at boot, but does not expose it to
+ * userspace on mainline; the tsc_freq_khz sysfs file IS that kernel-measured
+ * value on kernels that carry the patch.  Calibrating RDTSC against
+ * CLOCK_MONOTONIC recovers the same kernel-measured rate indirectly, because
+ * with a tsc clocksource CLOCK_MONOTONIC itself advances at the kernel's
+ * calibrated TSC frequency.  Hence the chain: model-name parse, validated
+ * against one measured sample (calibration wins when they disagree beyond
+ * noise), then tsc_freq_khz, then median-of-3 calibration.
+ *
  * On ARM aarch64 systems, the hardware clock is enabled by default because the
  * ARM Generic Timer is architecturally guaranteed to be available and monotonic
- * on all ARMv8-A processors (see the “The Generic Timer in AArch64 state”
+ * on all ARMv8-A processors (see the "The Generic Timer in AArch64 state"
  * section of the Arm Architecture Reference Manual for Armv8-A).
  *
  * To use the processor clock on other architectures, either uncomment this line,
@@ -30,7 +71,7 @@ static char monotonic_info_string[32];
  */
 
 
-#if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
+#if defined(__x86_64__) && defined(__linux__)
 #include <regex.h>
 #include <x86intrin.h>
 
@@ -40,6 +81,49 @@ static monotime getMonotonicUs_x86(void) {
     return __rdtsc() / mono_ticksPerMicrosecond;
 }
 
+/* One calibration measurement: RDTSC ticks across a ~10ms nanosleep, bounded
+ * by CLOCK_MONOTONIC readings.  Returns ticks-per-microsecond, or 0 on any
+ * failure (clock error, non-monotonic TSC sample pair).  */
+static long monotonicCalibrateOnce_x86linux(void) {
+    struct timespec ts_start, ts_end;
+    uint64_t tsc_start, tsc_end;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts_start) != 0) return 0;
+    tsc_start = __rdtsc();
+
+    /* Sleep ~10 ms to accumulate enough ticks for an accurate measurement.
+     * Retry on EINTR to ensure we get a meaningful interval. */
+    struct timespec req = {0, 10000000}, rem;
+    while (nanosleep(&req, &rem) != 0) {
+        if (errno != EINTR) return 0;
+        req = rem;
+    }
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts_end) != 0) return 0;
+    tsc_end = __rdtsc();
+
+    long long elapsed_ns = (long long)(ts_end.tv_sec - ts_start.tv_sec) * 1000000000LL
+                         + (ts_end.tv_nsec - ts_start.tv_nsec);
+    if (elapsed_ns <= 0) return 0;
+
+    /* Invariant TSC on modern x86 is guaranteed to be monotonic across a
+     * single core's context, but migration across sockets/cores with
+     * misaligned TSC, virtualisation, or firmware quirks can still produce
+     * a non-monotonic sample pair. Subtracting uint64_t in that case would
+     * wrap to a huge value and yield a nonsense tick rate, so reject the
+     * sample. */
+    if (tsc_end <= tsc_start) return 0;
+
+    /* ticks_per_us = total_ticks / total_microseconds
+     * Multiply first to preserve precision, then divide. */
+    return (long)((tsc_end - tsc_start) * 1000 / elapsed_ns);
+}
+
+static int longcmp(const void *a, const void *b) {
+    long la = *(const long *)a, lb = *(const long *)b;
+    return (la > lb) - (la < lb);
+}
+
 static void monotonicInit_x86linux(void) {
     const int bufflen = 256;
     char buf[bufflen];
@@ -47,48 +131,124 @@ static void monotonicInit_x86linux(void) {
     const size_t nmatch = 2;
     regmatch_t pmatch[nmatch];
     int constantTsc = 0;
+    long nominal_model = 0;
     int rc;
 
-    /* Determine the number of TSC ticks in a micro-second.  This is
-     * a constant value matching the standard speed of the processor.
-     * On modern processors, this speed remains constant even though
-     * the actual clock speed varies dynamically for each core.  */
+    /* Only use the TSC directly when the kernel itself trusts it: the active
+     * clocksource is "tsc" exactly when Linux has verified the TSC is stable
+     * on this machine (CPUs with known-unreliable TSCs, or a TSC the kernel
+     * watchdog has marked unstable, never get it).  This defers the
+     * reliability decision to the kernel instead of re-deriving it here.  */
+    FILE *cs = fopen("/sys/devices/system/clocksource/clocksource0/current_clocksource", "r");
+    if (cs == NULL || fgets(buf, bufflen, cs) == NULL || strncmp(buf, "tsc", 3) != 0) {
+        if (cs) fclose(cs);
+        monotonicLog("x86 linux, kernel clocksource is not 'tsc'");
+        return;
+    }
+    fclose(cs);
+
+    /* Determine the number of TSC ticks in a micro-second from the CPU model
+     * name.  This is a constant value matching the standard speed of the
+     * processor.  On modern processors, this speed remains constant even
+     * though the actual clock speed varies dynamically for each core.  */
     rc = regcomp(&cpuGhzRegex, "^model name\\s+:.*@ ([0-9.]+)GHz", REG_EXTENDED);
     assert(rc == 0);
 
-    /* Also check that the constant_tsc flag is present.  (It should be
-     * unless this is a really old CPU.  */
+    /* Also check that the constant_tsc flag is present.  This ensures the TSC
+     * runs at a fixed rate regardless of CPU frequency scaling.  Without it,
+     * the TSC is unreliable for timekeeping.  */
     rc = regcomp(&constTscRegex, "^flags\\s+:.* constant_tsc", REG_EXTENDED);
     assert(rc == 0);
 
     FILE *cpuinfo = fopen("/proc/cpuinfo", "r");
     if (cpuinfo != NULL) {
         while (fgets(buf, bufflen, cpuinfo) != NULL) {
-            if (regexec(&cpuGhzRegex, buf, nmatch, pmatch, 0) == 0) {
+            if (nominal_model == 0 &&
+                regexec(&cpuGhzRegex, buf, nmatch, pmatch, 0) == 0) {
                 buf[pmatch[1].rm_eo] = '\0';
                 double ghz = atof(&buf[pmatch[1].rm_so]);
-                mono_ticksPerMicrosecond = (long)(ghz * 1000);
-                break;
+                nominal_model = (long)(ghz * 1000);
             }
-        }
-        while (fgets(buf, bufflen, cpuinfo) != NULL) {
-            if (regexec(&constTscRegex, buf, nmatch, pmatch, 0) == 0) {
+            if (!constantTsc &&
+                regexec(&constTscRegex, buf, 0, NULL, 0) == 0) {
                 constantTsc = 1;
-                break;
             }
+            if (nominal_model != 0 && constantTsc) break;
         }
-
         fclose(cpuinfo);
     }
     regfree(&cpuGhzRegex);
     regfree(&constTscRegex);
 
-    if (mono_ticksPerMicrosecond == 0) {
-        fprintf(stderr, "monotonic: x86 linux, unable to determine clock rate\n");
+    if (!constantTsc) {
+        monotonicLog("x86 linux, 'constant_tsc' flag not present");
         return;
     }
-    if (!constantTsc) {
-        fprintf(stderr, "monotonic: x86 linux, 'constant_tsc' flag not present\n");
+
+    /* Source 1: the kernel-measured TSC frequency, on kernels that expose it.
+     * This is the ground-truth rate (what the kernel itself uses for
+     * timekeeping), so when present it wins outright and needs no
+     * validation.  */
+    FILE *khz = fopen("/sys/devices/system/cpu/cpu0/tsc_freq_khz", "r");
+    if (khz != NULL) {
+        long tsc_khz = 0;
+        if (fscanf(khz, "%ld", &tsc_khz) == 1 && tsc_khz > 0)
+            mono_ticksPerMicrosecond = tsc_khz / 1000;
+        fclose(khz);
+    }
+
+    /* Source 2: the frequency advertised in the model name, cross-checked
+     * against one measurement.  The advertised frequency is the marketing
+     * value and the real TSC rate can differ by a few tenths of a percent
+     * (e.g. a "2.30GHz" part whose TSC ticks at ~2294 MHz); a rate error
+     * that size makes every measured duration proportionally wrong and
+     * accumulates as drift.  The nominal value is used only when a measured
+     * sample confirms it within calibration noise; on disagreement OR when
+     * no valid measurement could be taken, fall through to full
+     * calibration.  */
+    if (mono_ticksPerMicrosecond == 0 && nominal_model != 0) {
+        long measured = monotonicCalibrateOnce_x86linux();
+        /* measured <= 0 means calibration itself failed (non-monotonic
+         * sample pair) -- treat that the same as "unconfirmed" and fall
+         * through, rather than encoding failure as a sentinel that then
+         * participates in the diff*1000 multiplication below (which can
+         * overflow a signed long and is undefined behavior in C). */
+        if (measured > 0 && labs(measured - nominal_model) * 1000 <= nominal_model) { /* within 0.1% */
+            mono_ticksPerMicrosecond = nominal_model;
+        } else {
+            monotonicLog("x86 linux, advertised clock rate "
+                    "(%ld ticks/us) unconfirmed by the measured rate "
+                    "(%ld ticks/us), using calibration",
+                    nominal_model, measured);
+        }
+    }
+
+    /* Source 3 (last resort): runtime calibration — measure RDTSC ticks over a known
+     * CLOCK_MONOTONIC interval.  A single measurement can be perturbed by a
+     * context switch between the clock read and the TSC read, so take three
+     * and use the median.  */
+    if (mono_ticksPerMicrosecond == 0) {
+        long samples[3];
+        int valid = 0;
+        for (int i = 0; i < 3; i++) {
+            long s = monotonicCalibrateOnce_x86linux();
+            if (s > 0) samples[valid++] = s;
+        }
+        if (valid > 0) {
+            qsort(samples, valid, sizeof(long), longcmp);
+            /* Median for odd counts; mean of the two central samples when an
+             * even number survived (with exactly two, samples[valid/2] alone
+             * would systematically pick the higher one). */
+            if (valid % 2 == 0)
+                mono_ticksPerMicrosecond =
+                    (samples[valid/2 - 1] + samples[valid/2]) / 2;
+            else
+                mono_ticksPerMicrosecond = samples[valid/2];
+        }
+    }
+
+    if (mono_ticksPerMicrosecond == 0) {
+        monotonicLog("x86 linux, unable to determine clock rate");
         return;
     }
 
@@ -127,7 +287,7 @@ static monotime getMonotonicUs_aarch64(void) {
 static void monotonicInit_aarch64(void) {
     mono_ticksPerMicrosecond = (long)cntfrq_hz() / 1000L / 1000L;
     if (mono_ticksPerMicrosecond == 0) {
-        fprintf(stderr, "monotonic: aarch64, unable to determine clock rate\n");
+        monotonicLog("aarch64, unable to determine clock rate");
         return;
     }
 
@@ -184,7 +344,7 @@ static monotime getMonotonicUs_riscv(void) {
 static void monotonicInit_riscv(void) {
     mono_ticksPerMicrosecond = (long)get_timebase_frequency() / 1000L / 1000L;
     if (mono_ticksPerMicrosecond == 0) {
-        fprintf(stderr, "monotonic: riscv, unable to determine clock rate\n");
+        monotonicLog("riscv, unable to determine clock rate");
         return;
     }
     snprintf(monotonic_info_string, sizeof(monotonic_info_string),
@@ -218,8 +378,10 @@ static void monotonicInit_posix(void) {
 
 
 
-const char * monotonicInit(void) {
-    #if defined(USE_PROCESSOR_CLOCK) && defined(__x86_64__) && defined(__linux__)
+const char * monotonicInit(void (*logger)(const char *fmt, ...)) {
+    if (getMonotonicUs == NULL) monotonic_logger = logger;
+
+    #if defined(__x86_64__) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif
 

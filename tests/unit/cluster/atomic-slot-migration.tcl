@@ -1498,9 +1498,15 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Source write pause timeout" {
+        set prev_config_lag [lindex [R 0 config get cluster-slot-migration-handoff-max-lag-bytes] 1]
+
         # set timeout to 0, so the task will fail immediately when checking timeout
         R 0 config set cluster-slot-migration-write-pause-timeout 0
+        # The destination cron will be paused before migration starts. Increase the
+        # lag threshold so its first ACK can enter handoff under TSan's slower timing.
+        R 0 config set cluster-slot-migration-handoff-max-lag-bytes 100mb
         R 1 debug asm-failpoint "import-main-channel" "takeover"
+        R 1 debug pause-cron 1 ;# prevent retrying the failed import task
 
         # start migration from node 0 to 1
         set task_id [setup_slot_migration_with_delay 0 1 0 100]
@@ -1515,16 +1521,60 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             [string match {*Write pause timeout*} \
                 [migration_status 0 $task_id last_error]]
         } else {
-            fail "ASM task did not fail"
+            fail "ASM task did not fail: source=[migration_status 0 $task_id state], destination=[migration_status 1 $task_id state]"
         }
 
         stop_write_load $load_handle
 
         # reset config
         R 0 config set cluster-slot-migration-write-pause-timeout 10000
+        R 0 config set cluster-slot-migration-handoff-max-lag-bytes $prev_config_lag
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
         R 1 debug asm-failpoint "" ""
+        R 1 debug pause-cron 0
+    }
+
+    test "Source write pause timeout runs before STREAM-EOF" {
+        # hold the task right before the handoff, so we can expire the write
+        # pause while it is still waiting to send STREAM-EOF
+        R 0 debug asm-failpoint "migrate-main-channel" "handoff-prep"
+
+        # do not take over the slots, so a STREAM-EOF sent by mistake leaves
+        # the source in the stream-eof state instead of completing the task
+        R 1 debug asm-failpoint "import-main-channel" "takeover"
+
+        # start migration from node 0 to 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+        wait_for_condition 2000 10 {
+            [string match {*send-stream*} [migration_status 0 $task_id state]] &&
+            [string match {*wait-stream-eof*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not reach the pre-handoff states"
+        }
+
+        # pause the source cron so it cannot enforce the timeout first, then
+        # expire the timeout and release the handoff while rejecting retries
+        R 0 debug pause-cron 1
+        R 0 config set cluster-slot-migration-write-pause-timeout 0
+        R 0 debug asm-failpoint "migrate-main-channel" "none"
+
+        # node 0 must fail while still in handoff, without handing the slots over
+        wait_for_condition 2000 10 {
+            [string match {*failed*} [migration_status 0 $task_id state]] &&
+            [string match {*Write pause timeout*state: handoff*} \
+                [migration_status 0 $task_id last_error]]
+        } else {
+            fail "ASM task did not leave handoff: [migration_status 0 $task_id state]"
+        }
+
+        # reset config
+        R 0 config set cluster-slot-migration-write-pause-timeout 10000
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
+        R 0 debug asm-failpoint "" ""
+        R 1 debug asm-failpoint "" ""
+        R 0 debug pause-cron 0
     }
 
     test "Sync buffer drain timeout" {

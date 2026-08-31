@@ -72,6 +72,10 @@ int getSlotOrReply(client *c, robj *o) {
     return (int) slot;
 }
 
+int clusterDefaultClientPortIsTLS(void) {
+    return server.tls_cluster;
+}
+
 ConnectionType *connTypeOfCluster(void) {
     if (server.tls_cluster) {
         return connectionTypeTls();
@@ -885,12 +889,12 @@ void clusterCommandMyShardId(client *c) {
  * a Lua script or RM_call, there is no connection in the fake client, so we use
  * server.current_client here to get the real client if available. And if it is not
  * available (modules may call commands without a real client), we return the default
- * info, which is determined by server.tls_cluster. */
+ * info, which is determined by clusterDefaultClientPortIsTLS(). */
 static int shouldReturnTlsInfo(void) {
     if (server.current_client && server.current_client->conn) {
         return connIsTLS(server.current_client->conn);
     } else {
-        return server.tls_cluster;
+        return clusterDefaultClientPortIsTLS();
     }
 }
 
@@ -2233,10 +2237,7 @@ void sflushCommand(client *c) {
     /* If client is AOF or master, we must obey the slot ranges. */
     int must_obey = mustObeyClient(c);
 
-    /* Iterate and find the slot ranges that belong to this node. Save them in
-     * a new slotRangeArray. It is allocated on heap since there is a chance
-     * that FLUSH SYNC will be running as blocking ASYNC and only later reply
-     * with slot ranges */
+    /* Iterate and find the slot ranges that belong to this node. */
     slotRangeArray *myslots = NULL;
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
@@ -2253,9 +2254,6 @@ void sflushCommand(client *c) {
         return;
     }
     slotRangeArrayFree(slots);
-    
-    /* takes ownership of myslots */
-    asmTrimCtx *trim_ctx = asmTrimCtxCreate(myslots, server.db[0].keys);
 
     /* If the selected slots are exactly the same as the local slots, we can
      * simply flush the entire DB by flushCommandCommon. */
@@ -2264,10 +2262,9 @@ void sflushCommand(client *c) {
     slotRangeArrayFree(local_slots);
     if (all_slots_covered) {
         /* If not flush as blocking async, then reply immediately */
-        if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, trim_ctx) == 0) {
-            replySlotsFlush(c, trim_ctx->slots);
-        }
-        asmTrimCtxRelease(trim_ctx);
+        if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0)
+            replySlotsFlush(c, myslots);
+        slotRangeArrayFree(myslots);
         return;
     }
 
@@ -2286,8 +2283,9 @@ void sflushCommand(client *c) {
     if (flags & EMPTYDB_ASYNC && server.loading == 0) {
         /* Update dirty stats before trimming. */
         server.dirty += getKeyCountInSlotRangeArray(myslots);
-        /* Pass client id for active trim to unblock client when trim completes. */
-        trim_method = asmTrimSlots(trim_ctx, blocking_async ? c->id : CLIENT_ID_NONE, 0);
+        /* Pass the client ID so either trim method can unblock the client when
+         * the trim completes. */
+        trim_method = asmTrimSlots(myslots, blocking_async ? c->id : CLIENT_ID_NONE, 0);
     } else {
         clusterDelKeysInSlotRangeArray(myslots, 1);
     }
@@ -2296,21 +2294,18 @@ void sflushCommand(client *c) {
      * SFLUSH will not be replicated nor put into the AOF. */
     forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
 
-    /* Handle waiting for trim job to complete in case of blocking async flush.
-     * Block the client and schedule completion callback based on trim method:
-     * - BG trim uses BIO lazyfree worker to trim the slots, so schedule a new
-     *   BIO lazyfree worker to wait for completion, then unblock client and reply.
-     * - Active trim works in cron job of the main thread, it will automatically
-     *   unblock client and reply in active trim completion. */
+    /* If a trim job was scheduled for a blocking async flush, block the client
+     * now. The job has recorded the client ID and will unblock and reply when
+     * finalized. */
     if (blocking_async && trim_method != ASM_TRIM_METHOD_NONE) {
         blockClientForAsyncFlush(c);
     } else {
         /* Reply with slot ranges that were flushed. SYNC and ASYNC mode will be
          * replied here immediately. */
-        replySlotsFlush(c, trim_ctx->slots);
+        replySlotsFlush(c, myslots);
     }
 
-    asmTrimCtxRelease(trim_ctx); /* if bg trim, released later by kvsAsyncFreeDoneCB() */
+    slotRangeArrayFree(myslots);
 }
 
 /* The READWRITE command just clears the READONLY command state. */
