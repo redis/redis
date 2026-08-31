@@ -174,6 +174,10 @@ if [ -n "$installed_modules" ]; then
     grep -qF "$LOADMODULE_BEGIN" "$conf" 2>/dev/null || return 0
     local tmp
     tmp="$(mktemp "${conf}.deploy.XXXXXX")"
+    # Clone the conf's mode (and owner, when root) onto the temp file: mktemp
+    # creates it 0600, and the mv below would carry that — plus root ownership
+    # under `sudo` — onto a conf the user still has to write.
+    cp -p "$conf" "$tmp"
     trap 'rm -f "$tmp" "$new_lines_file"' EXIT
     awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v newfile="$new_lines_file" '
       $0 == begin {
