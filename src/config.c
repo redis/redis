@@ -452,6 +452,15 @@ static int reading_config_file;
  * post-load advisories must run only when the outermost load finishes. */
 static int config_load_depth;
 
+/* Value of tls-cluster as of the last time applyTlsCluster() acted on it, in the
+ * manner of clusterUpdateMyselfIp()'s prev_ip. It lets a refused CONFIG SET be a
+ * true no-op: configSetCommand() restores the previous value and calls every
+ * apply callback of the command a second time, and that second call must not
+ * reconfigure anything for a value that never effectively moved. The zero
+ * initialiser matches the tls-cluster default, which is what is in force when no
+ * configuration is loaded at all; the post-load block below takes it from there. */
+static int tls_cluster_applied;
+
 /* Defined with the TLS config hooks below; used by the post-load checks. */
 static void tlsWarnExpectedPeerNameScope(void);
 
@@ -699,6 +708,10 @@ void loadServerConfigFromString(char *config) {
             serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
             server.dbnum = 1;
         }
+        /* The startup value is the one in force: initListeners() configures TLS
+         * from it, and the server exits if that fails. */
+        tls_cluster_applied = server.tls_cluster;
+
         clusterBusWarnIfPlaintextBus();
         tlsWarnExpectedPeerNameScope();
     }
@@ -2996,6 +3009,14 @@ static int applyTlsCluster(const char **err) {
         return 0;
     }
 
+    /* Nothing below may run when the value did not effectively move, which is
+     * what configSetCommand() hands us after it has restored a refused set: both
+     * steps are observable - reconfiguring TLS rebuilds the SSL_CTX, and
+     * clusterNotifyTopologyChanged() cancels the ASM tasks invalidated by the new
+     * topology besides notifying modules - so a refused set would otherwise not
+     * be the no-op it reports being. */
+    if (server.tls_cluster == tls_cluster_applied) return 1;
+
     if (!applyTlsCfg(err)) return 0;
 
     /* tls-cluster selects which client port is advertised by the cluster.
@@ -3003,6 +3024,7 @@ static int applyTlsCluster(const char **err) {
      * them when the preferred port changes. */
     clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 
+    tls_cluster_applied = server.tls_cluster;
     clusterBusWarnIfPlaintextBus();
     return 1;
 }
