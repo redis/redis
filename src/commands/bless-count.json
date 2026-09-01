@@ -3,7 +3,7 @@
         "summary": "Returns the number of blessed keys at the given level (default NO-EVICT). NONE is not countable and INRAM is unimplemented - both are a syntax error.",
         "complexity": "O(1)",
         "group": "generic",
-        "since": "8.10.0",
+        "since": "8.12.0",
         "arity": -2,
         "container": "BLESS",
         "function": "blessCommand",

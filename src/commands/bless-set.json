@@ -3,7 +3,7 @@
         "summary": "Sets a key's protections against memory pressure.",
         "complexity": "O(1).",
         "group": "generic",
-        "since": "8.10.0",
+        "since": "8.12.0",
         "arity": -3,
         "container": "BLESS",
         "function": "blessCommand",

@@ -3,7 +3,7 @@
         "summary": "Lists blessed keys. Accepts NO-EVICT or no argument (default NO-EVICT); NONE is not listable (unblessed keys are untracked) and INRAM is unimplemented - both are a syntax error.",
         "complexity": "O(N) where N is the number of blessed keys.",
         "group": "generic",
-        "since": "8.10.0",
+        "since": "8.12.0",
         "arity": -2,
         "container": "BLESS",
         "function": "blessCommand",
