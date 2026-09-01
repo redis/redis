@@ -1139,6 +1139,14 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     return nwritten;
 }
 
+/* OBJ_BITMAP persistence (RDB_TYPE_BITMAP): the bitmap's logical byte
+ * length, then an RDB string holding CRoaring's 64-bit portable
+ * serialization (RoaringFormatSpec, canonical little-endian fields on every
+ * architecture). The logical length travels separately because trailing
+ * zero bits are observable through bitmap commands but are not represented
+ * by Roaring containers. The payload size is proportional to the resident
+ * containers, never to the highest set bit, and the same format is shared
+ * by RDB snapshots, DUMP/RESTORE, and the RDB payloads used by AOF. */
 static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     ssize_t n, nwritten = 0;
     uint64_t byte_len = bitroarLen(o);
