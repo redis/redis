@@ -456,8 +456,8 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
         /* memcpy modules metadata to beginning of kvobj */
         if (keymeta->metabits & KEY_META_MASK_MODULES)
             /* Also trivial overwrite expire */
-            memcpy(kvobjGetAllocPtr(kv),
-                   keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta,
+            memcpy(kvobjGetAllocPtr(kv), 
+                   keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta, 
                    keymeta->numMeta * sizeof(uint64_t));
 
         /* Index a key that arrives already blessed (not via BLESS SET) so COUNT/LIST see it. */
