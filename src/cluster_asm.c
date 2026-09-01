@@ -3103,8 +3103,7 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
     dict *stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     /* Blessed-keys index is slot-partitioned like expires, so drop the migrated
      * slots from it too or the former owner's BLESS COUNT/LIST keep counting
-     * keys it no longer owns. Freed synchronously below - bless holds a small
-     * number of keys by design, so this never blocks like the data free can. */
+     * keys it no longer owns. Freed in the BIO thread with the other structures. */
     kvstore *blessed_keys = blessedKvstoreCreate(CLUSTER_SLOT_MASK_BITS,
                                                  KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
 
@@ -3120,11 +3119,10 @@ void asmTriggerBackgroundTrim(asmTrimCtx *trim_ctx, int migration_cleanup) {
             kvstoreMoveDict(server.db[0].blessed_keys, blessed_keys, slot);
         }
     }
-    kvstoreRelease(blessed_keys);
     /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
     streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
 
-    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, trim_ctx);
+    emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys, blessed_keys, trim_ctx);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);

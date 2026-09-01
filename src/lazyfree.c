@@ -61,12 +61,14 @@ void kvsLazyfreeFree(void *args[]) {
     estore *subexpires = args[2];
     dict *stream_idmp_keys = args[3];
     asmTrimCtx *ctx = args[4];  /* Optional: ASM trim context */
+    kvstore *blessed = args[5]; /* Optional: bless NO-EVICT index (ASM trim) */
 
     /* If ASM context provided, populate delta histograms */
     if (ctx) populateDeltaHistograms(da1, ctx);
 
     estoreRelease(subexpires);
     dictRelease(stream_idmp_keys);
+    if (blessed) kvstoreRelease(blessed);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
     kvstoreRelease(da2);
@@ -343,13 +345,13 @@ void emptyDbAsync(redisDb *db) {
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
-    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys, NULL);
+    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys, NULL, NULL);
 }
 
 /* Empty a kvstore data asynchronously. */
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, dict *stream_idmp_keys, asmTrimCtx *ctx) {
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, dict *stream_idmp_keys, kvstore *blessed, asmTrimCtx *ctx) {
     atomicIncr(lazyfree_objects, kvstoreSize(keys));
-    bioCreateLazyFreeJob(kvsLazyfreeFree, 5, keys, expires, hexpires, stream_idmp_keys, ctx);
+    bioCreateLazyFreeJob(kvsLazyfreeFree, 6, keys, expires, hexpires, stream_idmp_keys, ctx, blessed);
 }
 
 /* Free the key tracking table.
