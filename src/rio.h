@@ -24,6 +24,13 @@
 #define RIO_FLAG_READ_ERROR (1<<0)
 #define RIO_FLAG_WRITE_ERROR (1<<1)
 #define RIO_FLAG_DUMP_PAYLOAD (1ULL<<2)
+/* Set on rio objects (see rioInitWithFileLoad) whose 'read' method already
+ * updates the checksum itself, over the granularity of its own physical
+ * reads rather than the caller's request size. Callers that otherwise
+ * checksum every rioRead() call (e.g. rdbLoadProgressCallback) must skip
+ * their own checksum step when this flag is set, or bytes get checksummed
+ * twice. */
+#define RIO_FLAG_CKSUM_AT_SOURCE (1<<3)
 
 #define RIO_TYPE_FILE (1<<0)
 #define RIO_TYPE_BUFFER (1<<1)
@@ -67,6 +74,20 @@ struct _rio {
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
             unsigned reclaim_cache:1; /* A flag to indicate reclaim cache after fsync */
+            /* Read-side buffering used only by rioInitWithFileLoad(): batches
+             * checksum computation at the granularity of physical read(2)
+             * calls instead of the caller's (often tiny) per-field request
+             * size, so small fields still feed the checksum large enough
+             * buffers to engage SIMD-accelerated implementations. */
+            unsigned char *read_buf;
+            size_t read_buf_pos, read_buf_valid;
+            off_t read_offset;  /* Absolute file offset of the next physical read. */
+            off_t content_end;  /* File offset where the trailing checksum footer
+                                  * begins; bytes at/after this offset must never
+                                  * be folded into the running checksum, even
+                                  * though a single physical read routinely
+                                  * reads straight through this boundary. */
+            unsigned checksum_enabled:1; /* Whether to compute the checksum at all. */
         } file;
         /* Connection object (used to read from socket) */
         struct {
@@ -165,12 +186,14 @@ static inline void rioClearErrors(rio *r) {
 }
 
 void rioInitWithFile(rio *r, FILE *fp);
+void rioInitWithFileLoad(rio *r, FILE *fp, off_t filesize, int compute_checksum);
 void rioInitWithBuffer(rio *r, sds s);
 void rioInitWithConn(rio *r, connection *conn, size_t read_limit);
 void rioInitWithFd(rio *r, int fd);
 void rioInitWithConnset(rio *r, connection **conns, size_t n_conns);
 
 void rioFreeFd(rio *r);
+void rioFreeFileLoad(rio *r);
 void rioFreeConn(rio *r, sds* out_remainingBufferedData);
 void rioFreeConnset(rio *r);
 

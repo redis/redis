@@ -190,6 +190,67 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.reclaim_cache = 0;
 }
 
+/* Buffered read used by rioInitWithFileLoad(): reads directly from the
+ * underlying fd in RIO_FILE_LOAD_BUFLEN-sized chunks (bypassing stdio) and
+ * checksums each freshly read chunk in one crc64() call, rather than once
+ * per (often just a few bytes) caller request. This lets small RDB fields
+ * still feed the checksum buffers large enough to engage SIMD-accelerated
+ * crc64 implementations.
+ *
+ * The trailing 8-byte RDB checksum footer must never itself be folded into
+ * the running checksum, but a single physical read routinely spans both the
+ * last content bytes and the footer. content_end (filesize - 8) is used to
+ * clip the checksum to the content portion of each chunk. */
+#define RIO_FILE_LOAD_BUFLEN (4*1024)
+
+static size_t rioFileLoadRead(rio *r, void *dst, size_t len) {
+    unsigned char *out = dst;
+    while (len) {
+        if (r->io.file.read_buf_pos == r->io.file.read_buf_valid) {
+            ssize_t n = read(fileno(r->io.file.fp), r->io.file.read_buf, RIO_FILE_LOAD_BUFLEN);
+            if (n <= 0) return 0;
+            if (r->io.file.checksum_enabled) {
+                off_t cksum_len = r->io.file.content_end - r->io.file.read_offset;
+                if (cksum_len > n) cksum_len = n;
+                if (cksum_len > 0) r->cksum = crc64(r->cksum, r->io.file.read_buf, (size_t)cksum_len);
+            }
+            r->io.file.read_offset += n;
+            r->io.file.read_buf_pos = 0;
+            r->io.file.read_buf_valid = (size_t)n;
+        }
+        size_t avail = r->io.file.read_buf_valid - r->io.file.read_buf_pos;
+        size_t take = avail < len ? avail : len;
+        memcpy(out, r->io.file.read_buf + r->io.file.read_buf_pos, take);
+        r->io.file.read_buf_pos += take;
+        out += take;
+        len -= take;
+    }
+    return 1;
+}
+
+/* Create an RIO for sequentially loading an existing file of known size
+ * (an RDB, possibly an AOF's RDB preamble). Checksum computation happens
+ * inside the read() method itself (see rioFileLoadRead), at the granularity
+ * of physical reads rather than the caller's request size; callers that
+ * otherwise checksum every rioRead() unconditionally must check the
+ * RIO_FLAG_CKSUM_AT_SOURCE flag and skip their own checksum step. */
+void rioInitWithFileLoad(rio *r, FILE *fp, off_t filesize, int compute_checksum) {
+    rioInitWithFile(r, fp);
+    r->read = rioFileLoadRead;
+    r->flags |= RIO_FLAG_CKSUM_AT_SOURCE;
+    r->io.file.read_buf = zmalloc(RIO_FILE_LOAD_BUFLEN);
+    r->io.file.read_buf_pos = 0;
+    r->io.file.read_buf_valid = 0;
+    r->io.file.read_offset = 0;
+    r->io.file.content_end = filesize > 8 ? filesize - 8 : 0;
+    r->io.file.checksum_enabled = compute_checksum ? 1 : 0;
+}
+
+void rioFreeFileLoad(rio *r) {
+    zfree(r->io.file.read_buf);
+    r->io.file.read_buf = NULL;
+}
+
 /* ------------------- Connection implementation -------------------
  * We use this RIO implementation when reading an RDB file directly from
  * the connection to the memory via rdbLoadRio(), thus this implementation

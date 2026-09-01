@@ -4601,7 +4601,10 @@ void stopSaving(int success) {
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
-    if (server.rdb_checksum && !server.loading_skip_checksum)
+    /* When RIO_FLAG_CKSUM_AT_SOURCE is set, the rio's read() method already
+     * folded these bytes into the checksum itself (see rioInitWithFileLoad);
+     * doing it again here would checksum every byte twice. */
+    if (server.rdb_checksum && !server.loading_skip_checksum && !(r->flags & RIO_FLAG_CKSUM_AT_SOURCE))
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
@@ -5152,7 +5155,8 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
         return RDB_FAILED;
     }
 
-    if (fstat(fileno(fp), &sb) == -1)
+    int have_filesize = fstat(fileno(fp), &sb) != -1;
+    if (!have_filesize)
         sb.st_size = 0;
 
     loadingSetFlags(filename, sb.st_size, 0);
@@ -5161,10 +5165,17 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
     if (emptyDbFunc)
         emptyDbFunc(); /* Flush existing db. */
     loadingFireEvent(rdbflags);
-    rioInitWithFile(&rdb,fp);
+    /* rioInitWithFileLoad() needs a real file size to know where the
+     * trailing checksum footer begins; fall back to the plain rio in the
+     * rare case fstat() failed on an already-open fd. */
+    if (have_filesize)
+        rioInitWithFileLoad(&rdb,fp,sb.st_size,server.rdb_checksum && !server.loading_skip_checksum);
+    else
+        rioInitWithFile(&rdb,fp);
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
 
+    if (have_filesize) rioFreeFileLoad(&rdb);
     fclose(fp);
     if (retval != C_OK && emptyDbFunc)
         emptyDbFunc(); /* Clean up partial db. */
