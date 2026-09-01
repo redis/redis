@@ -239,6 +239,23 @@ start_server {tags {"bless"}} {
         # all 5 survive the load even though the cap was 2 during the reload
         assert_equal 5 [r bless count]
     } {} {needs:debug}
+
+    test {bless-max-keys: AOF replay bypasses the cap (mustObeyClient)} {
+        r flushall
+        r config set bless-max-keys 1024
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        # blessings recorded in the incr AOF as BLESS SET commands
+        for {set j 0} {$j < 5} {incr j} { r set k:$j v; r bless set k:$j no-evict }
+        assert_equal 5 [r bless count]
+        # lower the cap, then replay the AOF: the BLESS SET commands come from
+        # the AOF client (mustObeyClient), so they must not be rejected.
+        r config set bless-max-keys 2
+        r debug loadaof
+        r config set appendonly no
+        r config set bless-max-keys 1024
+        assert_equal 5 [r bless count]
+    } {} {needs:debug}
 }
 
 start_server {tags {"bless" "maxmemory" "external:skip"}} {

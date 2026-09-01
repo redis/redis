@@ -142,10 +142,13 @@ static void blessSetCommand(client *c) {
     uint64_t cur = keyAttrGet(o);
     if (mask == cur) { addReply(c, shared.czero); return; }    /* no change */
 
-    /* Enforce bless-max-keys, but only on a NONE->NO-EVICT transition (a new
-     * blessed key). Re-bless / unbless never grow the count, so they're exempt.
-     * Command-time guard only: load/RESTORE/ASM never check the cap. */
-    if ((mask & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT) &&
+    /* Enforce bless-max-keys only for direct client writes, and only on a
+     * NONE->NO-EVICT transition (a new blessed key). Commands from the master
+     * link, AOF replay, or ASM import (all mustObeyClient) must never be
+     * rejected, so replication/AOF/migration may push a node over the cap - a
+     * soft, best-effort guard, same as proto-max-bulk-len and maxmemory. */
+    if (!mustObeyClient(c) &&
+        (mask & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT) &&
         server.bless_max_keys &&
         blessedCount() >= (unsigned long long)server.bless_max_keys)
     {
