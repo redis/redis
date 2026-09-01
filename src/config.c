@@ -3308,6 +3308,59 @@ void rewriteConfigLatencyTrackingInfoPercentilesOutputOption(standardConfig *con
     rewriteConfigRewriteLine(state,name,line,1);
 }
 
+static int setConfigSlaveOutputBufferThrottlingOption(standardConfig *config, sds* argv, int argc, const char **err) {
+    UNUSED(config);
+    UNUSED(err);
+    char *ptr;
+
+    long long slave_obuf_throttle_threshold;
+    long long slave_obuf_throttle_limit;
+    long long slave_obuf_throttle_repl_rate;
+    int slave_obuf_throttle_max_delay_ms;
+
+    if (argc != 4) return 0;
+
+    /* Verify format is okay */
+    slave_obuf_throttle_threshold = strtoll(argv[0],&ptr,10);
+    if (!ptr || *ptr || slave_obuf_throttle_threshold < 0) return 0;
+    slave_obuf_throttle_limit = strtoll(argv[1],&ptr,10);
+    if (!ptr || *ptr || slave_obuf_throttle_limit < 0) return 0;
+    slave_obuf_throttle_repl_rate = strtoll(argv[2],&ptr,10);
+    if (!ptr || *ptr || slave_obuf_throttle_repl_rate < 0) return 0;
+    slave_obuf_throttle_max_delay_ms = strtoul(argv[3],&ptr,10);
+    if (!ptr || *ptr) return 0;
+
+    /* set all at once */
+    server.slave_obuf_throttle_threshold = slave_obuf_throttle_threshold;
+    server.slave_obuf_throttle_limit = slave_obuf_throttle_limit;
+    server.slave_obuf_throttle_repl_rate = slave_obuf_throttle_repl_rate;
+    server.slave_obuf_throttle_max_delay_ms = slave_obuf_throttle_max_delay_ms;
+
+    return 1;
+}
+
+static sds getConfigSlaveOutputBufferThrottlingOption(standardConfig *config) {
+    UNUSED(config);
+    sds buf = sdscatprintf(sdsempty(), "%llu %llu %llu %u",
+                           server.slave_obuf_throttle_threshold,
+                           server.slave_obuf_throttle_limit,
+                           server.slave_obuf_throttle_repl_rate,
+                           server.slave_obuf_throttle_max_delay_ms);
+    return buf;
+}
+
+void rewriteConfigSlaveOutputBufferThrottlingOption(standardConfig *config, const char *name, struct rewriteConfigState *state) {
+    UNUSED(config);
+    sds line;
+    line = sdscatprintf(sdsempty(), "%s %llu %llu %llu %d",
+                        name,
+                        server.slave_obuf_throttle_threshold,
+                        server.slave_obuf_throttle_limit,
+                        server.slave_obuf_throttle_repl_rate,
+                        server.slave_obuf_throttle_max_delay_ms);
+    rewriteConfigRewriteLine(state,name,line, server.slave_obuf_throttle_threshold != CONFIG_DEFAULT_SLAVE_OBUF_THROTTLE_THRESHOLD);
+}
+
 static int applyClientMaxMemoryUsage(const char **err) {
     UNUSED(err);
     listIter li;
@@ -3595,7 +3648,7 @@ standardConfig static_configs[] = {
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
     createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
-
+    createSpecialConfig("slave-output-buffer-throttling", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigSlaveOutputBufferThrottlingOption, getConfigSlaveOutputBufferThrottlingOption, rewriteConfigSlaveOutputBufferThrottlingOption,NULL),
     /* NULL Terminator, this is dropped when we convert to the runtime array. */
     {NULL}
 };

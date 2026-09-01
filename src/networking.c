@@ -22,6 +22,7 @@
 #include "cluster_asm.h"
 #include "memory_prefetch.h"
 #include "connection.h"
+#include "request_throttler.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -191,6 +192,7 @@ client *createClient(connection *conn) {
     c->slot = -1;
     c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
+    c->lastrequest = 0;
     c->io_lastinteraction = 0;
     c->duration = 0;
     c->user = DefaultUser; /* Set a safe default value: clientSetDefaultAuth reads c->user. */
@@ -3978,6 +3980,17 @@ int processInputBuffer(client *c) {
     return C_OK;
 }
 
+int handleRequestThrottling(client *c) {
+    /* If we're in a throttling interval, we just check to see when it can
+     * be turned off.  This does NOT apply to new connections, on which we
+     * allow the first command anyway.
+     */
+    if (!RequestThrottler_IsSuspended()) return C_OK;
+    if (c != NULL && c->lastcmd == NULL) return C_OK;
+
+    return C_ERR;
+}
+
 void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;
@@ -3997,6 +4010,9 @@ void readQueryFromClient(connection *conn) {
     }
 
     c->read_error = 0;
+
+    /* Don't process new requests while throttling. */
+    if (handleRequestThrottling(c) != C_OK) return;
 
     c->stat_total_read_events++;
 
@@ -4093,6 +4109,7 @@ void readQueryFromClient(connection *conn) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
+    c->lastrequest = server.unixtime;
     if (!(c->flags & CLIENT_MASTER) || c->running_tid == IOTHREAD_MAIN_THREAD_ID)
         c->lastinteraction = server.unixtime;
     else
@@ -5463,6 +5480,7 @@ char *getClientTypeName(int class) {
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferLogicalSize(c);
+    static time_t last_log_msg = 0;
 
     /* For unauthenticated clients the output buffer is limited to prevent
      * them from abusing it by not reading the replies */
@@ -5490,6 +5508,37 @@ int checkClientOutputBufferLimits(client *c) {
     if (server.client_obuf_limits[class].soft_limit_bytes &&
         used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
         soft = 1;
+
+    /* Handle slave output buffer throttling */
+    if (server.slave_obuf_throttle_threshold &&
+        server.slave_obuf_throttle_repl_rate &&
+        server.slave_obuf_throttle_limit &&
+        class == CLIENT_TYPE_SLAVE &&
+        !RequestThrottler_IsSuspendedByReason(REASON_SLAVE_OUTPUT_BUFFER_EXCEEDED) &&
+        used_mem > server.slave_obuf_throttle_threshold &&
+        c->replstate != SLAVE_STATE_ONLINE) {
+
+        unsigned long estimated_repl_time = (zmalloc_used_memory() - used_mem) / server.slave_obuf_throttle_repl_rate;
+        size_t obuf_bytes_per_sec = server.slave_obuf_throttle_limit / (estimated_repl_time ? estimated_repl_time : 1);
+        time_t elapsed_repl_time = time(NULL) - c->lastrequest;
+
+        if (obuf_bytes_per_sec && used_mem > elapsed_repl_time * obuf_bytes_per_sec) {
+            size_t bytes_exceeding = used_mem - (elapsed_repl_time * obuf_bytes_per_sec);
+            unsigned long throttle_time_ms = bytes_exceeding * 1000 / (obuf_bytes_per_sec ? obuf_bytes_per_sec : 1);
+
+            if (server.slave_obuf_throttle_max_delay_ms && throttle_time_ms > server.slave_obuf_throttle_max_delay_ms)
+                throttle_time_ms = server.slave_obuf_throttle_max_delay_ms;
+
+            RequestThrottler_Suspend(REASON_SLAVE_OUTPUT_BUFFER_EXCEEDED, throttle_time_ms);
+            if (time(NULL) - last_log_msg > 10) {
+                sds client = catClientInfoString(sdsempty(), c);
+
+                serverLog(LL_WARNING, "Slave %s triggered request throttling.", client);
+                sdsfree(client);
+                last_log_msg = time(NULL);
+            }
+        }
+    }
 
     /* We need to check if the soft limit is reached continuously for the
      * specified amount of seconds. */
