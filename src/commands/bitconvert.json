@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the length of the string value.",
         "group": "bitmap",
         "since": "8.12.0",
-        "arity": 3,
+        "arity": 2,
         "function": "bitconvertCommand",
         "doc_flags": [
             "SYSCMD"
@@ -44,11 +44,6 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0
-            },
-            {
-                "name": "encoding",
-                "token": "ROARING",
-                "type": "pure-token"
             }
         ],
         "reply_schema": {

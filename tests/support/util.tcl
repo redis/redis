@@ -337,7 +337,7 @@ proc randomKey {} {
 proc convert_string_bitmap_to_roaring {client key} {
     set code [catch {
         {*}$client debug mark-internal-client
-        {*}$client bitconvert $key ROARING
+        {*}$client bitconvert $key
     } result opts]
     set cleanup_code [catch {
         {*}$client debug mark-internal-client unmark
