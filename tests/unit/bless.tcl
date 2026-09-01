@@ -162,6 +162,19 @@ start_server {tags {"bless"}} {
         assert_equal {NONE} [r bless get d2]
     }
 
+    test {redis-check-rdb accepts an RDB that contains a blessed key} {
+        r flushall
+        r set plain v
+        r set precious v
+        r bless set precious no-evict
+        r save
+        set rdb [file join [lindex [r config get dir] 1] dump.rdb]
+        # exec throws if the checker exits non-zero (i.e. reports corruption);
+        # before the fix it rejected the bless opcode as "Invalid object type".
+        set out [exec src/redis-check-rdb $rdb]
+        assert_match "*RDB looks OK*" $out
+    } {} {external:skip}
+
     test {BLESS and TTL coexist across DEBUG RELOAD} {
         r flushall
         r set a 1

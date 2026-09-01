@@ -67,4 +67,8 @@ void keyAttrOnOverwrite(struct redisDb *db, robj *key, kvobj *kv);
 int keyAttrRdbSave(rio *rdb, kvobj *kv);
 uint64_t keyAttrBitForOpcode(int opcode);
 
+/* True if `op` is an attribute RDB opcode (payload-less; presence flags the
+ * key). Lets callers ask "is this ours?" without caring which bit it maps to. */
+#define KEY_ATTR_IS_RDB_OPCODE(op) (keyAttrBitForOpcode(op) != 0)
+
 #endif /* __KEYATTR_H */
