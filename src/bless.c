@@ -124,8 +124,10 @@ static void blessSetCommand(client *c) {
         mask = BLESS_NOEVICT;                       /* default level */
     } else if (c->argc == 4) {
         const char *lvl = c->argv[3]->ptr;
-        if      (!strcasecmp(lvl, "none"))     mask = BLESS_NONE;
-        else if (!strcasecmp(lvl, "no-evict")) mask = BLESS_NOEVICT;
+        if (!strcasecmp(lvl, "none"))
+            mask = BLESS_NONE;
+        else if (!strcasecmp(lvl, "no-evict"))
+            mask = BLESS_NOEVICT;
         else {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
@@ -140,7 +142,10 @@ static void blessSetCommand(client *c) {
     sds keyname = keyobj->ptr;
 
     uint64_t cur = keyAttrGet(o);
-    if (mask == cur) { addReply(c, shared.czero); return; }    /* no change */
+    if (mask == cur) { /* no change */
+        addReply(c, shared.czero);
+        return;
+    }
 
     /* Enforce bless-max-keys only for direct client writes, and only on a
      * NONE->NO-EVICT transition (a new blessed key). Commands from the master
@@ -160,8 +165,10 @@ static void blessSetCommand(client *c) {
         addReplyError(c, "failed to update key attribute metadata");
         return;
     }
-    if (mask & BLESS_NOEVICT) blessedSetPut(c->db, keyname, mask);
-    else                      blessedSetDel(c->db, keyname);
+    if (mask & BLESS_NOEVICT)
+        blessedSetPut(c->db, keyname, mask);
+    else
+        blessedSetDel(c->db, keyname);
 
     keyModified(c, c->db, keyobj, NULL, 1);
     notifyKeyspaceEvent(NOTIFY_GENERIC, "bless", keyobj, c->db->id);

@@ -1,7 +1,7 @@
 {
     "SET": {
         "summary": "Sets a key's protections against memory pressure.",
-        "complexity": "O(1).",
+        "complexity": "O(1)",
         "group": "generic",
         "since": "8.12.0",
         "arity": -3,
