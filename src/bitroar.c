@@ -805,9 +805,7 @@ void bitroarVisitSetBitRanges(const robj *o,
     roaring64_iterator_free(it);
 }
 
-static long long bitroarFirstSetBit(bitroar *bitmap, uint64_t start,
-                                    uint64_t end)
-{
+static long long bitroarFirstSetBit(bitroar *bitmap, uint64_t start, uint64_t end) {
     roaring64_bitmap_t *r = bitmap->roaring;
 
     if (start >= end) return -1;
@@ -869,8 +867,7 @@ static int32_t bitroarContainerFirstClearBit(const container_t *container,
     case BITSET_CONTAINER_TYPE: {
         const bitset_container_t *bitset = const_CAST_bitset(container);
         uint32_t word_idx = from >> 6;
-        uint64_t word = ~bitset->words[word_idx] &
-                        (UINT64_MAX << (from & 63));
+        uint64_t word = ~bitset->words[word_idx] & (UINT64_MAX << (from & 63));
         while (1) {
             if (word) return (int32_t)(word_idx * 64 + __builtin_ctzll(word));
             if (++word_idx >= BITSET_CONTAINER_SIZE_IN_WORDS) return -1;
@@ -1008,8 +1005,7 @@ uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bit
             if (leaf == NULL) return 0;
 
             typecode = roaring64_leaf_typecode(*leaf);
-            container =
-                bitmap->roaring->containers[roaring64_leaf_index(*leaf)];
+            container = bitmap->roaring->containers[roaring64_leaf_index(*leaf)];
             if (container_contains_range(container, (uint16_t)offset,
                                          (uint32_t)(uint16_t)last_bit + 1, typecode))
             {
@@ -1054,8 +1050,7 @@ uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bit
     return value;
 }
 
-int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits,
-                               uint64_t value) {
+int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t value) {
     bitroar *bitmap = bitroarGet(o);
     uint64_t positions_to_add[64];
     uint64_t positions_to_remove[64];
@@ -1126,8 +1121,7 @@ static void bitroarMaterializeRawRange(unsigned char *raw, size_t chunk_len,
 static void bitroarMaterializeContainer(unsigned char *raw, size_t byte_len, uint64_t high48,
                                         const container_t *container, uint8_t typecode)
 {
-    const size_t container_bytes =
-        BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
+    const size_t container_bytes = BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
     uint64_t byte_base = high48 * container_bytes;
     if (byte_base >= byte_len) return;
 
@@ -1236,9 +1230,7 @@ typedef struct bitroarRawOpSource {
  * the only non-debug raw materialization path. Keep it deliberately narrow:
  * Roaring-only and sparse workloads retain Roaring algebra, while the 1 MiB
  * result and aggregate-input caps bound all temporary raw buffers. */
-static int bitroarUseMixedRawOp(robj **objects, size_t numkeys,
-                                uint64_t maxlen)
-{
+static int bitroarUseMixedRawOp(robj **objects, size_t numkeys, uint64_t maxlen) {
     int has_string = 0;
     int has_roaring = 0;
 
@@ -1279,9 +1271,7 @@ static int bitroarUseMixedRawOp(robj **objects, size_t numkeys,
     return 1;
 }
 
-static uint64_t bitroarRawOpLoadWord(const bitroarRawOpSource *source,
-                                     size_t offset)
-{
+static uint64_t bitroarRawOpLoadWord(const bitroarRawOpSource *source, size_t offset) {
     uint64_t word = 0;
     if (offset >= source->len) return 0;
 
@@ -1417,8 +1407,7 @@ static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
         memcpy(raw_result + offset, &output, maxlen - offset);
     }
 
-    roaring64_bitmap_t *result = bitroarFromRaw(
-        (unsigned char *)raw_result, maxlen, 0);
+    roaring64_bitmap_t *result = bitroarFromRaw((unsigned char *)raw_result, maxlen, 0);
     sdsfree(raw_result);
     for (size_t i = 0; i < numkeys; i++) sdsfree(sources[i].owned);
     zfree(raw_sources);
@@ -1467,8 +1456,7 @@ static void bitroarPrepareOpSources(robj **objects, bitroarOpSource *sources, si
             sources[i].roaring = bitroarGet(o)->roaring;
         } else {
             serverAssert(o->type == OBJ_STRING);
-            sources[i].owned =
-                bitroarFromRaw((unsigned char *)o->ptr, sdslen(o->ptr), 0);
+            sources[i].owned = bitroarFromRaw((unsigned char *)o->ptr, sdslen(o->ptr), 0);
             sources[i].roaring = sources[i].owned;
         }
     }
@@ -1503,8 +1491,7 @@ int bitroarBitopNotWithinMissingChunkLimit(const robj *o) {
     uint64_t logical_chunks = ((bitmap->byte_len - 1) >> 13) + 1;
     if (logical_chunks <= BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS) return 1;
 
-    uint64_t required_present =
-        logical_chunks - BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS;
+    uint64_t required_present = logical_chunks - BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS;
     uint64_t present = 0;
     art_iterator_t it = art_init_iterator(&bitmap->roaring->art, true);
     while (it.value != NULL && present < required_present) {
@@ -1544,16 +1531,12 @@ static void bitroarAppendNotChunk(roaring64_bitmap_t *result,
         source_container = container_unwrap_shared(source_container, &source_type);
 
         if (source_type == ARRAY_CONTAINER_TYPE) {
-            const array_container_t *source_array =
-                const_CAST_array(source_container);
+            const array_container_t *source_array = const_CAST_array(source_container);
             serverAssert(source_array->cardinality > 0);
-            serverAssert(source_array->array[
-                source_array->cardinality - 1] < chunk_end);
+            serverAssert(source_array->array[source_array->cardinality - 1] < chunk_end);
 
-            int32_t complement_cardinality =
-                (int32_t)chunk_end - source_array->cardinality;
-            int32_t complement_runs =
-                array_container_number_of_runs(source_array) + 1;
+            int32_t complement_cardinality = (int32_t)chunk_end - source_array->cardinality;
+            int32_t complement_runs = array_container_number_of_runs(source_array) + 1;
             if (source_array->array[0] == 0) complement_runs--;
             if (source_array->array[source_array->cardinality - 1] ==
                 chunk_end - 1)
@@ -1562,15 +1545,12 @@ static void bitroarAppendNotChunk(roaring64_bitmap_t *result,
             serverAssert(complement_runs >= 0);
 
             int32_t direct_size = complement_cardinality <= DEFAULT_MAX_SIZE ?
-                array_container_serialized_size_in_bytes(
-                    complement_cardinality) :
-                bitset_container_serialized_size_in_bytes();
-            int32_t run_size =
-                run_container_serialized_size_in_bytes(complement_runs);
+                array_container_serialized_size_in_bytes(complement_cardinality) :
+                    bitset_container_serialized_size_in_bytes();
+            int32_t run_size = run_container_serialized_size_in_bytes(complement_runs);
 
             if (run_size < direct_size) {
-                run_container_t *source_run =
-                    run_container_from_array(source_array);
+                run_container_t *source_run = run_container_from_array(source_array);
                 serverAssert(source_run != NULL);
                 complement_type = (uint8_t)run_container_negation_range(
                     source_run, 0, chunk_end, &complement);
@@ -1604,8 +1584,7 @@ static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
     serverAssert(source->roaring != NULL);
     uint64_t last_high48 = (bit_len - 1) >> 16;
     uint64_t next_high48 = 0;
-    art_iterator_t it = art_init_iterator(
-        (art_t *)&source->roaring->art, true);
+    art_iterator_t it = art_init_iterator((art_t *)&source->roaring->art, true);
 
     while (it.value != NULL) {
         uint64_t source_high48 = bitroarArtKeyToHigh48(it.key);
