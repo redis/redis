@@ -2,54 +2,59 @@ start_server {tags {"bless"}} {
     test {BLESS SET/GET/COUNT basics} {
         r flushall
         r set k v
-        # explicit NO-EVICT protects; reply 1 on change, 0 on no-op
+        # SET NO-EVICT protects; reply 1 on change, 0 on no-op
         assert_equal 1 [r bless set k no-evict]
         assert_equal 0 [r bless set k no-evict]
         assert_equal {NO-EVICT} [r bless get k]
         assert_equal 1 [r bless count]
-        # a second key, using the default level (NO-EVICT)
+        # a second key
         r set k2 v
-        assert_equal 1 [r bless set k2]
+        assert_equal 1 [r bless set k2 no-evict]
         assert_equal {NO-EVICT} [r bless get k2]
         assert_equal 2 [r bless count]
-        # NONE clears the protection
-        assert_equal 1 [r bless set k none]
-        assert_equal {NONE} [r bless get k]
+        # CLEAR removes the protection
+        assert_equal 1 [r bless clear k no-evict]
+        assert_equal {} [r bless get k]
         assert_equal 1 [r bless count]
-        # COUNT takes an optional level like LIST (default NO-EVICT)
+        # COUNT takes an optional flag like LIST (default NO-EVICT)
         assert_equal 1 [r bless count no-evict]
         assert_error {*syntax*} {r bless count none}
         assert_error {*syntax*} {r bless count inram}
         assert_error {*syntax*} {r bless count bogus}
     }
 
-    test {BLESS SET/GET on a missing key errors} {
+    test {BLESS SET/GET/CLEAR on a missing key errors} {
         r flushall
         assert_error {*no such key*} {r bless set nope no-evict}
+        assert_error {*no such key*} {r bless clear nope no-evict}
         assert_error {*no such key*} {r bless get nope}
     }
 
-    test {BLESS SET level defaults to NO-EVICT; bad level errors} {
+    test {BLESS SET/CLEAR require a flag; unknown/unsupported flags error} {
         r flushall
         r set k v
-        # bare SET defaults to NO-EVICT
-        assert_equal 1 [r bless set k]
-        assert_equal {NO-EVICT} [r bless get k]
-        # unknown level -> syntax error
+        # at least one flag is required
+        assert_error {*wrong number*} {r bless set k}
+        assert_error {*wrong number*} {r bless clear k}
+        # unknown or not-yet-supported flags -> syntax error
         assert_error {*syntax*} {r bless set k bogus}
+        assert_error {*syntax*} {r bless set k none}
+        assert_error {*syntax*} {r bless set k inram}
+        assert_equal 1 [r bless set k no-evict]
+        assert_equal {NO-EVICT} [r bless get k]
     }
 
-    test {BLESS LIST returns keys blessed at/above the given level (default NO-EVICT)} {
+    test {BLESS LIST returns keys with the given flag (default NO-EVICT)} {
         r flushall
         r set a 1; r set b 2; r set c 3
         r bless set a no-evict
         r bless set b no-evict
         assert_equal [lsort {a b}] [lsort [r bless list]]
         assert_equal [lsort {a b}] [lsort [r bless list no-evict]]
-        # NONE removes the key from the list
-        r bless set a none
+        # CLEAR removes the key from the list
+        r bless clear a no-evict
         assert_equal {b} [r bless list]
-        # LIST accepts only NO-EVICT (or nothing); NONE not listable, INRAM future
+        # LIST accepts only NO-EVICT (or nothing); INRAM future
         assert_error {*syntax*} {r bless list bogus}
         assert_error {*syntax*} {r bless list none}
         assert_error {*syntax*} {r bless list inram}
@@ -75,12 +80,12 @@ start_server {tags {"bless"}} {
         r rpush lst b c
         assert_equal {NO-EVICT} [r bless get lst]
         assert_equal 3 [r bless count]
-        # NONE and key removal are the only things that clear it
-        r bless set k none
-        assert_equal {NONE} [r bless get k]
+        # CLEAR and key removal are the only things that clear it
+        r bless clear k no-evict
+        assert_equal {} [r bless get k]
         r del h
         r set h x
-        assert_equal {NONE} [r bless get h]
+        assert_equal {} [r bless get h]
         assert_equal 1 [r bless count]
     }
 
@@ -95,7 +100,7 @@ start_server {tags {"bless"}} {
         # SET, DEL, SET  -> key removal clears the blessing; the recreated key is plain
         r del k
         r set k v3
-        assert_equal {NONE} [r bless get k]
+        assert_equal {} [r bless get k]
         assert_equal 0 [r bless count]
     }
 
@@ -124,11 +129,11 @@ start_server {tags {"bless"}} {
         r bless set b no-evict
         assert_equal 2 [r bless count]
         r debug reload
-        # index rebuilt on load; levels and values intact
+        # index rebuilt on load; flags and values intact
         assert_equal 2 [r bless count]
         assert_equal {NO-EVICT} [r bless get a]
         assert_equal {NO-EVICT} [r bless get b]
-        assert_equal {NONE}     [r bless get c]
+        assert_equal {}         [r bless get c]
         assert_equal 1 [r get a]
     } {} {needs:debug}
 
@@ -141,7 +146,7 @@ start_server {tags {"bless"}} {
         set d [r dump a]
         r del a
         r restore a 0 $d
-        assert_equal {NONE} [r bless get a]
+        assert_equal {} [r bless get a]
         assert_equal 0 [r bless count]
     }
 
@@ -159,7 +164,7 @@ start_server {tags {"bless"}} {
         # over an unblessed destination -> stays unblessed
         r set d2 old
         r restore d2 0 $d replace
-        assert_equal {NONE} [r bless get d2]
+        assert_equal {} [r bless get d2]
     }
 
     test {redis-check-rdb accepts an RDB that contains a blessed key} {
@@ -185,15 +190,15 @@ start_server {tags {"bless"}} {
         assert {[r ttl a] > 0}
     } {} {needs:debug}
 
-    test {BLESS NONE is the reset sentinel and is not persisted} {
+    test {BLESS CLEAR removes the flag and it stays cleared across reload} {
         r flushall
         r set a 1
         r bless set a no-evict
-        r bless set a none
+        r bless clear a no-evict
         assert_equal 0 [r bless count]
         r debug reload
         assert_equal 0 [r bless count]
-        assert_equal {NONE} [r bless get a]
+        assert_equal {} [r bless get a]
     } {} {needs:debug}
 
     test {bless-max-keys: config get/set, default 1024} {
@@ -212,11 +217,11 @@ start_server {tags {"bless"}} {
         assert_equal 3 [r bless count]
         # the next new blessing is refused
         assert_error {*bless-max-keys*} {r bless set k:3 no-evict}
-        assert_equal {NONE} [r bless get k:3]
+        assert_equal {} [r bless get k:3]
         # re-blessing an already-blessed key is exempt (count doesn't grow)
         assert_equal 0 [r bless set k:0 no-evict]
         # unbless one -> a slot frees up
-        r bless set k:0 none
+        r bless clear k:0 no-evict
         assert_equal 1 [r bless set k:3 no-evict]
         assert_equal 3 [r bless count]
     }
@@ -339,7 +344,7 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         assert_error {*OOM*} {r set nope [string repeat z 100]}
 
         # Unbless -> keys become evictable, so eviction works again (no OOM).
-        for {set j 0} {$j < 500} {incr j} { r bless set b:$j none }
+        for {set j 0} {$j < 500} {incr j} { r bless clear b:$j no-evict }
         assert_equal 0 [r bless count]
         r config set maxmemory [expr {$used - 50000}]
         assert_equal OK [r set afterunbless v]
@@ -369,23 +374,24 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         r config set maxmemory 0
     }
 
-    test {BLESS SET is not DENYOOM: works under memory pressure (like EXPIRE)} {
+    test {BLESS SET is DENYOOM, CLEAR is not (unbless to recover under OOM)} {
         r flushall
         r config set maxmemory 0
         r config set maxmemory-policy noeviction
-        r set important v
-        r set other v
+        r set a v
+        r set b v
+        r bless set b no-evict           ;# bless b while there's headroom
         # force OOM: cap maxmemory below current usage
         set used [s used_memory]
         r config set maxmemory [expr {$used - 100000}]
         # a real DENYOOM write is rejected here...
         assert_error {*OOM*} {r set grow [string repeat z 1000]}
-        # ...but BLESS SET is not DENYOOM (its footprint is one keymeta slot,
-        # like EXPIRE), so both protecting and unblessing work under OOM.
-        assert_equal 1 [r bless set important no-evict]
-        assert_equal {NO-EVICT} [r bless get important]
-        assert_equal 1 [r bless set important none]
-        assert_equal {NONE} [r bless get important]
+        # ...and BLESS SET is now DENYOOM too -> rejected under OOM.
+        assert_error {*OOM*} {r bless set a no-evict}
+        assert_equal {} [r bless get a]
+        # BLESS CLEAR is NOT DENYOOM -> still works, so you can unbless to recover.
+        assert_equal 1 [r bless clear b no-evict]
+        assert_equal {} [r bless get b]
         r config set maxmemory 0
     }
 }

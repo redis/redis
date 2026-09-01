@@ -21,11 +21,6 @@
 #define BLESS_NONE     0
 #define BLESS_NOEVICT  (1ULL << 0)
 
-/* Level name for a stored mask. */
-static const char *blessLevelName(uint64_t mask) {
-    return (mask & BLESS_NOEVICT) ? "NO-EVICT" : "NONE";
-}
-
 /* Per-DB index: NO-EVICT key name (sds) -> attribute mask (in the value ptr). */
 static dictType blessedDictType = {
     dictSdsHash,            /* hash function */
@@ -89,13 +84,12 @@ static void blessUntrack(redisDb *db, sds key) {
  * mirroring how TTL re-emits PEXPIREAT: that stream carries no keymeta. */
 static void blessAof(RedisModuleIO *io, uint64_t mask) {
     if (!(mask & BLESS_NOEVICT)) return;
-    const char *level = blessLevelName(mask);
     rio *r = io->rio;
     if (rioWriteBulkCount(r, '*', 4) == 0 ||
         rioWriteBulkString(r, "BLESS", 5) == 0 ||
         rioWriteBulkString(r, "SET", 3) == 0 ||
         rioWriteBulkObject(r, io->key) == 0 ||
-        rioWriteBulkString(r, level, strlen(level)) == 0)
+        rioWriteBulkString(r, "NO-EVICT", 8) == 0)
         io->error = 1;
 }
 
@@ -111,49 +105,47 @@ void blessInit(void) {
 
 /* ---- commands ---- */
 
-/* BLESS SET <key> [NONE|NO-EVICT]
- * Sets a key's blessing LEVEL against memory pressure. The level is optional and
- * defaults to NO-EVICT. NONE removes protection; NO-EVICT protects from eviction.
- * Setting a level replaces any previous one. Replies 1 if the stored level
- * changed, 0 otherwise. */
-static void blessSetCommand(client *c) {
-    robj *keyobj = c->argv[2];
+/* Parse flag tokens (argv[first..argc-1]) into a mask. Only NO-EVICT exists
+ * today; any other token (including INRAM) is a syntax error. Arity (-4)
+ * guarantees at least one token. */
+static int blessParseFlags(client *c, int first, uint64_t *out) {
+    uint64_t mask = 0;
+    for (int i = first; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr, "no-evict")) mask |= BLESS_NOEVICT;
+        else return C_ERR;
+    }
+    *out = mask;
+    return C_OK;
+}
 
-    uint64_t mask;
-    if (c->argc == 3) {
-        mask = BLESS_NOEVICT;                       /* default level */
-    } else if (c->argc == 4) {
-        const char *lvl = c->argv[3]->ptr;
-        if (!strcasecmp(lvl, "none"))
-            mask = BLESS_NONE;
-        else if (!strcasecmp(lvl, "no-evict"))
-            mask = BLESS_NOEVICT;
-        else {
-            addReplyErrorObject(c, shared.syntaxerr);
-            return;
-        }
-    } else {
+/* Present the key in the per-DB index iff it carries any bless flag. */
+static void blessedIndexUpdate(redisDb *db, sds keyname, uint64_t mask) {
+    if (mask) blessedSetPut(db, keyname, mask);
+    else      blessedSetDel(db, keyname);
+}
+
+/* Shared body for SET (OR the flags in) and CLEAR (AND-NOT them out). */
+static void blessSetClear(client *c, int set) {
+    uint64_t flags;
+    if (blessParseFlags(c, 3, &flags) != C_OK) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
 
+    robj *keyobj = c->argv[2];
     robj *o = lookupKeyWrite(c->db, keyobj);
     if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }   /* missing key -> error */
-    sds keyname = keyobj->ptr;
 
     uint64_t cur = keyAttrGet(o);
-    if (mask == cur) { /* no change */
-        addReply(c, shared.czero);
-        return;
-    }
+    uint64_t next = set ? (cur | flags) : (cur & ~flags);
+    if (next == cur) { addReply(c, shared.czero); return; }    /* no change */
 
-    /* Enforce bless-max-keys only for direct client writes, and only on a
-     * NONE->NO-EVICT transition (a new blessed key). Commands from the master
-     * link, AOF replay, or ASM import (all mustObeyClient) must never be
-     * rejected, so replication/AOF/migration may push a node over the cap - a
-     * soft, best-effort guard, same as proto-max-bulk-len and maxmemory. */
-    if (!mustObeyClient(c) &&
-        (mask & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT) &&
+    /* bless-max-keys: only when SET adds NO-EVICT to a key that lacked it (a new
+     * unevictable key), and only for direct clients. master/AOF/ASM writes
+     * (mustObeyClient) are never rejected, so the cap is a soft, best-effort
+     * guard - same as proto-max-bulk-len and maxmemory. */
+    if (set && !mustObeyClient(c) &&
+        (next & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT) &&
         server.bless_max_keys &&
         blessedCount() >= (unsigned long long)server.bless_max_keys)
     {
@@ -161,23 +153,26 @@ static void blessSetCommand(client *c) {
         return;
     }
 
-    if (keyMetaSetMetadata(c->db, o, server.key_attr_class_id, mask) == NULL) {
+    if (keyMetaSetMetadata(c->db, o, server.key_attr_class_id, next) == NULL) {
         addReplyError(c, "failed to update key attribute metadata");
         return;
     }
-    if (mask & BLESS_NOEVICT)
-        blessedSetPut(c->db, keyname, mask);
-    else
-        blessedSetDel(c->db, keyname);
+    blessedIndexUpdate(c->db, keyobj->ptr, next);
 
     keyModified(c, c->db, keyobj, NULL, 1);
-    notifyKeyspaceEvent(NOTIFY_GENERIC, "bless", keyobj, c->db->id);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, set ? "bless" : "unbless", keyobj, c->db->id);
     server.dirty++;
     addReply(c, shared.cone);
 }
 
-/* BLESS GET <key> -> the key's blessing level (NONE | NO-EVICT). A key that
- * exists but isn't blessed reports NONE. Errors if the key does not exist. */
+/* BLESS SET <key> NO-EVICT [flag ...]   - turn the given flags ON (additive).
+ * BLESS CLEAR <key> NO-EVICT [flag ...] - turn the given flags OFF.
+ * At least one flag is required. Replies 1 if the flag set changed, else 0. */
+static void blessSetCommand(client *c)   { blessSetClear(c, 1); }
+static void blessClearCommand(client *c) { blessSetClear(c, 0); }
+
+/* BLESS GET <key> -> array of the key's active flag names ([] if none).
+ * Errors if the key does not exist. */
 static void blessGetCommand(client *c) {
     robj *keyobj = c->argv[2];
     robj *o = lookupKeyReadWithFlags(c->db, keyobj, LOOKUP_NOTOUCH);
@@ -185,8 +180,11 @@ static void blessGetCommand(client *c) {
         addReplyErrorObject(c, shared.nokeyerr);
         return;
     }
-    /* RESP simple string (+NO-EVICT\r\n), per the API contract - not a bulk string. */
-    addReplyStatus(c, blessLevelName(keyAttrGet(o)));
+    uint64_t mask = keyAttrGet(o);
+    void *replylen = addReplyDeferredLen(c);
+    int n = 0;
+    if (mask & BLESS_NOEVICT) { addReplyBulkCString(c, "NO-EVICT"); n++; }
+    setDeferredArrayLen(c, replylen, n);
 }
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
@@ -196,6 +194,8 @@ void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub, "set")) {
         blessSetCommand(c);
+    } else if (!strcasecmp(sub, "clear")) {
+        blessClearCommand(c);
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "count")) {

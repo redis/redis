@@ -1,6 +1,6 @@
 {
-    "SET": {
-        "summary": "Adds protection flags to a key against memory pressure.",
+    "CLEAR": {
+        "summary": "Removes protection flags from a key.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "8.12.0",
@@ -9,7 +9,6 @@
         "function": "blessCommand",
         "command_flags": [
             "WRITE",
-            "DENYOOM",
             "FAST"
         ],
         "acl_categories": [
@@ -49,7 +48,7 @@
         ],
         "reply_schema": {
             "type": "integer",
-            "description": "1 if the key's flag set changed, 0 if it was already set."
+            "description": "1 if the key's flag set changed, 0 if the flags were already clear."
         }
     }
 }

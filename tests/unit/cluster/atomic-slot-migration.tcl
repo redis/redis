@@ -3566,7 +3566,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # New owner (node 1): data and bless level carried over the ASM channel.
         assert_equal v0 [R 1 get $kb]
         assert_equal {NO-EVICT} [R 1 bless get $kb]
-        assert_equal {NONE}     [R 1 bless get $kp]
+        assert_equal {}         [R 1 bless get $kp]
         assert_equal 1 [R 1 bless count]
 
         # Its replica (node 4) received the bless too (READONLY to read a
