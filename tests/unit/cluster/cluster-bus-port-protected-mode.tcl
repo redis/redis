@@ -30,6 +30,19 @@ proc write_included_conf {dir port inner_lines} {
     close $fd
 }
 
+# Opens a cluster bus connection presenting the given client certificate, then
+# closes it. The handshake outcome is deliberately not inspected here: under TLS
+# 1.3 the client's own handshake completes before the server has validated the
+# certificate, so a rejection is only visible in the server's log. Callers assert
+# on that.
+proc bus_connect_with_cert {host port crt key} {
+    catch {
+        set fd [::tls::socket -cafile "$::tlsdir/ca.crt" -certfile $crt -keyfile $key $host $port]
+        ::tls::handshake $fd
+        close $fd
+    }
+}
+
 tags {external:skip cluster} {
 
     test {cluster-bus-port-protected-mode defaults to yes and refuses an unauthenticated bus} {
@@ -137,6 +150,78 @@ tags {external:skip cluster} {
                 assert_equal 0 [count_log_message 0 "cluster bus port is not authenticated"]
             }
 
+            test {a cluster bus peer whose certificate does not chain to the CA is rejected} {
+                # What protected mode buys is authentication of the bus port, so
+                # pin what that authentication actually rejects. A self-signed
+                # certificate is valid TLS material with no path to
+                # tls-ca-cert-file, and has to be refused on the very port that
+                # accepts the suite's CA-signed one.
+                set dir [file normalize [tmpdir cluster-bus-untrusted-ca]]
+                exec -ignorestderr openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+                    -subj "/O=Rogue/CN=rogue.example" \
+                    -keyout $dir/rogue.key -out $dir/rogue.crt 2>/dev/null
+
+                set host [srv 0 host]
+                set bus [expr {[srv 0 port] + 10000}]
+                set rejection "Error accepting cluster node connection"
+                set before [count_log_message 0 $rejection]
+                set loglines [count_log_lines 0]
+
+                bus_connect_with_cert $host $bus $::tlsdir/redis.crt $::tlsdir/redis.key
+                bus_connect_with_cert $host $bus $dir/rogue.crt $dir/rogue.key
+
+                wait_for_log_messages 0 \
+                    {"*Error accepting cluster node connection*certificate verify failed*"} \
+                    $loglines 50 100
+                # Exactly one rejection, so the CA-signed peer was accepted on the
+                # same port rather than everything being refused.
+                assert_equal [expr {$before + 1}] [count_log_message 0 $rejection]
+            }
+
+            test {a cluster bus peer whose server certificate does not chain to the CA is refused} {
+                # The dialling side verifies too: an outbound bus link uses the
+                # client-role context, which loads the same CA, so a peer serving
+                # a certificate that does not chain to it must be refused and
+                # never admitted to the cluster.
+                set dir [file normalize [tmpdir cluster-bus-untrusted-peer]]
+                exec -ignorestderr openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+                    -subj "/O=Rogue/CN=rogue.example" \
+                    -keyout $dir/rogue.key -out $dir/rogue.crt 2>/dev/null
+
+                # A second cluster node, identical to this one except that it
+                # serves a self-signed certificate. "wait_ready false" because the
+                # suite's own client would refuse that certificate as well, so no
+                # client is created for it; inside this block R 1 is the node
+                # under test and srv 0 the untrusted peer.
+                start_server [list wait_ready false overrides [list cluster-enabled yes \
+                        tls-cert-file $dir/rogue.crt tls-key-file $dir/rogue.key \
+                        tls-client-cert-file $dir/rogue.crt tls-client-key-file $dir/rogue.key]] {
+                    wait_for_condition 50 100 {
+                        [count_message_lines [srv 0 stdout] "Ready to accept"] > 0
+                    } else {
+                        fail "the peer serving an untrusted certificate did not start"
+                    }
+
+                    # Commands use R's positive indexing, the log helpers take
+                    # srv's negative one; both mean the node under test here.
+                    set rogue_bus [expr {[srv 0 port] + 10000}]
+                    set loglines [count_log_lines -1]
+                    R 1 cluster meet [srv 0 host] [srv 0 port]
+
+                    wait_for_log_messages -1 \
+                        [list "*at [srv 0 host]:$rogue_bus failed*certificate verify failed*"] \
+                        $loglines 50 100
+
+                    # And it is never admitted: the handshake node is dropped once
+                    # it expires, leaving this node on its own again.
+                    wait_for_condition 50 100 {
+                        [llength [get_cluster_nodes 1]] == 1
+                    } else {
+                        fail "the peer serving an untrusted certificate was admitted"
+                    }
+                }
+            }
+
             test {CONFIG SET tls-cluster no is refused while protected mode is enabled} {
                 assert_error {*can't disable tls-cluster while cluster-bus-port-protected-mode is enabled*} {
                     r config set tls-cluster no
@@ -145,7 +230,7 @@ tags {external:skip cluster} {
                 assert_equal 0 [count_log_message 0 "cluster bus port is not authenticated"]
             }
 
-            test {a single CONFIG SET can unauthenticate the bus, in either argument order} {
+            test {a single CONFIG SET can un-authenticate the bus, in either argument order} {
                 # Every setter of a CONFIG SET runs before the first apply
                 # callback, so the pair is judged on the state it produces and
                 # not on the order it is written in.
