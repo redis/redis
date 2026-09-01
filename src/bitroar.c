@@ -200,14 +200,13 @@ static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, 
 {
     roaring64_bitmap_t *roaring = roaring64_bitmap_create();
 
-#define BITROAR_CONTAINER_BYTES \
-    (BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t))
-    for (size_t offset = 0; offset < len; offset += BITROAR_CONTAINER_BYTES) {
+    const size_t container_bytes = BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
+    for (size_t offset = 0; offset < len; offset += container_bytes) {
         size_t chunk_len = len - offset;
-        if (chunk_len > BITROAR_CONTAINER_BYTES)
-            chunk_len = BITROAR_CONTAINER_BYTES;
+        if (chunk_len > container_bytes)
+            chunk_len = container_bytes;
 
-        uint64_t high48 = offset / BITROAR_CONTAINER_BYTES;
+        uint64_t high48 = offset / container_bytes;
         int cardinality;
         if (bitroarRawChunkFitsArray(buf + offset, chunk_len, &cardinality)) {
             if (cardinality == 0) continue;
@@ -217,7 +216,6 @@ static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, 
             bitroarAppendRawBitsetContainer(roaring, buf + offset, chunk_len, high48);
         }
     }
-#undef BITROAR_CONTAINER_BYTES
 
     if (optimize) {
         roaring64_bitmap_run_optimize(roaring);
@@ -1686,8 +1684,7 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxl
     serverAssert(maxlen <= BITROAR_MAX_BYTES);
 
     if (bitroarUseMixedRawOp(objects, numkeys, maxlen)) {
-        result = bitroarApplyMixedRawOp(op, objects, numkeys,
-                                        (size_t)maxlen);
+        result = bitroarApplyMixedRawOp(op, objects, numkeys, (size_t)maxlen);
         if (result == NULL) return NULL;
         optimize_result = 0;
         shrink_result = 0;
