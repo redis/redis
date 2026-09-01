@@ -4318,12 +4318,14 @@ static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const KeyMetaSpec *m);
-void blessInit(void);
-kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
-int blessNoEvict(kvobj *kv);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
+
+/* Bless - per-key attributes (see bless.c / keyattr.c) */
+void blessInit(void);
+kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
+int blessNoEvict(kvobj *kv);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2
