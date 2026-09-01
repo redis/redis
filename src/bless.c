@@ -124,31 +124,34 @@ static void blessedIndexUpdate(redisDb *db, sds keyname, uint64_t mask) {
     else      blessedSetDel(db, keyname);
 }
 
-/* Shared body for SET (OR the flags in) and CLEAR (AND-NOT them out). */
-static void blessSetClear(client *c, int set) {
+/* True if changing a key's flags cur -> next must be refused by bless-max-keys.
+ * Only a direct client that newly adds NO-EVICT is capped; master/AOF/ASM writes
+ * (mustObeyClient) always apply, so the cap is a soft, best-effort guard - like
+ * proto-max-bulk-len and maxmemory. CLEAR never adds a bit, so it always passes. */
+static int blessCapReached(client *c, uint64_t cur, uint64_t next) {
+    int adds_noevict = (next & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT);
+    return adds_noevict && !mustObeyClient(c) && server.bless_max_keys &&
+           blessedCount() >= (unsigned long long)server.bless_max_keys;
+}
+
+/* Shared body of BLESS SET (add=1, OR the flags in) and BLESS CLEAR (add=0,
+ * AND-NOT them out). Replies 1 if the key's flag set changed, else 0. */
+static void blessUpdate(client *c, int add) {
     uint64_t flags;
     if (blessParseFlags(c, 3, &flags) != C_OK) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
 
-    robj *keyobj = c->argv[2];
-    robj *o = lookupKeyWrite(c->db, keyobj);
-    if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }   /* missing key -> error */
+    robj *key = c->argv[2];
+    robj *o = lookupKeyWrite(c->db, key);
+    if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }
 
     uint64_t cur = keyAttrGet(o);
-    uint64_t next = set ? (cur | flags) : (cur & ~flags);
-    if (next == cur) { addReply(c, shared.czero); return; }    /* no change */
+    uint64_t next = add ? (cur | flags) : (cur & ~flags);
+    if (next == cur) { addReply(c, shared.czero); return; }    /* nothing changed */
 
-    /* bless-max-keys: only when SET adds NO-EVICT to a key that lacked it (a new
-     * unevictable key), and only for direct clients. master/AOF/ASM writes
-     * (mustObeyClient) are never rejected, so the cap is a soft, best-effort
-     * guard - same as proto-max-bulk-len and maxmemory. */
-    if (set && !mustObeyClient(c) &&
-        (next & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT) &&
-        server.bless_max_keys &&
-        blessedCount() >= (unsigned long long)server.bless_max_keys)
-    {
+    if (blessCapReached(c, cur, next)) {
         addReplyError(c, "BLESS: bless-max-keys limit reached");
         return;
     }
@@ -157,19 +160,19 @@ static void blessSetClear(client *c, int set) {
         addReplyError(c, "failed to update key attribute metadata");
         return;
     }
-    blessedIndexUpdate(c->db, keyobj->ptr, next);
+    blessedIndexUpdate(c->db, key->ptr, next);
 
-    keyModified(c, c->db, keyobj, NULL, 1);
-    notifyKeyspaceEvent(NOTIFY_GENERIC, set ? "bless" : "unbless", keyobj, c->db->id);
+    keyModified(c, c->db, key, NULL, 1);
+    notifyKeyspaceEvent(NOTIFY_GENERIC, add ? "bless" : "unbless", key, c->db->id);
     server.dirty++;
     addReply(c, shared.cone);
 }
 
 /* BLESS SET <key> NO-EVICT [flag ...]   - turn the given flags ON (additive).
  * BLESS CLEAR <key> NO-EVICT [flag ...] - turn the given flags OFF.
- * At least one flag is required. Replies 1 if the flag set changed, else 0. */
-static void blessSetCommand(client *c)   { blessSetClear(c, 1); }
-static void blessClearCommand(client *c) { blessSetClear(c, 0); }
+ * At least one flag is required. */
+static void blessSetCommand(client *c)   { blessUpdate(c, 1); }
+static void blessClearCommand(client *c) { blessUpdate(c, 0); }
 
 /* BLESS GET <key> -> array of the key's active flag names ([] if none).
  * Errors if the key does not exist. */
