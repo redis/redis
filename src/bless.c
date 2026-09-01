@@ -61,6 +61,14 @@ int blessNoEvict(kvobj *kv) {
     return (keyAttrGet(kv) & BLESS_NOEVICT) != 0;
 }
 
+/* Instance-wide blessed-key count (sum of the per-DB indexes), for INFO. */
+unsigned long long blessedKeysCount(void) {
+    unsigned long long n = 0;
+    for (int i = 0; i < server.dbnum; i++)
+        n += kvstoreSize(server.db[i].blessed_keys);
+    return n;
+}
+
 /* ---- attribute-owner callbacks (registered with keyattr) ---- */
 
 static void blessTrack(redisDb *db, sds key, uint64_t mask) {
@@ -168,7 +176,8 @@ static void blessGetCommand(client *c) {
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
  * per-subcommand arity and key specs are enforced by the command table.
- * COUNT/LIST report the current DB only, like DBSIZE/KEYS. */
+ * LIST reports the current DB only, like KEYS. (The instance-wide blessed-key
+ * count is exposed via INFO's blessed_keys field, not a command.) */
 void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub, "set")) {
@@ -177,20 +186,6 @@ void blessCommand(client *c) {
         blessClearCommand(c);
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
-    } else if (!strcasecmp(sub, "count")) {
-        /* BLESS COUNT [NO-EVICT] - number of keys blessed at the given level
-         * (default, and currently only, NO-EVICT), parsed like BLESS LIST. Every
-         * tracked key carries the NO-EVICT bit, so the index size is the count. */
-        if (c->argc == 3) {
-            if (strcasecmp(c->argv[2]->ptr, "no-evict")) {
-                addReplyErrorObject(c, shared.syntaxerr);
-                return;
-            }
-        } else if (c->argc > 3) {
-            addReplyErrorObject(c, shared.syntaxerr);
-            return;
-        }
-        addReplyLongLong(c, kvstoreSize(c->db->blessed_keys));
     } else if (!strcasecmp(sub, "list")) {
         /* BLESS LIST [NO-EVICT] - array of keys in the current DB blessed at the
          * given level (default, and currently only, NO-EVICT). */

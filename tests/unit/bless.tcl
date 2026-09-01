@@ -1,26 +1,21 @@
 start_server {tags {"bless"}} {
-    test {BLESS SET/GET/COUNT basics} {
+    test {BLESS SET/GET/LIST basics} {
         r flushall
         r set k v
         # SET NO-EVICT protects; reply 1 on change, 0 on no-op
         assert_equal 1 [r bless set k no-evict]
         assert_equal 0 [r bless set k no-evict]
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [r bless count]
+        assert_equal 1 [llength [r bless list]]
         # a second key
         r set k2 v
         assert_equal 1 [r bless set k2 no-evict]
         assert_equal {NO-EVICT} [r bless get k2]
-        assert_equal 2 [r bless count]
+        assert_equal 2 [llength [r bless list]]
         # CLEAR removes the protection
         assert_equal 1 [r bless clear k no-evict]
         assert_equal {} [r bless get k]
-        assert_equal 1 [r bless count]
-        # COUNT takes an optional flag like LIST (default NO-EVICT)
-        assert_equal 1 [r bless count no-evict]
-        assert_error {*syntax*} {r bless count none}
-        assert_error {*syntax*} {r bless count inram}
-        assert_error {*syntax*} {r bless count bogus}
+        assert_equal 1 [llength [r bless list]]
     }
 
     test {BLESS SET/GET/CLEAR on a missing key errors} {
@@ -60,14 +55,14 @@ start_server {tags {"bless"}} {
         assert_error {*syntax*} {r bless list inram}
     }
 
-    test {BLESS survives value overwrite (all types); COUNT/LIST stay consistent} {
+    test {BLESS survives value overwrite (all types); LIST stays consistent} {
         r flushall
         # string overwrite via SET
         r set k v1
         r bless set k no-evict
         r set k v2
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [r bless count]
+        assert_equal 1 [llength [r bless list]]
         assert_equal {k} [r bless list]
         # overwrite that changes the type (hash -> string) keeps the blessing
         r hset h f v
@@ -79,14 +74,14 @@ start_server {tags {"bless"}} {
         r bless set lst no-evict
         r rpush lst b c
         assert_equal {NO-EVICT} [r bless get lst]
-        assert_equal 3 [r bless count]
+        assert_equal 3 [llength [r bless list]]
         # CLEAR and key removal are the only things that clear it
         r bless clear k no-evict
         assert_equal {} [r bless get k]
         r del h
         r set h x
         assert_equal {} [r bless get h]
-        assert_equal 1 [r bless count]
+        assert_equal 1 [llength [r bless list]]
     }
 
     test {SET keeps blessing; DEL+SET clears it} {
@@ -96,28 +91,28 @@ start_server {tags {"bless"}} {
         r bless set k no-evict
         r set k v2
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [r bless count]
+        assert_equal 1 [llength [r bless list]]
         # SET, DEL, SET  -> key removal clears the blessing; the recreated key is plain
         r del k
         r set k v3
         assert_equal {} [r bless get k]
-        assert_equal 0 [r bless count]
+        assert_equal 0 [llength [r bless list]]
     }
 
     test {MOVE transfers the blessing and leaves no ghost in the source index} {
         r flushall
         r set k v
         r bless set k no-evict
-        assert_equal 1 [r bless count]
+        assert_equal 1 [llength [r bless list]]
         r move k 10
         # source DB (9): key gone, index has no ghost entry
         assert_equal 0 [r exists k]
-        assert_equal 0 [r bless count]
+        assert_equal 0 [llength [r bless list]]
         assert_equal {} [r bless list]
         # destination DB (10): key present and still blessed
         r select 10
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [r bless count]
+        assert_equal 1 [llength [r bless list]]
         r flushall
         r select 9
     } {OK} {cluster:skip}
@@ -127,10 +122,10 @@ start_server {tags {"bless"}} {
         r set a 1; r set b 2; r set c 3
         r bless set a no-evict
         r bless set b no-evict
-        assert_equal 2 [r bless count]
+        assert_equal 2 [llength [r bless list]]
         r debug reload
         # index rebuilt on load; flags and values intact
-        assert_equal 2 [r bless count]
+        assert_equal 2 [llength [r bless list]]
         assert_equal {NO-EVICT} [r bless get a]
         assert_equal {NO-EVICT} [r bless get b]
         assert_equal {}         [r bless get c]
@@ -147,7 +142,7 @@ start_server {tags {"bless"}} {
         r del a
         r restore a 0 $d
         assert_equal {} [r bless get a]
-        assert_equal 0 [r bless count]
+        assert_equal 0 [llength [r bless list]]
     }
 
     test {RESTORE REPLACE keeps the destination's blessing (payload carries none)} {
@@ -195,12 +190,22 @@ start_server {tags {"bless"}} {
         r set a 1
         r bless set a no-evict
         r bless clear a no-evict
-        assert_equal 0 [r bless count]
+        assert_equal 0 [llength [r bless list]]
         r debug reload
-        assert_equal 0 [r bless count]
+        assert_equal 0 [llength [r bless list]]
         assert_equal {} [r bless get a]
     } {} {needs:debug}
 
+    test {INFO exposes the instance-wide blessed_keys count} {
+        r flushall
+        assert_equal 0 [s blessed_keys]
+        r set a 1; r set b 2
+        r bless set a no-evict
+        r bless set b no-evict
+        assert_equal 2 [s blessed_keys]
+        r bless clear a no-evict
+        assert_equal 1 [s blessed_keys]
+    }
 }
 
 start_server {tags {"bless" "maxmemory" "external:skip"}} {
@@ -258,7 +263,7 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
             r set b:$j [string repeat y 1000]
             r bless set b:$j no-evict
         }
-        assert_equal 500 [r bless count]
+        assert_equal 500 [llength [r bless list]]
         set used [s used_memory]
 
         # Over maxmemory but within the 1.25x factor, and every key is blessed so
@@ -272,7 +277,7 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
 
         # Unbless -> keys become evictable, so eviction works again (no OOM).
         for {set j 0} {$j < 500} {incr j} { r bless clear b:$j no-evict }
-        assert_equal 0 [r bless count]
+        assert_equal 0 [llength [r bless list]]
         r config set maxmemory [expr {$used - 50000}]
         assert_equal OK [r set afterunbless v]
         r config set maxmemory 0

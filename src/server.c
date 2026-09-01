@@ -6791,6 +6791,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
+            "blessed_keys:%llu\r\n", blessedKeysCount(),
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
             "evicted_scripts:%lld\r\n", server.stat_evictedscripts,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,

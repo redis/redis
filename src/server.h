@@ -4325,6 +4325,7 @@ void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink li
 void blessInit(void);
 kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
 int blessNoEvict(kvobj *kv);
+unsigned long long blessedKeysCount(void);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2
