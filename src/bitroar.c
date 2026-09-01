@@ -1660,6 +1660,8 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxl
     int shrink_result = 1;
 
     serverAssert(numkeys > 0);
+    /* Constructors and RDB loading reject longer logical lengths before an
+     * object can reach a command path. */
     serverAssert(maxlen <= BITROAR_MAX_BYTES);
 
     if (bitroarUseMixedRawOp(objects, numkeys, maxlen)) {

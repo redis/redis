@@ -1117,12 +1117,22 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             r restore bitmap:rdb:invalid-len 0 $invalid_len
         }
 
+        # The loader rejects a logical byte length beyond the public bitmap
+        # limit before the object can reach bitmap operations. 0x81 is the RDB
+        # 64-bit length marker and the following value is 2^60, one byte past
+        # BITROAR_MAX_BYTES.
+        set oversized_len [binary format H* "218110000000000000001000${checksum}"]
+        assert_error {*Bad data format*} {
+            r restore bitmap:rdb:oversized-len 0 $oversized_len
+        }
+
         # A valid portable bitmap must consume the entire RDB string payload.
         set trailing [binary format H* "21011f${one_bit}001000${checksum}"]
         assert_error {*Bad data format*} {
             r restore bitmap:rdb:trailing 0 $trailing
         }
-        assert_equal 0 [r exists bitmap:rdb:invalid-len bitmap:rdb:trailing]
+        assert_equal 0 [r exists bitmap:rdb:invalid-len \
+            bitmap:rdb:oversized-len bitmap:rdb:trailing]
     }
 
     if {[s arch_bits] == 64} {
