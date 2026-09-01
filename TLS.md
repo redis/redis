@@ -59,8 +59,40 @@ To connect to this Redis server with `redis-cli`:
 This will disable TCP and enable TLS on port 6379. It's also possible to have
 both TCP and TLS available, but you'll need to assign different ports.
 
+Note why that `redis-cli` invocation passes a certificate of its own: by default
+clients on a TLS port must present one that verifies against the configured CA,
+replicas connecting to a master included. `tls-auth-clients no` accepts no client
+certificate at all, and `tls-auth-clients optional` validates one only when it is
+offered. Both relax the client port alone — see "Cluster bus protection" below for
+why neither can relax the cluster bus. Setting `tls-auth-clients-user CN`
+additionally maps a validated certificate's Common Name to a Redis ACL user, so
+the certificate authenticates the client without an `AUTH` command.
+
 To make a Replica connect to the master using TLS, use `--tls-replication yes`,
-and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`.
+and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`. Note that
+a cluster node refuses to start without `tls-cluster` unless the requirement is
+explicitly waived; see "Cluster bus protection" below.
+
+Cluster bus protection
+----------------------
+
+The cluster bus protocol has no authentication of its own: a message's sender is
+identified only by the node ID in its header, which is public information, so any
+host able to reach a node's cluster bus port can speak the protocol. What
+authenticates the bus is `tls-cluster`, which makes every peer present a
+certificate that verifies against the configured CA — in both the accepting and
+the connecting direction, and `tls-cluster` also makes configuring a CA
+mandatory. This does not depend on `tls-auth-clients`, which governs the client
+port only.
+
+For that reason `cluster-bus-port-protected-mode` defaults to **yes**, and a node
+started with `cluster-enabled yes` refuses to start unless `tls-cluster` is
+enabled. Running an unauthenticated cluster bus remains supported, but it has to
+be stated explicitly with `cluster-bus-port-protected-mode no`, acknowledging
+that the port is reachable by trusted hosts only — because a firewall, a VPN or a
+private network keeps untrusted hosts away from it. A node started that way
+records the fact in its log. The option has no effect outside cluster mode, as
+only a cluster node opens a cluster bus port.
 
 Peer certificate verification
 -----------------------------
