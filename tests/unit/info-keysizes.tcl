@@ -972,7 +972,7 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
     }
 
     if {[s arch_bits] == 64} {
-        test "KEYSIZES - Sparse native bitmap reaches the 512P histogram bin" {
+        test "KEYSIZES - Sparse native bitmap saturates into the final histogram bin" {
             r SELECT 0
             r FLUSHALL
             set bitmap_len [expr {1 << 59}]
@@ -983,9 +983,10 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
 
             # Writing zero at the end changes only the logical length, so this
             # exercises the final histogram bin without a matching allocation.
+            # The length exceeds the final bin's range and saturates into it.
             assert_equal 0 [r SETBIT bitmap:hist:top $bit_offset 0]
             assert_equal bitmap [r TYPE bitmap:hist:top]
-            assert_match "*db0_distrib_bitmaps_sizes:512P=1*" [r INFO KEYSIZES]
+            assert_match "*db0_distrib_bitmaps_sizes:256P=1*" [r INFO KEYSIZES]
 
             assert_equal 1 [r DEL bitmap:hist:top]
             assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]

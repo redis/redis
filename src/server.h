@@ -1246,17 +1246,15 @@ typedef struct redisDb {
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
 } redisDb;
 
-/* Histogram bins 0 through 60. On 64-bit builds, native bitmap logical byte
- * lengths can reach 2^60 - 1 bytes, which maps to the final bin. Allocation
- * sizes include object and representation overhead and may exceed that bound;
- * they saturate into the final bin. */
-#define MAX_KEYSIZES_BINS 61
+/* Maximum number of bins of keysizes histogram. Sizes beyond the final bin's
+ * range, for any data type, saturate into the final bin. */
+#define MAX_KEYSIZES_BINS 60
 
 /* Per-type keysizes/allocsizes histograms: one row per tracked type, i.e. the
- * basic types plus streams and bitmaps. Rows are addressed with
- * keysizesHistRow() rather than by object type, so untracked types in between
- * (OBJ_MODULE) cost no row and the histogram stays plain storage: zeroing
- * initializes it, and it can be copied or moved like any other array. */
+ * basic types plus streams and bitmaps. Rows are addressed with keysizesHistRow() rather
+ * than by object type, so untracked types in between (OBJ_MODULE) cost no row
+ * and the histogram stays plain storage: zeroing initializes it, and it can be
+ * copied or moved like any other array. */
 enum {
     KEYSIZES_ROW_STRING = 0,
     KEYSIZES_ROW_LIST,
