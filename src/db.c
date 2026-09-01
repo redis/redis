@@ -461,9 +461,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->numMeta * sizeof(uint64_t));
 
         /* Index a key that arrives already blessed (not via BLESS SET) so COUNT/LIST see it. */
-        if (server.key_attr_class_id > 0 &&
-            (keymeta->metabits & KEY_ATTR_METABIT))
-        {
+        if (server.key_attr_class_id > 0 && (keymeta->metabits & KEY_ATTR_METABIT)) {
             uint64_t mask = 0;
             if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
                 keyAttrTrackKey(db, key->ptr, mask);
@@ -577,9 +575,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
                    keyMetaSpec->numMeta * sizeof(uint64_t));
 
         /* Same as dbAddInternal, for the RDB-load path (bypasses dbAddInternal). */
-        if (server.key_attr_class_id > 0 &&
-            (keyMetaSpec->metabits & KEY_ATTR_METABIT))
-        {
+        if (server.key_attr_class_id > 0 && (keyMetaSpec->metabits & KEY_ATTR_METABIT)) {
             uint64_t mask = 0;
             if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
                 keyAttrTrackKey(db, key, mask);
