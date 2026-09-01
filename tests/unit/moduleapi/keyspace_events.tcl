@@ -230,6 +230,22 @@ tags "modules external:skip" {
                 }
                 assert_equal string [r type $key]
                 assert_equal $expected [r get $key]
+
+                if {$command eq "setbit"} {
+                    # A second write re-triggers the transition against the
+                    # callback-installed string, and the callback replaces
+                    # the converted value with 0x20 again. Bit 2 of 0x20 is
+                    # already set, so SETBIT resumes on the string path and
+                    # changes nothing: only the conversion pair modified the
+                    # keyspace. The dirty delta is exactly the callback's SET
+                    # plus the pending transition accounted in
+                    # setbitCommand()'s string path.
+                    set dirty_before [s rdb_changes_since_last_save]
+                    assert_equal 1 [r setbit $key 2 1]
+                    assert_equal 2 [expr {[s rdb_changes_since_last_save] - $dirty_before}]
+                    assert_equal string [r type $key]
+                    assert_equal [binary format H* 20] [r get $key]
+                }
             }
 
             r config set bitmap-default-roaring no
