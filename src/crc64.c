@@ -30,6 +30,7 @@
  * POSSIBILITY OF SUCH DAMAGE. */
 
 #include <stdlib.h>
+#include "config.h"
 #include "crc64.h"
 #include "crcspeed.h"
 #include "redisassert.h"
@@ -137,13 +138,163 @@ uint64_t _crc64(uint_fast64_t crc, const void *in_data, const uint64_t len) {
 
 /******************** END GENERATED PYCRC FUNCTIONS ********************/
 
+#ifdef HAVE_PCLMUL
+/* PCLMULQDQ-accelerated CRC64 (reflected, poly 0xad93d23594c935a9).
+ *
+ * Folding scheme (Gopal et al., "Fast CRC Computation for Generic
+ * Polynomials Using PCLMULQDQ Instruction", Intel 2009), adapted to a
+ * reflected 64-bit CRC:
+ *
+ * The input stream is viewed as one huge polynomial M(x) over GF(2) and the
+ * CRC is reflect64(M(x)*x^64 mod P(x)). In reflected form, a 128-bit
+ * register loaded from memory represents a degree <= 127 polynomial whose
+ * high 64 coefficients sit in the low qword. Folding a register A over a
+ * distance of D bits (i.e. multiplying by x^D and reducing) is:
+ *
+ *   fold(A) = clmul(A.lo, x^(D+63) mod P) xor clmul(A.hi, x^(D-1) mod P)
+ *
+ * The "-1" in the exponents compensates for the extra x factor that
+ * PCLMULQDQ introduces when both operands are bit-reflected. Four
+ * accumulators fold 64 bytes per iteration (D = 512), are then merged with
+ * D = 384/256/128 folds, and remaining 16-byte blocks fold with D = 128.
+ * Instead of a Barrett reduction, the final 128-bit remainder is simply run
+ * through the table implementation (16 bytes), which also handles the tail.
+ *
+ * The fold constants x^e mod P are derived at init time by
+ * crc64_xpow_mod() and stored bit-reflected, ready for PCLMULQDQ. */
+
+#include <immintrin.h>
+
+#define CRC64_PCLMUL_CUTOFF 64
+
+/* Bit-reflected fold constants for D = 512, 384, 256, 128, as
+ * {x^(D+63) mod P, x^(D-1) mod P} pairs. Filled in by crc64_pclmul_init(). */
+static uint64_t crc64_pclmul_consts[8];
+static int crc64_pclmul_supported = 0; /* CPU support verified at init. */
+static int crc64_pclmul_enabled = 0;   /* Dispatch toggle, see crc64_pclmul_enable(). */
+
+/* Return x^e mod P(x) in normal bit order (bit j = coefficient of x^j),
+ * where P(x) = x^64 + POLY. Requires e >= 64. */
+static uint64_t crc64_xpow_mod(unsigned int e) {
+    uint64_t r = POLY; /* x^64 mod P */
+    for (unsigned int i = 64; i < e; i++)
+        r = (r << 1) ^ ((r & UINT64_C(0x8000000000000000)) ? POLY : 0);
+    return r;
+}
+
+ATTRIBUTE_TARGET_PCLMUL
+static inline __m128i crc64_fold128(__m128i x, __m128i k) {
+    return _mm_xor_si128(_mm_clmulepi64_si128(x, k, 0x00),
+                         _mm_clmulepi64_si128(x, k, 0x11));
+}
+
+ATTRIBUTE_TARGET_PCLMUL
+static uint64_t crc64_pclmul(uint64_t crc, const unsigned char *s, uint64_t l) {
+    const __m128i k512 = _mm_set_epi64x(crc64_pclmul_consts[1], crc64_pclmul_consts[0]);
+    const __m128i k384 = _mm_set_epi64x(crc64_pclmul_consts[3], crc64_pclmul_consts[2]);
+    const __m128i k256 = _mm_set_epi64x(crc64_pclmul_consts[5], crc64_pclmul_consts[4]);
+    const __m128i k128 = _mm_set_epi64x(crc64_pclmul_consts[7], crc64_pclmul_consts[6]);
+    __m128i x0, x1, x2, x3, acc;
+    unsigned char rem[16];
+
+    /* XORing the initial CRC into the first 8 bytes of the stream is
+     * equivalent to seeding the state with it (the state is 64 bits wide). */
+    x0 = _mm_xor_si128(_mm_loadu_si128((const __m128i *)s),
+                       _mm_cvtsi64_si128((long long)crc));
+    x1 = _mm_loadu_si128((const __m128i *)(s + 16));
+    x2 = _mm_loadu_si128((const __m128i *)(s + 32));
+    x3 = _mm_loadu_si128((const __m128i *)(s + 48));
+    s += 64;
+    l -= 64;
+
+    while (l >= 64) {
+        x0 = _mm_xor_si128(crc64_fold128(x0, k512), _mm_loadu_si128((const __m128i *)s));
+        x1 = _mm_xor_si128(crc64_fold128(x1, k512), _mm_loadu_si128((const __m128i *)(s + 16)));
+        x2 = _mm_xor_si128(crc64_fold128(x2, k512), _mm_loadu_si128((const __m128i *)(s + 32)));
+        x3 = _mm_xor_si128(crc64_fold128(x3, k512), _mm_loadu_si128((const __m128i *)(s + 48)));
+        s += 64;
+        l -= 64;
+    }
+
+    acc = _mm_xor_si128(crc64_fold128(x0, k384), crc64_fold128(x1, k256));
+    acc = _mm_xor_si128(acc, crc64_fold128(x2, k128));
+    acc = _mm_xor_si128(acc, x3);
+
+    while (l >= 16) {
+        acc = _mm_xor_si128(crc64_fold128(acc, k128), _mm_loadu_si128((const __m128i *)s));
+        s += 16;
+        l -= 16;
+    }
+
+    /* Reduce the 128-bit remainder (and up to 15 tail bytes) with the
+     * table implementation. */
+    _mm_storeu_si128((__m128i *)rem, acc);
+    crc = crcspeed64native(crc64_table, 0, rem, sizeof(rem));
+    if (l) crc = crcspeed64native(crc64_table, crc, (void *)s, l);
+    return crc;
+}
+
+static void crc64_pclmul_init(void) {
+    static const unsigned int exps[8] = {575, 511, 447, 383, 319, 255, 191, 127};
+    unsigned char buf[512];
+    static const uint64_t seeds[] = {0, UINT64_C(0x0123456789abcdef)};
+    static const uint64_t lens[] = {64, 65, 127, 128, 129, 250, 448, 509};
+
+    crc64_pclmul_supported = crc64_pclmul_enabled = 0;
+    if (!__builtin_cpu_supports("pclmul")) return;
+    for (int i = 0; i < 8; i++)
+        crc64_pclmul_consts[i] = crc_reflect(crc64_xpow_mod(exps[i]), 64);
+
+    /* Sanity check against the table implementation on various lengths,
+     * alignments and seeds; stay disabled on any mismatch. */
+    for (unsigned int i = 0; i < sizeof(buf); i++)
+        buf[i] = (unsigned char)(i * 251 + 7);
+    for (unsigned int i = 0; i < sizeof(lens)/sizeof(lens[0]); i++) {
+        for (unsigned int off = 0; off < 3; off++) {
+            for (unsigned int j = 0; j < sizeof(seeds)/sizeof(seeds[0]); j++) {
+                if (crc64_pclmul(seeds[j], buf + off, lens[i]) !=
+                    crcspeed64native(crc64_table, seeds[j], buf + off, lens[i]))
+                    return;
+            }
+        }
+    }
+    crc64_pclmul_supported = crc64_pclmul_enabled = 1;
+}
+#endif /* HAVE_PCLMUL */
+
+int crc64_pclmul_available(void) {
+#ifdef HAVE_PCLMUL
+    return crc64_pclmul_supported;
+#else
+    return 0;
+#endif
+}
+
+/* Toggle PCLMUL dispatch, mainly so tests/benchmarks can measure the table
+ * implementation on machines where PCLMUL is available. Enabling has no
+ * effect if support wasn't verified at init time. */
+void crc64_pclmul_enable(int enable) {
+#ifdef HAVE_PCLMUL
+    crc64_pclmul_enabled = enable && crc64_pclmul_supported;
+#else
+    (void) enable;
+#endif
+}
+
 /* Initializes the 16KB lookup tables. */
 void crc64_init(void) {
     crcspeed64native_init(_crc64, crc64_table);
+#ifdef HAVE_PCLMUL
+    crc64_pclmul_init();
+#endif
 }
 
 /* Compute crc64 */
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
+#ifdef HAVE_PCLMUL
+    if (crc64_pclmul_enabled && l >= CRC64_PCLMUL_CUTOFF)
+        return crc64_pclmul(crc, s, l);
+#endif
     return crcspeed64native(crc64_table, crc, (void *) s, l);
 }
 
@@ -283,7 +434,31 @@ again:
             (uint64_t)_crc64(0, li, sizeof(li)));
         printf("[64speed]: c7794709e69683b3 == %016" PRIx64 "\n",
             (uint64_t)crc64(0, (unsigned char*)li, sizeof(li)));
-        
+
+        /* Cross-validate the dispatched implementation (PCLMUL when
+         * available) against the table implementation over a range of
+         * lengths, alignments and seed values. */
+        {
+            unsigned char *cross = zmalloc(4200);
+            uint64_t seed = 0;
+            genBenchmarkRandomData((char*)cross, 4200);
+            crc64_pclmul_enable(0);
+            for (uint64_t len = 0; len <= 4096; len += (len < 96 ? 1 : 37)) {
+                for (int off = 0; off < 3; off++) {
+                    uint64_t expected = crc64(seed, cross + off, len);
+                    crc64_pclmul_enable(1);
+                    uint64_t got = crc64(seed, cross + off, len);
+                    crc64_pclmul_enable(0);
+                    assert(got == expected);
+                    seed = expected * 31 + 1;
+                }
+            }
+            crc64_pclmul_enable(1);
+            zfree(cross);
+            printf("[crossval]: ok (pclmul %s)\n",
+                crc64_pclmul_available() ? "enabled" : "not available");
+        }
+
         if (!testAll) return 0;
     }
 
@@ -312,6 +487,9 @@ again:
         if ((!combine || testAll) && crc64_test_size) {
             if (csv && init_this_loop) printf("algorithm,buffer,performance,crc64_matches\n");
 
+            /* bench the table implementations with PCLMUL dispatch disabled */
+            crc64_pclmul_enable(0);
+
             /* get the single-character version for single-byte Redis behavior */
             set_crc64_cutoffs(0, crc64_test_size+1);
             assert(!bench_crc64(data, crc64_test_size, passes, expect, "crc_1byte", csv));
@@ -327,6 +505,13 @@ again:
             /* run with tri 8-byte paths */
             set_crc64_cutoffs(1, 1);
             assert(!(bench_crc64(data, crc64_test_size, passes, expect, "crctri", csv)));
+
+            /* run with PCLMUL folding, when the CPU has it (the final
+             * reduction goes through the plain 8-byte table path) */
+            set_crc64_cutoffs(crc64_test_size+1, crc64_test_size+1);
+            crc64_pclmul_enable(1);
+            if (crc64_pclmul_available())
+                assert(!(bench_crc64(data, crc64_test_size, passes, expect, "pclmul", csv)));
 
             /* Be free memory region, be free. */
             zfree(data);
