@@ -55,15 +55,6 @@ static void blessedSetDel(redisDb *db, sds keyname) {
     kvstoreDictDelete(db->blessed_keys, getKeySlot(keyname), keyname);
 }
 
-/* Total NO-EVICT keys across all DBs, summed on demand (like dbTotalServerKeyCount).
- * BLESS SET is cold, so no maintained counter - just sum the per-DB indexes. */
-static unsigned long long blessedCount(void) {
-    unsigned long long n = 0;
-    for (int i = 0; i < server.dbnum; i++)
-        n += kvstoreSize(server.db[i].blessed_keys);
-    return n;
-}
-
 /* True if the key must not be evicted. Reads the NO-EVICT bit inline from the
  * key's keymeta - no index, no lookup. Safe for unblessed keys (mask 0). */
 int blessNoEvict(kvobj *kv) {
@@ -124,16 +115,6 @@ static void blessedIndexUpdate(redisDb *db, sds keyname, uint64_t mask) {
     else      blessedSetDel(db, keyname);
 }
 
-/* True if changing a key's flags cur -> next must be refused by bless-max-keys.
- * Only a direct client that newly adds NO-EVICT is capped; master/AOF/ASM writes
- * (mustObeyClient) always apply, so the cap is a soft, best-effort guard - like
- * proto-max-bulk-len and maxmemory. CLEAR never adds a bit, so it always passes. */
-static int blessCapReached(client *c, uint64_t cur, uint64_t next) {
-    int adds_noevict = (next & BLESS_NOEVICT) && !(cur & BLESS_NOEVICT);
-    return adds_noevict && !mustObeyClient(c) && server.bless_max_keys &&
-           blessedCount() >= (unsigned long long)server.bless_max_keys;
-}
-
 /* Shared body of BLESS SET (add=1, OR the flags in) and BLESS CLEAR (add=0,
  * AND-NOT them out). Replies 1 if the key's flag set changed, else 0. */
 static void blessUpdate(client *c, int add) {
@@ -150,11 +131,6 @@ static void blessUpdate(client *c, int add) {
     uint64_t cur = keyAttrGet(o);
     uint64_t next = add ? (cur | flags) : (cur & ~flags);
     if (next == cur) { addReply(c, shared.czero); return; }    /* nothing changed */
-
-    if (blessCapReached(c, cur, next)) {
-        addReplyError(c, "BLESS: bless-max-keys limit reached");
-        return;
-    }
 
     if (keyMetaSetMetadata(c->db, o, server.key_attr_class_id, next) == NULL) {
         addReplyError(c, "failed to update key attribute metadata");
