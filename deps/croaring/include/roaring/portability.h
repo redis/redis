@@ -25,6 +25,8 @@
 #ifndef CROARING_INCLUDE_PORTABILITY_H_
 #define CROARING_INCLUDE_PORTABILITY_H_
 
+// Local Redis patch: __has_include polyfill for compilers without the
+// builtin, used by the endian and atomics detection below.
 #ifndef __has_include
 #define __has_include(x) 0
 #endif
@@ -395,12 +397,19 @@ static inline int roaring_hamming(uint64_t x) {
 #endif
 
 // Allow unaligned memory access
+// Local Redis patch: gated to compilers known to honor
+// __attribute__((no_sanitize("alignment"))).
 #if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)
 #define CROARING_ALLOW_UNALIGNED __attribute__((no_sanitize("alignment")))
 #else
 #define CROARING_ALLOW_UNALIGNED
 #endif
 
+// Local Redis patch: reworked endian detection. Replaces upstream's
+// malformed "#ifndef !defined(__BYTE_ORDER__) || ..." guard, additionally
+// recognizes the non-GNU __BYTE_ORDER, _BYTE_ORDER and BYTE_ORDER macro
+// families, and errors at build time when the target byte order cannot be
+// determined instead of silently assuming little endian.
 #ifndef CROARING_IS_BIG_ENDIAN
 #if defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && \
     defined(__ORDER_LITTLE_ENDIAN__)
@@ -568,6 +577,8 @@ static inline uint64_t croaring_bswap64(uint64_t x) {
 #define CROARING_ATOMIC_IMPL_CPP 2
 #define CROARING_ATOMIC_IMPL_C 3
 #define CROARING_ATOMIC_IMPL_C_WINDOWS 4
+// Local Redis patch: CROARING_ATOMIC_IMPL_GCC is a __sync-builtin fallback
+// for toolchains without C11/C++11 atomics (selected and implemented below).
 #define CROARING_ATOMIC_IMPL_GCC 5
 
 // If the use has forced a specific implementation, use that, otherwise,
@@ -589,6 +600,7 @@ static inline uint64_t croaring_bswap64(uint64_t x) {
 // https://www.technetworkhub.com/c11-atomics-in-visual-studio-2022-version-17/
 #define CROARING_ATOMIC_IMPL CROARING_ATOMIC_IMPL_C_WINDOWS
 #elif defined(__GNUC__) || defined(__clang__)
+// Local Redis patch: fall back to the __sync builtins.
 #define CROARING_ATOMIC_IMPL CROARING_ATOMIC_IMPL_GCC
 #endif
 #endif  // !defined(CROARING_ATOMIC_IMPL)
@@ -668,6 +680,7 @@ static inline uint32_t croaring_refcount_get(const croaring_refcount_t *val) {
     return *val;
 }
 #elif CROARING_ATOMIC_IMPL == CROARING_ATOMIC_IMPL_GCC
+// Local Redis patch: __sync-builtin refcount implementation.
 typedef uint32_t croaring_refcount_t;
 
 static inline void croaring_refcount_inc(croaring_refcount_t *val) {
@@ -689,6 +702,8 @@ static inline void croaring_refcount_inc(croaring_refcount_t *val) {
     *val += 1;
 }
 
+// Local Redis patch: return whether the dereferenced counter reached zero.
+// Drop once an upstream release contains the same fix.
 static inline bool croaring_refcount_dec(croaring_refcount_t *val) {
     assert(*val > 0);
     *val -= 1;

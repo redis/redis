@@ -111,72 +111,27 @@ CRoaring
 ---
 
 Updated source can be found here: https://github.com/RoaringBitmap/CRoaring
-Redis currently vendors CRoaring v4.7.2.
+We currently vendor v4.7.2 with a few local patches, each marked with a
+`Local Redis patch` comment at the patch site.
 
-Redis bitmap persistence contract:
-
-* `RDB_TYPE_BITMAP` stores the bitmap's logical byte length followed by an RDB
-  string containing CRoaring's 64-bit portable serialization. The logical
-  length is separate because trailing zero bits are observable through Redis
-  bitmap commands but are not represented by Roaring containers.
-* The CRoaring portable blob follows the RoaringFormatSpec, uses canonical
-  little-endian fields on every architecture, and is shared by RDB snapshots,
-  DUMP/RESTORE, and the RDB payloads used by AOF persistence.
-* Persistence never expands a sparse bitmap to its logical string length. A
-  bitmap with a high set-bit offset therefore remains proportional to its
-  resident Roaring containers instead of its highest bit.
-* Externally exposed dense raw-byte materialization is limited to
-  `DEBUG BITMAP-RAW` and by `proto-max-bulk-len`. The internal
-  mixed-representation BITOP optimization also materializes bounded raw
-  buffers, but has its own 1 MiB aggregate limit and does not affect the
-  persistence format.
-
-1. Replace `deps/croaring/include` with upstream `include`.
-2. Replace `deps/croaring/src` with upstream C source/header files from `src`;
-   Redis does not use upstream CMake files.
-3. Update `deps/croaring/LICENSE`, `AUTHORS`, `README.md`, and `SECURITY.md`.
-4. Check whether upstream added, removed, or renamed C sources and mirror the
-   source list in `deps/croaring/Makefile`.
-5. Re-apply the local Redis changes below unless upstream has independently
-   fixed them; they exist to keep CI green on platforms upstream does not
-   exercise the same way.
-
-Local changes compared to pristine upstream v4.7.2:
-
-In `deps/croaring/Makefile`:
-
-* CRoaring is compiled with hidden symbol visibility so Redis' Linux
-  `-rdynamic` link does not expose the vendored symbols to modules.
-* The dependency build tracks its effective compiler flags and rebuilds when
-  they change. It also disables x86 and NEON implementation headers because
-  Redis builds only CRoaring's portable implementation.
-* The `test` target forces the non-atomic refcount implementation and runs the
-  regression test in `tests/refcount_none.c`.
-
-In `include/roaring/portability.h`:
-
-* Added a `__has_include` polyfill (`#ifndef __has_include` /
-  `#define __has_include(x) 0`) for compilers without the builtin.
-* Replaced upstream's malformed `#ifndef !defined(__BYTE_ORDER__) || ...`
-  guard and reworked the endian/byteswap include chain around it. Redis' copy
-  also recognizes the non-GNU
-  `__BYTE_ORDER`, `_BYTE_ORDER`, and `BYTE_ORDER` macro families and errors at
-  build time when CRoaring cannot determine target endianness.
-* Added a `CROARING_ATOMIC_IMPL_GCC` fallback using `__sync` builtins for
-  toolchains without C11 atomics.
-* Fixed the non-atomic fallback's refcount decrement to report when the
-  dereferenced counter reaches zero. Keep this patch until an upstream release
-  contains the same fix.
-* Gated `CROARING_ALLOW_UNALIGNED` to
-  `defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)`.
-
-In `src/roaring64.c` and the added `include/roaring/roaring64_internal.h`:
-
-* Moved the private `struct roaring64_bitmap_s` definition out of
-  `roaring64.c` into the new shared internal header (plus small leaf-decoding
-  helpers) so `src/bitroar.c` can walk every allocation behind a 64-bit bitmap
-  for MEMORY USAGE accounting, fork-child page dismissal and
-  active defragmentation, exactly like it does for the 32-bit
-  `roaring_bitmap_t` whose layout upstream exposes publicly. The long-term
-  plan is to propose an allocation-visitor/relocation helper API to upstream
-  CRoaring so future version bumps do not depend on this internal header.
+1. Replace `deps/croaring/include` and `deps/croaring/src` with the upstream
+   `include` and `src` trees (C sources and headers only; Redis does not use
+   the upstream CMake build), and refresh `LICENSE`, `AUTHORS`, `README.md`
+   and `SECURITY.md`.
+2. If upstream added, removed or renamed C sources, mirror the change in the
+   source list of `deps/croaring/Makefile`. The Makefile itself is fully
+   Redis-authored (hidden symbol visibility, portable implementation only,
+   flag-change rebuild tracking, refcount regression test) and is kept as is.
+3. Re-apply the local patches unless upstream has independently fixed them.
+   Run `git grep 'Local Redis patch' deps/croaring` before replacing the
+   tree to enumerate them. Currently:
+   * `include/roaring/portability.h`: portability fixes for platforms and
+     toolchains upstream does not exercise the same way (endianness
+     detection, a `__sync`-builtin atomics fallback, a `__has_include`
+     polyfill, an unaligned-access gate, a non-atomic refcount fix).
+   * `include/roaring/roaring64_internal.h` (Redis-added file) and
+     `src/roaring64.c`: expose the private 64-bit bitmap layout so
+     `src/bitroar.c` can walk every allocation for MEMORY USAGE accounting,
+     fork-child page dismissal and active defragmentation.
+4. Run `make -C deps/croaring test` and the bitmap test suites under
+   `tests/` (`bitroar`, `bitroar-oracle`, `bitops`).
