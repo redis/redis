@@ -2064,32 +2064,27 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r bitop or $bitop $source
         r bitop or $bitop_reference $source
 
-        set equivalent_keys [list $source $copy $restored]
-        set before [r memory usage $source]
-        assert_morethan $before 0
-        foreach key $equivalent_keys {
+        # Equivalent bitmaps can receive different allocator usable sizes, so
+        # use each independently allocated key as its own accounting baseline.
+        set tracked_keys [list $source $copy $restored $bitop $bitop_reference]
+        set memory_before {}
+        foreach key $tracked_keys {
             assert_equal bitmap-roaring [r object encoding $key]
             assert_equal 3 [r bitcount $key]
-            assert_equal $before [r memory usage $key] \
-                "key=$key before_mutation"
+            set key_before [r memory usage $key]
+            assert_morethan $key_before 0 "key=$key before_mutation"
+            dict set memory_before $key $key_before
         }
-        set bitop_before [r memory usage $bitop]
-        assert_morethan $bitop_before 0
-        assert_equal $bitop_before [r memory usage $bitop_reference]
 
-        foreach key [concat $equivalent_keys $bitop $bitop_reference] {
+        foreach key $tracked_keys {
             assert_equal 0 [r setbit $key 196608 1]
             assert_equal 4 [r bitcount $key]
         }
-        set after [r memory usage $source]
-        assert_morethan $after $before
-        foreach key $equivalent_keys {
-            assert_equal $after [r memory usage $key] \
+        foreach key $tracked_keys {
+            set key_after [r memory usage $key]
+            assert_morethan $key_after [dict get $memory_before $key] \
                 "key=$key after_mutation"
         }
-        set bitop_after [r memory usage $bitop]
-        assert_morethan $bitop_after $bitop_before
-        assert_equal $bitop_after [r memory usage $bitop_reference]
 
         r config set bitmap-default-roaring no
         r del $source $copy $restored $bitop $bitop_reference
