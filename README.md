@@ -303,6 +303,17 @@ make -j "$(nproc)"
 
 `make` (same as `make build` / `make all`) builds whatever is cloned under `modules/*/src` alongside Redis core. To build just the core data structures — even with modules cloned — use `make build redis`.
 
+> **`redis-server` won't start: "Error loading the extension" / can't open a
+> `.so`.** The config still lists modules that weren't built successfully — a
+> release tarball's `redis.conf` carries `loadmodule` lines for every bundled
+> module, and a module whose build failed leaves no `.so` behind. Either build
+> them (`make bootstrap && make`, or `make build <name>` for the one that failed), or
+> comment out everything that isn't Redis core in the config you pass: the
+> `loadmodule <path>` lines *and* that module's own settings below them (e.g.
+> `search-*`, `ts-*`, `bf-*`, `json-*`). Core-only alternative: `./src/redis-server`
+> with no config file, or `make build redis && ./src/redis-server redis.conf`
+> from a git checkout, where `redis.conf` has no module block at all.
+
 ### Building Redis - flags and general notes
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
