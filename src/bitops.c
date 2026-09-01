@@ -796,8 +796,8 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * (Must provide all the arguments to the function)
  */
 static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
-                                       kvobj *o, dictEntryLink link,
-                                       size_t *strOldSize, size_t *strGrowSize)
+                                        kvobj *o, dictEntryLink link,
+                                        size_t *strOldSize, size_t *strGrowSize)
 {
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
@@ -993,8 +993,7 @@ void bitconvertCommand(client *c) {
  * untouched, which keeps multi-op BITFIELD syntax and range failures atomic.
  * On C_OK, missing and string values are marked for a transition that callers
  * apply before re-looking up the key and executing the logical write. */
-static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit,
-                                int *transition) {
+static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit, int *transition) {
     *transition = 0;
 
     int is_roaring = (o != NULL && o->type == OBJ_BITMAP);
@@ -1541,8 +1540,7 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     /* Only borrowed Roaring sources can encode many missing logical chunks in
      * little resident memory. Bound that allocation amplification without
      * rejecting dense sources solely because their byte length is large. */
-    if (op == BITOP_NOT && objects[0] != NULL &&
-        objects[0]->type == OBJ_BITMAP &&
+    if (op == BITOP_NOT && objects[0]->type == OBJ_BITMAP &&
         !bitroarBitopNotWithinMissingChunkLimit(objects[0]))
     {
         addReplyErrorFormat(c,
@@ -1680,11 +1678,9 @@ void bitopCommand(client *c) {
     /* Roaring bitmap sources or a destination selected by
      * bitmap-default-roaring take the dedicated path. A config-only decision
      * is propagated as ordinary BITOP followed by BITCONVERT. */
-    int mode_forced = maxlen && !has_roaring_bitmap &&
-                      bitroarDefaultEnabled(c);
+    int mode_forced = maxlen && !has_roaring_bitmap && bitroarDefaultEnabled(c);
     if (has_roaring_bitmap || mode_forced) {
-        bitopCommandBitmap(c, op, targetkey, objects, numkeys,
-                           maxlen, mode_forced);
+        bitopCommandBitmap(c, op, targetkey, objects, numkeys, maxlen, mode_forced);
         for (j = 0; j < numkeys; j++) {
             /* Borrowed Roaring operands may be freed by now: storing the
              * result overwrites (or deletes) the target key, which can be
@@ -1709,10 +1705,8 @@ void bitopCommand(client *c) {
         res = (unsigned char*) sdstrynewlen(NULL,maxlen);
         if (res == NULL) {
             addReplyError(c, "BITOP failed allocating the result, out of memory");
-            for (j = 0; j < numkeys; j++) {
-                if (objects[j])
-                    decrRefCount(objects[j]);
-            }
+            for (j = 0; j < numkeys; j++)
+                if (objects[j]) decrRefCount(objects[j]);
             zfree(src);
             zfree(len);
             zfree(objects);
@@ -1995,10 +1989,8 @@ void bitopCommand(client *c) {
             }
         }
     }
-    for (j = 0; j < numkeys; j++) {
-        if (objects[j])
-            decrRefCount(objects[j]);
-    }
+    for (j = 0; j < numkeys; j++)
+        if (objects[j]) decrRefCount(objects[j]);
     zfree(src);
     zfree(len);
     zfree(objects);
@@ -2017,64 +2009,61 @@ void bitopCommand(client *c) {
     addReplyLongLong(c,(long long)maxlen); /* Return the output string length in bytes. */
 }
 
-typedef struct bitRange {
-    /* Raw START/END arguments normalized to byte or bit coordinates. */
-    long long start;
-    long long end;
-    /* Half-open bit interval used by Roaring bitmap range operations. */
-    uint64_t bit_start;
-    uint64_t bit_end;
-    /* Bits to ignore in the first/last byte for byte-backed BITPOS ranges. */
-    unsigned char first_byte_neg_mask;
-    unsigned char last_byte_neg_mask;
-} bitRange;
-
-static void normalizeBitRange(bitRange *range, long long strlen, int isbit) {
+/* Normalize the raw START/END arguments against a value of 'strlen' bytes,
+ * clamping 'start'/'end' to byte coordinates, and derive the half-open bit
+ * interval used by Roaring bitmap range operations ('bit_start'/'bit_end')
+ * along with the bits to ignore in the first/last byte of byte-backed values
+ * for bit-addressed ranges. */
+static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
+                              uint64_t *bit_end, unsigned char *first_byte_neg_mask,
+                              unsigned char *last_byte_neg_mask, long long strlen, int isbit)
+{
     long long totlen = strlen;
 
     serverAssert(totlen <= LLONG_MAX >> 3);
     if (isbit) totlen <<= 3;
 
-    if (range->start < 0) range->start = totlen+range->start;
-    if (range->end < 0) range->end = totlen+range->end;
-    if (range->start < 0) range->start = 0;
-    if (range->end < 0) range->end = 0;
-    if (range->end >= totlen) range->end = totlen-1;
+    if (*start < 0) *start = totlen+*start;
+    if (*end < 0) *end = totlen+*end;
+    if (*start < 0) *start = 0;
+    if (*end < 0) *end = 0;
+    if (*end >= totlen) *end = totlen-1;
 
-    range->first_byte_neg_mask = 0;
-    range->last_byte_neg_mask = 0;
-    range->bit_start = 0;
-    range->bit_end = 0;
-    if (range->start > range->end) return;
+    *first_byte_neg_mask = 0;
+    *last_byte_neg_mask = 0;
+    *bit_start = 0;
+    *bit_end = 0;
+    if (*start > *end) return;
 
     if (isbit) {
-        range->bit_start = (uint64_t)range->start;
-        range->bit_end = (uint64_t)range->end + 1;
-        range->first_byte_neg_mask = ~((1<<(8-(range->start&7)))-1) & 0xFF;
-        range->last_byte_neg_mask = (1<<(7-(range->end&7)))-1;
-        range->start >>= 3;
-        range->end >>= 3;
+        *bit_start = (uint64_t)*start;
+        *bit_end = (uint64_t)*end + 1;
+        *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
+        *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
+        *start >>= 3;
+        *end >>= 3;
     } else {
-        range->bit_start = (uint64_t)range->start << 3;
-        range->bit_end = ((uint64_t)range->end + 1) << 3;
+        *bit_start = (uint64_t)*start << 3;
+        *bit_end = ((uint64_t)*end + 1) << 3;
     }
 }
 
 /* BITCOUNT key [start end [BIT|BYTE]] */
 void bitcountCommand(client *c) {
     kvobj *o;
-    long long strlen;
+    long long start, end, strlen;
     long slen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
-    bitRange range;
+    uint64_t bit_start = 0, bit_end = 0;
+    unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
     int isbit = 0;
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5) {
-        if (getLongLongFromObjectOrReply(c,c->argv[2],&range.start,NULL) != C_OK)
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
             return;
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&range.end,NULL) != C_OK)
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
             return;
         if (c->argc == 5) {
             if (!strcasecmp(c->argv[4]->ptr,"bit")) isbit = 1;
@@ -2094,17 +2083,18 @@ void bitcountCommand(client *c) {
             p = getObjectReadOnlyString(o,&slen,llbuf);
             strlen = slen;
         }
-        if (range.start < 0 && range.end < 0 && range.start > range.end) {
+        if (start < 0 && end < 0 && start > end) {
             addReply(c,shared.czero);
             return;
         }
-        normalizeBitRange(&range, strlen, isbit);
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, isbit);
 
         if (o != NULL && o->type == OBJ_BITMAP) {
-            if (range.start > range.end) {
+            if (start > end) {
                 addReply(c,shared.czero);
             } else {
-                addReplyLongLong(c,bitroarRangeCardinality(o,range.bit_start,range.bit_end));
+                addReplyLongLong(c,bitroarRangeCardinality(o,bit_start,bit_end));
             }
             return;
         }
@@ -2123,9 +2113,10 @@ void bitcountCommand(client *c) {
         p = getObjectReadOnlyString(o,&slen,llbuf);
         strlen = slen;
         /* The whole string. */
-        range.start = 0;
-        range.end = strlen-1;
-        normalizeBitRange(&range, strlen, 0);
+        start = 0;
+        end = strlen-1;
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, 0);
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -2140,22 +2131,22 @@ void bitcountCommand(client *c) {
 
     /* Precondition: end >= 0 && end < strlen, so the only condition where
      * zero can be returned is: start > end. */
-    if (range.start > range.end) {
+    if (start > end) {
         addReply(c,shared.czero);
     } else {
-        long bytes = (long)(range.end-range.start+1);
+        long bytes = (long)(end-start+1);
         long long count;
 
         /* Use the best available popcount implementation */
-        count = redisPopcountAuto(p+range.start, bytes);
+        count = redisPopcountAuto(p+start, bytes);
 
-        if (range.first_byte_neg_mask != 0 || range.last_byte_neg_mask != 0) {
+        if (first_byte_neg_mask != 0 || last_byte_neg_mask != 0) {
             unsigned char firstlast[2] = {0, 0};
             /* We may count bits of first byte and last byte which are out of
             * range. So we need to subtract them. Here we use a trick. We set
             * bits in the range to zero. So these bit will not be excluded. */
-            if (range.first_byte_neg_mask != 0) firstlast[0] = p[range.start] & range.first_byte_neg_mask;
-            if (range.last_byte_neg_mask != 0) firstlast[1] = p[range.end] & range.last_byte_neg_mask;
+            if (first_byte_neg_mask != 0) firstlast[0] = p[start] & first_byte_neg_mask;
+            if (last_byte_neg_mask != 0) firstlast[1] = p[end] & last_byte_neg_mask;
 
             /* Use the same popcount implementation for consistency */
             count -= redisPopcountAuto(firstlast, 2);
@@ -2173,7 +2164,7 @@ void bitposCommand(client *c) {
     long slen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
-    bitRange range;
+    uint64_t bit_start = 0, bit_end = 0;
     int isbit = 0, end_given = 0;
     unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
@@ -2219,13 +2210,8 @@ void bitposCommand(client *c) {
             if (isbit) end = (strlen<<3) + 7;
             else end = strlen-1;
         }
-        range.start = start;
-        range.end = end;
-        normalizeBitRange(&range, strlen, isbit);
-        start = range.start;
-        end = range.end;
-        first_byte_neg_mask = range.first_byte_neg_mask;
-        last_byte_neg_mask = range.last_byte_neg_mask;
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, isbit);
     } else if (c->argc == 3) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
@@ -2239,14 +2225,11 @@ void bitposCommand(client *c) {
         }
 
         /* The whole string. Roaring BITPOS still needs the derived bit interval
-         * populated in range.bit_start/range.bit_end. */
+         * populated in bit_start/bit_end. */
         start = 0;
         end = strlen-1;
-        range.start = start;
-        range.end = end;
-        normalizeBitRange(&range, strlen, 0);
-        start = range.start;
-        end = range.end;
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, 0);
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -2262,11 +2245,10 @@ void bitposCommand(client *c) {
     }
 
     if (o->type == OBJ_BITMAP) {
-        if (range.start > range.end)
+        if (start > end)
             addReplyLongLong(c, -1);
         else
-            addReplyLongLong(c, bitroarBitpos(o, bit, range.bit_start,
-                                                   range.bit_end, end_given));
+            addReplyLongLong(c, bitroarBitpos(o, bit, bit_start, bit_end, end_given));
         return;
     }
 
@@ -2403,29 +2385,29 @@ static int bitfieldUnsignedResult(struct bitfieldOp *op, uint64_t oldval,
 }
 
 /* Parse the BITFIELD subcommands into a newly allocated array of ops, which the
- * caller owns and must free, on error as well. On C_OK '*numops' is the number
- * of parsed ops, '*readonly' tells whether all of them are GET, and
- * '*highest_write_offset' is the highest bit any write reaches, which is what
- * the value must be able to hold. On C_ERR the client was already replied. */
-static int bitfieldParseOps(client *c, struct bitfieldOp **opsref, int *numops,
-                            int *readonly, uint64_t *highest_write_offset)
+ * caller owns and must free, on error as well. On C_OK '*numops_out' is the
+ * number of parsed ops, '*readonly_out' tells whether all of them are GET, and
+ * '*highest_write_offset_out' is the highest bit any write reaches, which is
+ * what the value must be able to hold. On C_ERR the client was already
+ * replied. */
+static int bitfieldParseOps(client *c, struct bitfieldOp **opsref, int *numops_out,
+                            int *readonly_out, uint64_t *highest_write_offset_out)
 {
-    struct bitfieldOp *ops = NULL;
+    struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
+    uint64_t bitoffset;
+    int j, numops = 0;
     int owtype = BFOVERFLOW_WRAP; /* Overflow type, sticky across the ops. */
+    int readonly = 1;
+    uint64_t highest_write_offset = 0;
     int res = C_ERR;
 
-    *numops = 0;
-    *readonly = 1;
-    *highest_write_offset = 0;
-
-    for (int j = 2; j < c->argc; j++) {
+    for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
         char *subcmd = c->argv[j]->ptr; /* Current command name. */
         int opcode; /* Current operation code. */
-        long long i64 = 0;  /* Signed SET value. */
+        long long i64 = 0; /* Signed SET value. */
         int sign = 0; /* Signed or unsigned type? */
         int bits = 0; /* Bitfield width in bits. */
-        uint64_t bitoffset;
 
         if (!strcasecmp(subcmd,"get") && remargs >= 2)
             opcode = BITFIELDOP_GET;
@@ -2460,30 +2442,34 @@ static int bitfieldParseOps(client *c, struct bitfieldOp **opsref, int *numops,
             goto cleanup;
 
         if (opcode != BITFIELDOP_GET) {
-            *readonly = 0;
-            if (*highest_write_offset < bitoffset + bits - 1)
-                *highest_write_offset = bitoffset + bits - 1;
+            readonly = 0;
+            if (highest_write_offset < bitoffset + bits - 1)
+                highest_write_offset = bitoffset + bits - 1;
             /* INCRBY and SET require another argument. */
             if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK)
                 goto cleanup;
         }
 
         /* Populate the array of operations we'll process. */
-        ops = zrealloc(ops,sizeof(*ops)*(*numops+1));
-        ops[*numops].offset = bitoffset;
-        ops[*numops].i64 = i64;
-        ops[*numops].opcode = opcode;
-        ops[*numops].owtype = owtype;
-        ops[*numops].bits = bits;
-        ops[*numops].sign = sign;
-        (*numops)++;
+        ops = zrealloc(ops,sizeof(*ops)*(numops+1));
+        ops[numops].offset = bitoffset;
+        ops[numops].i64 = i64;
+        ops[numops].opcode = opcode;
+        ops[numops].owtype = owtype;
+        ops[numops].bits = bits;
+        ops[numops].sign = sign;
+        numops++;
 
         j += 3 - (opcode == BITFIELDOP_GET);
     }
     res = C_OK;
 
 cleanup:
+    /* ops is returned on the error path too, for the caller to free. */
     *opsref = ops;
+    *numops_out = numops;
+    *readonly_out = readonly;
+    *highest_write_offset_out = highest_write_offset;
     return res;
 }
 

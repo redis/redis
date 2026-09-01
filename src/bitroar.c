@@ -202,9 +202,7 @@ static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, 
 
 #define BITROAR_CONTAINER_BYTES \
     (BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t))
-    for (size_t offset = 0; offset < len;
-         offset += BITROAR_CONTAINER_BYTES)
-    {
+    for (size_t offset = 0; offset < len; offset += BITROAR_CONTAINER_BYTES) {
         size_t chunk_len = len - offset;
         if (chunk_len > BITROAR_CONTAINER_BYTES)
             chunk_len = BITROAR_CONTAINER_BYTES;
@@ -216,8 +214,7 @@ static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, 
             bitroarAppendRawArrayContainer(roaring, buf + offset,
                                            chunk_len, cardinality, high48);
         } else {
-            bitroarAppendRawBitsetContainer(roaring, buf + offset,
-                                            chunk_len, high48);
+            bitroarAppendRawBitsetContainer(roaring, buf + offset, chunk_len, high48);
         }
     }
 #undef BITROAR_CONTAINER_BYTES
@@ -782,9 +779,7 @@ uint64_t bitroarCardinality(const robj *o) {
     return roaring64_bitmap_get_cardinality(bitmap->roaring);
 }
 
-uint64_t bitroarRangeCardinality(const robj *o, uint64_t start,
-                                 uint64_t end)
-{
+uint64_t bitroarRangeCardinality(const robj *o, uint64_t start, uint64_t end) {
     bitroar *bitmap = bitroarGet(o);
     uint64_t bit_len = bitmap->byte_len * 8;
 
@@ -1045,8 +1040,7 @@ uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bit
             roaring64_leaf_t *leaf = (roaring64_leaf_t *)art_find(&bitmap->roaring->art, key);
             if (leaf != NULL) {
                 typecode = roaring64_leaf_typecode(*leaf);
-                container =
-                    bitmap->roaring->containers[roaring64_leaf_index(*leaf)];
+                container = bitmap->roaring->containers[roaring64_leaf_index(*leaf)];
             } else {
                 container = NULL;
                 typecode = 0;

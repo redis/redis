@@ -1172,8 +1172,11 @@ static robj *rdbLoadBitmapObject(rio *rdb) {
 
     payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
     if (payload == NULL) return NULL;
-    o = bitroarCreateFromPortable((unsigned char *)payload, payload_len,
-                                  byte_len);
+    /* bitroarCreateFromPortable() validates the payload and rejects a byte_len
+     * that cannot hold the highest set bit. A byte_len beyond the highest set
+     * bit is legitimate: trailing zero bytes contain no set bits, yet extend
+     * the logical length. */
+    o = bitroarCreateFromPortable((unsigned char *)payload, payload_len, byte_len);
     sdsfree(payload);
     return o;
 }

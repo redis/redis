@@ -86,10 +86,10 @@ int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
  * It is used to track the distribution of key sizes in the dataset. It is updated 
  * every time key's length is modified. Available to user via INFO command. 
  * 
- * The histogram is a base-2 logarithmic histogram, with 61 bins. For positive
- * sizes, bin i represents the number of keys in the range 2^(i-1) through 2^i
- * exclusive. Logical lengths are smaller than 2^60; allocation sizes may exceed
- * that bound and saturate into the final bin. A value of -1 for oldLen/newLen
+ * The histogram is a base-2 logarithmic histogram, with MAX_KEYSIZES_BINS bins.
+ * For positive sizes, bin i represents the number of keys in the range 2^(i-1)
+ * through 2^i exclusive. Sizes beyond the final bin's range, for any data type,
+ * saturate into the final bin. A value of -1 for oldLen/newLen
  * means that the key is being created/deleted, respectively. Each data type has
  * its own histogram and it is maintained per database.
  *
