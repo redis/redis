@@ -912,14 +912,12 @@ static void bitroarPropagateCurrentCommand(client *c) {
 /* Queue the narrow representation transition used by commands whose result
  * must be converted explicitly on replicas and during AOF replay. */
 static void bitroarPropagateConvert(client *c, robj *key) {
-    robj *argv[3];
+    robj *argv[2];
 
     argv[0] = createStringObject("BITCONVERT", 10);
     argv[1] = key;
-    argv[2] = createStringObject("ROARING", 7);
-    alsoPropagate(c->db->id, argv, 3, bitroarPropagationTarget(c));
+    alsoPropagate(c->db->id, argv, 2, bitroarPropagationTarget(c));
     decrRefCount(argv[0]);
-    decrRefCount(argv[2]);
 }
 
 /* Apply BITCONVERT's local state transition without producing a command reply.
@@ -958,11 +956,6 @@ static void bitroarConvertKey(client *c, robj *key, kvobj *o, dictEntryLink link
  * metadata in its existing kvobj. Missing keys become empty native bitmaps;
  * native bitmaps are already in the requested representation. */
 void bitconvertCommand(client *c) {
-    if (strcasecmp(c->argv[2]->ptr, "ROARING")) {
-        addReplyErrorObject(c, shared.syntaxerr);
-        return;
-    }
-
     dictEntryLink link = NULL;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (o != NULL && o->type != OBJ_STRING && o->type != OBJ_BITMAP) {
@@ -1516,17 +1509,15 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * callback-propagated writes after it. Multiple pending operations are emitted
  * transactionally by propagatePendingCommands(). */
 static void bitroarPropagateBitopAndConvert(client *c) {
-    robj *argv[3];
+    robj *argv[2];
     int target = bitroarPropagationTarget(c);
 
     alsoPropagate(c->db->id, c->argv, c->argc, target);
     argv[0] = createStringObject("BITCONVERT", 10);
     argv[1] = c->argv[2];
-    argv[2] = createStringObject("ROARING", 7);
-    alsoPropagate(c->db->id, argv, 3, target);
+    alsoPropagate(c->db->id, argv, 2, target);
     preventCommandPropagation(c);
     decrRefCount(argv[0]);
-    decrRefCount(argv[2]);
 }
 
 /* BITOP whose result is a Roaring bitmap. Sources come from

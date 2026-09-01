@@ -94,19 +94,19 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # Ordinary clients cannot discover the primitive through COMMAND or execute it.
         assert_equal {{}} [r command info bitconvert]
         assert_error {ERR unknown command 'bitconvert'*} {
-            r bitconvert bitmap_missing ROARING
+            r bitconvert bitmap_missing
         }
 
         r debug mark-internal-client
 
         # Key specs stay introspectable for the internal primitive.
         assert_equal {bitmap_missing} \
-            [r command getkeys bitconvert bitmap_missing ROARING]
+            [r command getkeys bitconvert bitmap_missing]
         assert_equal {{bitmap_missing {RW access update}}} \
-            [r command getkeysandflags bitconvert bitmap_missing ROARING]
+            [r command getkeysandflags bitconvert bitmap_missing]
 
         # A missing key becomes an empty native bitmap.
-        assert_equal OK [r bitconvert bitmap_missing ROARING]
+        assert_equal OK [r bitconvert bitmap_missing]
         assert_equal bitmap [r type bitmap_missing]
         assert_equal bitmap-roaring [r object encoding bitmap_missing]
         assert_equal {} [r debug bitmap-raw bitmap_missing]
@@ -115,29 +115,30 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r set bitmap_string $raw
         r pexpire bitmap_string 600000
         set expire_at [r pexpiretime bitmap_string]
-        assert_equal OK [r bitconvert bitmap_string ROARING]
+        assert_equal OK [r bitconvert bitmap_string]
         assert_equal bitmap [r type bitmap_string]
         assert_equal $raw [r debug bitmap-raw bitmap_string]
         assert_equal $expire_at [r pexpiretime bitmap_string]
 
         # Converting a native bitmap again is an idempotent no-op.
         set digest [r debug digest-value bitmap_string]
-        assert_equal OK [r bitconvert bitmap_string ROARING]
+        assert_equal OK [r bitconvert bitmap_string]
         assert_equal $digest [r debug digest-value bitmap_string]
         assert_equal $expire_at [r pexpiretime bitmap_string]
 
         # Other value types retain their ordinary WRONGTYPE behavior.
         r lpush bitmap_list value
-        assert_error {WRONGTYPE*} {r bitconvert bitmap_list ROARING}
+        assert_error {WRONGTYPE*} {r bitconvert bitmap_list}
         assert_equal list [r type bitmap_list]
 
-        assert_error {ERR syntax error*} {
-            r bitconvert bitmap_missing STRING
+        # The conversion target is implied; extra arguments fail arity.
+        assert_error {ERR wrong number of arguments*} {
+            r bitconvert bitmap_missing ROARING
         }
 
         r debug mark-internal-client unmark
         assert_error {ERR unknown command 'bitconvert'*} {
-            r bitconvert bitmap_missing ROARING
+            r bitconvert bitmap_missing
         }
     }
 
@@ -1391,21 +1392,21 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
 
         assert_equal [list \
             {multi} \
-            [list bitconvert bitmap:aof-incr:create ROARING] \
+            [list bitconvert bitmap:aof-incr:create] \
             [list setbit bitmap:aof-incr:create $sparse_public_offset 1] \
             {exec} \
             {multi} \
-            [list bitconvert bitmap:aof-incr:convert ROARING] \
+            [list bitconvert bitmap:aof-incr:convert] \
             [list setbit bitmap:aof-incr:convert 0 1] \
             {exec} \
             {multi} \
-            [list bitconvert bitmap:aof-incr:bitfield ROARING] \
+            [list bitconvert bitmap:aof-incr:bitfield] \
             [list bitfield bitmap:aof-incr:bitfield SET u1 0 1] \
             {exec} \
             {multi} \
             [list bitop or bitmap:aof-incr:bitop:out \
                 bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2] \
-            [list bitconvert bitmap:aof-incr:bitop:out ROARING] \
+            [list bitconvert bitmap:aof-incr:bitop:out] \
             {exec} \
             [list bitop or bitmap:aof-incr:bitop:empty \
                 bitmap:aof-incr:bitop:missing]] $transitions
