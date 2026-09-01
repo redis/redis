@@ -275,6 +275,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # invalid slot range
         assert_error {*greater than end slot number*} {R 0 CLUSTER MIGRATION IMPORT 200 100}
+        assert_error {*greater than end slot number*} {R 0 CLUSTER MIGRATION IMPORT 100 200 201 150}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 17000 18000}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 14000 18000}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 0 16384}
