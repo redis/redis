@@ -11,7 +11,7 @@ export MAKE
 
 .DEFAULT_GOAL := build
 
-# Used only by .DEFAULT:/install: below, for goals with no explicit rule in
+# Used only by .DEFAULT: below, for goals with no explicit rule in
 # this Makefile (e.g. `make distclean`, `make 32bit`) — those still recurse
 # into src/ only, matching upstream Redis. Modules are never part of this;
 # `make` / `make build` route through scripts/build.sh instead,
@@ -42,6 +42,8 @@ GOALS_WITH_ARGS := \
     clean:CLEAN_ARGS \
     bootstrap:BOOTSTRAP_ARGS \
     deploy:DEPLOY_ARGS \
+    install:DEPLOY_ARGS \
+    uninstall:UNINSTALL_ARGS \
     test:TEST_ARGS \
     sync-redis-conf:SYNC_ARGS
 
@@ -88,8 +90,11 @@ endif
 .DEFAULT:
 	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
-install:
-	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
+# `install` is an alias for `deploy` that does NOT build: it copies the
+# artifacts already in the tree, like upstream's install. Rebuild with
+# `make install SKIP_BUILD=0`, or just use `make deploy`.
+install: SKIP_BUILD ?= 1
+install: deploy
 
 # clean [<name> ...|all|.|redis|none] — Redis core + selected modules.
 # Same per-module dispatch as scripts/build.sh. Env vars set on the make
@@ -106,13 +111,14 @@ clean:
 
 # build [<name> ...|all|.|redis|core|none] — Redis core + selected modules.
 build:
-	+@scripts/build.sh $(BUILD_ARGS)
+	+@PROG_SUFFIX='$(PROG_SUFFIX)' scripts/build.sh $(BUILD_ARGS)
 
 # bootstrap [<name> ...|all|.] — install per-module build/test prereqs.
 bootstrap:
 	+@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
+#        [PROG_SUFFIX=<suffix>]
 #   Install Redis core + selected modules (default: every cloned module),
 #   then rewrite the `loadmodule` paths in redis-full.conf (and redis.conf, if
 #   it carries a Modules block) to point at the installed .so paths under
@@ -120,15 +126,29 @@ bootstrap:
 #   `make install`). Done directly by scripts/deploy.sh — no apply step.
 deploy: PREFIX ?= /usr/local
 deploy:
-	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' scripts/deploy.sh $(DEPLOY_ARGS)
+	+@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' PROG_SUFFIX='$(PROG_SUFFIX)' \
+	    SKIP_BUILD='$(SKIP_BUILD)' \
+	    scripts/deploy.sh $(DEPLOY_ARGS)
+
+# uninstall [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
+#           [PROG_SUFFIX=<suffix>]
+#   Exact inverse of `make install` / `make deploy`: removes the core binaries
+#   and symlinks from $(PREFIX)/bin and the selected modules' .so files from
+#   $(PREFIX)/lib/redis/modules (default: every module in modules.yaml, so a
+#   plain `sudo make uninstall` cleans up whatever a previous install left).
+#   `redis`/`none` uninstall the core only. See scripts/uninstall.sh.
+uninstall: PREFIX ?= /usr/local
+uninstall:
+	@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' PROG_SUFFIX='$(PROG_SUFFIX)' \
+	    scripts/uninstall.sh $(UNINSTALL_ARGS)
 
 # run [<name> ...|all|.|none] [ARGS="<redis-server flags>"]
 run:
-	@ARGS='$(ARGS)' scripts/run.sh $(RUN_ARGS)
+	@ARGS='$(ARGS)' PROG_SUFFIX='$(PROG_SUFFIX)' scripts/run.sh $(RUN_ARGS)
 
 # test [redis|all|<module> [<test_name>]] [TEST=<name>] — see scripts/test.sh.
 test:
-	+@TEST='$(TEST)' scripts/test.sh $(TEST_ARGS)
+	+@TEST='$(TEST)' PROG_SUFFIX='$(PROG_SUFFIX)' scripts/test.sh $(TEST_ARGS)
 
 # modules-update [<name> ...|all|.] [MODULES_UPDATE_SHALLOW=1]
 #   Idempotent clone/refresh per modules.yaml.
@@ -157,4 +177,4 @@ sync-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/sync-redis-conf.sh
 
-.PHONY: install clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf tarball
+.PHONY: install uninstall clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf tarball

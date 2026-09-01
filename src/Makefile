@@ -544,7 +544,9 @@ lcov:
 	@lcov --version
 	$(MAKE) gcov
 	@(set -e; cd ..; ./runtest)
-	@geninfo -o redis.info .
+	# geninfo_unexecuted_blocks=1 count partially executed lines as uncovered.
+	# May lower coverage but gives a strict result
+	@geninfo --rc geninfo_unexecuted_blocks=1 -o redis.info .
 	@genhtml --legend -o lcov-html redis.info
 
 .PHONY: lcov
@@ -558,8 +560,9 @@ bench: $(REDIS_BENCHMARK_NAME)
 	@echo ""
 	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32" SKIP_VEC_SETS="yes"
 
+# Use -fprofile-update=atomic because IO threads can update counters concurrently.
 gcov:
-	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
+	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -fprofile-update=atomic -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
 
 noopt:
 	$(MAKE) OPTIMIZATION="-O0"

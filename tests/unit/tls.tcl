@@ -68,6 +68,21 @@ start_server {tags {"tls"}} {
     if {$::tls} {
         package require tls
 
+        proc tls_redis_cli {host port groups} {
+            set tlsdir [file join [pwd] tests tls]
+            set cmd [list src/redis-cli \
+                -h $host \
+                -p $port \
+                --tls \
+                --cert [file join $tlsdir client.crt] \
+                --key [file join $tlsdir client.key] \
+                --cacert [file join $tlsdir ca.crt] \
+                --tls-ciphers ECDHE-RSA-AES128-GCM-SHA256 \
+                --tls-groups $groups \
+                PING]
+            exec {*}$cmd 2>@1
+        }
+
         test {TLS: Not accepting non-TLS connections on a TLS port} {
             set s [redis [srv 0 host] [srv 0 port]]
             catch {$s PING} e
@@ -136,6 +151,49 @@ start_server {tags {"tls"}} {
 
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers "DEFAULT"
+        }
+
+        test {TLS: Verify tls-groups validates group names} {
+            assert_equal {OK} [r CONFIG SET tls-groups "prime256v1"]
+
+            catch {r CONFIG SET tls-groups "invalid-group"} e
+            assert_match {*Unable to update TLS configuration*} $e
+
+            r CONFIG SET tls-groups ""
+        }
+
+        test {TLS: Verify tls-groups with a common group} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
+
+            # The client and server both allow prime256v1, so the handshake
+            # should complete.
+            assert_equal {PONG} [tls_redis_cli [srv 0 host] [srv 0 port] prime256v1]
+
+            r CONFIG SET tls-groups ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
+        }
+
+        test {TLS: Verify tls-groups with disjoint groups} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
+
+            # The client and server expose disjoint group lists, so the TLS
+            # handshake must fail.
+            assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
+            # OpenSSL reports this alert differently across platforms:
+            # CentOS reports "ssl/tls alert handshake failure"
+            # Ubuntu reports "sslv3 alert handshake failure"
+            assert_match {*ssl* alert handshake failure*} $e
+
+            r CONFIG SET tls-groups ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
         }
 
         test {TLS: Verify tls-prefer-server-ciphers behaves as expected} {
@@ -442,6 +500,93 @@ if {$::tls} {
             assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
             r config set tls-expected-peer-name ""
             assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
+        }
+
+        test {TLS: tls-expected-peer-name warns about parent-domain entries} {
+            # A leading dot is a legitimate OpenSSL parent-domain pattern, but it
+            # matches subdomains at any depth, so its scope is surfaced in the log
+            # rather than left silent.
+            set base [count_log_message 0 "beginning with a dot"]
+
+            r config set tls-expected-peer-name ".example.com"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 1 entry beginning with a dot"]
+
+            # An explicit host name adds no advisory.
+            r config set tls-expected-peer-name "redis.local"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+
+            # Several parent-domain entries are reported on one line, with their number.
+            r config set tls-expected-peer-name "redis.local .a.example.com .b.example.com"
+            assert_equal [expr {$base + 2}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 2 entries beginning with a dot"]
+
+            r config set tls-expected-peer-name ""
+        }
+
+        test {TLS: parent-domain advisory is logged at startup} {
+            # The advisory is emitted from the post-load config checks, so it appears
+            # for a value that comes from the config file, not only from CONFIG SET.
+            start_server [list overrides [list tls-expected-peer-name ".local"]] {
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                assert_equal {.local} [lindex [r config get tls-expected-peer-name] 1]
+            }
+        }
+
+        test {TLS: parent-domain advisory is not repeated for included configs} {
+            # "include" recursively reloads an entire config file, so an advisory
+            # emitted once per completed load is repeated for every nesting level.
+            # It must be reported once for the configured value instead.
+            # The path must be absolute: the generated config sets "dir" before the
+            # overrides, and that chdir()s the server away from the test root.
+            set inner [file normalize [tmpfile "peer-name-include"]]
+            set fd [open $inner w]
+            puts $fd "tls-expected-peer-name .example.com"
+            close $fd
+
+            start_server [list overrides [list include $inner]] {
+                assert_equal {.example.com} [lindex [r config get tls-expected-peer-name] 1]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+            }
+            file delete $inner
+        }
+
+        test {TLS: parent-domain advisory is not repeated when TLS is enabled later} {
+            # The advisory is reported when the option is set; configuring TLS
+            # afterwards must not repeat it. Boot with TLS fully disabled and
+            # talk over the plain port (the suite's servers configure TLS at
+            # startup): set the option, then enable TLS. Exactly one advisory.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com"
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                # srv 0 port is the overridden tls-port (0), so allocate a fresh one.
+                $rr config set tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
+        }
+
+        test {TLS: parent-domain advisory is not repeated for a combined CONFIG SET} {
+            # A single command setting both the option and tls-port applies the
+            # option and performs the initial TLS configuration in one go.
+            # Still exactly one advisory.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com" tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
         }
 
         test {TLS: tls-expected-peer-name rejects a whitespace-only value} {

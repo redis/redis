@@ -5424,6 +5424,8 @@ void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
+    /* Capture a cross-shard move before updateShardId() adopts the new shard ID. */
+    int shard_changed = memcmp(myself->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0;
     int was_master = clusterNodeIsMaster(myself);
     if (was_master) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
@@ -5437,6 +5439,19 @@ void clusterSetMaster(clusterNode *n) {
     updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
+    /* Replication histories from different shards are unrelated. Discard the
+     * cached master so the replica performs a full sync and reports offset 0
+     * until it has synchronized with its new master. */
+    if (shard_changed) {
+        replicationDiscardCachedMaster();
+        /* A replica moved across shards has no valid replication history for
+         * its new master. Restore repl_down_since to its initial value of zero,
+         * treating the replica like one that has never synchronized with its
+         * current master and has been disconnected since forever. This prevents
+         * automatic failover when cluster-replica-validity-factor is non-zero,
+         * while a zero validity factor preserves availability-first behavior. */
+        server.repl_down_since = 0;
+    }
     removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
 
