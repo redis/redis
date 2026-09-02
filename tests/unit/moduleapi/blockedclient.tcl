@@ -318,9 +318,10 @@ foreach call_type {nested normal} {
         # These time is equal, they will be unlocked in the same event loop,
         # when the client is unlock, we will get the OK reply from timer.
         set reply [r unblock_by_timer 100 100]
-        puts "vitah-reply:$reply"
         assert {$reply eq "OK" || $reply eq "TIMEOUT"}
-        after 120
+        if {$reply eq "TIMEOUT"} {
+            after 120
+        }
     }
     
     test "Unload the module - blockedclient" {
