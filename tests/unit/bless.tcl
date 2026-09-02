@@ -208,6 +208,21 @@ start_server {tags {"bless"}} {
         assert_equal 1 [s blessed_keys]
     }
 
+    test {MEMORY STATS blessed overhead counts the key-name copies} {
+        r flushall
+        set long [string repeat x 2000]
+        r set $long v
+        array set st1 [r memory stats]
+        array set d1 $st1(db.9)
+        set before $d1(overhead.hashtable.blessed)
+        r bless set $long no-evict
+        array set st2 [r memory stats]
+        array set d2 $st2(db.9)
+        set after $d2(overhead.hashtable.blessed)
+        # the index now owns a ~2000-byte sdsdup copy of the key name
+        assert {$after - $before > 1500}
+    }
+
     test {FLUSH ASYNC wipes the blessed index (freed on BIO, rebuilt empty)} {
         r flushall
         r set a 1; r set b 2
