@@ -2396,7 +2396,7 @@ static int bitfieldParseOps(client *c, struct bitfieldOp **opsref, int *numops_o
         int remargs = c->argc-j-1; /* Remaining args other than current. */
         char *subcmd = c->argv[j]->ptr; /* Current command name. */
         int opcode; /* Current operation code. */
-        long long i64 = 0; /* Signed SET value. */
+        long long i64 = 0;  /* Signed SET value. */
         int sign = 0; /* Signed or unsigned type? */
         int bits = 0; /* Bitfield width in bits. */
 
