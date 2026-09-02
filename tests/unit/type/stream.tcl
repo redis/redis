@@ -3525,6 +3525,28 @@ start_server {
 
         r config set stream-node-max-entries $origin_max_entries
     }
+
+    test {XTRIM with DELREF cleans up references of already deleted entries} {
+        r DEL mystream
+
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+        assert_equal 3 [lindex [r XPENDING mystream mygroup] 0]
+
+        # Turn 1-0 into a tombstone: the entry is gone from the stream, but
+        # the consumer group still holds a reference to it.
+        assert_equal 1 [r XDEL mystream 1-0]
+
+        # Trimming past the tombstone with DELREF must drop its dangling
+        # reference too, not just the references of the live entries.
+        assert_equal 2 [r XTRIM mystream MINID 4 DELREF]
+        assert_equal 0 [r XLEN mystream]
+        assert_equal {0 {} {} {}} [r XPENDING mystream mygroup]
+    }
 }
 
 start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
