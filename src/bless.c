@@ -187,15 +187,10 @@ void blessCommand(client *c) {
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "list")) {
-        /* BLESS LIST [NO-EVICT] - array of keys in the current DB blessed at the
-         * given level (default, and currently only, NO-EVICT). */
-        uint64_t flag = BLESS_NOEVICT;
-        if (c->argc == 3) {
-            if (strcasecmp(c->argv[2]->ptr, "no-evict")) {
-                addReplyErrorObject(c, shared.syntaxerr);
-                return;
-            }
-        } else if (c->argc > 3) {
+        /* BLESS LIST NO-EVICT - array of keys in the current DB carrying the given
+         * flag. The flag is required (no default); arity guarantees one token. */
+        uint64_t flag;
+        if (blessParseFlags(c, 2, &flag) != C_OK) {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }

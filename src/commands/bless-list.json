@@ -1,10 +1,10 @@
 {
     "LIST": {
-        "summary": "Lists blessed keys. Accepts NO-EVICT or no argument (default NO-EVICT); NONE is not listable (unblessed keys are untracked) and INRAM is unimplemented - both are a syntax error.",
+        "summary": "Lists blessed keys carrying the given flag. The flag is required (no default); INRAM is unimplemented and NONE is not listable (unblessed keys are untracked) - both are a syntax error.",
         "complexity": "O(N) where N is the number of blessed keys.",
         "group": "generic",
         "since": "8.12.0",
-        "arity": -2,
+        "arity": 3,
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
@@ -21,13 +21,12 @@
             {
                 "name": "no-evict",
                 "type": "pure-token",
-                "token": "NO-EVICT",
-                "optional": true
+                "token": "NO-EVICT"
             }
         ],
         "reply_schema": {
             "type": "array",
-            "description": "Key names blessed at the requested level (default NO-EVICT).",
+            "description": "Key names blessed with the requested flag.",
             "items": {
                 "type": "string"
             }
