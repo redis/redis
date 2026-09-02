@@ -3017,10 +3017,10 @@ static int applyTlsCluster(const char **err) {
 
     /* Nothing below may run when the value did not effectively move, which is
      * what configSetCommand() hands us after it has restored a refused set: both
-     * steps are observable - reconfiguring TLS rebuilds the SSL_CTX, and
-     * clusterNotifyTopologyChanged() cancels the ASM tasks invalidated by the new
-     * topology besides notifying modules - so a refused set would otherwise not
-     * be the no-op it reports being. */
+     * steps are observable - reconfiguring TLS rebuilds the SSL_CTX, discarding
+     * the session cache held on it, and clusterNotifyTopologyChanged() reports a
+     * NODE change to modules - so a refused set would otherwise not be the no-op
+     * it reports being. */
     if (server.tls_cluster == tls_cluster_applied) return 1;
 
     if (!applyTlsCfg(err)) return 0;

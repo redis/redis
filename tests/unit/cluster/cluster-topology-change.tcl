@@ -321,10 +321,10 @@ start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list 
             # A CONFIG SET whose apply fails is rolled back by
             # configSetCommand(), which restores the previous values and calls
             # every apply callback of the command again. tls-cluster ends up
-            # where it started, so nothing may be reported - the notification is
-            # not only a module event, it also cancels the ASM tasks invalidated
-            # by the new topology. Here the failure comes from the unusable
-            # certificate, with cluster-bus-port-protected-mode not involved at all.
+            # where it started, so nothing may be reported: reporting it would
+            # also mean having rebuilt the SSL_CTX, discarding the session cache
+            # held on it. Here the failure comes from the unusable certificate,
+            # with cluster-bus-port-protected-mode not involved at all.
             R 0 config set cluster-bus-port-protected-mode no
 
             set before [dict get [topo_stats 0] node]
@@ -358,9 +358,9 @@ start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list 
             # cluster-bus-port-protected-mode refuses to leave the cluster bus
             # port unauthenticated. A refused CONFIG SET must change nothing,
             # which is not free: configSetCommand() restores the previous value
-            # and calls the apply callback a second time, and this notification is
-            # not only a module event - it also cancels the ASM tasks invalidated
-            # by the new topology. The suite waives protection, so enable it here.
+            # and calls the apply callback a second time, which would both report
+            # this change to modules and rebuild the SSL_CTX, discarding the
+            # session cache. The suite waives protection, so enable it here.
             R 0 config set cluster-bus-port-protected-mode yes
 
             set before [dict get [topo_stats 0] node]
