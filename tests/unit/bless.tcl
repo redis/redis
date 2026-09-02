@@ -353,4 +353,71 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         assert_equal {} [r bless get b]
         r config set maxmemory 0
     }
+
+    # Under volatile-* only keys WITH a TTL are candidates, so the blessed key and
+    # the flood both get TTLs. volatile-lru/ttl use the pool branch, volatile-random
+    # the random branch - both sample db->expires, and both must skip the blessed key.
+    foreach policy {volatile-lru volatile-ttl volatile-random} {
+        test "BLESS NO-EVICT protects a key with a TTL under $policy" {
+            r flushall
+            r config set maxmemory 0
+            r config set maxmemory-policy $policy
+            r set precious [string repeat x 2000]
+            r expire precious 100000
+            r bless set precious no-evict
+            set used [s used_memory]
+            r config set maxmemory [expr {$used + 3000000}]
+            for {set j 0} {$j < 4000} {incr j} {
+                r set flood:$j [string repeat y 2000] ex 100000
+            }
+            assert {[s evicted_keys] > 0}
+            assert_equal 1 [r exists precious]
+            assert_equal {NO-EVICT} [r bless get precious]
+            r config set maxmemory 0
+        }
+    }
+
+    # LFU shares the pool branch with LRU but computes idle differently; make sure
+    # the blessed-key skip holds on that path too.
+    test {BLESS NO-EVICT key is not evicted under allkeys-lfu} {
+        r flushall
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lfu
+        r set precious [string repeat x 2000]
+        r bless set precious no-evict
+        set used [s used_memory]
+        r config set maxmemory [expr {$used + 3000000}]
+        for {set j 0} {$j < 4000} {incr j} { r set flood:$j [string repeat y 2000] }
+        assert {[s evicted_keys] > 0}
+        assert_equal 1 [r exists precious]
+        assert_equal {NO-EVICT} [r bless get precious]
+        r config set maxmemory 0
+    }
+
+    # A large blessed majority with a small unblessed minority. The blessed-only
+    # sampling retry must not permanently give up on the (few) real victims: under
+    # sustained pressure the unblessed keys are reclaimed and writes keep succeeding
+    # (no spurious lasting OOM), while the blessed majority stays intact.
+    test {Unblessed victims are still evicted when most of the keyspace is blessed} {
+        r flushall
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-random
+        for {set j 0} {$j < 500} {incr j} {
+            r set b:$j [string repeat y 1000]
+            r bless set b:$j no-evict
+        }
+        for {set j 0} {$j < 50} {incr j} { r set victim:$j [string repeat z 1000] }
+        assert_equal 500 [llength [r bless list no-evict]]
+        set used [s used_memory]
+        # tight headroom -> every write forces eviction of the unblessed minority
+        r config set maxmemory [expr {$used + 100000}]
+        for {set j 0} {$j < 3000} {incr j} { assert_equal OK [r set flood:$j [string repeat w 1000]] }
+        # blessed majority untouched ...
+        assert_equal 500 [llength [r bless list no-evict]]
+        # ... and the unblessed victims were reclaimed, not falsely protected
+        set survivors 0
+        for {set j 0} {$j < 50} {incr j} { incr survivors [r exists victim:$j] }
+        assert {$survivors < 50}
+        r config set maxmemory 0
+    }
 }
