@@ -249,6 +249,21 @@ tags {external:skip cluster} {
                     assert_equal {cluster-bus-port-protected-mode yes} [r config get cluster-bus-port-protected-mode]
                 }
             }
+
+            test {each option can also be changed on its own, in the safe order} {
+                # A single command is not the only way out, and the refusals say
+                # so: waiving protection before disabling tls-cluster, and
+                # authenticating the bus before enabling protection, are accepted
+                # as separate calls, since the check only judges the state each
+                # one produces.
+                r config set cluster-bus-port-protected-mode no
+                r config set tls-cluster no
+                assert_equal {tls-cluster no} [r config get tls-cluster]
+
+                r config set tls-cluster yes
+                r config set cluster-bus-port-protected-mode yes
+                assert_equal {cluster-bus-port-protected-mode yes} [r config get cluster-bus-port-protected-mode]
+            }
         }
     }
 }

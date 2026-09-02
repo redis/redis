@@ -3011,7 +3011,7 @@ static int applyTlsCluster(const char **err) {
     if (clusterBusPortProtectionUnmet()) {
         *err = "can't disable tls-cluster while cluster-bus-port-protected-mode is enabled, "
                "as that would leave the cluster bus port unauthenticated; disable "
-               "cluster-bus-port-protected-mode in the same CONFIG SET call to allow it";
+               "cluster-bus-port-protected-mode first, or in the same CONFIG SET call";
         return 0;
     }
 
@@ -3041,8 +3041,8 @@ static int applyTlsCluster(const char **err) {
 static int applyClusterBusPortProtectedMode(const char **err) {
     if (clusterBusPortProtectionUnmet()) {
         *err = "can't enable cluster-bus-port-protected-mode while tls-cluster is disabled, "
-               "as that leaves the cluster bus port unauthenticated; enable tls-cluster in "
-               "the same CONFIG SET call to authenticate the cluster bus";
+               "as that leaves the cluster bus port unauthenticated; enable tls-cluster "
+               "first, or in the same CONFIG SET call";
         return 0;
     }
     return 1;
