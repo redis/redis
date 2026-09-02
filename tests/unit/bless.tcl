@@ -208,6 +208,24 @@ start_server {tags {"bless"}} {
         assert_equal 1 [s blessed_keys]
     }
 
+    test {FLUSH ASYNC wipes the blessed index (freed on BIO, rebuilt empty)} {
+        r flushall
+        r set a 1; r set b 2
+        r bless set a no-evict
+        r bless set b no-evict
+        assert_equal 2 [s blessed_keys]
+        # async path: emptyDbAsync swaps blessed_keys and frees the old one on BIO
+        r flushdb async
+        assert_equal 0 [s blessed_keys]
+        assert_equal 0 [llength [r bless list no-evict]]
+        # blessing works again on the fresh index
+        r set c 3
+        r bless set c no-evict
+        assert_equal 1 [s blessed_keys]
+        r flushall async
+        assert_equal 0 [s blessed_keys]
+    }
+
     test {BLESS SET/CLEAR reuse the metadata slot: no realloc after the first bless} {
         r flushall
         r set k v

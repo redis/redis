@@ -1043,6 +1043,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     for (int j = startdb; j <= enddb; j++) {
         removed += kvstoreSize(dbarray[j].keys);
         if (async) {
+            /* emptyDbAsync also swaps blessed_keys and frees the old one on BIO. */
             emptyDbAsync(&dbarray[j]);
         } else {
             /* Destroy sub-expires before deleting the kv-objects since ebuckets
@@ -1051,10 +1052,9 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
             dictEmpty(dbarray[j].stream_idmp_keys, callback);
+            /* The blessed-keys index is derived from the keys; wipe it too. */
+            kvstoreEmpty(dbarray[j].blessed_keys, NULL);
         }
-        /* The blessed-keys index is derived from the keys; wipe it whenever the
-         * DB's keyspace is emptied so it is rebuilt cleanly on the next load. */
-        kvstoreEmpty(dbarray[j].blessed_keys, NULL);
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;

@@ -295,6 +295,13 @@ static void protectClientReplyObjects(void) {
 /* Empty a Redis DB asynchronously. What the function does actually is to
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
+/* Release a detached kvstore from the BIO lazyfree thread (used to free the old
+ * blessed-keys index on async DB empty). */
+static void lazyfreeReleaseKvs(kvstore *unused, void *kvs) {
+    UNUSED(unused);
+    kvstoreRelease((kvstore *)kvs);
+}
+
 void emptyDbAsync(redisDb *db) {
     int slot_count_bits = 0;
     int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
@@ -305,12 +312,16 @@ void emptyDbAsync(redisDb *db) {
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
     estore *oldsubexpires = db->subexpires;
     dict *old_stream_idmp_keys = db->stream_idmp_keys;
+    kvstore *oldblessed = db->blessed_keys;
     db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
+    db->blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
-    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys, NULL, NULL);
+    /* Free the old blessed-keys index on BIO too, via the lazyfree callback. */
+    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys,
+                     lazyfreeReleaseKvs, oldblessed);
 }
 
 /* Empty kvstore data asynchronously. If callback is provided, invoke it from
