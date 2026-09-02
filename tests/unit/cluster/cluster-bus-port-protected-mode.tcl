@@ -1,10 +1,10 @@
 # cluster-bus-port-protected-mode makes an unauthenticated cluster bus port an
 # explicit choice.
 #
-# The cluster bus port has no authentication of its own: a packet's sender is
-# identified only by the public node ID in its header, so any host able to reach
-# the port can speak the cluster protocol and potentially threaten the whole
-# cluster. What authenticates it is tls-cluster, which makes every peer present a
+# The cluster bus port has no authentication of its own: any host able to reach it
+# can speak the cluster protocol and potentially threaten the whole cluster - a
+# MEET from an unknown host is enough to have it added as a node, with its gossip
+# trusted. What authenticates it is tls-cluster, which makes every peer present a
 # certificate verified against the CA. The option defaults to yes and refuses an
 # unauthenticated bus, in the spirit of protected-mode; the operator waives it
 # with "cluster-bus-port-protected-mode no" once the port is known to be

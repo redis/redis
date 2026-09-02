@@ -76,14 +76,14 @@ explicitly waived; see "Cluster bus protection" below.
 Cluster bus protection
 ----------------------
 
-The cluster bus protocol has no authentication of its own: a message's sender is
-identified only by the node ID in its header, which is public information, so any
-host able to reach a node's cluster bus port can speak the protocol. What
-authenticates the bus is `tls-cluster`, which makes every peer present a
-certificate that verifies against the configured CA — in both the accepting and
-the connecting direction, and `tls-cluster` also makes configuring a CA
-mandatory. This does not depend on `tls-auth-clients`, which governs the client
-port only.
+The cluster bus protocol has no authentication of its own: any host able to reach
+a node's cluster bus port can speak the protocol — a `MEET` from an unknown host
+is enough to have it added as a node, with its gossip trusted — and so threaten
+the whole cluster. What authenticates the bus is `tls-cluster`, which makes every
+peer present a certificate that verifies against the configured CA — in both the
+accepting and the connecting direction, and `tls-cluster` also makes configuring
+a CA mandatory. This does not depend on `tls-auth-clients`, which governs the
+client port only.
 
 For that reason `cluster-bus-port-protected-mode` defaults to **yes**, and a node
 started with `cluster-enabled yes` refuses to start unless `tls-cluster` is

@@ -464,14 +464,14 @@ static int tls_cluster_applied;
 /* Defined with the TLS config hooks below; used by the post-load checks. */
 static void tlsWarnExpectedPeerNameScope(void);
 
-/* The cluster bus protocol has no authentication of its own: the sender of a
- * packet is identified solely by the node ID in its header, which is public
- * information, so any host that can reach the port can speak the protocol and
- * threaten the whole cluster. Enabling tls-cluster is what authenticates the bus:
- * a peer then has to present, in either direction, a certificate that verifies
- * against the CA that tls-cluster makes mandatory. It does so regardless of
- * tls-auth-clients, which governs the client port only - clusterAcceptHandler()
- * always demands a peer certificate.
+/* The cluster bus protocol has no authentication of its own: any host that can
+ * reach the port can speak it and threaten the whole cluster - a MEET from an
+ * unknown host is enough to have it added as a node, with its gossip trusted.
+ * Enabling tls-cluster is what authenticates the bus: a peer then has to present,
+ * in either direction, a certificate that verifies against the CA that
+ * tls-cluster makes mandatory. It does so regardless of tls-auth-clients, which
+ * governs the client port only - clusterAcceptHandler() always demands a peer
+ * certificate.
  *
  * cluster-bus-port-protected-mode therefore refuses an unauthenticated bus by
  * default, and makes running one an explicit choice, exactly as protected-mode
@@ -488,10 +488,9 @@ static int clusterBusPortProtectionUnmet(void) {
  * option it refuses to change instead. */
 #define CLUSTER_BUS_PORT_PROTECTED_MODE_ERR \
     "cluster-bus-port-protected-mode is enabled but tls-cluster is disabled, which " \
-    "leaves the cluster bus port of this node unauthenticated: the sender of a cluster " \
-    "bus packet is identified only by the node ID in its header, which is public " \
-    "information, so any host able to reach the port can speak the cluster protocol and " \
-    "threaten the whole cluster. Either set 'tls-cluster yes', which makes every cluster " \
+    "leaves the cluster bus port of this node unauthenticated: any host able to reach " \
+    "the port can join the cluster and speak the cluster protocol, and threaten the " \
+    "whole cluster. Either set 'tls-cluster yes', which makes every cluster " \
     "bus peer present a certificate verified against your CA, or set " \
     "'cluster-bus-port-protected-mode no' to acknowledge that the cluster bus port is " \
     "reachable by trusted hosts only, for instance because a firewall blocks it."
