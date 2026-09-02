@@ -206,6 +206,32 @@ start_server {tags {"bless"}} {
         r bless clear a no-evict
         assert_equal 1 [s blessed_keys]
     }
+
+    test {BLESS SET/CLEAR reuse the metadata slot: no realloc after the first bless} {
+        r flushall
+        r set k v
+        # Before any bless the key carries no ATTR metadata slot.
+        set baseline [r memory usage k]
+        set blessed 0
+        for {set i 0} {$i < 100} {incr i} {
+            assert_equal 1 [r bless set k no-evict]
+            assert_equal {NO-EVICT} [r bless get k]
+            assert_equal 1 [llength [r bless list]]
+            if {$i == 0} {
+                # First bless grows the kvobj once to add the 8-byte ATTR slot.
+                set blessed [r memory usage k]
+                assert {$blessed > $baseline}
+            }
+            # Subsequent SETs reuse the existing slot -> no further growth.
+            assert_equal $blessed [r memory usage k]
+
+            assert_equal 1 [r bless clear k no-evict]
+            assert_equal {} [r bless get k]
+            assert_equal 0 [llength [r bless list]]
+            # CLEAR zeroes the mask but keeps the slot (like PERSIST) -> no shrink.
+            assert_equal $blessed [r memory usage k]
+        }
+    }
 }
 
 start_server {tags {"bless" "maxmemory" "external:skip"}} {
