@@ -7,9 +7,7 @@
         "arity": 3,
         "container": "BLESS",
         "function": "blessCommand",
-        "command_flags": [
-            "READONLY"
-        ],
+        "command_flags": [],
         "command_tips": [
             "REQUEST_POLICY:ALL_SHARDS",
             "NONDETERMINISTIC_OUTPUT_ORDER"

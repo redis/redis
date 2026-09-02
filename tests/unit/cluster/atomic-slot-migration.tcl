@@ -3619,8 +3619,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal {}         [R 1 bless get $kp]
         assert_equal 1 [llength [R 1 bless list no-evict]]
 
-        # Its replica (node 4) received the bless too (READONLY to read a
-        # replica's keyed command in cluster mode).
+        # Its replica (node 4) received the bless too. GET isn't a write command,
+        # so a READONLY-mode client is served locally by the replica in cluster mode.
         wait_for_ofs_sync [Rn 1] [Rn 4]
         R 4 readonly
         assert_equal {NO-EVICT} [R 4 bless get $kb]
