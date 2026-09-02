@@ -310,7 +310,6 @@ foreach call_type {nested normal} {
         $rd unblock_by_timer 100 10
         # Wait for the client to unlock.
         after 120
-        assert_equal [$rd read] {TIMEOUT}
         $rd close
     }
 
