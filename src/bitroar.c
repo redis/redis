@@ -132,9 +132,7 @@ static unsigned char bitroarReverseByte(unsigned char value) {
     return value;
 }
 
-static int bitroarRawChunkFitsArray(const unsigned char *buf, size_t len,
-                                   int *cardinality)
-{
+static int bitroarRawChunkFitsArray(const unsigned char *buf, size_t len, int *cardinality) {
     int count = 0;
 
     for (size_t i = 0; i < len; i++) {
