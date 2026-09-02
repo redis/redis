@@ -265,5 +265,32 @@ tags {external:skip cluster} {
                 assert_equal {cluster-bus-port-protected-mode yes} [r config get cluster-bus-port-protected-mode]
             }
         }
+
+        # Protected mode reads tls-cluster alone as an authenticated bus, which
+        # only holds because tls-auth-clients cannot reach the bus. Pin that with
+        # the setting that would weaken it if it could.
+        start_cluster 1 0 {overrides {tls-auth-clients no}} {
+            test {tls-auth-clients does not relax the cluster bus} {
+                set host [srv 0 host]
+                set bus [expr {[srv 0 port] + 10000}]
+
+                # The setting is in effect: on the client port a peer presenting
+                # no certificate is served. Driven through redis-cli, since the
+                # suite's own client always offers one.
+                assert_equal {PONG} [string trim [exec src/redis-cli --tls \
+                    --cacert "$::tlsdir/ca.crt" -h $host -p [srv 0 port] ping]]
+
+                # The cluster bus is unaffected: clusterAcceptHandler() demands a
+                # certificate whatever tls-auth-clients says, so the same peer is
+                # refused there. Read from the log, as a TLS 1.3 client is not
+                # told: its own handshake completes before the server judges it.
+                set loglines [count_log_lines 0]
+                catch {exec openssl s_client -connect $host:$bus \
+                    -CAfile "$::tlsdir/ca.crt" << "" 2> /dev/null}
+                wait_for_log_messages 0 \
+                    {"*Error accepting cluster node connection*peer did not return a certificate*"} \
+                    $loglines 50 100
+            }
+        }
     }
 }
