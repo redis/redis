@@ -134,11 +134,17 @@ static void blessUpdate(client *c, int add) {
 
     robj *key = c->argv[2];
     robj *o = lookupKeyWrite(c->db, key);
-    if (o == NULL) { addReplyErrorObject(c, shared.nokeyerr); return; }
+    if (o == NULL) {
+        addReplyErrorObject(c, shared.nokeyerr);
+        return;
+    }
 
     uint64_t cur = keyAttrGet(o);
     uint64_t next = add ? (cur | flags) : (cur & ~flags);
-    if (next == cur) { addReply(c, shared.czero); return; }    /* nothing changed */
+    if (next == cur) { /* nothing changed */
+        addReply(c, shared.czero);
+        return;
+    }
 
     if (keyMetaSetMetadata(c->db, o, server.key_attr_class_id, next) == NULL) {
         addReplyError(c, "failed to update key attribute metadata");
@@ -170,7 +176,10 @@ static void blessGetCommand(client *c) {
     uint64_t mask = keyAttrGet(o);
     void *replylen = addReplyDeferredLen(c);
     int n = 0;
-    if (mask & BLESS_NOEVICT) { addReplyBulkCString(c, "NO-EVICT"); n++; }
+    if (mask & BLESS_NOEVICT) {
+        addReplyBulkCString(c, "NO-EVICT");
+        n++;
+    }
     setDeferredArrayLen(c, replylen, n);
 }
 

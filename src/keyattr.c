@@ -33,7 +33,8 @@ void keyAttrRegister(uint64_t flags,
                      const keyAttrWire *wire, int wireLen,
                      void (*track)(redisDb *, sds, uint64_t),
                      void (*untrack)(redisDb *, sds),
-                     void (*aof)(RedisModuleIO *, uint64_t)) {
+                     void (*aof)(RedisModuleIO *, uint64_t))
+{
     serverAssert(flags != 0);                    /* 0 flags marks an empty slot */
     serverAssert(wireLen <= KEY_ATTR_MAX_WIRE);
     int i = 0;
