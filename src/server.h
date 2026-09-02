@@ -2319,7 +2319,7 @@ struct redisServer {
     char *proc_title_template;      /* Process title template format */
     clientBufferLimitsConfig client_obuf_limits[CLIENT_TYPE_OBUF_COUNT];
     /* Slave Buffer Throttling */
-    unsigned long long slave_obuf_throttle_threshold;   /* Slave output buffer threshold for thorttling */
+    unsigned long long slave_obuf_throttle_threshold;   /* Slave output buffer threshold for throttling */
     unsigned long long slave_obuf_throttle_limit;       /* Largest slave output buffer while throttling */
     unsigned long long slave_obuf_throttle_repl_rate;   /* Replication rate (bytes/sec) */
     unsigned int slave_obuf_throttle_max_delay_ms;      /* Maximum throttle-down delay, in ms */
