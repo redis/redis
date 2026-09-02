@@ -2431,7 +2431,7 @@ struct COMMAND_ARG SELECT_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* BLESS CLEAR key specs */
 keySpec BLESS_CLEAR_Keyspecs[1] = {
-{NULL,CMD_KEY_RW,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 
@@ -2505,7 +2505,7 @@ struct COMMAND_ARG BLESS_LIST_Args[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* BLESS SET key specs */
 keySpec BLESS_SET_Keyspecs[1] = {
-{NULL,CMD_KEY_RW,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
 };
 #endif
 
