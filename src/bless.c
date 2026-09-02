@@ -158,12 +158,6 @@ static void blessUpdate(client *c, int add) {
     addReply(c, shared.cone);
 }
 
-/* BLESS SET <key> NO-EVICT [flag ...]   - turn the given flags ON (additive).
- * BLESS CLEAR <key> NO-EVICT [flag ...] - turn the given flags OFF.
- * At least one flag is required. */
-static void blessSetCommand(client *c)   { blessUpdate(c, 1); }
-static void blessClearCommand(client *c) { blessUpdate(c, 0); }
-
 /* BLESS GET <key> -> array of the key's active flag names ([] if none).
  * Errors if the key does not exist. */
 static void blessGetCommand(client *c) {
@@ -190,9 +184,9 @@ static void blessGetCommand(client *c) {
 void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub, "set")) {
-        blessSetCommand(c);
+        blessUpdate(c, 1);          /* BLESS SET <key> NO-EVICT [flag ...] - turn flags ON */
     } else if (!strcasecmp(sub, "clear")) {
-        blessClearCommand(c);
+        blessUpdate(c, 0);          /* BLESS CLEAR <key> NO-EVICT [flag ...] - turn flags OFF */
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "list")) {
