@@ -3575,13 +3575,36 @@ void zmscoreCommand(client *c) {
 
     if (server.memory_tracking_enabled && zobj != NULL)
         oldsize = kvobjAllocSize(zobj);
-    addReplyArrayLen(c,c->argc - 2);
-    for (int j = 2; j < c->argc; j++) {
-        /* Treat a missing set the same way as an empty set */
-        if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
-            addReplyNull(c);
-        } else {
-            addReplyDouble(c,score);
+    int nmembers = c->argc - 2;
+    addReplyArrayLen(c,nmembers);
+    if (zobj != NULL && zobj->encoding == OBJ_ENCODING_BTREE) {
+        /* The requested members are independent lookups with nothing to wait
+         * on between them, so pipeline them the same way
+         * dictAddNonExistingBatch() pipelines bulk inserts: hide the
+         * dependent bucket-load cache miss behind a lookahead window instead
+         * of paying it once per member, serially. */
+        zset *zs = zobj->ptr;
+        dictEntry **results = zmalloc(sizeof(dictEntry *) * nmembers);
+        void **members = zmalloc(sizeof(void *) * nmembers);
+        for (int j = 0; j < nmembers; j++) members[j] = c->argv[j + 2]->ptr;
+        dictFindBatch(zs->dict, members, results, nmembers);
+        for (int j = 0; j < nmembers; j++) {
+            if (results[j] == NULL) {
+                addReplyNull(c);
+            } else {
+                addReplyDouble(c, ((zbtElem *)dictGetKey(results[j]))->score);
+            }
+        }
+        zfree(members);
+        zfree(results);
+    } else {
+        for (int j = 2; j < c->argc; j++) {
+            /* Treat a missing set the same way as an empty set */
+            if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
+                addReplyNull(c);
+            } else {
+                addReplyDouble(c,score);
+            }
         }
     }
     if (server.memory_tracking_enabled && zobj != NULL)

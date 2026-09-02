@@ -675,6 +675,39 @@ void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
     }
 }
 
+/* Batch form of dictFind() for an array of independent lookup keys, with the
+ * same two-window software pipeline dictAddNonExistingBatch() uses: it hides
+ * the dependent cache miss each lookup would otherwise stall on (the
+ * destination bucket) behind a lookahead distance instead of paying it once
+ * per key, serially. Unlike the insert side there is no hash to carry between
+ * the priming and authoritative steps - dictFind() recomputes it - so the
+ * prefetch hint is naturally advisory: a rehash step between the hint and the
+ * lookup only wastes the prefetch. Writes one result per key into 'results'
+ * positionally (NULL for a key not found). */
+void dictFindBatch(dict *d, void **keys, dictEntry **results, size_t n) {
+    if (n == 0) return;
+
+    enum { PF = 8 };
+
+    /* Prime the prefetch window for the first PF lookups. */
+    size_t primed = n < PF ? n : PF;
+    for (size_t j = 0; j < primed; j++)
+        redis_prefetch_read((void *)dictBucketHint(d, dictGetHash(d, keys[j])));
+
+    for (size_t i = 0; i < n; i++) {
+        /* Two windows ahead: bring the key's own bytes into cache before it
+         * is hashed. */
+        if (i + 2 * PF < n)
+            redis_prefetch_read(keys[i + 2 * PF]);
+
+        results[i] = dictFind(d, keys[i]);
+
+        /* One window ahead: hash the key and prefetch its bucket. */
+        if (i + PF < n)
+            redis_prefetch_read((void *)dictBucketHint(d, dictGetHash(d, keys[i + PF])));
+    }
+}
+
 /* Add or Overwrite:
  * Add an element, discarding the old value if the key already exists.
  * Return 1 if the key was added from scratch, 0 if there was already an

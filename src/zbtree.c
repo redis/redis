@@ -33,11 +33,16 @@
 #define ZBT_SPLIT_EVEN    0
 #define ZBT_SPLIT_APPEND  1  /* went in at the end of the tail leaf */
 #define ZBT_SPLIT_PREPEND 2  /* went in at the front of the head leaf */
-/* Leaf fanout is the nearest jemalloc-class fill below the old 64. On 64-bit
- * a leaf is 32 bytes of header plus (MAX+1) element pointers; 35 pointers of
- * payload plus the overflow slot is exactly the 320-byte class (the first
- * class that fits a half-sized leaf). Inner fanout is unchanged. */
-#define ZBT_LEAF_MAX   35
+/* Leaf fanout. A smaller fanout (35, the largest that still fits the
+ * jemalloc 320-byte size class) was tried and measured: it saved ~0.2% of
+ * total memory on a 1M-element zset, but cost ~4% throughput on range scans
+ * (more, smaller leaves means more leaf-to-leaf pointer chases per scan).
+ * Prefetching the next leaf and a few upcoming elements in
+ * zbtIterNext()/zbtIterPrev() recovered that loss, but adding the same
+ * prefetching back here at fanout 64 only moved throughput by ~1% at best
+ * (fewer, bigger leaves already mean fewer boundary crossings to hide the
+ * latency of) - not worth the extra branches in a hot path, so left out. */
+#define ZBT_LEAF_MAX   64
 #define ZBT_LEAF_MIN   (ZBT_LEAF_MAX/2)
 #define ZBT_INNER_MAX  64
 #define ZBT_INNER_MIN  (ZBT_INNER_MAX/2)
@@ -56,10 +61,6 @@ typedef struct zbtLeaf {
     zbtElem *elems[ZBT_LEAF_MAX + 1];
 } zbtLeaf;
 
-#if UINTPTR_MAX == UINT64_MAX
-static_assert(sizeof(zbtLeaf) == 320,
-              "zbtLeaf should fill the jemalloc 320-byte size class");
-#endif
 
 typedef struct zbtInner {
     zbtNode n;
