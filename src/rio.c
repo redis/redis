@@ -203,27 +203,52 @@ void rioInitWithFile(rio *r, FILE *fp) {
  * clip the checksum to the content portion of each chunk. */
 #define RIO_FILE_LOAD_BUFLEN (4*1024)
 
+/* Fold up to 'n' freshly read bytes at 'buf' into the running checksum,
+ * clipped to the content/footer boundary, and advance read_offset. Shared
+ * by both the buffered-refill and direct-to-destination read paths below,
+ * since the clip is based on absolute file offsets and doesn't care where
+ * in memory the bytes landed. */
+static void rioFileLoadChecksumChunk(rio *r, const void *buf, ssize_t n) {
+    if (r->io.file.checksum_enabled) {
+        off_t cksum_len = r->io.file.content_end - r->io.file.read_offset;
+        if (cksum_len > n) cksum_len = n;
+        if (cksum_len > 0) r->cksum = crc64(r->cksum, buf, (size_t)cksum_len);
+    }
+    r->io.file.read_offset += n;
+}
+
 static size_t rioFileLoadRead(rio *r, void *dst, size_t len) {
     unsigned char *out = dst;
     while (len) {
-        if (r->io.file.read_buf_pos == r->io.file.read_buf_valid) {
-            ssize_t n = read(fileno(r->io.file.fp), r->io.file.read_buf, RIO_FILE_LOAD_BUFLEN);
-            if (n <= 0) return 0;
-            if (r->io.file.checksum_enabled) {
-                off_t cksum_len = r->io.file.content_end - r->io.file.read_offset;
-                if (cksum_len > n) cksum_len = n;
-                if (cksum_len > 0) r->cksum = crc64(r->cksum, r->io.file.read_buf, (size_t)cksum_len);
-            }
-            r->io.file.read_offset += n;
-            r->io.file.read_buf_pos = 0;
-            r->io.file.read_buf_valid = (size_t)n;
-        }
         size_t avail = r->io.file.read_buf_valid - r->io.file.read_buf_pos;
-        size_t take = avail < len ? avail : len;
-        memcpy(out, r->io.file.read_buf + r->io.file.read_buf_pos, take);
-        r->io.file.read_buf_pos += take;
-        out += take;
-        len -= take;
+        if (avail) {
+            size_t take = avail < len ? avail : len;
+            memcpy(out, r->io.file.read_buf + r->io.file.read_buf_pos, take);
+            r->io.file.read_buf_pos += take;
+            out += take;
+            len -= take;
+            continue;
+        }
+        /* read_buf is empty. A request at least as large as one buffer's
+         * worth can be read straight into the destination for its
+         * RIO_FILE_LOAD_BUFLEN-aligned bulk, skipping the extra copy
+         * through read_buf entirely - the same optimization glibc's
+         * fread() applies for large reads. Only the unaligned remainder
+         * (always < RIO_FILE_LOAD_BUFLEN) goes through the buffer. */
+        if (len >= RIO_FILE_LOAD_BUFLEN) {
+            size_t direct_len = len - (len % RIO_FILE_LOAD_BUFLEN);
+            ssize_t n = read(fileno(r->io.file.fp), out, direct_len);
+            if (n <= 0) return 0;
+            rioFileLoadChecksumChunk(r, out, n);
+            out += n;
+            len -= n;
+            continue;
+        }
+        ssize_t n = read(fileno(r->io.file.fp), r->io.file.read_buf, RIO_FILE_LOAD_BUFLEN);
+        if (n <= 0) return 0;
+        rioFileLoadChecksumChunk(r, r->io.file.read_buf, n);
+        r->io.file.read_buf_pos = 0;
+        r->io.file.read_buf_valid = (size_t)n;
     }
     return 1;
 }
