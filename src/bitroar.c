@@ -194,8 +194,7 @@ static void bitroarAppendRawBitsetContainer(roaring64_bitmap_t *roaring,
  * The optimize pass is only worth paying for bitmaps that are kept
  * (run_optimize/shrink_to_fit walk every container); BITOP operand temporaries
  * are freed within the command, so their callers pass optimize=0. */
-static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, int optimize)
-{
+static roaring64_bitmap_t *bitroarFromRaw(const unsigned char *buf, size_t len, int optimize) {
     roaring64_bitmap_t *roaring = roaring64_bitmap_create();
 
     const size_t container_bytes = BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t);
