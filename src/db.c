@@ -653,7 +653,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     {
         /* Keep old object in the database. Just swap it's ptr, type and
          * encoding with the content of val. */
-        robj tmp = *old;
+        kvobj tmp = *old;
         old->type = val->type;
         old->encoding = val->encoding;
         old->ptr = val->ptr;
@@ -988,15 +988,17 @@ kvobj *dbUnshareStringValue(redisDb *db, robj *key, kvobj *kv) {
 
 /* Like dbUnshareStringValue(), but accepts a optional link,
  * which can be used if we already have one, thus saving the dbFind call. */
-kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *o, dictEntryLink link) {
-    serverAssert(o->type == OBJ_STRING);
-    if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
-        robj *decoded = getDecodedObject(o);
-        o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLink link) {
+    serverAssert(kv->type == OBJ_STRING);
+    if (kv->refcount != 1 || kv->encoding != OBJ_ENCODING_RAW) {
+        robj *decoded = getDecodedObject(kv);
+        robj *unshared = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
-        dbReplaceValueWithLink(db, key, &o, link);
+        /* Puts 'unshared' in the keyspace, updating it to the stored kvobj. */
+        dbReplaceValueWithLink(db, key, &unshared, link);
+        kv = unshared;
     }
-    return o;
+    return kv;
 }
 
 /* Remove all keys from the database(s) structure. The dbarray argument

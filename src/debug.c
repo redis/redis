@@ -743,7 +743,6 @@ NULL
         createDumpPayload(&payload, kv, c->argv[2], c->db->id, DUMP_PAYLOAD_SKIP_KEY_META, 0);
         addReplyBulkSds(c, payload.io.buffer.ptr);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
-        robj *val;
         sds key;
         kvobj *kv;
 
@@ -751,24 +750,23 @@ NULL
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
-        
-        val = kv;
+
         key = kvobjGetKey(kv);
-        if (kv->type != OBJ_STRING || !sdsEncodedObject(val)) {
+        if (kv->type != OBJ_STRING || !sdsEncodedObject(kv)) {
             addReplyError(c,"Not an sds encoded string.");
         } else {
             /* The key's allocation size reflects the entire robj allocation.  
              * For embedded values, report an allocation size of 0. */
-            size_t obj_alloc = zmalloc_usable_size(val);
-            size_t val_alloc = val->encoding == OBJ_ENCODING_RAW ? sdsAllocSize(val->ptr) : 0;
+            size_t obj_alloc = zmalloc_usable_size(kv);
+            size_t val_alloc = kv->encoding == OBJ_ENCODING_RAW ? sdsAllocSize(kv->ptr) : 0;
             addReplyStatusFormat(c,
                 "key_sds_len:%lld, key_sds_avail:%lld, key_zmalloc: %lld, "
                 "val_sds_len:%lld, val_sds_avail:%lld, val_zmalloc: %lld",
                 (long long) sdslen(key),
                 (long long) sdsavail(key),
                 (long long) obj_alloc,
-                (long long) sdslen(val->ptr),
-                (long long) sdsavail(val->ptr),
+                (long long) sdslen(kv->ptr),
+                (long long) sdsavail(kv->ptr),
                 (long long) val_alloc);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"listpack") && c->argc == 3) {

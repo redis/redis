@@ -183,7 +183,7 @@ void streamNextID(streamID *last_id, streamID *new_id) {
  * has the same encoding as the original one.
  *
  * The resulting object always has refcount set to 1 */
-robj *streamDup(robj *o) {
+robj *streamDup(kvobj *o) {
     robj *sobj;
 
     serverAssert(o->type == OBJ_STREAM);
@@ -2401,8 +2401,7 @@ kvobj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
         return NULL;
     }
     robj *o = createStreamObject();
-    dbAddByLink(c->db, key, &o, &link);
-    return o;
+    return dbAddByLink(c->db, key, &o, &link);
 }
 
 /* Parse a stream ID in the format given by clients to Redis, that is
@@ -3565,7 +3564,7 @@ void xgroupCommand(client *c) {
     char *opt = c->argv[1]->ptr; /* Subcommand name. */
     int mkstream = 0;
     long long entries_read = SCG_INVALID_ENTRIES_READ;
-    robj *o;
+    kvobj *o = NULL; /* Only set (and only used) by subcommands that take a key. */
     size_t old_alloc = 0;
 
     /* Everything but the "HELP" option requires a key and group name. */
@@ -3660,8 +3659,8 @@ NULL
         /* Handle the MKSTREAM option now that the command can no longer fail. */
         if (s == NULL) {
             serverAssert(mkstream);
-            o = createStreamObject();
-            dbAdd(c->db, c->argv[2], &o);
+            robj *newo = createStreamObject();
+            o = dbAdd(c->db, c->argv[2], &newo);
             s = o->ptr;
             keyModified(c,c->db,c->argv[2],o,1);
         }

@@ -3529,10 +3529,10 @@ void listTypeReplace(listTypeEntry *entry, robj *value);
 int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len,
                   long long *cached_longval, int *cached_valid);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
-robj *listTypeDup(robj *o);
+robj *listTypeDup(kvobj *o);
 void listTypeDelRange(robj *o, long start, long stop);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, size_t oldsize, int signal, int *deleted);
+void listElementsRemoved(client *c, robj *key, int where, kvobj *o, long count, size_t oldsize, int signal, int *deleted);
 typedef enum {
     LIST_CONV_AUTO,
     LIST_CONV_GROWING,
@@ -3669,7 +3669,7 @@ int aofDelHistoryFiles(void);
 int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);
 void updateReplOffsetAndResetEndOffset(void);
-int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime);
+int rewriteObject(rio *r, robj *key, kvobj *o, int dbid, long long expiretime);
 
 /* Child info */
 void openChildInfoPipe(void);
@@ -3813,7 +3813,7 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore);
 long zsetRank(robj *zobj, sds ele, int reverse, double *score);
 int zsetDel(robj *zobj, sds ele);
-robj *zsetDup(robj *o);
+robj *zsetDup(kvobj *o);
 void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey, long count, int use_nested_array, int reply_nil_when_empty, int *deleted);
 sds lpGetObject(unsigned char *sptr);
 int zslValueGteMin(double value, zrangespec *spec);
@@ -3829,7 +3829,7 @@ int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* gcra related */
-robj *gcraDup(robj *o);
+robj *gcraDup(kvobj *o);
 
 /* Core functions */
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level);
@@ -3957,7 +3957,7 @@ unsigned long setTypeSize(const robj *subject);
 size_t setTypeAllocSize(const robj *o);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
-robj *setTypeDup(robj *o);
+robj *setTypeDup(kvobj *o);
 
 /* Data structure for OBJ_ENCODING_LISTPACK_EX for hash. It contains listpack
  * and metadata fields for hash field expiration.*/
@@ -4148,7 +4148,7 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
                       char *value, size_t vlen, uint64_t expireAt);
 
 /* Array data type. */
-robj *arrayTypeDup(robj *o);
+robj *arrayTypeDup(kvobj *o);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -4316,7 +4316,7 @@ kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const KeyMetaSpec *m);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
-void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
+void dbReplaceValue(redisDb *db, robj *key, robj **valref, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
 #define SETKEY_KEEPTTL 1

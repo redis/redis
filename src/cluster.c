@@ -117,8 +117,11 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
     /* Save key metadata if present (TTL is handled separately via command
      * args). AOF RESTORE payloads omit it because AOF rewrite handles module
      * metadata separately through keyMetaOnAof(). */
-    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
-        serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
+    if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits)) {
+        /* Only a keyspace object can carry module metadata, so 'o' is a kvobj
+         * here. Callers such as createRawDumpPayload() may pass a plain robj. */
+        serverAssert(rdbSaveKeyMetadata(payload, key, (kvobj *) o, dbid) != -1);
+    }
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 
@@ -501,7 +504,7 @@ void migrateCommand(client *c) {
     char *password = NULL;
     long timeout;
     long dbid;
-    robj **kvArray = NULL; /* Objects to migrate. */
+    kvobj **kvArray = NULL; /* Objects to migrate. */
     robj **keyArray = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
     rio cmd, payload;
