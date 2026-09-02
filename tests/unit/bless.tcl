@@ -295,7 +295,10 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         # with (still-unblessed) candidates sampled from these keys.
         for {set j 0} {$j < 300} {incr j} { r set old:$j [string repeat x 1000] }
         set used [s used_memory]
-        r config set maxmemory [expr {$used + 500000}]
+        # tight headroom so the warm phase genuinely overflows and evicts; reset
+        # the counter first so the assertion reflects THIS test, not a prior one.
+        r config set maxmemory [expr {$used + 100000}]
+        r config resetstat
         for {set j 0} {$j < 300} {incr j} { catch {r set warm:$j [string repeat y 1000]} }
         assert {[s evicted_keys] > 0}
         # Bless survivors AFTER they may already sit in the pool. Cap the count so

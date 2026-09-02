@@ -107,8 +107,11 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     set classesSpec(3) "KEEPONCOPY:ALLOWIGNORE:RDBLOAD:RDBSAVE"
     set classesSpec(4) "ALLOWIGNORE:RDBLOAD:RDBSAVE"
     set classesSpec(5) "KEEPONRENAME:KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
-    set classesSpec(6) "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
-    set classesSpec(7) "KEEPONMOVE:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    # ATTR permanently holds module id 1, so only 6 module classes register and the
+    # loop breaks at cid 7. Put KEEPONMOVE:UNLINKFREE (the move+unlink callback pair
+    # bless relies on) within 1..6 so it is actually exercised.
+    set classesSpec(6) "KEEPONMOVE:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(7) "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
 
     array set classes {}
     set maxClasses 0
@@ -123,7 +126,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         puts "Registered class $cid with spec $spec"
         assert_range $classes($cid) 1 7
     }
-    assert {$maxClasses > 0}
+    assert_equal 6 $maxClasses
 
     # Validates metadata behavior across COPY/RENAME/MOVE operations
     # with varying numbers of metadata classes (1-7), key expiration states,

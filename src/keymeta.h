@@ -47,7 +47,9 @@ typedef int KeyMetaClassId; /* Index into redisServer.keyMetaClass[] */
 
 /* kvmeta - Metadata to be attached to kvobj */
 #define KEY_META_ID_EXPIRE        0 /* Must be first */
-/* IDs 1..7 are available for modules */
+/* IDs 1..7 (KEY_META_ID_MODULE_FIRST..LAST) back non-expire metadata classes.
+ * The built-in ATTR class (keyattr.c, used by bless) permanently takes id 1 at
+ * startup, so only ids 2..7 (6 slots) remain for modules to register. */
 #define KEY_META_ID_MODULE_FIRST  1
 #define KEY_META_ID_MODULE_LAST   7
 #define KEY_META_ID_MAX           8
