@@ -3870,7 +3870,6 @@ int processInputBuffer(client *c) {
                 pcmd->reploff = c->io_read_reploff - sdslen(c->querybuf) + c->qb_pos;
 
             preprocessCommand(c, pcmd);
-            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
             resetClientQbufState(c);
         }
 
@@ -6076,20 +6075,21 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
     return cmd;
 }
 
-/* Get cached key result for current pending command */
-getKeysResult *getClientCachedKeyResult(client *c) {
-    pendingCommand *pcmd = c->current_pending_cmd;
-    if (pcmd) {
-        /* Preprocess the command if needed */
-        if (!(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED)) {
-            preprocessCommand(c, pcmd);
-            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
-        }
+/* Get the cached key result of 'pcmd', or NULL if it has none, in which case
+ * the caller is expected to extract the keys from the command arguments itself.
+ *
+ * 'pcmd' must be the pendingCommand that 'c->cmd' / 'c->argv' were populated
+ * from: the cached result records key positions within that command's argv, so
+ * handing over an unrelated pendingCommand (for instance the client's current
+ * pending command while a queued MULTI command is being executed) would return
+ * key positions that have nothing to do with the command being checked. */
+getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd) {
+    if (!pcmd) return NULL;
+    serverAssert(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED);
 
-        /* Return cached result if available */
-        if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)
-            return &c->current_pending_cmd->keys_result;
-    }
+    /* Return cached result if available */
+    if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)
+        return &pcmd->keys_result;
     return NULL;
 }
 

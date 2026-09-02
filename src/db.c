@@ -65,17 +65,15 @@ void updateLRM(robj *o) {
     }
 }
 
-static_assert(MAX_KEYSIZES_ROWS == 6, "keysizesHistRow(): add/remove a row mapping");
-
 /* Return the histogram row that tracks `type`, or NULL if the type is untracked. */
 int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
     switch (type) {
-    case OBJ_STRING: return hist[0];
-    case OBJ_LIST:   return hist[1];
-    case OBJ_SET:    return hist[2];
-    case OBJ_ZSET:   return hist[3];
-    case OBJ_HASH:   return hist[4];
-    case OBJ_STREAM: return hist[5];
+    case OBJ_STRING: return hist[KEYSIZES_ROW_STRING];
+    case OBJ_LIST:   return hist[KEYSIZES_ROW_LIST];
+    case OBJ_SET:    return hist[KEYSIZES_ROW_SET];
+    case OBJ_ZSET:   return hist[KEYSIZES_ROW_ZSET];
+    case OBJ_HASH:   return hist[KEYSIZES_ROW_HASH];
+    case OBJ_STREAM: return hist[KEYSIZES_ROW_STREAM];
     default:         return NULL;
     }
 }
@@ -1327,35 +1325,11 @@ void blockClientForAsyncFlush(client *c) {
     blockClient(c, BLOCKED_LAZYFREE);
 }
 
-/* CB function on blocking ASYNC FLUSH/TRIM completion.
- * We will unblock the client and send the proper reply if provided. */
-void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
-
-    /* If ASM Trim context provided, apply histogram delta */
-    asmTrimCtx *ctx = userdata;
-    if (ctx) {
-        kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
-        /* Apply histogram delta only if target_kvstore hasn't changed */
-        if (ctx->target_kvstore == server.db[0].keys && meta) {
-            /* Subtract the delta from the live histogram. Both histograms have
-             * the same shape, so plain row-by-row subtraction is enough. */
-            for (int row = 0; row < MAX_KEYSIZES_ROWS; row++) {
-                for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                    meta->keysizes_hist[row][bin] -= ctx->delta_keysizes_hist[row][bin];
-                    meta->allocsizes_hist[row][bin] -= ctx->delta_allocsizes_hist[row][bin];
-                }
-            }
-        }
-        /* Decrement counter unconditionally to track job completion. If kvstore was
-         * replaced (e.g., by FLUSHALL), the new histogram is already consistent (reset
-         * to 0 for empty DB), so it's safe to resume assertions when counter reaches 0. */
-        asmBgTrimCounterDecr();
-    }
-
-    unblockClientForAsyncFlush(client_id, (ctx) ? ctx->slots : NULL);
-
-    /* Release context and slots */
-    asmTrimCtxRelease(ctx);
+/* CB function on blocking ASYNC FLUSH completion. */
+static void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
+    slotRangeArray *slots = userdata;
+    unblockClientForAsyncFlush(client_id, slots);
+    slotRangeArrayFree(slots);
 }
 
 /* Unblock client on async flush/trim completion */
@@ -1403,10 +1377,10 @@ void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
  *
- * trim_ctx - provided only by SFLUSH command, otherwise NULL. Contains slots to
- *            be used on completion to reply with the slots flush result. 
+ * slots - provided only by SFLUSH command, otherwise NULL. Used on completion
+ *         to reply with the slots flush result; ownership remains with caller.
  */
-int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
+int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1430,12 +1404,8 @@ int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
         blockClientForAsyncFlush(c);
-        /* Retain trim_ctx if provided so kvsAsyncFreeDoneCB can release it later */
-        if (trim_ctx) {
-            asmBgTrimCounterIncr();
-            asmTrimCtxRetain(trim_ctx);
-        }
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, trim_ctx);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id,
+                        slots ? slotRangeArrayDup(slots) : NULL);
     }
 
 #if defined(USE_JEMALLOC)
@@ -3338,6 +3308,9 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
 
             first += spec->fk.keynum.firstkey;
+            /* Reject invalid specs and bound numkeys before it overflows 'last' below. */
+            if (step <= 0 || first < 0 || numkeys - 1 > (argc - 1 - first) / step)
+                goto invalid_spec;
             last = first + ((long)numkeys - 1) * step;
         } else {
             /* unknown spec */

@@ -1,6 +1,87 @@
+# Mint a CA-signed cert whose CN has an embedded NUL: CN = "<visible>\x00<suffix>".
+# openssl's -subj parser can't emit a NUL, so we sign a cert with a 'Q' placeholder,
+# flip it to 0x00 inside the tbsCertificate, then re-sign and reassemble the DER.
+proc mint_nul_cn_cert {tlsdir outbase visible suffix} {
+    set cacrt "$tlsdir/ca.crt"
+    set cakey "$tlsdir/ca.key"
+    set key   "$tlsdir/$outbase.key"
+    set crt   "$tlsdir/$outbase.crt"
+    set csr   "$tlsdir/$outbase.csr"
+    set der   "$tlsdir/$outbase.der"
+    set tbs   "$tlsdir/$outbase.tbs"
+    set sig   "$tlsdir/$outbase.sig"
+
+    proc _der_len {n} {
+        if {$n < 0x80} { return [binary format c $n] }
+        set bytes {}
+        while {$n > 0} {
+            set bytes [linsert $bytes 0 [expr {$n & 0xff}]]
+            set n [expr {$n >> 8}]
+        }
+        return [binary format c [expr {0x80 | [llength $bytes]}]][binary format c* $bytes]
+    }
+    proc _read_bin {path} {
+        set f [open $path rb]; set d [read $f]; close $f; return $d
+    }
+    proc _write_bin {path data} {
+        set f [open $path wb]; puts -nonewline $f $data; close $f
+    }
+
+    exec openssl genrsa -out $key 2048 2>/dev/null
+    exec -ignorestderr openssl req -new -key $key \
+        -subj "/O=Redis Test/CN=${visible}Q${suffix}" -out $csr 2>/dev/null
+    exec -ignorestderr openssl x509 -req -sha256 -CA $cacrt -CAkey $cakey \
+        -CAcreateserial -days 365 -in $csr -outform DER -out $der 2>/dev/null
+
+    set data [_read_bin $der]
+
+    # Locate the 'Q' placeholder via its unique surrounding context.
+    set marker "${visible}\x51${suffix}"
+    set idx [string first $marker $data]
+    if {$idx < 0} { error "placeholder marker not found in certificate DER" }
+    set qpos [expr {$idx + [string length $visible]}]
+
+    # tbsCertificate is the second ASN.1 element (depth 1) of the Certificate.
+    set lines [split [exec openssl asn1parse -inform DER -in $der] "\n"]
+    regexp {^\s*(\d+):d=\d+\s+hl=(\d+)\s+l=\s*(\d+)} [lindex $lines 1] -> tbs_off tbs_hl tbs_len
+    set tbs_start $tbs_off
+    set tbs_end   [expr {$tbs_off + $tbs_hl + $tbs_len}]
+
+    # Patch placeholder -> NUL, then re-sign the modified tbsCertificate.
+    set data [string replace $data $qpos $qpos [binary format c 0]]
+    _write_bin $tbs [string range $data $tbs_start [expr {$tbs_end - 1}]]
+    exec openssl dgst -sha256 -sign $cakey -out $sig $tbs
+
+    set tbs_bytes [_read_bin $tbs]
+    set sig_bytes [_read_bin $sig]
+    set algid     [binary format H* "300d06092a864886f70d01010b0500"]
+    set bitstr    "\x03[_der_len [expr {[string length $sig_bytes] + 1}]]\x00$sig_bytes"
+    set body      "$tbs_bytes$algid$bitstr"
+    set cert      "\x30[_der_len [string length $body]]$body"
+    _write_bin $der $cert
+
+    exec -ignorestderr openssl x509 -inform DER -in $der -out $crt 2>/dev/null
+    return [list $crt $key]
+}
+
 start_server {tags {"tls"}} {
     if {$::tls} {
         package require tls
+
+        proc tls_redis_cli {host port groups} {
+            set tlsdir [file join [pwd] tests tls]
+            set cmd [list src/redis-cli \
+                -h $host \
+                -p $port \
+                --tls \
+                --cert [file join $tlsdir client.crt] \
+                --key [file join $tlsdir client.key] \
+                --cacert [file join $tlsdir ca.crt] \
+                --tls-ciphers ECDHE-RSA-AES128-GCM-SHA256 \
+                --tls-groups $groups \
+                PING]
+            exec {*}$cmd 2>@1
+        }
 
         test {TLS: Not accepting non-TLS connections on a TLS port} {
             set s [redis [srv 0 host] [srv 0 port]]
@@ -70,6 +151,49 @@ start_server {tags {"tls"}} {
 
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers "DEFAULT"
+        }
+
+        test {TLS: Verify tls-groups validates group names} {
+            assert_equal {OK} [r CONFIG SET tls-groups "prime256v1"]
+
+            catch {r CONFIG SET tls-groups "invalid-group"} e
+            assert_match {*Unable to update TLS configuration*} $e
+
+            r CONFIG SET tls-groups ""
+        }
+
+        test {TLS: Verify tls-groups with a common group} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
+
+            # The client and server both allow prime256v1, so the handshake
+            # should complete.
+            assert_equal {PONG} [tls_redis_cli [srv 0 host] [srv 0 port] prime256v1]
+
+            r CONFIG SET tls-groups ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
+        }
+
+        test {TLS: Verify tls-groups with disjoint groups} {
+            set ecdhe_ciphers ECDHE-RSA-AES128-GCM-SHA256
+            r CONFIG SET tls-protocols TLSv1.2
+            r CONFIG SET tls-ciphers $ecdhe_ciphers
+            r CONFIG SET tls-groups prime256v1
+
+            # The client and server expose disjoint group lists, so the TLS
+            # handshake must fail.
+            assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
+            # OpenSSL reports this alert differently across platforms:
+            # CentOS reports "ssl/tls alert handshake failure"
+            # Ubuntu reports "sslv3 alert handshake failure"
+            assert_match {*ssl* alert handshake failure*} $e
+
+            r CONFIG SET tls-groups ""
+            r CONFIG SET tls-protocols ""
+            r CONFIG SET tls-ciphers DEFAULT
         }
 
         test {TLS: Verify tls-prefer-server-ciphers behaves as expected} {
@@ -215,6 +339,46 @@ start_server {tags {"tls"}} {
 	            catch {r ACL DELUSER {Client-only}}
 	        }
 	    }
+
+        test {TLS: cert CN with embedded NUL cannot impersonate ACL user} {
+            # Regression test for the cert-CN NUL-byte auth bypass: a CA-signed
+            # cert with CN "admin\x00innocent" must not auto-authenticate as the
+            # privileged "admin" user, since sdsnew() would truncate it at the NUL.
+            r ACL SETUSER admin on >admin-very-strong-password-1234567890 allcommands allkeys
+            r CONFIG SET tls-auth-clients-user CN
+            r ACL LOG RESET
+
+            lassign [mint_nul_cn_cert $::tlsdir attacker_nul "admin" "innocent"] crt key
+            set s [redis [srv 0 host] [srv 0 port] 0 1 [list -certfile $crt -keyfile $key]]
+
+            # ::tls::init sets process-global defaults for every later ::tls::socket in
+            # this test client, so restore them now that the handshake is done — the cert
+            # files are deleted below, and a stale default would break all later servers.
+            ::tls::init \
+                -cafile "$::tlsdir/ca.crt" \
+                -certfile "$::tlsdir/client.crt" \
+                -keyfile "$::tlsdir/client.key"
+
+            # Capture before cleanup so it always runs even if the assertion fails.
+            set whoami [$s ACL WHOAMI]
+            set log [r ACL LOG]
+
+            catch {$s close}
+            r ACL DELUSER admin
+            r CONFIG SET tls-auth-clients-user OFF
+            foreach ext {crt key csr der tbs sig} {
+                file delete -force "$::tlsdir/attacker_nul.$ext"
+            }
+
+            assert_equal "default" $whoami
+
+            # The full binary-safe CN must be logged verbatim (NUL preserved),
+            # proving it was never truncated to "admin" and used for auto-auth.
+            assert_equal 1 [llength $log]
+            set entry [lindex $log 0]
+            assert_equal "tls-cert" [dict get $entry reason]
+            assert_equal "admin\x00innocent" [dict get $entry username]
+        }
     }
 }
 
@@ -336,6 +500,93 @@ if {$::tls} {
             assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
             r config set tls-expected-peer-name ""
             assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
+        }
+
+        test {TLS: tls-expected-peer-name warns about parent-domain entries} {
+            # A leading dot is a legitimate OpenSSL parent-domain pattern, but it
+            # matches subdomains at any depth, so its scope is surfaced in the log
+            # rather than left silent.
+            set base [count_log_message 0 "beginning with a dot"]
+
+            r config set tls-expected-peer-name ".example.com"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 1 entry beginning with a dot"]
+
+            # An explicit host name adds no advisory.
+            r config set tls-expected-peer-name "redis.local"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+
+            # Several parent-domain entries are reported on one line, with their number.
+            r config set tls-expected-peer-name "redis.local .a.example.com .b.example.com"
+            assert_equal [expr {$base + 2}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 2 entries beginning with a dot"]
+
+            r config set tls-expected-peer-name ""
+        }
+
+        test {TLS: parent-domain advisory is logged at startup} {
+            # The advisory is emitted from the post-load config checks, so it appears
+            # for a value that comes from the config file, not only from CONFIG SET.
+            start_server [list overrides [list tls-expected-peer-name ".local"]] {
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                assert_equal {.local} [lindex [r config get tls-expected-peer-name] 1]
+            }
+        }
+
+        test {TLS: parent-domain advisory is not repeated for included configs} {
+            # "include" recursively reloads an entire config file, so an advisory
+            # emitted once per completed load is repeated for every nesting level.
+            # It must be reported once for the configured value instead.
+            # The path must be absolute: the generated config sets "dir" before the
+            # overrides, and that chdir()s the server away from the test root.
+            set inner [file normalize [tmpfile "peer-name-include"]]
+            set fd [open $inner w]
+            puts $fd "tls-expected-peer-name .example.com"
+            close $fd
+
+            start_server [list overrides [list include $inner]] {
+                assert_equal {.example.com} [lindex [r config get tls-expected-peer-name] 1]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+            }
+            file delete $inner
+        }
+
+        test {TLS: parent-domain advisory is not repeated when TLS is enabled later} {
+            # The advisory is reported when the option is set; configuring TLS
+            # afterwards must not repeat it. Boot with TLS fully disabled and
+            # talk over the plain port (the suite's servers configure TLS at
+            # startup): set the option, then enable TLS. Exactly one advisory.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com"
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                # srv 0 port is the overridden tls-port (0), so allocate a fresh one.
+                $rr config set tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
+        }
+
+        test {TLS: parent-domain advisory is not repeated for a combined CONFIG SET} {
+            # A single command setting both the option and tls-port applies the
+            # option and performs the initial TLS configuration in one go.
+            # Still exactly one advisory.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com" tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
         }
 
         test {TLS: tls-expected-peer-name rejects a whitespace-only value} {
