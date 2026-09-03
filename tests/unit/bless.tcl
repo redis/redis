@@ -247,18 +247,18 @@ start_server {tags {"bless"}} {
     test {BLESS SET/CLEAR reuse the metadata slot: no realloc after the first bless} {
         r flushall
         r set k v
-        # Before any bless the key carries no ATTR metadata slot.
-        set baseline [r memory usage k]
+        # The one-time 8-byte ATTR slot may hide under allocator rounding, so we
+        # don't assert the first bless grows MEMORY USAGE. What must hold on every
+        # allocator: across many set/clear cycles the size stays constant - if
+        # clear re-grew or leaked the slot each round, 100x would accumulate enough
+        # to cross a rounding bucket and show up.
         set blessed 0
         for {set i 0} {$i < 100} {incr i} {
             assert_equal 1 [r bless set k no-evict]
             assert_equal {NO-EVICT} [r bless get k]
             assert_equal 1 [llength [r bless list no-evict]]
-            if {$i == 0} {
-                # First bless grows the kvobj once to add the 8-byte ATTR slot.
-                set blessed [r memory usage k]
-                assert {$blessed > $baseline}
-            }
+            # Capture the size once the slot exists, then require it to stay put.
+            if {$i == 0} { set blessed [r memory usage k] }
             # Subsequent SETs reuse the existing slot -> no further growth.
             assert_equal $blessed [r memory usage k]
 
