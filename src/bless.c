@@ -32,10 +32,41 @@ static dictType blessedDictType = {
     NULL                    /* allow to resize */
 };
 
+/* kvstore-level metadata: running byte total of the sdsdup() key copies the index
+ * owns, so MEMORY STATS overhead is O(1) instead of scanning the whole index (a
+ * blessed dict can be large and INFO must stay cheap). The counter rides the
+ * kvstore, so SWAPDB (pointer swap), async DB-empty (fresh kvstore) and
+ * kvstoreEmpty (onEmpty reset) keep it correct with no external bookkeeping. */
+typedef struct {
+    size_t sds_bytes;
+} blessedKvsMeta;
+
+/* Pointer to the running sds-bytes counter in a blessed kvstore's metadata. */
+static size_t *blessedBytesRef(kvstore *kvs) {
+    return &((blessedKvsMeta *)kvstoreGetMetadata(kvs))->sds_bytes;
+}
+
+static size_t blessedKvsMetaBytes(kvstore *kvs) {
+    UNUSED(kvs);
+    return sizeof(blessedKvsMeta);
+}
+
+static void blessedKvsOnEmpty(kvstore *kvs) {
+    *blessedBytesRef(kvs) = 0;
+}
+
+static kvstoreType blessedKvstoreType = {
+    blessedKvsMetaBytes,   /* kvstore metadata size */
+    NULL,                  /* dict metadata size */
+    NULL,                  /* can free dict */
+    blessedKvsOnEmpty,     /* on kvstore empty */
+    NULL,                  /* on dict empty */
+};
+
 /* Create a per-DB blessed-keys index. Slot-partitioned like db->expires so a
  * slot migration (ASM) can drop a whole slot's entries in O(1). */
 kvstore *blessedKvstoreCreate(int slot_count_bits, int flags) {
-    return kvstoreCreate(&kvstoreBaseType, &blessedDictType, slot_count_bits, flags);
+    return kvstoreCreate(&blessedKvstoreType, &blessedDictType, slot_count_bits, flags);
 }
 
 /* ---- per-DB index helpers (main thread only) ---- */
@@ -47,12 +78,18 @@ static void blessedSetPut(redisDb *db, sds keyname, uint64_t mask) {
         kvstoreDictSetVal(db->blessed_keys, slot, de, (void *)(uintptr_t)mask);
         return;
     }
-    de = kvstoreDictAddRaw(db->blessed_keys, slot, sdsdup(keyname), NULL);
+    sds dup = sdsdup(keyname);
+    de = kvstoreDictAddRaw(db->blessed_keys, slot, dup, NULL);
     kvstoreDictSetVal(db->blessed_keys, slot, de, (void *)(uintptr_t)mask);
+    *blessedBytesRef(db->blessed_keys) += sdsAllocSize(dup);
 }
 
 static void blessedSetDel(redisDb *db, sds keyname) {
-    kvstoreDictDelete(db->blessed_keys, getKeySlot(keyname), keyname);
+    int slot = getKeySlot(keyname);
+    dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
+    if (!de) return;
+    *blessedBytesRef(db->blessed_keys) -= sdsAllocSize(dictGetKey(de));
+    kvstoreDictDelete(db->blessed_keys, slot, keyname);
 }
 
 /* True if the key must not be evicted. Reads the NO-EVICT bit inline from the
@@ -67,6 +104,25 @@ unsigned long long blessedKeysCount(void) {
     for (int i = 0; i < server.dbnum; i++)
         n += kvstoreSize(server.db[i].blessed_keys);
     return n;
+}
+
+/* Memory overhead of a DB's blessed index: the kvstore structure plus the sds
+ * key copies it owns (tracked O(1) in the kvstore metadata). For MEMORY STATS. */
+size_t blessedIndexMemUsage(redisDb *db) {
+    return kvstoreMemUsage(db->blessed_keys) + *blessedBytesRef(db->blessed_keys);
+}
+
+/* A slot migration (ASM) moved entries out of db->blessed_keys into `moved` via
+ * kvstoreMoveDict, which bypasses blessedSetDel; reconcile the byte counter by
+ * subtracting the moved keys' sizes. Main thread, before `moved` is freed. */
+void blessedIndexReconcileMoved(redisDb *db, kvstore *moved) {
+    size_t *bytes = blessedBytesRef(db->blessed_keys);
+    kvstoreIterator it;
+    kvstoreIteratorInit(&it, moved);
+    dictEntry *de;
+    while ((de = kvstoreIteratorNext(&it)) != NULL)
+        *bytes -= sdsAllocSize(dictGetKey(de));
+    kvstoreIteratorReset(&it);
 }
 
 /* ---- attribute-owner callbacks (registered with keyattr) ---- */

@@ -3215,6 +3215,10 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
     streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
 
+    /* kvstoreMoveDict bypassed blessedSetDel, so fix up db 0's cached overhead
+     * byte-count for the entries that just left its index. */
+    blessedIndexReconcileMoved(&server.db[0], blessed_keys);
+
     /* Hand the temp blessed-keys index to the trim job so the BIO callback frees
      * it alongside the other detached structures. */
     job->bg->blessed = blessed_keys;

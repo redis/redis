@@ -4328,6 +4328,8 @@ void blessInit(void);
 kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
 int blessNoEvict(kvobj *kv);
 unsigned long long blessedKeysCount(void);
+size_t blessedIndexMemUsage(redisDb *db);
+void blessedIndexReconcileMoved(redisDb *db, kvstore *moved);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2

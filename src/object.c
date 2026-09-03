@@ -1549,16 +1549,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
-        /* The bless NO-EVICT index (db->blessed_keys) is a derived per-DB kvstore
-         * like db->expires; count it as overhead, not dataset. Unlike db->expires
-         * it owns a sdsdup() copy of each key name, so add those bytes too. */
-        mem = kvstoreMemUsage(db->blessed_keys);
-        kvstoreIterator kvs_it;
-        kvstoreIteratorInit(&kvs_it, db->blessed_keys);
-        dictEntry *bde;
-        while ((bde = kvstoreIteratorNext(&kvs_it)) != NULL)
-            mem += sdsAllocSize(dictGetKey(bde));
-        kvstoreIteratorReset(&kvs_it);
+        /* The bless NO-EVICT index (db->blessed_keys) is a derived per-DB kvstore;
+         * count it as overhead, not dataset. blessedIndexMemUsage is O(1) - the sds
+         * key-copy bytes it owns are tracked in the index's kvstore metadata. */
+        mem = blessedIndexMemUsage(db);
         mh->db[mh->num_dbs].overhead_ht_blessed = mem;
         mem_total+=mem;
 
