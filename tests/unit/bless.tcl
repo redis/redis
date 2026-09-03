@@ -212,12 +212,15 @@ start_server {tags {"bless"}} {
         r flushall
         set long [string repeat x 2000]
         r set $long v
+        # after flushall + one key, only the current DB is non-empty -> one db.N
+        # entry (db.9 in standalone, db.0 in cluster). Look it up rather than hardcode.
         array set st1 [r memory stats]
-        array set d1 $st1(db.9)
+        set dbkey [lindex [lsort [array names st1 db.*]] 0]
+        array set d1 $st1($dbkey)
         set before $d1(overhead.hashtable.blessed)
         r bless set $long no-evict
         array set st2 [r memory stats]
-        array set d2 $st2(db.9)
+        array set d2 $st2($dbkey)
         set after $d2(overhead.hashtable.blessed)
         # the index now owns a ~2000-byte sdsdup copy of the key name
         assert {$after - $before > 1500}
