@@ -1753,6 +1753,7 @@ struct saveparam {
 
 struct moduleLoadQueueEntry {
     sds path;
+    int from_include;
     int argc;
     robj **argv;
 };
@@ -3239,8 +3240,8 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
-int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex);
-int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
+int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex, int from_include);
+int moduleLoad(const char *path, void **argv, int argc, int is_loadex, int from_include);
 int moduleUnload(sds name, const char **errmsg, int forced_unload);
 void moduleLoadInternalModules(void);
 void moduleLoadFromQueue(void);

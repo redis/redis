@@ -373,6 +373,9 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
+/* support detecting include vs main config file */
+static int reading_include_file = 0;
+
 void queueLoadModule(sds path, sds *argv, int argc) {
     int i;
     struct moduleLoadQueueEntry *loadmod;
@@ -381,6 +384,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     loadmod->argv = argc ? zmalloc(sizeof(robj*)*argc) : NULL;
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
+    loadmod->from_include = reading_include_file;;
     for (i = 0; i < argc; i++) {
         loadmod->argv[i] = createRawStringObject(argv[i],sdslen(argv[i]));
     }
@@ -548,7 +552,9 @@ void loadServerConfigFromString(char *config) {
 
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
+            reading_include_file = 1;
             loadServerConfig(argv[1], 0, NULL);
+            reading_include_file = 0;
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
@@ -1615,6 +1621,8 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
         struct RedisModule *module = dictGetVal(de);
         /* Internal modules doesn't have path and are not part of the configuration file */
         if (sdslen(module->loadmod->path) == 0) continue;
+        /* ignore when loaded from config */
+        if (module->loadmod->from_include) continue;
 
         line = sdsnew("loadmodule ");
         line = sdscatsds(line, module->loadmod->path);
