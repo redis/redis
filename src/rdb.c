@@ -4708,6 +4708,13 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
         sds key;
         robj *val;
 
+        /* When a new master is specified during slave rdbLoad, we should stop load
+         * the old RDB and sync new Master ASAP. */
+        if ((rdbflags & RDBFLAGS_REPLICATION) && server.repl_state != REPL_STATE_TRANSFER) {
+          serverLog(LL_WARNING, "Repl state changed, Stop load the RDB");
+          return C_ERR;
+        }
+
         /* Read type. */
         if ((type = rdbLoadType(rdb)) == -1) goto eoferr;
 
