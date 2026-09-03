@@ -244,6 +244,9 @@ static size_t rioFileLoadRead(rio *r, void *dst, size_t len) {
             len -= n;
             continue;
         }
+
+        /* read_buf is empty and the remaining request fits one buffer:
+         * refill read_buf, then serve len on the next iteration. */        
         ssize_t n = read(fileno(r->io.file.fp), r->io.file.read_buf, RIO_FILE_LOAD_BUFLEN);
         if (n <= 0) return 0;
         rioFileLoadChecksumChunk(r, r->io.file.read_buf, n);
