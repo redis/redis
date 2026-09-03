@@ -1614,6 +1614,7 @@ void clusterDelNode(clusterNode *delnode) {
 
 /* Node lookup by name */
 clusterNode *clusterLookupNode(const char *name, int length) {
+    if (server.cluster == NULL) return NULL;
     if (verifyClusterNodeId(name, length) != C_OK) return NULL;
     sds s = sdsnewlen(name, length);
     dictEntry *de = dictFind(server.cluster->nodes, s);
