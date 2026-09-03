@@ -1933,7 +1933,17 @@ void disconnectSlaves(void) {
     listNode *ln;
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
-        freeClient((client*)ln->value);
+        /* Attempt to flush pending replication stream before disconnecting
+         * slaves without blocking, increasing the chances of successful
+         * psync for slaves when failed over. */
+        client *slave = (client*)ln->value;
+        writeToClient(slave,0);
+        if (clientHasPendingReplies(slave)) {
+            sds client_desc = catClientInfoString(sdsempty(), slave);
+            serverLog(LL_NOTICE, "Slave still have pending replies when disconnect: %s", client_desc);
+            sdsfree(client_desc);
+        }
+        freeClient(slave);
     }
 }
 
