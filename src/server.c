@@ -4080,6 +4080,17 @@ void call(client *c, int flags) {
     /* Pass current server.ustime to avoid ustime() call if monotonic clock is used
      * and time will be updated before command execution based on monotonic clock. */
     const long long call_timer = use_hw_clock ? server.ustime : ustime();
+    /* Arm dict-rehash attribution at the outermost call() only. The
+     * accumulator starts at zero so that only rehash work performed during
+     * this top-level command's proc is attributed to it, and the timing
+     * flag is set so that the dict-side path starts collecting samples
+     * while this command runs. When the feature is disabled
+     * (latency_monitor_threshold == 0), the flag stays 0 and the entire
+     * timing path is a single predictable branch. */
+    if (server.execution_nesting == 0) {
+        dictRehashStepElapsedUs = 0;
+        dictRehashStepTiming = (server.latency_monitor_threshold != 0);
+    }
     enterExecutionUnit(1, call_timer);
 
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
@@ -4136,9 +4147,19 @@ void call(client *c, int flags) {
         char *latency_event = (real_cmd->flags & CMD_FAST) ?
                                "fast-command" : "command";
         latencyAddSampleIfNeeded(latency_event,duration/1000);
-        if (server.execution_nesting == 0)
+        if (server.execution_nesting == 0) {
             durationAddSample(EL_DURATION_TYPE_CMD, duration);
+            latencyAddSampleIfNeeded("dict-rehash-during-command",
+                                     (long long)(dictRehashStepElapsedUs/1000));
+        }
     }
+
+    /* Disarm the dict-rehash timing path unconditionally at outermost call()
+     * exit, so cron work between commands does not pay the timing cost. This
+     * must run regardless of update_command_stats (e.g. during AOF loading)
+     * so the flag cannot stay armed across paths that skip the stats block. */
+    if (server.execution_nesting == 0)
+        dictRehashStepTiming = 0;
 
     /* Log the command into the Slow log if needed.
      * If the client is blocked we will handle slowlog when it is unblocked. */
