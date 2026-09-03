@@ -3006,6 +3006,17 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
+/* printf-alike handed to monotonicInit(), so clock detection fallbacks end up
+ * in the server log instead of stderr. */
+static void monotonicLogCallback(const char *fmt, ...) {
+    char msg[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    serverLog(LL_NOTICE, "monotonic clock: %s", msg);
+}
+
 void initServer(void) {
     int j;
 
@@ -3089,7 +3100,7 @@ void initServer(void) {
     hashTemplatesInit();
     createSharedObjects();
     adjustOpenFilesLimit();
-    const char *clk_msg = monotonicInit();
+    const char *clk_msg = monotonicInit(monotonicLogCallback);
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
@@ -8081,7 +8092,7 @@ int main(int argc, char **argv) {
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
-    monotonicInit(); /* Required for dict tests, that are relying on monotime during dict rehashing. */
+    monotonicInit(NULL); /* Required for dict tests, that are relying on monotime during dict rehashing. */
     if (argc >= 3 && !strcasecmp(argv[1], "test")) {
         int flags = 0;
         for (j = 3; j < argc; j++) {
