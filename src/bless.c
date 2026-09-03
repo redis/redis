@@ -181,7 +181,7 @@ static void blessedIndexUpdate(redisDb *db, sds keyname, uint64_t mask) {
 
 /* Shared body of BLESS SET (add=1, OR the flags in) and BLESS CLEAR (add=0,
  * AND-NOT them out). Replies 1 if the key's flag set changed, else 0. */
-static void blessUpdate(client *c, int add) {
+static void blessGenericCommand(client *c, int add) {
     uint64_t flags;
     if (blessParseFlags(c, 3, &flags) != C_OK) {
         addReplyErrorObject(c, shared.syntaxerr);
@@ -236,9 +236,9 @@ static void blessGetCommand(client *c) {
 void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub, "set")) {
-        blessUpdate(c, 1);          /* BLESS SET <key> NO-EVICT [flag ...] - turn flags ON */
+        blessGenericCommand(c, 1);          /* BLESS SET <key> NO-EVICT [flag ...] - turn flags ON */
     } else if (!strcasecmp(sub, "clear")) {
-        blessUpdate(c, 0);          /* BLESS CLEAR <key> NO-EVICT [flag ...] - turn flags OFF */
+        blessGenericCommand(c, 0);          /* BLESS CLEAR <key> NO-EVICT [flag ...] - turn flags OFF */
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "list")) {
