@@ -304,8 +304,11 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         r config resetstat
         for {set j 0} {$j < 300} {incr j} { catch {r set warm:$j [string repeat y 1000]} }
         assert {[s evicted_keys] > 0}
-        # Bless survivors AFTER they may already sit in the pool. Cap the count so
-        # blessed keys never exhaust maxmemory on their own.
+        # Lift the limit before blessing: BLESS SET is a DENYOOM write, so while
+        # over maxmemory it would trigger eviction and could drop the very old:*
+        # key we're about to bless. The survivors are already in the LRU pool from
+        # the warm-phase eviction above.
+        r config set maxmemory 0
         set blessed {}
         for {set j 0} {$j < 300 && [llength $blessed] < 40} {incr j} {
             if {[r exists old:$j]} {
@@ -314,8 +317,9 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
             }
         }
         assert {[llength $blessed] > 0}
-        # Heavy pressure: the pool-based selection runs many times. A stale pooled
-        # entry that became blessed must NOT be evicted.
+        # Heavy pressure again: the pool-based selection runs many times. A stale
+        # pooled entry that became blessed must NOT be evicted.
+        r config set maxmemory [expr {$used + 100000}]
         for {set j 0} {$j < 4000} {incr j} { catch {r set flood:$j [string repeat z 1000]} }
         foreach k $blessed { assert_equal 1 [r exists $k] }
         r config set maxmemory 0
