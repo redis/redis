@@ -3061,16 +3061,18 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
         }
 
         while (ln && limit--) {
+            double score = zbtGetScore(ln);
+
             /* Abort when the node is no longer in range. */
             if (reverse) {
-                if (!zslValueGteMin(zbtGetScore(ln),range)) break;
+                if (!zslValueGteMin(score,range)) break;
             } else {
-                if (!zslValueLteMax(zbtGetScore(ln),range)) break;
+                if (!zslValueLteMax(score,range)) break;
             }
 
             rangelen++;
             sds ele = zbtGetEle(ln);
-			handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
+            handler->emitResultFromCBuffer(handler, ele, sdslen(ele), score);
 
             /* Move to next node */
             if (reverse) {

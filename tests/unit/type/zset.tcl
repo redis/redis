@@ -1412,6 +1412,92 @@ start_server {tags {"zset"}} {
         }
     }
 
+    # A run of identical scores wider than a B-tree leaf, with a distinct
+    # score on either side, so that a score bound lands inside the run
+    # instead of at a leaf edge.
+    proc create_dup_score_zset {key runlen} {
+        r del $key
+        set args {}
+        for {set i 0} {$i < $runlen} {incr i} { lappend args 10 [format dup%05d $i] }
+        r zadd $key 0 lo
+        r zadd $key {*}$args
+        r zadd $key 20 hi
+    }
+
+    proc dup_score_members {first last} {
+        set res {}
+        for {set i $first} {$i <= $last} {incr i} { lappend res [format dup%05d $i] }
+        return $res
+    }
+
+    test "Large B-tree score ranges span a run of equal scores" {
+        with_btree_encoding {
+            create_dup_score_zset zdup{t} 300
+            assert_encoding btree zdup{t}
+            set run [dup_score_members 0 299]
+
+            assert_equal $run [r zrangebyscore zdup{t} 10 10]
+            assert_equal [lreverse $run] [r zrevrangebyscore zdup{t} 10 10]
+
+            # Both ends of the whole key, and of the run itself.
+            assert_equal {lo} [r zrangebyscore zdup{t} -inf +inf LIMIT 0 1]
+            assert_equal {hi} [r zrevrangebyscore zdup{t} +inf -inf LIMIT 0 1]
+            assert_equal [dup_score_members 0 0] [r zrangebyscore zdup{t} 10 10 LIMIT 0 1]
+            assert_equal [dup_score_members 299 299] [r zrevrangebyscore zdup{t} 10 10 LIMIT 0 1]
+
+            # Exclusive bounds drop the neighbouring scores, never the run.
+            assert_equal $run [r zrangebyscore zdup{t} (0 (20]
+            assert_equal [lreverse $run] [r zrevrangebyscore zdup{t} (20 (0]
+            assert_equal {} [r zrevrangebyscore zdup{t} (10 (10]
+            assert_equal {} [r zrangebyscore zdup{t} (10 (10]
+
+            # A reverse range is exactly its forward range, backwards.
+            foreach {min max} {-inf +inf 0 20 10 10 5 15 10 20 0 10 20 0 30 40} {
+                assert_equal [lreverse [r zrangebyscore zdup{t} $min $max]] \
+                             [r zrevrangebyscore zdup{t} $max $min]
+            }
+        }
+    }
+
+    test "Large B-tree score range LIMIT offset crosses the walk threshold" {
+        with_btree_encoding {
+            create_dup_score_zset zdup{t} 300
+            assert_encoding btree zdup{t}
+
+            # Small offsets step along the leaf chain, larger ones jump by
+            # rank; both have to land on the same element.
+            foreach offset {0 1 9 10 11 12 63 64 65 100 298 299} {
+                assert_equal [dup_score_members $offset $offset] \
+                             [r zrangebyscore zdup{t} 10 10 LIMIT $offset 1]
+                set want [dup_score_members [expr {299 - $offset}] [expr {299 - $offset}]]
+                assert_equal $want [r zrevrangebyscore zdup{t} 10 10 LIMIT $offset 1]
+                assert_equal $want [r zrange zdup{t} 10 10 BYSCORE REV LIMIT $offset 1]
+            }
+
+            # An offset past the end of the range yields nothing, in both
+            # directions and either syntax.
+            foreach offset {300 301 1000} {
+                assert_equal {} [r zrangebyscore zdup{t} 10 10 LIMIT $offset 5]
+                assert_equal {} [r zrevrangebyscore zdup{t} 10 10 LIMIT $offset 5]
+                assert_equal {} [r zrange zdup{t} 10 10 BYSCORE REV LIMIT $offset 5]
+            }
+
+            # An offset that walks out of the range lands on the neighbouring
+            # score, which is out of range and must not be returned.
+            assert_equal {} [r zrevrangebyscore zdup{t} 10 (0 LIMIT 300 5]
+            assert_equal {hi} [r zrangebyscore zdup{t} 10 +inf LIMIT 300 5]
+
+            assert_equal [list [format dup%05d 299] 10 [format dup%05d 298] 10] \
+                [r zrevrangebyscore zdup{t} 10 10 LIMIT 0 2 WITHSCORES]
+            assert_equal [list [format dup%05d 289] 10 [format dup%05d 288] 10] \
+                [r zrange zdup{t} 10 10 BYSCORE REV LIMIT 10 2 WITHSCORES]
+
+            # ZRANGESTORE shares the same lookup.
+            assert_equal 2 [r zrangestore zdst{t} zdup{t} 10 10 BYSCORE REV LIMIT 11 2]
+            assert_equal [dup_score_members 287 288] [r zrange zdst{t} 0 -1]
+        }
+    }
+
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
         assert_error "*WRONGTYPE*" {r zpopmin foo{t}}

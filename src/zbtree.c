@@ -953,12 +953,27 @@ zbtElem *zbtPrev(zbtree *t, zbtElem *e) {
  * Range queries
  *----------------------------------------------------------------------------*/
 
-/* Count the elements at the start of the sorted order for which before()
- * returns true. 'before' must be monotonic in tree order (true for a prefix,
- * then false). */
+/* A predicate that is monotonic in tree order: true for a prefix of the
+ * sorted order, then false. */
 typedef int (*zbtBeforeFn)(const zbtElem *e, void *arg);
 
-static unsigned long zbtCountBefore(zbtree *t, zbtBeforeFn before, void *arg) {
+/* Where such a predicate flips: 'count' elements satisfy it, and 'leaf'/'idx'
+ * hold the position of the first element that does not ('idx' reaches
+ * leaf->n.count when every element of the leaf satisfies it).
+ *
+ * The descent only skips a child once the minimum of the following one
+ * satisfies the predicate, and that minimum is inherited all the way down, so
+ * a non-empty prefix always ends inside the leaf the descent lands on: count
+ * > 0 implies idx > 0, and the last satisfying element sits at idx - 1 of
+ * that same leaf. Both ends of a range are therefore one descent away. */
+typedef struct zbtBoundary {
+    unsigned long count;
+    zbtLeaf *leaf;
+    int idx;
+} zbtBoundary;
+
+static void zbtFindBoundary(zbtree *t, zbtBeforeFn before, void *arg,
+                            zbtBoundary *b) {
     unsigned long cnt = 0;
     zbtNode *n = t->root;
     while (!n->isleaf) {
@@ -971,11 +986,38 @@ static unsigned long zbtCountBefore(zbtree *t, zbtBeforeFn before, void *arg) {
         n = in->child[i];
     }
     zbtLeaf *lf = (zbtLeaf *)n;
-    for (uint32_t i = 0; i < lf->n.count; i++) {
-        if (before(lf->elems[i], arg)) cnt++;
-        else break;
-    }
-    return cnt;
+    uint32_t i = 0;
+    while (i < lf->n.count && before(lf->elems[i], arg)) i++;
+    b->count = cnt + i;
+    b->leaf = lf;
+    b->idx = (int)i;
+}
+
+/* Count the elements at the start of the sorted order for which before()
+ * returns true. */
+static unsigned long zbtCountBefore(zbtree *t, zbtBeforeFn before, void *arg) {
+    zbtBoundary b;
+    zbtFindBoundary(t, before, arg, &b);
+    return b.count;
+}
+
+/* Last element of the prefix (rank b->count), or NULL when it is empty. */
+static zbtElem *zbtBoundaryLast(zbtBoundary *b, zbtIter *it) {
+    if (b->count == 0) return NULL;
+    debugServerAssert(b->idx > 0);
+    if (it) { it->leaf = (zbtNode *)b->leaf; it->idx = b->idx - 1; }
+    return b->leaf->elems[b->idx - 1];
+}
+
+/* First element past the prefix (rank b->count + 1), or NULL when the prefix
+ * covers the whole tree. */
+static zbtElem *zbtBoundaryNext(zbtBoundary *b, zbtIter *it) {
+    zbtLeaf *lf = b->leaf;
+    int idx = b->idx;
+    while (lf && idx >= (int)lf->n.count) { lf = lf->next; idx = 0; }
+    if (!lf) return NULL;
+    if (it) { it->leaf = (zbtNode *)lf; it->idx = idx; }
+    return lf->elems[idx];
 }
 
 /* Predicates for score ranges. */
@@ -986,6 +1028,83 @@ static int beforeScoreLe(const zbtElem *e, void *arg) {
     return zbtGetScore(e) <= *(double *)arg;
 }
 
+/* Locate the first element satisfying the lower score bound. Searching from
+ * the left keeps the common low-minimum case short. The skipped subtree sizes
+ * give the element's rank without a second descent. */
+static zbtElem *zbtFirstInRange(zbtree *t, zrangespec *range,
+                                unsigned long *out_rank, zbtIter *it) {
+    unsigned long before = 0;
+    zbtNode *n = t->root;
+    while (!n->isleaf) {
+        zbtInner *in = (zbtInner *)n;
+        int i = 0;
+        while (i < (int)in->n.count - 1 &&
+               !zslValueGteMin(zbtGetScore(in->sep[i + 1]), range))
+        {
+            before += in->csize[i];
+            i++;
+        }
+        n = in->child[i];
+    }
+
+    zbtLeaf *lf = (zbtLeaf *)n;
+    int idx = 0;
+    while (idx < (int)lf->n.count &&
+           !zslValueGteMin(zbtGetScore(lf->elems[idx]), range))
+    {
+        before++;
+        idx++;
+    }
+    if (idx == (int)lf->n.count) {
+        lf = lf->next;
+        idx = 0;
+    }
+    if (lf == NULL) return NULL;
+
+    zbtElem *e = lf->elems[idx];
+    if (!zslValueLteMax(zbtGetScore(e), range)) return NULL;
+    if (out_rank) *out_rank = before + 1;
+    if (it) { it->leaf = (zbtNode *)lf; it->idx = idx; }
+    return e;
+}
+
+/* Locate the last element satisfying the upper score bound. Searching from
+ * the right is the reverse-range counterpart of zbtFirstInRange(): whole
+ * subtrees beyond max are subtracted from the absolute rank, and the result
+ * is already positioned for backward leaf iteration. */
+static zbtElem *zbtLastInRange(zbtree *t, zrangespec *range,
+                               unsigned long *out_rank, zbtIter *it) {
+    unsigned long rank = t->length;
+    zbtNode *n = t->root;
+    while (!n->isleaf) {
+        zbtInner *in = (zbtInner *)n;
+        int i = (int)in->n.count - 1;
+        while (i > 0 &&
+               !zslValueLteMax(zbtGetScore(in->sep[i]), range))
+        {
+            rank -= in->csize[i];
+            i--;
+        }
+        n = in->child[i];
+    }
+
+    zbtLeaf *lf = (zbtLeaf *)n;
+    int idx = (int)lf->n.count - 1;
+    while (idx >= 0 &&
+           !zslValueLteMax(zbtGetScore(lf->elems[idx]), range))
+    {
+        rank--;
+        idx--;
+    }
+    if (idx < 0) return NULL;
+
+    zbtElem *e = lf->elems[idx];
+    if (!zslValueGteMin(zbtGetScore(e), range)) return NULL;
+    if (out_rank) *out_rank = rank;
+    if (it) { it->leaf = (zbtNode *)lf; it->idx = idx; }
+    return e;
+}
+
 /* Predicates for lex ranges. */
 static int beforeNotGteMin(const zbtElem *e, void *arg) {
     return !zslLexValueGteMin(zbtGetEle((zbtElem *)e), (zlexrangespec *)arg);
@@ -994,42 +1113,134 @@ static int beforeLteMax(const zbtElem *e, void *arg) {
     return zslLexValueLteMax(zbtGetEle((zbtElem *)e), (zlexrangespec *)arg);
 }
 
-/* Shared implementation once the [firstRank, lastRank] window of the range
- * is known. Mirrors the skiplist zslNthIn*Range semantics: n >= 0 counts
- * forward from the first in-range element, n < 0 counts back from the last. */
+/* Offsets up to this many elements are reached by stepping along the leaf
+ * chain, which stays cheaper than the root-to-leaf descent zbtElemByRank()
+ * needs to jump straight to a rank. Matches the search window the skiplist
+ * used before the tree replaced it. */
+#define ZBT_RANGE_WALK_MAX 10
+
+/* Shared implementation of the Nth-in-range lookups. 'before_lo' selects the
+ * elements that precede the range, 'before_hi' those up to and including its
+ * end. Mirrors the skiplist zslNthIn*Range semantics: n >= 0 counts forward
+ * from the first in-range element, n < 0 counts back from the last.
+ *
+ * Only the end the walk starts from is located, by a single boundary descent.
+ * Everything past that end already clears its side of the range, so one
+ * predicate check on the element landed on decides whether the offset has
+ * carried the result out through the opposite side. */
 static zbtElem *zbtNthGeneric(zbtree *t, long n, unsigned long *out_rank,
-                              zbtIter *it, unsigned long firstRank,
-                              unsigned long lastRank) {
-    if (firstRank == 0 || firstRank > lastRank) return NULL;
-    long target;
-    if (n >= 0) target = (long)firstRank + n;
-    else target = (long)lastRank + 1 + n;
-    if (target < (long)firstRank || target > (long)lastRank) return NULL;
-    if (out_rank) *out_rank = (unsigned long)target;
-    return zbtElemByRank(t, (unsigned long)target, it);
+                              zbtIter *it,
+                              zbtBeforeFn before_lo, void *lo_arg,
+                              zbtBeforeFn before_hi, void *hi_arg) {
+    zbtBoundary b;
+    zbtIter pos;
+    zbtElem *e;
+    unsigned long rank;
+
+    if (n >= 0) {
+        zbtFindBoundary(t, before_lo, lo_arg, &b);
+        e = zbtBoundaryNext(&b, &pos);
+        if (e == NULL) return NULL;
+
+        unsigned long steps = (unsigned long)n;
+        if (steps >= t->length - b.count) return NULL;
+        rank = b.count + 1 + steps;
+        if (n > 0) {
+            if (n <= ZBT_RANGE_WALK_MAX) {
+                for (long i = 0; i < n; i++) e = zbtIterNext(&pos);
+            } else {
+                e = zbtElemByRank(t, rank, &pos);
+            }
+            if (e == NULL) return NULL;
+        }
+        if (!before_hi(e, hi_arg)) return NULL;
+    } else {
+        zbtFindBoundary(t, before_hi, hi_arg, &b);
+        e = zbtBoundaryLast(&b, &pos);
+        if (e == NULL) return NULL;
+
+        /* Add before negating so LONG_MIN remains representable. */
+        unsigned long steps = (unsigned long)(-(n + 1));
+        if (steps >= b.count) return NULL;
+        rank = b.count - steps;
+        if (steps > 0) {
+            if (steps <= ZBT_RANGE_WALK_MAX) {
+                for (unsigned long i = 0; i < steps; i++) e = zbtIterPrev(&pos);
+            } else {
+                e = zbtElemByRank(t, rank, &pos);
+            }
+            if (e == NULL) return NULL;
+        }
+        if (before_lo(e, lo_arg)) return NULL;
+    }
+
+    if (out_rank) *out_rank = rank;
+    if (it) *it = pos;
+    return e;
 }
 
 zbtElem *zbtNthInRange(zbtree *t, zrangespec *range, long n,
                        unsigned long *out_rank, zbtIter *it) {
     if (t->length == 0) return NULL;
-    double minv = range->min, maxv = range->max;
-    /* Elements strictly before the range start. */
-    unsigned long before = range->minex ?
-        zbtCountBefore(t, beforeScoreLe, &minv) :
-        zbtCountBefore(t, beforeScoreLt, &minv);
-    /* Elements up to and including the range end. */
-    unsigned long upto = range->maxex ?
-        zbtCountBefore(t, beforeScoreLt, &maxv) :
-        zbtCountBefore(t, beforeScoreLe, &maxv);
-    return zbtNthGeneric(t, n, out_rank, it, before + 1, upto);
+
+    zbtIter pos;
+    zbtElem *e;
+    unsigned long rank;
+
+    if (n >= 0) {
+        e = zbtFirstInRange(t, range, &rank, &pos);
+        if (e == NULL) return NULL;
+
+        unsigned long steps = (unsigned long)n;
+        if (steps > t->length - rank) return NULL;
+        rank += steps;
+        if (steps > 0) {
+            if (steps <= ZBT_RANGE_WALK_MAX) {
+                for (unsigned long i = 0; i < steps; i++)
+                    e = zbtIterNext(&pos);
+            } else {
+                e = zbtElemByRank(t, rank, &pos);
+            }
+            if (e == NULL || !zslValueLteMax(zbtGetScore(e), range))
+                return NULL;
+        }
+    } else {
+        /* Add before negating so LONG_MIN remains representable. */
+        unsigned long steps = (unsigned long)(-(n + 1));
+        if (steps <= ZBT_RANGE_WALK_MAX) {
+            e = zbtLastInRange(t, range, &rank, &pos);
+            if (e == NULL || steps >= rank) return NULL;
+            for (unsigned long i = 0; i < steps; i++)
+                e = zbtIterPrev(&pos);
+            rank -= steps;
+            if (steps > 0 && !zslValueGteMin(zbtGetScore(e), range))
+                return NULL;
+        } else {
+            /* For a rank jump, only the upper endpoint's rank is needed.
+             * Counting from the left matches zbtElemByRank()'s traversal and
+             * avoids positioning an iterator that would be discarded. */
+            double maxv = range->max;
+            rank = range->maxex ?
+                zbtCountBefore(t, beforeScoreLt, &maxv) :
+                zbtCountBefore(t, beforeScoreLe, &maxv);
+            if (steps >= rank) return NULL;
+            rank -= steps;
+            e = zbtElemByRank(t, rank, &pos);
+            if (e == NULL || !zslValueGteMin(zbtGetScore(e), range))
+                return NULL;
+        }
+    }
+
+    if (out_rank) *out_rank = rank;
+    if (it) *it = pos;
+    return e;
 }
 
 zbtElem *zbtNthInLexRange(zbtree *t, zlexrangespec *range, long n,
                           unsigned long *out_rank, zbtIter *it) {
     if (t->length == 0) return NULL;
-    unsigned long before = zbtCountBefore(t, beforeNotGteMin, range);
-    unsigned long upto = zbtCountBefore(t, beforeLteMax, range);
-    return zbtNthGeneric(t, n, out_rank, it, before + 1, upto);
+    return zbtNthGeneric(t, n, out_rank, it,
+                         beforeNotGteMin, range, beforeLteMax, range);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1339,6 +1550,62 @@ static void *zbtTestReloc(void *ptr) {
     memcpy(n, ptr, sz);
     zfree(ptr);
     return n;
+}
+
+/* Reference zbtNthInRange(), by linear scan: the elements of 'range' in tree
+ * order, indexed the same way (n >= 0 from the first, n < 0 from the last).
+ * Deliberately ignores the tree structure so it cannot share a bug with the
+ * boundary descent it checks. */
+static zbtElem *zbtRefNthInRange(zbtree *t, zrangespec *range, long n,
+                                 unsigned long *out_rank) {
+    unsigned long first = 0, last = 0, rank = 0;
+    zbtIter it;
+
+    for (zbtElem *e = zbtFirst(t, &it); e; e = zbtIterNext(&it)) {
+        double s = zbtGetScore(e);
+        rank++;
+        if (!zslValueGteMin(s, range) || !zslValueLteMax(s, range)) continue;
+        if (first == 0) first = rank;
+        last = rank;
+    }
+    if (first == 0) return NULL;
+
+    unsigned long target;
+    if (n >= 0) {
+        unsigned long steps = (unsigned long)n;
+        if (steps > last - first) return NULL;
+        target = first + steps;
+    } else {
+        unsigned long steps = (unsigned long)(-(n + 1));
+        if (steps > last - first) return NULL;
+        target = last - steps;
+    }
+    if (out_rank) *out_rank = target;
+    return zbtElemByRank(t, target, NULL);
+}
+
+/* Compare zbtNthInRange() against the linear reference for one (range, n),
+ * including the rank it reports and the position of the iterator it left
+ * behind. */
+static void zbtCheckNthInRange(zbtree *t, zrangespec *range, long n) {
+    unsigned long got_rank = 0, want_rank = 0;
+    zbtIter it;
+    zbtElem *got = zbtNthInRange(t, range, n, &got_rank, &it);
+    zbtElem *want = zbtRefNthInRange(t, range, n, &want_rank);
+
+    serverAssert(got == want);
+    if (want == NULL) return;
+    serverAssert(got_rank == want_rank);
+    serverAssert(zbtElemByRank(t, got_rank, NULL) == got);
+
+    /* The iterator has to be usable for the scan the callers run from here,
+     * in either direction. */
+    zbtIter fwd = it, bwd = it;
+    serverAssert(zbtIterNext(&fwd) == zbtElemByRank(t, got_rank + 1, NULL));
+    if (got_rank > 1)
+        serverAssert(zbtIterPrev(&bwd) == zbtElemByRank(t, got_rank - 1, NULL));
+    else
+        serverAssert(zbtIterPrev(&bwd) == NULL);
 }
 
 int zbtreeTest(int argc, char **argv, int flags) {
@@ -1687,6 +1954,96 @@ int zbtreeTest(int argc, char **argv, int flags) {
         zfree(elems);
         zbtFree(bt);
         test_cond("Compact score encoding width boundaries", 1);
+    }
+
+    /* Range endpoint lookups, against a linear reference. Both directions of
+     * Z[REV]RANGEBYSCORE start here, and the offset decides whether the
+     * element is reached by walking the leaf chain or by a rank jump. */
+    {
+        /* Equal-score runs wider than a leaf, so a boundary lands inside a
+         * run instead of at a leaf edge, with infinities at both ends. */
+        static const struct { double score; int count; } runs[] = {
+            {-INFINITY, 1},
+            {0, 100},
+            {10, 300},          /* several leaves of one score */
+            {10.5, 1},
+            {20, 100},
+            {INFINITY, 1},
+        };
+        int nruns = (int)(sizeof(runs) / sizeof(runs[0]));
+        int total = 0;
+        for (int r = 0; r < nruns; r++) total += runs[r].count;
+
+        zbtElem **arr = zmalloc(sizeof(zbtElem *) * total);
+        int at = 0;
+        for (int r = 0; r < nruns; r++) {
+            for (int i = 0; i < runs[r].count; i++) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "r%d:%05d", r, i);
+                sds s = sdsnew(buf);
+                arr[at++] = zbtCreateElem(runs[r].score, s);
+                sdsfree(s);
+            }
+        }
+        zbtree *bt = zbtCreate();
+        zbtBuildFromSorted(bt, arr, total);
+        zfree(arr);
+        zbtDebugVerify(bt);
+
+        static const zrangespec ranges[] = {
+            {-INFINITY, INFINITY, 0, 0},   /* everything */
+            {-INFINITY, INFINITY, 1, 1},   /* everything but the infinities */
+            {10, 10, 0, 0},                /* the multi-leaf run, exactly */
+            {10, 10, 1, 0},                /* empty: excluded from below */
+            {10, 10, 0, 1},                /* empty: excluded from above */
+            {0, 20, 0, 0},
+            {0, 20, 1, 1},
+            {-INFINITY, 10, 0, 0},
+            {10, INFINITY, 0, 0},
+            {-INFINITY, -INFINITY, 0, 0},  /* single element at the head */
+            {INFINITY, INFINITY, 0, 0},    /* single element at the tail */
+            {10.5, 10.5, 0, 0},            /* single element mid-tree */
+            {20, 0, 0, 0},                 /* inverted */
+            {100, 200, 0, 0},              /* past the tail */
+            {-200, -100, 0, 0},            /* before the head */
+        };
+        /* Offsets around ZBT_RANGE_WALK_MAX (leaf walk vs rank jump), around
+         * the leaf fanout, and past both ends of every range. */
+        static const long offsets[] = {
+            0, 1, 2, 9, 10, 11, 12, 63, 64, 65, 99, 100, 299, 300, 301,
+            (long)ZBT_LEAF_MAX * ZBT_INNER_MAX, 100000,
+            -1, -2, -9, -10, -11, -12, -64, -100, -300, -301, -100000,
+            LONG_MIN, LONG_MAX,
+        };
+        int nranges = (int)(sizeof(ranges) / sizeof(ranges[0]));
+        int noffsets = (int)(sizeof(offsets) / sizeof(offsets[0]));
+        for (int i = 0; i < nranges; i++) {
+            zrangespec rs = ranges[i];
+            for (int j = 0; j < noffsets; j++)
+                zbtCheckNthInRange(bt, &rs, offsets[j]);
+        }
+        zbtFree(bt);
+
+        /* Degenerate trees: nothing to descend into, and a single element
+         * that is both ends of every range covering it. */
+        zbtree *empty = zbtCreate();
+        zrangespec all = {-INFINITY, INFINITY, 0, 0};
+        serverAssert(zbtNthInRange(empty, &all, 0, NULL, NULL) == NULL);
+        serverAssert(zbtNthInRange(empty, &all, -1, NULL, NULL) == NULL);
+        zbtFree(empty);
+
+        zbtree *one = zbtCreate();
+        {
+            sds s = sdsnew("only");
+            zbtInsert(one, 5, s);
+            sdsfree(s);
+        }
+        for (int j = 0; j < noffsets; j++) {
+            zrangespec rs = all;
+            zbtCheckNthInRange(one, &rs, offsets[j]);
+        }
+        zbtFree(one);
+        test_cond("Range endpoint lookups match a linear scan", 1);
     }
 
     return 0;
