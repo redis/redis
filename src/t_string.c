@@ -1411,6 +1411,54 @@ void strlenCommand(client *c) {
     addReplyLongLong(c,stringObjectLen(kv));
 }
 
+/* Compute only the LCS length using two rolling rows, and reply to the client.
+ * Used when LCS is invoked with LEN (and without IDX), since recovering the
+ * actual subsequence or match indices is not required. Memory usage is
+ * O(min(|a|,|b|)) instead of O(|a|*|b|). On allocation/limit failures this
+ * sends an error reply; in all cases the client receives exactly one reply. */
+static void lcsReplyLength(client *c, sds a, sds b) {
+    uint32_t alen = sdslen(a);
+    uint32_t blen = sdslen(b);
+    /* Use the shorter string for the inner dimension to minimize memory. */
+    const char *astr = a;
+    const char *bstr = b;
+    if (blen > alen) {
+        uint32_t tmp_len = alen; alen = blen; blen = tmp_len;
+        const char *tmp_str = astr; astr = bstr; bstr = tmp_str;
+    }
+
+    size_t row_bytes = ((size_t)blen + 1) * sizeof(uint32_t);
+    if (row_bytes * 2 > (size_t)server.proto_max_bulk_len) {
+        addReplyError(c, "Insufficient memory, transient memory for LCS exceeds proto-max-bulk-len");
+        return;
+    }
+    uint32_t *prev = ztrycalloc(row_bytes);
+    uint32_t *curr = ztrycalloc(row_bytes);
+    if (!prev || !curr) {
+        if (prev) zfree(prev);
+        if (curr) zfree(curr);
+        addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
+        return;
+    }
+
+    for (uint32_t ii = 1; ii <= alen; ii++) {
+        curr[0] = 0;
+        for (uint32_t jj = 1; jj <= blen; jj++) {
+            if (astr[ii - 1] == bstr[jj - 1]) {
+                curr[jj] = prev[jj - 1] + 1;
+            } else {
+                uint32_t v1 = prev[jj];
+                uint32_t v2 = curr[jj - 1];
+                curr[jj] = v1 > v2 ? v1 : v2;
+            }
+        }
+        uint32_t *tmp = prev; prev = curr; curr = tmp;
+    }
+    addReplyLongLong(c, prev[blen]);
+    zfree(prev);
+    zfree(curr);
+}
+
 /* LCS key1 key2 [LEN] [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN] */
 void lcsCommand(client *c) {
     uint32_t i, j;
@@ -1467,6 +1515,13 @@ void lcsCommand(client *c) {
     /* Detect string truncation or later overflows. */
     if (sdslen(a) >= UINT32_MAX-1 || sdslen(b) >= UINT32_MAX-1) {
         addReplyError(c, "String too long for LCS");
+        goto cleanup;
+    }
+
+    /* Fast path: when only LEN is requested, compute with rolling DP
+     * to avoid allocating the full O(n*m) table. */
+    if (getlen && !getidx) {
+        lcsReplyLength(c, a, b);
         goto cleanup;
     }
 
