@@ -8045,6 +8045,9 @@ typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
+#if USE_OPENSSL == 1
+int tlsTest(int argc, char **argv, int flags);
+#endif
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -8074,6 +8077,9 @@ struct redisTest {
     {"zset", zsetTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
+#if USE_OPENSSL == 1
+    {"tls", tlsTest},
+#endif
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
