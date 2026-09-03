@@ -3249,35 +3249,70 @@ void aclCommand(client *c) {
             addReplyBulkCString(c, "timestamp-last-updated");
             addReplyLongLong(c, le->ctime);
         }
-    } else if (!strcasecmp(sub,"dryrun") && c->argc >= 4) {
-        struct redisCommand *cmd;
-        user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
-        if (u == NULL) {
-            addReplyErrorFormat(c, "User '%s' not found", (char *)c->argv[2]->ptr);
+    } else if (!strcasecmp(sub,"setpass") && c->argc == 3) {
+        /* Redact the password to not leak any information. */
+        redactClientCommandArgument(c, 2);
+
+        /* Check if the user is authenticated. */
+        if (c->user == NULL || !c->authenticated) {
+            addReplyError(c, "ACL SETPASS can only be executed by authenticated users");
             return;
         }
 
-        if ((cmd = lookupCommand(c->argv + 3, c->argc - 3)) == NULL) {
-            addReplyErrorFormat(c, "Command '%s' not found", (char *)c->argv[3]->ptr);
-            return;
-        }
+        /* Validate password length (min 4 chars for basic security). */
+    /* Validate password length (min 4 chars). */
+size_t pwlen = sdslen(c->argv[2]->ptr);
+if (pwlen < 4) {
+    addReplyErrorFormat(c,
+        "Password must be at least %zu characters long", (size_t)4);
+    return;
+}
 
-        if ((cmd->arity > 0 && cmd->arity != c->argc-3) ||
-            (c->argc-3 < -cmd->arity))
-        {
-            addReplyErrorFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
-            return;
-        }
+/* Build ACL operation string: >password */
+sds password = c->argv[2]->ptr;
+sds aclop = sdscatlen(sdsnew(">"), password, pwlen);
 
-        int idx;
-        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, NULL, &idx);
-        if (result != ACL_OK) {
-            sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, 1);
-            addReplyBulkSds(c, err);
-            return;
-        }
+/* Reset existing passwords and apply new one */
+int acl_err = ACLSetUser(c->user, "resetpass", -1);
+if (acl_err == C_OK) {
+    acl_err = ACLSetUser(c->user, aclop, sdslen(aclop));
+}
+sdsfree(aclop);
 
-        addReply(c,shared.ok);
+/* Error handling */
+if (acl_err != C_OK) {
+
+    /* Replica / read-only instance */
+    if (server.masterhost && server.master) {
+        addReplyError(c,
+            "Password update failed: instance is read-only");
+        return;
+    }
+
+    /* Out-of-memory detection */
+    if (errno == ENOMEM) {
+        addReplyError(c,
+            "Password update failed: Out of memory");
+        return;
+    }
+
+    /* Specific ACL failure message if available */
+    const char *errmsg = ACLSetUserStringError();
+    if (errmsg && errmsg[0] != '\0') {
+        addReplyErrorFormat(c,
+            "Failed to set password: %s", errmsg);
+    } else {
+        addReplyError(c,
+            "Failed to set password");
+    }
+
+    return;
+}
+
+/* Success */
+addReply(c, shared.ok);
+
+
     } else if (c->argc == 2 && !strcasecmp(sub,"help")) {
         const char *help[] = {
 "CAT [<category>]",
@@ -3302,6 +3337,8 @@ void aclCommand(client *c) {
 "    Save the current config to the ACL file.",
 "SETUSER <username> <attribute> [<attribute> ...]",
 "    Create or modify a user with the specified attributes.",
+"SETPASS <password>",
+"    Set the password for the current user.",
 "USERS",
 "    List all the registered usernames.",
 "WHOAMI",
