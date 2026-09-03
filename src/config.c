@@ -154,6 +154,12 @@ configEnum protected_action_enum[] = {
     {NULL, 0}
 };
 
+configEnum config_rewrite_mode_enum[] = {
+    {"any-modified", CONFIG_REWRITE_MODE_ANY_MODIFIED},
+    {"runtime-modified", CONFIG_REWRITE_MODE_RUNTIME_MODIFIED},
+    {NULL, 0}
+};
+
 configEnum cluster_preferred_endpoint_type_enum[] = {
     {"ip", CLUSTER_ENDPOINT_TYPE_IP},
     {"hostname", CLUSTER_ENDPOINT_TYPE_HOSTNAME},
@@ -289,11 +295,67 @@ struct standardConfig {
 
 dict *configs = NULL; /* Runtime config values */
 
+/* Set of primary config names modified since the last successful CONFIG REWRITE.
+ * Keys are sds, values NULL. Cleared in clearRuntimeModifiedConfigs. */
+static dict *runtimeModifiedConfigs = NULL;
+
 /* Lookup a config by the provided sds string name, or return NULL
  * if the config does not exist */
 static standardConfig *lookupConfig(const sds name) {
     dictEntry *de = dictFind(configs, name);
     return de ? dictGetVal(de) : NULL;
+}
+
+/* If config is an alias entry, return the corresponding primary; otherwise
+ * return config itself. The primary and alias are two separate standardConfig
+ * structs (see registerConfigValue), so runtime-modified tracking must
+ * always key off the primary - the rewrite loop skips entries with
+ * ALIAS_CONFIG set. */
+static standardConfig *resolvePrimaryConfig(standardConfig *config) {
+    if (config && (config->flags & ALIAS_CONFIG)) {
+        sds key = sdsnew(config->alias);
+        standardConfig *primary = lookupConfig(key);
+        sdsfree(key);
+        if (primary) return primary;
+    }
+    return config;
+}
+
+/* Mark a standardConfig as runtime-modified (resolving alias entries to the
+ * primary).  Adds the primary's name to runtimeModifiedConfigs so a subsequent
+ * CONFIG REWRITE in runtime-modified mode will emit it. */
+static void markStandardConfigRuntimeModified(standardConfig *config) {
+    if (!config) return;
+    standardConfig *primary = resolvePrimaryConfig(config);
+    sds key = sdsnew(primary->name);
+    if (dictAdd(runtimeModifiedConfigs, key, NULL) != DICT_OK)
+        sdsfree(key); /* already present */
+}
+
+/* Mark a config as runtime-modified by name. Used by callers outside config.c
+ * that change config-backed state via dedicated commands (e.g. REPLICAOF) and
+ * bypass the standard CONFIG SET path. No-op if the config name is unknown. */
+void markConfigRuntimeModified(const char *name) {
+    sds key = sdsnew(name);
+    markStandardConfigRuntimeModified(lookupConfig(key));
+    sdsfree(key);
+}
+
+/* Returns 1 if the named config has been marked runtime-modified since
+ * the last successful REWRITE. */
+static int isConfigRuntimeModified(const char *name) {
+    sds key = sdsnew(name);
+    int found = dictFind(runtimeModifiedConfigs, key) != NULL;
+    sdsfree(key);
+    return found;
+}
+
+/* Empty the runtime-modified set and clear the ACL / module subsystem dirty
+ * flags. */
+void clearRuntimeModifiedConfigs(void) {
+    dictEmpty(runtimeModifiedConfigs, NULL);
+    server.acl_modified = 0;
+    server.modules_modified = 0;
 }
 
 /*-----------------------------------------------------------------------------
@@ -773,7 +835,13 @@ int performModuleConfigSetFromName(sds name, sds value, const char **err) {
         *err = "Config name not found";
         return 0;
     }
-    return performInterfaceSet(config, value, err);
+    int res = performInterfaceSet(config, value, err);
+    /* LOADEX runs after RegisterXxxConfig but before the registered default
+     * has been pushed to the module's privdata, so a "false" res==2 (no-op)
+     * is possible when the LOADEX value matches the privdata's C-default 0.
+     * The user explicitly passed the value, so mark on any successful set. */
+    if (res) markStandardConfigRuntimeModified(config);
+    return res;
 }
 
 /* Find config by name and attempt to set it to its default value. */
@@ -959,6 +1027,12 @@ void configSetCommand(client *c) {
             err_arg_name = set_configs[i]->name;
             goto err;
         }
+    }
+
+    /* All sets succeeded and were applied: mark the configs that actually
+     * changed as runtime-modified. */
+    for (i = 0; i < config_count; i++) {
+        if (config_changed[i]) markStandardConfigRuntimeModified(set_configs[i]);
     }
 
     RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
@@ -1797,17 +1871,31 @@ int rewriteConfig(char *path, int force_write) {
     /* Iterate the configs that are standard */
     dictIterator di;
     dictEntry *de;
+    int runtime_modified_mode = (server.config_rewrite_mode == CONFIG_REWRITE_MODE_RUNTIME_MODIFIED);
     dictInitIterator(&di, configs);
     while ((de = dictNext(&di)) != NULL) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
+        if (!config->interface.rewrite) continue;
+        /* In runtime-modified mode, skip configs that haven't been touched at
+         * runtime. Their existing lines (if any) in the loaded file are left
+         * untouched because we never call rewriteConfigMarkAsProcessed for
+         * them, so rewriteConfigRemoveOrphaned won't blank them.
+         * Always respect force_write regardless of the rewrite mode. */
+        if (runtime_modified_mode && !isConfigRuntimeModified(config->name) &&
+            !state->force_write) continue;
+        config->interface.rewrite(config, dictGetKey(de), state);
     }
     dictResetIterator(&di);
 
-    rewriteConfigUserOption(state);
-    rewriteConfigLoadmoduleOption(state);
+    /* In runtime-modified mode, only rewrite the ACL user list and loadmodule
+     * directives if the corresponding subsystem has actually been touched at
+     * runtime. */
+    if (!runtime_modified_mode || server.acl_modified || state->force_write)
+        rewriteConfigUserOption(state);
+    if (!runtime_modified_mode || server.modules_modified || state->force_write)
+        rewriteConfigLoadmoduleOption(state);
 
     /* Rewrite Sentinel config if in Sentinel mode. */
     if (server.sentinel_mode) rewriteConfigSentinelOption(state);
@@ -1817,10 +1905,22 @@ int rewriteConfig(char *path, int force_write) {
      * of multiple "save" options or duplicated options. */
     rewriteConfigRemoveOrphaned(state);
 
+    /* Short-circuit (runtime-modified mode only): if Phase 2 processed nothing,
+     * Phase 3 had nothing to blank either. Skip writing the file. any-modified
+     * mode's historical behavior is "always write the file on REWRITE" and must
+     * be preserved exactly. */
+    if (runtime_modified_mode && dictSize(state->rewritten) == 0) {
+        rewriteConfigReleaseState(state);
+        return 0;
+    }
+
     /* Step 4: generate a new configuration file from the modified state
      * and write it into the original file. */
     newcontent = rewriteConfigGetContentFromState(state);
     retval = rewriteConfigOverwriteFile(path, newcontent);
+
+    /* On success, drop the runtime-modified tracking state */
+    if (retval == 0) clearRuntimeModifiedConfigs();
 
     sdsfree(newcontent);
     rewriteConfigReleaseState(state);
@@ -2762,6 +2862,10 @@ int updateRequirePass(const char **err) {
      * additionally is to remember the cleartext password in this
      * case, for backward compatibility with Redis <= 5. */
     ACLUpdateDefaultUserPassword(server.requirepass);
+    /* The default user's ACL just changed; make sure CONFIG REWRITE in
+     * runtime-modified mode re-emits the user list to keep the file
+     * consistent with the in-memory state. */
+    server.acl_modified = 1;
     return 1;
 }
 
@@ -3441,6 +3545,7 @@ standardConfig static_configs[] = {
     createEnumConfig("enable-protected-configs", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_protected_configs, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-debug-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_debug_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
     createEnumConfig("enable-module-command", NULL, IMMUTABLE_CONFIG, protected_action_enum, server.enable_module_cmd, PROTECTED_ACTION_ALLOWED_NO, NULL, NULL),
+    createEnumConfig("config-rewrite-mode", NULL, IMMUTABLE_CONFIG, config_rewrite_mode_enum, server.config_rewrite_mode, CONFIG_REWRITE_MODE_ANY_MODIFIED, NULL, NULL),
     createEnumConfig("cluster-preferred-endpoint-type", NULL, MODIFIABLE_CONFIG, cluster_preferred_endpoint_type_enum, server.cluster_preferred_endpoint_type, CLUSTER_ENDPOINT_TYPE_IP, NULL, NULL),
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
     createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
@@ -3618,6 +3723,7 @@ int registerConfigValue(const char *name, const standardConfig *config, int alia
  * runtime configuration dictionary. */
 void initConfigValues(void) {
     configs = dictCreate(&sdsHashDictType);
+    runtimeModifiedConfigs = dictCreate(&sdsHashDictType);
     dictExpand(configs, sizeof(static_configs) / sizeof(standardConfig));
     for (standardConfig *config = static_configs; config->name != NULL; config++) {
         if (config->interface.init) config->interface.init(config);
@@ -3908,8 +4014,11 @@ int moduleSetBoolConfig(client *c, sds name, int val, const char **err) {
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
 
     if (old_value) sdsfree(old_value);
 
@@ -3935,9 +4044,12 @@ int moduleSetStringConfig(client *c, sds name, const char *val, const char **err
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
- 
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
+
     if (old_value) sdsfree(old_value);
 
     return res;
@@ -3955,8 +4067,11 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
 
     if (old_value) sdsfree(old_value);
 
@@ -3975,8 +4090,11 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
      * to restore the old value */
     if (!res)
         restoreBackupConfig(&config, &old_value, 1);
-    else
+    else {
+        int set_res = res;
         res = configApply(config, old_value, err);
+        if (res && set_res == 1) markStandardConfigRuntimeModified(config);
+    }
 
     if (old_value) sdsfree(old_value);
 

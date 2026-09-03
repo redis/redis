@@ -687,6 +687,10 @@ typedef enum {
 #define SANITIZE_DUMP_YES 1
 #define SANITIZE_DUMP_CLIENTS 2
 
+/* CONFIG REWRITE filtering mode (see config-rewrite-mode option). */
+#define CONFIG_REWRITE_MODE_ANY_MODIFIED 0     /* Emit configs whose value differs from the built-in default. */
+#define CONFIG_REWRITE_MODE_RUNTIME_MODIFIED 1 /* Emit only configs touched at runtime since startup or last REWRITE. */
+
 /* Enable protected config/command */
 #define PROTECTED_ACTION_ALLOWED_NO 0
 #define PROTECTED_ACTION_ALLOWED_YES 1
@@ -2169,6 +2173,9 @@ struct redisServer {
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
     int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
     int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_ALLOWED_* */
+    int config_rewrite_mode;         /* CONFIG REWRITE filtering mode, see CONFIG_REWRITE_MODE_* */
+    int acl_modified;                /* Any ACL SETUSER/DELUSER/LOAD has happened at runtime. */
+    int modules_modified;            /* Any MODULE LOAD/UNLOAD has happened at runtime. */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
@@ -4233,6 +4240,8 @@ int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *optio
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
 void initConfigValues(void);
+void markConfigRuntimeModified(const char *name);
+void clearRuntimeModifiedConfigs(void);
 void removeConfig(sds name);
 sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
