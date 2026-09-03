@@ -634,6 +634,47 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
         }
 
+        test "Score range parser rejects malformed bounds - $encoding" {
+            # Regression for redis/redis#15078: zslParseRange silently
+            # accepted a bare "(" as (0 and an empty string as 0. The
+            # stricter parser also rejects leading whitespace and any
+            # trailing junk (including embedded NULs).
+            create_default_zset
+
+            # bare "(" (len == 1) - both as min and as max
+            assert_error "*not*float*" {r zrangebyscore zset "(" +inf}
+            assert_error "*not*float*" {r zrangebyscore zset -inf "("}
+            assert_error "*not*float*" {r zrevrangebyscore zset "(" -inf}
+            assert_error "*not*float*" {r zrevrangebyscore zset +inf "("}
+            assert_error "*not*float*" {r zcount zset "(" +inf}
+            assert_error "*not*float*" {r zrangestore dst zset "(" +inf BYSCORE}
+
+            # empty string
+            assert_error "*not*float*" {r zrangebyscore zset "" +inf}
+            assert_error "*not*float*" {r zrangebyscore zset -inf ""}
+            assert_error "*not*float*" {r zcount zset "" +inf}
+
+            # leading whitespace is not accepted as a valid float
+            assert_error "*not*float*" {r zrangebyscore zset " 1" +inf}
+            assert_error "*not*float*" {r zrangebyscore zset "-inf" " 1"}
+
+            # embedded NUL: "1\0junk" must not be accepted as 1
+            assert_error "*not*float*" {r zrangebyscore zset "1\x00junk" +inf}
+            assert_error "*not*float*" {r zrangebyscore zset "(1\x00junk" +inf}
+
+            # ZREMRANGEBYSCORE must not silently delete data on malformed
+            # bounds. The set must still contain all its elements after
+            # the rejected calls.
+            set before [r zcard zset]
+            assert_error "*not*float*" {r zremrangebyscore zset "(" +inf}
+            assert_error "*not*float*" {r zremrangebyscore zset "" +inf}
+            assert_equal $before [r zcard zset]
+
+            # Sanity: well-formed exclusive and inclusive bounds still work.
+            assert_equal {b c d e f g} [r zrangebyscore zset (0 +inf]
+            assert_equal {c d e f g} [r zrangebyscore zset (1 +inf]
+        }
+
         proc create_default_lex_zset {} {
             create_zset zset {0 alpha 0 bar 0 cool 0 down
                               0 elephant 0 foo 0 great 0 hill
