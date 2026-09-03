@@ -115,8 +115,15 @@ static void invoke_callback(int sig) {
 }
 
 static void wait_threads(void) {
+    /* Use CLOCK_MONOTONIC so the relative timeout is immune to wall-clock
+     * jumps (NTP step, DST change, manual date(1), container host time
+     * sync, VM suspend/resume). A forward jump in CLOCK_REALTIME would
+     * otherwise cause this loop to exit immediately and invoke the
+     * callback before the threads have written their output, corrupting
+     * crash-report stack traces. Same function, same struct, still
+     * async-signal-safe. */
     struct timespec timeout_time;
-    clock_gettime(CLOCK_REALTIME, &timeout_time);
+    clock_gettime(CLOCK_MONOTONIC, &timeout_time);
 
     /* calculate relative time until timeout */
     timeout_time.tv_sec += RUN_ON_THREADS_TIMEOUT;
@@ -134,7 +141,7 @@ static void wait_threads(void) {
         /* usleep isn't listed as signal safe, so we use select instead */
         select(0, NULL, NULL, NULL, &tv);
         atomicGet(g_num_threads_done, curr_done_count);
-        clock_gettime(CLOCK_REALTIME, &curr_time);
+        clock_gettime(CLOCK_MONOTONIC, &curr_time);
         atomicGet(g_tids_len, tids_len);
     } while (curr_done_count < tids_len &&
              curr_time.tv_sec <= timeout_time.tv_sec);
