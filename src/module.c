@@ -1410,6 +1410,23 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
     return cp;
 }
 
+/* Retrieve the flags of a command.
+ *
+ * Returns REDISMODULE_OK on success, storing the command flags into the `flags` pointer.
+ * Returns REDISMODULE_ERR if the command is not exists.
+ *
+ * The flags value is a bitmask of CMD_* flags defined in server.h
+ */
+int RM_GetCommandFlags(const char *name, uint64_t *flags) {
+    struct redisCommand *cmd = lookupCommandByCString(name);
+
+    if (!cmd)
+        return REDISMODULE_ERR;
+
+    *flags = cmd->flags;
+    return REDISMODULE_OK;
+}
+
 /* Get an opaque structure, representing a module command, by command name.
  * This structure is used in some of the command-related APIs.
  *
@@ -15711,6 +15728,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(TryRealloc);
     REGISTER_API(Free);
     REGISTER_API(Strdup);
+    REGISTER_API(GetCommandFlags);
     REGISTER_API(CreateCommand);
     REGISTER_API(GetCommand);
     REGISTER_API(CreateSubcommand);
