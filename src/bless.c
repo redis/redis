@@ -168,13 +168,9 @@ static void blessGetCommand(client *c) {
         return;
     }
     uint64_t mask = keyAttrGet(o);
-    void *replylen = addReplyDeferredLen(c);
-    int n = 0;
-    if (mask & BLESS_NOEVICT) {
+    addReplyArrayLen(c, (mask & BLESS_NOEVICT) ? 1 : 0);
+    if (mask & BLESS_NOEVICT)
         addReplyBulkCString(c, "NO-EVICT");
-        n++;
-    }
-    setDeferredArrayLen(c, replylen, n);
 }
 
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
