@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-Present, Redis Ltd.
+ * Copyright (c) 2026-Present, Redis Ltd.
  * All rights reserved.
  *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
@@ -18,7 +18,7 @@
  #include "request_throttler.h"
 
 struct requestThrottlerState {
-    long long global_suspend_until_ms;
+    redisAtomic long long global_suspend_until_ms;
     long long suspend_until_ms[REASON_MAX_NUM];
 } throttler_state;
 
@@ -37,7 +37,7 @@ static void requestThrottlerUpdateGlobal(void) {
             until = throttler_state.suspend_until_ms[i];
     }
 
-    throttler_state.global_suspend_until_ms = until;
+    atomicSet(throttler_state.global_suspend_until_ms, until);
 }
 
 void RequestThrottler_Init(void) {
@@ -63,14 +63,17 @@ void RequestThrottler_Resume(enum request_throttler_reason reason) {
 }
 
 int RequestThrottler_IsSuspended(void) {
-    if (throttler_state.global_suspend_until_ms == 0) return 0;
-    if (throttler_state.global_suspend_until_ms == REQUEST_THROTTLER_SUSPEND_FOREVER) return 1;
+    long long global_suspend_until_ms;
+    atomicGet(throttler_state.global_suspend_until_ms, global_suspend_until_ms);
 
-    if (mstime() >= throttler_state.global_suspend_until_ms) {
+    if (global_suspend_until_ms == 0) return 0;
+    if (global_suspend_until_ms == REQUEST_THROTTLER_SUSPEND_FOREVER) return 1;
+
+    if (mstime() >= global_suspend_until_ms) {
         /* The global deadline is the max of all per-reason deadlines, so
          * once it has passed every reason has expired too. */
         memset(throttler_state.suspend_until_ms, 0, sizeof(throttler_state.suspend_until_ms));
-        throttler_state.global_suspend_until_ms = 0;
+        atomicSet(throttler_state.global_suspend_until_ms, 0);
         return 0;
     }
 

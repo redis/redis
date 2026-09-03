@@ -5471,45 +5471,9 @@ char *getClientTypeName(int class) {
     }
 }
 
-/* The function checks if the client reached output buffer soft or hard
- * limit, and also update the state needed to check the soft limit as
- * a side effect.
- *
- * Return value: non-zero if the client reached the soft or the hard limit.
- *               Otherwise zero is returned. */
-int checkClientOutputBufferLimits(client *c) {
-    int soft = 0, hard = 0, class;
-    unsigned long used_mem = getClientOutputBufferLogicalSize(c);
+static void checkAndActivateSlaveOutputBufferThrottling(client *c, int class, unsigned long used_mem) {
     static time_t last_log_msg = 0;
 
-    /* For unauthenticated clients the output buffer is limited to prevent
-     * them from abusing it by not reading the replies */
-    if (used_mem > 1024 && authRequired(c))
-        return 1;
-
-    class = getClientType(c);
-    /* For the purpose of output buffer limiting, masters are handled
-     * like normal clients. */
-    if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
-
-    /* Note that it doesn't make sense to set the replica clients output buffer
-     * limit lower than the repl-backlog-size config (partial sync will succeed
-     * and then replica will get disconnected).
-     * Such a configuration is ignored (the size of repl-backlog-size will be used).
-     * This doesn't have memory consumption implications since the replica client
-     * will share the backlog buffers memory. */
-    size_t hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
-    if (class == CLIENT_TYPE_SLAVE && hard_limit_bytes &&
-        (long long)hard_limit_bytes < server.repl_backlog_size)
-        hard_limit_bytes = server.repl_backlog_size;
-    if (server.client_obuf_limits[class].hard_limit_bytes &&
-        used_mem >= hard_limit_bytes)
-        hard = 1;
-    if (server.client_obuf_limits[class].soft_limit_bytes &&
-        used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
-        soft = 1;
-
-    /* Handle slave output buffer throttling */
     if (server.slave_obuf_throttle_threshold &&
         server.slave_obuf_throttle_repl_rate &&
         server.slave_obuf_throttle_limit &&
@@ -5539,6 +5503,47 @@ int checkClientOutputBufferLimits(client *c) {
             }
         }
     }
+}
+
+/* The function checks if the client reached output buffer soft or hard
+ * limit, and also update the state needed to check the soft limit as
+ * a side effect.
+ *
+ * Return value: non-zero if the client reached the soft or the hard limit.
+ *               Otherwise zero is returned. */
+int checkClientOutputBufferLimits(client *c) {
+    int soft = 0, hard = 0, class;
+    unsigned long used_mem = getClientOutputBufferLogicalSize(c);
+
+    /* For unauthenticated clients the output buffer is limited to prevent
+     * them from abusing it by not reading the replies */
+    if (used_mem > 1024 && authRequired(c))
+        return 1;
+
+    class = getClientType(c);
+    /* For the purpose of output buffer limiting, masters are handled
+     * like normal clients. */
+    if (class == CLIENT_TYPE_MASTER) class = CLIENT_TYPE_NORMAL;
+
+    /* Note that it doesn't make sense to set the replica clients output buffer
+     * limit lower than the repl-backlog-size config (partial sync will succeed
+     * and then replica will get disconnected).
+     * Such a configuration is ignored (the size of repl-backlog-size will be used).
+     * This doesn't have memory consumption implications since the replica client
+     * will share the backlog buffers memory. */
+    size_t hard_limit_bytes = server.client_obuf_limits[class].hard_limit_bytes;
+    if (class == CLIENT_TYPE_SLAVE && hard_limit_bytes &&
+        (long long)hard_limit_bytes < server.repl_backlog_size)
+        hard_limit_bytes = server.repl_backlog_size;
+    if (server.client_obuf_limits[class].hard_limit_bytes &&
+        used_mem >= hard_limit_bytes)
+        hard = 1;
+    if (server.client_obuf_limits[class].soft_limit_bytes &&
+        used_mem >= server.client_obuf_limits[class].soft_limit_bytes)
+        soft = 1;
+
+    /* Handle slave output buffer throttling */
+    checkAndActivateSlaveOutputBufferThrottling(c, class, used_mem);
 
     /* We need to check if the soft limit is reached continuously for the
      * specified amount of seconds. */

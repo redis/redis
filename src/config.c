@@ -3313,20 +3313,21 @@ static int setConfigSlaveOutputBufferThrottlingOption(standardConfig *config, sd
     UNUSED(err);
     char *ptr;
 
-    long long slave_obuf_throttle_threshold;
-    long long slave_obuf_throttle_limit;
-    long long slave_obuf_throttle_repl_rate;
-    int slave_obuf_throttle_max_delay_ms;
+    unsigned long long slave_obuf_throttle_threshold;
+    unsigned long long slave_obuf_throttle_limit;
+    unsigned long long slave_obuf_throttle_repl_rate;
+    unsigned int slave_obuf_throttle_max_delay_ms;
 
     if (argc != 4) return 0;
 
     /* Verify format is okay */
-    slave_obuf_throttle_threshold = strtoll(argv[0],&ptr,10);
-    if (!ptr || *ptr || slave_obuf_throttle_threshold < 0) return 0;
-    slave_obuf_throttle_limit = strtoll(argv[1],&ptr,10);
-    if (!ptr || *ptr || slave_obuf_throttle_limit < 0) return 0;
-    slave_obuf_throttle_repl_rate = strtoll(argv[2],&ptr,10);
-    if (!ptr || *ptr || slave_obuf_throttle_repl_rate < 0) return 0;
+    int read_err = 0;
+    slave_obuf_throttle_threshold = memtoull(argv[0], &read_err);
+    if (read_err) return 0;
+    slave_obuf_throttle_limit = memtoull(argv[1],&read_err);
+    if (read_err) return 0;
+    slave_obuf_throttle_repl_rate = memtoull(argv[2],&read_err);
+    if (read_err) return 0;
     slave_obuf_throttle_max_delay_ms = strtoul(argv[3],&ptr,10);
     if (!ptr || *ptr) return 0;
 

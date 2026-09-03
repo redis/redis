@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-Present, Redis Ltd.
+ * Copyright (c) 2026-Present, Redis Ltd.
  * All rights reserved.
  *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
