@@ -3784,6 +3784,10 @@ int modulePopulateClientInfoStructure(void *ci, client *client, int structver) {
         ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_BLOCKED;
     if (client->conn->type == connectionTypeTls())
         ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_SSL;
+    if (client->flags & CLIENT_READONLY) 
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_READONLY;
+    if (client->flags & CLIENT_MASTER)
+        ci1->flags |= REDISMODULE_CLIENTINFO_FLAG_REPLICATED;
 
     int port;
     connAddrPeerName(client->conn,ci1->addr,sizeof(ci1->addr),&port);
@@ -3843,6 +3847,8 @@ int modulePopulateReplicationInfoStructure(void *ri, int structver) {
  *     REDISMODULE_CLIENTINFO_FLAG_TRACKING     Client with keys tracking on.
  *     REDISMODULE_CLIENTINFO_FLAG_UNIXSOCKET   Client using unix domain socket.
  *     REDISMODULE_CLIENTINFO_FLAG_MULTI        Client in MULTI state.
+ *     REDISMODULE_CLIENTINFO_FLAG_READONLY     Client is in readonly mode.
+ *     REDISMODULE_CLIENTINFO_FLAG_REPLICATED   Client is a master connection (replica-to-master link).
  *
  * However passing NULL is a way to just check if the client exists in case
  * we are not interested in any additional information.
