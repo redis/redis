@@ -4368,6 +4368,7 @@ size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
 void freeObjAsync(robj *key, robj *obj, int dbid);
 void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
+void freeSlaveKeysWithExpireAsync(dict *slave_keys_with_expire);
 
 /* API to get key arguments from commands */
 #define GET_KEYSPEC_DEFAULT 0
@@ -4495,7 +4496,7 @@ void handleExpiredIdmpEntries(void);
 void activeExpireCycle(int type);
 void expireSlaveKeys(void);
 void rememberSlaveKeyWithExpire(redisDb *db, sds key);
-void flushSlaveKeysWithExpireList(void);
+void flushSlaveKeysWithExpireList(int async);
 size_t getSlaveKeyWithExpireCount(void);
 uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire);
 
