@@ -34,6 +34,8 @@ start_server {tags {"bless"}} {
         # unknown or not-yet-supported flags -> syntax error
         assert_error {*syntax*} {r bless set k bogus}
         assert_error {*syntax*} {r bless set k none}
+        # the same flag more than once is a syntax error
+        assert_error {*syntax*} {r bless set k no-evict no-evict}
         assert_equal 1 [r bless set k no-evict]
         assert_equal {NO-EVICT} [r bless get k]
     }

@@ -168,12 +168,13 @@ void blessInit(void) {
 /* ---- commands ---- */
 
 /* Parse flag tokens (argv[first..argc-1]) into a mask. Only NO-EVICT exists
- * today; any other token is a syntax error. Arity (-4) guarantees at least
- * one token. */
+ * today; an unknown token, or the same flag given more than once, is a syntax
+ * error. Arity (-4) guarantees at least one token. */
 static int blessParseFlags(client *c, int first, uint64_t *out) {
     uint64_t mask = 0;
     for (int i = first; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr, "no-evict")) mask |= BLESS_NOEVICT;
+        if (!strcasecmp(c->argv[i]->ptr, "no-evict") && !(mask & BLESS_NOEVICT))
+            mask |= BLESS_NOEVICT;
         else return C_ERR;
     }
     *out = mask;
