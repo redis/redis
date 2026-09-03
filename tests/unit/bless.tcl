@@ -321,6 +321,26 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         r config set maxmemory 0
     }
 
+    test {All-blessed under a pool policy (allkeys-lru): bounded overshoot then OOM} {
+        r flushall
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lru
+        for {set j 0} {$j < 500} {incr j} {
+            r set b:$j [string repeat y 1000]
+            r bless set b:$j no-evict
+        }
+        set used [s used_memory]
+        # Pool-based policy: sampling hits only blessed keys, so no candidate ever
+        # enters the pool -> the blessed-only rounds path. Over the limit but within
+        # the 1.25x factor -> tolerated, the small write succeeds.
+        r config set maxmemory [expr {int($used / 1.15)}]
+        assert_equal OK [r set within [string repeat z 100]]
+        # Far past the factor -> OOM.
+        r config set maxmemory [expr {int($used / 1.4)}]
+        assert_error {*OOM*} {r set past [string repeat z 100]}
+        r config set maxmemory 0
+    }
+
     test {All-blessed: bounded overshoot tolerated, OOM past the factor, unbless relieves} {
         r flushall
         r config set maxmemory 0
