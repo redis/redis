@@ -1,6 +1,6 @@
 {
     "LIST": {
-        "summary": "Lists blessed keys carrying the given flag. The flag is required (no default); INRAM is unimplemented and NONE is not listable (unblessed keys are untracked) - both are a syntax error.",
+        "summary": "Lists blessed keys carrying the given flag. The flag is required (no default); NONE is not listable (unblessed keys are untracked) and any other flag is a syntax error.",
         "complexity": "O(N) where N is the number of blessed keys.",
         "group": "generic",
         "since": "8.12.0",

@@ -34,7 +34,6 @@ start_server {tags {"bless"}} {
         # unknown or not-yet-supported flags -> syntax error
         assert_error {*syntax*} {r bless set k bogus}
         assert_error {*syntax*} {r bless set k none}
-        assert_error {*syntax*} {r bless set k inram}
         assert_equal 1 [r bless set k no-evict]
         assert_equal {NO-EVICT} [r bless get k]
     }
@@ -50,10 +49,9 @@ start_server {tags {"bless"}} {
         assert_equal {b} [r bless list no-evict]
         # the flag is required (no default) -> a bare LIST is an arity error
         assert_error {*wrong number*} {r bless list}
-        # LIST accepts only NO-EVICT; NONE/INRAM/junk are a syntax error
+        # LIST accepts only NO-EVICT; NONE/junk are a syntax error
         assert_error {*syntax*} {r bless list bogus}
         assert_error {*syntax*} {r bless list none}
-        assert_error {*syntax*} {r bless list inram}
     }
 
     test {BLESS survives value overwrite (all types); LIST stays consistent} {

@@ -168,8 +168,8 @@ void blessInit(void) {
 /* ---- commands ---- */
 
 /* Parse flag tokens (argv[first..argc-1]) into a mask. Only NO-EVICT exists
- * today; any other token (including INRAM) is a syntax error. Arity (-4)
- * guarantees at least one token. */
+ * today; any other token is a syntax error. Arity (-4) guarantees at least
+ * one token. */
 static int blessParseFlags(client *c, int first, uint64_t *out) {
     uint64_t mask = 0;
     for (int i = first; i < c->argc; i++) {
