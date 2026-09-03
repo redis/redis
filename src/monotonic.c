@@ -353,6 +353,63 @@ static void monotonicInit_riscv(void) {
 }
 #endif
 
+#if defined(USE_PROCESSOR_CLOCK) && defined(__loongarch_lp64) && defined(__linux__)
+#define LOONGARCH_CPUCFG2   2
+#define LOONGARCH_CPUCFG4   4
+#define LOONGARCH_CPUCFG5   5
+#define CPUCFG2_LLFTP       (1 << 14)
+
+static long mono_ticksPerMicrosecond = 0;
+
+static inline uint64_t rdtime_d(void) {
+    uint64_t val;
+    __asm__ __volatile__("rdtime.d %0, $r0": "=r" (val));
+    return val;
+}
+
+static inline uint32_t read_cpucfg(uint32_t reg) {
+    uint32_t val;
+    __asm__ volatile("cpucfg %0, %1" : "=r" (val) : "r" (reg));
+    return val;
+}
+
+static inline uint32_t calc_const_freq(void) {
+    uint32_t res, base_freq, cfm, cfd;
+
+    res = read_cpucfg(LOONGARCH_CPUCFG2);
+    if (!(res & CPUCFG2_LLFTP)) {
+        return 0;
+    }
+
+    base_freq = read_cpucfg(LOONGARCH_CPUCFG4);
+    res = read_cpucfg(LOONGARCH_CPUCFG5);
+    cfm = res & 0xffff;
+    cfd = (res >> 16) & 0xffff;
+
+    if (!base_freq || !cfm || !cfd) {
+        return 0;
+    }
+
+    return (base_freq * cfm / cfd);
+}
+
+static monotime getMonotonicUs_loongarch64(void) {
+    return rdtime_d() / mono_ticksPerMicrosecond;
+}
+
+static void monotonicInit_loongarch64(void) {
+    mono_ticksPerMicrosecond = (long)calc_const_freq() / 1000L / 1000L;
+    if (mono_ticksPerMicrosecond == 0) {
+        monotonicLog("loongarch64, unable to determine clock rate");
+        return;
+    }
+
+    snprintf(monotonic_info_string, sizeof(monotonic_info_string),
+            "Loong64 rdtime @ %ld ticks/us", mono_ticksPerMicrosecond);
+    getMonotonicUs = getMonotonicUs_loongarch64;
+}
+#endif
+
 static monotime getMonotonicUs_posix(void) {
     /* clock_gettime() is specified in POSIX.1b (1993).  Even so, some systems
      * did not support this until much later.  CLOCK_MONOTONIC is technically
@@ -391,6 +448,10 @@ const char * monotonicInit(void (*logger)(const char *fmt, ...)) {
 
     #if defined(USE_PROCESSOR_CLOCK) && defined(__riscv) && defined(__linux__)
     if (getMonotonicUs == NULL) monotonicInit_riscv();
+    #endif
+
+    #if defined(USE_PROCESSOR_CLOCK) && defined(__loongarch_lp64) && defined(__linux__)
+    if (getMonotonicUs == NULL) monotonicInit_loongarch64();
     #endif
 
     if (getMonotonicUs == NULL) monotonicInit_posix();
