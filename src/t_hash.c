@@ -5440,6 +5440,10 @@ void hgetexCommand(client *c) {
     server.dirty += vecSize(vdeleted) + vecSize(vupdated);
     keyModified(c, c->db, c->argv[1], o, 1);
 
+    /* Compute newlen before notifications – a module's KSN callback may call
+     * RM_SetKeyMeta() which reallocates kvobj, invalidating 'o'. */
+    newlen = hashTypeLength(o, 0);
+
     /* This command will never be propagated as it is. It will be propagated as
      * HDELs when fields are lazily expired or deleted, if the new timestamp is
      * in the past. HDEL's will be emitted as part of addHashFieldToReply()
@@ -5502,9 +5506,7 @@ void hgetexCommand(client *c) {
     vecRelease(vdeleted);
     vecRelease(vupdated);
 
-    /* Key may become empty due to lazy expiry in addHashFieldToReply()
-     * or the new expiration time is in the past.*/
-    newlen = hashTypeLength(o, 0);
+    KSN_INVALIDATE_KVOBJ(o);
 
     updateKeysizesHist(c->db, OBJ_HASH, oldlen, newlen);
     if (newlen == 0) {
@@ -6646,6 +6648,10 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
 
+    /* Compute newlen before notifications – a module's KSN callback may call
+     * RM_SetKeyMeta() which reallocates kvobj, invalidating 'hashObj'. */
+    newlen = (int64_t) hashTypeLength(hashObj, 0);
+
     if (vecSize(vdeleted) + vecSize(vupdated) > 0) {
         server.dirty += vecSize(vdeleted) + vecSize(vupdated);
         keyModified(c, c->db, keyArg, hashObj, 1);
@@ -6653,9 +6659,8 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
                                 keyArg, c->db->id, (robj**)vecData(vdeleted), vecSize(vdeleted));
         if (vecSize(vupdated)) notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpire",
                                 keyArg, c->db->id, (robj**)vecData(vupdated), vecSize(vupdated));
+        KSN_INVALIDATE_KVOBJ(hashObj);
     }
-
-    newlen = (int64_t) hashTypeLength(hashObj, 0);
     if (newlen == 0) {
         newlen = -1;
         /* Del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
@@ -6899,9 +6904,10 @@ void hpersistCommand(client *c) {
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
     if (vecSize(vpersisted)) {
+        keyModified(c, c->db, c->argv[1], hashObj, 1);
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hpersist", c->argv[1],
                                        c->db->id, (robj**)vecData(vpersisted), vecSize(vpersisted));
-        keyModified(c, c->db, c->argv[1], hashObj, 1);
+        KSN_INVALIDATE_KVOBJ(hashObj);
         server.dirty++;
     }
     vecRelease(vpersisted);
