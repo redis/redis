@@ -1805,28 +1805,79 @@ struct sharedObjectsStruct {
 /* ZSETs use an order-statistic B+ tree (see zbtree.c) as the large encoding,
  * paired with a dict mapping member -> element for O(1) score lookup. */
 
+/* In-memory score encodings for zbtElem. Never serialized: RDB/AOF still
+ * write a binary IEEE double. Integer tiers match listpack's width ladder
+ * so common scores (small ints, unix seconds, unix milliseconds) pack into
+ * 1-6 bytes; everything else, including -0.0, infinities, and integers
+ * wider than 48 bits, stays an 8-byte double. There is no I64 tier:
+ * double2ll only succeeds when the double exactly represents the integer,
+ * so any 64-bit-integral score already round-trips through DBL at 8 bytes. */
+#define ZBT_SCORE_I8  0
+#define ZBT_SCORE_I16 1
+#define ZBT_SCORE_I24 2
+#define ZBT_SCORE_I32 3
+#define ZBT_SCORE_I48 4
+#define ZBT_SCORE_DBL 5
+
 /* A single sorted-set element. The member SDS is embedded in the same
  * allocation right after this header, mirroring the old skiplist node layout
  * so the dict can store zbtElem* as keys.
  *
- * data[0] holds the offset from the element start to the embedded member data,
- * followed by the sds header and the member bytes. The offset has to be stored
- * because the sds header size depends on the sds type, so the member data does
- * not sit at a fixed distance from the element start. It is kept outside the
- * struct rather than as a trailing field because any field after 'score' would
- * force the struct up to 16 bytes of alignment padding, which for short
- * members costs a whole jemalloc size class per element. */
+ * Layout: [enc][moff][score bytes][sds header][member bytes]. moff is the
+ * offset from the element start to the embedded member data. It has to be
+ * stored because both the score encoding width and the sds header size vary,
+ * so the member data does not sit at a fixed distance from the element start. */
 typedef struct zbtElem {
-    double score;
-    char data[];
+    uint8_t enc;    /* ZBT_SCORE_* encoding tag */
+    uint8_t moff;   /* offset from element start to member data */
+    char data[];    /* [score bytes][sds header][member bytes] */
 } zbtElem;
 
 static inline uint8_t zbtGetOffset(const zbtElem *e) {
-    return (uint8_t)e->data[0];
+    return e->moff;
 }
 
 static inline void zbtSetOffset(zbtElem *e, uint8_t off) {
-    e->data[0] = (char)off;
+    e->moff = off;
+}
+
+/* Decode the packed score. Kept inline: zbtCompare is the hottest consumer,
+ * and a switch with constant-size memcpy per case compiles to an unaligned
+ * load plus a jump. I24/I48 reconstruct little-endian bytes so a truncated
+ * host-endian memcpy cannot drop the low bytes on big-endian hosts. */
+static inline double zbtGetScore(const zbtElem *e) {
+    const unsigned char *p = (const unsigned char *)e->data;
+    switch (e->enc) {
+    case ZBT_SCORE_I8:
+        return (double)(int8_t)p[0];
+    case ZBT_SCORE_I16: {
+        int16_t v;
+        memcpy(&v, p, 2);
+        return (double)v;
+    }
+    case ZBT_SCORE_I24: {
+        uint32_t u = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16);
+        if (u & 0x800000u) u |= 0xFF000000u;
+        return (double)(int32_t)u;
+    }
+    case ZBT_SCORE_I32: {
+        int32_t v;
+        memcpy(&v, p, 4);
+        return (double)v;
+    }
+    case ZBT_SCORE_I48: {
+        uint64_t u = (uint64_t)p[0] | ((uint64_t)p[1] << 8) |
+                     ((uint64_t)p[2] << 16) | ((uint64_t)p[3] << 24) |
+                     ((uint64_t)p[4] << 32) | ((uint64_t)p[5] << 40);
+        if (u & 0x800000000000ULL) u |= 0xFFFF000000000000ULL;
+        return (double)(int64_t)u;
+    }
+    default: {
+        double d;
+        memcpy(&d, p, 8);
+        return d;
+    }
+    }
 }
 
 /* Recover the embedded member SDS from an element. */
@@ -3828,12 +3879,13 @@ void zbtFree(zbtree *t);
 size_t zbtAllocSize(const zbtree *t);
 zbtElem *zbtCreateElem(double score, sds ele);
 zbtElem *zbtCreateElemBuf(double score, const char *buf, size_t len);
+zbtElem *zbtCreateElemWide(double score, sds ele);
 void zbtFreeElem(zbtElem *e);
 void zbtBuildFromSorted(zbtree *t, zbtElem **elems, unsigned long n);
 zbtElem *zbtInsert(zbtree *t, double score, sds ele);
 void zbtInsertElem(zbtree *t, zbtElem *e);
 void zbtDeleteElem(zbtree *t, zbtElem *e);
-void zbtUpdateScore(zbtree *t, zbtElem *e, double newscore);
+zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore);
 int zbtCompare(double score, sds ele, const zbtElem *e);
 const void *zbtGetEleForDict(const void *elem);
 unsigned long zbtRankByElem(zbtree *t, zbtElem *e);

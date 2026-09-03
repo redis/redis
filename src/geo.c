@@ -309,13 +309,14 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         while (ln) {
             double xy[2];
             double distance = 0;
+            double score = zbtGetScore(ln);
             /* Abort when the node is no longer in range. */
-            if (!zslValueLteMax(ln->score, &range))
+            if (!zslValueLteMax(score, &range))
                 break;
-            if (geoWithinShape(shape, ln->score, xy, &distance) == C_OK) {
+            if (geoWithinShape(shape, score, xy, &distance) == C_OK) {
                 /* Append the new element. */
                 sds ele = zbtGetEle(ln);
-                geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ele));
+                geoArrayAppend(ga, xy, distance, score, sdsdup(ele));
             }
             if (ga->used && limit && ga->used >= limit) break;
             ln = zbtIterNext(&it);

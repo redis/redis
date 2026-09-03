@@ -2365,7 +2365,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         while((de = dictNext(&di)) != NULL) {
             zbtElem *znode = dictGetKey(de);
             sds ele = zbtGetEle(znode);
-            double score = znode->score;
+            double score = zbtGetScore(znode);
 
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?

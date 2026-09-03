@@ -1774,7 +1774,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
          * neither matching ZSCORE for the large one. d2string() is also the
          * cheaper conversion: no long double promotion and no snprintf(). */
         char buf[MAX_D2STRING_CHARS];
-        int len = d2string(buf, sizeof(buf), znode->score);
+        int len = d2string(buf, sizeof(buf), zbtGetScore(znode));
         key = sdsdup(keyStr);
         val = sdsnewlen(buf, len);
     } else {

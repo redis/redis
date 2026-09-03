@@ -1244,7 +1244,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 }
                 nwritten += n;
-                if ((n = rdbSaveBinaryDoubleValue(rdb,zn->score)) == -1)
+                if ((n = rdbSaveBinaryDoubleValue(rdb,zbtGetScore(zn))) == -1)
                     return -1;
                 nwritten += n;
                 zn = zbtIterPrev(&it);
@@ -2889,7 +2889,7 @@ static void rdbDiscardTemplateFields(rdbTmplFields *out) {
 static int zbtElemPtrCompare(const void *a, const void *b) {
     zbtElem *ea = *(zbtElem *const *)a;
     zbtElem *eb = *(zbtElem *const *)b;
-    return zbtCompare(ea->score, zbtGetEle(ea), eb);
+    return zbtCompare(zbtGetScore(ea), zbtGetEle(ea), eb);
 }
 
 /* Load a Redis object of the specified type from the specified file.
@@ -3126,7 +3126,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (loaded > 1) {
             int ascending = 1, descending = 1;
             for (uint64_t i = 1; i < loaded; i++) {
-                int c = zbtCompare(elems[i-1]->score, zbtGetEle(elems[i-1]), elems[i]);
+                int c = zbtCompare(zbtGetScore(elems[i-1]), zbtGetEle(elems[i-1]), elems[i]);
                 if (c >= 0) ascending = 0;
                 if (c <= 0) descending = 0;
             }

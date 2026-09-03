@@ -211,7 +211,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             while((de = dictNext(&di)) != NULL) {
                 zbtElem *znode = dictGetKey(de);
                 sds sdsele = zbtGetEle(znode);
-                const int len = fpconv_dtoa(znode->score, buf);
+                const int len = fpconv_dtoa(zbtGetScore(znode), buf);
                 buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));

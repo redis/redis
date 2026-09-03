@@ -5505,7 +5505,7 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
         str = createObject(OBJ_STRING,ele);
     } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
         zbtElem *ln = key->u.zset.current;
-        if (score) *score = ln->score;
+        if (score) *score = zbtGetScore(ln);
         sds ele = zbtGetEle(ln);
         str = createStringObject(ele,sdslen(ele));
     } else {
@@ -5565,7 +5565,7 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
         }
         /* Are we still within the range? */
         if ((key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
-             !zslValueLteMax(next->score,&key->u.zset.rs)) ||
+             !zslValueLteMax(zbtGetScore(next),&key->u.zset.rs)) ||
             (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX &&
              !zslLexValueLteMax(zbtGetEle(next),&key->u.zset.lrs)))
         {
@@ -5630,7 +5630,7 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
         }
         /* Are we still within the range? */
         if ((key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE &&
-             !zslValueGteMin(prev->score,&key->u.zset.rs)) ||
+             !zslValueGteMin(zbtGetScore(prev),&key->u.zset.rs)) ||
             (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX &&
              !zslLexValueGteMin(zbtGetEle(prev),&key->u.zset.lrs)))
         {
@@ -12333,7 +12333,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
         zbtElem *znode = (zbtElem *) key;
         sds fieldStr = zbtGetEle(znode);
         field = createStringObject(fieldStr, sdslen(fieldStr));
-        value = createStringObjectFromLongDouble(znode->score, 0);
+        value = createStringObjectFromLongDouble(zbtGetScore(znode), 0);
     }
     
     serverAssert(field != NULL);

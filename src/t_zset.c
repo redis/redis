@@ -769,7 +769,7 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
         zbtIter it;
         zbtElem *elem = zbtFirst(zs->tree, &it);
         while (elem) {
-            zl = zzlInsertAt(zl,NULL,zbtGetEle(elem),elem->score);
+            zl = zzlInsertAt(zl,NULL,zbtGetEle(elem),zbtGetScore(elem));
             elem = zbtIterNext(&it);
         }
 
@@ -811,7 +811,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
         dictEntry *de = dictFind(zs->dict, member);
         if (de == NULL) return C_ERR;
         zbtElem *znode = dictGetKey(de);
-        *score = znode->score;
+        *score = zbtGetScore(znode);
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -958,7 +958,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
 
             /* Get the node pointer from dict entry */
             znode = dictGetKey(de);
-            curscore = znode->score;
+            curscore = zbtGetScore(znode);
 
             /* Prepare the score for the increment if needed. */
             if (incr) {
@@ -979,10 +979,9 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
 
             /* Remove and re-insert when score changes. */
             if (score != curscore) {
-                zbtUpdateScore(zs->tree, znode, score);
-                /* Note that we did not remove the original element from
-                 * the hash table representing the sorted set, so we don't
-                 * need to update the dict - the element pointer stays the same. */
+                zbtElem *newnode = zbtUpdateScore(zs->tree, znode, score);
+                if (newnode != znode)
+                    dictSetKeyAtLink(zs->dict, newnode, &link, 0);
                 *out_flags |= ZADD_OUT_UPDATED;
             }
             return 1;
@@ -1127,7 +1126,7 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
             /* Existing elements always have a rank. */
             serverAssert(rank != 0);
             if (output_score)
-                *output_score = n->score;
+                *output_score = zbtGetScore(n);
             if (reverse)
                 return llen-rank;
             else
@@ -1176,7 +1175,7 @@ robj *zsetDup(robj *o) {
         zbtIter it;
         zbtElem *ln = zbtFirst(t, &it);
         while (ln) {
-            zbtElem *znode = zbtCreateElem(ln->score, zbtGetEle(ln));
+            zbtElem *znode = zbtCreateElem(zbtGetScore(ln), zbtGetEle(ln));
             elems[cnt++] = znode;
             ln = zbtIterNext(&it);
         }
@@ -1218,7 +1217,7 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
         key->sval = (unsigned char*)s;
         key->slen = sdslen(s);
         if (score) {
-            *score = znode->score;
+            *score = zbtGetScore(znode);
         }
     } else if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
         listpackEntry val;
@@ -1800,7 +1799,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             if (it->sl.elem == NULL)
                 return 0;
             val->ele = zbtGetEle(it->sl.elem);
-            val->score = it->sl.elem->score;
+            val->score = zbtGetScore(it->sl.elem);
 
             /* Move to next element. (going backwards, see zuiInitIterator) */
             it->sl.elem = zbtIterPrev(&it->sl.it);
@@ -1904,7 +1903,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             dictEntry *de;
             if ((de = dictFind(zs->dict,val->ele)) != NULL) {
                 zbtElem *znode = dictGetKey(de);
-                *score = znode->score;
+                *score = zbtGetScore(znode);
                 return 1;
             } else {
                 return 0;
@@ -1990,7 +1989,7 @@ static size_t zsetDictGetMaxElementLength(dict *d, size_t *totallen) {
 static int zsetElemCompare(const void *a, const void *b) {
     zbtElem *ea = *(zbtElem *const *)a;
     zbtElem *eb = *(zbtElem *const *)b;
-    return zbtCompare(ea->score, zbtGetEle(ea), eb);
+    return zbtCompare(zbtGetScore(ea), zbtGetEle(ea), eb);
 }
 
 /* Pack the still-empty B+ tree of 'zs' with 'n' detached elements in one
@@ -2013,7 +2012,7 @@ void zsetBuildTreeFromElems(zset *zs, zbtElem **elems, unsigned long n) {
     unsigned long i;
     for (i = 1; i < n; i++) {
         zbtElem *prev = elems[i - 1];
-        if (zbtCompare(prev->score, zbtGetEle(prev), elems[i]) >= 0) break;
+        if (zbtCompare(zbtGetScore(prev), zbtGetEle(prev), elems[i]) >= 0) break;
     }
     if (i < n) qsort(elems, n, sizeof(zbtElem *), zsetElemCompare);
 
@@ -2485,7 +2484,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
 
                     /* Create a detached element with embedded sds and score. */
-                    znode = zbtCreateElem(score, tmp);
+                    znode = zbtCreateElemWide(score, tmp);
                     /* Add element pointer to dict using the bucket we already found */
                     dictSetKeyAtLink(dstzset->dict, znode, &bucket, 1);
                     if (staged_cnt == staged_cap) {
@@ -2495,12 +2494,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     staged[staged_cnt++] = znode;
                     sdsfree(tmp); /* zbtCreateElem copied it, we can free our copy */
                 } else {
-                    /* Existing element: aggregate score */
+                    /* Existing element: aggregate score. Elements were allocated
+                     * wide (ZBT_SCORE_DBL) so the in-place write always fits. */
                     de = *link;
                     znode = dictGetKey(de);
-                    double newscore = znode->score;
+                    double newscore = zbtGetScore(znode);
                     zunionInterAggregate(&newscore, score, aggregate);
-                    znode->score = newscore;
+                    serverAssert(znode->enc == ZBT_SCORE_DBL);
+                    memcpy(znode->data, &newscore, sizeof(newscore));
                 }
             }
             zuiClearIterator(&src[i]);
@@ -2560,7 +2561,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         while (zn != NULL) {
             if (withscores && c->resp > 2) addReplyArrayLen(c,2);
             sds ele = zbtGetEle(zn); addReplyBulkCBuffer(c,ele,sdslen(ele));
-            if (withscores) addReplyDouble(c,zn->score);
+            if (withscores) addReplyDouble(c,zbtGetScore(zn));
             zn = zbtIterNext(&it);
         }
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstobj, -1) :
@@ -2755,7 +2756,7 @@ static void zrangeResultBuildStagedTree(zrange_result_handler *handler)
     /* A range walk is monotonic in tree order, so the staged elements are
      * either ascending or descending (REV). zbtBuildFromSorted() requires
      * ascending input, so reverse the descending case. */
-    if (n > 1 && zbtCompare(elems[0]->score, zbtGetEle(elems[0]), elems[1]) > 0) {
+    if (n > 1 && zbtCompare(zbtGetScore(elems[0]), zbtGetEle(elems[0]), elems[1]) > 0) {
         for (unsigned long i = 0, j = n - 1; i < j; i++, j--) {
             zbtElem *tmp = elems[i];
             elems[i] = elems[j];
@@ -2763,7 +2764,7 @@ static void zrangeResultBuildStagedTree(zrange_result_handler *handler)
         }
     }
     for (unsigned long i = 1; i < n; i++) {
-        debugServerAssert(zbtCompare(elems[i - 1]->score,
+        debugServerAssert(zbtCompare(zbtGetScore(elems[i - 1]),
                                      zbtGetEle(elems[i - 1]), elems[i]) < 0);
     }
 
@@ -2946,7 +2947,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
         while(rangelen--) {
             serverAssertWithInfo(c,zobj,ln != NULL);
             sds ele = zbtGetEle(ln);
-            handler->emitResultFromCBuffer(handler, ele, sdslen(ele), ln->score);
+            handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
             ln = reverse ? zbtIterPrev(&it) : zbtIterNext(&it);
         }
     } else {
@@ -3062,14 +3063,14 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
         while (ln && limit--) {
             /* Abort when the node is no longer in range. */
             if (reverse) {
-                if (!zslValueGteMin(ln->score,range)) break;
+                if (!zslValueGteMin(zbtGetScore(ln),range)) break;
             } else {
-                if (!zslValueLteMax(ln->score,range)) break;
+                if (!zslValueLteMax(zbtGetScore(ln),range)) break;
             }
 
             rangelen++;
             sds ele = zbtGetEle(ln);
-			handler->emitResultFromCBuffer(handler, ele, sdslen(ele), ln->score);
+			handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
 
             /* Move to next node */
             if (reverse) {
@@ -3344,7 +3345,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 
             rangelen++;
             sds ele = zbtGetEle(ln);
-			handler->emitResultFromCBuffer(handler, ele, sdslen(ele), ln->score);
+			handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
 
             /* Move to next node */
             if (reverse) {
@@ -3592,7 +3593,7 @@ void zmscoreCommand(client *c) {
             if (results[j] == NULL) {
                 addReplyNull(c);
             } else {
-                addReplyDouble(c, ((zbtElem *)dictGetKey(results[j]))->score);
+                addReplyDouble(c, zbtGetScore(dictGetKey(results[j])));
             }
         }
         zfree(members);
@@ -3801,7 +3802,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             /* There must be an element in the sorted set. */
             serverAssertWithInfo(c,zobj,zln != NULL);
             ele = sdsdup(zbtGetEle(zln));
-            score = zln->score;
+            score = zbtGetScore(zln);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -4027,7 +4028,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                     addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, key, sdslen(key));
                 if (withscores) {
-                    addReplyDouble(c, znode->score);
+                    addReplyDouble(c, zbtGetScore(znode));
                 }
                 if (c->flags & CLIENT_CLOSE_ASAP)
                     break;
