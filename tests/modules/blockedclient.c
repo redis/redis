@@ -655,7 +655,7 @@ int unblock_by_timer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
     }
 
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, blocked_timeout_callback, NULL, timeout);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, timeout);
     RedisModule_CreateTimer(ctx, period, timer_callback, bc);
     return REDISMODULE_OK;
 }
