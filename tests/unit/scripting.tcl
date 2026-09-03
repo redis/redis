@@ -2566,7 +2566,7 @@ start_server {tags {"scripting"}} {
         assert_equal [
             r eval_ro {
                 local t = redis.pcall('set','x','y')
-                if t['err'] == "ERR Write commands are not allowed from read-only scripts." then
+                if t['err'] == "ERR Write commands are not allowed from read-only scripts" then
                     return 1
                 else
                     return 0
