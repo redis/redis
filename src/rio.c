@@ -209,7 +209,7 @@ void rioInitWithFile(rio *r, FILE *fp) {
  * since the clip is based on absolute file offsets and doesn't care where
  * in memory the bytes landed. */
 static void rioFileLoadChecksumChunk(rio *r, const void *buf, ssize_t n) {
-    if (r->io.file.checksum_enabled) {
+    if (r->flags & RIO_FLAG_CKSUM_AT_SOURCE) {
         off_t cksum_len = r->io.file.content_end - r->io.file.read_offset;
         if (cksum_len > n) cksum_len = n;
         if (cksum_len > 0) r->cksum = crc64(r->cksum, buf, (size_t)cksum_len);
@@ -262,13 +262,12 @@ static size_t rioFileLoadRead(rio *r, void *dst, size_t len) {
 void rioInitWithFileLoad(rio *r, FILE *fp, off_t filesize, int compute_checksum) {
     rioInitWithFile(r, fp);
     r->read = rioFileLoadRead;
-    r->flags |= RIO_FLAG_CKSUM_AT_SOURCE;
+    if (compute_checksum) r->flags |= RIO_FLAG_CKSUM_AT_SOURCE;
     r->io.file.read_buf = zmalloc(RIO_FILE_LOAD_BUFLEN);
     r->io.file.read_buf_pos = 0;
     r->io.file.read_buf_valid = 0;
     r->io.file.read_offset = 0;
     r->io.file.content_end = filesize > 8 ? filesize - 8 : 0;
-    r->io.file.checksum_enabled = compute_checksum ? 1 : 0;
 }
 
 void rioFreeFileLoad(rio *r) {

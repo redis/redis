@@ -454,6 +454,34 @@ again:
                 }
             }
             crc64_pclmul_enable(1);
+
+            /* Chained/continuation check: a CRC seeded from one dispatch
+             * path (table, below the cutoff) must continue correctly
+             * through the other (PCLMUL, at/above the cutoff), matching
+             * how rdbLoad() folds checksums across buffered physical
+             * reads whose boundaries don't align with the cutoff. */
+            for (uint64_t n1 = 0; n1 <= CRC64_PCLMUL_CUTOFF + 64; n1++) {
+                for (uint64_t n2 = 1; n2 <= CRC64_PCLMUL_CUTOFF + 64; n2 += 7) {
+                    if (n1 + n2 > 4200) continue;
+                    uint64_t whole = crc64(seed, cross, n1 + n2);
+                    uint64_t chained = crc64(crc64(seed, cross, n1), cross + n1, n2);
+                    assert(chained == whole);
+                }
+            }
+
+            /* Degenerate content: all-zero and all-one-bit buffers are
+             * the classic carry-less-multiply corner cases and are not
+             * represented in the "random" buffer above. */
+            unsigned char degenerate[256];
+            memset(degenerate, 0x00, sizeof(degenerate));
+            for (uint64_t len = 0; len <= sizeof(degenerate); len++)
+                assert(crc64(seed, degenerate, len) ==
+                    crcspeed64native(crc64_table, seed, degenerate, len));
+            memset(degenerate, 0xff, sizeof(degenerate));
+            for (uint64_t len = 0; len <= sizeof(degenerate); len++)
+                assert(crc64(seed, degenerate, len) ==
+                    crcspeed64native(crc64_table, seed, degenerate, len));
+
             zfree(cross);
             printf("[crossval]: ok (pclmul %s)\n",
                 crc64_pclmul_available() ? "enabled" : "not available");

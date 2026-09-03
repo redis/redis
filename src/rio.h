@@ -24,12 +24,10 @@
 #define RIO_FLAG_READ_ERROR (1<<0)
 #define RIO_FLAG_WRITE_ERROR (1<<1)
 #define RIO_FLAG_DUMP_PAYLOAD (1ULL<<2)
-/* Set on rio objects (see rioInitWithFileLoad) whose 'read' method already
- * updates the checksum itself, over the granularity of its own physical
- * reads rather than the caller's request size. Callers that otherwise
- * checksum every rioRead() call (e.g. rdbLoadProgressCallback) must skip
- * their own checksum step when this flag is set, or bytes get checksummed
- * twice. */
+/* Set on rio objects whose read() already checksums internally, at
+ * physical-read granularity (see rioInitWithFileLoad). Callers that
+ * normally checksum every rioRead() — e.g. rdbLoadProgressCallback —
+ * must skip that step here, or bytes get checksummed twice. */
 #define RIO_FLAG_CKSUM_AT_SOURCE (1<<3)
 
 #define RIO_TYPE_FILE (1<<0)
@@ -87,7 +85,6 @@ struct _rio {
                                   * be folded into the running checksum, even
                                   * though a single physical read routinely
                                   * reads straight through this boundary. */
-            unsigned checksum_enabled:1; /* Whether to compute the checksum at all. */
         } file;
         /* Connection object (used to read from socket) */
         struct {
