@@ -4374,7 +4374,8 @@ void emptyDbAsync(redisDb *db);
 void streamMoveIdmpKeys(dict *src, dict *dst, struct slotRangeArray *slots);
 typedef void (*lazyfreeKvsCallback)(kvstore *kvs, void *userdata);
 void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires,
-                      dict *stream_idmp_keys, lazyfreeKvsCallback callback, void *userdata);
+                      dict *stream_idmp_keys, kvstore *blessed,
+                      lazyfreeKvsCallback callback, void *userdata);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);

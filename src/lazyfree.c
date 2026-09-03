@@ -25,15 +25,17 @@ static void lazyfreeFreeKvs(void *args[]) {
     kvstore *da2 = args[1];
     estore *subexpires = args[2];
     dict *stream_idmp_keys = args[3];
+    kvstore *blessed = args[4]; /* optional bless index (NULL if none) */
 
     /* Run the optional callback in the BIO thread before releasing the
-     * detached kvstores. args[4] holds the callback and args[5] its userdata. */
-    lazyfreeKvsCallback callback = (lazyfreeKvsCallback)(uintptr_t)args[4];
-    void *userdata = args[5];
+     * detached kvstores. args[5] holds the callback and args[6] its userdata. */
+    lazyfreeKvsCallback callback = (lazyfreeKvsCallback)(uintptr_t)args[5];
+    void *userdata = args[6];
     if (callback) callback(da1, userdata);
 
     estoreRelease(subexpires);
     dictRelease(stream_idmp_keys);
+    if (blessed) kvstoreRelease(blessed);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
     kvstoreRelease(da2);
@@ -295,13 +297,6 @@ static void protectClientReplyObjects(void) {
 /* Empty a Redis DB asynchronously. What the function does actually is to
  * create a new empty set of hash tables and scheduling the old ones for
  * lazy freeing. */
-/* Release a detached kvstore from the BIO lazyfree thread (used to free the old
- * blessed-keys index on async DB empty). */
-static void lazyfreeReleaseKvs(kvstore *unused, void *kvs) {
-    UNUSED(unused);
-    kvstoreRelease((kvstore *)kvs);
-}
-
 void emptyDbAsync(redisDb *db) {
     int slot_count_bits = 0;
     int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
@@ -319,20 +314,21 @@ void emptyDbAsync(redisDb *db) {
     db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     db->blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
-    /* Free the old blessed-keys index on BIO too, via the lazyfree callback. */
+    /* The old blessed index is freed on the BIO thread with the other structures. */
     emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys,
-                     lazyfreeReleaseKvs, oldblessed);
+                     oldblessed, NULL, NULL);
 }
 
 /* Empty kvstore data asynchronously. If callback is provided, invoke it from
  * the BIO thread before releasing the detached kvstores. */
 void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires,
-                      dict *stream_idmp_keys, lazyfreeKvsCallback callback, void *userdata) {
+                      dict *stream_idmp_keys, kvstore *blessed,
+                      lazyfreeKvsCallback callback, void *userdata) {
     serverAssert(callback || userdata == NULL);
 
     atomicIncr(lazyfree_objects, kvstoreSize(keys));
-    bioCreateLazyFreeJob(lazyfreeFreeKvs, 6, keys, expires, hexpires, stream_idmp_keys,
-                         (void *)(uintptr_t)callback, userdata);
+    bioCreateLazyFreeJob(lazyfreeFreeKvs, 7, keys, expires, hexpires, stream_idmp_keys,
+                         blessed, (void *)(uintptr_t)callback, userdata);
 }
 
 /* Free the key tracking table.

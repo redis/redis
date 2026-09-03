@@ -98,7 +98,6 @@ typedef struct asmTask {
 
 typedef struct asmBgTrimState {
     kvstore *target_kvstore;
-    kvstore *blessed;      /* Detached bless NO-EVICT index for the trimmed slots (freed in BIO) */
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
 } asmBgTrimState;
@@ -3118,13 +3117,6 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         }
     }
     kvstoreIteratorReset(&kvs_it);
-
-    /* Release the detached blessed-keys index here in the BIO thread, together
-     * with the other slot structures freed by the lazyfree job. */
-    if (trim_job->bg->blessed) {
-        kvstoreRelease(trim_job->bg->blessed);
-        trim_job->bg->blessed = NULL;
-    }
 }
 
 /* Complete a background trim in the main thread after lazyfree finishes.
@@ -3219,11 +3211,10 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
      * byte-count for the entries that just left its index. */
     blessedIndexReconcileMoved(&server.db[0], blessed_keys);
 
-    /* Hand the temp blessed-keys index to the trim job so the BIO callback frees
-     * it alongside the other detached structures. */
-    job->bg->blessed = blessed_keys;
+    /* The temp blessed-keys index is freed on the BIO thread alongside the other
+     * detached slot structures; the callback computes the keysize deltas. */
     emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys,
-                     asmTrimJobPopulateDeltaHistograms, job);
+                     blessed_keys, asmTrimJobPopulateDeltaHistograms, job);
 
     /* Queue completion after the lazyfree job on the same BIO worker. */
     bioCreateCompRq(BIO_WORKER_LAZY_FREE, asmBackgroundTrimDoneCB, job->client_id, job);
