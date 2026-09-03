@@ -12,6 +12,9 @@
         "acl_categories": [
             "LIST"
         ],
+        "command_tips": [
+            "CACHEABLE_REPLY"
+        ],
         "key_specs": [
             {
                 "flags": [

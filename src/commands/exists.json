@@ -21,7 +21,8 @@
         ],
         "command_tips": [
             "REQUEST_POLICY:MULTI_SHARD",
-            "RESPONSE_POLICY:AGG_SUM"
+            "RESPONSE_POLICY:AGG_SUM",
+            "CACHEABLE_REPLY"
         ],
         "key_specs": [
             {
