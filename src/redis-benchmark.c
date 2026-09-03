@@ -1094,6 +1094,7 @@ static clusterNode **addClusterNode(clusterNode *node) {
  */
 static int fetchClusterConfiguration(void) {
     int success = 1;
+    int firstNodeAdded = 0;
     redisContext *ctx = NULL;
     redisReply *reply =  NULL;
     ctx = getRedisContext(config.conn_info.hostip, config.conn_info.hostport, config.hostsocket);
@@ -1248,12 +1249,14 @@ static int fetchClusterConfiguration(void) {
             success = 0;
             goto cleanup;
         }
+        if (node == firstNode) firstNodeAdded = 1;
     }
 cleanup:
     if (ctx) redisFree(ctx);
     if (!success) {
         if (config.cluster_nodes) freeClusterNodes();
     }
+    if (firstNode && !firstNodeAdded) freeClusterNode(firstNode);
     if (reply) freeReplyObject(reply);
     return success;
 }
