@@ -2529,6 +2529,11 @@ struct redisServer {
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
+    /* After CONFIG SET flips the LFU encoding bit, existing keys still hold
+     * the previous encoding. Do not walk the keyspace; instead convert each
+     * object lazily on first LFU/LRU use until this deadline (mstime). */
+    mstime_t lfu_import_until;      /* non-LFU -> LFU lazy convert window end */
+    mstime_t lru_import_until;      /* LFU -> non-LFU lazy convert window end */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
