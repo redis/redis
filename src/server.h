@@ -1762,6 +1762,8 @@ struct sentinelLoadQueueEntry {
     sds *argv;
     int linenum;
     sds line;
+    int from_state_file; /* 1 if this entry was loaded from the separate
+                            state config file (see "sentinel state-config-file"). */
 };
 
 struct sentinelConfig {
@@ -4232,6 +4234,7 @@ struct rewriteConfigState; /* Forward declaration to export API. */
 int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *option, sds line, int force);
 void rewriteConfigMarkAsProcessed(struct rewriteConfigState *state, const char *option);
 int rewriteConfig(char *path, int force_write);
+int rewriteSentinelStateConfig(char *path);
 void initConfigValues(void);
 void removeConfig(sds name);
 sds getConfigDebugInfo(void);
@@ -4413,6 +4416,7 @@ void sentinelTimer(void);
 const char *sentinelHandleConfiguration(char **argv, int argc);
 void queueSentinelConfig(sds *argv, int argc, int linenum, sds line);
 void loadSentinelConfigFromQueue(void);
+void sentinelLoadStateConfigFile(void);
 void sentinelIsRunning(void);
 void sentinelCheckConfigFile(void);
 void sentinelCommand(client *c);
