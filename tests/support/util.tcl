@@ -603,7 +603,7 @@ proc find_available_port {start count} {
 
 # Test if TERM looks like to support colors
 proc color_term {} {
-    expr {[info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
+    expr {![info exists ::env(NO_COLOR)] && [info exists ::env(TERM)] && [string match *xterm* $::env(TERM)]}
 }
 
 proc colorstr {color str} {

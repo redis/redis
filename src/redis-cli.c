@@ -1996,6 +1996,9 @@ int isPubsubPush(redisReply *r) {
 
 int isColorTerm(void) {
     char *t = getenv("TERM");
+    char *no_color = getenv("NO_COLOR");
+    if (no_color != NULL && no_color[0] != '\0')
+        return 0;
     return t != NULL && strstr(t,"xterm") != NULL;
 }
 
@@ -10827,8 +10830,13 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
         char red[] = "\033[31m";
         char green[] = "\033[32m";
         char default_color[] = "\033[39m";
-        snprintf(progressbar, sizeof(progressbar), "%s%s%s%s%s",
-            green, buf[0], red, buf[1], default_color);
+        if (isColorTerm()) {
+            snprintf(progressbar, sizeof(progressbar), "%s%s%s%s%s",
+                green, buf[0], red, buf[1], default_color);
+        } else {
+            snprintf(progressbar, sizeof(progressbar), "%s%s",
+                buf[0], buf[1]);
+        }
     } else {
         snprintf(progressbar, sizeof(progressbar), "%s", "keys scanned");
     }
