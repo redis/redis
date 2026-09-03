@@ -2157,6 +2157,13 @@ void clusterSyncSlotsCommand(client *c) {
             if (task->state == ASM_SEND_BULK_AND_STREAM || task->state == ASM_SEND_STREAM) {
                 /* Pause writes on the main channel if the lag is less than the threshold. */
                 if (task->dest_offset + server.asm_handoff_max_lag_bytes >= task->source_offset) {
+                    /* Check failpoint for send-stream state. When there's no data,
+                     * the task may skip SEND_STREAM and go directly to HANDOFF_PREP. */
+                    if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_SEND_STREAM))) {
+                        asmTaskSetFailed(task, "Main channel - send-stream failpoint");
+                        return;
+                    }
+
                     if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_HANDOFF_PREP)))
                         return; /* Do not enter handoff prep state for testing buffer drain timeout. */
 
@@ -2554,6 +2561,14 @@ static int asmSyncBufferStreamShouldContinue(void *ctx) {
 
 /* Stream the sync buffer to the database. */
 void asmSyncBufferStreamToDb(asmTask *task) {
+    /* Check failpoint for streaming-buffer state before changing state. This
+     * handles the case where the buffer is empty and streaming completes
+     * instantly without triggering the failpoint in the streaming loop. */
+    if (unlikely(asmDebugIsFailPointActive(ASM_IMPORT_MAIN_CHANNEL, ASM_STREAMING_BUF))) {
+        asmTaskSetFailed(task, "Main channel - streaming-buffer failpoint");
+        return;
+    }
+
     task->state = ASM_STREAMING_BUF;
     serverLog(LL_NOTICE, "Starting to stream accumulated buffer for the import task (%zu bytes)",
                          task->sync_buffer.used);
@@ -2921,6 +2936,12 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
     if (!task || task->state != ASM_HANDOFF_PREP) {
         *err = sdscatprintf(sdsempty(), "No suitable ASM task found for id: %s, task_state: %s",
                             task_id, task ? asmTaskStateToString(task->state) : "null");
+        return C_ERR;
+    }
+
+    /* Check failpoint for handoff state before changing state. */
+    if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_HANDOFF))) {
+        asmTaskSetFailed(task, "Main channel - handoff failpoint");
         return C_ERR;
     }
 
