@@ -38,7 +38,8 @@ static double avg_ttl_factor[16] = {0.98, 0.9604, 0.941192, 0.922368, 0.903921, 
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
 int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
-    if (now < kvobjGetExpire(kv))
+    long long when = kvobjGetExpire(kv);
+    if (now < when)
         return 0;
 
     enterExecutionUnit(1, 0);
@@ -50,6 +51,8 @@ int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
     exitExecutionUnit();
     /* Propagate the DEL command */
     postExecutionUnitOperations();
+    if (server.latency_tracking_enabled)
+        updateExpireLagHistogram(&server.expire_lag_active_histogram, when, now);
     return 1;
 }
 

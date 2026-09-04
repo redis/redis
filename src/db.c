@@ -3046,6 +3046,13 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
 
+    /* Read the deadline before the key goes away, so we can record how long it
+     * outlived it. Only this branch, where a deletion is about to happen, is in
+     * a position to know it. */
+    long long expire_at = -1;
+    if (server.latency_tracking_enabled)
+        expire_at = getExpire(db, key ? key->ptr : NULL, kv);
+
     /* Perform deletion */
     if (key) {
         deleteExpiredKeyAndPropagate(db, key);
@@ -3055,6 +3062,8 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         deleteExpiredKeyAndPropagate(db, tmpkey);
         decrRefCount(tmpkey);
     }
+    if (expire_at > 0)
+        updateExpireLagHistogram(&server.expire_lag_lazy_histogram, expire_at, commandTimeSnapshot());
     return KEY_DELETED;
 }
 
