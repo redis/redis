@@ -615,10 +615,13 @@ int performEvictions(void) {
                     while (l--) {
                         int candidates = 0;
                         int sampled = evictionPoolPopulate(db, kvs, pool, &candidates);
-                        sampled_keys += sampled;
+                        /* Count only evictable (non-blessed) keys toward the budget,
+                         * so slots full of NO-EVICT keys don't starve the sampling
+                         * and stop us from reaching slots that still have victims. */
+                        sampled_keys += candidates;
                         total_sampled_keys += sampled;
                         total_candidates += candidates;
-                        /* We have sampled enough keys in the current db, exit the loop. */
+                        /* We have sampled enough evictable keys in the current db. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
                         /* If there are not a lot of keys in the current db, dict/s may be very
