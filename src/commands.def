@@ -34,6 +34,102 @@ const char *COMMAND_GROUP_STR[] = {
 const char *commandGroupStr(int index) {
     return COMMAND_GROUP_STR[index];
 }
+/********** ARAGG ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* ARAGG history */
+#define ARAGG_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* ARAGG tips */
+#define ARAGG_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* ARAGG key specs */
+keySpec ARAGG_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* ARAGG predicate exact argument table */
+struct COMMAND_ARG ARAGG_predicate_exact_Subargs[] = {
+{MAKE_ARG("exact",ARG_TYPE_PURE_TOKEN,-1,"EXACT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("string",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARAGG predicate match argument table */
+struct COMMAND_ARG ARAGG_predicate_match_Subargs[] = {
+{MAKE_ARG("match",ARG_TYPE_PURE_TOKEN,-1,"MATCH",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("string",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARAGG predicate glob argument table */
+struct COMMAND_ARG ARAGG_predicate_glob_Subargs[] = {
+{MAKE_ARG("glob",ARG_TYPE_PURE_TOKEN,-1,"GLOB",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARAGG predicate re argument table */
+struct COMMAND_ARG ARAGG_predicate_re_Subargs[] = {
+{MAKE_ARG("re",ARG_TYPE_PURE_TOKEN,-1,"RE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARAGG predicate range argument table */
+struct COMMAND_ARG ARAGG_predicate_range_Subargs[] = {
+{MAKE_ARG("range",ARG_TYPE_PURE_TOKEN,-1,"RANGE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("exclusive",ARG_TYPE_PURE_TOKEN,-1,"EXCLUSIVE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/* ARAGG predicate argument table */
+struct COMMAND_ARG ARAGG_predicate_Subargs[] = {
+{MAKE_ARG("exact",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARAGG_predicate_exact_Subargs},
+{MAKE_ARG("match",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARAGG_predicate_match_Subargs},
+{MAKE_ARG("glob",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARAGG_predicate_glob_Subargs},
+{MAKE_ARG("re",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARAGG_predicate_re_Subargs},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=ARAGG_predicate_range_Subargs},
+};
+
+/* ARAGG options argument table */
+struct COMMAND_ARG ARAGG_options_Subargs[] = {
+{MAKE_ARG("and",ARG_TYPE_PURE_TOKEN,-1,"AND",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("or",ARG_TYPE_PURE_TOKEN,-1,"OR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("limit",ARG_TYPE_INTEGER,-1,"LIMIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("nocase",ARG_TYPE_PURE_TOKEN,-1,"NOCASE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARAGG aggregate operations argument table */
+struct COMMAND_ARG ARAGG_aggregate_operations_Subargs[] = {
+{MAKE_ARG("sum",ARG_TYPE_PURE_TOKEN,-1,"SUM",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_PURE_TOKEN,-1,"MIN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_PURE_TOKEN,-1,"MAX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_PURE_TOKEN,-1,"COUNT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("avg",ARG_TYPE_PURE_TOKEN,-1,"AVG",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("and",ARG_TYPE_PURE_TOKEN,-1,"AND",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("or",ARG_TYPE_PURE_TOKEN,-1,"OR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xor",ARG_TYPE_PURE_TOKEN,-1,"XOR",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* ARAGG aggregate argument table */
+struct COMMAND_ARG ARAGG_aggregate_Subargs[] = {
+{MAKE_ARG("aggregate",ARG_TYPE_PURE_TOKEN,-1,"AGGREGATE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("operations",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,8,NULL),.subargs=ARAGG_aggregate_operations_Subargs},
+};
+
+/* ARAGG argument table */
+struct COMMAND_ARG ARAGG_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("predicate",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,5,NULL),.subargs=ARAGG_predicate_Subargs},
+{MAKE_ARG("options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,4,NULL),.subargs=ARAGG_options_Subargs},
+{MAKE_ARG("aggregate",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARAGG_aggregate_Subargs},
+};
+
 /********** ARCOUNT ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -208,12 +304,21 @@ struct COMMAND_ARG ARGREP_predicate_re_Subargs[] = {
 {MAKE_ARG("pattern",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* ARGREP predicate range argument table */
+struct COMMAND_ARG ARGREP_predicate_range_Subargs[] = {
+{MAKE_ARG("range",ARG_TYPE_PURE_TOKEN,-1,"RANGE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("min",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("max",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("exclusive",ARG_TYPE_PURE_TOKEN,-1,"EXCLUSIVE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
 /* ARGREP predicate argument table */
 struct COMMAND_ARG ARGREP_predicate_Subargs[] = {
 {MAKE_ARG("exact",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_exact_Subargs},
 {MAKE_ARG("match",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_match_Subargs},
 {MAKE_ARG("glob",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_glob_Subargs},
 {MAKE_ARG("re",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=ARGREP_predicate_re_Subargs},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,4,NULL),.subargs=ARGREP_predicate_range_Subargs},
 };
 
 /* ARGREP options argument table */
@@ -230,7 +335,7 @@ struct COMMAND_ARG ARGREP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("start",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("predicate",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,4,NULL),.subargs=ARGREP_predicate_Subargs},
+{MAKE_ARG("predicate",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,5,NULL),.subargs=ARGREP_predicate_Subargs},
 {MAKE_ARG("options",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,5,NULL),.subargs=ARGREP_options_Subargs},
 };
 
@@ -12797,6 +12902,7 @@ struct COMMAND_ARG WATCH_Args[] = {
 /* Main command table */
 struct COMMAND_STRUCT redisCommandTable[] = {
 /* array */
+{MAKE_CMD("aragg","Compute one or more aggregates over array elements matching optional predicates.","O(P * C + A) where P is the number of visited positions, C is predicate evaluation cost, and A is aggregate computation.","8.10.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARAGG_History,0,ARAGG_Tips,0,araggCommand,-6,CMD_READONLY,ACL_CATEGORY_ARRAY,ARAGG_Keyspecs,1,NULL,6),.args=ARAGG_Args},
 {MAKE_CMD("arcount","Returns the number of non-empty elements in an array.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARCOUNT_History,0,ARCOUNT_Tips,0,arcountCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_ARRAY,ARCOUNT_Keyspecs,1,NULL,1),.args=ARCOUNT_Args},
 {MAKE_CMD("ardel","Deletes elements at the specified indices in an array.","O(N) where N is the number of indices to delete","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARDEL_History,0,ARDEL_Tips,0,ardelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_ARRAY,ARDEL_Keyspecs,1,NULL,2),.args=ARDEL_Args},
 {MAKE_CMD("ardelrange","Deletes elements in one or more ranges.","Proportional to the number of existing elements / slices touched, not to the numeric span of the requested ranges","8.8.0",CMD_DOC_NONE,NULL,NULL,"array",COMMAND_GROUP_ARRAY,ARDELRANGE_History,0,ARDELRANGE_Tips,0,ardelrangeCommand,-4,CMD_WRITE,ACL_CATEGORY_ARRAY,ARDELRANGE_Keyspecs,1,NULL,2),.args=ARDELRANGE_Args},
