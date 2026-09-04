@@ -294,7 +294,10 @@ int isClientMustHandledByMainThread(client *c) {
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
                     CLIENT_LUA_DEBUG_SYNC | CLIENT_ASM_MIGRATING |
-                    CLIENT_ASM_IMPORTING))
+                    CLIENT_ASM_IMPORTING |
+                    /* memcached.c both parses and executes from the read
+                     * path, so it must run on the main thread. */
+                    CLIENT_MEMCACHED))
     {
         return 1;
     }

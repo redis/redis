@@ -3108,9 +3108,11 @@ void initServer(void) {
         server.db[j].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].watched_keys = dictCreate(&keylistDictType);
+        server.db[j].mcflags = NULL; /* Created on demand by memcached.c. */
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
     }
+    memcachedInit();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
     /* Note that server.pubsub_channels was chosen to be a kvstore (with only one dict, which
      * seems odd) just to make the code cleaner by making it be the same type as server.pubsubshard_channels
@@ -3311,6 +3313,11 @@ void initListeners(void) {
 
        listen_fds += listener->count;
     }
+
+    /* The memcached listener is kept out of server.listeners[], which is
+     * indexed by connection type and so cannot hold a second TCP entry. */
+    memcachedInitListener();
+    listen_fds += server.memcached_listener.count;
 
     if (listen_fds == 0) {
         serverLog(LL_WARNING, "Configured to not listen anywhere, exiting.");
@@ -4946,6 +4953,8 @@ void closeListeningSockets(int unlink_unix_socket) {
 
     if (server.cluster_enabled)
         for (j = 0; j < server.clistener.count; j++) close(server.clistener.fd[j]);
+    for (j = 0; j < server.memcached_listener.count; j++)
+        close(server.memcached_listener.fd[j]);
     if (unlink_unix_socket && server.unixsocket) {
         serverLog(LL_NOTICE,"Removing the unix socket file.");
         if (unlink(server.unixsocket) != 0)
@@ -8336,6 +8345,9 @@ int main(int argc, char **argv) {
         moduleLoadFromQueue();
     }
     ACLLoadUsersAtStartup();
+    /* Runs after the ACLs are loaded, since whether the memcached port is
+     * allowed depends on whether any authentication is configured. */
+    memcachedValidateConfigOrExit();
     initListeners();
     if (server.cluster_enabled) {
         clusterInitLast();

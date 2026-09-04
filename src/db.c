@@ -606,6 +606,13 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         newKeyMetaBits &= ~KEY_META_MASK_EXPIRE; 
 
     if (overwrite) {
+        /* The item is being replaced wholesale, so any memcached item flags
+         * describe the old value and not the new one. memcached's own store
+         * path sets the new flags immediately after this returns. An in-place
+         * value update (overwrite == 0, as in APPEND or INCR) keeps them,
+         * since it is the same item with a new value. */
+        memcachedFlagsRemove(db, key);
+
         /* On overwrite, discard module metadata excluding expire if set */
         newKeyMetaBits &= KEY_META_MASK_EXPIRE;
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
@@ -904,6 +911,8 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* remove key from histogram */
         if(!(flags & DB_FLAG_NO_UPDATE_KEYSIZES))
             updateKeysizesHist(db, type, oldlen, -1);
+        /* memcached item flags live beside the keyspace, drop them with the key. */
+        memcachedFlagsRemove(db, key);
         return 1;
     } else {
         return 0;
@@ -1013,6 +1022,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             kvstoreEmpty(dbarray[j].expires, callback);
             dictEmpty(dbarray[j].stream_idmp_keys, callback);
         }
+        memcachedFlagsEmpty(&dbarray[j]);
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
         dbarray[j].expires_cursor = 0;
@@ -1125,6 +1135,7 @@ void discardTempDb(redisDb *tempDb) {
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
         dictRelease(tempDb[i].stream_idmp_keys);
+        memcachedFlagsFree(&tempDb[i]);
     }
 
     zfree(tempDb);
@@ -2634,6 +2645,7 @@ int dbSwapDatabases(int id1, int id2) {
     db1->expires = db2->expires;
     db1->subexpires = db2->subexpires;
     db1->stream_idmp_keys = db2->stream_idmp_keys;
+    db1->mcflags = db2->mcflags;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
 
@@ -2641,6 +2653,7 @@ int dbSwapDatabases(int id1, int id2) {
     db2->expires = aux.expires;
     db2->subexpires = aux.subexpires;
     db2->stream_idmp_keys = aux.stream_idmp_keys;
+    db2->mcflags = aux.mcflags;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
 
@@ -2680,6 +2693,9 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
         activedb->expires = newdb->expires;
         activedb->subexpires = newdb->subexpires;
         activedb->stream_idmp_keys = newdb->stream_idmp_keys;
+        /* The replacement dataset came from an RDB, which does not carry
+         * memcached item flags, so every item in it has flags of 0. */
+        memcachedFlagsEmpty(activedb);
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 

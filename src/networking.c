@@ -166,6 +166,10 @@ client *createClient(connection *conn) {
     c->querybuf = NULL;
     c->querybuf_peak = 0;
     c->reqtype = 0;
+    /* createClient() zmallocs the struct, so this must be initialized here:
+     * freeClient() inspects it for every client, memcached or not. It is
+     * allocated only by memcachedClientCreated(). */
+    c->mc = NULL;
     c->argc = 0;
     c->argv = NULL;
     c->argv_len = 0;
@@ -1659,11 +1663,14 @@ void clientAcceptHandler(connection *conn) {
                           REDISMODULE_SUBEVENT_CLIENT_CHANGE_CONNECTED,
                           c);
 
-    /* Assign the client to an IO thread */
-    if (server.io_threads_num > 1) assignClientToIOThread(c);
+    /* memcached clients are parsed and executed on the main thread only: the
+     * protocol handler in memcached.c touches the keyspace directly rather
+     * than going through the pending-command pipeline the IO threads use. */
+    if (server.io_threads_num > 1 && !(c->flags & CLIENT_MEMCACHED))
+        assignClientToIOThread(c);
 }
 
-void acceptCommonHandler(connection *conn, int flags, char *ip) {
+void acceptCommonHandler(connection *conn, uint64_t flags, char *ip) {
     client *c;
     UNUSED(ip);
 
@@ -1720,6 +1727,9 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
 
     /* Last chance to keep flags */
     c->flags |= flags;
+
+    /* Allocate the memcached protocol state and pin the client to db 0. */
+    if (c->flags & CLIENT_MEMCACHED) memcachedClientCreated(c);
 
     /* Initiate accept.
      *
@@ -2279,6 +2289,9 @@ void freeClient(client *c) {
     dictRelease(c->pubsub_channels);
     dictRelease(c->pubsub_patterns);
     dictRelease(c->pubsubshard_channels);
+
+    /* Free the memcached protocol state, if this is a memcached client. */
+    memcachedClientFreed(c);
 
     /* Free data structures. */
     releaseAllBufReferences(c); /* Release all references to string objects in encoded buffers before freeing */
@@ -3696,6 +3709,12 @@ int processInputBuffer(client *c) {
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
         statsUpdateActiveClients(c);
 
+    /* memcached clients speak a different protocol and are dispatched by
+     * memcached.c, which does its own parsing, execution and query buffer
+     * trimming. */
+    if (unlikely(c->flags & CLIENT_MEMCACHED))
+        return memcachedProcessInputBuffer(c);
+
     /* We limit the lookahead for unauthenticated connections to 1.
      * This is both to reduce memory overhead, and to prevent errors: AUTH can
      * affect the handling of succeeding commands. Parsing of "large"
@@ -4119,7 +4138,7 @@ static inline int isCrashing(void) {
 /* Concatenate a string representing the state of a client in a human
  * readable format, into the sds string 's'. */
 sds catClientInfoString(sds s, client *client) {
-    char flags[17], events[3], conninfo[CONN_INFO_LEN], *p;
+    char flags[18], events[3], conninfo[CONN_INFO_LEN], *p;
 
     /* Pause IO thread to access data of the client safely. */
     int paused = 0;
@@ -4162,6 +4181,7 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_NO_TOUCH) *p++ = 'T';
     if (client->flags & CLIENT_REPL_RDB_CHANNEL) *p++ = 'C';
     if (client->flags & CLIENT_INTERNAL) *p++ = 'I';
+    if (client->flags & CLIENT_MEMCACHED) *p++ = 'm';
     if (p == flags) *p++ = 'N';
     *p++ = '\0';
 

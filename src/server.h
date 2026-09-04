@@ -94,6 +94,7 @@ struct RedisModuleKeyOptCtx {
 #include "endianconv.h"
 #include "crc64.h"
 #include "keymeta.h"
+#include "memcached.h" /* memcached text protocol support */
 
 struct hdr_histogram;
 
@@ -456,6 +457,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
 #define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
 #define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
+#define CLIENT_MEMCACHED (1ULL<<55) /* Client speaks the memcached text protocol. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -1235,6 +1237,10 @@ typedef struct redisDb {
     dict *stream_idmp_keys; /* Stream keys with IDMP tracking */
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
+    dict *mcflags;              /* memcached 32 bit item flags, keyed by key name.
+                                 * Created on demand, NULL when unused. Not saved
+                                 * to the RDB/AOF and not replicated, see
+                                 * memcached.c. */
     int id;                     /* Database ID */
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
@@ -1536,6 +1542,8 @@ typedef struct client {
                                user is set to NULL the connection can do
                                anything (admin). */
     int reqtype;            /* Request protocol type: PROTO_REQ_* */
+    mcClient *mc;           /* memcached protocol state, NULL unless the client
+                               carries CLIENT_MEMCACHED. */
     int multibulklen;       /* Number of multi bulk arguments left to read. */
     long bulklen;           /* Length of bulk argument in multi bulk request. */
     list *reply;            /* List of reply objects to send to the client. */
@@ -2101,6 +2109,12 @@ struct redisServer {
     char *unixsocket;           /* UNIX socket path */
     unsigned int unixsocketperm; /* UNIX socket permission (see mode_t) */
     connListener listeners[CONN_TYPE_MAX]; /* TCP/Unix/TLS even more types */
+    int memcached_port;         /* memcached text protocol port, 0 to disable */
+    int memcached_insecure_allow_noauth; /* Allow the unauthenticated memcached
+                                          * port even when requirepass/ACLs are
+                                          * configured. */
+    connListener memcached_listener; /* memcached text protocol listener */
+    mcStats mc_stats;           /* Counters behind the memcached `stats` cmd */
     uint32_t socket_mark_id;    /* ID for listen socket marking */
     connListener clistener;     /* Cluster bus listener */
     list *clients;              /* List of active clients */
@@ -3332,7 +3346,7 @@ int isClientReadErrorFatal(client *c);
 int processInputBuffer(client *c);
 void statsUpdateActiveClients(client *c);
 int getActiveClientsInWindow(void);
-void acceptCommonHandler(connection *conn, int flags, char *ip);
+void acceptCommonHandler(connection *conn, uint64_t flags, char *ip);
 void readQueryFromClient(connection *conn);
 int prepareClientToWrite(client *c);
 void addReplyNull(client *c);
