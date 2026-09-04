@@ -1,4 +1,4 @@
-# This script is from http://poormansprofiler.org/
+# This script is from https://poormansprofiler.org/
 #
 # NOTE: Instead of using this script, you should use the Redis
 # Software Watchdog, which provides a similar functionality but in
