@@ -1334,7 +1334,46 @@ void zaddGenericCommand(client *c, int flags) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(zobj);
     unsigned long llen = zsetLength(zobj);
-    for (j = 0; j < elements; j++) {
+
+    /* Bulk-build an empty B+ tree: stage unique members in the dict, then pack
+     * the tree in one bottom-up pass. A repeated member is the only way NX, GT,
+     * or LT can matter against an empty destination; flush and finish those
+     * remaining pairs with zsetAdd() so flag logic stays in one place. */
+    j = 0;
+    if (zobj->encoding == OBJ_ENCODING_BTREE && llen == 0 &&
+        !incr && !xx && elements > 1)
+    {
+        zset *zs = zobj->ptr;
+        zbtElem **staged = zmalloc(sizeof(zbtElem *) * (size_t)elements);
+        unsigned long staged_cnt = 0;
+
+        for (; j < elements; j++) {
+            dictEntryLink bucket, link;
+
+            score = scores[j];
+            ele = c->argv[scoreidx+1+j*2]->ptr;
+            link = dictFindLink(zs->dict, ele, &bucket);
+            if (link != NULL) {
+                zsetBuildTreeFromElems(zs, staged, staged_cnt);
+                zfree(staged);
+                staged = NULL;
+                break;
+            }
+
+            zbtElem *znode = zbtCreateElem(score, ele);
+            dictSetKeyAtLink(zs->dict, znode, &bucket, 1);
+            staged[staged_cnt++] = znode;
+            added++;
+            processed++;
+        }
+
+        if (staged != NULL) {
+            zsetBuildTreeFromElems(zs, staged, staged_cnt);
+            zfree(staged);
+        }
+    }
+
+    for (; j < elements; j++) {
         double newscore;
         score = scores[j];
         int retflags = 0;
@@ -1582,6 +1621,7 @@ typedef struct {
     robj *subject;
     int type; /* Set, sorted set */
     int encoding;
+    unsigned long length;
     double weight;
     size_t oldsize;
 
@@ -1722,7 +1762,7 @@ void zuiDiscardDirtyValue(zsetopval *val) {
     }
 }
 
-unsigned long zuiLength(zsetopsrc *op) {
+static unsigned long zuiComputeLength(zsetopsrc *op) {
     if (op->subject == NULL)
         return 0;
 
@@ -1740,6 +1780,27 @@ unsigned long zuiLength(zsetopsrc *op) {
     } else {
         serverPanic("Unsupported type");
     }
+}
+
+/* Fill subject/type/encoding and cache the cardinality. A missing key is a
+ * zero-length source. qsort of zsetopsrc copies the whole struct, so the
+ * cache stays attached to its source. */
+static void zuiSetSource(zsetopsrc *op, robj *obj) {
+    op->subject = obj;
+    if (obj == NULL) {
+        op->type = 0;
+        op->encoding = 0;
+        op->length = 0;
+        return;
+    }
+    op->type = obj->type;
+    op->encoding = obj->encoding;
+    op->length = zuiComputeLength(op);
+}
+
+unsigned long zuiLength(zsetopsrc *op) {
+    debugServerAssert(op->length == zuiComputeLength(op));
+    return op->length;
 }
 
 /* Check if the current value is valid. If so, store it in the passed structure
@@ -1963,27 +2024,6 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-static size_t zsetDictGetMaxElementLength(dict *d, size_t *totallen) {
-    dictIterator di;
-    dictEntry *de;
-    size_t maxelelen = 0;
-
-    dictInitIterator(&di, d);
-
-    while((de = dictNext(&di)) != NULL) {
-        /* Extract sds from the element (key is zbtElem*) */
-        zbtElem *znode = dictGetKey(de);
-        sds ele = zbtGetEle(znode);
-        if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
-        if (totallen)
-            (*totallen) += sdslen(ele);
-    }
-
-    dictResetIterator(&di);
-
-    return maxelelen;
-}
-
 /* qsort() comparator ordering elements by (score, member), the tree's own
  * order. Members come from a dict, so no two compare equal. */
 static int zsetElemCompare(const void *a, const void *b) {
@@ -2006,8 +2046,12 @@ static void zsetSortElems(zbtElem **elems, unsigned long n) {
     if (i < n) qsort(elems, n, sizeof(zbtElem *), zsetElemCompare);
 }
 
-/* Collect element pointers registered in a zset dict. Caller must zfree() the array. */
-static zbtElem **zsetCollectDictElems(dict *d, unsigned long *n) {
+/* Collect element pointers registered in a zset dict. When maxelelen is
+ * non-NULL, also accumulate the longest and (if totelelen is set) total
+ * member lengths in the same walk. Caller must zfree() the array. */
+static zbtElem **zsetCollectDictElems(dict *d, unsigned long *n,
+                                      size_t *maxelelen, size_t *totelelen)
+{
     *n = dictSize(d);
     if (*n == 0) return NULL;
 
@@ -2017,7 +2061,15 @@ static zbtElem **zsetCollectDictElems(dict *d, unsigned long *n) {
     unsigned long i = 0;
 
     dictInitIterator(&di, d);
-    while ((de = dictNext(&di)) != NULL) elems[i++] = dictGetKey(de);
+    while ((de = dictNext(&di)) != NULL) {
+        zbtElem *znode = dictGetKey(de);
+        elems[i++] = znode;
+        if (maxelelen) {
+            size_t len = sdslen(zbtGetEle(znode));
+            if (len > *maxelelen) *maxelelen = len;
+            if (totelelen) *totelelen += len;
+        }
+    }
     dictResetIterator(&di);
     serverAssert(i == *n);
     return elems;
@@ -2130,7 +2182,7 @@ void zsetBuildTreeFromDict(zset *zs) {
     unsigned long n = dictSize(zs->dict);
     if (n == 0) return;
 
-    zbtElem **elems = zsetCollectDictElems(zs->dict, &n);
+    zbtElem **elems = zsetCollectDictElems(zs->dict, &n, NULL, NULL);
     zsetBuildTreeFromElems(zs, elems, n);
     zfree(elems);
 }
@@ -2223,6 +2275,11 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     zsetopval zval;
     zbtElem *znode;
     sds tmp;
+    unsigned long src0len = zuiLength(&src[0]);
+    zbtElem **src0elems = src0len ? zmalloc(sizeof(zbtElem *) * src0len) : NULL;
+    unsigned long src0cnt = 0;
+
+    dictExpand(dstzset->dict, src0len);
 
     for (j = 0; j < setnum; j++) {
         if (zuiLength(&src[j]) == 0) continue;
@@ -2236,7 +2293,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
                  * the end, so the removals below stay dict-only. The first set's
                  * members are unique, so skip the per-insert duplicate scan. */
                 znode = zbtCreateElem(zval.score, tmp);
-                dictAddNonExisting(dstzset->dict, znode);
+                src0elems[src0cnt++] = znode;
                 cardinality++;
                 sdsfree(tmp); /* zbtCreateElem copied it, we can free our copy */
             } else {
@@ -2257,19 +2314,26 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
         }
         zuiClearIterator(&src[j]);
 
+        /* Source 0 cannot empty the result (cardinality is incremented before
+         * the zero check), so this is the unique-key batch of its members. */
+        if (j == 0 && src0cnt > 0) {
+            dictAddNonExistingBatch(dstzset->dict, (void **)src0elems, src0cnt);
+            zfree(src0elems);
+            src0elems = NULL;
+        }
+
         if (cardinality == 0) break;
     }
+    zfree(src0elems);
 
     /* Resize dict if needed after removing multiple elements */
     dictShrinkIfNeeded(dstzset->dict);
 
-    if (store) {
-        /* Using this algorithm, we can't calculate the max element as we go,
-         * we have to iterate through all elements to find the max one after. */
-        *maxelelen = zsetDictGetMaxElementLength(dstzset->dict, totelelen);
-    }
-
-    *staged_out = zsetCollectDictElems(dstzset->dict, staged_cnt_out);
+    /* One walk both collects survivors and, for STORE, the listpack length
+     * checks. Non-store replies never need those lengths. */
+    *staged_out = zsetCollectDictElems(dstzset->dict, staged_cnt_out,
+                                       store ? maxelelen : NULL,
+                                       store ? totelelen : NULL);
 }
 
 static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
@@ -2392,13 +2456,11 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 return;
             }
 
-            src[i].subject = obj;
-            src[i].type = obj->type;
-            src[i].encoding = obj->encoding;
+            zuiSetSource(&src[i], obj);
             if (server.memory_tracking_enabled)
                 src[i].oldsize = kvobjAllocSize(obj);
         } else {
-            src[i].subject = NULL;
+            zuiSetSource(&src[i], NULL);
         }
 
         /* Default all weights to 1. */
@@ -4177,9 +4239,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
 
     zsetopsrc src;
     zsetopval zval;
-    src.subject = zsetobj;
-    src.type = zsetobj->type;
-    src.encoding = zsetobj->encoding;
+    zuiSetSource(&src, zsetobj);
     zuiInitIterator(&src);
     memset(&zval, 0, sizeof(zval));
 
