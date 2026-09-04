@@ -2304,6 +2304,7 @@ struct COMMAND_ARG ECHO_Args[] = {
 /* HELLO history */
 commandHistory HELLO_History[] = {
 {"6.2.0","`protover` made optional; when called without arguments the command reports the current connection's context."},
+{"8.10.0","Added `run_id` to the reply."},
 };
 #endif
 
@@ -12832,7 +12833,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("auth","Authenticates the connection.","O(N) where N is the number of passwords defined for the user","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,AUTH_History,1,AUTH_Tips,0,authCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,AUTH_Keyspecs,0,NULL,2),.args=AUTH_Args},
 {MAKE_CMD("client","A container for client connection commands.","Depends on subcommand.","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_History,0,CLIENT_Tips,0,NULL,-2,CMD_SENTINEL,0,CLIENT_Keyspecs,0,NULL,0),.subcommands=CLIENT_Subcommands},
 {MAKE_CMD("echo","Returns the given string.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,ECHO_History,0,ECHO_Tips,0,echoCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,ECHO_Keyspecs,0,NULL,1),.args=ECHO_Args},
-{MAKE_CMD("hello","Handshakes with the Redis server.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,HELLO_History,1,HELLO_Tips,0,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,HELLO_Keyspecs,0,NULL,1),.args=HELLO_Args},
+{MAKE_CMD("hello","Handshakes with the Redis server.","O(1)","6.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,HELLO_History,2,HELLO_Tips,0,helloCommand,-1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,HELLO_Keyspecs,0,NULL,1),.args=HELLO_Args},
 {MAKE_CMD("ping","Returns the server's liveliness response.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,PING_History,0,PING_Tips,2,pingCommand,-1,CMD_FAST|CMD_SENTINEL,ACL_CATEGORY_CONNECTION,PING_Keyspecs,0,NULL,1),.args=PING_Args},
 {MAKE_CMD("quit","Closes the connection.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"just closing the connection","7.2.0","connection",COMMAND_GROUP_CONNECTION,QUIT_History,0,QUIT_Tips,0,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,QUIT_Keyspecs,0,NULL,0)},
 {MAKE_CMD("reset","Resets the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,RESET_History,0,RESET_Tips,0,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,RESET_Keyspecs,0,NULL,0)},
