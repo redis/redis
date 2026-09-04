@@ -1992,6 +1992,115 @@ static int zsetElemCompare(const void *a, const void *b) {
     return zbtCompare(zbtGetScore(ea), zbtGetEle(ea), eb);
 }
 
+#define ZSET_LP_STACK_PAIRS 128
+
+/* Sort detached elements by (score, member) when not already ascending. */
+static void zsetSortElems(zbtElem **elems, unsigned long n) {
+    if (n == 0) return;
+
+    unsigned long i;
+    for (i = 1; i < n; i++) {
+        zbtElem *prev = elems[i - 1];
+        if (zbtCompare(zbtGetScore(prev), zbtGetEle(prev), elems[i]) >= 0) break;
+    }
+    if (i < n) qsort(elems, n, sizeof(zbtElem *), zsetElemCompare);
+}
+
+/* Collect element pointers registered in a zset dict. Caller must zfree() the array. */
+static zbtElem **zsetCollectDictElems(dict *d, unsigned long *n) {
+    *n = dictSize(d);
+    if (*n == 0) return NULL;
+
+    zbtElem **elems = zmalloc(sizeof(zbtElem *) * *n);
+    dictIterator di;
+    dictEntry *de;
+    unsigned long i = 0;
+
+    dictInitIterator(&di, d);
+    while ((de = dictNext(&di)) != NULL) elems[i++] = dictGetKey(de);
+    dictResetIterator(&di);
+    serverAssert(i == *n);
+    return elems;
+}
+
+static int zsetElemsFitListpack(unsigned long n, size_t maxelelen, size_t totelelen) {
+    return n <= server.zset_max_listpack_entries &&
+           maxelelen <= server.zset_max_listpack_value &&
+           lpSafeToAdd(NULL, totelelen);
+}
+
+/* Build a listpack-encoded zset from sorted detached elements. Ownership of
+ * every element transfers to the caller via zbtFreeElem after this returns. */
+static robj *zsetCreateListpackFromElems(zbtElem **elems, unsigned long n) {
+    if (n == 0) return createZsetListpackObject();
+
+    listpackEntry stackentries[2 * ZSET_LP_STACK_PAIRS];
+    char stackscorebufs[ZSET_LP_STACK_PAIRS][MAX_D2STRING_CHARS];
+    listpackEntry *entries = stackentries;
+    char (*scorebufs)[MAX_D2STRING_CHARS] = stackscorebufs;
+    int heap_entries = 0, heap_scorebufs = 0;
+
+    if (n > ZSET_LP_STACK_PAIRS) {
+        entries = zmalloc(sizeof(listpackEntry) * 2 * n);
+        scorebufs = zmalloc(sizeof(char[MAX_D2STRING_CHARS]) * n);
+        heap_entries = 1;
+        heap_scorebufs = 1;
+    }
+
+    for (unsigned long i = 0; i < n; i++) {
+        sds ele = zbtGetEle(elems[i]);
+        double score = zbtGetScore(elems[i]);
+        entries[i * 2].sval = (unsigned char *)ele;
+        entries[i * 2].slen = sdslen(ele);
+        long long lscore;
+        if (double2ll(score, &lscore)) {
+            entries[i * 2 + 1].sval = NULL;
+            entries[i * 2 + 1].lval = lscore;
+        } else {
+            int scorelen = d2string(scorebufs[i], sizeof(scorebufs[i]), score);
+            entries[i * 2 + 1].sval = (unsigned char *)scorebufs[i];
+            entries[i * 2 + 1].slen = scorelen;
+        }
+    }
+
+    unsigned char *zl = lpNew(0);
+    zl = lpBatchAppend(zl, entries, n * 2);
+
+    if (heap_entries) zfree(entries);
+    if (heap_scorebufs) zfree(scorebufs);
+
+    robj *o = createObject(OBJ_ZSET, zl);
+    o->encoding = OBJ_ENCODING_LISTPACK;
+    return o;
+}
+
+/* Materialize a zset result from detached elements. When 'dict_indexed' is set,
+ * 'reuse' already indexes every element in its dict and its tree is still empty.
+ * Otherwise 'reuse' may name an empty shell to populate, or be NULL. Ownership
+ * of the element array always stays with the caller. */
+robj *zsetCreateFromElems(robj *reuse, zbtElem **elems, unsigned long n,
+                          size_t maxelelen, size_t totelelen, int dict_indexed) {
+    serverAssert(!dict_indexed || reuse != NULL);
+
+    zsetSortElems(elems, n);
+
+    if (zsetElemsFitListpack(n, maxelelen, totelelen)) {
+        robj *o = zsetCreateListpackFromElems(elems, n);
+        if (reuse) decrRefCount(reuse);
+        for (unsigned long i = 0; i < n; i++) zbtFreeElem(elems[i]);
+        return o;
+    }
+
+    robj *zobj = reuse ? reuse : createZsetObject();
+    zset *zs = zobj->ptr;
+    if (!dict_indexed) {
+        dictExpand(zs->dict, n);
+        dictAddNonExistingBatch(zs->dict, (void **)elems, n);
+    }
+    zsetBuildTreeFromElems(zs, elems, n);
+    return zobj;
+}
+
 /* Pack the still-empty B+ tree of 'zs' with 'n' detached elements in one
  * bottom-up build. Ownership of every element transfers to the tree; the array
  * itself stays the caller's and is reordered in place.
@@ -2009,13 +2118,7 @@ void zsetBuildTreeFromElems(zset *zs, zbtElem **elems, unsigned long n) {
     if (n == 0) return;
     serverAssert(zs->tree->length == 0);
 
-    unsigned long i;
-    for (i = 1; i < n; i++) {
-        zbtElem *prev = elems[i - 1];
-        if (zbtCompare(zbtGetScore(prev), zbtGetEle(prev), elems[i]) >= 0) break;
-    }
-    if (i < n) qsort(elems, n, sizeof(zbtElem *), zsetElemCompare);
-
+    zsetSortElems(elems, n);
     zbtBuildFromSorted(zs->tree, elems, n);
 }
 
@@ -2027,21 +2130,13 @@ void zsetBuildTreeFromDict(zset *zs) {
     unsigned long n = dictSize(zs->dict);
     if (n == 0) return;
 
-    zbtElem **elems = zmalloc(sizeof(zbtElem *) * n);
-    dictIterator di;
-    dictEntry *de;
-    unsigned long i = 0;
-
-    dictInitIterator(&di, zs->dict);
-    while ((de = dictNext(&di)) != NULL) elems[i++] = dictGetKey(de);
-    dictResetIterator(&di);
-    serverAssert(i == n);
-
+    zbtElem **elems = zsetCollectDictElems(zs->dict, &n);
     zsetBuildTreeFromElems(zs, elems, n);
     zfree(elems);
 }
 
-static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen) {
+static void zdiffAlgorithm1(zsetopsrc *src, long setnum, size_t *maxelelen, size_t *totelelen,
+                            zbtElem ***staged_out, unsigned long *staged_cnt_out) {
     /* DIFF Algorithm 1:
      *
      * We perform the diff by iterating all the elements of the first set,
@@ -2101,14 +2196,13 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     }
     zuiClearIterator(&src[0]);
 
-    /* Diff results are unique, so index them in one duplicate-scan-free batch. */
-    dictAddNonExistingBatch(dstzset->dict, (void **)staged, staged_cnt);
-    zsetBuildTreeFromElems(dstzset, staged, staged_cnt);
-    zfree(staged);
+    *staged_out = staged;
+    *staged_cnt_out = staged_cnt;
 }
 
 
-static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen) {
+static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen,
+                            zbtElem ***staged_out, unsigned long *staged_cnt_out, int store) {
     /* DIFF Algorithm 2:
      *
      * Add all the elements of the first set to the auxiliary set.
@@ -2169,13 +2263,13 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
     /* Resize dict if needed after removing multiple elements */
     dictShrinkIfNeeded(dstzset->dict);
 
-    /* Using this algorithm, we can't calculate the max element as we go,
-     * we have to iterate through all elements to find the max one after. */
-    *maxelelen = zsetDictGetMaxElementLength(dstzset->dict, totelelen);
+    if (store) {
+        /* Using this algorithm, we can't calculate the max element as we go,
+         * we have to iterate through all elements to find the max one after. */
+        *maxelelen = zsetDictGetMaxElementLength(dstzset->dict, totelelen);
+    }
 
-    /* Elements dropped again above make the discovery order unusable, so the
-     * survivors are collected from the dict instead. */
-    zsetBuildTreeFromDict(dstzset);
+    *staged_out = zsetCollectDictElems(dstzset->dict, staged_cnt_out);
 }
 
 static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
@@ -2212,14 +2306,22 @@ static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
     return (algo_one_work <= algo_two_work) ? 1 : 2;
 }
 
-static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen) {
+static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen,
+                  zbtElem ***staged_out, unsigned long *staged_cnt_out, int *dict_indexed, int store) {
+    *staged_out = NULL;
+    *staged_cnt_out = 0;
+    *dict_indexed = 0;
+
     /* Skip everything if the smallest input is empty. */
     if (zuiLength(&src[0]) > 0) {
         int diff_algo = zsetChooseDiffAlgorithm(src, setnum);
         if (diff_algo == 1) {
-            zdiffAlgorithm1(src, setnum, dstzset, maxelelen, totelelen);
+            zdiffAlgorithm1(src, setnum, maxelelen, totelelen,
+                            staged_out, staged_cnt_out);
         } else if (diff_algo == 2) {
-            zdiffAlgorithm2(src, setnum, dstzset, maxelelen, totelelen);
+            zdiffAlgorithm2(src, setnum, dstzset, maxelelen, totelelen,
+                            staged_out, staged_cnt_out, store);
+            *dict_indexed = 1;
         } else if (diff_algo != 0) {
             serverPanic("Unknown algorithm");
         }
@@ -2250,6 +2352,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     robj *dstobj = NULL;
     zset *dstzset = NULL;
     zbtElem *znode;
+    zbtElem **staged = NULL;
+    unsigned long staged_cnt = 0;
+    int dict_indexed = 0;
     int withscores = 0;
     unsigned long cardinality = 0;
     long limit = 0; /* Stop searching after reaching the limit. 0 means unlimited. */
@@ -2382,8 +2487,6 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         /* Result elements in discovery order, handed to the tree in one build
          * once the walk is over. The intersection cannot be larger than its
          * smallest input, which src[] is already sorted by. */
-        zbtElem **staged = NULL;
-        unsigned long staged_cnt = 0;
 
         /* Skip everything if the smallest input is empty. */
         if (zuiLength(&src[0]) > 0) {
@@ -2435,21 +2538,14 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             }
             zuiClearIterator(&src[0]);
         }
-        if (!cardinality_only) {
-            /* Intersection members are unique, so index them in one
-             * duplicate-scan-free batch. */
-            dictAddNonExistingBatch(dstzset->dict, (void **)staged, staged_cnt);
-            zsetBuildTreeFromElems(dstzset, staged, staged_cnt);
-            zfree(staged);
-        }
     } else if (op == SET_OP_UNION) {
         dictEntry *de;
         double score;
         /* Result elements in discovery order, handed to the tree in one build
          * below. Grown as we go: the final cardinality is only known once every
          * source has been merged. */
-        zbtElem **staged = NULL;
-        unsigned long staged_cnt = 0, staged_cap = 0;
+        unsigned long staged_cap = 0;
+        dict_indexed = 1;
 
         if (setnum) {
             /* Our union is at least as large as the largest set.
@@ -2506,13 +2602,9 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             }
             zuiClearIterator(&src[i]);
         }
-
-        /* Step 2: Done filling dict with elements and updating scores. Now
-         * move them all into the B+ tree in one bottom-up build. */
-        zsetBuildTreeFromElems(dstzset, staged, staged_cnt);
-        zfree(staged);
     } else if (op == SET_OP_DIFF) {
-        zdiff(src, setnum, dstzset, &maxelelen, &totelelen);
+        zdiff(src, setnum, dstzset, &maxelelen, &totelelen,
+              &staged, &staged_cnt, &dict_indexed, dstkey != NULL);
     } else {
         serverPanic("Unknown operator");
     }
@@ -2526,10 +2618,13 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     }
 
     if (dstkey) {
-        if (dstzset->tree->length) {
-            zsetConvertToListpackIfNeeded(dstobj, maxelelen, totelelen);
-            setKey(c, c->db, dstkey, &dstobj, 0);
-            addReplyLongLong(c, zsetLength(dstobj));
+        if (staged_cnt) {
+            robj *result = zsetCreateFromElems(dict_indexed ? dstobj : dstobj,
+                                               staged, staged_cnt, maxelelen,
+                                               totelelen, dict_indexed);
+            zfree(staged);
+            setKey(c, c->db, dstkey, &result, 0);
+            addReplyLongLong(c, zsetLength(result));
             notifyKeyspaceEvent(NOTIFY_ZSET,
                                 (op == SET_OP_UNION) ? "zunionstore" :
                                     (op == SET_OP_INTER ? "zinterstore" : "zdiffstore"),
@@ -2543,29 +2638,29 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 server.dirty++;
             }
             decrRefCount(dstobj);
+            zfree(staged);
         }
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
+        zfree(staged);
     } else {
-        unsigned long length = dstzset->tree->length;
-        zbtIter it;
-        zbtElem *zn = zbtFirst(dstzset->tree, &it);
+        zsetSortElems(staged, staged_cnt);
         /* In case of WITHSCORES, respond with a single array in RESP2, and
          * nested arrays in RESP3. We can't use a map response type since the
          * client library needs to know to respect the order. */
         if (withscores && c->resp == 2)
-            addReplyArrayLen(c, length*2);
+            addReplyArrayLen(c, staged_cnt*2);
         else
-            addReplyArrayLen(c, length);
+            addReplyArrayLen(c, staged_cnt);
 
-        while (zn != NULL) {
+        for (i = 0; i < (long)staged_cnt; i++) {
             if (withscores && c->resp > 2) addReplyArrayLen(c,2);
-            sds ele = zbtGetEle(zn); addReplyBulkCBuffer(c,ele,sdslen(ele));
-            if (withscores) addReplyDouble(c,zbtGetScore(zn));
-            zn = zbtIterNext(&it);
+            sds ele = zbtGetEle(staged[i]);
+            addReplyBulkCBuffer(c, ele, sdslen(ele));
+            if (withscores) addReplyDouble(c, zbtGetScore(staged[i]));
         }
-        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstobj, -1) :
-                                          decrRefCount(dstobj);
+        decrRefCount(dstobj);
+        zsetFreeDetachedElems(staged, staged_cnt, server.lazyfree_lazy_server_del);
     }
     zfree(src);
 }
@@ -3772,8 +3867,44 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     }
 
     /* Remove the element. */
-    do {
-        if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+    if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zset *zs = zobj->ptr;
+        zbtree *t = zs->tree;
+        zbtIter it;
+        zbtElem *zln = (where == ZSET_MAX ? zbtLast(t, &it) : zbtFirst(t, &it));
+        long remaining = rangelen;
+
+        while (remaining > 0) {
+            serverAssertWithInfo(c,zobj,zln != NULL);
+            if (use_nested_array) {
+                addReplyArrayLen(c,2);
+            }
+            addReplyBulkCBuffer(c, zbtGetEle(zln), sdslen(zbtGetEle(zln)));
+            addReplyDouble(c, zbtGetScore(zln));
+            result_count++;
+            remaining--;
+            if (remaining > 0) {
+                zln = (where == ZSET_MAX ? zbtIterPrev(&it) : zbtIterNext(&it));
+            }
+        }
+
+        dictPauseAutoResize(zs->dict);
+        unsigned long deleted;
+        if (where == ZSET_MAX) {
+            deleted = zbtDeleteRangeByRank(t, llen - result_count + 1, llen, zs->dict);
+        } else {
+            deleted = zbtDeleteRangeByRank(t, 1, result_count, zs->dict);
+        }
+        dictResumeAutoResize(zs->dict);
+        serverAssertWithInfo(c, zobj, deleted == (unsigned long)result_count);
+
+        if (zsetLength(zobj) > 0) dictShrinkIfNeeded(zs->dict);
+
+        char *events[2] = {"zpopmin","zpopmax"};
+        notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
+        server.dirty += result_count;
+    } else if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+        do {
             unsigned char *zl = zobj->ptr;
             unsigned char *eptr, *sptr;
             unsigned char *vstr;
@@ -3793,38 +3924,26 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             sptr = lpNext(zl,eptr);
             serverAssertWithInfo(c,zobj,sptr != NULL);
             score = zzlGetScore(sptr);
-        } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
-            zset *zs = zobj->ptr;
-            zbtree *t = zs->tree;
-            zbtElem *zln;
 
-            /* Get the first or last element in the sorted set. */
-            zln = (where == ZSET_MAX ? zbtLast(t, NULL) : zbtFirst(t, NULL));
+            serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
+            server.dirty++;
 
-            /* There must be an element in the sorted set. */
-            serverAssertWithInfo(c,zobj,zln != NULL);
-            ele = sdsdup(zbtGetEle(zln));
-            score = zbtGetScore(zln);
-        } else {
-            serverPanic("Unknown sorted set encoding");
-        }
+            if (result_count == 0) { /* Do this only for the first iteration. */
+                char *events[2] = {"zpopmin","zpopmax"};
+                notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
+            }
 
-        serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
-        server.dirty++;
-
-        if (result_count == 0) { /* Do this only for the first iteration. */
-            char *events[2] = {"zpopmin","zpopmax"};
-            notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
-        }
-
-        if (use_nested_array) {
-            addReplyArrayLen(c,2);
-        }
-        addReplyBulkCBuffer(c,ele,sdslen(ele));
-        addReplyDouble(c,score);
-        sdsfree(ele);
-        ++result_count;
-    } while(--rangelen);
+            if (use_nested_array) {
+                addReplyArrayLen(c,2);
+            }
+            addReplyBulkCBuffer(c,ele,sdslen(ele));
+            addReplyDouble(c,score);
+            sdsfree(ele);
+            ++result_count;
+        } while(--rangelen);
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));

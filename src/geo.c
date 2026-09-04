@@ -805,19 +805,11 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         }
     } else {
         /* Target key, create a sorted set with the results. */
-        robj *zobj;
-        zset *zs;
         int i;
         size_t maxelelen = 0, totelelen = 0;
-
         zbtElem **staged = NULL;
 
         if (returned_items) {
-            zobj = createZsetObject();
-            zs = zobj->ptr;
-            /* The result count is exact here, so sizing the member index once
-             * costs nothing and spares the inserts below every rehash. */
-            dictExpand(zs->dict,returned_items);
             staged = zmalloc(sizeof(zbtElem *) * returned_items);
         }
 
@@ -840,12 +832,9 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         }
 
         if (returned_items) {
-            /* Geo results carry unique members, so index them in one
-             * duplicate-scan-free batch. */
-            dictAddNonExistingBatch(zs->dict, (void **)staged, returned_items);
-            zsetBuildTreeFromElems(zs,staged,returned_items);
+            robj *zobj = zsetCreateFromElems(NULL, staged, returned_items,
+                                             maxelelen, totelelen, 0);
             zfree(staged);
-            zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
             setKey(c,c->db,storekey,&zobj,0);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);

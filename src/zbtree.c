@@ -1316,8 +1316,8 @@ unsigned long zbtDeleteRangeByLex(zbtree *t, zlexrangespec *range, dict *d) {
 }
 
 /* Delete elements whose 1-based rank is in [start, end] (inclusive). */
-unsigned long zbtDeleteRangeByRank(zbtree *t, unsigned int start,
-                                   unsigned int end, dict *d) {
+unsigned long zbtDeleteRangeByRank(zbtree *t, unsigned long start,
+                                    unsigned long end, dict *d) {
     if (t->length == 0 || start > end) return 0;
     return zbtDeleteRankRange(t, start, end, d);
 }
