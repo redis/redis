@@ -93,6 +93,7 @@ char *rdb_type_string[] = {
     "hash-tmpl-lp-ref",
     "hash-tmpl-array",
     "hash-tmpl-array-ref",
+    "bitmap",
 #ifdef ENABLE_GCRA
     "gcra",
 #endif

@@ -33,6 +33,7 @@
 #include "estore.h"
 #include "chk.h"
 #include "fast_float_strtod.h"
+#include "bitroar.h"
 
 #include <time.h>
 #include <signal.h>
@@ -360,8 +361,8 @@ static void dictDestructorKV(dict *d, void *key) {
         if (hist) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
-            int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
+            int old_bin = (alloc_size == 0) ? 0 :
+                          min(log2ceil(alloc_size) + 1, MAX_KEYSIZES_BINS - 1);
             hist[old_bin]--;
         }
     }
@@ -3903,10 +3904,16 @@ static void propagatePendingCommands(void) {
         transaction = 0;
     }
 
+    int transaction_target = PROPAGATE_NONE;
     if (transaction) {
+        for (j = 0; j < server.also_propagate.numops; j++) {
+            serverAssert(server.also_propagate.ops[j].target);
+            transaction_target |= server.also_propagate.ops[j].target;
+        }
+
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
-        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.multi,1,transaction_target);
     }
 
     for (j = 0; j < server.also_propagate.numops; j++) {
@@ -3917,7 +3924,7 @@ static void propagatePendingCommands(void) {
 
     if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
-        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.exec,1,transaction_target);
     }
 
     redisOpArrayFree(&server.also_propagate);
@@ -4025,6 +4032,7 @@ static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
 void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
+    int client_old_call_flags = c->command_call_flags;
     struct redisCommand *real_cmd = c->realcmd;
     client *prev_client = server.executing_client;
     server.executing_client = c;
@@ -4088,7 +4096,9 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    c->command_call_flags = flags;
     c->cmd->proc(c);
+    c->command_call_flags = client_old_call_flags;
 
     exitExecutionUnit();
 
@@ -7135,7 +7145,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_items",
             [OBJ_ZSET] = "distrib_zsets_items",
             [OBJ_HASH] = "distrib_hashes_items",
-            [OBJ_STREAM] = "distrib_streams_items"
+            [OBJ_STREAM] = "distrib_streams_items",
+            [OBJ_BITMAP] = "distrib_bitmaps_sizes"
         };
         static const char *type_sizes_str[OBJ_TYPE_MAX] = {
             [OBJ_STRING] = NULL, /* Skip strings to avoid confusion with distrib_strings_sizes */
@@ -7143,7 +7154,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_sizes",
             [OBJ_ZSET] = "distrib_zsets_sizes",
             [OBJ_HASH] = "distrib_hashes_sizes",
-            [OBJ_STREAM] = "distrib_streams_sizes"
+            [OBJ_STREAM] = "distrib_streams_sizes",
+            [OBJ_BITMAP] = NULL, /* Skip bitmaps to avoid confusion with distrib_bitmaps_sizes */
         };
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
@@ -8171,6 +8183,7 @@ int main(int argc, char **argv) {
     if (exec_name == NULL) exec_name = argv[0];
     server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
+    bitroarInit();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();

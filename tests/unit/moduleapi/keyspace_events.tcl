@@ -105,6 +105,236 @@ tags "modules external:skip" {
             assert_equal $before_unsub $after_unsub
         }
 
+        test "Keyspace notifications: module bitmap event class" {
+            r del bitmap:module:notify bitmap:module:string
+            set before_bitmap [r keyspace.bitmap_callback_count]
+            set before_string [r keyspace.string_callback_count]
+
+            r config set bitmap-default-roaring yes
+            r setbit bitmap:module:notify 0 1
+            assert_equal [expr {$before_bitmap + 1}] [r keyspace.bitmap_callback_count]
+            assert_equal $before_string [r keyspace.string_callback_count]
+
+            r config set bitmap-default-roaring no
+            r set bitmap:module:string dummy
+            assert_equal [expr {$before_string + 1}] [r keyspace.string_callback_count]
+        }
+
+        test "Keyspace notifications: bitmap conversion module contract" {
+            set key bitmap:transition:setbit
+
+            r config set bitmap-default-roaring no
+            r del $key
+            r set $key [binary format H* 80]
+            assert_equal string [r keyspace.key_type $key]
+            assert_equal OK [r keyspace.reset_bitmap_transition]
+
+            # The conversion is observable as an installed bitmap before the
+            # type_changed callback. The following no-op SETBIT emits no write
+            # event, matching BITCONVERT + SETBIT replay exactly.
+            r config set bitmap-default-roaring yes
+            assert_equal 1 [r setbit $key 0 1]
+            assert_equal bitmap [r keyspace.key_type $key]
+            assert_equal {{type_changed type_changed bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: BITFIELD conversion module contract" {
+            foreach {suffix raw args expected} {
+                noop 01 {SET u8 0 1} {1}
+                fail ff {OVERFLOW FAIL INCRBY u8 0 1} {{}}
+            } {
+                set key bitmap:transition:bitfield:$suffix
+
+                r config set bitmap-default-roaring no
+                r del $key
+                r set $key [binary format H* $raw]
+                assert_equal string [r keyspace.key_type $key]
+                assert_equal OK [r keyspace.reset_bitmap_transition]
+
+                # BITFIELD converts even when the write is a no-op or every
+                # operation is rejected. Only BITCONVERT changes the key.
+                r config set bitmap-default-roaring yes
+                assert_equal $expected [r bitfield $key {*}$args]
+                assert_equal bitmap [r keyspace.key_type $key]
+                assert_equal {{type_changed type_changed bitmap}} \
+                    [r keyspace.get_bitmap_transition]
+                assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: bitmap conversion tolerates callback deletion" {
+            foreach command {setbit bitfield} {
+                foreach key {
+                    bitmap:transition:delete-type
+                    bitmap:transition:delete-bitmap
+                } {
+                    r config set bitmap-default-roaring no
+                    r set $key [binary format H* 80]
+                    assert_equal OK [r keyspace.reset_bitmap_transition]
+
+                    r config set bitmap-default-roaring yes
+                    if {$command eq "setbit"} {
+                        assert_equal 0 [r setbit $key 1 1]
+                    } else {
+                        if {$key eq "bitmap:transition:delete-type"} {
+                            # The type callback deletes the converted value, so
+                            # BITFIELD resumes against a missing key just as on replay.
+                            assert_equal {0} [r bitfield $key SET u8 0 255]
+                        } else {
+                            assert_equal {128} [r bitfield $key SET u8 0 255]
+                        }
+                    }
+
+                    if {$key eq "bitmap:transition:delete-type"} {
+                        assert_equal string [r type $key]
+                        if {$command eq "setbit"} {
+                            set expected_raw [binary format H* 40]
+                        } else {
+                            set expected_raw [binary format H* ff]
+                        }
+                        assert_equal $expected_raw [r get $key]
+                        assert_equal {{type_changed type_changed bitmap}} \
+                            [r keyspace.get_bitmap_transition]
+                    } else {
+                        assert_equal 0 [r exists $key]
+                        assert_equal \
+                            {{type_changed type_changed bitmap} {setbit bitmap bitmap}} \
+                            [r keyspace.get_bitmap_transition]
+                    }
+                }
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion follows callback string replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-type-string:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_equal 0 [r setbit $key 0 1]
+                    set expected [binary format H* a0]
+                } else {
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
+                }
+                assert_equal string [r type $key]
+                assert_equal $expected [r get $key]
+
+                if {$command eq "setbit"} {
+                    # A second write re-triggers the transition against the
+                    # callback-installed string, and the callback replaces
+                    # the converted value with 0x20 again. Bit 2 of 0x20 is
+                    # already set, so SETBIT resumes on the string path and
+                    # changes nothing: only the conversion pair modified the
+                    # keyspace. The dirty delta is exactly the callback's SET
+                    # plus the pending transition accounted in
+                    # setbitCommand()'s string path.
+                    set dirty_before [s rdb_changes_since_last_save]
+                    assert_equal 1 [r setbit $key 2 1]
+                    assert_equal 2 [expr {[s rdb_changes_since_last_save] - $dirty_before}]
+                    assert_equal string [r type $key]
+                    assert_equal [binary format H* 20] [r get $key]
+                }
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion replays deterministic callback replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-replay-string:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_equal 0 [r setbit $key 0 1]
+                    set expected [binary format H* a0]
+                } else {
+                    assert_equal {0} [r bitfield $key SET u4 4 15]
+                    set expected [binary format H* 2f]
+                }
+                assert_equal string [r type $key]
+                assert_equal $expected [r get $key]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion rejects callback list replacement" {
+            foreach command {setbit bitfield} {
+                set key bitmap:transition:replace-type-list:$command
+
+                r config set bitmap-default-roaring no
+                r set $key [binary format H* 80]
+                r config set bitmap-default-roaring yes
+
+                if {$command eq "setbit"} {
+                    assert_error {WRONGTYPE*} {r setbit $key 0 1}
+                } else {
+                    assert_error {WRONGTYPE*} {r bitfield $key SET u8 0 255}
+                }
+                assert_equal list [r type $key]
+                assert_equal replacement [r lindex $key 0]
+            }
+
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: conversion callbacks observe pre-write bits" {
+            set key bitmap:transition:delete-type-zero
+            r config set bitmap-default-roaring no
+            r set $key [binary format H* 00]
+            assert_equal OK [r keyspace.reset_bitmap_transition]
+
+            # The callback deletes only when bit 0 is clear. It must see the
+            # converted pre-SETBIT value, then SETBIT recreates a plain string.
+            r config set bitmap-default-roaring yes
+            assert_equal 0 [r setbit $key 0 1]
+            assert_equal string [r type $key]
+            assert_equal [binary format H* 80] [r get $key]
+            assert_equal {{type_changed type_changed bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: force-native BITOP avoids transient conversion events" {
+            set key bitmap:transition:delete-type
+            r config set bitmap-default-roaring no
+            r del $key
+            r set bitmap:transition:bitop-source [binary format H* f0]
+            assert_equal OK [r keyspace.reset_bitmap_transition]
+
+            r config set bitmap-default-roaring yes
+            assert_equal 1 [r bitop or $key bitmap:transition:bitop-source]
+            assert_equal bitmap [r type $key]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $key]
+            assert_equal {{set bitmap bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            r config set bitmap-default-roaring no
+        }
+
+        test "Keyspace notifications: SETBIT updates keysizes before module callbacks" {
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+            assert_equal OK [r config set bitmap-default-roaring no]
+            r set stringdel_setbit x
+            r setbit stringdel_setbit 16 1
+            assert_equal 0 [r exists stringdel_setbit]
+            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        } {} {needs:debug}
+
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
             r set exp 1 PX 10
@@ -339,17 +569,134 @@ tags "modules external:skip" {
         }
     }
 
+    start_server [list overrides [list loadmodule "$testmodule" appendonly yes \
+        appendfsync always save {} aof-use-rdb-preamble yes \
+        auto-aof-rewrite-percentage 0]] {
+        test "Keyspace notifications: incremental AOF conversion replay preserves callback contract" {
+            set key bitmap:transition:replay
+
+            r config set bitmap-default-roaring no
+            r set $key [binary format H* ff]
+
+            # Put the original string in the RDB preamble so startup emits no
+            # keyspace event for it. The incremental file then converts it in
+            # place before replaying the no-op BITFIELD.
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
+            r config set bitmap-default-roaring yes
+            assert_equal {{}} [r bitfield $key \
+                OVERFLOW FAIL INCRBY u8 0 1]
+            assert_equal bitmap [r keyspace.key_type $key]
+
+            r config rewrite
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal bitmap [r keyspace.key_type $key]
+            assert_equal {{type_changed type_changed bitmap}} \
+                [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
+        }
+
+        test "Keyspace notifications: AOF replay preserves conversion callback ordering" {
+            set type_setbit bitmap:transition:delete-type-zero:aof-setbit
+            set type_bitfield bitmap:transition:delete-type-zero:aof-bitfield
+            set bitmap_setbit bitmap:transition:delete-bitmap:aof-setbit
+            set bitmap_bitfield bitmap:transition:delete-bitmap:aof-bitfield
+            set bitop_dest bitmap:transition:delete-type
+            set bitop_source bitmap:transition:aof-bitop-source
+            set replay_keys [list $type_setbit $type_bitfield \
+                $bitmap_setbit $bitmap_bitfield $bitop_dest $bitop_source]
+
+            r flushall
+            r config set bitmap-default-roaring no
+            r set $type_setbit [binary format H* 40]
+            r set $type_bitfield [binary format H* 40]
+            r set $bitmap_setbit [binary format H* 00]
+            r set $bitmap_bitfield [binary format H* 00]
+            r set $bitop_source [binary format H* f0]
+            r bgrewriteaof
+            waitForBgrewriteaof r
+
+            r config set bitmap-default-roaring yes
+            assert_equal 0 [r setbit $type_setbit 2 1]
+            assert_equal {0} [r bitfield $type_bitfield SET u4 4 15]
+            assert_equal 0 [r setbit $bitmap_setbit 0 1]
+            assert_equal {0} [r bitfield $bitmap_bitfield SET u8 0 255]
+            assert_equal 1 [r bitop or $bitop_dest $bitop_source]
+
+            foreach {key raw} [list \
+                $type_setbit 20 $type_bitfield 0f] {
+                assert_equal string [r type $key]
+                assert_equal [binary format H* $raw] [r get $key]
+            }
+            assert_equal bitmap [r type $bitop_dest]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $bitop_dest]
+            assert_equal 0 [r exists $bitmap_setbit $bitmap_bitfield]
+            # Expanded propagation is atomically wrapped in MULTI/EXEC. The
+            # module's generic DEL fixture deliberately increments an unrelated
+            # "multi" key when replay callbacks run in that context, so compare
+            # only the values whose ordering this test covers.
+            set digests_before [r debug digest-value {*}$replay_keys]
+
+            r config rewrite
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal $digests_before [r debug digest-value {*}$replay_keys]
+            foreach {key raw} [list \
+                $type_setbit 20 $type_bitfield 0f] {
+                assert_equal string [r type $key]
+                assert_equal [binary format H* $raw] [r get $key]
+            }
+            assert_equal bitmap [r type $bitop_dest]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $bitop_dest]
+            assert_equal 0 [r exists $bitmap_setbit $bitmap_bitfield]
+        }
+    }
+
     # Replication test: replica module receives subkey notifications
     start_server [list overrides [list loadmodule "$testmodule"]] {
         set master [srv 0 client]
         set master_host [srv 0 host]
         set master_port [srv 0 port]
 
-        start_server [list overrides [list loadmodule "$testmodule"]] {
+        start_server [list overrides [list loadmodule "$testmodule" \
+            appendonly yes appendfsync always save {} \
+            aof-use-rdb-preamble no auto-aof-rewrite-percentage 0]] {
             set replica [srv 0 client]
 
             $replica replicaof $master_host $master_port
             wait_for_sync $replica
+
+            test "Keyspace notifications: conversion replay preserves callback contract" {
+                set key bitmap:transition:replay
+
+                $master config set bitmap-default-roaring no
+                $master del $key
+                $master set $key [binary format H* ff]
+                wait_for_ofs_sync $master $replica
+                assert_equal string [$replica keyspace.key_type $key]
+                assert_equal OK [$replica keyspace.reset_bitmap_transition]
+
+                # The replica applies BITCONVERT in place. It emits
+                # "type_changed", but no "new" or "overwritten", and does not
+                # invoke the key-unlink server event. The following BITFIELD is
+                # a logical no-op and emits no bitmap write event on replay.
+                $master config set bitmap-default-roaring yes
+                assert_equal {{}} [$master bitfield $key \
+                    OVERFLOW FAIL INCRBY u8 0 1]
+                wait_for_ofs_sync $master $replica
+
+                assert_equal bitmap [$replica keyspace.key_type $key]
+                assert_equal {{type_changed type_changed bitmap}} \
+                    [$replica keyspace.get_bitmap_transition]
+                assert_equal 0 [$replica keyspace.bitmap_transition_unlink_count]
+
+                $master config set bitmap-default-roaring no
+                $master del $key
+            }
 
             test "Subkey notification: replica module receives subkey callback after replication" {
                 $master keyspace.subscribe_subkeys
@@ -367,6 +714,110 @@ tags "modules external:skip" {
                 $master del myhash
                 $master keyspace.unsubscribe_subkeys
                 $replica keyspace.unsubscribe_subkeys
+            }
+
+            test "Keyspace notifications: replica AOF preserves callback command order" {
+                set type_setbit bitmap:transition:delete-type-zero:repl-setbit
+                set type_bitfield bitmap:transition:delete-type-zero:repl-bitfield
+                set bitmap_setbit bitmap:transition:delete-bitmap:repl-setbit
+                set bitmap_bitfield bitmap:transition:delete-bitmap:repl-bitfield
+                set string_setbit bitmap:transition:replace-type-string:repl-setbit
+                set string_bitfield bitmap:transition:replace-type-string:repl-bitfield
+                set replay_string_setbit bitmap:transition:replace-replay-string:repl-setbit
+                set replay_string_bitfield bitmap:transition:replace-replay-string:repl-bitfield
+                set list_setbit bitmap:transition:replace-type-list:repl-setbit
+                set list_bitfield bitmap:transition:replace-type-list:repl-bitfield
+                set bitop_dest bitmap:transition:delete-type
+                set bitop_source bitmap:transition:repl-bitop-source
+
+                $master config set bitmap-default-roaring no
+                $master del $type_setbit $type_bitfield \
+                    $bitmap_setbit $bitmap_bitfield \
+                    $string_setbit $string_bitfield \
+                    $replay_string_setbit $replay_string_bitfield \
+                    $list_setbit $list_bitfield \
+                    $bitop_dest $bitop_source
+                $master set $type_setbit [binary format H* 40]
+                $master set $type_bitfield [binary format H* 40]
+                $master set $bitmap_setbit [binary format H* 00]
+                $master set $bitmap_bitfield [binary format H* 00]
+                $master set $string_setbit [binary format H* 80]
+                $master set $string_bitfield [binary format H* 80]
+                $master set $replay_string_setbit [binary format H* 80]
+                $master set $replay_string_bitfield [binary format H* 80]
+                $master set $list_setbit [binary format H* 80]
+                $master set $list_bitfield [binary format H* 80]
+                $master set $bitop_source [binary format H* f0]
+                wait_for_ofs_sync $master $replica
+
+                # Put the shared base state in the replica's rewritten AOF;
+                # the transitions below must remain correctly ordered in its
+                # incremental file despite synchronous module writes.
+                # Replication may finish while the replica's initial AOF
+                # rewrite is still scheduled or running.
+                wait_for_condition 100 50 {
+                    [status $replica aof_rewrite_scheduled] eq 0 &&
+                    [status $replica aof_rewrite_in_progress] eq 0
+                } else {
+                    fail "Replica initial AOF rewrite did not finish"
+                }
+                $replica bgrewriteaof
+                waitForBgrewriteaof $replica
+
+                $master config set bitmap-default-roaring yes
+                assert_equal 0 [$master setbit $type_setbit 2 1]
+                assert_equal {0} [$master bitfield $type_bitfield SET u4 4 15]
+                assert_equal 0 [$master setbit $bitmap_setbit 0 1]
+                assert_equal {0} [$master bitfield $bitmap_bitfield SET u8 0 255]
+                assert_equal 0 [$master setbit $string_setbit 0 1]
+                assert_equal {0} [$master bitfield $string_bitfield SET u4 4 15]
+                assert_equal 0 [$master setbit $replay_string_setbit 0 1]
+                assert_equal {0} [$master bitfield $replay_string_bitfield SET u4 4 15]
+                assert_error {WRONGTYPE*} {$master setbit $list_setbit 0 1}
+                assert_error {WRONGTYPE*} {$master bitfield $list_bitfield SET u8 0 255}
+                assert_equal 1 [$master bitop or $bitop_dest $bitop_source]
+                wait_for_ofs_sync $master $replica
+
+                foreach client [list $master $replica] {
+                    foreach {key raw} [list \
+                        $type_setbit 20 $type_bitfield 0f \
+                        $string_setbit a0 $string_bitfield 2f \
+                        $replay_string_setbit a0 $replay_string_bitfield 2f] {
+                        assert_equal string [$client type $key]
+                        assert_equal [binary format H* $raw] [$client get $key]
+                    }
+                    foreach key [list $list_setbit $list_bitfield] {
+                        assert_equal list [$client type $key]
+                        assert_equal replacement [$client lindex $key 0]
+                    }
+                    assert_equal bitmap [$client type $bitop_dest]
+                    assert_equal [binary format H* f0] \
+                        [$client debug bitmap-raw $bitop_dest]
+                    assert_equal 0 [$client exists $bitmap_setbit $bitmap_bitfield]
+                }
+                set replica_digest [$replica debug digest]
+
+                # Reload only the replica's local AOF. If the BITOP/BITCONVERT
+                # pair were appended after callback DELs, this state would
+                # change representation or resurrect a key here.
+                $replica replicaof no one
+                $replica debug loadaof
+                assert_equal $replica_digest [$replica debug digest]
+                foreach {key raw} [list \
+                    $type_setbit 20 $type_bitfield 0f \
+                    $string_setbit a0 $string_bitfield 2f \
+                    $replay_string_setbit a0 $replay_string_bitfield 2f] {
+                    assert_equal string [$replica type $key]
+                    assert_equal [binary format H* $raw] [$replica get $key]
+                }
+                foreach key [list $list_setbit $list_bitfield] {
+                    assert_equal list [$replica type $key]
+                    assert_equal replacement [$replica lindex $key 0]
+                }
+                assert_equal bitmap [$replica type $bitop_dest]
+                assert_equal [binary format H* f0] \
+                    [$replica debug bitmap-raw $bitop_dest]
+                assert_equal 0 [$replica exists $bitmap_setbit $bitmap_bitfield]
             }
         }
     }

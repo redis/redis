@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "util.h"
 #include "sha1.h"   /* SHA1 is used for DEBUG DIGEST */
 #include "crc64.h"
@@ -121,6 +122,26 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     o = getDecodedObject(o);
     mixDigest(digest,o->ptr,sdslen(o->ptr));
     decrRefCount(o);
+}
+
+static void mixBitmapObjectRangeDigest(uint64_t start, uint64_t end, void *privdata) {
+    unsigned char *digest = privdata;
+    char buf[LONG_STR_SIZE];
+
+    int len = ull2string(buf, sizeof(buf), start);
+    mixDigest(digest, buf, len);
+    len = ull2string(buf, sizeof(buf), end);
+    mixDigest(digest, buf, len);
+}
+
+void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
+    /* Digest Roaring bitmaps by logical length plus canonical set-bit ranges.
+     * This avoids materializing sparse high-offset bitmaps and keeps the
+     * digest independent from CRoaring's history-dependent container choices. */
+    char buf[LONG_STR_SIZE];
+    int len = ull2string(buf, sizeof(buf), bitroarLen(o));
+    mixDigest(digest, buf, len);
+    bitroarVisitSetBitRanges(o, mixBitmapObjectRangeDigest, digest);
 }
 
 #ifdef ENABLE_GCRA
@@ -293,6 +314,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 mixDigest(digest, data, vlen);
             }
         }
+    } else if (o->type == OBJ_BITMAP) {
+        mixBitmapObjectDigest(digest, o);
     } else {
         serverPanic("Unknown object type");
     }
@@ -424,6 +447,8 @@ void debugCommand(client *c) {
 "    Server will sleep before flushing the AOF, this is used for testing.",
 "ASSERT",
 "    Crash by assertion failed.",
+"BITMAP-RAW <key>",
+"    Return the raw byte materialization of a Roaring bitmap key.",
 "CHANGE-REPL-ID",
 "    Change the replication IDs of the instance.",
 "    Dangerous: should be used only for testing the replication subsystem.",
@@ -975,6 +1000,16 @@ NULL
     {
         server.skip_checksum_validation = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"bitmap-raw") && c->argc == 3) {
+        kvobj *kv = lookupKeyReadOrReply(c, c->argv[2], shared.nokeyerr);
+        if (kv == NULL || checkType(c, kv, OBJ_BITMAP)) return;
+
+        sds raw = bitroarMaterializeForDebug(kv);
+        if (raw == NULL) {
+            addReplyError(c, "bitmap length exceeds proto-max-bulk-len, cannot materialize");
+            return;
+        }
+        addReplyBulkSds(c, raw);
     } else if (!strcasecmp(c->argv[1]->ptr,"enable-keymeta-runtime-registration") &&
                c->argc == 3)
     {
@@ -1341,6 +1376,11 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Object raw string content: %s", repr);
             sdsfree(repr);
         }
+    } else if (o->type == OBJ_BITMAP) {
+        serverLog(LL_WARNING,"Bitmap logical byte length: %llu",
+                  (unsigned long long)bitroarLen(o));
+        serverLog(LL_WARNING,"Bitmap allocation size: %zu",
+                  bitroarAllocSize(o));
     } else if (o->type == OBJ_LIST) {
         serverLog(LL_WARNING,"List length: %d", (int) listTypeLength(o));
     } else if (o->type == OBJ_SET) {

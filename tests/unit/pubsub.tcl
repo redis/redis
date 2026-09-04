@@ -335,6 +335,30 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "Keyspace notifications: bitmap events test" {
+        r config set bitmap-default-roaring yes
+        r config set notify-keyspace-events KEb
+        r del mybitmap{t} mybitmap_copy{t}
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        r setbit mybitmap{t} 0 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap{t} setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap{t}" [$rd1 read]
+
+        r bitfield mybitmap{t} SET u1 1 1
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap{t} setbit" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:setbit mybitmap{t}" [$rd1 read]
+
+        r bitop or mybitmap_copy{t} mybitmap{t}
+        assert_equal "pmessage * __keyspace@${db}__:mybitmap_copy{t} set" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:set mybitmap_copy{t}" [$rd1 read]
+
+        $rd1 close
+        r config set bitmap-default-roaring no
+        r config set notify-keyspace-events {}
+    }
+
     test "Keyspace notifications: set events test" {
         r config set notify-keyspace-events Ks
         r del myset
@@ -679,6 +703,8 @@ start_server {tags {"pubsub network"}} {
         assert_equal {AK} [lindex [r config get notify-keyspace-events] 1]
         r config set notify-keyspace-events EA
         assert_equal {AE} [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events Eb
+        assert_equal {bE} [lindex [r config get notify-keyspace-events] 1]
     }
 
     test "Keyspace notifications: new key test" {

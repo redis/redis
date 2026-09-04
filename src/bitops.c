@@ -9,7 +9,9 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "ctype.h"
+#include <limits.h>
 
 #ifdef HAVE_AVX2
 /* Define __MM_MALLOC_H to prevent importing the memory aligned
@@ -531,26 +533,42 @@ uint64_t getUnsignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
     return value;
 }
 
-int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
-    int64_t value;
+/* Sign extend the 'bits' wide two's complement integer stored in the low bits
+ * of 'value'. Shared by the string and the Roaring signed readers below.
+ *
+ * Converting from unsigned to signed is undefined when the value does
+ * not fit, however here we assume two's complement and the original value
+ * was obtained from signed -> unsigned conversion, so we'll find the
+ * most significant bit set if the original value was negative.
+ *
+ * Note that two's complement is mandatory for exact-width types
+ * according to the C99 standard. */
+static int64_t signExtendBitfield(uint64_t value, uint64_t bits) {
     union {uint64_t u; int64_t i;} conv;
-
-    /* Converting from unsigned to signed is undefined when the value does
-     * not fit, however here we assume two's complement and the original value
-     * was obtained from signed -> unsigned conversion, so we'll find the
-     * most significant bit set if the original value was negative.
-     *
-     * Note that two's complement is mandatory for exact-width types
-     * according to the C99 standard. */
-    conv.u = getUnsignedBitfield(p,offset,bits);
-    value = conv.i;
+    conv.u = value;
 
     /* If the top significant bit is 1, propagate it to all the
      * higher bits for two's complement representation of signed
      * integers. */
-    if (bits < 64 && (value & ((uint64_t)1 << (bits-1))))
-        value |= ((uint64_t)-1) << bits;
-    return value;
+    if (bits < 64 && (conv.i & ((uint64_t)1 << (bits-1))))
+        conv.i |= ((uint64_t)-1) << bits;
+    return conv.i;
+}
+
+int64_t getSignedBitfield(unsigned char *p, uint64_t offset, uint64_t bits) {
+    return signExtendBitfield(getUnsignedBitfield(p,offset,bits),bits);
+}
+
+/* Roaring counterparts of get/setSignedBitfield(). The unsigned ones are
+ * bitroarGetUnsignedBitfield() and bitroarSetUnsignedBitfield(), the latter
+ * returning C_ERR when the value cannot represent the write. */
+static int64_t bitroarGetSignedBitfield(const robj *o, uint64_t offset, uint64_t bits) {
+    return signExtendBitfield(bitroarGetUnsignedBitfield(o,offset,bits),bits);
+}
+
+static int bitroarSetSignedBitfield(robj *o, uint64_t offset, uint64_t bits, int64_t value) {
+    uint64_t uv = value; /* Casting adds UINT64_MAX + 1 when negative. */
+    return bitroarSetUnsignedBitfield(o,offset,bits,uv);
 }
 
 /* The following two functions detect overflow of a value in the context
@@ -686,20 +704,6 @@ void printBits(unsigned char *p, unsigned long count) {
  * Bits related string commands: GETBIT, SETBIT, BITCOUNT, BITOP.
  * -------------------------------------------------------------------------- */
 
-#define BITOP_AND   0
-#define BITOP_OR    1
-#define BITOP_XOR   2
-#define BITOP_NOT   3
-#define BITOP_DIFF  4 /* DIFF(X, A1, A2, ..., An) = X & !(A1 | A2 | ... | An) */
-#define BITOP_DIFF1 5 /* DIFF1(X, A1, A2, ..., An) = !X & (A1 | A2 | ... | An) */
-#define BITOP_ANDOR 6 /* ANDOR(X, A1, A2, ..., An) = X & (A1 | A2 | ... | An) */
-
-/* ONE(A1, A2, ..., An) = X.
- * If X[i] is the i-th bit of X then:
- * X[i] == 1 if and only if there is m such that:
- * Am[i] == 1 and Al[i] == 0 for all l != m. */
-#define BITOP_ONE   7
-
 #define BITFIELDOP_GET 0
 #define BITFIELDOP_SET 1
 #define BITFIELDOP_INCRBY 2
@@ -784,16 +788,19 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * so that the 'maxbit' bit can be addressed. The object is finally
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client.
- * 
+ *
+ * The caller provides 'o' and 'link' from a single lookupKeyWriteWithLink()
+ * call, so command paths that first probe for a Roaring bitmap don't pay a
+ * second keyspace lookup.
+ *
  * (Must provide all the arguments to the function)
  */
-static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit, 
-                                       size_t *strOldSize, size_t *strGrowSize) 
+static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
+                                        kvobj *o, dictEntryLink link,
+                                        size_t *strOldSize, size_t *strGrowSize)
 {
-    dictEntryLink link;
     size_t byte = maxbit >> 3;
     size_t oldAllocSize = 0;
-    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
@@ -845,12 +852,221 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
     return p;
 }
 
+/* Public commands create Roaring bitmaps, or convert string values they write
+ * to, only when bitmap-default-roaring is enabled and never while obeying a
+ * master or the AOF: the representation decision must stay a pure function
+ * of replicated logical state instead of being re-derived from node-local
+ * configuration. BITCONVERT carries write transitions, including the explicit
+ * conversion that follows BITOP when configuration selected a native result. */
+static int bitroarDefaultEnabled(client *c) {
+    return server.bitmap_default_roaring && !mustObeyClient(c);
+}
+
+/* Convert a string value of any encoding into a Roaring bitmap object holding
+ * the same logical bits. Returns NULL beyond the internal representability
+ * bound. */
+static robj *bitroarFromStringObject(robj *o) {
+    robj *decoded = getDecodedObject(o);
+    robj *bitmap = bitroarCreateFromString((unsigned char *)decoded->ptr, sdslen(decoded->ptr));
+    decrRefCount(decoded);
+    return bitmap;
+}
+
+/* A 32-bit size_t cannot exceed the signed Roaring length bound. Keep the
+ * comparison out of those builds so -Wtype-limits does not flag an
+ * intentionally impossible condition. */
+static int bitroarStringTooLarge(robj *o) {
+#if SIZE_MAX > BITROAR_MAX_BYTES_RAW
+    return (uint64_t)stringObjectLen(o) > BITROAR_MAX_BYTES;
+#else
+    UNUSED(o);
+    return 0;
+#endif
+}
+
+/* Return the propagation targets enabled for this invocation of call(). This
+ * matters for Lua redis.set_repl() and selective RM_Call propagation: an
+ * explicitly queued transition must never escape to a target suppressed for
+ * its triggering command. */
+static int bitroarPropagationTarget(client *c) {
+    int target = PROPAGATE_NONE;
+
+    if (c->command_call_flags & CMD_CALL_PROPAGATE_AOF)
+        target |= PROPAGATE_AOF;
+    if (c->command_call_flags & CMD_CALL_PROPAGATE_REPL)
+        target |= PROPAGATE_REPL;
+    if (c->flags & (CLIENT_PREVENT_AOF_PROP | CLIENT_MODULE_PREVENT_AOF_PROP))
+        target &= ~PROPAGATE_AOF;
+    if (c->flags & (CLIENT_PREVENT_REPL_PROP | CLIENT_MODULE_PREVENT_REPL_PROP))
+        target &= ~PROPAGATE_REPL;
+    return target;
+}
+
+/* Queue the current command before synchronous notification callbacks, while
+ * retaining the exact AOF/replica target selected for this call(). */
+static void bitroarPropagateCurrentCommand(client *c) {
+    alsoPropagate(c->db->id, c->argv, c->argc, bitroarPropagationTarget(c));
+    preventCommandPropagation(c);
+}
+
+/* Queue the narrow representation transition used by commands whose result
+ * must be converted explicitly on replicas and during AOF replay. */
+static void bitroarPropagateConvert(client *c, robj *key) {
+    robj *argv[2];
+
+    argv[0] = createStringObject("BITCONVERT", 10);
+    argv[1] = key;
+    alsoPropagate(c->db->id, argv, 2, bitroarPropagationTarget(c));
+    decrRefCount(argv[0]);
+}
+
+/* Apply BITCONVERT's local state transition without producing a command reply.
+ * SETBIT and BITFIELD call this before their logical write so primary event and
+ * module-callback order is identical to replaying BITCONVERT followed by the
+ * original command. o and link are the caller's fresh lookupKeyWriteWithLink()
+ * result for key; the caller must already have rejected other value types and
+ * strings beyond the Roaring bound, so the transition itself cannot fail. This
+ * matters because callers queue the conversion for propagation first: nothing
+ * may error between queueing and applying it. A callback that mutates the key
+ * must either run during replay too or propagate that mutation itself; keeping
+ * BITCONVERT first preserves both cases and places callback-propagated writes
+ * before the triggering bitmap command. Callers must re-lookup the key
+ * afterwards: NOTIFY_NEW and NOTIFY_TYPE_CHANGED callbacks may replace or
+ * delete it synchronously. */
+static void bitroarConvertKey(client *c, robj *key, kvobj *o, dictEntryLink link) {
+    serverAssert(o == NULL || o->type == OBJ_STRING);
+
+    robj *bitmap = (o == NULL) ? bitroarCreate() : bitroarFromStringObject(o);
+    serverAssert(bitmap != NULL);
+
+    if (o == NULL) {
+        dbAddByLink(c->db, key, &bitmap, &link);
+        /* dbAddByLink() initializes LRU/LFU before emitting NOTIFY_NEW. Pass
+         * NULL here rather than retaining a value pointer across that callback. */
+        keyModified(c, c->db, key, NULL, 1);
+    } else {
+        dbReplaceValueWithLink(c->db, key, &bitmap, link);
+        keyModified(c, c->db, key, bitmap, 1);
+        notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
+    }
+}
+
+/* BITCONVERT is an internal propagation primitive. It changes only the value
+ * representation, so replacing a string retains the key's TTL and module
+ * metadata in its existing kvobj. Missing keys become empty native bitmaps;
+ * native bitmaps are already in the requested representation. */
+void bitconvertCommand(client *c) {
+    dictEntryLink link = NULL;
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (o != NULL && o->type != OBJ_STRING && o->type != OBJ_BITMAP) {
+        addReplyErrorObject(c, shared.wrongtypeerr);
+        return;
+    }
+    if (o != NULL && o->type == OBJ_BITMAP) {
+        addReply(c, shared.ok);
+        return;
+    }
+    if (o != NULL && bitroarStringTooLarge(o)) {
+        addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
+        return;
+    }
+
+    /* A replica may have AOF enabled. Queue BITCONVERT before its local
+     * callbacks there as well; automatic propagation would append it after
+     * callback-generated writes and invert the replay order. */
+    bitroarPropagateCurrentCommand(c);
+    bitroarConvertKey(c, c->argv[1], o, link);
+    server.dirty++;
+    addReply(c, shared.ok);
+}
+
+/* SETBIT and BITFIELD share the decision and bookkeeping for the representation
+ * a bitmap write should target. Returns C_ERR after replying to the client when
+ * the Roaring representation cannot hold the write; the keyspace is left
+ * untouched, which keeps multi-op BITFIELD syntax and range failures atomic.
+ * On C_OK, missing and string values are marked for a transition that callers
+ * apply before re-looking up the key and executing the logical write. */
+static int bitroarResolveTarget(client *c, kvobj *o, uint64_t maxbit, int *transition) {
+    *transition = 0;
+
+    int is_roaring = (o != NULL && o->type == OBJ_BITMAP);
+    if (!is_roaring) {
+        /* Only missing keys or existing strings can transition to Roaring,
+         * and only when bitmap-default-roaring is on (never on a replica/AOF).
+         * Any other case (other types, feature off) stays on the string path,
+         * which also handles the WRONGTYPE reply. */
+        int can_default = bitroarDefaultEnabled(c) && (o == NULL || o->type == OBJ_STRING);
+        if (!can_default) return C_OK;
+    }
+
+    /* Parsing already enforced proto-max-bulk-len. Keep writes inside the
+     * internal range used by bitmap length arithmetic as well. */
+    if (!bitroarCanRepresentBit(maxbit)) {
+        addReplyError(c, "bit offset is out of range");
+        return C_ERR;
+    }
+
+    if (!is_roaring) {
+        if (o != NULL && bitroarStringTooLarge(o)) {
+            addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
+            return C_ERR;
+        }
+        /* bitmap-default-roaring yes: missing keys and string values first
+         * undergo the explicit representation transition. */
+        *transition = 1;
+    }
+    return C_OK;
+}
+
+/* SETBIT against an already installed Roaring bitmap target. */
+static void setbitCommandBitmap(client *c, robj *roaring,
+                                uint64_t bitoffset, long on,
+                                int transitioned)
+{
+    uint64_t oldlen = bitroarLen(roaring);
+    uint64_t byte = bitoffset >> 3;
+    int changed = 0;
+    int bitval;
+    size_t oldAllocSize = 0;
+
+    bitval = bitroarGetBit(roaring, bitoffset);
+    if (byte >= oldlen || (!!bitval != on)) {
+        if (server.memory_tracking_enabled)
+            oldAllocSize = kvobjAllocSize(roaring);
+        /* bitroarResolveTarget() already checked the internal bound. */
+        serverAssert(bitroarSetBit(roaring, bitoffset, on) == C_OK);
+        changed = 1;
+    }
+
+    if (changed) {
+        /* Native SETBIT can run keyspace callbacks too. Queue it before the
+         * notification unless a transition path already placed it after
+         * BITCONVERT and its callbacks. This also preserves order in an
+         * AOF-enabled replica applying the transition pair. */
+        if ((c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+            bitroarPropagateCurrentCommand(c);
+        if (oldlen != bitroarLen(roaring))
+            updateKeysizesHist(c->db, OBJ_BITMAP, oldlen, bitroarLen(roaring));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), roaring, oldAllocSize, kvobjAllocSize(roaring));
+        keyModified(c,c->db,c->argv[1],roaring,1);
+        notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+        server.dirty++;
+    } else if (transitioned) {
+        /* The representation transition itself changed the key even though
+         * SETBIT left its logical value and length unchanged. */
+        server.dirty++;
+    }
+
+    addReply(c, bitval ? shared.cone : shared.czero);
+}
+
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
     char *err = "bit is not an integer or out of range";
     uint64_t bitoffset;
-    ssize_t byte, bit;
-    int byteval, bitval;
+    uint64_t byte;
+    int bit, byteval, bitval;
     long on;
 
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
@@ -865,8 +1081,46 @@ void setbitCommand(client *c) {
         return;
     }
 
+    dictEntryLink link = NULL;
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    int transition;
+
+    if (bitroarResolveTarget(c, o, bitoffset, &transition) != C_OK)
+        return;
+
+    if (transition) {
+        /* Queue the conversion first, then perform that same transition
+         * locally. The triggering SETBIT is queued after conversion callbacks
+         * but before its own notifications below. */
+        bitroarPropagateConvert(c, c->argv[1]);
+        bitroarConvertKey(c, c->argv[1], o, link);
+
+        /* Conversion callbacks may replace or delete the key. Replay observes
+         * those effects before SETBIT too, so continue from a fresh lookup and
+         * deliberately do not apply bitmap-default-roaring a second time. */
+        link = NULL;
+        o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+
+        if (o != NULL && checkStringOrBitmapType(c, o)) {
+            /* The conversion callback replaced the key with an incompatible
+             * type. Replay stops at the same error, so suppress the automatic
+             * SETBIT that dirty accounting for BITCONVERT would otherwise add. */
+            preventCommandPropagation(c);
+            server.dirty++;
+            return;
+        }
+        bitroarPropagateCurrentCommand(c);
+    }
+
+    if (o != NULL && o->type == OBJ_BITMAP) {
+        setbitCommandBitmap(c, o, bitoffset, on, transition);
+        return;
+    }
+
     size_t strOldSize, strGrowSize;
-    kvobj *o = lookupStringForBitCommand(c, bitoffset, &strOldSize, &strGrowSize);
+    int created = (o == NULL);
+    o = lookupStringForBitCommand(c, bitoffset, o, link,
+                                  &strOldSize, &strGrowSize);
     if (o == NULL) return;
 
     /* Get current values */
@@ -878,20 +1132,26 @@ void setbitCommand(client *c) {
     /* Either it is newly created, changed length, or the bit changes before and after.
      * Note that the bitval here is actually a decimal number.
      * So we need to use `!!` to convert it to 0 or 1 for comparison. */
-    if (strGrowSize || (!!bitval != on)) {
+    int changed = strGrowSize || (!!bitval != on);
+    if (changed) {
         /* Update byte with new bit value. */
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
         ((uint8_t*)o->ptr)[byte] = byteval;
+
+        /* If this is not a new key and size changed, then update the keysizes
+         * histogram. Otherwise, the histogram already updated in
+         * lookupStringForBitCommand() by calling dbAdd(). Use "not created"
+         * rather than "old size not 0", and update before notification; see
+         * #15598. */
+        if (!created && strGrowSize != 0)
+            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
+
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty++;
-
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
+    } else if (transition) {
+        server.dirty++;
     }
 
     /* Return original value. */
@@ -909,15 +1169,18 @@ void getbitCommand(client *c) {
         return;
 
     kvobj *kv = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
-    if (kv == NULL || checkType(c,kv,OBJ_STRING)) return;
+    if (kv == NULL || checkStringOrBitmapType(c,kv)) return;
 
+    /* Offsets past the end of the value read as 0, like any other unset bit. */
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
-    if (sdsEncodedObject(kv)) {
+    if (kv->type == OBJ_BITMAP) {
+        bitval = bitroarGetBit(kv, bitoffset);
+    } else if (sdsEncodedObject(kv)) {
         if (byte < sdslen(kv->ptr))
             bitval = ((uint8_t*)kv->ptr)[byte] & (1 << bit);
     } else {
-        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)kv->ptr))
+        if (byte < (uint64_t)ll2string(llbuf,sizeof(llbuf),(long)kv->ptr))
             bitval = llbuf[byte] & (1 << bit);
     }
 
@@ -931,8 +1194,8 @@ void getbitCommand(client *c) {
  * will be skipped. They will be taken care for in the unoptimized loop in the
  * main bitopCommand function. */
 ATTRIBUTE_TARGET_AVX2
-unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res, 
-                              unsigned long op, unsigned long numkeys,
+unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
+                              bitroarOp op, unsigned long numkeys,
                               unsigned long minlen)
 {
     const unsigned long step = sizeof(__m256i);
@@ -1087,8 +1350,8 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
  * will be skipped. They will be taken care for in the unoptimized loop in the
  * main bitopCommand function. */
 ATTRIBUTE_TARGET_AVX512
-unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res, 
-                                 unsigned long op, unsigned long numkeys,
+unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
+                                 bitroarOp op, unsigned long numkeys,
                                  unsigned long minlen)
 {
     const unsigned long step = sizeof(__m512i);  /* 64 bytes */
@@ -1236,18 +1499,92 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX512 */
 
+/* Queue the historical BITOP command followed by an explicit conversion of its
+ * destination. The primary computes the native result directly, while replicas
+ * and AOF replay first reproduce BITOP's logical string result and then convert
+ * it without consulting their local bitmap-default-roaring setting.
+ *
+ * Capture one target for both commands and queue the pair before local
+ * notifications. This keeps target filtering stable across the pair and places
+ * callback-propagated writes after it. Multiple pending operations are emitted
+ * transactionally by propagatePendingCommands(). */
+static void bitroarPropagateBitopAndConvert(client *c) {
+    robj *argv[2];
+    int target = bitroarPropagationTarget(c);
+
+    alsoPropagate(c->db->id, c->argv, c->argc, target);
+    argv[0] = createStringObject("BITCONVERT", 10);
+    argv[1] = c->argv[2];
+    alsoPropagate(c->db->id, argv, 2, target);
+    preventCommandPropagation(c);
+    decrRefCount(argv[0]);
+}
+
+/* BITOP whose result is a Roaring bitmap. Sources come from
+ * bitopCommand()'s lookup loop through objects[]. */
+static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
+                               robj **objects, unsigned long numkeys,
+                               uint64_t maxlen, int propagate_conversion)
+{
+    robj *res_bitmap = NULL;
+
+    /* Only borrowed Roaring sources can encode many missing logical chunks in
+     * little resident memory. Bound that allocation amplification without
+     * rejecting dense sources solely because their byte length is large. */
+    if (op == BITOP_NOT && objects[0]->type == OBJ_BITMAP &&
+        !bitroarBitopNotWithinMissingChunkLimit(objects[0]))
+    {
+        addReplyErrorFormat(c,
+            "BITOP NOT would materialize more than %llu missing Roaring chunks",
+            (unsigned long long)BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS);
+        return;
+    }
+
+    if (maxlen)
+        res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen);
+    if (maxlen && res_bitmap == NULL) {
+        addReplyError(c, "BITOP failed allocating the result, out of memory");
+        return;
+    }
+
+    /* Store the computed value into the target key. Queue propagation before
+     * notifications on every native path. */
+    if (maxlen) {
+        if (propagate_conversion)
+            bitroarPropagateBitopAndConvert(c);
+        else
+            bitroarPropagateCurrentCommand(c);
+        setKey(c, c->db, targetkey, &res_bitmap, 0);
+        server.dirty++;
+        notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
+    } else if (lookupKeyWrite(c->db, targetkey) != NULL) {
+        if (propagate_conversion)
+            bitroarPropagateBitopAndConvert(c);
+        else
+            bitroarPropagateCurrentCommand(c);
+        serverAssert(dbDelete(c->db,targetkey));
+        keyModified(c,c->db,targetkey,NULL,1);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
+        server.dirty++;
+    }
+    serverAssert(maxlen <= (uint64_t)LLONG_MAX);
+    addReplyLongLong(c,(long long)maxlen); /* Return the destination length in bytes. */
+}
+
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
     robj *targetkey = c->argv[2];
-    unsigned long op, j, numkeys;
+    bitroarOp op;
+    unsigned long j, numkeys;
     robj **objects;      /* Array of source objects. */
     unsigned char **src; /* Array of source strings pointers. */
-    unsigned long *len, maxlen = 0; /* Array of length of src strings,
-                                       and max len. */
-    unsigned long minlen = 0;    /* Min len among the input keys. */
+    size_t *len;         /* Array of length of src strings. */
+    uint64_t maxlen = 0; /* Max len among the input keys. */
+    size_t minlen = 0;   /* Min len among the input keys. */
     unsigned char *res = NULL; /* Resulting string. */
+    int has_roaring_bitmap = 0;
 
     /* Parse the operation name. */
     if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"and"))
@@ -1288,7 +1625,7 @@ void bitopCommand(client *c) {
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
     src = zmalloc(sizeof(unsigned char*) * numkeys);
-    len = zmalloc(sizeof(long) * numkeys);
+    len = zmalloc(sizeof(size_t) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
         kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
@@ -1300,11 +1637,11 @@ void bitopCommand(client *c) {
             minlen = 0;
             continue;
         }
-        /* Return an error if one of the keys is not a string. */
-        if (checkType(c, kv, OBJ_STRING)) {
+        /* Return an error if one of the keys is not a string or a Roaring bitmap. */
+        if (checkStringOrBitmapType(c, kv)) {
             unsigned long i;
             for (i = 0; i < j; i++) {
-                if (objects[i])
+                if (objects[i] && objects[i]->type == OBJ_STRING)
                     decrRefCount(objects[i]);
             }
             zfree(src);
@@ -1312,16 +1649,60 @@ void bitopCommand(client *c) {
             zfree(objects);
             return;
         }
-        objects[j] = getDecodedObject(kv);
-        src[j] = objects[j]->ptr;
-        len[j] = sdslen(objects[j]->ptr);
+        if (kv->type == OBJ_BITMAP) {
+            /* Roaring operands are borrowed from the keyspace and consumed by
+             * the Roaring path below through objects[]; len[] holds their
+             * logical byte length. */
+            objects[j] = kv;
+            src[j] = NULL;
+            len[j] = bitroarLen(kv);
+            has_roaring_bitmap = 1;
+        } else {
+            objects[j] = getDecodedObject(kv);
+            src[j] = objects[j]->ptr;
+            len[j] = sdslen(objects[j]->ptr);
+        }
         if (len[j] > maxlen) maxlen = len[j];
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
+    /* Roaring bitmap sources or a destination selected by
+     * bitmap-default-roaring take the dedicated path. A config-only decision
+     * is propagated as ordinary BITOP followed by BITCONVERT. */
+    int mode_forced = maxlen && !has_roaring_bitmap && bitroarDefaultEnabled(c);
+    if (has_roaring_bitmap || mode_forced) {
+        bitopCommandBitmap(c, op, targetkey, objects, numkeys, maxlen, mode_forced);
+        for (j = 0; j < numkeys; j++) {
+            /* Borrowed Roaring operands may be freed by now: storing the
+             * result overwrites (or deletes) the target key, which can be
+             * one of the sources, and the store notifications can delete the
+             * others. Owned decoded strings hold a reference and are told
+             * apart by their src[] pointer, without dereferencing objects[]. */
+            if (src[j]) decrRefCount(objects[j]);
+        }
+        zfree(src);
+        zfree(len);
+        zfree(objects);
+        return;
+    }
+
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
+        /* The dense result is one byte per source byte and can exceed
+         * proto-max-bulk-len when a source was created under a larger limit
+         * (or loaded from RDB/replication). Allocate it with a try-variant so
+         * an oversized BITOP fails with an OOM error instead of aborting,
+         * rather than being rejected outright. */
+        res = (unsigned char*) sdstrynewlen(NULL,maxlen);
+        if (res == NULL) {
+            addReplyError(c, "BITOP failed allocating the result, out of memory");
+            for (j = 0; j < numkeys; j++)
+                if (objects[j]) decrRefCount(objects[j]);
+            zfree(src);
+            zfree(len);
+            zfree(objects);
+            return;
+        }
         unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
         int useAVX = 0;
@@ -1472,6 +1853,8 @@ void bitopCommand(client *c) {
                         first_key += 4;
                     }
                     break;
+                default:
+                    break;
                 }
             } else if (op == BITOP_ONE) {
                 unsigned long lcommon_bits[4];
@@ -1597,10 +1980,8 @@ void bitopCommand(client *c) {
             }
         }
     }
-    for (j = 0; j < numkeys; j++) {
-        if (objects[j])
-            decrRefCount(objects[j]);
-    }
+    for (j = 0; j < numkeys; j++)
+        if (objects[j]) decrRefCount(objects[j]);
     zfree(src);
     zfree(len);
     zfree(objects);
@@ -1616,18 +1997,58 @@ void bitopCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
         server.dirty++;
     }
-    addReplyLongLong(c,maxlen); /* Return the output string length in bytes. */
+    addReplyLongLong(c,(long long)maxlen); /* Return the output string length in bytes. */
+}
+
+/* Normalize the raw START/END arguments against a value of 'strlen' bytes,
+ * clamping 'start'/'end' to byte coordinates, and derive the half-open bit
+ * interval used by Roaring bitmap range operations ('bit_start'/'bit_end')
+ * along with the bits to ignore in the first/last byte of byte-backed values
+ * for bit-addressed ranges. */
+static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
+                              uint64_t *bit_end, unsigned char *first_byte_neg_mask,
+                              unsigned char *last_byte_neg_mask, long long strlen, int isbit)
+{
+    long long totlen = strlen;
+
+    serverAssert(totlen <= LLONG_MAX >> 3);
+    if (isbit) totlen <<= 3;
+
+    if (*start < 0) *start = totlen+*start;
+    if (*end < 0) *end = totlen+*end;
+    if (*start < 0) *start = 0;
+    if (*end < 0) *end = 0;
+    if (*end >= totlen) *end = totlen-1;
+
+    *first_byte_neg_mask = 0;
+    *last_byte_neg_mask = 0;
+    *bit_start = 0;
+    *bit_end = 0;
+    if (*start > *end) return;
+
+    if (isbit) {
+        *bit_start = (uint64_t)*start;
+        *bit_end = (uint64_t)*end + 1;
+        *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
+        *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
+        *start >>= 3;
+        *end >>= 3;
+    } else {
+        *bit_start = (uint64_t)*start << 3;
+        *bit_end = ((uint64_t)*end + 1) << 3;
+    }
 }
 
 /* BITCOUNT key [start end [BIT|BYTE]] */
 void bitcountCommand(client *c) {
     kvobj *o;
-    long long start, end;
-    long strlen;
+    long long start, end, strlen;
+    long slen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
-    int isbit = 0;
+    uint64_t bit_start = 0, bit_end = 0;
     unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
+    int isbit = 0;
 
     /* Parse start/end range if any. */
     if (c->argc == 4 || c->argc == 5) {
@@ -1645,40 +2066,48 @@ void bitcountCommand(client *c) {
         }
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c, o, OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o,&strlen,llbuf);
-        long long totlen = strlen;
-
-        /* Make sure we will not overflow */
-        serverAssert(totlen <= LLONG_MAX >> 3);
-
-        /* Convert negative indexes */
+        if (checkStringOrBitmapType(c, o)) return;
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            strlen = (long long)bitroarLen(o);
+            p = NULL;
+        } else {
+            p = getObjectReadOnlyString(o,&slen,llbuf);
+            strlen = slen;
+        }
         if (start < 0 && end < 0 && start > end) {
             addReply(c,shared.czero);
             return;
         }
-        if (isbit) totlen <<= 3;
-        if (start < 0) start = totlen+start;
-        if (end < 0) end = totlen+end;
-        if (start < 0) start = 0;
-        if (end < 0) end = 0;
-        if (end >= totlen) end = totlen-1;
-        if (isbit && start <= end) {
-            /* Before converting bit offset to byte offset, create negative masks
-             * for the edges. */
-            first_byte_neg_mask = ~((1<<(8-(start&7)))-1) & 0xFF;
-            last_byte_neg_mask = (1<<(7-(end&7)))-1;
-            start >>= 3;
-            end >>= 3;
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, isbit);
+
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            if (start > end) {
+                addReply(c,shared.czero);
+            } else {
+                addReplyLongLong(c,bitroarRangeCardinality(o,bit_start,bit_end));
+            }
+            return;
         }
     } else if (c->argc == 2) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c, o, OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o,&strlen,llbuf);
+        if (checkStringOrBitmapType(c, o)) return;
+        if (o == NULL) {
+            addReply(c, shared.czero);
+            return;
+        }
+        if (o->type == OBJ_BITMAP) {
+            addReplyLongLong(c,bitroarCardinality(o));
+            return;
+        }
+        p = getObjectReadOnlyString(o,&slen,llbuf);
+        strlen = slen;
         /* The whole string. */
         start = 0;
         end = strlen-1;
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, 0);
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -1721,9 +2150,12 @@ void bitcountCommand(client *c) {
 void bitposCommand(client *c) {
     kvobj *o;
     long long start, end;
-    long bit, strlen;
+    long bit;
+    long long strlen;
+    long slen;
     unsigned char *p;
     char llbuf[LONG_STR_SIZE];
+    uint64_t bit_start = 0, bit_end = 0;
     int isbit = 0, end_given = 0;
     unsigned char first_byte_neg_mask = 0, last_byte_neg_mask = 0;
 
@@ -1756,42 +2188,39 @@ void bitposCommand(client *c) {
 
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c, o, OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o, &strlen, llbuf);
-
-        /* Make sure we will not overflow */
-        long long totlen = strlen;
-        serverAssert(totlen <= LLONG_MAX >> 3);
+        if (checkStringOrBitmapType(c, o)) return;
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            strlen = (long long)bitroarLen(o);
+            p = NULL;
+        } else {
+            p = getObjectReadOnlyString(o,&slen,llbuf);
+            strlen = slen;
+        }
 
         if (c->argc < 5) {
-            if (isbit) end = (totlen<<3) + 7;
-            else end = totlen-1;
+            if (isbit) end = (strlen<<3) + 7;
+            else end = strlen-1;
         }
-
-        if (isbit) totlen <<= 3;
-        /* Convert negative indexes */
-        if (start < 0) start = totlen+start;
-        if (end < 0) end = totlen+end;
-        if (start < 0) start = 0;
-        if (end < 0) end = 0;
-        if (end >= totlen) end = totlen-1;
-        if (isbit && start <= end) {
-            /* Before converting bit offset to byte offset, create negative masks
-             * for the edges. */
-            first_byte_neg_mask = ~((1<<(8-(start&7)))-1) & 0xFF;
-            last_byte_neg_mask = (1<<(7-(end&7)))-1;
-            start >>= 3;
-            end >>= 3;
-        }
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, isbit);
     } else if (c->argc == 3) {
         /* Lookup, check for type. */
         o = lookupKeyRead(c->db, c->argv[1]);
-        if (checkType(c,o,OBJ_STRING)) return;
-        p = getObjectReadOnlyString(o,&strlen,llbuf);
+        if (checkStringOrBitmapType(c,o)) return;
+        if (o != NULL && o->type == OBJ_BITMAP) {
+            strlen = (long long)bitroarLen(o);
+            p = NULL;
+        } else {
+            p = getObjectReadOnlyString(o,&slen,llbuf);
+            strlen = slen;
+        }
 
-        /* The whole string. */
+        /* The whole string. Roaring BITPOS still needs the derived bit interval
+         * populated in bit_start/bit_end. */
         start = 0;
         end = strlen-1;
+        normalizeBitRange(&start, &end, &bit_start, &bit_end,
+                          &first_byte_neg_mask, &last_byte_neg_mask, strlen, 0);
     } else {
         /* Syntax error. */
         addReplyErrorObject(c,shared.syntaxerr);
@@ -1803,6 +2232,14 @@ void bitposCommand(client *c) {
      * If the user is looking for the first set bit, return -1. */
     if (o == NULL) {
         addReplyLongLong(c, bit ? -1 : 0);
+        return;
+    }
+
+    if (o->type == OBJ_BITMAP) {
+        if (start > end)
+            addReplyLongLong(c, -1);
+        else
+            addReplyLongLong(c, bitroarBitpos(o, bit, bit_start, bit_end, end_given));
         return;
     }
 
@@ -1880,18 +2317,80 @@ struct bitfieldOp {
     int sign;           /* True if signed, otherwise unsigned op. */
 };
 
-/* This implements both the BITFIELD command and the BITFIELD_RO command
- * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
- * GET subcommand is allowed, other subcommands will return an error. */
-void bitfieldGeneric(client *c, int flags) {
-    kvobj *o;
-    uint64_t bitoffset;
-    int j, numops = 0, changes = 0;
-    size_t strOldSize = 0, strGrowSize = 0;
+/* Compute the value a signed SET or INCRBY op has to store and the value it
+ * has to reply, starting from the current value 'oldval'. Returns C_ERR when
+ * the op overflows and OVERFLOW FAIL was requested, in which case the caller
+ * must reply NULL and leave the value untouched.
+ *
+ * This is shared by the string and the Roaring executors: the arithmetic is the
+ * same, only the accessors used to read and write the bitfield differ. */
+static int bitfieldSignedResult(struct bitfieldOp *op, int64_t oldval,
+                                int64_t *newval, int64_t *retval)
+{
+    /* OVERFLOW FAIL leaves wrapped untouched, though the caller discards newval. */
+    int64_t wrapped = 0;
+    int overflow;
+
+    if (op->opcode == BITFIELDOP_INCRBY) {
+        overflow = checkSignedBitfieldOverflow(oldval,op->i64,op->bits,
+                                              op->owtype,&wrapped);
+        *newval = overflow ? wrapped : oldval + op->i64;
+        *retval = *newval;
+    } else {
+        /* SET returns the previous value, so we need fetch & store as well. */
+        *newval = op->i64;
+        overflow = checkSignedBitfieldOverflow(*newval,0,op->bits,
+                                              op->owtype,&wrapped);
+        if (overflow) *newval = wrapped;
+        *retval = oldval;
+    }
+
+    return (overflow && op->owtype == BFOVERFLOW_FAIL) ? C_ERR : C_OK;
+}
+
+/* Unsigned counterpart of bitfieldSignedResult(). The two are kept separate
+ * because the overflow checks and the variable types are different. */
+static int bitfieldUnsignedResult(struct bitfieldOp *op, uint64_t oldval,
+                                 uint64_t *newval, uint64_t *retval)
+{
+    /* OVERFLOW FAIL leaves wrapped untouched, though the caller discards newval. */
+    uint64_t wrapped = 0;
+    int overflow;
+
+    if (op->opcode == BITFIELDOP_INCRBY) {
+        *newval = oldval + op->i64;
+        overflow = checkUnsignedBitfieldOverflow(oldval,op->i64,op->bits,
+                                                op->owtype,&wrapped);
+        if (overflow) *newval = wrapped;
+        *retval = *newval;
+    } else {
+        /* SET returns the previous value, so we need fetch & store as well. */
+        *newval = op->i64;
+        overflow = checkUnsignedBitfieldOverflow(*newval,0,op->bits,
+                                                op->owtype,&wrapped);
+        if (overflow) *newval = wrapped;
+        *retval = oldval;
+    }
+
+    return (overflow && op->owtype == BFOVERFLOW_FAIL) ? C_ERR : C_OK;
+}
+
+/* Parse the BITFIELD subcommands into a newly allocated array of ops, which the
+ * caller owns and must free, on error as well. On C_OK '*numops_out' is the
+ * number of parsed ops, '*readonly_out' tells whether all of them are GET, and
+ * '*highest_write_offset_out' is the highest bit any write reaches, which is
+ * what the value must be able to hold. On C_ERR the client was already
+ * replied. */
+static int bitfieldParseOps(client *c, struct bitfieldOp **opsref, int *numops_out,
+                            int *readonly_out, uint64_t *highest_write_offset_out)
+{
     struct bitfieldOp *ops = NULL; /* Array of ops to execute at end. */
-    int owtype = BFOVERFLOW_WRAP; /* Overflow type. */
+    uint64_t bitoffset;
+    int j, numops = 0;
+    int owtype = BFOVERFLOW_WRAP; /* Overflow type, sticky across the ops. */
     int readonly = 1;
     uint64_t highest_write_offset = 0;
+    int res = C_ERR;
 
     for (j = 2; j < c->argc; j++) {
         int remargs = c->argc-j-1; /* Remaining args other than current. */
@@ -1918,36 +2417,28 @@ void bitfieldGeneric(client *c, int flags) {
                 owtype = BFOVERFLOW_FAIL;
             else {
                 addReplyError(c,"Invalid OVERFLOW type specified");
-                zfree(ops);
-                return;
+                goto cleanup;
             }
             continue;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
-            zfree(ops);
-            return;
+            goto cleanup;
         }
 
         /* Get the type and offset arguments, common to all the ops. */
-        if (getBitfieldTypeFromArgument(c,c->argv[j+1],&sign,&bits) != C_OK) {
-            zfree(ops);
-            return;
-        }
+        if (getBitfieldTypeFromArgument(c,c->argv[j+1],&sign,&bits) != C_OK)
+            goto cleanup;
 
-        if (getBitOffsetFromArgument(c,c->argv[j+2],&bitoffset,1,bits) != C_OK){
-            zfree(ops);
-            return;
-        }
+        if (getBitOffsetFromArgument(c,c->argv[j+2],&bitoffset,1,bits) != C_OK)
+            goto cleanup;
 
         if (opcode != BITFIELDOP_GET) {
             readonly = 0;
             if (highest_write_offset < bitoffset + bits - 1)
                 highest_write_offset = bitoffset + bits - 1;
             /* INCRBY and SET require another argument. */
-            if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK){
-                zfree(ops);
-                return;
-            }
+            if (getLongLongFromObjectOrReply(c,c->argv[j+3],&i64,NULL) != C_OK)
+                goto cleanup;
         }
 
         /* Populate the array of operations we'll process. */
@@ -1962,163 +2453,314 @@ void bitfieldGeneric(client *c, int flags) {
 
         j += 3 - (opcode == BITFIELDOP_GET);
     }
+    res = C_OK;
 
-    if (readonly) {
-        /* Lookup for read is ok if key doesn't exit, but errors
-         * if it's not a string. */
-        o = lookupKeyRead(c->db,c->argv[1]);
-        if (o != NULL && checkType(c,o,OBJ_STRING)) {
-            zfree(ops);
-            return;
-        }
-    } else {
-        if (flags & BITFIELD_FLAG_READONLY) {
-            zfree(ops);
-            addReplyError(c, "BITFIELD_RO only supports the GET subcommand");
-            return;
-        }
+cleanup:
+    /* ops is returned on the error path too, for the caller to free. */
+    *opsref = ops;
+    *numops_out = numops;
+    *readonly_out = readonly;
+    *highest_write_offset_out = highest_write_offset;
+    return res;
+}
 
-        /* Lookup by making room up to the farthest bit reached by
-         * this operation. */
-        if ((o = lookupStringForBitCommand(c,
-            highest_write_offset,&strOldSize,&strGrowSize)) == NULL) {
-            zfree(ops);
-            return;
-        }
-    }
+/* -------------------------- BITFIELD on a string ------------------------- */
 
-    addReplyArrayLen(c,numops);
+/* Execute the parsed ops against a string value, replying once per op, and
+ * return how many of them modified the value, which the caller turns into
+ * server.dirty. 'o' is NULL when the key does not exist, which can only happen
+ * if every op is a GET. 'growing' tells that the value was just enlarged to
+ * hold the highest written bit, in which case every write counts as a change,
+ * even one storing the value that was already there. */
+static int bitfieldExecuteStringOps(client *c, robj *o, struct bitfieldOp *ops,
+                                    int numops, int growing)
+{
+    int changes = 0;
 
-    /* Actually process the operations. */
-    for (j = 0; j < numops; j++) {
+    for (int j = 0; j < numops; j++) {
         struct bitfieldOp *thisop = ops+j;
 
-        /* Execute the operation. */
-        if (thisop->opcode == BITFIELDOP_SET ||
-            thisop->opcode == BITFIELDOP_INCRBY)
-        {
-            /* SET and INCRBY: We handle both with the same code path
-             * for simplicity. SET return value is the previous value so
-             * we need fetch & store as well. */
-
-            /* We need two different but very similar code paths for signed
-             * and unsigned operations, since the set of functions to get/set
-             * the integers and the used variables types are different. */
-            if (thisop->sign) {
-                int64_t oldval, newval, wrapped, retval;
-                int overflow;
-
-                oldval = getSignedBitfield(o->ptr,thisop->offset,
-                        thisop->bits);
-
-                if (thisop->opcode == BITFIELDOP_INCRBY) {
-                    overflow = checkSignedBitfieldOverflow(oldval,
-                            thisop->i64,thisop->bits,thisop->owtype,&wrapped);
-                    newval = overflow ? wrapped : oldval + thisop->i64;
-                    retval = newval;
-                } else {
-                    newval = thisop->i64;
-                    overflow = checkSignedBitfieldOverflow(newval,
-                            0,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
-                    retval = oldval;
-                }
-
-                /* On overflow of type is "FAIL", don't write and return
-                 * NULL to signal the condition. */
-                if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
-                    addReplyLongLong(c,retval);
-                    setSignedBitfield(o->ptr,thisop->offset,
-                                      thisop->bits,newval);
-
-                    if (strGrowSize || (oldval != newval))
-                        changes++;
-                } else {
-                    addReplyNull(c);
-                }
-            } else {
-                /* Initialization of 'wrapped' is required to avoid
-                * false-positive warning "-Wmaybe-uninitialized" */
-                uint64_t oldval, newval, retval, wrapped = 0;
-                int overflow;
-
-                oldval = getUnsignedBitfield(o->ptr,thisop->offset,
-                        thisop->bits);
-
-                if (thisop->opcode == BITFIELDOP_INCRBY) {
-                    newval = oldval + thisop->i64;
-                    overflow = checkUnsignedBitfieldOverflow(oldval,
-                            thisop->i64,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
-                    retval = newval;
-                } else {
-                    newval = thisop->i64;
-                    overflow = checkUnsignedBitfieldOverflow(newval,
-                            0,thisop->bits,thisop->owtype,&wrapped);
-                    if (overflow) newval = wrapped;
-                    retval = oldval;
-                }
-                /* On overflow of type is "FAIL", don't write and return
-                 * NULL to signal the condition. */
-                if (!(overflow && thisop->owtype == BFOVERFLOW_FAIL)) {
-                    addReplyLongLong(c,retval);
-                    setUnsignedBitfield(o->ptr,thisop->offset,
-                                        thisop->bits,newval);
-
-                    if (strGrowSize || (oldval != newval))
-                        changes++;
-                } else {
-                    addReplyNull(c);
-                }
-            }
-        } else {
-            /* GET */
-            unsigned char buf[9];
-            long strlen = 0;
-            unsigned char *src = NULL;
-            char llbuf[LONG_STR_SIZE];
-
-            if (o != NULL)
-                src = getObjectReadOnlyString(o,&strlen,llbuf);
-
+        if (thisop->opcode == BITFIELDOP_GET) {
             /* For GET we use a trick: before executing the operation
              * copy up to 9 bytes to a local buffer, so that we can easily
              * execute up to 64 bit operations that are at actual string
-             * object boundaries. */
-            memset(buf,0,9);
-            int i;
+             * object boundaries, on a buffer guaranteed to be zero-padded. */
+            unsigned char buf[9] = {0};
+            unsigned char *src = NULL;
+            char llbuf[LONG_STR_SIZE];
+            long strlen = 0;
             uint64_t byte = thisop->offset >> 3;
-            for (i = 0; i < 9; i++) {
+
+            if (o != NULL) src = getObjectReadOnlyString(o,&strlen,llbuf);
+            for (int i = 0; i < 9; i++) {
                 if (src == NULL || i+byte >= (uint64_t)strlen) break;
                 buf[i] = src[i+byte];
             }
 
-            /* Now operate on the copied buffer which is guaranteed
-             * to be zero-padded. */
             if (thisop->sign) {
-                int64_t val = getSignedBitfield(buf,thisop->offset-(byte*8),
-                                            thisop->bits);
+                int64_t val = getSignedBitfield(buf,thisop->offset-(byte*8),thisop->bits);
                 addReplyLongLong(c,val);
             } else {
-                uint64_t val = getUnsignedBitfield(buf,thisop->offset-(byte*8),
-                                            thisop->bits);
+                uint64_t val = getUnsignedBitfield(buf,thisop->offset-(byte*8),thisop->bits);
                 addReplyLongLong(c,val);
+            }
+            continue;
+        }
+
+        /* SET and INCRBY: bitfield*Result() handles both, we only fetch the old
+         * value and store the new one. Signed and unsigned need two different
+         * but very similar code paths, since the set of functions to get/set
+         * the integers and the used variables types are different. */
+        if (thisop->sign) {
+            int64_t oldval, newval, retval;
+
+            oldval = getSignedBitfield(o->ptr,thisop->offset,thisop->bits);
+            if (bitfieldSignedResult(thisop,oldval,&newval,&retval) != C_OK) {
+                addReplyNull(c); /* OVERFLOW FAIL: don't write. */
+                continue;
+            }
+            addReplyLongLong(c,retval);
+            setSignedBitfield(o->ptr,thisop->offset,thisop->bits,newval);
+            if (growing || oldval != newval) changes++;
+        } else {
+            uint64_t oldval, newval, retval;
+
+            oldval = getUnsignedBitfield(o->ptr,thisop->offset,thisop->bits);
+            if (bitfieldUnsignedResult(thisop,oldval,&newval,&retval) != C_OK) {
+                addReplyNull(c); /* OVERFLOW FAIL: don't write. */
+                continue;
+            }
+            addReplyLongLong(c,retval);
+            setUnsignedBitfield(o->ptr,thisop->offset,thisop->bits,newval);
+            if (growing || oldval != newval) changes++;
+        }
+    }
+
+    return changes;
+}
+
+/* BITFIELD write against a string value: make room up to the highest written
+ * bit, execute the ops, then update the accounting and notify. */
+static void bitfieldWriteString(client *c, kvobj *o, struct bitfieldOp *ops,
+                                int numops, uint64_t highest_write_offset,
+                                dictEntryLink link, int transitioned)
+{
+    size_t oldSize = 0, growSize = 0;
+    int created = (o == NULL);
+
+    o = lookupStringForBitCommand(c,highest_write_offset,o,link,
+                                  &oldSize,&growSize);
+    if (o == NULL) return; /* Wrong type, or the value can't be grown. */
+
+    addReplyArrayLen(c,numops);
+    int changes = bitfieldExecuteStringOps(c,o,ops,numops,growSize != 0);
+
+    /* Growing the value is a modification on its own, even if no op wrote. */
+    if (!changes && growSize == 0) {
+        if (transitioned) server.dirty++;
+        return;
+    }
+
+    /* If this is not a new key and size changed, then update the
+     * keysizes histogram. Otherwise, the histogram already updated
+     * in lookupStringForBitCommand() by calling dbAdd(). "Not created" rather
+     * than "old size not 0": see the same guard in setbitCommand() and #15598. */
+    if (!created && growSize != 0)
+        updateKeysizesHist(c->db,OBJ_STRING,oldSize,oldSize+growSize);
+
+    keyModified(c,c->db,c->argv[1],o,1);
+    notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
+    server.dirty += changes ? changes : 1;
+}
+
+/* ---------------------- BITFIELD on a Roaring bitmap --------------------- */
+
+/* Roaring counterpart of bitfieldExecuteStringOps(): same flow and the same
+ * shared arithmetic, reading and writing through the bitroar accessors. A write
+ * storing the value that is already there is skipped instead of performed, as
+ * rewriting a bit may cost a container update. */
+static int bitfieldExecuteRoaringOps(client *c, robj *o, struct bitfieldOp *ops,
+                                     int numops, int growing)
+{
+    int changes = 0;
+
+    for (int j = 0; j < numops; j++) {
+        struct bitfieldOp *thisop = ops+j;
+
+        if (thisop->opcode == BITFIELDOP_GET) {
+            if (thisop->sign) {
+                int64_t val = bitroarGetSignedBitfield(o,thisop->offset,thisop->bits);
+                addReplyLongLong(c,val);
+            } else {
+                uint64_t val = bitroarGetUnsignedBitfield(o,thisop->offset,thisop->bits);
+                addReplyLongLong(c,val);
+            }
+            continue;
+        }
+
+        /* SET and INCRBY. bitroarResolveTarget() already checked that the
+         * highest written bit is representable, so the writes can't fail. */
+        if (thisop->sign) {
+            int64_t oldval, newval, retval;
+
+            oldval = bitroarGetSignedBitfield(o,thisop->offset,thisop->bits);
+            if (bitfieldSignedResult(thisop,oldval,&newval,&retval) != C_OK) {
+                addReplyNull(c); /* OVERFLOW FAIL: don't write. */
+                continue;
+            }
+            addReplyLongLong(c,retval);
+            if (growing || oldval != newval) {
+                serverAssert(bitroarSetSignedBitfield(o,thisop->offset,
+                                                      thisop->bits,newval) == C_OK);
+                changes++;
+            }
+        } else {
+            uint64_t oldval, newval, retval;
+
+            oldval = bitroarGetUnsignedBitfield(o,thisop->offset,thisop->bits);
+            if (bitfieldUnsignedResult(thisop,oldval,&newval,&retval) != C_OK) {
+                addReplyNull(c); /* OVERFLOW FAIL: don't write. */
+                continue;
+            }
+            addReplyLongLong(c,retval);
+            if (growing || oldval != newval) {
+                serverAssert(bitroarSetUnsignedBitfield(o,thisop->offset,
+                                                        thisop->bits,newval) == C_OK);
+                changes++;
             }
         }
     }
 
-    if (changes) {
+    return changes;
+}
 
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
-        
-        keyModified(c,c->db,c->argv[1],o,1);
-        notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty += changes;
+/* A BITFIELD write on a string always grows the value up to the highest bit it
+ * touches, even when no bit is actually set. Reproduce that on a Roaring bitmap
+ * by rewriting the highest written bit with its current value, which extends
+ * the tracked length without changing any content. Returns 1 if the length
+ * really grew, so the caller knows the key was modified. */
+static int bitfieldRoaringExtendLen(robj *o, uint64_t highest_write_offset) {
+    uint64_t oldlen = bitroarLen(o);
+    int bit = bitroarGetBit(o, highest_write_offset);
+    serverAssert(bitroarSetBit(o, highest_write_offset, bit) == C_OK);
+    return oldlen != bitroarLen(o);
+}
+
+/* BITFIELD write against an already installed Roaring bitmap: execute the ops
+ * in place, then update the accounting and notify. 'transitioned' records that
+ * BITCONVERT installed this value immediately before the logical write. */
+static void bitfieldWriteRoaring(client *c, kvobj *o, struct bitfieldOp *ops,
+                                 int numops, uint64_t highest_write_offset,
+                                 int transitioned)
+{
+    /* Unlike a string, the Roaring value is mutated in place: nothing has to be
+     * allocated upfront, we only need to know whether the value has to grow to
+     * cover the highest written bit. */
+    uint64_t oldSize = bitroarLen(o);
+    int growing = (highest_write_offset >> 3) + 1 > oldSize;
+    size_t oldAllocSize = 0;
+
+    if (server.memory_tracking_enabled)
+        oldAllocSize = kvobjAllocSize(o);
+
+    addReplyArrayLen(c,numops);
+    int changes = bitfieldExecuteRoaringOps(c,o,ops,numops,growing);
+    int len_extended = growing ? bitfieldRoaringExtendLen(o,highest_write_offset) : 0;
+
+    if (!changes && !len_extended) {
+        if (transitioned) server.dirty++;
+        return;
     }
+
+    /* Place BITFIELD before synchronous notification callbacks unless the
+     * transition path already queued it immediately after BITCONVERT. */
+    if ((c->flags & CLIENT_PREVENT_PROP) != CLIENT_PREVENT_PROP)
+        bitroarPropagateCurrentCommand(c);
+    if (oldSize != bitroarLen(o))
+        updateKeysizesHist(c->db, OBJ_BITMAP, oldSize, bitroarLen(o));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,
+                            oldAllocSize,kvobjAllocSize(o));
+    keyModified(c,c->db,c->argv[1],o,1);
+    notifyKeyspaceEvent(NOTIFY_BITMAP,"setbit",c->argv[1],c->db->id);
+    server.dirty += changes ? changes : 1;
+}
+
+/* ------------------------------ BITFIELD --------------------------------- */
+
+/* GET only BITFIELD, that is every BITFIELD_RO and any BITFIELD without SET or
+ * INCRBY: the keyspace is left untouched, both encodings just read. */
+static void bitfieldReadOnly(client *c, struct bitfieldOp *ops, int numops) {
+    /* Lookup for read is ok if key doesn't exit, but errors
+     * if it's not a string or bitmap. */
+    kvobj *o = lookupKeyRead(c->db,c->argv[1]);
+    if (o != NULL && checkStringOrBitmapType(c,o)) return;
+
+    addReplyArrayLen(c,numops);
+    if (o != NULL && o->type == OBJ_BITMAP)
+        bitfieldExecuteRoaringOps(c,o,ops,numops,0);
+    else
+        bitfieldExecuteStringOps(c,o,ops,numops,0); /* 'o' may be NULL. */
+}
+
+/* This implements both the BITFIELD command and the BITFIELD_RO command
+ * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
+ * GET subcommand is allowed, other subcommands will return an error.
+ *
+ * Parsing the ops is shared, executing them is not: a value is either a plain
+ * string or a Roaring bitmap, and each encoding has its own executor and
+ * bookkeeping. */
+void bitfieldGeneric(client *c, int flags) {
+    struct bitfieldOp *ops;
+    int numops, readonly;
+    uint64_t highest_write_offset;
+
+    if (bitfieldParseOps(c,&ops,&numops,&readonly,&highest_write_offset) != C_OK)
+        goto cleanup;
+
+    if (readonly) {
+        bitfieldReadOnly(c,ops,numops);
+        goto cleanup;
+    }
+
+    if (flags & BITFIELD_FLAG_READONLY) {
+        addReplyError(c, "BITFIELD_RO only supports the GET subcommand");
+        goto cleanup;
+    }
+
+    /* Lookup keeping the link, so that the keyspace dict is probed only once:
+     * the string path grows the value through it, and the Roaring path installs
+     * a created or converted value with it. */
+    dictEntryLink link = NULL;
+    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+
+    /* When bitmap-default-roaring is enabled, missing and string keys undergo
+     * the explicit transition before the BITFIELD operations. */
+    int transition;
+    if (bitroarResolveTarget(c,o,highest_write_offset,&transition) != C_OK)
+        goto cleanup;
+    if (transition) {
+        bitroarPropagateConvert(c,c->argv[1]);
+        bitroarConvertKey(c,c->argv[1],o,link);
+
+        /* Resume from the state left by synchronous conversion callbacks.
+         * Replay observes those callback effects before BITFIELD too. */
+        link = NULL;
+        o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+        if (o != NULL && checkStringOrBitmapType(c,o)) {
+            preventCommandPropagation(c);
+            server.dirty++;
+            goto cleanup;
+        }
+        bitroarPropagateCurrentCommand(c);
+    }
+
+    if (o != NULL && o->type == OBJ_BITMAP)
+        bitfieldWriteRoaring(c,o,ops,numops,highest_write_offset,transition);
+    else
+        bitfieldWriteString(c,o,ops,numops,highest_write_offset,link,transition);
+
+cleanup:
     zfree(ops);
 }
 

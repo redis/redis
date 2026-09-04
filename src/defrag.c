@@ -19,6 +19,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -780,6 +781,14 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
 }
 
+void defragBitmapObject(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_BITMAP);
+    if (bitroarContainerCount(ob) > server.active_defrag_max_scan_fields)
+        defragLater(ctx, ob);
+    else
+        bitroarDefrag(ob);
+}
+
 /* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
  * hashtable/set/array paths) so a wide template hash can't stall defrag. */
 void defragTmplArray(defragKeysCtx *ctx, kvobj *ob) {
@@ -1244,6 +1253,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+    } else if (ob->type == OBJ_BITMAP) {
+        defragBitmapObject(ctx, ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1366,6 +1377,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
             ob->ptr = ar;
+        } else if (ob->type == OBJ_BITMAP) {
+            *cursor = bitroarDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
         }

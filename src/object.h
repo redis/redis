@@ -88,20 +88,21 @@ struct RedisModuleType;
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
 #define OBJ_ENCODING_TMPL_LP 14 /* Hash with shared template, values in listpack */
 #define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
+#define OBJ_ENCODING_BITMAP_ROARING 16 /* Bitmap encoded as a Roaring bitmap. */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
 #define OBJ_NUM_KVMETA_BITS 8
-#define OBJ_REFCOUNT_BITS 23
+#define OBJ_REFCOUNT_BITS 22
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 
 struct redisObject {
     unsigned type:4;
-    unsigned encoding:4;
+    unsigned encoding:5;
     unsigned refcount : OBJ_REFCOUNT_BITS;
     unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
     
@@ -171,6 +172,7 @@ int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(struct client *c, robj *o, int type);
+int checkStringOrBitmapType(struct client *c, robj *o);
 int getLongLongFromObjectOrReply(struct client *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(struct client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);
