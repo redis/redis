@@ -25,11 +25,10 @@ To run Redis test suite with TLS, you'll need TLS support for TCL (i.e.
 1. Run `./utils/gen-test-certs.sh` to generate a root CA and a server
    certificate.
 
-2. Run `./runtest --tls` or `./runtest-cluster --tls` to run Redis and Redis
-   Cluster tests in TLS mode.
+2. Run `./runtest --tls` to run Redis and Redis Cluster tests in TLS mode.
 
-3. Run `./runtest --tls-module` or `./runtest-cluster --tls-module` to
-   run Redis and Redis cluster tests in TLS mode with Redis module.
+3. Run `./runtest --tls-module` to run Redis and Redis Cluster tests in TLS
+   mode with Redis module.
 
 ### Running manually
 

@@ -42,6 +42,13 @@ foreach test_dir $test_dirs {
         lappend ::all_tests $test_dir/[file root [file tail $file]]
     }
 }
+
+# The cluster tests, for --cluster. They are part of ::all_tests above and run
+# with everything else by default; this list just lets a run be limited to them.
+set ::cluster_all_tests {}
+foreach file [lsort [glob -nocomplain $dir/tests/unit/cluster/*.tcl]] {
+    lappend ::cluster_all_tests unit/cluster/[file root [file tail $file]]
+}
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0
 
@@ -233,6 +240,16 @@ proc redis_client {args} {
     } else {
         $client select 9
     }
+    return $client
+}
+
+proc redis_deferring_client_by_addr {host port} {
+    set client [redis $host $port 1 $::tls]
+    return $client
+}
+
+proc redis_client_by_addr {host port} {
+    set client [redis $host $port 0 $::tls]
     return $client
 }
 
@@ -575,6 +592,7 @@ proc print_help_screen {} {
         "--config <k> <v>   Extra config file argument."
         "--skipfile <file>  Name of a file containing test names or regexp patterns (if <test> starts with '/') that should be skipped (one per line). This option can be repeated."
         "--skiptest <test>  Test name or regexp pattern (if <test> starts with '/') to skip. This option can be repeated."
+        "--cluster          Run only the cluster tests (tests/unit/cluster)."
         "--tags <tags>      Run only tests having specified tags or not having '-' prefixed tags."
         "--dont-clean       Don't delete redis log files after the run."
         "--dont-pre-clean   Don't delete existing redis log files before the run."
@@ -604,7 +622,9 @@ proc print_help_screen {} {
 for {set j 0} {$j < [llength $argv]} {incr j} {
     set opt [lindex $argv $j]
     set arg [lindex $argv [expr $j+1]]
-    if {$opt eq {--tags}} {
+    if {$opt eq {--cluster}} {
+        set ::all_tests $::cluster_all_tests
+    } elseif {$opt eq {--tags}} {
         foreach tag $arg {
             if {[string index $tag 0] eq "-"} {
                 lappend ::denytags [string range $tag 1 end]
