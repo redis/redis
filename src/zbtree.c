@@ -25,7 +25,10 @@
  *
  * Every node holds at least its MIN, with three exceptions: the root, and the
  * head and tail leaves, which zbtSplitLeaf() deliberately starts under-filled
- * so that sorted insertion does not strand every leaf at half occupancy. */
+ * so that sorted insertion does not strand every leaf at half occupancy.
+ * Interior overflows (interpolation into a packed tree) try a same-parent
+ * sibling share before an even split, so the abandoned half is refilled
+ * instead of sitting at MIN for the rest of its life. */
 
 /* Which end of the leaf the element that overflowed it landed on. Sorted
  * insertion never returns to the side the split leaves behind, so an even
@@ -360,6 +363,11 @@ static void zbtSplitInner(zbtree *t, zbtInner *in) {
  * fresh tail; descending insertion is the mirror image, keeping one element in
  * the head leaf and handing the full load to the new right leaf.
  *
+ * Interior overflows try zbtShareOverflow() first: a same-parent sibling with
+ * slack takes the extra elements so an interpolation pass (1,2,3 then 1.1,2.1)
+ * refills the half left behind by an even split, instead of stranding it at
+ * MIN. Append/prepend never enter that path — the neighbour is already full.
+ *
  * Since ZBT_LEAF_MIN is ZBT_LEAF_MAX/2, no skew is possible without letting the
  * under-filled side sit below the minimum -- which is why the head and tail
  * leaves are exempt from it (see zbtVerifyNode()). Further inserts fill them
@@ -384,6 +392,79 @@ static void zbtSplitLeaf(zbtree *t, zbtLeaf *lf, int bias) {
     lf->next = r;
 
     zbtInsertChild(t, (zbtInner *)lf->n.parent, (zbtNode *)lf, (zbtNode *)r);
+}
+
+/* Move n elements across the shared boundary of adjacent leaves 'left' and
+ * 'right'. toRight != 0 moves the tail of left onto the front of right;
+ * otherwise the head of right onto the end of left. */
+static void zbtLeafShift(zbtLeaf *left, zbtLeaf *right, int n, int toRight) {
+    serverAssert(n > 0);
+    if (toRight) {
+        memmove(&right->elems[n], &right->elems[0],
+                right->n.count * sizeof(zbtElem *));
+        if (n == 1) right->elems[0] = left->elems[left->n.count - 1];
+        else memcpy(&right->elems[0], &left->elems[(int)left->n.count - n],
+                    n * sizeof(zbtElem *));
+        left->n.count -= (uint32_t)n;
+        right->n.count += (uint32_t)n;
+    } else {
+        if (n == 1) left->elems[left->n.count] = right->elems[0];
+        else memcpy(&left->elems[left->n.count], &right->elems[0],
+                    n * sizeof(zbtElem *));
+        memmove(&right->elems[0], &right->elems[n],
+                ((int)right->n.count - n) * sizeof(zbtElem *));
+        left->n.count += (uint32_t)n;
+        right->n.count -= (uint32_t)n;
+    }
+}
+
+/* Rewrite parent slots for a pair of adjacent leaf children after a shift. */
+static void zbtFixLeafPair(zbtInner *p, int leftIdx) {
+    zbtNode *L = p->child[leftIdx];
+    zbtNode *R = p->child[leftIdx + 1];
+    p->csize[leftIdx] = L->count;     p->sep[leftIdx] = zbtNodeMin(L);
+    p->csize[leftIdx + 1] = R->count; p->sep[leftIdx + 1] = zbtNodeMin(R);
+}
+
+/* Try to dump overflowing elements of 'lf' into a same-parent sibling that
+ * has slack, instead of splitting. 'ins_idx' is where the new element landed.
+ * Returns 1 if the overflow was absorbed. The insert's +1 still has to reach
+ * ancestors: parent csize[] is rewritten from the leaves, then walked up. */
+static int zbtShareOverflow(zbtree *t, zbtLeaf *lf, int ins_idx) {
+    zbtInner *p = (zbtInner *)lf->n.parent;
+    if (p == NULL) return 0;
+
+    int idx = zbtChildIdx(p, (zbtNode *)lf);
+    int prefer_left = ins_idx >= (int)lf->n.count / 2;
+    int nch = (int)p->n.count;
+
+    for (int attempt = 0; attempt < 2; attempt++) {
+        int try_left = prefer_left ? (attempt == 0) : (attempt == 1);
+        if (try_left) {
+            if (idx == 0) continue;
+            zbtLeaf *L = (zbtLeaf *)p->child[idx - 1];
+            int slack = ZBT_LEAF_MAX - (int)L->n.count;
+            int maxn = (int)lf->n.count - ZBT_LEAF_MIN;
+            int n = slack < maxn ? slack : maxn;
+            if (n <= 0) continue;
+            zbtLeafShift(L, lf, n, 0); /* smallest of lf onto L's end */
+            zbtFixLeafPair(p, idx - 1);
+            zbtUpdateToRoot(t, (zbtNode *)p);
+            return 1;
+        } else {
+            if (idx >= nch - 1) continue;
+            zbtLeaf *R = (zbtLeaf *)p->child[idx + 1];
+            int slack = ZBT_LEAF_MAX - (int)R->n.count;
+            int maxn = (int)lf->n.count - ZBT_LEAF_MIN;
+            int n = slack < maxn ? slack : maxn;
+            if (n <= 0) continue;
+            zbtLeafShift(lf, R, n, 1); /* largest of lf onto R's front */
+            zbtFixLeafPair(p, idx);
+            zbtUpdateToRoot(t, (zbtNode *)p);
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* Insert an already-allocated element. The caller must guarantee the member
@@ -411,10 +492,16 @@ void zbtInsertElem(zbtree *t, zbtElem *e) {
     t->length++;
     t->alloc_size += zmalloc_usable_size(e);
 
-    if (lf->n.count > ZBT_LEAF_MAX)
-        zbtSplitLeaf(t, lf, bias);
-    else
+    if (lf->n.count > ZBT_LEAF_MAX) {
+        /* Append/prepend must split with the existing bias: the neighbour is
+         * already full, so a share attempt would fail and even-split. */
+        if (bias == ZBT_SPLIT_APPEND || bias == ZBT_SPLIT_PREPEND)
+            zbtSplitLeaf(t, lf, bias);
+        else if (!zbtShareOverflow(t, lf, idx))
+            zbtSplitLeaf(t, lf, ZBT_SPLIT_EVEN);
+    } else {
         zbtUpdateToRoot(t, (zbtNode *)lf);
+    }
 }
 
 zbtElem *zbtInsert(zbtree *t, double score, sds ele) {
@@ -617,17 +704,8 @@ static void zbtRebalanceLeaf(zbtree *t, zbtLeaf *lf) {
     if (idx > 0) {
         zbtLeaf *L = (zbtLeaf *)p->child[idx - 1];
         if ((int)L->n.count - deficit >= ZBT_LEAF_MIN) {
-            zbtElem **src = &L->elems[(int)L->n.count - deficit];
-            memmove(&lf->elems[deficit], &lf->elems[0],
-                    lf->n.count * sizeof(zbtElem *));
-            /* Single-element deletes are the common case and land here with a
-             * deficit of one; keep that a plain store rather than a call. */
-            if (deficit == 1) lf->elems[0] = *src;
-            else memcpy(&lf->elems[0], src, deficit * sizeof(zbtElem *));
-            L->n.count -= (uint32_t)deficit;
-            lf->n.count += (uint32_t)deficit;
-            p->csize[idx - 1] = L->n.count; p->sep[idx - 1] = zbtNodeMin((zbtNode *)L);
-            p->csize[idx] = lf->n.count;    p->sep[idx] = zbtNodeMin((zbtNode *)lf);
+            zbtLeafShift(L, lf, deficit, 1);
+            zbtFixLeafPair(p, idx - 1);
             zbtUpdateToRoot(t, (zbtNode *)p);
             return;
         }
@@ -636,15 +714,8 @@ static void zbtRebalanceLeaf(zbtree *t, zbtLeaf *lf) {
     if (idx < (int)p->n.count - 1) {
         zbtLeaf *R = (zbtLeaf *)p->child[idx + 1];
         if ((int)R->n.count - deficit >= ZBT_LEAF_MIN) {
-            if (deficit == 1) lf->elems[lf->n.count] = R->elems[0];
-            else memcpy(&lf->elems[lf->n.count], &R->elems[0],
-                        deficit * sizeof(zbtElem *));
-            memmove(&R->elems[0], &R->elems[deficit],
-                    ((int)R->n.count - deficit) * sizeof(zbtElem *));
-            lf->n.count += (uint32_t)deficit;
-            R->n.count -= (uint32_t)deficit;
-            p->csize[idx] = lf->n.count;     p->sep[idx] = zbtNodeMin((zbtNode *)lf);
-            p->csize[idx + 1] = R->n.count;  p->sep[idx + 1] = zbtNodeMin((zbtNode *)R);
+            zbtLeafShift(lf, R, deficit, 0);
+            zbtFixLeafPair(p, idx);
             zbtUpdateToRoot(t, (zbtNode *)p);
             return;
         }
@@ -1465,6 +1536,85 @@ int zbtreeTest(int argc, char **argv, int flags) {
         zbtFree(at);
     }
     test_cond("Sorted insert packs leaves both directions", 1);
+
+    /* --- Interpolation into a packed tree stays packed (B* share) --- */
+    {
+        const int M = 20000;
+        zbtree *at = zbtCreate();
+        for (int i = 0; i < M; i++) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "ip:%08d", i);
+            sds sd = sdsnew(buf);
+            zbtInsert(at, (double)i, sd);
+            sdsfree(sd);
+        }
+        for (int i = 0; i < M; i++) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "i1:%08d", i);
+            sds sd = sdsnew(buf);
+            zbtInsert(at, (double)i + 0.1, sd);
+            sdsfree(sd);
+            if (i % 1024 == 0) zbtDebugVerify(at);
+        }
+        zbtDebugVerify(at);
+        serverAssert(at->length == (unsigned long)M * 2);
+
+        unsigned long leaves = 0, full = 0;
+        for (zbtLeaf *lf = (zbtLeaf *)at->head; lf; lf = lf->next) {
+            leaves++;
+            if (lf->n.count == ZBT_LEAF_MAX) full++;
+        }
+        unsigned long n = (unsigned long)M * 2;
+        unsigned long ideal = (n + ZBT_LEAF_MAX - 1) / ZBT_LEAF_MAX;
+        serverAssert(leaves == ideal);
+        serverAssert(full == leaves || full == leaves - 1);
+        if (full == leaves - 1)
+            serverAssert(((zbtLeaf *)at->tail)->n.count < ZBT_LEAF_MAX);
+        /* Rank of the last original integer and its interpolation. */
+        char buf[32];
+        snprintf(buf, sizeof(buf), "ip:%08d", M - 1);
+        sds last = sdsnew(buf);
+        serverAssert(zbtGetRank(at, (double)(M - 1), last) != 0);
+        sdsfree(last);
+        zbtFree(at);
+    }
+    test_cond("Interpolation insert packs leaves", 1);
+
+    /* --- Denser sequential interpolation stays near-full --- */
+    {
+        const int M = 20000;
+        const int extra = 3;
+        zbtree *at = zbtCreate();
+        for (int i = 0; i < M; i++) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "dp:%08d", i);
+            sds sd = sdsnew(buf);
+            zbtInsert(at, (double)i, sd);
+            sdsfree(sd);
+        }
+        for (int p = 1; p <= extra; p++) {
+            for (int i = 0; i < M; i++) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "d%d:%08d", p, i);
+                sds sd = sdsnew(buf);
+                zbtInsert(at, (double)i + p * 0.1, sd);
+                sdsfree(sd);
+            }
+            zbtDebugVerify(at);
+        }
+        unsigned long n = (unsigned long)M * (1 + extra);
+        serverAssert(at->length == n);
+
+        unsigned long leaves = 0;
+        for (zbtLeaf *lf = (zbtLeaf *)at->head; lf; lf = lf->next) leaves++;
+        unsigned long ideal = (n + ZBT_LEAF_MAX - 1) / ZBT_LEAF_MAX;
+        /* Share keeps occupancy well above even-split-only (~50-67%). Later
+         * interpolation passes hit full inner nodes, so same-parent share
+         * cannot refill every stranded half. 80% of packed is the floor. */
+        serverAssert(leaves * 4 <= ideal * 5 + 4);
+        zbtFree(at);
+    }
+    test_cond("Denser interpolation keeps occupancy", 1);
 
     /* --- Incremental node defragmentation --- */
     {
