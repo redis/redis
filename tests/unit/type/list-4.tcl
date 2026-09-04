@@ -260,4 +260,27 @@ foreach {type large} [array get largevalue] {
         r blmovem src{t} dst{t} left right 0 exactly 3 bulk
         assert_equal {{}} [r exec]
     }
+
+    test {LMOVE and LMOVEM keyspace notification order consistency} {
+        set prev [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events KEl
+        r del k{t}
+        r rpush k{t} 1 2 3
+        set rd [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd "__keyevent@*__:*"]
+
+        # LMOVE same key emits push then pop
+        r lmove k{t} k{t} left right
+        assert_match {pmessage * __keyevent@*__:rpush k{t}} [$rd read]
+        assert_match {pmessage * __keyevent@*__:lpop k{t}} [$rd read]
+
+        # LMOVEM same key should also emit push then pop
+        r lmovem k{t} k{t} left right count 1 bulk
+        assert_match {pmessage * __keyevent@*__:rpush k{t}} [$rd read]
+        assert_match {pmessage * __keyevent@*__:lpop k{t}} [$rd read]
+
+        $rd close
+        r config set notify-keyspace-events $prev
+    }
 }
+
