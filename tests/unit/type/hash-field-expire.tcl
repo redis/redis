@@ -2220,6 +2220,66 @@ start_server {tags {"external:skip needs:debug"}} {
             }
         } {} {needs:repl external:skip}
     }
+
+    test "Active Expire - HDELs are propagated without MULTI-EXEC (hashtable)" {
+        start_server {overrides {appendonly {yes} appendfsync always hash-max-listpack-entries 0} tags {external:skip}} {
+            r debug set-active-expire 0
+            set aof [get_last_incr_aof_path r]
+
+            r hset h1 f1 v1 f2 v2 f3 v3 f4 v4
+            r hpexpire h1 10 FIELDS 4 f1 f2 f3 f4
+            after 20
+            r debug set-active-expire 1
+
+            wait_for_condition 50 100 { [r exists h1] == 0 } else { fail "hash h1 wasn't deleted" }
+
+            assert_aof_content $aof {
+                {select *}
+                {hset h1 f1 v1 f2 v2 f3 v3 f4 v4}
+                {hpexpireat h1 * FIELDS 4 f1 f2 f3 f4}
+                {hdel h1 * * * *}
+            }
+        }
+    } {} {needs:debug}
+
+    test "Active Expire - HDEL propagation is chunked at field stack size (hashtable)" {
+        start_server {overrides {appendonly {yes} appendfsync always hash-max-listpack-entries 0} tags {external:skip}} {
+            r debug set-active-expire 0
+            set aof [get_last_incr_aof_path r]
+
+            set fields {}
+            set hset_cmd [list hset hchunk]
+            for {set j 0} {$j < 65} {incr j} {
+                lappend fields f$j
+                lappend hset_cmd f$j v$j
+            }
+
+            r hset hchunk {*}[lrange $hset_cmd 2 end]
+            r hpexpire hchunk 10 FIELDS 65 {*}$fields
+            after 20
+            r debug set-active-expire 1
+
+            wait_for_condition 50 100 { [r exists hchunk] == 0 } else { fail "hash hchunk wasn't deleted" }
+
+            set hpexpire_cmd [list hpexpireat hchunk * FIELDS 65]
+            foreach field $fields {
+                lappend hpexpire_cmd $field
+            }
+            set hdel_chunk1 [list hdel hchunk]
+            for {set j 0} {$j < 64} {incr j} {
+                lappend hdel_chunk1 *
+            }
+            set hdel_chunk2 [list hdel hchunk *]
+
+            assert_aof_content $aof [list \
+                {select *} \
+                $hset_cmd \
+                $hpexpire_cmd \
+                $hdel_chunk1 \
+                $hdel_chunk2 \
+                {}]
+        }
+    } {} {needs:debug}
 }
 
 # Comprehensive tests for flexible parsing improvements and field validation fixes

@@ -696,6 +696,42 @@ proc test_all_keysizes { {replMode 0} } {
 
             $server debug set-active-expire 1
         } {OK} {cluster:skip needs:debug}
+
+        if {$type eq "hashtable"} {
+            test "KEYSIZES - Test Hash field active expiration batch ($type) $suffixRepl" {
+                $server debug set-active-expire 0
+
+                run_cmd_verify_hist {$server FLUSHALL} {}
+                run_cmd_verify_hist {$server HSETEX h1 PX 50 FIELDS 4 f1 v1 f2 v2 f3 v3 f4 v4} {db0_HASH:4=1}
+                run_cmd_verify_hist {after 100} {db0_HASH:4=1}
+                $server debug set-active-expire 1
+                run_cmd_verify_hist {after 100} {} 1
+                $server debug set-active-expire 1
+            } {OK} {cluster:skip needs:debug}
+
+            test "KEYSIZES - Test Hash field active partial expiration ($type) $suffixRepl" {
+                $server debug set-active-expire 0
+
+                set hset_args {}
+                set expire_fields {}
+                for {set j 0} {$j < 130} {incr j} {
+                    lappend hset_args f$j v$j
+                    if {$j < 65} {
+                        lappend expire_fields f$j
+                    }
+                }
+
+                run_cmd_verify_hist {$server FLUSHALL} {}
+                run_cmd_verify_hist [concat [list $server HSET hpartial] $hset_args] {db0_HASH:128=1}
+                run_cmd_verify_hist [concat [list $server HPEXPIRE hpartial 50 FIELDS 65] $expire_fields] {db0_HASH:128=1}
+                run_cmd_verify_hist {after 100} {db0_HASH:128=1}
+                $server debug set-active-expire 1
+                run_cmd_verify_hist {after 100} {db0_HASH:64=1} 1
+                assert_equal 1 [$server EXISTS hpartial]
+                assert_equal 65 [$server HLEN hpartial]
+                $server debug set-active-expire 1
+            } {OK} {cluster:skip needs:debug}
+        }
     }
     
     test "KEYSIZES - Test STRING BITS $suffixRepl" {

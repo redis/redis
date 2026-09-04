@@ -64,6 +64,8 @@ static ExpireMeta* hentryGetExpireMeta(const eItem field);
 static void hexpireGenericCommand(client *c, long long basetime, int unit);
 static void hfieldPersist(robj *hashObj, Entry *entry);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
+static void propagateHashFieldDeletionObj(redisDb *db, robj *keyobj, char *field, size_t fieldLen);
+static void propagateHashFieldDeletionBatch(redisDb *db, robj *keyobj, robj **fields, uint32_t numFields);
 
 /* hash dictType funcs */
 static void dictEntryDestructor(dict *d, void *entry);
@@ -138,10 +140,13 @@ EbucketsType hashFieldExpireBucketsType = {
 
 /* OnFieldExpireCtx passed to OnFieldExpire() */
 typedef struct OnFieldExpireCtx {
-    robj *hashObj;
-    redisDb *db;
     int activeEx; /* 1 for active expire, 0 for lazy expire */
     vec *vexpired; /* Expired fields vector */
+    eItem *entries; /* Expired entries (HT encoding only), recorded as-is by
+                     * onFieldExpire() and consumed by hashTypeExpire() which
+                     * propagates the deletions and deletes the fields. Holds at
+                     * most FIELDS_STACK_SIZE entries per ebExpire() call. */
+    uint32_t numEntries;
 } OnFieldExpireCtx;
 
 /* The implementation of hashes by dict was modified from storing fields as sds
@@ -3949,12 +3954,13 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
     vec *vexpired = isSubkeyNotifyEnabled(NOTIFY_HASH) ?
                         fieldvecInit(&fvexpired, FIELDS_STACK_SIZE) : NULL;
 
-    OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db, .activeEx = activeEx, .vexpired = vexpired };
+    OnFieldExpireCtx onFieldExpireCtx = { .activeEx = activeEx, .vexpired = vexpired };
     ExpireInfo info = (ExpireInfo) {
                 .maxToExpire = *quota,
                 .now = commandTimeSnapshot(),
                 .ctx = &onFieldExpireCtx,
                 .itemsExpired = 0};
+    robj *keyObj = NULL;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackExExpire(db, o, &info);
@@ -3963,9 +3969,81 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
 
         dict *d = o->ptr;
         htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
+        sds keystr = kvobjGetKey(o);
+        uint64_t oldLen = dictSize(d), totalExpired = 0;
+        uint32_t chunk, expired = 0;
 
+        /* onFieldExpire() only records the expired entries in `entries`. They
+         * are consumed here in chunks of at most FIELDS_STACK_SIZE fields each:
+         * first the deletion is propagated (a single HDEL per chunk for
+         * active-expire, per-field HDEL for lazy-expire), only then the fields
+         * are deleted. Bounded chunks keep the collection array on the stack
+         * and cap the size of a single propagated HDEL, regardless of quota.
+         * Deferring the deletion is safe: ebExpire() detaches the entry from
+         * ebuckets before invoking this callback and never accesses it
+         * afterwards; the hash dict still owns it until hashTypeDelete()
+         * below. */
+        eItem entries[FIELDS_STACK_SIZE];
+        onFieldExpireCtx.entries = entries;
         info.onExpireItem = onFieldExpire;
-        ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
+
+        do {
+            chunk = *quota - totalExpired;
+            if (chunk > FIELDS_STACK_SIZE) chunk = FIELDS_STACK_SIZE;
+            info.maxToExpire = chunk;
+            onFieldExpireCtx.numEntries = 0;
+            ebExpire(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, &info);
+            expired = info.itemsExpired;
+            if (expired == 0) break;
+            serverAssert(onFieldExpireCtx.numEntries == expired);
+
+            if (!keyObj)
+                keyObj = createStringObject(keystr, sdslen(keystr));
+
+            /* Propagate the deletion before deleting the fields */
+            if (activeEx) {
+                robj *fields[FIELDS_STACK_SIZE];
+                for (uint32_t i = 0; i < expired; i++) {
+                    sds field = entryGetField((Entry *) entries[i]);
+                    fields[i] = createStringObject(field, sdslen(field));
+                    /* vexpired, if exists, takes ownership of the field robj */
+                    if (vexpired) vecPush(vexpired, fields[i]);
+                }
+                propagateHashFieldDeletionBatch(db, keyObj, fields, expired);
+                if (!vexpired) {
+                    for (uint32_t i = 0; i < expired; i++)
+                        decrRefCount(fields[i]);
+                }
+            } else {
+                for (uint32_t i = 0; i < expired; i++) {
+                    sds field = entryGetField((Entry *) entries[i]);
+                    if (vexpired)
+                        vecPush(vexpired, createStringObject(field, sdslen(field)));
+                    propagateHashFieldDeletionObj(db, keyObj, field, sdslen(field));
+                }
+            }
+
+            /* Delete the expired fields from the hash */
+            size_t oldsize = 0;
+            if (server.memory_tracking_enabled)
+                oldsize = kvobjAllocSize(o);
+            for (uint32_t i = 0; i < expired; i++) {
+                sds field = entryGetField((Entry *) entries[i]);
+                serverAssert(hashTypeDelete(o, field) == 1);
+            }
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(db, getKeySlot(keystr), o, oldsize, kvobjAllocSize(o));
+
+            totalExpired += expired;
+        } while (expired == chunk && totalExpired < *quota);
+
+        if (totalExpired) {
+            server.stat_expired_subkeys += totalExpired;
+            if (activeEx)
+                server.stat_expired_subkeys_active += totalExpired;
+            updateKeysizesHist(db, OBJ_HASH, oldLen, oldLen - totalExpired);
+        }
+        info.itemsExpired = totalExpired;
     }
 
     /* Update quota left */
@@ -3976,7 +4054,7 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
      * we don't need to send notifications or perform other operations for this key. */
     if (info.itemsExpired) {
         sds keystr = kvobjGetKey(o);
-        robj *key = createStringObject(keystr, sdslen(keystr));
+        robj *key = keyObj ? keyObj : createStringObject(keystr, sdslen(keystr));
 
         /* Send subkey notification with all expired fields */
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", key, db->id,
@@ -6233,11 +6311,10 @@ static void hfieldPersist(robj *hashObj, Entry *entry) {
 /*-----------------------------------------------------------------------------
  * Hash Field Expiration (HFE)
  *----------------------------------------------------------------------------*/
-/*  Can be called either by active-expire cron job or query from the client */
-static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen) {
+static void propagateHashFieldDeletionObj(redisDb *db, robj *keyobj, char *field, size_t fieldLen) {
     robj *argv[] = {
         shared.hdel,
-        createStringObject((char*) key, sdslen(key)),
+        keyobj,
         createStringObject(field, fieldLen)
     };
 
@@ -6251,38 +6328,45 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
     /* Propagate the HDEL command */
     postExecutionUnitOperations();
 
-    decrRefCount(argv[1]);
     decrRefCount(argv[2]);
 }
 
-/* Called during active expiration of hash-fields. Propagate to replica & Delete. */
+/* Propagate deletion of hash fields as a single HDEL command. Called by
+ * hashTypeExpire() during active expiration, once per chunk of at most
+ * FIELDS_STACK_SIZE expired fields. */
+static void propagateHashFieldDeletionBatch(redisDb *db, robj *keyobj, robj **fields, uint32_t numFields) {
+    robj *argv[2 + FIELDS_STACK_SIZE];
+    serverAssert(numFields > 0 && numFields <= FIELDS_STACK_SIZE);
+    argv[0] = shared.hdel;
+    argv[1] = keyobj;
+    memcpy(argv + 2, fields, sizeof(robj*) * numFields);
+
+    enterExecutionUnit(1, 0);
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = 1;
+    alsoPropagate(db->id, argv, 2 + numFields, PROPAGATE_AOF|PROPAGATE_REPL);
+    server.replication_allowed = prev_replication_allowed;
+    exitExecutionUnit();
+
+    /* Propagate the HDEL command */
+    postExecutionUnitOperations();
+}
+
+/*  Can be called either by active-expire cron job or query from the client */
+static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen) {
+    robj *keyobj = createStringObject((char*) key, sdslen(key));
+    propagateHashFieldDeletionObj(db, keyobj, field, fieldLen);
+    decrRefCount(keyobj);
+}
+
+/* Called during expiration of hash-fields. Only collects the expired entries;
+ * hashTypeExpire() propagates the deletions and deletes the fields afterwards.
+ * The entries array cannot overflow since ebExpire() is called with maxToExpire
+ * that is bounded to FIELDS_STACK_SIZE. */
 static ExpireAction onFieldExpire(eItem item, void *ctx) {
     OnFieldExpireCtx *expCtx = ctx;
-    Entry *e = item;
-    kvobj *kv = expCtx->hashObj;
-    size_t oldsize = 0;
-    sds key = kvobjGetKey(kv);
-
-    if (server.memory_tracking_enabled)
-        oldsize = kvobjAllocSize(kv);
-    sds field = entryGetField(e);
-
-    /* Collect expired field for subkey notification (before deletion) */
-    if (expCtx->vexpired)
-        vecPush(expCtx->vexpired, createStringObject(field, sdslen(field)));
-
-    propagateHashFieldDeletion(expCtx->db, key, field, sdslen(field));
-
-    /* update keysizes */
-    unsigned long l = hashTypeLength(expCtx->hashObj, 0);
-    updateKeysizesHist(expCtx->db, OBJ_HASH, l, l - 1);
-
-    serverAssert(hashTypeDelete(expCtx->hashObj, field) == 1);
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(expCtx->db, getKeySlot(key), kv, oldsize, kvobjAllocSize(kv));
-    server.stat_expired_subkeys++;
-    if (expCtx->activeEx)
-        server.stat_expired_subkeys_active++;
+    debugServerAssert(expCtx->numEntries < FIELDS_STACK_SIZE);
+    expCtx->entries[expCtx->numEntries++] = item;
     return ACT_REMOVE_EXP_ITEM;
 }
 
