@@ -13,10 +13,9 @@
  * it persists to RDB and rides DUMP/RESTORE, slot migration and AOF rewrite.
  *
  * Each redisDb also keeps an in-RAM index of its NO-EVICT keys (db->blessed_keys)
- * for BLESS COUNT / LIST and as the eviction guard's fallback when a key's
- * keymeta is not resident in RAM (fully disk-only under RoF). It is per-DB (like
- * db->expires) so it stays correct across SWAPDB. On the core eviction path the
- * key is in RAM, so blessNoEvict() reads the bit inline and never touches it.
+ * for BLESS LIST and INFO's blessed_keys count. It is per-DB (like db->expires)
+ * so it stays correct across SWAPDB. The eviction path never consults it -
+ * blessNoEvict() reads the bit inline from the key's keymeta.
  */
 
 #include "server.h"
