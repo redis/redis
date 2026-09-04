@@ -7516,14 +7516,55 @@ void setupChildSignalHandlers(void) {
     sigaction(SIGUSR1, &act, NULL);
 }
 
+/* Return true if the current child process should retain the connection fd for
+ * this client. Most fork children don't serve clients, but a few child paths
+ * intentionally use inherited client sockets for direct I/O. */
+static int childShouldRetainClientConn(client *c) {
+    if (server.in_fork_child == CHILD_TYPE_RDB &&
+        (c->flags & CLIENT_SLAVE) &&
+        c->replstate == SLAVE_STATE_WAIT_BGSAVE_END &&
+        (c->slave_req & SLAVE_REQ_RDB_CHANNEL))
+    {
+        /* RDB channel diskless replication writes the RDB directly to these
+         * replica sockets from the child process. */
+        return 1;
+    }
+
+    return 0;
+}
+
+/* Return true if this child type doesn't need ordinary client sockets.
+ * Forked Lua debugging sessions are excluded because they communicate with the
+ * debugging client directly from the child process. */
+static int childCanCloseClientConns(void) {
+    return server.in_fork_child == CHILD_TYPE_RDB ||
+           server.in_fork_child == CHILD_TYPE_AOF;
+}
+
 /* After fork, the child process will inherit the resources
  * of the parent process, e.g. fd(socket or flock) etc.
  * should close the resources not used by the child process, so that if the
  * parent restarts it can bind/lock despite the child possibly still running. */
 void closeChildUnusedResourceAfterFork(void) {
+    listIter li;
+    listNode *ln;
+
     closeListeningSockets(0);
     if (server.cluster_enabled && server.cluster_config_file_lock_fd != -1)
         close(server.cluster_config_file_lock_fd);  /* don't care if this fails */
+
+    /* Some fork children don't serve clients and should not keep inherited
+     * client sockets alive after the parent closes them. */
+    if (childCanCloseClientConns()) {
+        listRewind(server.clients, &li);
+        while((ln = listNext(&li))) {
+            client *c = ln->value;
+            if (c->conn && c->conn->fd != -1 && !childShouldRetainClientConn(c)) {
+                close(c->conn->fd); /* don't care if this fails in the child */
+                c->conn->fd = -1;
+            }
+        }
+    }
 
     /* Clear server.pidfile, this is the parent pidfile which should not
      * be touched (or deleted) by the child (on exit / crash) */
