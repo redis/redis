@@ -33,6 +33,7 @@
 #include "estore.h"
 #include "chk.h"
 #include "fast_float_strtod.h"
+#include "request_throttler.h"
 
 #include <time.h>
 #include <signal.h>
@@ -2525,6 +2526,13 @@ void initServerConfig(void) {
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
     server.repl_no_slaves_since = time(NULL);
+
+    /* Throttling */
+    server.slave_obuf_throttle_threshold = CONFIG_DEFAULT_SLAVE_OBUF_THROTTLE_THRESHOLD;
+    server.slave_obuf_throttle_limit = CONFIG_DEFAULT_SLAVE_OBUF_THROTTLE_LIMIT;
+    server.slave_obuf_throttle_repl_rate = CONFIG_DEFAULT_SLAVE_OBUF_THROTTLE_REPL_RATE;
+    server.slave_obuf_throttle_max_delay_ms = CONFIG_DEFAULT_SLAVE_OBUF_THROTTLE_MAX_DELAY_MS;
+    RequestThrottler_Init();
 
     /* Failover related */
     server.failover_end_time = 0;
