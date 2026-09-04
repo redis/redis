@@ -1667,6 +1667,140 @@ start_server {tags {"scripting repl external:skip"}} {
             assert {[r mget a b c d] eq {1 {} 3 4}}
         }
 
+        test "Test selective replication of effect commands from Lua" {
+            # Commands that replace their own propagation (the counted form of
+            # SPOP propagates as SREM) queue the replacement via
+            # alsoPropagate(), which must honor set_repl() as well.
+            set keys {s1{t} s2{t} s3{t} s4{t}}
+            r del {*}$keys
+            foreach key $keys {
+                r sadd $key a b c d e
+            }
+            run_script {
+                redis.call('spop',KEYS[1],2);
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('spop',KEYS[2],2);
+                redis.set_repl(redis.REPL_AOF);
+                redis.call('spop',KEYS[3],2);
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('spop',KEYS[4],2);
+            } 4 {*}$keys
+
+            # The master popped members from all the four sets.
+            assert_equal {3 3 3 3} [lmap key $keys {r scard $key}]
+
+            # Only the SREM of s1 and s4 should have reached the replica.
+            wait_for_condition 50 100 {
+                [lmap key $keys {r -1 scard $key}] eq {3 5 5 3}
+            } else {
+                fail "Only the SREM of s1 and s4 should be replicated to replica"
+            }
+
+            # After an AOF reload only s1, s3 and s4 should be trimmed.
+            r debug loadaof
+
+            assert_equal {3 5 3 3} [lmap key $keys {r scard $key}]
+        }
+
+        test "Test selective replication of HIMPORT SET from Lua" {
+            # HIMPORT SET replaces its own propagation with a RESTORE queued via
+            # alsoPropagate(), so it must honor set_repl() too. The fieldset
+            # prepared by HIMPORT PREPARE is per-client state, hence both calls
+            # have to happen inside the same script.
+            r del ht1{t} ht2{t}
+            run_script {
+                redis.call('himport','prepare','fs','f1','f2');
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('himport','set',KEYS[1],'fs','v1','v2');
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('himport','set',KEYS[2],'fs','v3','v4');
+            } 2 ht1{t} ht2{t}
+
+            assert_equal {v1 v2} [r hmget ht1{t} f1 f2]
+            assert_equal {v3 v4} [r hmget ht2{t} f1 f2]
+
+            wait_for_condition 50 100 {
+                [r -1 hmget ht2{t} f1 f2] eq {v3 v4}
+            } else {
+                fail "The RESTORE of ht2 should be replicated to replica"
+            }
+            assert_equal 0 [r -1 exists ht1{t}]
+        }
+
+        test "Test implicit deletions are replicated despite set_repl(REPL_NONE)" {
+            # Keys and hash fields deleted because they expired are an implicit
+            # decision of the server, so they must always be propagated, no
+            # matter what the script that happened to touch them asked for.
+            r debug set-active-expire 0
+            r del expkey{t} exphash{t} sentinel{t}
+            r set expkey{t} v px 1
+            r hset exphash{t} f1 v1 f2 v2
+            r hpexpire exphash{t} 1 fields 1 f1
+            after 20
+
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('get',KEYS[1]);
+                redis.call('hget',KEYS[2],'f1');
+                redis.set_repl(redis.REPL_ALL);
+                redis.call('set',KEYS[3],'1');
+            } 3 expkey{t} exphash{t} sentinel{t}
+
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {multi}
+                    {select *}
+                    {del expkey{t}}
+                    {hdel exphash{t} f1}
+                    {set sentinel{t} 1}
+                    {exec}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {multi}
+                    {del expkey{t}}
+                    {hdel exphash{t} f1}
+                    {set sentinel{t} 1}
+                    {exec}
+                }
+            }
+            close_replication_stream $repl
+            r debug set-active-expire 1
+        }
+
+        test "Test no empty MULTI/EXEC is replicated for AOF-only effects" {
+            # Both SREM the SPOP calls queue are restricted to the AOF, so the
+            # replica must receive nothing at all: not even the MULTI / EXEC
+            # that wraps them in the AOF.
+            r del myset{t} sentinel{t}
+            r sadd myset{t} a b c d e
+
+            set repl [attach_to_replication_stream]
+            run_script {
+                redis.set_repl(redis.REPL_AOF);
+                redis.call('spop',KEYS[1],2);
+                redis.call('spop',KEYS[1],2);
+            } 1 myset{t}
+            r set sentinel{t} 1
+
+            if {$is_eval} {
+                assert_replication_stream $repl {
+                    {select *}
+                    {set sentinel{t} 1}
+                }
+            } else {
+                assert_replication_stream $repl {
+                    {select *}
+                    {function load *}
+                    {set sentinel{t} 1}
+                }
+            }
+            close_replication_stream $repl
+        }
+
         test "PRNG is seeded randomly for command replication" {
             if {$is_eval eq 1} {
                 # on is_eval Lua we need to call redis.replicate_commands() to get real randomization
