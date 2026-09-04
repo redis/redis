@@ -1,0 +1,8 @@
+bio: add bioShutdown function to prevent memory leaks
+
+This commit implements the bioShutdown() function, which guarantees
+a graceful shutdown of the background I/O subsystem. It destroys
+worker mutexes, condition variables, releases job lists, and closes
+the event loop synchronization pipes.
+
+This ensures no resource leaks are left behind upon server exit.
