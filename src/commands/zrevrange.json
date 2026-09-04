@@ -88,6 +88,13 @@
                 "token": "WITHSCORES",
                 "type": "pure-token",
                 "optional": true
+            },
+            {
+                "name": "withstatus",
+                "token": "WITHSTATUS",
+                "type": "pure-token",
+                "optional": true,
+                "since": "9.0.0"
             }
         ]
     }
