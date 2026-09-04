@@ -613,6 +613,13 @@ static int is_in_slow_bg_operation(RedisModuleCtx *ctx, RedisModuleString **argv
     return REDISMODULE_OK;
 }
 
+static int blocked_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    UNUSED(argv);
+    UNUSED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx, "TIMEOUT");
+}
+
 static void timer_callback(RedisModuleCtx *ctx, void *data)
 {
     UNUSED(ctx);
@@ -648,7 +655,7 @@ int unblock_by_timer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return RedisModule_ReplyWithError(ctx,"ERR invalid timeout");
     }
 
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, timeout);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, blocked_timeout_callback, NULL, timeout);
     RedisModule_CreateTimer(ctx, period, timer_callback, bc);
     return REDISMODULE_OK;
 }

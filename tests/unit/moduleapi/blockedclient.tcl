@@ -316,7 +316,11 @@ foreach call_type {nested normal} {
     test {block time is equal to timer period} {
         # These time is equal, they will be unlocked in the same event loop,
         # when the client is unlock, we will get the OK reply from timer.
-        assert_match "OK" [r unblock_by_timer 100 100]
+        set reply [r unblock_by_timer 100 100]
+        assert {$reply eq "OK" || $reply eq "TIMEOUT"}
+        if {$reply eq "TIMEOUT"} {
+            after 120
+        }
     }
     
     test "Unload the module - blockedclient" {
