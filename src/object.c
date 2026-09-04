@@ -15,6 +15,7 @@
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "cluster_asm.h"
+#include "zset_btree.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -500,6 +501,13 @@ robj *createZsetObject(void) {
     return o;
 }
 
+/* Create an empty sorted set using the packed B+ tree encoding. */
+robj *createZsetBtreeObject(void) {
+    robj *o = createObject(OBJ_ZSET, zbtreeCreate());
+    o->encoding = OBJ_ENCODING_BTREE;
+    return o;
+}
+
 robj *createZsetListpackObject(void) {
     unsigned char *lp = lpNew(0);
     robj *o = createObject(OBJ_ZSET,lp);
@@ -589,6 +597,9 @@ void freeZsetObject(robj *o) {
         dictRelease(zs->dict);
         zslFree(zs->zsl);
         zfree(zs);
+        break;
+    case OBJ_ENCODING_BTREE:
+        zbtreeFree(o->ptr);
         break;
     case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
@@ -772,6 +783,8 @@ void dismissZsetObject(robj *o, size_t size_hint) {
 
         /* Dismiss hash table memory. */
         dismissDictBucketsMemory(zs->dict);
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeDismissMemory(o->ptr);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
@@ -1314,6 +1327,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
 	case OBJ_ENCODING_TMPL_LP: return "template-listpack";
 	case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
+    case OBJ_ENCODING_BTREE: return "btree";
     default: return "unknown";
     }
 }

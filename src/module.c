@@ -46,6 +46,7 @@
 #include "call_reply.h"
 #include "hdr_histogram.h"
 #include "crc16_slottable.h"
+#include "zset_btree.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -197,7 +198,7 @@ struct RedisModuleKey {
             zlexrangespec lrs;     /* Lex range. */
             uint32_t start;        /* Start pos for positional ranges. */
             uint32_t end;          /* End pos for positional ranges. */
-            void *current;         /* Zset iterator current node. */
+            void *current;         /* Node, or B+ tree rank plus one. */
             int er;                /* Zset iterator end reached flag
                                        (true if end was reached). */
         } zset;
@@ -5339,6 +5340,18 @@ void zsetKeyReset(RedisModuleKey *key) {
     key->u.zset.er = 1;
 }
 
+/* Read one B+ tree member by rank. Seeking for every call keeps no leaf
+ * pointer across module code, which may modify the sorted set. */
+static int moduleZsetBtreeElementAtRank(RedisModuleKey *key,
+                                        unsigned long rank,
+                                        const unsigned char **ele,
+                                        size_t *len, double *score)
+{
+    zbtreeIterator iter;
+    if (!zbtreeIteratorSeekRank(key->kv->ptr, rank, &iter)) return 0;
+    return zbtreeIteratorNext(&iter, 0, ele, len, score);
+}
+
 /* Stop a sorted set iteration. */
 void RM_ZsetRangeStop(RedisModuleKey *key) {
     if (!key->kv || key->kv->type != OBJ_ZSET) return;
@@ -5386,6 +5399,22 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
         zskiplist *zsl = zs->zsl;
         key->u.zset.current = first ? zslNthInRange(zsl, zrs, 0, NULL) :
                                       zslNthInRange(zsl, zrs, -1, NULL);
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        unsigned long rank;
+        double score;
+        int found = first ?
+            zbtreeIteratorSeekScore(key->kv->ptr, min, minex, 0,
+                                    &iter, &rank) :
+            zbtreeIteratorSeekScore(key->kv->ptr, max, maxex, 1,
+                                    &iter, &rank);
+        if (found) {
+            serverAssert(moduleZsetBtreeElementAtRank(key, rank, NULL, NULL,
+                                                      &score));
+            if (first ? zslValueLteMax(score, zrs) :
+                        zslValueGteMin(score, zrs))
+                key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        }
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5450,6 +5479,26 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
         zskiplist *zsl = zs->zsl;
         key->u.zset.current = first ? zslNthInLexRange(zsl,zlrs,0,NULL) :
                                       zslNthInLexRange(zsl,zlrs,-1,NULL);
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        unsigned long rank;
+        int found = first ?
+            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->min, zlrs->minex,
+                                  0, &iter, &rank) :
+            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->max, zlrs->maxex,
+                                  1, &iter, &rank);
+        if (found) {
+            const unsigned char *ele;
+            size_t len;
+            serverAssert(moduleZsetBtreeElementAtRank(key, rank, &ele, &len,
+                                                      NULL));
+            sds value = sdsnewlen(ele, len);
+            int in_range = zslLexValueGteMin(value, zlrs) &&
+                           zslLexValueLteMax(value, zlrs);
+            sdsfree(value);
+            if (in_range)
+                key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        }
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5502,6 +5551,17 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
         if (score) *score = ln->score;
         sds ele = zslGetNodeElement(ln);
         str = createStringObject(ele,sdslen(ele));
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        const unsigned char *ele;
+        size_t len;
+        double value;
+        unsigned long rank = (uintptr_t)key->u.zset.current - 1;
+        if (!moduleZsetBtreeElementAtRank(key, rank, &ele, &len, &value)) {
+            key->u.zset.er = 1;
+            return NULL;
+        }
+        if (score) *score = value;
+        str = createStringObject((char *)ele, len);
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5568,9 +5628,31 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             key->u.zset.current = next;
             return 1;
         }
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        unsigned long rank = (uintptr_t)key->u.zset.current - 1;
+        if (++rank >= zbtreeLength(key->kv->ptr)) goto end;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        if (!moduleZsetBtreeElementAtRank(key, rank, &ele, &len, &score))
+            goto end;
+        if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE) {
+            if (!zslValueLteMax(score, &key->u.zset.rs)) goto end;
+        } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
+            sds value = sdsnewlen(ele, len);
+            int valid = zslLexValueLteMax(value, &key->u.zset.lrs);
+            sdsfree(value);
+            if (!valid) goto end;
+        }
+        key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        return 1;
     } else {
         serverPanic("Unsupported zset encoding");
     }
+
+end:
+    key->u.zset.er = 1;
+    return 0;
 }
 
 /* Go to the previous element of the sorted set iterator. Returns 1 if there was
@@ -5632,9 +5714,32 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
             key->u.zset.current = prev;
             return 1;
         }
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        unsigned long rank = (uintptr_t)key->u.zset.current - 1;
+        if (rank == 0) goto end;
+        rank--;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        if (!moduleZsetBtreeElementAtRank(key, rank, &ele, &len, &score))
+            goto end;
+        if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE) {
+            if (!zslValueGteMin(score, &key->u.zset.rs)) goto end;
+        } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
+            sds value = sdsnewlen(ele, len);
+            int valid = zslLexValueGteMin(value, &key->u.zset.lrs);
+            sdsfree(value);
+            if (!valid) goto end;
+        }
+        key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        return 1;
     } else {
         serverPanic("Unsupported zset encoding");
     }
+
+end:
+    key->u.zset.er = 1;
+    return 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -12304,6 +12409,35 @@ typedef struct {
     RedisModuleScanKeyCB fn;
 } ScanKeyCBData;
 
+typedef struct {
+    robj *field;
+    double score;
+} BtreeScanItem;
+
+typedef struct {
+    BtreeScanItem *items;
+    size_t count;
+    size_t capacity;
+} BtreeScanData;
+
+/* B+ tree leaves may move if module code changes the sorted set. Collect one
+ * small batch before calling the module so no tree pointer survives a
+ * callback. */
+static void moduleBtreeScanCollect(void *privdata, const unsigned char *ele,
+                                   size_t len, double score)
+{
+    BtreeScanData *data = privdata;
+    if (data->count == data->capacity) {
+        data->capacity = data->capacity ? data->capacity * 2 : 64;
+        data->items = zrealloc(data->items,
+                               data->capacity * sizeof(*data->items));
+    }
+
+    data->items[data->count].field = createStringObject((char *)ele, len);
+    data->items[data->count].score = score;
+    data->count++;
+}
+
 static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     ScanKeyCBData *data = privdata;
@@ -12454,6 +12588,37 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;
+    } else if (kv->type == OBJ_ZSET &&
+               kv->encoding == OBJ_ENCODING_BTREE)
+    {
+        BtreeScanData data = {0};
+        cursor->cursor = zbtreeScan(kv->ptr, cursor->cursor, 64,
+                                    moduleBtreeScanCollect, &data);
+
+        size_t i = 0;
+        for (; i < data.count; i++) {
+            robj *value = createStringObjectFromLongDouble(data.items[i].score, 0);
+            fn(key, data.items[i].field, value, privdata);
+            decrRefCount(value);
+            decrRefCount(data.items[i].field);
+
+            /* Removing the current member is safe. If the callback removes the
+             * key or changes its encoding, this B+ tree cursor has no meaning. */
+            if (key->kv != kv || kv->encoding != OBJ_ENCODING_BTREE) {
+                cursor->cursor = 0;
+                cursor->done = 1;
+                ret = 0;
+                i++;
+                break;
+            }
+        }
+        while (i < data.count) decrRefCount(data.items[i++].field);
+        zfree(data.items);
+
+        if (cursor->cursor == 0) {
+            cursor->done = 1;
+            ret = 0;
+        }
     } else if (kv->type == OBJ_ZSET || kv->type == OBJ_HASH) {
         unsigned char *lp, *p;
         /* is hash with expiry on fields, then lp tuples are [field][value][expire] */

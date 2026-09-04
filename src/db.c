@@ -26,6 +26,7 @@
 #include <ctype.h>
 #include "bio.h"
 #include "keymeta.h"
+#include "zset_btree.h"
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -1655,6 +1656,30 @@ typedef struct {
     redisDb *db;  /* database reference for expiration checks */
 } scanData;
 
+typedef struct {
+    client *c;
+    sds pattern;
+    int pattern_len;
+    int use_pattern;
+    unsigned long emitted;
+} zsetBtreeScanData;
+
+/* Add one B+ tree ZSCAN result after applying the optional MATCH pattern. */
+static void zsetBtreeScanReply(void *privdata, const unsigned char *ele,
+                               size_t len, double score)
+{
+    zsetBtreeScanData *data = privdata;
+    if (data->use_pattern &&
+        !stringmatchlen(data->pattern, data->pattern_len,
+                        (char *)ele, len, 0))
+        return;
+    addReplyBulkCBuffer(data->c, ele, len);
+    char buf[MAX_LONG_DOUBLE_CHARS];
+    int scorelen = ld2string(buf, sizeof(buf), score, LD_STR_AUTO);
+    addReplyBulkCBuffer(data->c, buf, scorelen);
+    data->emitted += 2;
+}
+
 /* Helper function to compare key type in scan commands */
 int objectTypeCompare(robj *o, long long target) {
     if (o->type != OBJ_MODULE) {
@@ -2002,6 +2027,20 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             setDeferredArrayLen(c,replylen,cur_length);
         else
             serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
+        return;
+    } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_BTREE) {
+        vecRelease(&keys);
+        addReplyArrayLen(c, 2);
+        void *cursor_reply = addReplyDeferredLen(c);
+        void *replylen = addReplyDeferredLen(c);
+        zsetBtreeScanData data = {c, pat, patlen, use_pattern, 0};
+        uint64_t next = zbtreeScan(o->ptr, cursor, count,
+                                   zsetBtreeScanReply, &data);
+        char cursor_buf[LONG_STR_SIZE];
+        int cursor_len = ull2string(cursor_buf, sizeof(cursor_buf), next);
+        setDeferredReplyBulkSds(c, cursor_reply,
+                                sdsnewlen(cursor_buf, cursor_len));
+        setDeferredArrayLen(c, replylen, data.emitted);
         return;
     } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET) &&
                o->encoding == OBJ_ENCODING_LISTPACK)
