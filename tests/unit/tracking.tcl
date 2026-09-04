@@ -171,6 +171,19 @@ start_server {tags {"tracking network logreqres:skip"}} {
         r HELLO 3
     }
 
+    test {HELLO reply contains run_id matching INFO server} {
+        set reply3 [r HELLO 3]
+        assert_equal [dict get $reply3 proto] 3
+        assert_equal [dict get $reply3 run_id] [status r run_id]
+
+        set reply2 [r HELLO 2]
+        assert_equal [dict get $reply2 proto] 2
+        assert_equal [dict get $reply2 run_id] [status r run_id]
+
+        # restore RESP3 for next test
+        r HELLO 3
+    }
+
     test {RESP3 based basic invalidation} {
         r CLIENT TRACKING off
         r CLIENT TRACKING on
