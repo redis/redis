@@ -1717,13 +1717,22 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     list *pending_clients;                      /* List of clients with pending writes. */
     list *processing_clients;                   /* List of clients being processed. */
     eventNotifier *pending_clients_notifier;    /* Used to wake up the loop when write should be performed. */
-    pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
     redisAtomic long long io_reads_processed;   /* Number of read events processed */
     redisAtomic long long io_writes_processed;  /* Number of write events processed */
+    /* Incremented on every read/write event by the owning thread, exactly
+     * like the two event counters above. Totals are summed at read time
+     * (INFO / cron). */
+    redisAtomic long long net_input_bytes;      /* Bytes read from network. */
+    redisAtomic long long net_output_bytes;     /* Bytes written to network. */
     list *compression_clients;                  /* Clients that write/read compressed data */
     size_t cronloops;
+    /* Cold: taken once per dispatch batch, not per event. It sits after the
+     * counters so that all four per-event stats stay on one cache line;
+     * in its original position it pushes net_*_bytes past a line boundary
+     * and every network event then touches two private lines instead of one. */
+    pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
 } IOThread;
 
 extern IOThread IOThreads[IO_THREADS_MAX_NUM];
@@ -2228,10 +2237,8 @@ struct redisServer {
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
-    redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
-    redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
-    redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
-    redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
+    redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to total_net_input_bytes in 'info'. */
+    redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to total_net_output_bytes in 'info'. */
     redisAtomic long long stat_net_repl_output_uncompressed_bytes; /* Bytes read from repl buffer before being compressed and written during replication. */
     redisAtomic long long stat_net_repl_input_decompressed_bytes; /* Decompressed bytes after reading compressed data during replication. */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
