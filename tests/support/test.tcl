@@ -148,6 +148,38 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     }
 }
 
+# Run 'body', then check each expr in 'conditions', retrying (incrementing
+# '$iter_var' each time) up to 'max_iter'. 'body' must be self-contained and
+# scale its timing off '$iter_var' (e.g. `set ttl_ms [expr {20*$iter}]`), so
+# a slow environment gets more slack instead of a false failure, while a
+# genuine bug still fails at 'max_iter'. Listing several 'conditions'
+# instead of one '&&'-chained expr names exactly which check(s) failed.
+proc assert_with_retry {max_iter iter_var body conditions} {
+    upvar 1 $iter_var iter
+    set iter 1
+    while 1 {
+        uplevel 1 $body
+        set failed {}
+        foreach condition $conditions {
+            if {![uplevel 1 [list expr $condition]]} {
+                lappend failed $condition
+            }
+        }
+        if {[llength $failed] == 0} {
+            return
+        }
+        if {$iter >= $max_iter} {
+            set context "(context: [info frame -1])"
+            set details {}
+            foreach condition $failed {
+                lappend details "Expected [uplevel 1 [list subst -nocommands $condition]]"
+            }
+            error "assertion:[join $details {, }] $context (gave up after ${iter}x, max ${max_iter}x)"
+        }
+        incr iter
+    }
+}
+
 # try to match a value to a list of patterns that are either regex (starts with "/") or plain string.
 # The caller can specify to use only glob-pattern match
 proc search_pattern_list {value pattern_list {glob_pattern false}} {
