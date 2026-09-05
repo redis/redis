@@ -46,8 +46,6 @@ typedef struct KeyMetaClass {
 } KeyMetaClass;
 static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
 
-/* Add metadata to keymeta spec, handling out-of-order metaid */
-static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
 
 
 /* Encode 64b For module entity encode. Encode 32b class spec for RDB. 
@@ -887,7 +885,7 @@ void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
  * This is useful when metadata may arrive in different order than class IDs
  * (e.g., RDB load with different module registration order).
  * The function maintains the sorted order of the reverse-populated array. */
-static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
+void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
     debugServerAssert(metaid >= 0 && metaid < KEY_META_ID_MAX);
     debugServerAssert((keymeta->metabits & (1 << metaid)) == 0); /* Not already added */
 

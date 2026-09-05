@@ -1,0 +1,33 @@
+{
+    "LIST": {
+        "summary": "Lists blessed keys carrying the given flag. The flag is required (no default); NONE is not listable (unblessed keys are untracked) and any other flag is a syntax error.",
+        "complexity": "O(N) where N is the number of blessed keys.",
+        "group": "generic",
+        "since": "8.12.0",
+        "arity": 3,
+        "container": "BLESS",
+        "function": "blessCommand",
+        "command_flags": [],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "NONDETERMINISTIC_OUTPUT_ORDER"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "arguments": [
+            {
+                "name": "no-evict",
+                "type": "pure-token",
+                "token": "NO-EVICT"
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Key names blessed with the requested flag.",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}

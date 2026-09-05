@@ -107,22 +107,32 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     set classesSpec(3) "KEEPONCOPY:ALLOWIGNORE:RDBLOAD:RDBSAVE"
     set classesSpec(4) "ALLOWIGNORE:RDBLOAD:RDBSAVE"
     set classesSpec(5) "KEEPONRENAME:KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
-    set classesSpec(6) "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
-    set classesSpec(7) "KEEPONMOVE:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    # ATTR permanently holds module id 1, so only 6 module classes register and the
+    # loop breaks at cid 7. Put KEEPONMOVE:UNLINKFREE (the move+unlink callback pair
+    # bless relies on) within 1..6 so it is actually exercised.
+    set classesSpec(6) "KEEPONMOVE:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(7) "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
 
     array set classes {}
+    set maxClasses 0
     for {set cid 1} {$cid <= 7} {incr cid} {
         set spec $classesSpec($cid)
-        set classes($cid) [r keymeta.register [cname $cid] 1 $spec]
+        if {[catch {r keymeta.register [cname $cid] 1 $spec} classId]} {
+            assert_match "*failed to create metadata class*" $classId
+            break
+        }
+        set classes($cid) $classId
+        set maxClasses $cid
         puts "Registered class $cid with spec $spec"
-        assert_equal $classes($cid) $cid
+        assert_range $classes($cid) 1 7
     }
+    assert_equal 6 $maxClasses
 
     # Validates metadata behavior across COPY/RENAME/MOVE operations
     # with varying numbers of metadata classes (1-7), key expiration states,
     # key types (string/hash), hash field expiration, and metadata class flags
     # (KEEPONCOPY, KEEPONRENAME, KEEPONMOVE).
-    for {set numClasses 1} {$numClasses < 8} {incr numClasses} {
+    for {set numClasses 1} {$numClasses <= $maxClasses} {incr numClasses} {
         foreach expiryBefore {0 1} {
             foreach expiryAfter {0 1} {
                 set hasExpiry [expr {$expiryBefore || $expiryAfter}]
@@ -239,7 +249,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     }
 
     test "KEYMETA - Verify active metadata count on copy" {
-        for {set cid 1} {$cid < 7} {incr cid} {
+        for {set cid 1} {$cid <= $maxClasses} {incr cid} {
             set numAlloc 0
             flushallAndVerifyCleanup
             set dupOnCopy [shouldKeep $cid "copy" classesSpec]
@@ -258,7 +268,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     }
 
     test "KEYMETA - Verify active metadata count on rename" {
-        for {set cid 1} {$cid <= 7} {incr cid} {
+        for {set cid 1} {$cid <= $maxClasses} {incr cid} {
             set numAlloc 0
             flushallAndVerifyCleanup
             set keepOnRename [shouldKeep $cid "rename" classesSpec]
@@ -274,7 +284,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     }
 
     test "KEYMETA - Verify active metadata count on move" {
-        for {set cid 1} {$cid <= 7} {incr cid} {
+        for {set cid 1} {$cid <= $maxClasses} {incr cid} {
             set numAlloc 0
             r select 0
             flushallAndVerifyCleanup
@@ -472,9 +482,9 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         flushallAndVerifyCleanup
     } {} {external:skip needs:debug}
 
-    test {RDB: Create keys with upto 7 meta classes, with or without expiry} {
-        # Test all combinations of 1-7 metadata classes, with or without expiry
-        for {set n 1} {$n <= 7} {incr n} {
+    test {RDB: Create keys with all available meta classes, with or without expiry} {
+        # Test all combinations of available metadata classes, with or without expiry.
+        for {set n 1} {$n <= $maxClasses} {incr n} {
             foreach hasExpiry {0 1} {
                 set keyname "key_${n}_exp${hasExpiry}"
                 r set $keyname "value$n"
@@ -503,7 +513,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
 
                 # Verify metadata before RDB save
                 # Verify exactly n metadata classes are attached
-                for {set i 1} {$i <= 7} {incr i} {
+                for {set i 1} {$i <= $maxClasses} {incr i} {
                     if {$i <= $n} {
                         assert_equal [r keymeta.get [cname $i] $keyname] "meta$i"
                     } else {
@@ -523,7 +533,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
 
                 # Verify metadata after RDB reload
                 # Verify exactly n metadata classes are still attached
-                for {set i 1} {$i <= 7} {incr i} {
+                for {set i 1} {$i <= $maxClasses} {incr i} {
                     if {$i <= $n} {
                         assert_equal [r keymeta.get [cname $i] $keyname] "meta$i"
                     } else {
@@ -617,9 +627,9 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     # DUMP/RESTORE Tests
     # ========================================================================
 
-    test {DUMP/RESTORE: 1 to 7 metadata classes, optional TTL} {
+    test {DUMP/RESTORE: all available metadata classes, optional TTL} {
         foreach withTTL {0 1} {
-            for {set numClasses 1} {$numClasses < 8} {incr numClasses} {
+            for {set numClasses 1} {$numClasses <= $maxClasses} {incr numClasses} {
                 # Re-register classes with RDBLOAD and RDBSAVE flags
                 for {set cid 1} {$cid <= $numClasses} {incr cid} {
                     r keymeta.unregister [cname $cid]
@@ -778,10 +788,9 @@ test "RDB: Load with different module registration order preserves metadata corr
         set class2 [r keymeta.register [cname 2] 1 $spec2]
         set class3 [r keymeta.register [cname 3] 1 $spec3]
 
-        # Verify class IDs match registration order
-        assert_equal $class1 1 "Class 1 registered first, gets ID 1"
-        assert_equal $class2 2 "Class 2 registered second, gets ID 2"
-        assert_equal $class3 3 "Class 3 registered third, gets ID 3"
+        # Verify class IDs match registration order.
+        assert_equal [expr {$class1 + 1}] $class2 "Class 2 follows class 1"
+        assert_equal [expr {$class2 + 1}] $class3 "Class 3 follows class 2"
 
         # OUTER SERVER: Create RDB with classes registered in order 1,2,3
         r flushall
@@ -822,15 +831,9 @@ test "RDB: Load with different module registration order preserves metadata corr
             set class1 [r keymeta.register [cname 1] 1 $spec1]
             set class2 [r keymeta.register [cname 2] 1 $spec2]
 
-            # Verify class IDs are assigned by REGISTRATION ORDER, not name
-            # We registered in order 3,1,2, so the runtime IDs are:
-            # - class3 (name "CLS3") gets ID 1 (first registered)
-            # - class1 (name "CLS1") gets ID 2 (second registered)
-            # - class2 (name "CLS2") gets ID 3 (third registered)
-            # This is DIFFERENT from outer server which registered in order 1,2,3
-            assert_equal $class3 1 "Class 3 registered first, gets ID 1"
-            assert_equal $class1 2 "Class 1 registered second, gets ID 2"
-            assert_equal $class2 3 "Class 2 registered third, gets ID 3"
+            # Verify class IDs are assigned by registration order, not name.
+            assert_equal [expr {$class3 + 1}] $class1 "Class 1 follows class 3"
+            assert_equal [expr {$class1 + 1}] $class2 "Class 2 follows class 1"
 
             # Copy the saved RDB to this server's dbfilename
             set inner_rdb_file [lindex [r config get dbfilename] 1]
@@ -910,11 +913,13 @@ test "RESTORE-based AOF payload omits KeyMeta" {
 
         # Class 1 can restore itself through either RDB or AOF. Class 2 is
         # RDB-only, and class 3 is AOF-only.
-        assert_equal 1 [r keymeta.register [cname 1] 1 \
+        set class1 [r keymeta.register [cname 1] 1 \
             "ALLOWIGNORE:RDBLOAD:RDBSAVE"]
-        assert_equal 2 [r keymeta.register [cname 2] 1 \
+        set class2 [r keymeta.register [cname 2] 1 \
             "ALLOWIGNORE:RDBLOAD:RDBSAVE:NOAOF"]
-        assert_equal 3 [r keymeta.register [cname 3] 1 "ALLOWIGNORE"]
+        set class3 [r keymeta.register [cname 3] 1 "ALLOWIGNORE"]
+        assert_equal [expr {$class1 + 1}] $class2
+        assert_equal [expr {$class2 + 1}] $class3
 
         r set source value
         r keymeta.set [cname 1] source dual-path

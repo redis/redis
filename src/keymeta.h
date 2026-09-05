@@ -47,7 +47,9 @@ typedef int KeyMetaClassId; /* Index into redisServer.keyMetaClass[] */
 
 /* kvmeta - Metadata to be attached to kvobj */
 #define KEY_META_ID_EXPIRE        0 /* Must be first */
-/* IDs 1..7 are available for modules */
+/* IDs 1..7 (KEY_META_ID_MODULE_FIRST..LAST) back non-expire metadata classes.
+ * The built-in ATTR class (keyattr.c, used by bless) permanently takes id 1 at
+ * startup, so only ids 2..7 (6 slots) remain for modules to register. */
 #define KEY_META_ID_MODULE_FIRST  1
 #define KEY_META_ID_MODULE_LAST   7
 #define KEY_META_ID_MAX           8
@@ -164,6 +166,9 @@ static inline void keyMetaSpecInit(KeyMetaSpec *keymeta) {
 
 /* Add metadata to keymeta spec. metaid must be in range 0..7 and added in order! */
 void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
+
+/* Like keyMetaSpecAdd but accepts metaids in any order (keeps meta[] sorted). */
+void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
 
 /* Free any metadata stored in a KeyMetaSpec. This is called when RDB load fails after
  * some metadata has been loaded. It invokes the free cb for each metadata class that 

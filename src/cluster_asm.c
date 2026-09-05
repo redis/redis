@@ -2285,6 +2285,17 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Write ABSTTL */
         if (rioWriteBulkString(rdb, "ABSTTL", 6) == 0) return C_ERR;
+
+        /* Bless isn't in the payload; send it as a follow-up command right here,
+         * same as we handle the TTL. (The AOF path below emits it via
+         * keyMetaOnAof.) */
+        if (blessNoEvict(o)) {
+            if (rioWriteBulkCount(rdb, '*', 4) == 0) return C_ERR;
+            if (rioWriteBulkString(rdb, "BLESS", 5) == 0) return C_ERR;
+            if (rioWriteBulkString(rdb, "SET", 3) == 0) return C_ERR;
+            if (rioWriteBulkObject(rdb, &key) == 0) return C_ERR;
+            if (rioWriteBulkString(rdb, "NO-EVICT", 8) == 0) return C_ERR;
+        }
     } else {
         /* Use AOF format to migrate data */
         if (rewriteObject(rdb, &key, o, dbid, expiretime) == C_ERR) return C_ERR;
@@ -3175,6 +3186,11 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
     dict *stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
+    /* Blessed-keys index is slot-partitioned like expires, so drop the migrated
+     * slots from it too or the former owner's BLESS COUNT/LIST keep counting
+     * keys it no longer owns. Freed in the BIO thread with the other structures. */
+    kvstore *blessed_keys = blessedKvstoreCreate(CLUSTER_SLOT_MASK_BITS,
+                                                 KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
 
     size_t total_keys = 0;
 
@@ -3185,13 +3201,20 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
             estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
+            kvstoreMoveDict(server.db[0].blessed_keys, blessed_keys, slot);
         }
     }
     /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
     streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
 
+    /* kvstoreMoveDict bypassed blessedSetDel, so fix up db 0's cached overhead
+     * byte-count for the entries that just left its index. */
+    blessedIndexReconcileMoved(&server.db[0], blessed_keys);
+
+    /* The temp blessed-keys index is freed on the BIO thread alongside the other
+     * detached slot structures; the callback computes the keysize deltas. */
     emptyDbDataAsync(keys, expires, subexpires, stream_idmp_keys,
-                     asmTrimJobPopulateDeltaHistograms, job);
+                     blessed_keys, asmTrimJobPopulateDeltaHistograms, job);
 
     /* Queue completion after the lazyfree job on the same BIO worker. */
     bioCreateCompRq(BIO_WORKER_LAZY_FREE, asmBackgroundTrimDoneCB, job->client_id, job);

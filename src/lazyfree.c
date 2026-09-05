@@ -25,15 +25,17 @@ static void lazyfreeFreeKvs(void *args[]) {
     kvstore *da2 = args[1];
     estore *subexpires = args[2];
     dict *stream_idmp_keys = args[3];
+    kvstore *blessed = args[4]; /* optional bless index (NULL if none) */
 
     /* Run the optional callback in the BIO thread before releasing the
-     * detached kvstores. args[4] holds the callback and args[5] its userdata. */
-    lazyfreeKvsCallback callback = (lazyfreeKvsCallback)(uintptr_t)args[4];
-    void *userdata = args[5];
+     * detached kvstores. args[5] holds the callback and args[6] its userdata. */
+    lazyfreeKvsCallback callback = (lazyfreeKvsCallback)(uintptr_t)args[5];
+    void *userdata = args[6];
     if (callback) callback(da1, userdata);
 
     estoreRelease(subexpires);
     dictRelease(stream_idmp_keys);
+    if (blessed) kvstoreRelease(blessed);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
     kvstoreRelease(da2);
@@ -305,23 +307,28 @@ void emptyDbAsync(redisDb *db) {
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
     estore *oldsubexpires = db->subexpires;
     dict *old_stream_idmp_keys = db->stream_idmp_keys;
+    kvstore *oldblessed = db->blessed_keys;
     db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     db->stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
+    db->blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
     protectClientReplyObjects(); /* Protect client reply objects before async free. */
-    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys, NULL, NULL);
+    /* The old blessed index is freed on the BIO thread with the other structures. */
+    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires, old_stream_idmp_keys,
+                     oldblessed, NULL, NULL);
 }
 
 /* Empty kvstore data asynchronously. If callback is provided, invoke it from
  * the BIO thread before releasing the detached kvstores. */
 void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires,
-                      dict *stream_idmp_keys, lazyfreeKvsCallback callback, void *userdata) {
+                      dict *stream_idmp_keys, kvstore *blessed,
+                      lazyfreeKvsCallback callback, void *userdata) {
     serverAssert(callback || userdata == NULL);
 
     atomicIncr(lazyfree_objects, kvstoreSize(keys));
-    bioCreateLazyFreeJob(lazyfreeFreeKvs, 6, keys, expires, hexpires, stream_idmp_keys,
-                         (void *)(uintptr_t)callback, userdata);
+    bioCreateLazyFreeJob(lazyfreeFreeKvs, 7, keys, expires, hexpires, stream_idmp_keys,
+                         blessed, (void *)(uintptr_t)callback, userdata);
 }
 
 /* Free the key tracking table.

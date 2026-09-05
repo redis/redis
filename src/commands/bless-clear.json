@@ -1,0 +1,54 @@
+{
+    "CLEAR": {
+        "summary": "Removes protection flags from a key.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "8.12.0",
+        "arity": 4,
+        "container": "BLESS",
+        "function": "blessCommand",
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "no-evict",
+                "type": "pure-token",
+                "token": "NO-EVICT"
+            }
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "1 if the key's flag set changed, 0 if the flags were already clear."
+        }
+    }
+}

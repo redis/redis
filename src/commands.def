@@ -2416,6 +2416,131 @@ struct COMMAND_ARG SELECT_Args[] = {
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** BLESS CLEAR ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESS CLEAR history */
+#define BLESS_CLEAR_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESS CLEAR tips */
+#define BLESS_CLEAR_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESS CLEAR key specs */
+keySpec BLESS_CLEAR_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BLESS CLEAR argument table */
+struct COMMAND_ARG BLESS_CLEAR_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("no-evict",ARG_TYPE_PURE_TOKEN,-1,"NO-EVICT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** BLESS GET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESS GET history */
+#define BLESS_GET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESS GET tips */
+#define BLESS_GET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESS GET key specs */
+keySpec BLESS_GET_Keyspecs[1] = {
+{NULL,CMD_KEY_RO,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BLESS GET argument table */
+struct COMMAND_ARG BLESS_GET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** BLESS LIST ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESS LIST history */
+#define BLESS_LIST_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESS LIST tips */
+const char *BLESS_LIST_Tips[] = {
+"request_policy:all_shards",
+"nondeterministic_output_order",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESS LIST key specs */
+#define BLESS_LIST_Keyspecs NULL
+#endif
+
+/* BLESS LIST argument table */
+struct COMMAND_ARG BLESS_LIST_Args[] = {
+{MAKE_ARG("no-evict",ARG_TYPE_PURE_TOKEN,-1,"NO-EVICT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** BLESS SET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESS SET history */
+#define BLESS_SET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESS SET tips */
+#define BLESS_SET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESS SET key specs */
+keySpec BLESS_SET_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BLESS SET argument table */
+struct COMMAND_ARG BLESS_SET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("no-evict",ARG_TYPE_PURE_TOKEN,-1,"NO-EVICT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BLESS command table */
+struct COMMAND_STRUCT BLESS_Subcommands[] = {
+{MAKE_CMD("clear","Removes protection flags from a key.","O(1)","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_CLEAR_History,0,BLESS_CLEAR_Tips,0,blessCommand,4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_CLEAR_Keyspecs,1,NULL,2),.args=BLESS_CLEAR_Args},
+{MAKE_CMD("get","Returns the active protection flags of a key.","O(1).","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_GET_History,0,BLESS_GET_Tips,0,blessCommand,3,CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_GET_Keyspecs,1,NULL,1),.args=BLESS_GET_Args},
+{MAKE_CMD("list","Lists blessed keys carrying the given flag. The flag is required (no default); NONE is not listable (unblessed keys are untracked) and any other flag is a syntax error.","O(N) where N is the number of blessed keys.","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_LIST_History,0,BLESS_LIST_Tips,2,blessCommand,3,0,ACL_CATEGORY_KEYSPACE,BLESS_LIST_Keyspecs,0,NULL,1),.args=BLESS_LIST_Args},
+{MAKE_CMD("set","Adds protection flags to a key against memory pressure.","O(1)","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_SET_History,0,BLESS_SET_Tips,0,blessCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_SET_Keyspecs,1,NULL,2),.args=BLESS_SET_Args},
+{0}
+};
+
+/********** BLESS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BLESS history */
+#define BLESS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BLESS tips */
+#define BLESS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BLESS key specs */
+#define BLESS_Keyspecs NULL
+#endif
+
 /********** COPY ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -12838,6 +12963,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("reset","Resets the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,RESET_History,0,RESET_Tips,0,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,RESET_Keyspecs,0,NULL,0)},
 {MAKE_CMD("select","Changes the selected database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SELECT_History,0,SELECT_Tips,0,selectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,SELECT_Keyspecs,0,NULL,1),.args=SELECT_Args},
 /* generic */
+{MAKE_CMD("bless","A container for key-blessing commands.","Depends on subcommand.","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_History,0,BLESS_Tips,0,NULL,-2,0,0,BLESS_Keyspecs,0,NULL,0),.subcommands=BLESS_Subcommands},
 {MAKE_CMD("copy","Copies the value of a key to a new key.","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,COPY_History,0,COPY_Tips,0,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,COPY_Keyspecs,2,NULL,4),.args=COPY_Args},
 {MAKE_CMD("del","Deletes one or more keys.","O(N) where N is the number of keys that will be removed. When a key to remove holds a value other than a string, the individual complexity for this key is O(M) where M is the number of elements in the list, set, sorted set or hash. Removing a single key that holds a string value is O(1).","1.0.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,DEL_History,0,DEL_Tips,2,delCommand,-2,CMD_WRITE,ACL_CATEGORY_KEYSPACE,DEL_Keyspecs,1,NULL,1),.args=DEL_Args},
 {MAKE_CMD("dump","Returns a serialized representation of the value stored at a key.","O(1) to access the key and additional O(N*M) to serialize it, where N is the number of Redis objects composing the value and M their average size. For small string values the time complexity is thus O(1)+O(1*M) where M is small, so simply O(1).","2.6.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,DUMP_History,0,DUMP_Tips,1,dumpCommand,2,CMD_READONLY,ACL_CATEGORY_KEYSPACE,DUMP_Keyspecs,1,NULL,1),.args=DUMP_Args},

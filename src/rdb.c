@@ -1722,6 +1722,9 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
             return -1;
     }
 
+    /* Per-key attributes (bless): one opcode per attribute, just before TYPE. */
+    if (keyAttrRdbSave(rdb, val) == -1) return -1;
+
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
@@ -2354,14 +2357,29 @@ int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
         if (rdbLoadKeyMetadata(rdb, dbid, numClasses, keymeta) == -1) {
             return -1;
         }
-        /* Read the actual object type after metadata */
-        *type = rdbLoadObjectType(rdb);
-        if (*type == -1) {
+        /* Read the next opcode / type after metadata */
+        if ((*type = rdbLoadType(rdb)) == -1) {
             keyMetaSpecCleanup(keymeta);
             return -1;
         }
-    } else if (!rdbIsObjectType(*type)) {
+    }
+
+    /* Per-key attributes (bless): a run of payload-less opcodes, one per
+     * attribute, sitting right before the object type. */
+    uint64_t attrmask = 0, bit;
+    while ((bit = keyAttrBitForOpcode(*type)) != 0) {
+        attrmask |= bit;
+        if ((*type = rdbLoadType(rdb)) == -1) {
+            keyMetaSpecCleanup(keymeta);
+            return -1;
+        }
+    }
+    if (attrmask)
+        keyMetaSpecAddUnordered(keymeta, server.key_attr_class_id, attrmask);
+
+    if (!rdbIsObjectType(*type)) {
         /* Not metadata and not a valid object type */
+        keyMetaSpecCleanup(keymeta);
         return -1;
     }
 

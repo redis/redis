@@ -3597,3 +3597,49 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal $src_digest [R 4 debug digest]
     }
 }
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    test "BLESS level survives atomic slot migration" {
+        # Keys in slot 0 (owned by node 0): a blessed string, a plain string, and
+        # a blessed small list. The list is a small non-string object, so ASM
+        # migrates it via the RESTORE (dump) path + a follow-up BLESS SET command,
+        # unlike the string which uses the AOF/rewrite path - covers both.
+        set kb [slot_key 0 blessed]
+        set kp [slot_key 0 plain]
+        set kl [slot_key 0 blessedlist]
+        R 0 set $kb v0
+        R 0 set $kp v1
+        R 0 rpush $kl a b c
+        assert_equal 1 [R 0 bless set $kb no-evict]
+        assert_equal 1 [R 0 bless set $kl no-evict]
+        assert_equal 2 [llength [R 0 bless list no-evict]]
+
+        # Atomically migrate slots 0-100 from node 0 to node 1.
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+        wait_for_asm_done
+        assert_equal "completed" [migration_status 1 $task_id state]
+
+        # New owner (node 1): data and bless level carried over the ASM channel,
+        # for both the string (AOF path) and the list (RESTORE + follow-up BLESS).
+        assert_equal v0 [R 1 get $kb]
+        assert_equal {a b c} [R 1 lrange $kl 0 -1]
+        assert_equal {NO-EVICT} [R 1 bless get $kb]
+        assert_equal {NO-EVICT} [R 1 bless get $kl]
+        assert_equal {}         [R 1 bless get $kp]
+        assert_equal 2 [llength [R 1 bless list no-evict]]
+
+        # Its replica (node 4) received the bless too. GET isn't a write command,
+        # so a READONLY-mode client is served locally by the replica in cluster mode.
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal {NO-EVICT} [R 4 bless get $kb]
+
+        # Former owner (node 0) drops the migrated key from its index once the
+        # source trim runs (background trim moves the slot-partitioned index).
+        wait_for_condition 50 100 {
+            [llength [R 0 bless list no-evict]] == 0
+        } else {
+            fail "former owner still lists [llength [R 0 bless list no-evict]] blessed key(s) after migration+trim"
+        }
+    }
+}

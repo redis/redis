@@ -1599,6 +1599,26 @@ static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
         scanCallbackCountScanned, NULL, &defragfns);
 }
 
+static doneStatus defragStageBlessedKvstore(void *ctx, monotime endtime) {
+    defragKeysCtx *defrag_keys_ctx = ctx;
+    redisDb *db = &server.db[defrag_keys_ctx->dbid];
+    if (db->blessed_keys != defrag_keys_ctx->kvstate.kvs) {
+        /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
+        return DEFRAG_DONE;
+    }
+
+    static dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        /* Unlike expires, the blessed-keys index owns its sds key (sdsdup), so it
+         * must be relocated here. The value is a bitmask stored inline in the
+         * pointer, not an allocation, so there's nothing to defrag for it. */
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = NULL,
+    };
+    return defragStageKvstoreHelper(endtime, ctx,
+        scanCallbackCountScanned, NULL, &defragfns);
+}
+
 /* Defrag (hash) object with subexpiry and update its reference in the DB keys. */
 void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
     redisDb *db = privdata;
@@ -2063,6 +2083,12 @@ static void beginDefragCycle(void) {
         defrag_expires_ctx->kvstate = INIT_KVSTORE_STATE(db->expires);
         defrag_expires_ctx->dbid = dbid;
         addDefragStage(defragStageExpiresKvstore, freeDefragKeysContext, defrag_expires_ctx);
+
+        /* Add stage for the blessed-keys index. */
+        defragKeysCtx *defrag_blessed_ctx = zcalloc(sizeof(defragKeysCtx));
+        defrag_blessed_ctx->kvstate = INIT_KVSTORE_STATE(db->blessed_keys);
+        defrag_blessed_ctx->dbid = dbid;
+        addDefragStage(defragStageBlessedKvstore, freeDefragKeysContext, defrag_blessed_ctx);
 
         /* Add stage for subexpires. */
         defragSubexpiresCtx *defrag_subexpires_ctx = zcalloc(sizeof(defragSubexpiresCtx));

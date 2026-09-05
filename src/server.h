@@ -94,6 +94,7 @@ struct RedisModuleKeyOptCtx {
 #include "endianconv.h"
 #include "crc64.h"
 #include "keymeta.h"
+#include "keyattr.h"
 
 struct hdr_histogram;
 
@@ -1230,6 +1231,7 @@ typedef struct replBufBlock {
 typedef struct redisDb {
     kvstore *keys;              /* The keyspace for this DB. As metadata, holds keysizes histogram */
     kvstore *expires;           /* Timeout of keys with a timeout set */
+    kvstore *blessed_keys;      /* Blessed key name (sds) -> bless level (slot-partitioned, per-DB, like expires). */
     estore *subexpires;         /* Timeout of sub-keys with a timeout set. (Currently only used for hashes) */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
@@ -1903,6 +1905,7 @@ struct redisMemOverhead {
         size_t dbid;
         size_t overhead_ht_main;
         size_t overhead_ht_expires;
+        size_t overhead_ht_blessed;
     } *db;
 };
 
@@ -2529,6 +2532,7 @@ struct redisServer {
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
+    int key_attr_class_id;          /* keymeta class id for per-key attributes (0 = uninit). */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
@@ -4319,6 +4323,14 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
+/* Bless - per-key attributes (see bless.c / keyattr.c) */
+void blessInit(void);
+kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
+int blessNoEvict(kvobj *kv);
+unsigned long long blessedKeysCount(void);
+size_t blessedIndexMemUsage(redisDb *db);
+void blessedIndexReconcileMoved(redisDb *db, kvstore *moved);
+
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2
 #define SETKEY_ALREADY_EXIST 4
@@ -4362,7 +4374,8 @@ void emptyDbAsync(redisDb *db);
 void streamMoveIdmpKeys(dict *src, dict *dst, struct slotRangeArray *slots);
 typedef void (*lazyfreeKvsCallback)(kvstore *kvs, void *userdata);
 void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires,
-                      dict *stream_idmp_keys, lazyfreeKvsCallback callback, void *userdata);
+                      dict *stream_idmp_keys, kvstore *blessed,
+                      lazyfreeKvsCallback callback, void *userdata);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
@@ -4565,6 +4578,7 @@ void delCommand(client *c);
 void delexCommand(client *c);
 void unlinkCommand(client *c);
 void existsCommand(client *c);
+void blessCommand(client *c);
 void setbitCommand(client *c);
 void getbitCommand(client *c);
 void bitfieldCommand(client *c);

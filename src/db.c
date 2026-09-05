@@ -457,6 +457,13 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
             memcpy(kvobjGetAllocPtr(kv), 
                    keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta, 
                    keymeta->numMeta * sizeof(uint64_t));
+
+        /* Index a key that arrives already blessed (not via BLESS SET) so COUNT/LIST see it. */
+        if (server.key_attr_class_id > 0 && (keymeta->metabits & KEY_ATTR_METABIT)) {
+            uint64_t mask = 0;
+            if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
+                keyAttrTrackKey(db, key->ptr, mask);
+        }
     }
 
     signalKeyAsReady(db, key, kv->type);
@@ -564,6 +571,13 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
             memcpy(kvobjGetAllocPtr(kv),
                    keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
                    keyMetaSpec->numMeta * sizeof(uint64_t));
+
+        /* Same as dbAddInternal, for the RDB-load path (bypasses dbAddInternal). */
+        if (server.key_attr_class_id > 0 && (keyMetaSpec->metabits & KEY_ATTR_METABIT)) {
+            uint64_t mask = 0;
+            if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
+                keyAttrTrackKey(db, key, mask);
+        }
     }
 
     updateKeysizesHist(db, kv->type, -1, (int64_t) getObjectLength(kv));
@@ -623,8 +637,11 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         newKeyMetaBits &= ~KEY_META_MASK_EXPIRE; 
 
     if (overwrite) {
-        /* On overwrite, discard module metadata excluding expire if set */
-        newKeyMetaBits &= KEY_META_MASK_EXPIRE;
+        /* On overwrite, discard module metadata excluding expire and the keyattr
+         * (ATTR) class, which must survive value replacement (e.g. a blessing on
+         * SET k v2). Keeping its bit lets keyMetaTransition() carry the value to
+         * the new object; keyAttrOnOverwrite() below re-adds it to the indexes. */
+        newKeyMetaBits &= (KEY_META_MASK_EXPIRE | KEY_ATTR_METABIT);
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
         incrRefCount(old);
@@ -690,6 +707,11 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         if (newKeyMetaBits & KEY_META_MASK_MODULES)
             keyMetaTransition(old, kvNew);
     }
+
+    /* Overwrite unlinked the key from the keyattr indexes (attrUnlink); the ATTR
+     * value was carried to the new object above, so re-add it to the indexes. */
+    if (overwrite && (kvNew->metabits & KEY_ATTR_METABIT))
+        keyAttrOnOverwrite(db, key, kvNew);
 
     /* Remove old key and add new key to KEYSIZES histogram */
     int64_t newlen = (int64_t) getObjectLength(kvNew);
@@ -1021,6 +1043,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     for (int j = startdb; j <= enddb; j++) {
         removed += kvstoreSize(dbarray[j].keys);
         if (async) {
+            /* emptyDbAsync also swaps blessed_keys and frees the old one on BIO. */
             emptyDbAsync(&dbarray[j]);
         } else {
             /* Destroy sub-expires before deleting the kv-objects since ebuckets
@@ -1029,6 +1052,8 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
             dictEmpty(dbarray[j].stream_idmp_keys, callback);
+            /* The blessed-keys index is derived from the keys; wipe it too. */
+            kvstoreEmpty(dbarray[j].blessed_keys, NULL);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -1122,6 +1147,7 @@ redisDb *initTempDb(void) {
                                        flags);
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
+        tempDb[i].blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         tempDb[i].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     }
@@ -1141,6 +1167,7 @@ void discardTempDb(redisDb *tempDb) {
         estoreRelease(tempDb[i].subexpires);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
+        kvstoreRelease(tempDb[i].blessed_keys);
         dictRelease(tempDb[i].stream_idmp_keys);
     }
 
@@ -2623,6 +2650,7 @@ int dbSwapDatabases(int id1, int id2) {
      * remain in the same DB they were. */
     db1->keys = db2->keys;
     db1->expires = db2->expires;
+    db1->blessed_keys = db2->blessed_keys;
     db1->subexpires = db2->subexpires;
     db1->stream_idmp_keys = db2->stream_idmp_keys;
     db1->avg_ttl = db2->avg_ttl;
@@ -2630,6 +2658,7 @@ int dbSwapDatabases(int id1, int id2) {
 
     db2->keys = aux.keys;
     db2->expires = aux.expires;
+    db2->blessed_keys = aux.blessed_keys;
     db2->subexpires = aux.subexpires;
     db2->stream_idmp_keys = aux.stream_idmp_keys;
     db2->avg_ttl = aux.avg_ttl;
@@ -2669,6 +2698,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
+        activedb->blessed_keys = newdb->blessed_keys;
         activedb->subexpires = newdb->subexpires;
         activedb->stream_idmp_keys = newdb->stream_idmp_keys;
         activedb->avg_ttl = newdb->avg_ttl;
@@ -2676,6 +2706,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
+        newdb->blessed_keys = aux.blessed_keys;
         newdb->subexpires = aux.subexpires;
         newdb->stream_idmp_keys = aux.stream_idmp_keys;
         newdb->avg_ttl = aux.avg_ttl;

@@ -35,6 +35,11 @@
  * Empty entries have the key pointer set to NULL. */
 #define EVPOOL_SIZE 16
 #define EVPOOL_CACHED_SDS_SIZE 255
+#define EVICTION_MAX_BLESSED_ONLY_ROUNDS 8
+/* When eviction can't free memory because blessed (NO-EVICT) keys hold it,
+ * tolerate used memory up to 1.25x maxmemory. There is no separate hard
+ * ceiling, so this is the ceiling. */
+#define EVICTION_OVERUSE_DIVISOR 4
 struct evictionPoolEntry {
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */
     sds key;                    /* Key name. */
@@ -131,9 +136,11 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool, int *candidates) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
+
+    *candidates = 0;
 
     /* Don't retry, since we will call evictionPoolPopulate multiple times if needed. */
     int slot = kvstoreGetFairRandomDictIndex(samplekvs, randomEvictionShouldSkipDictIndex, 1, 0);
@@ -145,7 +152,11 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         dictEntry *de = samples[j];
         kvobj *kv = dictGetKV(de);
         sds key = kvobjGetKey(kv);
-        
+
+        /* Blessed NO-EVICT keys are never eviction candidates. */
+        if (blessNoEvict(kv)) continue;
+        (*candidates)++;
+
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
          * just a score where a higher score means better candidate. */
@@ -540,6 +551,7 @@ int performEvictions(void) {
     mstime_t latency;
     int slaves = listLength(server.slaves);
     int result = EVICT_FAIL;
+    int blessed_blocked = 0; /* set if eviction gave up because sampling only hit blessed keys */
 
     if (getMaxmemoryState(&mem_reported,NULL,&mem_tofree,NULL) == C_OK) {
         result = EVICT_OK;
@@ -576,9 +588,11 @@ int performEvictions(void) {
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
+            int blessed_only_rounds = 0;
             while (bestkey == NULL) {
                 unsigned long total_keys = 0;
                 unsigned long total_sampled_keys = 0;
+                unsigned long total_candidates = 0;
 
                 /* We don't want to make local-db choices when expiring keys,
                  * so to start populate the eviction pool sampling keys from
@@ -599,9 +613,15 @@ int performEvictions(void) {
                     int l = kvstoreNumNonEmptyDicts(kvs);
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
-                        sampled_keys += evictionPoolPopulate(db, kvs, pool);
-                        total_sampled_keys += sampled_keys;
-                        /* We have sampled enough keys in the current db, exit the loop. */
+                        int candidates = 0;
+                        int sampled = evictionPoolPopulate(db, kvs, pool, &candidates);
+                        /* Count only evictable (non-blessed) keys toward the budget,
+                         * so slots full of NO-EVICT keys don't starve the sampling
+                         * and stop us from reaching slots that still have victims. */
+                        sampled_keys += candidates;
+                        total_sampled_keys += sampled;
+                        total_candidates += candidates;
+                        /* We have sampled enough evictable keys in the current db. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
                         /* If there are not a lot of keys in the current db, dict/s may be very
@@ -612,10 +632,6 @@ int performEvictions(void) {
                     }
                 }
                 if (!total_keys) break; /* No keys to evict. */
-
-                /* If we iterated all the DBs and all non-empty slot dicts, then
-                 * did not sample any key, stop sampling. */
-                if (!total_sampled_keys) break;
 
                 /* Go backward from best to worst element to evict. */
                 for (k = EVPOOL_SIZE-1; k >= 0; k--) {
@@ -639,12 +655,39 @@ int performEvictions(void) {
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
                     if (de) {
-                        bestkey = kvobjGetKey(dictGetKV(de));
+                        kvobj *kv = dictGetKV(de);
+                        /* The pool persists across performEvictions() calls, so a
+                         * key pooled while unblessed may since have been marked
+                         * NO-EVICT. The entry is already removed from the pool
+                         * above; skip it as a target and try the next one. */
+                        if (blessNoEvict(kv)) continue;
+                        bestkey = kvobjGetKey(kv);
                         break;
                     } else {
                         /* Ghost... Iterate again. */
                     }
                 }
+                if (bestkey) break;
+
+                /* No victim was pooled. This check moved below the pool scan (it
+                 * used to sit right after sampling) so we can tell two cases apart,
+                 * in order:
+                 *   1. sampled nothing at all -> no keys to evict, stop here.
+                 *   2. sampled keys but all were blessed -> retry (handled by the
+                 *      total_candidates branch below), don't stop.
+                 * The old early break sat before that split and would stop on an
+                 * all-blessed sample even when unblessed keys still remain. */
+                if (!total_sampled_keys) break;
+
+                if (!total_candidates) {
+                    /* Sampled keys, but every one was blessed (NO-EVICT). */
+                    if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS) {
+                        blessed_blocked = 1;
+                        break;
+                    }
+                    continue;
+                }
+                blessed_only_rounds = 0;
             }
         }
 
@@ -655,22 +698,37 @@ int performEvictions(void) {
             /* When evicting a random key, we try to evict a key for
              * each DB, so we use the static 'next_db' variable to
              * incrementally visit all DBs. */
-            for (i = 0; i < server.dbnum; i++) {
-                j = (++next_db) % server.dbnum;
-                db = server.db+j;
-                kvstore *kvs;
-                if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
-                    kvs = db->keys;
-                } else {
-                    kvs = db->expires;
+            int blessed_only_rounds = 0;
+            while (bestkey == NULL) {
+                unsigned long total_sampled_keys = 0;
+                for (i = 0; i < server.dbnum; i++) {
+                    j = (++next_db) % server.dbnum;
+                    db = server.db+j;
+                    kvstore *kvs;
+                    if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
+                        kvs = db->keys;
+                    } else {
+                        kvs = db->expires;
+                    }
+                    int slot = kvstoreGetFairRandomDictIndex(kvs, randomEvictionShouldSkipDictIndex, 16, 0);
+                    if (slot == -1) continue;
+                    /* Try a few random keys so blessed NOEVICT keys are skipped. */
+                    for (int attempts = 0; attempts < server.maxmemory_samples; attempts++) {
+                        de = kvstoreDictGetRandomKey(kvs, slot);
+                        if (de == NULL) break;
+                        total_sampled_keys++;
+                        kvobj *kv = dictGetKV(de);
+                        if (blessNoEvict(kv)) continue;
+                        bestkey = kvobjGetKey(kv);
+                        bestdbid = j;
+                        break;
+                    }
+                    if (bestkey) break;
                 }
-                int slot = kvstoreGetFairRandomDictIndex(kvs, randomEvictionShouldSkipDictIndex, 16, 0);
-                if (slot == -1) continue;
-                de = kvstoreDictGetRandomKey(kvs, slot);
-                if (de) {
-                    kvobj *kv = dictGetKV(de);
-                    bestkey = kvobjGetKey(kv);
-                    bestdbid = j;
+                if (bestkey || !total_sampled_keys) break;
+                /* Sampled keys, but every one was blessed (NO-EVICT). */
+                if (++blessed_only_rounds >= EVICTION_MAX_BLESSED_ONLY_ROUNDS) {
+                    blessed_blocked = 1;
                     break;
                 }
             }
@@ -745,6 +803,18 @@ cant_free:
         }
         latencyEndMonitor(lazyfree_latency);
         latencyAddSampleIfNeeded("eviction-lazyfree",lazyfree_latency);
+    }
+
+    /* If we still couldn't free enough and blessed (NO-EVICT) keys exist, the
+     * blessing is likely why - failing the write with OOM would punish the user
+     * for a limit they deliberately raised. Tolerate a bounded overshoot: let the
+     * command run (EVICT_OK) while used memory stays within maxmemory*factor; we
+     * reclaim on later commands. Past the factor we still OOM (the hard ceiling). */
+    if (result == EVICT_FAIL && blessed_blocked) {
+        size_t mem_tofree;
+        if (getMaxmemoryState(NULL, NULL, &mem_tofree, NULL) == C_OK ||
+            mem_tofree <= server.maxmemory / EVICTION_OVERUSE_DIVISOR)
+            result = EVICT_OK;
     }
 
     latencyEndMonitor(latency);

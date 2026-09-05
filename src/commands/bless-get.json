@@ -1,0 +1,50 @@
+{
+    "GET": {
+        "summary": "Returns the active protection flags of a key.",
+        "complexity": "O(1).",
+        "group": "generic",
+        "since": "8.12.0",
+        "arity": 3,
+        "container": "BLESS",
+        "function": "blessCommand",
+        "command_flags": [
+            "FAST"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "The key's active protection flags (empty if none).",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}
