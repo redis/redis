@@ -2485,12 +2485,24 @@ static void clusterFireTopologyChangeEventIfNeeded(void) {
         .version = REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION,
         .change_flags = module_flags,
     };
-    server.cluster_topology_change_flags = 0;
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
 }
 
 /* Handle common cluster work after cluster implementation-specific beforeSleep(). */
 void clusterCommonBeforeSleep(void) {
     asmBeforeSleep();
+
+    /* The legacy cluster records a role change before it finishes transferring
+     * slot ownership during promotion. Finalize the previous master's ASM task
+     * here, after implementation-specific topology updates are complete. */
+    if (server.cluster_topology_change_flags & CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE) {
+        if (clusterNodeIsMaster(getMyClusterNode())) {
+            asmFinalizeMasterTask();
+        }
+    }
+
     clusterFireTopologyChangeEventIfNeeded();
+
+    /* Finally reset topology change flags explicitly here. */
+    server.cluster_topology_change_flags = 0;
 }
