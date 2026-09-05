@@ -37,8 +37,8 @@
 #define EVPOOL_CACHED_SDS_SIZE 255
 #define EVICTION_MAX_BLESSED_ONLY_ROUNDS 8
 /* When eviction can't free memory because blessed (NO-EVICT) keys hold it,
- * tolerate used memory up to 1.25x maxmemory. Core has no separate hard
- * ceiling (unlike RoF's max_process_mem), so this is the ceiling. */
+ * tolerate used memory up to 1.25x maxmemory. There is no separate hard
+ * ceiling, so this is the ceiling. */
 #define EVICTION_OVERUSE_DIVISOR 4
 struct evictionPoolEntry {
     unsigned long long idle;    /* Object idle time (inverse frequency for LFU) */

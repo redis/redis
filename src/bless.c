@@ -16,6 +16,11 @@
  * for BLESS LIST and INFO's blessed_keys count. It is per-DB (like db->expires)
  * so it stays correct across SWAPDB. The eviction path never consults it -
  * blessNoEvict() reads the bit inline from the key's keymeta.
+ *
+ * Eviction (see evict.c): blessed keys are never chosen as victims. If eviction
+ * can't free enough because blessed keys hold the memory, used memory is allowed
+ * to overshoot up to 1.25x maxmemory before writes are rejected with OOM - that
+ * overshoot factor is the effective ceiling for a heavily-blessed keyspace.
  */
 
 #include "server.h"
