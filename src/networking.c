@@ -5897,6 +5897,10 @@ static pendingCommand *acquirePendingCommand(void) {
         pcmd = zmalloc(sizeof(pendingCommand));
         initPendingCommand(pcmd);
     }
+    /* Clear the batch prefetch hash-reuse hint so a command reused from the
+     * pool can never carry a stale hash from a previous key. */
+    pcmd->flags &= ~PENDING_CMD_KEY_HASH_VALID;
+    pcmd->key_hash_obj = NULL;
     return pcmd;
 }
 

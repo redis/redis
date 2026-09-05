@@ -3117,7 +3117,18 @@ kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *plink) {
     int slot = getKeySlot(key);
     dictEntryLink link, bucket;
 
-    link = kvstoreDictFindLink(db->keys, slot, key, &bucket);
+    /* If the cross-command prefetch batch already computed the SipHash of this
+     * exact key, reuse it and skip re-hashing. The pointer match against
+     * key_hash_obj guarantees the cached hash belongs to the same live key
+     * bytes; the flag is cleared on every pendingCommand (re)acquire so it can
+     * never refer to a stale key. */
+    client *cc = server.current_client;
+    pendingCommand *pc = cc ? cc->current_pending_cmd : NULL;
+    if (pc && (pc->flags & PENDING_CMD_KEY_HASH_VALID) && pc->key_hash_obj == key)
+        link = kvstoreDictFindLinkWithHash(db->keys, slot, key, pc->key_hash, &bucket);
+    else
+        link = kvstoreDictFindLink(db->keys, slot, key, &bucket);
+
     if (link == NULL) {
         if (plink) *plink = bucket;
         return NULL;

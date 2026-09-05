@@ -2799,6 +2799,7 @@ enum {
     PENDING_CMD_FLAG_PREPROCESSED = 1 << 1,   /* This command has passed pre-processing */
     PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,   /* Command's keys_result is valid and cached */
     PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
+    PENDING_CMD_KEY_HASH_VALID = 1 << 4,      /* key_hash holds the precomputed hash of key_hash_obj (single-key cmd) */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */
@@ -2815,6 +2816,14 @@ struct pendingCommand {
     int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT
                        * if no slot is being used or if the command has a cross slot error */
     uint8_t read_error;
+
+    /* Batch prefetch hash reuse: when the cross-command prefetch batch computes
+     * the key hash for a single-key command, it is cached here so the
+     * execution-time dict lookup can skip recomputing SipHash. Reused only when
+     * key_hash_obj matches the exact key being looked up. Cleared on every
+     * pendingCommand (re)acquire, so it can never refer to a stale key. */
+    uint64_t key_hash;        /* Precomputed hash of the key sds bytes. */
+    sds key_hash_obj;         /* Key sds (argv[..]->ptr) the hash was computed for. */
 
     struct pendingCommand *next;
     struct pendingCommand *prev;
