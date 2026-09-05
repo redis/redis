@@ -191,6 +191,153 @@ OpenSSL support for named group configuration. When the feature is compiled
 out, the command-line option is not accepted, matching the behavior of other
 TLS options that depend on OpenSSL build capabilities.
 
+Post-quantum key exchange
+-------------------------
+
+`tls-groups` is also how Redis is pointed at a hybrid post-quantum key
+exchange. The motivation is "harvest now, decrypt later": an adversary who
+records TLS traffic today can store it until a quantum computer is available
+and then recover the session keys, so traffic that must stay confidential for
+years needs a quantum-resistant key exchange now, well before such a machine
+exists.
+
+This affects the key exchange only. Peer authentication continues to rely on
+the classical signature algorithms in the configured certificates, so enabling
+these groups does not require reissuing certificates.
+
+The relevant groups are hybrids that combine ML-KEM (FIPS 203) with a classical
+elliptic curve and derive the session secret from both halves, so the result is
+no weaker than the stronger of the two:
+
+| Group                | Classical part | ML-KEM part  |
+| -------------------- | -------------- | ------------ |
+| `X25519MLKEM768`     | X25519         | ML-KEM-768   |
+| `SecP256r1MLKEM768`  | secp256r1      | ML-KEM-768   |
+| `SecP384r1MLKEM1024` | secp384r1      | ML-KEM-1024  |
+
+`X25519MLKEM768` is the most widely deployed of the three and is the
+recommended choice.
+
+### Requirements
+
+Hybrid ML-KEM groups require OpenSSL 3.5 or newer, which is the release that
+added ML-KEM along with these three groups. To see what the OpenSSL that Redis
+is linked against actually implements:
+
+    openssl list -tls-groups
+
+Hybrid key exchange is a TLS 1.3 mechanism, so `tls-protocols` must continue to
+permit `TLSv1.3`. Restricting it to `TLSv1.2` disables post-quantum key
+exchange entirely, regardless of `tls-groups`.
+
+Group names are case-insensitive from OpenSSL 3.5 onwards.
+
+### Enabling it
+
+Note first that OpenSSL 3.5 and newer already offer `X25519MLKEM768` in their
+default group list, so two peers that both run OpenSSL 3.5+ negotiate a hybrid
+key exchange without any Redis configuration at all. Setting `tls-groups` is
+what lets you *require* it, pin the preference order, or restore it if a local
+OpenSSL policy has narrowed the defaults.
+
+To prefer post-quantum key exchange while staying interoperable with peers that
+do not support it:
+
+    tls-groups "?*X25519MLKEM768 / ?*X25519"
+
+To require it, so that a peer without ML-KEM cannot connect at all:
+
+    tls-groups "X25519MLKEM768"
+
+For a single configuration shared across a fleet whose OpenSSL versions
+straddle 3.5, use the plain colon form with a `?` prefix:
+
+    tls-groups "?X25519MLKEM768:X25519:prime256v1"
+
+The `?` prefix means "ignore this group if the implementation is missing", so
+nodes on OpenSSL 3.5+ use the hybrid group while older nodes silently fall back
+to the classical groups instead of failing to start. Support for `?` was added
+in OpenSSL 3.3. The `/` tuple separator and the `*` prefix used in the first
+example arrived with OpenSSL 3.5, which is also the first version to provide
+ML-KEM, so in practice that syntax is available wherever the hybrid groups are.
+
+### Group ordering matters
+
+In the plain colon form, OpenSSL clients send a predicted key share for the
+**first** group in the list only. Every other group is advertised as merely
+supported. A server picks the most preferred group it shares with the client,
+preferring one the client already sent a key share for so it can avoid a Hello
+Retry Request.
+
+The practical consequence is that ordering, not mere support, decides whether a
+connection is actually post-quantum. If a classical group is listed first, two
+peers that both support `X25519MLKEM768` will still settle on the classical
+group, with no error and nothing in the logs to say so. Always list the hybrid
+group first.
+
+The `*` prefix removes this sharp edge by requesting a predicted key share for
+each group it marks, so `"?*X25519MLKEM768 / ?*X25519"` completes in a single
+round trip against both post-quantum and classical peers. Without it, a
+hybrid-first list talking to a classical-only peer costs an extra round trip
+while the server issues a Hello Retry Request. The trade-off is a slightly
+larger `ClientHello`, since two key shares are sent instead of one.
+
+### Performance
+
+ML-KEM's cost is message size rather than CPU time. Measured against OpenSSL
+3.6.2 with a single hybrid key share:
+
+| Group            | `ClientHello` | `ServerHello` |
+| ---------------- | ------------- | ------------- |
+| `X25519`         | 283 bytes     | 122 bytes     |
+| `X25519MLKEM768` | 1461 bytes    | 1210 bytes    |
+
+That is roughly 1.2 KB added to the `ClientHello` and 1.1 KB to the
+`ServerHello`, about 2.3 KB extra per full handshake, which is the ML-KEM-768
+encapsulation key and ciphertext going over the wire. CPU cost is comparable to
+the classical group the hybrid is built on. `SecP384r1MLKEM1024` is the
+exception: it is substantially more CPU-intensive, mostly because of P-384
+itself, and its key exchange messages approach 1700 bytes.
+
+Two consequences worth planning for:
+
+* The cost falls entirely on the handshake, not on steady-state throughput, so
+  it matters most for workloads that reconnect often. Persistent connections
+  and client-side connection pooling amortize it to near nothing.
+* A `ClientHello` of this size no longer fits in a single TCP segment on a
+  standard 1500 byte MTU, and some firewalls and middleboxes handle a split
+  `ClientHello` badly, which shows up as handshake hangs or timeouts rather
+  than a clean error. If this is a concern, listing the hybrid group without a
+  `*` prefix keeps the message small, at the cost of an extra round trip when
+  the server does prefer the hybrid group.
+
+### Server-to-server connections
+
+As with any `tls-groups` value, the setting applies to Redis' client context as
+well as its server context, so it covers replication, the cluster bus, and
+`MIGRATE` in addition to ordinary client traffic. Roll it out consistently: a
+node configured with a hybrid-only list cannot replicate from, or form a
+cluster with, a node whose OpenSSL does not implement that group.
+
+### Failure behavior
+
+If the linked OpenSSL does not implement a requested group and the name is not
+`?`-prefixed, the failure is explicit rather than a silent downgrade.
+`CONFIG SET tls-groups` is rejected:
+
+    ERR CONFIG SET failed (possibly related to argument 'tls-groups') - Unable
+    to update TLS configuration. Check server logs.
+
+and a server started with such a value fails to configure TLS and exits, naming
+the list it rejected:
+
+    # Failed to configure TLS groups: X25519MLKEM768
+    # Failed to configure TLS. Check logs for more info.
+
+This is the intended behavior for a security policy option: a node that cannot
+provide the requested key exchange refuses to serve rather than falling back to
+a classical one. Use the `?` prefix when a fallback is what you actually want.
+
 Connections
 -----------
 
