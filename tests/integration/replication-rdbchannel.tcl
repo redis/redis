@@ -337,6 +337,12 @@ start_server {tags {"repl external:skip"}} {
             $replica config set client-output-buffer-limit "replica 64kb 64kb 0"
             populate 2000 master 1
 
+            # Generate the incompressible value before full sync begins so
+            # payload generation doesn't consume the buffering window.
+            if {$::compression} {
+                set random_value [randstring 500000 500000]
+            }
+
             set prev_sync_full [s 0 sync_full]
             $replica replicaof $master_host $master_port
 
@@ -351,7 +357,7 @@ start_server {tags {"repl external:skip"}} {
             # In case of compression generate a command stream that is not well
             # compressed so we can reach the buffer limits easier.
             if {$::compression} {
-                populate 1000 master 500000 0 false 0 true
+                populate 1000 master 500000 0 false 0 true $random_value
             } else {
                 populate 100 master 100000
             }
