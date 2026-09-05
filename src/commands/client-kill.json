@@ -31,6 +31,10 @@
             [
                 "7.4.0",
                 "`MAXAGE` option."
+            ],
+            [
+                "8.2.0",
+                "Added `IDLE`, `NAME`, `FLAGS`, `LIB-NAME`, `LIB-VER`, `DB` and `IP` filters; added `NOT-*` negative variants of every filter."
             ]
         ],
         "command_flags": [
@@ -64,6 +68,7 @@
                                 "name": "client-id",
                                 "type": "integer",
                                 "optional": true,
+                                "multiple": true,
                                 "since": "2.8.12"
                             },
                             {
@@ -147,6 +152,162 @@
                                 "type": "integer",
                                 "optional": true,
                                 "since": "7.4.0"
+                            },
+                            {
+                                "token": "IDLE",
+                                "name": "idle",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NAME",
+                                "name": "name",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "FLAGS",
+                                "name": "flags",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "LIB-NAME",
+                                "name": "lib-name",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "LIB-VER",
+                                "name": "lib-ver",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "DB",
+                                "name": "db",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "IP",
+                                "name": "ip",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-TYPE",
+                                "name": "not-client-type",
+                                "type": "oneof",
+                                "optional": true,
+                                "since": "8.2.0",
+                                "arguments": [
+                                    {
+                                        "name": "normal",
+                                        "type": "pure-token",
+                                        "token": "normal"
+                                    },
+                                    {
+                                        "name": "master",
+                                        "type": "pure-token",
+                                        "token": "master"
+                                    },
+                                    {
+                                        "name": "slave",
+                                        "type": "pure-token",
+                                        "token": "slave"
+                                    },
+                                    {
+                                        "name": "replica",
+                                        "type": "pure-token",
+                                        "token": "replica"
+                                    },
+                                    {
+                                        "name": "pubsub",
+                                        "type": "pure-token",
+                                        "token": "pubsub"
+                                    }
+                                ]
+                            },
+                            {
+                                "token": "NOT-ID",
+                                "name": "not-client-id",
+                                "type": "integer",
+                                "optional": true,
+                                "multiple": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-USER",
+                                "name": "not-username",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-ADDR",
+                                "name": "not-addr",
+                                "display": "ip:port",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-LADDR",
+                                "name": "not-laddr",
+                                "display": "ip:port",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-NAME",
+                                "name": "not-name",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-FLAGS",
+                                "name": "not-flags",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-LIB-NAME",
+                                "name": "not-lib-name",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-LIB-VER",
+                                "name": "not-lib-ver",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-DB",
+                                "name": "not-db",
+                                "type": "integer",
+                                "optional": true,
+                                "since": "8.2.0"
+                            },
+                            {
+                                "token": "NOT-IP",
+                                "name": "not-ip",
+                                "type": "string",
+                                "optional": true,
+                                "since": "8.2.0"
                             }
                         ]
                     }
