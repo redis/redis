@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "generic",
         "since": "8.12.0",
-        "arity": -4,
+        "arity": 4,
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
@@ -44,8 +44,7 @@
             {
                 "name": "no-evict",
                 "type": "pure-token",
-                "token": "NO-EVICT",
-                "multiple": true
+                "token": "NO-EVICT"
             }
         ],
         "reply_schema": {
