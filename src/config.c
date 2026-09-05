@@ -481,6 +481,25 @@ void loadServerConfigFromString(char *config) {
         /* Skip comments and blank lines */
         if (lines[i][0] == '#' || lines[i][0] == '\0') continue;
 
+	/* Strip inline comments */
+	char *comment = strchr(lines[i], '#');
+	if (comment) {
+	    /* Check if # is inside quotes by counting quotes before it */
+	    char *p = lines[i];
+	    int in_quotes = 0;
+	    while (p < comment) {
+	    	if (*p == '"' || *p == '\''){
+	            in_quotes = !in_quotes;
+		}
+		p++;
+	    }
+	    /* Only treat as comment if not inside quotes */
+	    if (!in_quotes){
+	    	*comment = '\0';
+		lines[i] = sdstrim(lines[i], " \t\r\n");
+	    }
+	}
+
         /* Split into arguments */
         argv = sdssplitargs(lines[i],&argc);
         if (argv == NULL) {
