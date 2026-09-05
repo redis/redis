@@ -669,8 +669,14 @@ int performEvictions(void) {
                 }
                 if (bestkey) break;
 
-                /* If we iterated all the DBs and all non-empty slot dicts, then
-                 * did not sample any key, stop sampling. */
+                /* No victim was pooled. This check moved below the pool scan (it
+                 * used to sit right after sampling) so we can tell two cases apart,
+                 * in order:
+                 *   1. sampled nothing at all -> no keys to evict, stop here.
+                 *   2. sampled keys but all were blessed -> retry (handled by the
+                 *      total_candidates branch below), don't stop.
+                 * The old early break sat before that split and would stop on an
+                 * all-blessed sample even when unblessed keys still remain. */
                 if (!total_sampled_keys) break;
 
                 if (!total_candidates) {
