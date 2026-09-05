@@ -5267,6 +5267,8 @@ void hgetdelCommand(client *c) {
         oldlen = hashTypeLength(o, 0);
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(o);
+        if (o->encoding == OBJ_ENCODING_HT)
+            dictPauseAutoResize((dict*)o->ptr);
     }
 
     /* Track fields for subkey notifications. */
@@ -5296,6 +5298,10 @@ void hgetdelCommand(client *c) {
                 serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
             }
         }
+    }
+    if (o && o->encoding == OBJ_ENCODING_HT) {
+        dictResumeAutoResize((dict*)o->ptr);
+        dictShrinkIfNeeded((dict*)o->ptr);
     }
 
     /* Return if no modification has been made. */
