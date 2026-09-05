@@ -1889,7 +1889,7 @@ static inline void streamPropagateXCLAIMCopyFree(int dbid, robj *key, robj *grou
     argv[12] = shared.lastid;
     argv[13] = group_last_id;
 
-    alsoPropagate(dbid,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagateEx(dbid,argv,14,PROPAGATE_AOF|PROPAGATE_REPL,PROP_DURATION_UNKNOWN);
 }
 
 /* Propagate an XACK command to AOF and replicas. Used when a PEL entry is
@@ -1901,7 +1901,7 @@ static inline void streamPropagateXACK(int dbid, robj *key, robj *groupname, rob
     argv[1] = key;
     argv[2] = groupname;
     argv[3] = id;
-    alsoPropagate(dbid,argv,4,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagateEx(dbid,argv,4,PROPAGATE_AOF|PROPAGATE_REPL,PROP_DURATION_UNKNOWN);
 }
 
 /* As a result of an explicit XCLAIM or XREADGROUP command, new entries
@@ -1937,7 +1937,7 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     argv[5] = shared.entriesread;
     argv[6] = createStringObjectFromLongLong(group->entries_read);
 
-    alsoPropagate(c->db->id,argv,7,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagateEx(c->db->id,argv,7,PROPAGATE_AOF|PROPAGATE_REPL,PROP_DURATION_UNKNOWN);
 
     decrRefCount(argv[4]);
     decrRefCount(argv[6]);
@@ -1960,7 +1960,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
     argv[3] = groupname;
     argv[4] = createObject(OBJ_STRING,sdsdup(consumername));
 
-    alsoPropagate(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagateEx(c->db->id,argv,5,PROPAGATE_AOF|PROPAGATE_REPL,PROP_DURATION_UNKNOWN);
 
     decrRefCount(argv[4]);
 }

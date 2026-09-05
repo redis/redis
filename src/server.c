@@ -3196,6 +3196,7 @@ void initServer(void) {
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
+    server.aof_cmd_duration = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
     memset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
@@ -3607,7 +3608,7 @@ void resetErrorTableStats(void) {
 
 /* ========================== Redis OP Array API ============================ */
 
-int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
+int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target, long long duration) {
     redisOp *op;
     int prev_capacity = oa->capacity;
 
@@ -3624,6 +3625,7 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
     op->argv = argv;
     op->argc = argc;
     op->target = target;
+    op->duration = duration;
     oa->numops++;
     return oa->numops;
 }
@@ -3774,7 +3776,7 @@ int shouldPropagate(int target) {
  * dbid value of -1 is saved to indicate that the called do not want
  * to replicate SELECT for this command (used for database neutral commands).
  */
-static void propagateNow(int dbid, robj **argv, int argc, int target) {
+static void propagateNow(int dbid, robj **argv, int argc, int target, long long duration) {
     if (!shouldPropagate(target))
         return;
 
@@ -3784,7 +3786,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
                    (!server.client_pause_in_transaction)));
 
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
-        feedAppendOnlyFile(dbid,argv,argc);
+        feedAppendOnlyFile(dbid,argv,argc,duration);
     if (target & PROPAGATE_REPL) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
         asmFeedMigrationClient(argv, argc);
@@ -3802,7 +3804,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
  * so it is up to the caller to release the passed argv (but it is usually
  * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
-void alsoPropagate(int dbid, robj **argv, int argc, int target) {
+void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long duration) {
     robj **argvcopy;
     int j;
 
@@ -3814,7 +3816,11 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
         argvcopy[j] = argv[j];
         incrRefCount(argv[j]);
     }
-    redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
+    redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target,duration);
+}
+
+void alsoPropagate(int dbid, robj **argv, int argc, int target) {
+    alsoPropagateEx(dbid, argv, argc, target, 0);
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
@@ -3878,10 +3884,40 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
     hdr_record_value(*latency_histogram,duration_hist);
 }
 
+/* Give leftover call() time to UNKNOWN AOF ops in also_propagate[start..).
+ * Known AOF ops keep their own times; REPL-only UNKNOWN gets 0. */
+static void assignLeftoverDurationToUnknownOps(int start, long totalDuration) {
+    long leftover = totalDuration;
+    int j;
+    redisOp *rop;
+
+    for (j = start; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        if (rop->duration != PROP_DURATION_UNKNOWN &&
+            (rop->target & PROPAGATE_AOF))
+        {
+            leftover -= rop->duration;
+        }
+    }
+    if (leftover < 0) leftover = 0;
+
+    for (j = start; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        if (rop->duration == PROP_DURATION_UNKNOWN) {
+            if (rop->target & PROPAGATE_AOF) {
+                rop->duration = leftover;
+                leftover = 0;
+            } else {
+                rop->duration = 0;
+            }
+        }
+    }
+}
+
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-static void propagatePendingCommands(void) {
+static void propagatePendingCommands(long totalDuration) {
     if (server.also_propagate.numops == 0)
         return;
 
@@ -3906,18 +3942,21 @@ static void propagatePendingCommands(void) {
     if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
-        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL,0);
     }
+
+    /* An unknown-duration op may only claim what known AOF ops didn't. */
+    assignLeftoverDurationToUnknownOps(0, totalDuration);
 
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
-        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target,rop->duration);
     }
 
     if (transaction) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
-        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL,0);
     }
 
     redisOpArrayFree(&server.also_propagate);
@@ -3937,7 +3976,7 @@ static void propagatePendingCommands(void) {
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
  * after the entire chain finished. */
-void postExecutionUnitOperations(void) {
+void postExecutionUnitOperationsEx(long duration) {
     if (server.execution_nesting)
         return;
 
@@ -3945,13 +3984,17 @@ void postExecutionUnitOperations(void) {
 
     /* If we are at the top-most call() and not inside a an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */
-    propagatePendingCommands();
+    propagatePendingCommands(duration);
 
     /* Feed replicas mid command-stream if enough has accumulated. */
     flushSlavesOutputBuffersIfNeeded();
 
     /* Module subsystem post-execution-unit logic */
     modulePostExecutionUnitOperations();
+}
+
+void postExecutionUnitOperations(void) {
+    postExecutionUnitOperationsEx(0);
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -4022,6 +4065,8 @@ static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
  * preventCommandReplication(client *c);
  *
  */
+static void afterCommandEx(client *c, long duration, int ops_before);
+
 void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
@@ -4088,6 +4133,7 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    int ops_before = server.also_propagate.numops;
     c->cmd->proc(c);
 
     exitExecutionUnit();
@@ -4105,6 +4151,9 @@ void call(client *c, int flags) {
         duration = ustime() - call_timer;
 
     c->duration += duration;
+    /* Store for afterCommandEx before we reset c->duration. */
+    ustime_t total_duration = c->duration;
+
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -4226,7 +4275,7 @@ void call(client *c, int flags) {
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
-            alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
+            alsoPropagateEx(c->db->id,c->argv,c->argc,propagate_flags,duration);
     }
 
     /* Restore the old replication flags, since call() can be executed
@@ -4261,8 +4310,10 @@ void call(client *c, int flags) {
         server.stat_numcommands++;
     }
 
-    /* Do some maintenance job and cleanup */
-    afterCommand(c);
+    /* Do some maintenance job and cleanup.
+     * Use total_duration (not stack duration) so blocked-client reprocessing
+     * still credits accumulated time when pending UNKNOWN ops are drained. */
+    afterCommandEx(c, total_duration, ops_before);
 
     /* The afterCommand updates the replication network bytes. At this point we
      * are ready to update the ingress/egress net bytes and cleanup tracking
@@ -4345,9 +4396,21 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
+    afterCommandEx(c, c->duration, server.also_propagate.numops);
+}
+
+static void afterCommandEx(client *c, long duration, int ops_before) {
+    /* Nested call (script / RM_Call): stamp only UNKNOWN ops this call
+     * queued so leftover does not land on an outer command's UNKNOWN. */
+    if (server.execution_nesting &&
+        server.also_propagate.numops > ops_before)
+    {
+        assignLeftoverDurationToUnknownOps(ops_before, duration);
+    }
+
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
-    postExecutionUnitOperations();
+    postExecutionUnitOperationsEx(duration);
 
     /* Flush pending tracking invalidations. */
     trackingHandlePendingKeyInvalidations();
@@ -6693,7 +6756,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "aof_pending_rewrite:%d\r\n", server.aof_rewrite_scheduled,
                 "aof_buffer_length:%zu\r\n", sdslen(server.aof_buf),
                 "aof_pending_bio_fsync:%lu\r\n", bioPendingJobsOfType(BIO_AOF_FSYNC),
-                "aof_delayed_fsync:%lu\r\n", server.aof_delayed_fsync));
+                "aof_delayed_fsync:%lu\r\n", server.aof_delayed_fsync,
+                "aof_cmd_duration:%lld\r\n", server.aof_cmd_duration));
         }
 
         if (server.loading) {

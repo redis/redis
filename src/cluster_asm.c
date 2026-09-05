@@ -3922,6 +3922,6 @@ int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, in
         incrRefCount(argv[i]);
     }
 
-    redisOpArrayAppend(target, 0, argvcopy, argc, 0);
+    redisOpArrayAppend(target, 0, argvcopy, argc, 0, 0);
     return C_OK;
 }

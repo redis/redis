@@ -1847,12 +1847,13 @@ extern clientBufferLimitsConfig clientBufferLimitsDefaults[CLIENT_TYPE_OBUF_COUN
 typedef struct redisOp {
     robj **argv;
     int argc, dbid, target;
+    long long duration;
 } redisOp;
 
 /* Defines an array of Redis operations. There is an API to add to this
  * structure in an easy way.
  *
- * int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target);
+ * int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target, long long duration);
  * void redisOpArrayFree(redisOpArray *oa);
  */
 typedef struct redisOpArray {
@@ -2355,6 +2356,7 @@ struct redisServer {
     int rdb_save_incremental_fsync;   /* fsync incrementally while rdb saving? */
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
+    long long aof_cmd_duration;     /* Best-effort AOF replay time estimate (usec) */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
     off_t aof_load_corrupt_tail_max_size; /* The max size of broken AOF tail than can be ignored. */
     int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
@@ -3645,7 +3647,7 @@ int bg_unlink(const char *filename);
 
 /* AOF persistence */
 void flushAppendOnlyFile(int force);
-void feedAppendOnlyFile(int dictid, robj **argv, int argc);
+void feedAppendOnlyFile(int dictid, robj **argv, int argc, long long duration);
 void aofRemoveTempFile(pid_t childpid);
 int rewriteAppendOnlyFileBackground(void);
 int loadPreLoadAOFFile(char *file);
@@ -3861,10 +3863,16 @@ int commandCheckArity(struct redisCommand *cmd, int argc, sds *err);
 void startCommandExecution(void);
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
+
+/* Propagated commands without duration marked with reserved value */
+#define PROP_DURATION_UNKNOWN -1
+
+void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long duration);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 int shouldPropagate(int target);
 void postExecutionUnitOperations(void);
-int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target);
+void postExecutionUnitOperationsEx(long duration);
+int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target, long long duration);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);

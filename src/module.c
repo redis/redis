@@ -272,6 +272,9 @@ typedef struct RedisModuleBlockedClient {
     monotime background_timer; /* Timer tracking the start of background work */
     uint64_t background_duration; /* Current command background time duration.
                                      Used for measuring latency of blocking cmds */
+    uint64_t background_duration_accounted; /* Slice of background_duration already
+                                     used as leftover at GIL unlock. */
+    int repl_unknown_duration;     /* Module replicated commands with unknown duration */
     int blocked_on_keys_explicit_unblock; /* Set to 1 only in the case of an explicit RM_Unblock on
                                            * a client that is blocked on keys. In this case we will
                                            * call the timeout call back from within
@@ -3679,7 +3682,9 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     if (!(flags & REDISMODULE_ARGV_NO_AOF)) target |= PROPAGATE_AOF;
     if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) target |= PROPAGATE_REPL;
 
-    alsoPropagate(ctx->client->db->id,argv,argc,target);
+    alsoPropagateEx(ctx->client->db->id,argv,argc,target,PROP_DURATION_UNKNOWN);
+
+    if (ctx->blocked_client) ctx->blocked_client->repl_unknown_duration = 1;
 
     /* Release the argv. */
     for (j = 0; j < argc; j++) decrRefCount(argv[j]);
@@ -3703,9 +3708,10 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
-    alsoPropagate(ctx->client->db->id,
+    alsoPropagateEx(ctx->client->db->id,
         ctx->client->argv,ctx->client->argc,
-        PROPAGATE_AOF|PROPAGATE_REPL);
+        PROPAGATE_AOF|PROPAGATE_REPL,PROP_DURATION_UNKNOWN);
+    if (ctx->blocked_client) ctx->blocked_client->repl_unknown_duration = 1;
     server.dirty++;
     return REDISMODULE_OK;
 }
@@ -8429,6 +8435,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
+    bc->background_duration_accounted = 0;
+    bc->repl_unknown_duration = 0;
 
     mstime_t timeout = 0;
     if (timeout_ms) {
@@ -9227,7 +9235,7 @@ int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-void moduleGILBeforeUnlock(void) {
+void moduleGILBeforeUnlock(RedisModuleCtx *ctx) {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
@@ -9236,13 +9244,21 @@ void moduleGILBeforeUnlock(void) {
      * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
     exitExecutionUnit();
-    postExecutionUnitOperations();
+    long duration = 0;
+    if (ctx && ctx->blocked_client) {
+        RedisModuleBlockedClient *bc = ctx->blocked_client;
+        if (bc->background_duration > bc->background_duration_accounted) {
+            duration = (long)(bc->background_duration - bc->background_duration_accounted);
+            bc->background_duration_accounted = bc->background_duration;
+        }
+    }
+    postExecutionUnitOperationsEx(duration);
 }
 
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
     UNUSED(ctx);
-    moduleGILBeforeUnlock();
+    moduleGILBeforeUnlock(ctx);
     moduleReleaseGIL();
 }
 
