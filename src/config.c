@@ -3341,6 +3341,37 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
+/* When stream-stats is turned off, zero the per-db INFO `stream` histograms so
+ * they hold no stale samples while disabled; re-enabling starts from a clean
+ * slate and fills in lazily (a reload rebuilds them exactly). Apply hooks run
+ * only on runtime CONFIG SET, so the dbs are always initialized here. */
+static int applyStreamStats(const char **err) {
+    UNUSED(err);
+    if (!server.stream_stats) {
+        /* Zeroing the live histograms starts a new generation. Bump the epoch
+         * so that any async slot-trim delta scheduled against the old contents
+         * is not applied on completion (see asmBackgroundTrimDoneCB). This also
+         * covers a disable/enable cycle while a trim job is pending. */
+        server.stream_stats_epoch++;
+        for (int j = 0; j < server.dbnum; j++) {
+            kvstoreMetadata *meta = kvstoreGetMetadata(server.db[j].keys);
+            if (meta) {
+                memset(meta->distrib_cgroups_pel, 0,
+                       sizeof(meta->distrib_cgroups_pel));
+                memset(meta->distrib_cgroups_lag, 0,
+                       sizeof(meta->distrib_cgroups_lag));
+            }
+        }
+    } else if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
+        /* Enabling at runtime deliberately does not rescan, so the gauges are
+         * legitimately behind until each group is next touched -- which
+         * DEBUG STREAM-STATS-ASSERT would report as corruption on this very
+         * command. Re-prime an exact baseline while the assertion is armed. */
+        streamStatsRebuild();
+    }
+    return 1;
+}
+
 standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -3394,6 +3425,7 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 1, NULL, applyStreamStats),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),

@@ -42,7 +42,7 @@ int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missin
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 
 int streamEntryIsReferenced(stream *s, streamID *id);
-int streamCleanupEntryCGroupRefs(stream *s, streamID *id);
+int streamCleanupEntryCGroupRefs(redisDb *db, stream *s, streamID *id);
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
 
@@ -121,6 +121,121 @@ void freeStream(stream *s) {
 unsigned long streamLength(const robj *subject) {
     stream *s = subject->ptr;
     return s->length;
+}
+
+/* ----------------------------------------------------------------------------
+ * INFO `stream` statistics
+ *
+ * Per-database base-2 logarithmic histograms of stream properties, reported by
+ * the INFO `stream` section (distrib_cgroups_pel, distrib_cgroups_lag). They are
+ * maintained directly from the stream commands and module APIs that change the
+ * tracked property, from the stream key lifecycle hooks (streamKeyLoaded /
+ * streamKeyRemoved), and from the async slot-trim delta path (lazyfree.c).
+ *
+ * An update moves one sample from the bin for the property's old value to the
+ * bin for its new value; the caller passes both (either may be -1, meaning "no
+ * sample" -- e.g. a consumer group being created or destroyed). A single
+ * function serves every metric: the streamDistribMetric selector resolves the
+ * per-db histogram row, so adding a metric is one enumerator (see stream.h)
+ * plus one case in streamDistribHistRow.
+ *
+ * Collection is lazy: it only runs while the `stream-stats` directive is
+ * enabled. The gauges are accurate when the directive is set at startup or
+ * after an RDB reload (the load path counts every stream and its groups).
+ * Toggling at runtime is best-effort: on disable the histograms are zeroed
+ * (applyStreamStats) so they never carry stale samples, and on a later enable
+ * they fill in lazily as streams are written -- which may temporarily
+ * under-count (a pre-existing group isn't counted until its next change) but
+ * never over-counts, and a reload makes it exact again. We avoid a full
+ * keyspace rescan on enable, which would block the server with many keys.
+ * -------------------------------------------------------------------------- */
+
+/* Return the per-db histogram row for 'metric', or NULL if this db's kvstore
+ * carries no metadata (defensive; db->keys always has it in practice). */
+static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    if (!meta) return NULL;
+    switch (metric) {
+    case STREAM_DISTRIB_CGROUPS_PEL: return meta->distrib_cgroups_pel;
+    case STREAM_DISTRIB_CGROUPS_LAG: return meta->distrib_cgroups_lag;
+    case STREAM_DISTRIB_MAX: break; /* not a real metric */
+    }
+    return NULL; /* unreachable: every metric has a case above */
+}
+
+/* Map a stream property value to its histogram bin, matching the keysizes
+ * histogram: 0 -> bin 0, otherwise floor(log2(value)) + 1. A negative value means
+ * "no sample" and maps to -1 (used when a sample enters or leaves, and
+ * defensively for a negative lag -- entries_read above entries_added -- which has
+ * no bucket and is excluded like XINFO's absent lag; XSETID clamps entries_read
+ * and RDB load rejects the state, so it should not arise).
+ *
+ * The bin is clamped to the last bin: unlike key sizes, some samples aren't
+ * physically bounded -- e.g. a consumer group's lag is entries_added minus
+ * entries_read, and XSETID ... ENTRIESADDED lets entries_added reach ~2^63,
+ * whose bin would index past the histogram. Clamping keeps the top bin a "this
+ * large or larger" bucket and prevents an out-of-bounds write.
+ *
+ * Binned with log2ceil64() rather than log2ceil(), whose argument is a size_t: on
+ * a 32-bit build that narrows the value before its magnitude is known, so a ~2^63
+ * lag would be binned by its low 32 bits (landing in "2G") and the clamp above
+ * would never see it. Key sizes cannot hit that -- they are bounded by addressable
+ * memory -- but a lag is entries_added minus entries_read, and XSETID sets
+ * entries_added independently of how much the stream actually holds.
+ *
+ * Non-static so the async slot-trim delta (lazyfree.c) bins through the exact
+ * same logic instead of duplicating it. */
+int streamDistribBin(int64_t value) {
+    if (value < 0) return -1;
+    int bin = (value == 0) ? 0 : log2ceil64((uint64_t) value) + 1;
+    if (bin >= MAX_KEYSIZES_BINS) bin = MAX_KEYSIZES_BINS - 1;
+    return bin;
+}
+
+/* Move one sample for 'metric' from the bin for 'old_val' to the bin for
+ * 'new_val'; either may be -1, meaning "no sample" (a sample entering or
+ * leaving the histogram). The metric selects the per-db histogram, so this one
+ * function serves every metric -- no per-metric variant.
+ *
+ * The decrement is clamped at 0 rather than asserted >= 0: because collection is
+ * gated on stream-stats, enabling it at runtime means a pre-existing sample's
+ * first change decrements a bin it was never counted into. Clamping keeps that
+ * safe; the histograms are zeroed on disable so they never hold stale samples,
+ * and a reload rebuilds them exactly (see the section comment above). Gated on
+ * stream-stats. */
+static void streamUpdateStat(redisDb *db, streamDistribMetric metric, int64_t old_val, int64_t new_val) {
+    if (!server.stream_stats) return;
+
+    int old_bin = streamDistribBin(old_val);
+    int new_bin = streamDistribBin(new_val);
+    if (old_bin == new_bin) return;            /* sample didn't move */
+
+    int64_t *hist = streamDistribHistRow(db, metric);
+    if (!hist) return;
+    if (old_bin >= 0 && hist[old_bin] > 0) hist[old_bin]--; /* clamp; see comment */
+    if (new_bin >= 0) hist[new_bin]++;
+}
+
+/* Add (adding=1) or remove (adding=0) every consumer group of stream 's' from the
+ * per-db histogram for 'metric'. Used by the stream key lifecycle hooks
+ * (streamKeyLoaded / streamKeyRemoved), where a whole stream's worth of groups
+ * appears or vanishes at once (RDB/replica load, RESTORE, COPY, MOVE, DEBUG
+ * RELOAD, key deletion), by streamStatsRebuild(), and by xsetidCommand, which
+ * moves stream-wide and per-group lag inputs together. */
+static void streamUpdateCGroupsAll(redisDb *db, stream *s, streamDistribMetric metric, int adding) {
+    if (!server.stream_stats || !s->cgroups || !raxSize(s->cgroups)) return;
+    raxIterator ri;
+    raxStart(&ri, s->cgroups);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        streamCG *cg = ri.data;
+        int64_t sample = streamCGroupSample(s, cg, metric);
+        if (adding)
+            streamUpdateStat(db, metric, -1, sample);
+        else
+            streamUpdateStat(db, metric, sample, -1);
+    }
+    raxStop(&ri);
 }
 
 /* Set 'id' to be its successor stream ID.
@@ -848,7 +963,7 @@ static void nackSetDeliveryCount(streamNACK *nack, int mode, long long retrycoun
  * that should be trimmed, there is a chance we will still have entries with
  * IDs < 'id' (or number of elements >= maxlen in case of MAXLEN).
  */
-int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
+int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
     size_t maxlen = args->maxlen;
     streamID *id = &args->minid;
     int approx = args->approx_trim;
@@ -980,7 +1095,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                     can_delete = (streamEntryIsReferenced(s, &currid) == 0);
                 } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
                     /* Remove all consumer group references for this entry */
-                    streamCleanupEntryCGroupRefs(s, &currid);
+                    streamCleanupEntryCGroupRefs(db, s, &currid);
                 }
 
                 if (can_delete) {
@@ -1050,7 +1165,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 }
 
 /* Trims a stream by length. Returns the number of deleted items. */
-int64_t streamTrimByLength(stream *s, long long maxlen, int approx) {
+int64_t streamTrimByLength(redisDb *db, stream *s, long long maxlen, int approx) {
     streamAddTrimArgs args = {
         .trim_strategy = TRIM_STRATEGY_MAXLEN,
         .approx_trim = approx,
@@ -1058,11 +1173,11 @@ int64_t streamTrimByLength(stream *s, long long maxlen, int approx) {
         .maxlen = maxlen,
         .delete_strategy = DELETE_STRATEGY_KEEPREF
     };
-    return streamTrim(s, &args);
+    return streamTrim(db, s, &args);
 }
 
 /* Trims a stream by minimum ID. Returns the number of deleted items. */
-int64_t streamTrimByID(stream *s, streamID minid, int approx) {
+int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx) {
     streamAddTrimArgs args = {
         .trim_strategy = TRIM_STRATEGY_MINID,
         .approx_trim = approx,
@@ -1070,7 +1185,7 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx) {
         .minid = minid,
         .delete_strategy = DELETE_STRATEGY_KEEPREF
     };
-    return streamTrim(s, &args);
+    return streamTrim(db, s, &args);
 }
 
 /* Parse the arguments of XADD/XTRIM.
@@ -1753,48 +1868,148 @@ int streamRangeHasTombstones(stream *s, streamID *start, streamID *end) {
     return 0;
 }
 
-/* Replies with a consumer group's current lag, that is the number of messages
- * in the stream that are yet to be delivered. In case that the lag isn't
- * available due to fragmentation, the reply to the client is a null. */
-void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
-    int valid = 0;
-    long long lag = 0;
-
+/* Compute a consumer group's current lag: the number of messages in the stream
+ * yet to be delivered to the group. Returns 1 and stores the lag in *lag when it
+ * is known, or 0 when it can't be determined due to stream fragmentation (the
+ * same condition under which XINFO GROUPS reports a NULL lag).
+ *
+ * Reads only scalar stream fields (entries_added/length/first_id/last_id/
+ * max_deleted_entry_id via the helpers below) and the group's last_id/
+ * entries_read -- never the radix tree -- so the caller may pass a snapshot of
+ * the stream's pre-mutation scalar state to obtain the "old" lag (see the
+ * INFO `stream` distrib_cgroups_lag instrumentation). */
+int streamCGLag(stream *s, streamCG *cg, long long *lag) {
     if (!s->entries_added) {
         /* The lag of a newly-initialized stream is 0. */
-        lag = 0;
-        valid = 1;
+        *lag = 0;
+        return 1;
     } else if (!s->length) { /* All entries deleted, now empty. */
-        lag = 0;
-        valid = 1;
+        *lag = 0;
+        return 1;
     } else if (streamCompareID(&cg->last_id,&s->first_id) < 0 &&
                streamCompareID(&s->max_deleted_entry_id,&s->first_id) < 0)
     {
         /* When both the consumer group's last_id and the maximum tombstone are behind
          * the stream's first entry, the consumer group's lag will always be equal to
          * the number of remainin entries in the stream. */
-        lag = s->length;
-        valid = 1;
+        *lag = (long long)s->length;
+        return 1;
     } else if (cg->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&cg->last_id,NULL)) {
         /* No fragmentation ahead means that the group's logical reads counter
          * is valid for performing the lag calculation. */
-        lag = (long long)s->entries_added - cg->entries_read;
-        valid = 1;
+        *lag = (long long)s->entries_added - cg->entries_read;
+        return 1;
     } else {
         /* Attempt to retrieve the group's last ID logical read counter. */
         long long entries_read = streamEstimateDistanceFromFirstEverEntry(s,&cg->last_id);
         if (entries_read != SCG_INVALID_ENTRIES_READ) {
             /* A valid counter was obtained. */
-            lag = (long long)s->entries_added - entries_read;
-            valid = 1;
+            *lag = (long long)s->entries_added - entries_read;
+            return 1;
         }
     }
+    return 0; /* Unknown due to fragmentation. */
+}
 
-    if (valid) {
-        addReplyLongLong(c,lag);
-    } else {
+/* Replies with a consumer group's current lag, that is the number of messages
+ * in the stream that are yet to be delivered. In case that the lag isn't
+ * available due to fragmentation, the reply to the client is a null. */
+void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
+    long long lag;
+    if (streamCGLag(s, cg, &lag))
+        addReplyLongLong(c, lag);
+    else
         addReplyNull(c);
+}
+
+/* --- INFO `stream` distrib_cgroups_lag maintenance -------------------------
+ * A group's lag sample is its bounded backlog (min of producer-minus-read and
+ * the live length -- exactly what XINFO reports), or "no sample" when the lag
+ * is unknown due to fragmentation. Unlike PEL, one command can shift the lag of
+ * *every* group of a stream, because entries_added / length / first_id /
+ * max_deleted_entry_id are stream-wide. See the section comment near
+ * streamUpdateStat for the collection model. */
+
+/* Lag as a histogram sample: the lag value, or -1 ("no sample") when unknown
+ * due to fragmentation -- mirroring the NULL that XINFO GROUPS reports, so such
+ * groups are excluded from distrib_cgroups_lag. */
+static int64_t streamCGLagSample(stream *s, streamCG *cg) {
+    long long lag;
+    return streamCGLag(s, cg, &lag) ? (int64_t) lag : -1;
+}
+
+/* The histogram sample for one consumer group under 'metric': its PEL size, or
+ * its lag (-1 for "no sample", see streamCGLagSample). One definition so the live
+ * path, the key lifecycle hooks, the async slot-trim delta (lazyfree.c) and the
+ * debug assertion cannot drift apart -- duplicating the binning across two of
+ * those is what previously let an out-of-range value through. */
+int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) {
+    switch (metric) {
+    case STREAM_DISTRIB_CGROUPS_PEL: return (int64_t) raxSize(cg->pel);
+    case STREAM_DISTRIB_CGROUPS_LAG: return streamCGLagSample(s, cg);
+    case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
+    return -1; /* unreachable: every metric has a case above */
+}
+
+/* streamLagInputs (the scalar stream fields streamCGLag reads) and
+ * streamLagGuard are declared in stream.h, so module.c can guard the stream
+ * mutations its API exposes. */
+static void streamLagInputsSnapshot(streamLagInputs *in, stream *s) {
+    in->entries_added = s->entries_added;
+    in->length = s->length;
+    in->first_id = s->first_id;
+    in->last_id = s->last_id;
+    in->max_deleted_entry_id = s->max_deleted_entry_id;
+}
+
+/* Build a minimal stream carrying just the snapshotted scalar lag inputs, so it
+ * can be passed to streamCGLag (which reads only those fields; everything else
+ * stays zeroed and is never dereferenced). */
+static stream streamFromLagInputs(streamLagInputs *in) {
+    return (stream){
+        .entries_added = in->entries_added,
+        .length = in->length,
+        .first_id = in->first_id,
+        .last_id = in->last_id,
+        .max_deleted_entry_id = in->max_deleted_entry_id,
+    };
+}
+
+/* Guard for operations that rewrite the stream's own lag inputs (entries_added,
+ * length, first_id, last_id, max_deleted_entry_id) and so shift every consumer
+ * group's lag at once: XADD, XTRIM, XDEL, XACKDEL, XDELEX and the module APIs
+ * RM_StreamAdd / RM_StreamDelete / RM_StreamIteratorDelete / RM_StreamTrimBy*.
+ * Begin() before the mutation, End() after. Gated on stream-stats; O(groups) only
+ * when enabled.
+ *
+ * Only the stream half is snapshotted -- the group half (entries_read, last_id) is
+ * read live at End -- so the body must not touch either, or the old lag is computed
+ * from mismatched state and the group is counted twice. If it does, bracket with
+ * streamUpdateCGroupsLagAll(db, s, 0/1) instead (remove all, mutate, re-add), as
+ * xsetidCommand does. If instead only one group's own counters move and nothing
+ * stream-wide does (XGROUP SETID, XCLAIM ... LASTID, XREADGROUP), skip the guard
+ * and sample that group's lag before and after.
+ *
+ * Keep it at the entry point: streamAppendItem and streamDeleteItem are shared with
+ * the command paths, so a guard pushed into them would double-count. */
+void streamLagGuardBegin(streamLagGuard *g, stream *s) {
+    g->active = server.stream_stats && s->cgroups && raxSize(s->cgroups);
+    if (g->active) streamLagInputsSnapshot(&g->pre, s);
+}
+
+void streamLagGuardEnd(streamLagGuard *g, redisDb *db, stream *s) {
+    if (!g->active) return;
+    stream pre = streamFromLagInputs(&g->pre); /* old lag computed against this */
+    raxIterator ri;
+    raxStart(&ri, s->cgroups);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        streamCG *cg = ri.data;
+        streamUpdateStat(db, STREAM_DISTRIB_CGROUPS_LAG,
+                         streamCGLagSample(&pre, cg), streamCGLagSample(s, cg));
+    }
+    raxStop(&ri);
 }
 
 /* This function returns a value that is the ID's logical read counter, or its
@@ -2568,6 +2783,9 @@ void xaddCommand(client *c) {
      * histogram. 0 if we just created the stream -- dbAdd already counted that
      * birth at bin 0, so we only move the sample to its new bin below. */
     int64_t old_entries = (int64_t) s->length;
+    /* XADD raises entries_added (and may trim), shifting every group's lag. */
+    streamLagGuard lag_guard;
+    streamLagGuardBegin(&lag_guard, s);
 
     /* IDMP: Check if IID already exists, save IID for later insertion */
     XXH128_hash_t hash;
@@ -2650,7 +2868,7 @@ void xaddCommand(client *c) {
 
     /* Trim if needed. */
     if (parsed_args.trim_strategy != TRIM_STRATEGY_NONE) {
-        if (streamTrim(s, &parsed_args))
+        if (streamTrim(c->db, s, &parsed_args))
             notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must
@@ -2665,6 +2883,7 @@ void xaddCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+    streamLagGuardEnd(&lag_guard, c->db, s);
 
     updateKeysizesHist(c->db, OBJ_STREAM, old_entries, s->length); /* entries count changed (append + trim) */
 
@@ -3129,7 +3348,17 @@ void xreadCommand(client *c) {
                 .flags = flags, .spi = &spi, .propCount = &propCount,
                 .maxsize = maxsize_threshold, .emitted_before = total_entries,
             };
+            /* New deliveries (XREADGROUP without NOACK) add entries to this
+             * group's PEL, and advancing the group's read position lowers its
+             * lag; snapshot both around the read to update INFO `stream`. */
+            int64_t old_pel = groups ? (int64_t) raxSize(groups[i]->pel) : -1;
+            int track_lag = groups && server.stream_stats;
+            int64_t old_lag = track_lag ? streamCGLagSample(s, groups[i]) : -1;
             total_entries += streamReplyWithRange(c,s,&args);
+            if (groups)
+                streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(groups[i]->pel));
+            if (track_lag)
+                streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_LAG, old_lag, streamCGLagSample(s, groups[i]));
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
             if (propCount) {
@@ -3268,7 +3497,7 @@ void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na, unsigned char *ke
 
 /* Remove all consumer group references to a specific stream message.
  * Returns 1 if any references were removed, otherwise 0. */
-int streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
+int streamCleanupEntryCGroupRefs(redisDb *db, stream *s, streamID *id) {
     if (!s->cgroups_ref) return 0;
     list *cglist;
     listIter li;
@@ -3284,15 +3513,20 @@ int streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
     while ((ln = listNext(&li))) {
         streamNACK *nack;
         streamCG *group = listNodeValue(ln);
-        
+
         /* Find the message in this consumer group's PEL */
         serverAssert(raxFind(group->pel, buf, sizeof(buf), (void **)&nack));
-        
-        /* Remove from group and consumer PELs */
+
+        /* Remove from group and consumer PELs. This is the one chokepoint where
+         * deleting a single entry can shrink the PEL of several groups at once
+         * (DELREF trims/deletes), so update the INFO `stream` histogram per
+         * group here rather than at the command level. */
+        int64_t old_pel = raxSize(group->pel);
         pelListUnlink(group, nack);
         raxRemove(group->pel, buf, sizeof(buf), NULL);
         if (nack->consumer)
             raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
+        streamUpdateStat(db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel));
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
         streamFreeNACK(s, nack);
@@ -3676,6 +3910,8 @@ NULL
         if (cg) {
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, -1, 0); /* new group, empty PEL */
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_LAG, -1, streamCGLagSample(s, cg)); /* new group's initial lag */
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
@@ -3696,8 +3932,10 @@ NULL
             entries_read = s->entries_added;
         }
 
+        int64_t old_lag = streamCGLagSample(s, cg);
         streamUpdateCGroupLastId(s, cg, &id);
         cg->entries_read = entries_read;
+        streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_LAG, old_lag, streamCGLagSample(s, cg)); /* group read position moved */
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -3706,6 +3944,8 @@ NULL
         if (cg) {
             if (server.memory_tracking_enabled)
                 old_alloc = kvobjAllocSize(o);
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, (int64_t) raxSize(cg->pel), -1); /* group gone */
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_LAG, streamCGLagSample(s, cg), -1); /* group gone */
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
             if (server.memory_tracking_enabled)
@@ -3738,7 +3978,9 @@ NULL
             if (server.memory_tracking_enabled)
                 old_alloc = kvobjAllocSize(o);
             pending = raxSize(consumer->pel);
+            int64_t old_pel = raxSize(cg->pel);
             streamDelConsumer(s,cg,consumer);
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(cg->pel)); /* consumer's PEL entries removed */
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             server.dirty++;
@@ -3817,6 +4059,14 @@ void xsetidCommand(client *c) {
         }
     }
 
+    /* XSETID can change entries_added / last_id / max_deleted_entry_id, all of
+     * which feed every consumer group's lag -- and the entries_read clamp below
+     * moves per-group state as well. streamLagGuard is not usable here: it
+     * reconstructs each old lag from a snapshot of the stream's scalars combined
+     * with the group's *live* counters, so it is only correct while the group's
+     * own counters stay put. Drop every group's sample and re-add it afterwards
+     * instead, which is correct whatever the body below changes. */
+    streamUpdateCGroupsAll(c->db, s, STREAM_DISTRIB_CGROUPS_LAG, 0);
     s->last_id = id;
     if (entries_added != -1) {
         uint64_t prev_entries_added = s->entries_added;
@@ -3847,6 +4097,7 @@ void xsetidCommand(client *c) {
     }
     if (!streamIDEqZero(&max_xdel_id))
         s->max_deleted_entry_id = max_xdel_id;
+    streamUpdateCGroupsAll(c->db, s, STREAM_DISTRIB_CGROUPS_LAG, 1);
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
@@ -3948,6 +4199,7 @@ void xackCommand(client *c) {
 
     int acknowledged = 0;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    int64_t old_pel = raxSize(group->pel);
     for (int j = 3; j < c->argc; j++) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j-3]);
@@ -3970,6 +4222,7 @@ void xackCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
     addReplyLongLong(c,acknowledged);
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4074,6 +4327,7 @@ void xnackCommand(client *c) {
     stream *s = kv->ptr;
     int nacked = 0;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    int64_t old_pel = raxSize(group->pel);
     for (int j = 0; j < numids; j++) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j]);
@@ -4124,6 +4378,7 @@ void xnackCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE may add PEL entries */
 
     addReplyLongLong(c,nacked);
 
@@ -4176,6 +4431,10 @@ void xackdelCommand(client *c) {
 
     s = kv->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    int64_t old_pel = raxSize(group->pel);
+    /* XACKDEL deletes entries, lowering length and shifting every group's lag. */
+    streamLagGuard lag_guard;
+    streamLagGuardBegin(&lag_guard, s);
     int first_entry = 0;
     int deleted = 0, dirty = server.dirty;
     addReplyArrayLen(c, args.numids);
@@ -4204,7 +4463,7 @@ void xackdelCommand(client *c) {
                 if (streamEntryIsReferenced(s, id))
                     can_delete = 0;
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
-                streamCleanupEntryCGroupRefs(s, id);
+                streamCleanupEntryCGroupRefs(c->db, s, id);
             }
 
             if (can_delete && streamDeleteItem(s,id)) {
@@ -4229,6 +4488,7 @@ void xackdelCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
+    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
 
     /* Update the stream's first ID. */
     if (deleted) {
@@ -4248,6 +4508,7 @@ void xackdelCommand(client *c) {
         /* Only ACK succeeded without deleting elements, just update LRM without signaling */
         keyModified(c,c->db,c->argv[1],kv,0);
     }
+    streamLagGuardEnd(&lag_guard, c->db, s);
 
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4593,7 +4854,12 @@ void xclaimCommand(client *c) {
     }
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
+        /* Advancing the group's read position lowers its lag, just like XGROUP
+         * SETID. Nothing stream-wide changes here, so the same 's' computes both
+         * the old and the new sample. */
+        int64_t old_lag = streamCGLagSample(o->ptr, group);
         streamUpdateCGroupLastId(o->ptr, group, &last_id);
+        streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_LAG, old_lag, streamCGLagSample(o->ptr, group));
         propagate_last_id = 1;
     }
 
@@ -4616,6 +4882,7 @@ void xclaimCommand(client *c) {
     /* Do the actual claiming. */
     stream *s = o->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
+    int64_t old_pel = raxSize(group->pel);
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
@@ -4728,6 +4995,7 @@ void xclaimCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
+    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE adds / deleted entries removed */
     if (propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
@@ -4875,6 +5143,7 @@ void xautoclaimCommand(client *c) {
     /* Do the actual claiming. */
     stream *s = o->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
+    int64_t old_pel = raxSize(group->pel);
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
@@ -5011,6 +5280,7 @@ void xautoclaimCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
+    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* deleted entries removed from PEL */
 
     streamID endid;
     if (raxEOF(&ri)) {
@@ -5040,10 +5310,13 @@ void xautoclaimCommand(client *c) {
  * of items actually deleted, that may be different from the number
  * of IDs passed in case certain IDs do not exist. */
 void xdelCommand(client *c) {
-    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
+    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero);
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    /* Deleting entries lowers length, shifting every group's lag. */
+    streamLagGuard lag_guard;
+    streamLagGuardBegin(&lag_guard, s);
 
     /* We need to sanity check the IDs passed to start. Even if not
      * a big issue, it is not great that the command is only partially
@@ -5088,6 +5361,7 @@ void xdelCommand(client *c) {
             streamGetEdgeID(s,1,1,&s->first_id);
         }
     }
+    streamLagGuardEnd(&lag_guard, c->db, s);
 
     /* Propagate the write if needed. */
     if (deleted) {
@@ -5143,6 +5417,11 @@ void xdelexCommand(client *c) {
 
     stream *s = kv->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+    /* XDELEX deletes entries, lowering length and shifting every group's lag.
+     * (The DELREF cross-group PEL removal is handled inside
+     * streamCleanupEntryCGroupRefs; this guard is for lag.) */
+    streamLagGuard lag_guard;
+    streamLagGuardBegin(&lag_guard, s);
     int first_entry = 0;
     int deleted = 0, dirty = server.dirty;
     addReplyArrayLen(c, args.numids);
@@ -5159,7 +5438,7 @@ void xdelexCommand(client *c) {
             if (streamEntryIsReferenced(s, id))
                 can_delete = 0;
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
-            modified = streamCleanupEntryCGroupRefs(s, id);
+            modified = streamCleanupEntryCGroupRefs(c->db, s, id);
         }
 
         if (can_delete) { /* can_delete being true doesn't guarantee the ID exists */
@@ -5207,6 +5486,7 @@ void xdelexCommand(client *c) {
         /* Only PEL references were removed, update LRM without signaling. */
         keyModified(c,c->db,c->argv[1],kv,0);
     }
+    streamLagGuardEnd(&lag_guard, c->db, s);
 
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -5255,7 +5535,10 @@ void xtrimCommand(client *c) {
 
     /* Perform the trimming. */
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
-    int64_t deleted = streamTrim(s, &parsed_args);
+    streamLagGuard lag_guard; /* trimming lowers length, shifting every group's lag */
+    streamLagGuardBegin(&lag_guard, s);
+    int64_t deleted = streamTrim(c->db, s, &parsed_args);
+    streamLagGuardEnd(&lag_guard, c->db, s);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     if (deleted) {
@@ -6227,6 +6510,12 @@ static void trackStreamIdmpEntries(client *c, robj *key) {
 /* To be used when a stream key was loaded into ram, re-register it in stream_idmp_keys if needed */
 void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
     stream *s = val->ptr;
+    /* A whole stream just appeared without any command touching its groups
+     * (RDB/replica load, DEBUG RELOAD, RESTORE, COPY, MOVE), so count each of
+     * its consumer groups in the INFO `stream` histograms; mirror of
+     * streamKeyRemoved. */
+    streamUpdateCGroupsAll(db, s, STREAM_DISTRIB_CGROUPS_PEL, 1);
+    streamUpdateCGroupsAll(db, s, STREAM_DISTRIB_CGROUPS_LAG, 1);
     if (s->idmp_producers != NULL) {
         robj *tracked_key = key;
         if (key->refcount == OBJ_STATIC_REFCOUNT)
@@ -6241,8 +6530,112 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
 
 /* To be used when a stream key was removed from ram, un-register from stream_idmp_keys if needed */
 void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
-    UNUSED(val);
+    /* Drop every consumer group of this stream from the INFO `stream`
+     * histograms (mirror of streamKeyLoaded). */
+    streamUpdateCGroupsAll(db, val->ptr, STREAM_DISTRIB_CGROUPS_PEL, 0);
+    streamUpdateCGroupsAll(db, val->ptr, STREAM_DISTRIB_CGROUPS_LAG, 0);
     dictDelete(db->stream_idmp_keys, key);
+}
+
+/* --- DEBUG STREAM-STATS-ASSERT -------------------------------------------
+ * The INFO `stream` histograms are gauges maintained incrementally, so every
+ * path that changes a group's PEL size or lag has to update them. Rebuilding
+ * them from the keyspace after each command turns any existing stream test into
+ * coverage for that: a missed update site, or an update computed against
+ * mismatched state, shows up as a bin that disagrees with the scan. */
+
+/* Rebuild every db's INFO `stream` histograms from the keyspace. Primes the
+ * assertion: enabling stream-stats at runtime deliberately does not rescan (see
+ * the section comment at the top of this file), so the gauges may legitimately
+ * be behind, which the assertion would report as corruption. Bumps the
+ * generation as well, so an async slot-trim delta scheduled against the old
+ * contents is discarded rather than applied to the fresh counts. */
+void streamStatsRebuild(void) {
+    server.stream_stats_epoch++;
+    for (int j = 0; j < server.dbnum; j++) {
+        redisDb *db = &server.db[j];
+        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+        if (!meta) continue;
+        memset(meta->distrib_cgroups_pel, 0, sizeof(meta->distrib_cgroups_pel));
+        memset(meta->distrib_cgroups_lag, 0, sizeof(meta->distrib_cgroups_lag));
+        if (!server.stream_stats) continue; /* nothing is collected while off */
+
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, db->keys);
+        dictEntry *de;
+        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+            kvobj *kv = dictGetKV(de);
+            if (!kv || kv->type != OBJ_STREAM) continue;
+            streamUpdateCGroupsAll(db, kv->ptr, STREAM_DISTRIB_CGROUPS_PEL, 1);
+            streamUpdateCGroupsAll(db, kv->ptr, STREAM_DISTRIB_CGROUPS_LAG, 1);
+        }
+        kvstoreIteratorReset(&kvs_it);
+    }
+}
+
+/* Panic if 'live' disagrees with 'scan', rendering the non-empty bins of both. */
+static void dbgAssertStreamRow(const int64_t *scan, const int64_t *live, const char *name) {
+    for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
+        if (scan[i] == live[i]) continue;
+
+        char scanStr[500] = {0}, liveStr[500] = {0};
+        int l1 = 0, l2 = 0;
+        for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 400) && (l2 < 400); j++) {
+            if (scan[j])
+                l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1, "[%d]=%lld ", j, (long long) scan[j]);
+            if (live[j])
+                l2 += snprintf(liveStr + l2, sizeof(liveStr) - l2, "[%d]=%lld ", j, (long long) live[j]);
+        }
+        serverPanic("dbgAssertStreamStats: %s mismatch at bin %d\nscan=%s\nlive=%s\n",
+                    name, i, scanStr, liveStr);
+    }
+}
+
+/* Verify 'db's INFO `stream` histograms against a fresh scan of its streams.
+ * For debugging only; enabled by DEBUG STREAM-STATS-ASSERT 1. Binned through
+ * streamDistribBin() and sampled through the same helpers the live path uses, so
+ * this validates the bookkeeping (was every change accounted for, exactly once)
+ * rather than the definition of the metrics themselves. */
+void dbgAssertStreamStats(redisDb *db) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    if (!meta) return;
+
+    /* While stream-stats is off nothing is collected, so the scan would be
+     * pointless, but both rows (pel and lag) must still be empty. */
+    if (!server.stream_stats) {
+        static const int64_t empty[MAX_KEYSIZES_BINS] = {0};
+        dbgAssertStreamRow(empty, meta->distrib_cgroups_pel, "distrib_cgroups_pel");
+        dbgAssertStreamRow(empty, meta->distrib_cgroups_lag, "distrib_cgroups_lag");
+    } else {
+        int64_t scan_pel[MAX_KEYSIZES_BINS] = {0};
+        int64_t scan_lag[MAX_KEYSIZES_BINS] = {0};
+
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, db->keys);
+        dictEntry *de;
+        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+            kvobj *kv = dictGetKV(de);
+            if (!kv || kv->type != OBJ_STREAM) continue;
+            stream *s = kv->ptr;
+            if (!s->cgroups) continue;
+
+            raxIterator ri;
+            raxStart(&ri, s->cgroups);
+            raxSeek(&ri, "^", NULL, 0);
+            while (raxNext(&ri)) {
+                streamCG *cg = ri.data;
+                int bin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_PEL));
+                if (bin >= 0) scan_pel[bin]++;
+                int lbin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_LAG));
+                if (lbin >= 0) scan_lag[lbin]++;
+            }
+            raxStop(&ri);
+        }
+        kvstoreIteratorReset(&kvs_it);
+
+        dbgAssertStreamRow(scan_pel, meta->distrib_cgroups_pel, "distrib_cgroups_pel");
+        dbgAssertStreamRow(scan_lag, meta->distrib_cgroups_lag, "distrib_cgroups_lag");
+    }
 }
 
 /* Clean up expired idempotency entries from tracked streams. This function

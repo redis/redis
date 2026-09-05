@@ -100,6 +100,14 @@ typedef struct asmBgTrimState {
     kvstore *target_kvstore;
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
+    int64_t delta_distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
+    int64_t delta_distrib_cgroups_lag[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
+    int track_stream_stats;      /* stream-stats state captured when the trim job was
+                                    scheduled; the BIO thread reads this instead of the
+                                    live config, and the delta is applied only if it was
+                                    set. */
+    uint64_t stream_stats_epoch; /* stream_stats_epoch captured at schedule; the delta is
+                                    applied only if it still matches (no reset since). */
 } asmBgTrimState;
 
 typedef struct asmTrimJob {
@@ -360,6 +368,7 @@ sds asmCatInfoString(sds info) {
     return sdscatprintf(info ? info : sdsempty(),
                         "cluster_slot_migration_active_tasks:%d\r\n"
                         "cluster_slot_migration_active_trim_running:%lu\r\n"
+                        "cluster_slot_migration_background_trim_running:%zu\r\n"
                         "cluster_slot_migration_active_trim_current_job_keys:%llu\r\n"
                         "cluster_slot_migration_active_trim_current_job_trimmed:%llu\r\n"
                         "cluster_slot_migration_stats_active_trim_started:%llu\r\n"
@@ -367,6 +376,7 @@ sds asmCatInfoString(sds info) {
                         "cluster_slot_migration_stats_active_trim_cancelled:%llu\r\n",
                         active_tasks,
                         listLength(asmManager->active_trim_jobs),
+                        asmManager->bg_trim_running,
                         asmManager->active_trim_current_job_keys,
                         asmManager->active_trim_current_job_trimmed,
                         asmManager->active_trim_started,
@@ -3089,6 +3099,44 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
+
+        /* Update the INFO `stream` per-consumer-group deltas (distrib_cgroups_pel
+         * and distrib_cgroups_lag): one sample per consumer group. Bg slot trim
+         * frees stream keys without going through streamKeyRemoved, so record each
+         * group's samples here. Done before the keysizes row lookup below, so it
+         * stays reachable regardless of whether streams are a tracked keysizes
+         * type.
+         *
+         * Gated on the stream-stats state captured when the job was scheduled
+         * (bg->track_stream_stats), not the live config, since this runs on the
+         * BIO thread; completion re-validates the epoch. Reading the group state
+         * here is safe without locking: bg slot trim moved the freed slots into a
+         * detached kvstore before this job started, so this thread solely owns
+         * these streams (raxSize and streamCGLag only read them). */
+        if (trim_job->bg->track_stream_stats && kv->type == OBJ_STREAM) {
+            stream *s = kv->ptr;
+            if (s->cgroups && raxSize(s->cgroups)) {
+                raxIterator ri;
+                raxStart(&ri, s->cgroups);
+                raxSeek(&ri, "^", NULL, 0);
+                while (raxNext(&ri)) {
+                    streamCG *cg = ri.data;
+
+                    /* Bin through streamDistribBin() so this path matches the
+                     * live histogram exactly -- it clamps out-of-range values
+                     * and maps "no sample" (a lag that is unknown due to
+                     * fragmentation, or a degenerate negative lag) to -1, which
+                     * we skip. */
+                    int bin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_PEL));
+                    if (bin >= 0) trim_job->bg->delta_distrib_cgroups_pel[bin]++;
+
+                    int lbin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_LAG));
+                    if (lbin >= 0) trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
+                }
+                raxStop(&ri);
+            }
+        }
+
         int64_t *keysizes_row = keysizesHistRow(trim_job->bg->delta_keysizes_hist, kv->type);
         if (!keysizes_row) continue; /* untracked type, e.g. OBJ_MODULE */
 
@@ -3123,6 +3171,28 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
             }
         }
+        /* distrib_cgroups_pel and distrib_cgroups_lag are single-row
+         * histograms (not per-type).
+         * Apply the delta only if the stream histogram still holds the same
+         * generation of samples the job was scheduled against: stream-stats
+         * was enabled at schedule (track_stream_stats) and has not been reset
+         * since (epoch unchanged). Otherwise the samples were either never
+         * counted (scheduled while disabled) or already dropped by a reset,
+         * and subtracting the delta would corrupt the live counts -- possibly
+         * a different generation of groups counted after a re-enable.
+         * Clamp at 0 defensively. */
+        if (job->bg->track_stream_stats &&
+            job->bg->stream_stats_epoch == server.stream_stats_epoch)
+        {
+            for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+                int64_t dpel = job->bg->delta_distrib_cgroups_pel[bin];
+                int64_t *pel = &meta->distrib_cgroups_pel[bin];
+                *pel = (*pel > dpel) ? (*pel - dpel) : 0;
+                int64_t dlag = job->bg->delta_distrib_cgroups_lag[bin];
+                int64_t *lag = &meta->distrib_cgroups_lag[bin];
+                *lag = (*lag > dlag) ? (*lag - dlag) : 0;
+            }
+        }
     }
 
     /* Decrement counter unconditionally to track job completion. If kvstore was
@@ -3147,6 +3217,12 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     job->bg = zcalloc(sizeof(*job->bg));
     /* Save the target kvstore for completion validation. */
     job->bg->target_kvstore = server.db[0].keys;
+    /* Capture the INFO `stream` histogram state now, on the main thread: the
+     * BIO thread reads track_stream_stats instead of the live config, and the
+     * completion applies the delta only if both are still valid (see
+     * asmBackgroundTrimDoneCB). */
+    job->bg->track_stream_stats = server.stream_stats;
+    job->bg->stream_stats_epoch = server.stream_stats_epoch;
 
     /* Increment background trim counter. */
     asmManager->bg_trim_running++;

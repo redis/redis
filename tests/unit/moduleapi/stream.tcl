@@ -2,6 +2,15 @@ set testmodule [file normalize tests/modules/stream.so]
 
 start_server {tags {"modules external:skip"}} {
     r module load $testmodule
+    # Verify the INFO `stream` histograms against a keyspace rebuild after every
+    # command, so the module-API tests below also cover their bookkeeping.
+    # Deliberately not tagged needs:debug: that would skip the entire suite where
+    # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
+    # the arming there.
+    if {!$::external && [lsearch $::denytags "needs:debug"] < 0} {
+        r config set stream-stats yes
+        r debug stream-stats-assert 1
+    }
 
     test {Module stream add and delete} {
         r del mystream
@@ -195,6 +204,92 @@ start_server {tags {"modules external:skip"}} {
     } {OK} {needs:debug}
 
     test "Unload the module - stream" {
+        assert_equal {OK} [r module unload stream]
+    }
+}
+
+# The INFO `stream` histograms are a gauge maintained incrementally, so every
+# path that mutates a stream has to keep them in step -- including the module
+# API, which reaches the same stream internals as the commands do.
+start_server {tags {"modules external:skip"} overrides {stream-stats yes}} {
+    r module load $testmodule
+    r select 0
+
+    # The INFO `stream` lines for one metric, whitespace-stripped.
+    proc info_stream_metric {r field} {
+        set out ""
+        foreach line [split [$r info stream] "\n"] {
+            set line [string trim $line "\r"]
+            if {[string match "db*_$field:*" $line]} {
+                append out [string map {" " ""} $line]
+            }
+        }
+        return $out
+    }
+
+    # What distrib_cgroups_lag must read for a stream with a single group,
+    # derived from the lag XINFO GROUPS reports (a nil lag means no sample).
+    # Values here stay below 1024, so the bin label needs no K/M suffix.
+    proc expected_lag_line {r key} {
+        array set gi [lindex [$r xinfo groups $key] 0]
+        if {$gi(lag) eq {}} { return "" }
+        set v $gi(lag)
+        if {$v == 0} {
+            set power 0
+        } else {
+            set power 1
+            while {($power * 2) <= $v} { set power [expr {$power * 2}] }
+        }
+        return "db0_distrib_cgroups_lag:$power=1"
+    }
+
+    # Assert INFO agrees with XINFO, and that the sample sits in the expected
+    # bin -- the literal pins that each step actually crosses a bin boundary,
+    # so a step that stopped updating the histogram could not pass unnoticed.
+    proc assert_lag_bin {r key exp} {
+        assert_equal [expected_lag_line $r $key] [info_stream_metric $r distrib_cgroups_lag]
+        assert_equal $exp [info_stream_metric $r distrib_cgroups_lag]
+    }
+
+    test {Module stream APIs keep distrib_cgroups_lag in step} {
+        r del mystream
+        for {set i 1} {$i <= 8} {incr i} { r xadd mystream $i-1 f v }
+        r xgroup create mystream g 0
+        assert_lag_bin r mystream {db0_distrib_cgroups_lag:8=1}
+
+        # RM_StreamAdd raises entries_added: lag 8 -> 16.
+        r stream.addn mystream 8 item x value y
+        assert_lag_bin r mystream {db0_distrib_cgroups_lag:16=1}
+
+        # RM_StreamTrimByLength lowers length, which bounds the lag: -> 4.
+        assert_equal 12 [r stream.trim mystream maxlen = 4]
+        assert_lag_bin r mystream {db0_distrib_cgroups_lag:4=1}
+
+        # RM_StreamDelete lowers length: 4 -> 3. Delete the *last* entry, since
+        # the module API updates neither first_id nor max_deleted_entry_id.
+        set ids [lmap e [r xrange mystream - +] {lindex $e 0}]
+        assert_equal OK [r stream.delete mystream [lindex $ids end]]
+        assert_lag_bin r mystream {db0_distrib_cgroups_lag:2=1}
+
+        # RM_StreamTrimByID lowers length: 3 -> 1.
+        assert_equal 2 [r stream.trim mystream minid = [lindex $ids 2]]
+        assert_lag_bin r mystream {db0_distrib_cgroups_lag:1=1}
+
+        # RM_StreamIteratorDelete, reached via stream.range's "selfdestruct"
+        # entry, also lowers length: 2 -> 1.
+        r xadd mystream * selfdestruct yes
+        assert_lag_bin r mystream {db0_distrib_cgroups_lag:2=1}
+        r stream.range mystream - +
+        assert_lag_bin r mystream {db0_distrib_cgroups_lag:1=1}
+
+        # A reload rebuilds the gauge from the keyspace, so it must agree with
+        # what the incremental updates above produced.
+        set before [info_stream_metric r distrib_cgroups_lag]
+        r debug reload
+        assert_equal $before [info_stream_metric r distrib_cgroups_lag]
+    }
+
+    test "Unload the module - stream stats" {
         assert_equal {OK} [r module unload stream]
     }
 }

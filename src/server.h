@@ -1267,6 +1267,8 @@ typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 typedef struct {
     keysizesHist keysizes_hist;
     keysizesHist allocsizes_hist;
+    int64_t distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `stream`: per-cgroup PEL size */
+    int64_t distrib_cgroups_lag[MAX_KEYSIZES_BINS]; /* INFO `stream`: per-cgroup lag (backlog) */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -2596,6 +2598,11 @@ struct redisServer {
     /* Stream IDMP parameters */
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
+    int stream_stats;                   /* Enable stream stats for INFO `stream` section. */
+    uint64_t stream_stats_epoch;        /* Generation of the INFO `stream` histograms. Bumped
+                                           whenever they are reset (stream-stats disabled), so an
+                                           in-flight async slot-trim delta computed against an older
+                                           generation is not applied. See kvsAsyncFreeDoneCB(). */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */
@@ -2721,6 +2728,7 @@ struct redisServer {
 /* Debug assertion flags for server.dbg_assert_flags */
 #define DBG_ASSERT_KEYSIZES    (1 << 0) /* Assert keysizes histogram */
 #define DBG_ASSERT_ALLOC_SLOT  (1 << 1) /* Assert per-slot alloc_size */
+#define DBG_ASSERT_STREAM_STATS (1 << 2) /* Assert INFO `stream` histograms */
 
 /* we use 6 so that all getKeyResult fits a cacheline */
 #define MAX_KEYS_BUFFER 6

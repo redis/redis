@@ -182,6 +182,18 @@ proc reset_default_trim_method {} {
     }
 }
 
+# Return an INFO `stream` per-cgroup histogram (e.g. distrib_cgroups_pel) for a
+# node's db (e.g. "1=1,4=1"), or "" if absent.
+proc stream_cgroups_hist {node_id metric {dbnum 0}} {
+    foreach line [split [R $node_id info stream] "\n"] {
+        set line [string trim $line "\r"]
+        if {[regexp "^db${dbnum}_${metric}:(.*)$" $line -> val]} { return $val }
+    }
+    return ""
+}
+proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id distrib_cgroups_pel $dbnum] }
+proc stream_lag_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id distrib_cgroups_lag $dbnum] }
+
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
         test "Simple slot migration (trim method: $trim_method)" {
@@ -258,6 +270,201 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 0 CLUSTER MIGRATION IMPORT 0 100
             wait_for_asm_done
         }
+    }
+
+    foreach trim_method {"active" "bg"} {
+        test "Slot trim updates distrib_cgroups_pel/lag histograms (trim method: $trim_method)" {
+            R 0 debug asm-trim-method $trim_method
+            R 0 flushall
+            R 1 flushall
+            R 0 config set stream-stats yes
+            R 1 config set stream-stats yes
+
+            # Streams in slots migrated away (0-100) and one that stays (101).
+            # Each has a group with a partial read, giving distinct PEL and lag
+            # bins:  key   entries read -> PEL  lag  (lag=entries-read)
+            #        s0    4       1       1    3
+            #        s1    8       4       4    4
+            #        s101  2       1       1    1
+            set s0 [slot_key 0 strm]
+            set s1 [slot_key 1 strm]
+            set s101 [slot_key 101 strm]
+            foreach {key n r} [list $s0 4 1 $s1 8 4 $s101 2 1] {
+                for {set i 1} {$i <= $n} {incr i} { R 0 xadd $key $i-1 f v }
+                R 0 xgroup create $key g 0
+                R 0 xreadgroup group g c count $r streams $key >
+            }
+            assert_equal "1=2,4=1" [stream_pel_hist 0]     ;# PEL 1,4,1
+            assert_equal "1=1,2=1,4=1" [stream_lag_hist 0] ;# lag 1,3,4 -> "1","2","4"
+
+            # Migrate slots 0-100 to R 1; slot 101 stays on R 0.
+            R 1 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+
+            # Trimming the migrated slots frees their stream keys (and groups) --
+            # with the bg method off-thread, bypassing streamKeyRemoved -- so
+            # R 0's histograms must drop to just the slot-101 group.
+            wait_for_condition 1000 50 {
+                [stream_pel_hist 0] eq "1=1" && [stream_lag_hist 0] eq "1=1"
+            } else {
+                fail "R0 histograms not trimmed: pel=[stream_pel_hist 0] lag=[stream_lag_hist 0]"
+            }
+
+            # The importing node counts the migrated groups as they load.
+            assert_equal "1=1,4=1" [stream_pel_hist 1]
+            assert_equal "2=1,4=1" [stream_lag_hist 1]
+
+            # cleanup: flush and migrate the slots back to R 0.
+            R 0 flushall
+            R 1 flushall
+            R 0 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+            R 0 config set stream-stats no
+            R 1 config set stream-stats no
+        }
+    }
+
+    # An async slot-trim delta is computed on the BIO thread against the live
+    # histogram generation it was scheduled for. Two things can invalidate it
+    # before the subtraction lands: the kvstore being replaced (caught by the
+    # target_kvstore pointer) and the histogram being reset while the pointer stays
+    # the same.
+    #
+    # A synchronous FLUSH does the latter: emptyDbStructure() calls kvstoreEmpty()
+    # in place, so kvstoreOnEmpty() zeroes the histograms without changing the
+    # kvstore identity. A background trim already handed to BIO is not cancelled,
+    # so the histogram epoch must change on that reset or its stale delta can be
+    # subtracted from samples created after the FLUSH.
+    #
+    # FLUSHALL SYNC is normally optimized into a blocking async flush. MULTI puts
+    # the client in CLIENT_AVOID_BLOCKING_ASYNC_FLUSH -- that mask includes
+    # CLIENT_MULTI and CLIENT_DENY_BLOCKING -- which skips the optimization and
+    # forces the synchronous in-place path. SYNC is spelled out below because plain
+    # FLUSHALL is only synchronous while lazyfree-lazy-user-flush defaults to no.
+    #
+    # The replacement group is deliberately put in the same PEL bin as the
+    # migrated group so that, without the epoch fix, the stale subtraction removes
+    # the fresh sample rather than being clamped in an already-empty bin.
+    test "Slot bg-trim delta is dropped when a sync FLUSH resets the histogram" {
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+        R 1 flushall
+        R 0 config set stream-stats yes
+
+        # Create a group in a slot that will be migrated. Give it one pending entry
+        # so its PEL histogram contribution is in bin "1".
+        set mig [slot_key 3 strm]
+        for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
+        R 0 xgroup create $mig g 0
+        R 0 xreadgroup group g c count 1 streams $mig >
+        assert_equal "1=1" [stream_pel_hist 0]
+
+        # Keep the background trim busy long enough to cross the synchronous FLUSH.
+        populate_slot 20000 -slot 3 -idx 0 -size 512
+
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+
+        # Wait until the background trim has actually been scheduled and its
+        # completion callback is still outstanding.
+        wait_for_condition 1000 1 {
+            [CI 0 cluster_slot_migration_background_trim_running] > 0
+        } else {
+            fail "background trim did not start; race window not exercised"
+        }
+
+        # Force the synchronous, in-place FLUSH path.
+        R 0 multi
+        R 0 flushall sync
+        R 0 exec
+
+        # The old background trim must still be outstanding after the histogram
+        # reset. Otherwise the stale callback did not span the reset and this run
+        # would not exercise the bug.
+        assert {
+            [CI 0 cluster_slot_migration_background_trim_running] > 0
+        }
+
+        # Add a fresh group in the same PEL bin that the stale delta would
+        # decrement.
+        set keep [slot_key 101 strm]
+        for {set i 1} {$i <= 3} {incr i} {
+            R 0 xadd $keep $i-1 f v
+        }
+        R 0 xgroup create $keep g 0
+        R 0 xreadgroup group g c count 1 streams $keep >
+        assert_equal "1=1" [stream_pel_hist 0]
+
+        # Wait for the exact completion callback that performs the epoch check.
+        # bg_trim_running is decremented only after that callback has handled the
+        # histogram delta, so once it reaches zero no stale subtraction can still
+        # arrive. Not wait_for_asm_done(): that only covers active_trim_jobs, so it
+        # can return while a background trim's callback is still queued.
+        wait_for_condition 1000 10 {
+            [CI 0 cluster_slot_migration_background_trim_running] == 0
+        } else {
+            fail "background trim completion callback did not run"
+        }
+
+        assert_equal "1=1" [stream_pel_hist 0]
+
+        # Cleanup: flush and migrate the slots back to R 0.
+        R 0 flushall
+        R 1 flushall
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 config set stream-stats no
+    }
+
+    # Background trim frees migrated stream keys off-thread, so their consumer
+    # groups are binned by populateDeltaHistograms() (bg method only; the active
+    # method frees via the live streamKeyRemoved). That path must bin through the
+    # shared streamDistribBin(), which clamps an out-of-range lag to the top
+    # bucket instead of indexing past the histogram -- a heap OOB write into
+    # asmTrimCtx, caught under AddressSanitizer. A lag beyond the range is
+    # reachable with a small entries_read and a huge entries_added (XSETID
+    # ENTRIESADDED), which stays valid for migration (entries_read <=
+    # entries_added, so RDB/RESTORE accepts it). A negative lag cannot be
+    # exercised at all: XSETID clamps entries_read down to entries_added, and a
+    # stream that already breaks the invariant is rejected on load, so it cannot
+    # be migrated either. streamDistribBin() still maps it to "no sample"
+    # defensively.
+    test "Slot bg-trim bins an out-of-range lag safely" {
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+        R 1 flushall
+        R 0 config set stream-stats yes
+        R 1 config set stream-stats yes
+
+        # A group in a MIGRATED slot (0-100): PEL bin "1", and a lag beyond the
+        # histogram range (~2^63) via a huge entries_added -> top bin "256P".
+        set mig [slot_key 2 strm]
+        for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
+        R 0 xgroup create $mig g 0
+        R 0 xreadgroup group g c count 1 streams $mig >
+        R 0 xsetid $mig 3-1 entriesadded 9223372036854775806
+        assert_equal "1=1" [stream_pel_hist 0]
+        assert_equal "256P=1" [stream_lag_hist 0]
+
+        # Migrating the slot makes the source bg-trim its copy: the delta bins
+        # this ~2^63 lag through the clamp (no OOB) and removes it cleanly.
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        wait_for_condition 1000 50 {
+            [stream_lag_hist 0] eq "" && [stream_pel_hist 0] eq ""
+        } else {
+            fail "R0 histograms not trimmed: lag=[stream_lag_hist 0] pel=[stream_pel_hist 0]"
+        }
+        # The importing node reconstructs it through the same clamp.
+        assert_equal "1=1" [stream_pel_hist 1]
+        assert_equal "256P=1" [stream_lag_hist 1]
+
+        # cleanup: flush and migrate the slots back to R 0.
+        R 0 flushall
+        R 1 flushall
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 config set stream-stats no
+        R 1 config set stream-stats no
     }
 }
 
