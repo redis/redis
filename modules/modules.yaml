@@ -69,13 +69,13 @@ modules:
     loadmodule: ./modules/redisbloom/redisbloom.so
   - name: redisearch
     repo: https://github.com/redisearch/redisearch
-    ref: v8.10.0
+    ref: tal.ba/feat/non_toolchain_uptodate
     target_module: search-community/redisearch.so
     loadmodule: ./modules/redisearch/redisearch.so
     build_env: LTO=1 REDISEARCH_GENERATE_HEADERS=0 INLINE_LSE_ATOMICS=0
   - name: redisjson
     repo: https://github.com/redisjson/redisjson
-    ref: v8.10.0
+    ref: tal.ba/feat/up_to_date_no_toolchain
     target_module: rejson.so
     loadmodule: ./modules/redisjson/rejson.so
   - name: redistimeseries
