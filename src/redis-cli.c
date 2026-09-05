@@ -1220,7 +1220,11 @@ static sds addHintForArgument(sds hint, cliCommandArg *arg) {
     }
 
     /* Surround an optional arg with brackets, unless it's partially matched. */
-    if ((arg->flags & CMD_ARG_OPTIONAL) && !arg->matched) {
+    /* We store the result in a variable since arg->matched flag would be
+       reset inside addHintForRepeatedArgument() which is being called in this codepath
+    */
+    int optional_unmatched = (arg->flags & CMD_ARG_OPTIONAL) && !arg->matched;
+    if (optional_unmatched) {
         hint = sdscat(hint, "[");
     }
 
@@ -1263,7 +1267,7 @@ static sds addHintForArgument(sds hint, cliCommandArg *arg) {
 
     hint = addHintForRepeatedArgument(hint, arg);
 
-    if ((arg->flags & CMD_ARG_OPTIONAL) && !arg->matched) {
+    if (optional_unmatched) {
         hint = sdscat(hint, "]");
     }
 
