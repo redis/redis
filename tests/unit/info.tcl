@@ -114,6 +114,36 @@ start_server {tags {"info" "external:skip"}} {
             assert {$p50_debug >= $p50_set}
         } {} {needs:debug}
 
+        test {latencystats: percentiles configured out of order (incl p0/p100)} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            # Out-of-order list including p0 and p100 exercises the single-pass
+            # batch percentile resolver's sort/scatter and the p0->lowest /
+            # else->highest equivalent-value handling. The emitted values must
+            # stay consistent with the per-percentile path: monotonic
+            # non-decreasing by percentile regardless of the configured order.
+            r CONFIG SET latency-tracking-info-percentiles "100.0 0.0 99.9 50.0"
+            # Build a real spread in the debug-command histogram (fast + slow).
+            for {set i 0} {$i < 20} {incr i} { r debug sleep 0 }
+            r debug sleep 0.03
+            r debug sleep 0.05
+            set line [latency_percentiles_usec debug]
+            # Labels emitted in the configured (unordered) order.
+            assert_match {*p100=*p0=*p99.9=*p50=*} $line
+            assert {[regexp {p0=([0-9.]+)} $line -> p0]}
+            assert {[regexp {p50=([0-9.]+)} $line -> p50]}
+            assert {[regexp {p99\.9=([0-9.]+)} $line -> p999]}
+            assert {[regexp {p100=([0-9.]+)} $line -> p100]}
+            # Monotonic by percentile despite the unordered emission order
+            # (a sort/scatter mismatch between label and value would break this).
+            assert {$p0 <= $p50}
+            assert {$p50 <= $p999}
+            assert {$p999 <= $p100}
+            # The spread is real: p100 reflects the ~50ms samples, well above p0.
+            assert {$p100 >= 30000}
+            assert {$p0 < $p100}
+        } {} {needs:debug}
+
         test {errorstats: failed call authentication error} {
             r config resetstat
             assert_match {} [errorstat ERR]
