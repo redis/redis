@@ -2993,9 +2993,50 @@ static sds getConfigDirOption(standardConfig *config) {
     return sdsnew(buf);
 }
 
+/* Parse a single "<seconds> <changes>" save point. On success 1 is returned and
+ * the parsed values are stored in seconds_out and changes_out, otherwise 0 is
+ * returned and *err is set.
+ *
+ * Both values are capped at INT_MAX (about 68 years for the seconds, which is
+ * way more than any sane save point): changes is stored in an int, and seconds,
+ * while stored in a time_t, is emitted as a long by rewriteConfigSaveOption().
+ * Without the check the values silently wrap, and a negative changes count
+ * makes serverCron() fire a background save on every single change. */
+static int parseSaveParamPair(sds seconds_str, sds changes_str,
+                              time_t *seconds_out, int *changes_out,
+                              const char **err)
+{
+    char *eptr;
+    long long seconds, changes;
+
+    errno = 0;
+    seconds = strtoll(seconds_str,&eptr,10);
+    if (eptr == seconds_str || eptr[0] != '\0' || errno == ERANGE ||
+        seconds < 1 || seconds > INT_MAX)
+    {
+        *err = "Invalid save parameters";
+        return 0;
+    }
+
+    errno = 0;
+    changes = strtoll(changes_str,&eptr,10);
+    if (eptr == changes_str || eptr[0] != '\0' || errno == ERANGE ||
+        changes < 0 || changes > INT_MAX)
+    {
+        *err = "Invalid save parameters";
+        return 0;
+    }
+
+    *seconds_out = seconds;
+    *changes_out = changes;
+    return 1;
+}
+
 static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, const char **err) {
     UNUSED(config);
     int j;
+    time_t seconds;
+    int changes;
 
     /* Special case: treat single arg "" as zero args indicating empty save configuration */
     if (argc == 1 && !strcasecmp(argv[0],"")) {
@@ -3005,23 +3046,16 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
 
     /* Perform sanity check before setting the new config:
     * - Even number of args
-    * - Seconds >= 1, changes >= 0 */
+    * - Seconds >= 1, changes >= 0, and both fitting struct saveparam */
     if (argc & 1) {
         *err = "Invalid save parameters";
         return 0;
     }
-    for (j = 0; j < argc; j++) {
-        char *eptr;
-        long val;
-
-        val = strtoll(argv[j], &eptr, 10);
-        if (eptr[0] != '\0' ||
-            ((j & 1) == 0 && val < 1) ||
-            ((j & 1) == 1 && val < 0)) {
-            *err = "Invalid save parameters";
+    for (j = 0; j < argc; j += 2) {
+        if (!parseSaveParamPair(argv[j],argv[j+1],&seconds,&changes,err))
             return 0;
-        }
     }
+
     /* Finally set the new config */
     if (!reading_config_file) {
         resetServerSaveParams();
@@ -3037,11 +3071,8 @@ static int setConfigSaveOption(standardConfig *config, sds *argv, int argc, cons
     }
 
     for (j = 0; j < argc; j += 2) {
-        time_t seconds;
-        int changes;
-
-        seconds = strtoll(argv[j],NULL,10);
-        changes = strtoll(argv[j+1],NULL,10);
+        /* Already validated above, so this can't fail. */
+        serverAssert(parseSaveParamPair(argv[j],argv[j+1],&seconds,&changes,err));
         appendServerSaveParams(seconds, changes);
     }
 
