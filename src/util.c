@@ -786,6 +786,8 @@ int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_
     10000000.0, 100000000.0, 1000000000.0, 10000000000.0, 100000000000.0, 1000000000000.0,
     10000000000000.0, 100000000000000.0, 1000000000000000.0, 10000000000000000.0,
     100000000000000000.0 };
+    if (fabs(dvalue) > (double)LLONG_MAX / powers_of_ten[fractional_digits])
+        goto err;
     long long svalue = llrint(dvalue * powers_of_ten[fractional_digits]);
     unsigned long long value;
     /* write sign */
@@ -833,11 +835,15 @@ int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_
         int const i = (value % 100) * 2;
         value /= 100;
         dst[next] = digitsd[i + 1];
-        dst[next - 1] = digitsd[i];
-        next -= 2;
-        /* dot position */
-        if (next == integer_digits) {
-            next--;
+        if (next - 1 == integer_digits) {
+            dst[next - 2] = digitsd[i];
+            next -= 3;
+        } else {
+            dst[next - 1] = digitsd[i];
+            next -= 2;
+            if (next == integer_digits) {
+                next--;
+            }
         }
     }
 
@@ -847,7 +853,11 @@ int fixedpoint_d2string(char *dst, size_t dstlen, double dvalue, int fractional_
     } else {
         int i = (uint32_t) value * 2;
         dst[next] = digitsd[i + 1];
-        dst[next - 1] = digitsd[i];
+        if (next - 1 == integer_digits) {
+            dst[next - 2] = digitsd[i];
+        } else {
+            dst[next - 1] = digitsd[i];
+        }
     }
     /* Null term. */
     dst[size] = '\0';
@@ -1802,6 +1812,40 @@ static void test_fixedpoint_d2string(void) {
     sz = fixedpoint_d2string(buf, sizeof buf, v, 4);
     assert(sz == 7);
     assert(!strcmp(buf, "10.0100"));
+    memset(buf,'A',32);
+    v = 12.345678;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 3);
+    assert(sz == 6);
+    assert(!strcmp(buf, "12.346"));
+    memset(buf,'A',32);
+    v = 100.0;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 5);
+    assert(sz == 9);
+    assert(!strcmp(buf, "100.00000"));
+    memset(buf,'A',32);
+    v = 1234.5;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 1);
+    assert(sz == 6);
+    assert(!strcmp(buf, "1234.5"));
+    memset(buf,'A',32);
+    v = 5.5;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 1);
+    assert(sz == 3);
+    assert(!strcmp(buf, "5.5"));
+    memset(buf,'A',32);
+    v = 1.234;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 3);
+    assert(sz == 5);
+    assert(!strcmp(buf, "1.234"));
+    memset(buf,'A',32);
+    v = -1234.5;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 1);
+    assert(sz == 7);
+    assert(!strcmp(buf, "-1234.5"));
+    memset(buf,'A',32);
+    v = 100.0;
+    sz = fixedpoint_d2string(buf, sizeof buf, v, 17);
+    assert(sz == 0);
     /* negative tests */
     sz = fixedpoint_d2string(buf, sizeof buf, v, 18);
     assert(sz == 0);
