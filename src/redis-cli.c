@@ -1186,6 +1186,7 @@ static sds addHintForRepeatedArgument(sds hint, cliCommandArg *arg) {
     hint = sdscat(hint, "[");
 
     if (arg->flags & CMD_ARG_MULTIPLE_TOKEN) {
+        assert(arg->token);
         hint = sdscat_orempty(hint, arg->token);
         if (arg->type != ARG_TYPE_PURE_TOKEN) {
             hint = sdscat(hint, " ");
