@@ -2107,17 +2107,23 @@ void bitfieldGeneric(client *c, int flags) {
         }
     }
 
-    if (changes) {
+    /* If the string was created or grown but no writes succeeded (e.g. all
+     * OVERFLOW FAIL), we still need to persist the mutation so replicas and
+     * AOF reflect the new size. Track growth separately from successful writes. */
+    if (changes || strGrowSize) {
 
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
+        /* If this is not a new key (old size not 0) and size changed, then
+         * update the keysizes histogram. Otherwise, the histogram already
          * updated in lookupStringForBitCommand() by calling dbAdd(). */
         if ((strOldSize > 0) && (strGrowSize != 0))
             updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
-        
+
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty += changes;
+        if (changes)
+            server.dirty += changes;
+        else
+            server.dirty++;
     }
     zfree(ops);
 }

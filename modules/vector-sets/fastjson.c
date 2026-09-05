@@ -68,6 +68,9 @@ static int jsonSkipString(const char **p, const char *end) {
     (*p)++; /* Skip opening quote. */
     while (*p < end) {
         if (**p == '\\') {
+            /* Guard against trailing backslash at end of buffer.
+             * Advance only if there's at least one more byte available. */
+            if (*p + 1 >= end) return 0;
             (*p) += 2;
             continue;
         }
