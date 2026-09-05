@@ -125,21 +125,22 @@ int setTypeAdd(robj *subject, sds value) {
  * Returns 1 if the value was added and 0 if it was already a member. */
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
-    if (!str) {
-        if (set->encoding == OBJ_ENCODING_INTSET) {
-            uint8_t success = 0;
-            set->ptr = intsetAdd(set->ptr, llval, &success);
-            if (success) maybeConvertIntset(set);
-            return success;
-        }
-        /* Convert int to string. */
-        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
-        str = tmpbuf;
-        str_is_sds = 0;
+    int input_is_integer = (str == NULL);
+
+    if (input_is_integer && set->encoding == OBJ_ENCODING_INTSET) {
+        uint8_t success = 0;
+        set->ptr = intsetAdd(set->ptr, llval, &success);
+        if (success) maybeConvertIntset(set);
+        return success;
     }
 
-    serverAssert(str);
     if (set->encoding == OBJ_ENCODING_HT) {
+        if (input_is_integer) {
+            len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+            str = tmpbuf;
+            str_is_sds = 0;
+        }
+        serverAssert(str);
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
@@ -158,17 +159,22 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
-        if (p != NULL)
-            p = lpFind(lp, p, (unsigned char*)str, len, 0);
+        if (p != NULL) {
+            if (input_is_integer) {
+                p = lpFindInteger(lp, p, llval, 0);
+            } else {
+                p = lpFind(lp, p, (unsigned char*)str, len, 0);
+            }
+        }
         if (p == NULL) {
             /* Not found.  */
+            size_t addlen = input_is_integer ? lpEntrySizeInteger(llval) : len;
             if (lpLength(lp) < server.set_max_listpack_entries &&
-                len <= server.set_max_listpack_value &&
-                lpSafeToAdd(lp, len))
+                (input_is_integer ? sdigits10(llval) <= server.set_max_listpack_value
+                                  : len <= server.set_max_listpack_value) &&
+                lpSafeToAdd(lp, addlen))
             {
-                if (str == tmpbuf) {
-                    /* This came in as integer so we can avoid parsing it again.
-                     * TODO: Create and use lpFindInteger; don't go via string. */
+                if (input_is_integer) {
                     lp = lpAppendInteger(lp, llval);
                 } else {
                     lp = lpAppend(lp, (unsigned char*)str, len);
@@ -177,6 +183,10 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
                 setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
+                if (input_is_integer) {
+                    len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+                    str = tmpbuf;
+                }
                 sds newval = sdsnewlen(str,len);
                 serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
                 *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
@@ -184,6 +194,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             return 1;
         }
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
+        serverAssert(str);
         long long value;
         if (string2ll(str, len, &value)) {
             uint8_t success = 0;
@@ -646,7 +657,16 @@ void saddCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
     for (j = 2; j < c->argc; j++) {
-        if (setTypeAdd(set,c->argv[j]->ptr)) added++;
+        long long llval;
+        sds ele = c->argv[j]->ptr;
+        size_t elen = sdslen(ele);
+        int added_this;
+        if (set->encoding != OBJ_ENCODING_HT && string2ll(ele, elen, &llval)) {
+            added_this = setTypeAddAux(set, NULL, 0, llval, 0);
+        } else {
+            added_this = setTypeAddAux(set, ele, elen, 0, 1);
+        }
+        if (added_this) added++;
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
