@@ -378,21 +378,28 @@ writeerr:
     return -1;
 }
 
+/* Reusable compression buffer to avoid dynamic allocation in the BGSAVE child.
+ * Without this, zmalloc may reuse pages freed by dismissSds(), dirtying shared
+ * pages and triggering copy-on-write. */
+#define RDB_LZF_STATIC_BUF_SIZE (8 * 1024)
+
 ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
     size_t comprlen, outlen;
     void *out;
+    static void *lzf_buf = NULL;
 
     /* We require at least four bytes compression for this to be worth it */
     if (len <= 4) return 0;
     outlen = len-4;
-    if ((out = zmalloc(outlen+1)) == NULL) return 0;
-    comprlen = lzf_compress(s, len, out, outlen);
-    if (comprlen == 0) {
-        zfree(out);
-        return 0;
+    if (outlen < RDB_LZF_STATIC_BUF_SIZE) {
+        if (!lzf_buf) lzf_buf = zmalloc(RDB_LZF_STATIC_BUF_SIZE);
+        out = lzf_buf;
+    } else {
+        if ((out = zmalloc(outlen+1)) == NULL) return 0;
     }
-    ssize_t nwritten = rdbSaveLzfBlob(rdb, out, comprlen, len);
-    zfree(out);
+    comprlen = lzf_compress(s, len, out, outlen);
+    ssize_t nwritten = comprlen ? rdbSaveLzfBlob(rdb, out, comprlen, len) : 0;
+    if (out != lzf_buf) zfree(out);
     return nwritten;
 }
 
@@ -1992,9 +1999,10 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
         /* In fork child process, we can try to release memory back to the
          * OS and possibly avoid or decrease COW. We give the dismiss
          * mechanism a hint about an estimated size of the object we stored. */
-        size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
-        if (server.in_fork_child && dump_size > server.page_size/2)
+        if (server.in_fork_child) {
+            size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
             dismissObject(kv, dump_size);
+        }
 
         /* Update child info every 1 second (approximately).
          * in order to avoid calling mstime() on each iteration, we will

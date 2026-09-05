@@ -690,7 +690,7 @@ void decrRefCount(robj *o) {
 
 /* See dismissObject() */
 void dismissSds(sds s) {
-    dismissMemory(sdsAllocPtr(s), sdsAllocSize(s));
+    sdsfree(s);
 }
 
 /* See dismissObject() */
@@ -869,13 +869,20 @@ void dismissGCRAObject(robj *o, size_t size_hint) {
  * it can reduce unnecessary iteration for complex data types that are probably
  * not going to release any memory. */
 void dismissObject(robj *o, size_t size_hint) {
-    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled. */
-    if (server.thp_enabled) return;
+    /* madvise(MADV_DONTNEED) may not work if Transparent Huge Pages is enabled.
+     * Strings use sdsfree() which doesn't depend on madvise, so skip this
+     * check for them. */
+    if (server.thp_enabled && o->type != OBJ_STRING) return;
 
     /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC) && defined(__linux__)
     if (o->refcount != 1) return;
+    /* For strings, sdsfree() works at any allocation size, so always proceed.
+     * For complex types, skip when serialized size is too small for the
+     * page-granular madvise to be effective. When size_hint is 0 (unknown),
+     * proceed and let the type-specific functions decide. */
+    if (o->type != OBJ_STRING && size_hint && size_hint <= server.page_size/2) return;
     switch(o->type) {
         case OBJ_STRING: dismissStringObject(o); break;
         case OBJ_LIST: dismissListObject(o, size_hint); break;
