@@ -292,6 +292,30 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r HEXPIRETIME myhash FIELDS 1 field1] $lo $hi
             assert_range [r HPEXPIRETIME myhash FIELDS 1 field1] [expr $lo*1000] [expr $hi*1000]
         }
+
+        test "HPEXPIRE keeps existing field values unchanged when adding expiry metadata ($type)" {
+            r del myhash
+            set value value1
+            if {$type eq "hashtable"} {
+                set value [string repeat x 1024]
+            }
+            r HSET myhash field1 $value field2 value2
+
+            # HPEXPIRE updates expiry metadata without passing a new value to entryUpdate.
+            assert_equal [r HPEXPIRE myhash 60000 FIELDS 1 field1] [list $E_OK]
+            assert_encoding $type myhash
+            assert_equal [r HGET myhash field1] $value
+            assert_equal [r HGET myhash field2] value2
+            assert_equal [r HLEN myhash] 2
+            assert_range [r HPTTL myhash FIELDS 1 field1] 1 60000
+            assert_equal [r HPTTL myhash FIELDS 1 field2] [list $T_NO_EXPIRY]
+
+            # Verify the non-NULL value update path is unaffected.
+            assert_equal [r HSET myhash field1 updated] 0
+            assert_equal [r HGET myhash field1] updated
+            assert_equal [r HGET myhash field2] value2
+            assert_equal [r HPTTL myhash FIELDS 1 field1] [list $T_NO_EXPIRY]
+        }
         
         test "HPEXPIRETIME persists after RDB reload ($type)" {
             r del myhash
