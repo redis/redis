@@ -2935,8 +2935,9 @@ static int applyTlsCluster(const char **err) {
     if (!applyTlsCfg(err)) return 0;
 
     /* tls-cluster selects which client port is advertised by the cluster.
-     * Modules cache that topology through the cluster module APIs, so notify
-     * them when the preferred port changes. */
+     * Update myself->cport and notify modules when the preferred port
+     * changes. */
+    clusterUpdateMyselfAnnouncedPorts();
     clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
     return 1;
 }
