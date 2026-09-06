@@ -514,16 +514,21 @@ size_t bitroarAllocSize(const robj *o) {
     return bitmap->alloc_size;
 }
 
-size_t bitroarContainerCount(const robj *o) {
+size_t bitroarContainerCountUpTo(const robj *o, size_t limit) {
     bitroar *bitmap = bitroarGet(o);
     size_t count = 0;
 
     art_iterator_t it = art_init_iterator((art_t *)&bitmap->roaring->art, true);
-    while (it.value != NULL) {
+    while (it.value != NULL && count < limit) {
         count++;
-        art_iterator_next(&it);
+        if (count < limit)
+            art_iterator_next(&it);
     }
     return count;
+}
+
+size_t bitroarContainerCount(const robj *o) {
+    return bitroarContainerCountUpTo(o, SIZE_MAX);
 }
 
 static void bitroarDismissContainer(container_t *container, uint8_t type) {
