@@ -3982,11 +3982,12 @@ int processInputBuffer(client *c) {
 
 int handleRequestThrottling(client *c) {
     /* If we're in a throttling interval, we just check to see when it can
-     * be turned off.  This does NOT apply to new connections, on which we
-     * allow the first command anyway.
+     * be turned off. This does NOT apply to new connections, on which we
+     * allow the first command anyway, and to clients that must be processed.
      */
     if (!RequestThrottler_IsSuspended()) return C_OK;
     if (c != NULL && c->lastcmd == NULL) return C_OK;
+    if (mustObeyClient(c)) return C_OK;
 
     return C_ERR;
 }

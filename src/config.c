@@ -3316,7 +3316,7 @@ static int setConfigSlaveOutputBufferThrottlingOption(standardConfig *config, sd
     unsigned long long slave_obuf_throttle_threshold;
     unsigned long long slave_obuf_throttle_limit;
     unsigned long long slave_obuf_throttle_repl_rate;
-    unsigned int slave_obuf_throttle_max_delay_ms;
+    unsigned long long slave_obuf_throttle_max_delay_ms;
 
     if (argc != 4) return 0;
 
@@ -3324,12 +3324,14 @@ static int setConfigSlaveOutputBufferThrottlingOption(standardConfig *config, sd
     int read_err = 0;
     slave_obuf_throttle_threshold = memtoull(argv[0], &read_err);
     if (read_err) return 0;
-    slave_obuf_throttle_limit = memtoull(argv[1],&read_err);
+    slave_obuf_throttle_limit = memtoull(argv[1], &read_err);
     if (read_err) return 0;
-    slave_obuf_throttle_repl_rate = memtoull(argv[2],&read_err);
+    slave_obuf_throttle_repl_rate = memtoull(argv[2], &read_err);
     if (read_err) return 0;
-    slave_obuf_throttle_max_delay_ms = strtoul(argv[3],&ptr,10);
-    if (!ptr || *ptr) return 0;
+    /* strtoul() does not error on negative numbers */
+    if (argv[3][0] == '-') return 0;
+    slave_obuf_throttle_max_delay_ms = strtoull(argv[3], &ptr, 10);
+    if (!ptr || *ptr || slave_obuf_throttle_max_delay_ms > UINT_MAX) return 0;
 
     /* set all at once */
     server.slave_obuf_throttle_threshold = slave_obuf_throttle_threshold;
@@ -3353,7 +3355,7 @@ static sds getConfigSlaveOutputBufferThrottlingOption(standardConfig *config) {
 void rewriteConfigSlaveOutputBufferThrottlingOption(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     UNUSED(config);
     sds line;
-    line = sdscatprintf(sdsempty(), "%s %llu %llu %llu %d",
+    line = sdscatprintf(sdsempty(), "%s %llu %llu %llu %u",
                         name,
                         server.slave_obuf_throttle_threshold,
                         server.slave_obuf_throttle_limit,

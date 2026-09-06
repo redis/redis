@@ -36,23 +36,23 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         assert_equal $oldval {0 0 31457280 500}
 
         catch {r config set slave-output-buffer-throttling "wrong"} e
-        assert_match {*wrong*arguments*} $e
+        assert_match {*possibly related to argument 'slave-output-buffer-throttling'*} $e
 
         catch {r config set slave-output-buffer-throttling "10mb 20mb 30mb"} e
-        assert_match {*wrong*arguments*} $e
+        assert_match {*possibly related to argument 'slave-output-buffer-throttling'*} $e
 
         catch {r config set slave-output-buffer-throttling "10mbs 20mb 30mb 100"} e
-        assert_match {*Error*} $e
+        assert_match {*possibly related to argument 'slave-output-buffer-throttling'*} $e
 
         catch {r config set slave-output-buffer-throttling "10mb 20mb 30mb -1"} e
-        assert_match {*Error*} $e
+        assert_match {*possibly related to argument 'slave-output-buffer-throttling'*} $e
 
         # max-delay must fit in unsigned int
         catch {r config set slave-output-buffer-throttling "10mb 20mb 30mb 4294967296"} e
-        assert_match {*Error*} $e
+        assert_match {*possibly related to argument 'slave-output-buffer-throttling'*} $e
 
         catch {r config set slave-output-buffer-throttling "1mb 2mb 3mb 50"} e
-        assert_match {*Unknown option*} $e
+        assert_match {OK} $e
 
         r config set slave-output-buffer-throttling "32mb 224mb 20mb 200"
         set res [lindex [r config get slave-output-buffer-throttling] 1]
