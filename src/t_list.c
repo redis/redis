@@ -1552,11 +1552,38 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
 {
     int samekey = (dstobj == srcobj);
 
-    /* Pop the 'count' elements out of the source, preserving pop order. */
-    robj **vals = zmalloc(sizeof(robj*) * count);
     size_t src_oldsize = 0;
     if (server.memory_tracking_enabled)
         src_oldsize = kvobjAllocSize(srcobj);
+
+    /* OBO moves each element independently. When the source and destination
+     * are the same list and the ends match, each move is a no-op rotation, so
+     * pop and push one element at a time instead of batching the block. */
+    if (samekey && ordering == LMOVEM_ORDER_OBO && wherefrom == whereto && count > 1) {
+        addReplyArrayLen(c, count);
+        for (long i = 0; i < count; i++) {
+            robj *value = listTypePop(srcobj, wherefrom);
+            serverAssert(value != NULL);
+            addReplyBulk(c, value);
+            listTypeTryConversionAppend(srcobj, &value, 0, 0, NULL, NULL);
+            listTypePush(srcobj, value, whereto);
+            decrRefCount(value);
+        }
+
+        notifyKeyspaceEvent(NOTIFY_LIST, whereto == LIST_HEAD ? "lpush" : "rpush",
+                            srckey, c->db->id);
+        notifyKeyspaceEvent(NOTIFY_LIST, wherefrom == LIST_HEAD ? "lpop" : "rpop",
+                            srckey, c->db->id);
+        keyModified(c, c->db, srckey, srcobj, 1);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(srckey->ptr), srcobj,
+                                src_oldsize, kvobjAllocSize(srcobj));
+        server.dirty += count;
+        return;
+    }
+
+    /* Pop the 'count' elements out of the source, preserving pop order. */
+    robj **vals = zmalloc(sizeof(robj*) * count);
     for (long i = 0; i < count; i++) {
         vals[i] = listTypePop(srcobj, wherefrom);
         serverAssert(vals[i] != NULL);

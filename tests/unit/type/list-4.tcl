@@ -96,6 +96,35 @@ foreach {type large} [array get largevalue] {
         assert_equal {1 2} [r lmovem k{t} k{t} left right count 2 bulk]
         assert_equal "3 4 $large 1 2" [r lrange k{t} 0 -1]
     }
+
+    test "LMOVEM same-key OBO same-side moves one-by-one - $type" {
+        r del k{t}
+        create_$type k{t} "1 2 3 4 $large"
+        assert_equal {1 1} [r lmovem k{t} k{t} left left count 2 obo]
+        assert_equal "1 2 3 4 $large" [r lrange k{t} 0 -1]
+
+        r del k{t}
+        create_$type k{t} "1 2 3 4 $large"
+        assert_equal [list $large $large] [r lmovem k{t} k{t} right right count 2 obo]
+        assert_equal "1 2 3 4 $large" [r lrange k{t} 0 -1]
+
+        r del k{t}
+        create_$type k{t} "1 2 3 4 $large"
+        assert_equal {1 1} [r lmovem k{t} k{t} left left exactly 2 obo]
+        assert_equal "1 2 3 4 $large" [r lrange k{t} 0 -1]
+    }
+
+    test "BLMOVEM same-key OBO same-side moves one-by-one - $type" {
+        r del k{t}
+        create_$type k{t} "1 2 3 4 $large"
+        assert_equal {1 1} [r blmovem k{t} k{t} left left 0 count 2 obo]
+        assert_equal "1 2 3 4 $large" [r lrange k{t} 0 -1]
+
+        r del k{t}
+        create_$type k{t} "1 2 3 4 $large"
+        assert_equal [list $large $large] [r blmovem k{t} k{t} right right 0 count 2 obo]
+        assert_equal "1 2 3 4 $large" [r lrange k{t} 0 -1]
+    }
 }
 
     test {LMOVEM notifications match LMOVE push-before-pop order} {
