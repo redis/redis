@@ -3792,7 +3792,7 @@ void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long dura
 }
 
 void alsoPropagate(int dbid, robj **argv, int argc, int target) {
-    alsoPropagateEx(dbid, argv, argc, target, 0);
+    alsoPropagateEx(dbid, argv, argc, target, PROP_DURATION_UNKNOWN);
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
