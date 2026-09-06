@@ -23,14 +23,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check out PR base
+      # This workflow is also exercised by the upstream native-bitmap PR,
+      # whose base does not support native bitmaps. Compare against the last
+      # feature-capable revision before redis-cli learned bitmap cardinality.
+      - name: Check out regression baseline
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git worktree add /tmp/redis-benchmark-base "$BASE_SHA"
+          BASE_SHA: d3b6669f755a08001e0135829a7036c4e4774a00
+        run: git worktree add /tmp/redis-benchmark-baseline "$BASE_SHA"
 
-      - name: Build base and head
+      - name: Build baseline and head
         run: |
-          make -C /tmp/redis-benchmark-base -j2
+          make -C /tmp/redis-benchmark-baseline -j2
           make -j2
 
       - name: Measure bitmap cardinality scan cost
@@ -39,29 +42,29 @@ jobs:
             sed -n "s/.*$1=\\([^ ]*\\).*/\\1/p"
           }
 
-          base_samples=()
+          baseline_samples=()
           head_samples=()
           for sample in 1 2 3; do
             if (( sample % 2 == 1 )); then
-              base_result=$(tests/benchmarks/redis-cli-bitmap-bigkeys.sh \
-                /tmp/redis-benchmark-base/src/redis-server \
-                /tmp/redis-benchmark-base/src/redis-cli)
+              baseline_result=$(tests/benchmarks/redis-cli-bitmap-bigkeys.sh \
+                /tmp/redis-benchmark-baseline/src/redis-server \
+                /tmp/redis-benchmark-baseline/src/redis-cli)
               head_result=$(tests/benchmarks/redis-cli-bitmap-bigkeys.sh \
                 "$PWD/src/redis-server" "$PWD/src/redis-cli")
             else
               head_result=$(tests/benchmarks/redis-cli-bitmap-bigkeys.sh \
                 "$PWD/src/redis-server" "$PWD/src/redis-cli")
-              base_result=$(tests/benchmarks/redis-cli-bitmap-bigkeys.sh \
-                /tmp/redis-benchmark-base/src/redis-server \
-                /tmp/redis-benchmark-base/src/redis-cli)
+              baseline_result=$(tests/benchmarks/redis-cli-bitmap-bigkeys.sh \
+                /tmp/redis-benchmark-baseline/src/redis-server \
+                /tmp/redis-benchmark-baseline/src/redis-cli)
             fi
-            base_sample=$(value elapsed_ms <<<"$base_result")
+            baseline_sample=$(value elapsed_ms <<<"$baseline_result")
             head_sample=$(value elapsed_ms <<<"$head_result")
-            if [[ ! "$base_sample" =~ ^[0-9]+$ || ! "$head_sample" =~ ^[0-9]+$ ]]; then
+            if [[ ! "$baseline_sample" =~ ^[0-9]+$ || ! "$head_sample" =~ ^[0-9]+$ ]]; then
               echo "Could not parse benchmark sample" >&2
               exit 1
             fi
-            base_samples+=("$base_sample")
+            baseline_samples+=("$baseline_sample")
             head_samples+=("$head_sample")
           done
 
@@ -72,36 +75,36 @@ jobs:
             middle=$((${#sorted[@]} / 2))
             printf '%s\n' "${sorted[$middle]}"
           }
-          base_ms=$(median "${base_samples[@]}")
+          baseline_ms=$(median "${baseline_samples[@]}")
           head_ms=$(median "${head_samples[@]}")
-          base_total=$(value bitmap_total <<<"$base_result")
+          baseline_total=$(value bitmap_total <<<"$baseline_result")
           head_total=$(value bitmap_total <<<"$head_result")
           head_count=$(value bitmap_count <<<"$head_result")
           head_unit=$(value unit <<<"$head_result")
           expected_total=$(value expected_total <<<"$head_result")
 
-          for metric in "$base_ms" "$head_ms" "$base_total" "$head_total" "$head_count" "$expected_total"; do
+          for metric in "$baseline_ms" "$head_ms" "$baseline_total" "$head_total" "$head_count" "$expected_total"; do
             if [[ ! "$metric" =~ ^[0-9]+$ ]]; then
               echo "Could not parse benchmark result" >&2
               exit 1
             fi
           done
 
-          delta_ms=$((head_ms - base_ms))
+          delta_ms=$((head_ms - baseline_ms))
           {
             echo '## redis-cli native-bitmap big-key benchmark'
             echo
             echo '| Revision | Scan duration | Reported cardinality |'
             echo '|---|---:|---:|'
-            echo "| PR base | ${base_ms} ms | ${base_total} |"
+            echo "| Pre-cardinality baseline | ${baseline_ms} ms | ${baseline_total} |"
             echo "| PR head | ${head_ms} ms | ${head_total} set bits |"
             echo
             echo "Fixture: 20,000 native bitmap keys, including 1,000 with 32 sparse containers."
-            echo "Base samples: ${base_samples[*]} ms. Head samples: ${head_samples[*]} ms."
-            echo "Median head-minus-base scan delta: ${delta_ms} ms."
+            echo "Baseline samples: ${baseline_samples[*]} ms. Head samples: ${head_samples[*]} ms."
+            echo "Median head-minus-baseline scan delta: ${delta_ms} ms."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "base: $base_result"
+          echo "baseline: $baseline_result"
           echo "head: $head_result"
 
           if [[ "$head_count" != 20000 || "$head_total" != "$expected_total" || "$head_unit" != set_bits ]]; then
@@ -111,7 +114,7 @@ jobs:
 
           # BITCOUNT adds real work, but it should stay within a generous bound
           # that catches accidental serial scans or other pathological changes.
-          if (( head_ms > base_ms * 2 + 500 )); then
+          if (( head_ms > baseline_ms * 2 + 500 )); then
             echo "Bitmap cardinality scan exceeded the CI performance budget" >&2
             exit 1
           fi

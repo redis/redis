@@ -24,44 +24,47 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check out PR base
+      # This workflow is also exercised by the upstream native-bitmap PR,
+      # whose base does not support native bitmaps. Compare against the last
+      # feature-capable revision before the bounded-count optimization instead.
+      - name: Check out regression baseline
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git worktree add /tmp/redis-benchmark-base "$BASE_SHA"
+          BASE_SHA: 6f747c9b0b9d9de4eedf62221f8a16443160952a
+        run: git worktree add /tmp/redis-benchmark-baseline "$BASE_SHA"
 
-      - name: Build base and head
+      - name: Build baseline and head
         run: |
-          make -C /tmp/redis-benchmark-base -j2
+          make -C /tmp/redis-benchmark-baseline -j2
           make -j2
 
       - name: Compare sparse-bitmap UNLINK latency
         run: |
-          base_result=$(tests/benchmarks/bitmap-container-count.sh \
-            /tmp/redis-benchmark-base/src/redis-server \
-            /tmp/redis-benchmark-base/src/redis-cli)
+          baseline_result=$(tests/benchmarks/bitmap-container-count.sh \
+            /tmp/redis-benchmark-baseline/src/redis-server \
+            /tmp/redis-benchmark-baseline/src/redis-cli)
           head_result=$(tests/benchmarks/bitmap-container-count.sh \
             "$PWD/src/redis-server" "$PWD/src/redis-cli")
 
-          base_us=$(sed -n 's/.*duration_us=\([0-9][0-9]*\).*/\1/p' <<<"$base_result")
+          baseline_us=$(sed -n 's/.*duration_us=\([0-9][0-9]*\).*/\1/p' <<<"$baseline_result")
           head_us=$(sed -n 's/.*duration_us=\([0-9][0-9]*\).*/\1/p' <<<"$head_result")
           memory_bytes=$(sed -n 's/.*memory_bytes=\([0-9][0-9]*\).*/\1/p' <<<"$head_result")
 
-          for metric in "$base_us" "$head_us" "$memory_bytes"; do
+          for metric in "$baseline_us" "$head_us" "$memory_bytes"; do
             if [[ ! "$metric" =~ ^[0-9]+$ ]]; then
               echo "Could not parse benchmark result" >&2
               exit 1
             fi
           done
 
-          speedup=$(awk -v base="$base_us" -v head="$head_us" \
-            'BEGIN { if (head == 0) print "inf"; else printf "%.1f", base / head }')
+          speedup=$(awk -v baseline="$baseline_us" -v head="$head_us" \
+            'BEGIN { if (head == 0) print "inf"; else printf "%.1f", baseline / head }')
 
           {
             echo '## Sparse bitmap container-count benchmark'
             echo
             echo '| Revision | UNLINK main-thread duration |'
             echo '|---|---:|'
-            echo "| PR base | ${base_us} us |"
+            echo "| Pre-optimization baseline | ${baseline_us} us |"
             echo "| PR head | ${head_us} us |"
             echo
             echo "Fixture: 1,000,000 containers, ${memory_bytes} resident bytes."
@@ -69,12 +72,12 @@ jobs:
             echo "Measured speedup: **${speedup}x**."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "base: $base_result"
+          echo "baseline: $baseline_result"
           echo "head: $head_result"
 
           # The improvement should dwarf same-runner timing noise. Requiring a
           # conservative 5x also makes this check catch accidental full walks.
-          if (( head_us * 5 >= base_us )); then
+          if (( head_us * 5 >= baseline_us )); then
             echo "Expected the bounded count to make UNLINK at least 5x faster" >&2
             exit 1
           fi
