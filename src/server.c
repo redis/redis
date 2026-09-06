@@ -3744,6 +3744,11 @@ int shouldPropagate(int target) {
  * to replicate SELECT for this command (used for database neutral commands).
  */
 static void propagateNow(int dbid, robj **argv, int argc, int target, long long duration) {
+    /* Every PROP_DURATION_UNKNOWN op must have been resolved by
+     * assignLeftoverDurationToUnknownOps() before reaching here. Letting the
+     * reserved value through would decrement server.aof_cmd_duration. */
+    serverAssert(duration != PROP_DURATION_UNKNOWN);
+
     if (!shouldPropagate(target))
         return;
 
@@ -3850,6 +3855,34 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
         hdr_init(LATENCY_HISTOGRAM_MIN_VALUE,LATENCY_HISTOGRAM_MAX_VALUE,LATENCY_HISTOGRAM_PRECISION,latency_histogram);
     hdr_record_value(*latency_histogram,duration_hist);
 }
+
+/* ---------------------- aof_cmd_duration accounting ----------------------
+ *
+ * server.aof_cmd_duration is a best-effort estimate of how long replaying the
+ * current AOF would take, exposed as the aof_cmd_duration INFO field so it can
+ * be used as an RTO indicator. Every op written to the AOF contributes what it
+ * is expected to cost on replay:
+ *
+ * - A command propagated by call() contributes its own measured duration. Note
+ *   this deliberately excludes the cost of a wrapper that is not itself written
+ *   to the AOF: scripts and module commands are never propagated (see
+ *   scriptPrepareForRun()), only their effects are, so their compute time is
+ *   never paid again on replay and must not be counted. This is why the
+ *   duration travels with each op instead of being taken once per call().
+ *
+ * - A synthetic op that no call() measured - RM_Replicate, the SREMs SPOP emits,
+ *   the HDELs lazy field expiry emits - is queued with PROP_DURATION_UNKNOWN and
+ *   receives whatever is left of the enclosing call() duration after the known
+ *   ops took their share. That is an upper bound, not a measurement.
+ *
+ * Invariant: PROP_DURATION_UNKNOWN is a reserved value that must never reach
+ * propagateNow(), which asserts it. propagatePendingCommands() is the only
+ * drain of server.also_propagate and resolves it for every op.
+ *
+ * Known gaps: the estimate restarts when an AOFRW forks, so right after a
+ * rewrite it does not cover loading the new BASE file; and on AOF load it is
+ * rebuilt from load wall-clock, which includes parsing and I/O and so is not on
+ * the same scale as the live per-command sum. */
 
 /* Give leftover call() time to UNKNOWN AOF ops in also_propagate[start..).
  * Known AOF ops keep their own times; REPL-only UNKNOWN gets 0. */

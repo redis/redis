@@ -64,7 +64,6 @@ static ExpireMeta* hentryGetExpireMeta(const eItem field);
 static void hexpireGenericCommand(client *c, long long basetime, int unit);
 static void hfieldPersist(robj *hashObj, Entry *entry);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
-static void propagateRewrittenHashCommand(client *c);
 
 /* hash dictType funcs */
 static void dictEntryDestructor(dict *d, void *entry);
@@ -4287,7 +4286,8 @@ void himportSetCommand(client *c) {
                 restore_pl,
                 shared.replace
         };
-        alsoPropagate(c->db->id, rargv, 5, PROPAGATE_AOF | PROPAGATE_REPL);
+        alsoPropagateEx(c->db->id, rargv, 5, PROPAGATE_AOF | PROPAGATE_REPL,
+                        PROP_DURATION_UNKNOWN);
         decrRefCount(restore_pl);
     }
     preventCommandPropagation(c);
@@ -5010,8 +5010,6 @@ void hgetdelCommand(client *c) {
         rewriteClientCommandArgument(c, 0, shared.hdel);
         rewriteClientCommandArgument(c, 2, NULL);  /* Delete FIELDS arg */
         rewriteClientCommandArgument(c, 2, NULL);  /* Delete <numfields> arg */
-
-        propagateRewrittenHashCommand(c);
     }
 
     vecRelease(vexpired);
@@ -5166,8 +5164,6 @@ void hgetexCommand(client *c) {
         }
 
         replaceClientCommandVector(c, canonical_argc, canonical_argv);
-
-        propagateRewrittenHashCommand(c);
     } else if (vecSize(vdeleted)) {
         /* If we are here, fields are deleted because new timestamp was in the
          * past. HDELs are already propagated as part of hashTypeSetEx(). */
@@ -5926,13 +5922,6 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
     decrRefCount(argv[2]);
 }
 
-/* Propagate the client's rewritten command manually, with unknown duration,
- * instead of letting call() auto-propagate it with a known one. */
-static void propagateRewrittenHashCommand(client *c) {
-    preventCommandPropagation(c);
-    alsoPropagateEx(c->db->id, c->argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL, PROP_DURATION_UNKNOWN);
-}
-
 /* Called during active expiration of hash-fields. Propagate to replica & Delete. */
 static ExpireAction onFieldExpire(eItem item, void *ctx) {
     OnFieldExpireCtx *expCtx = ctx;
@@ -6379,10 +6368,6 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
 
     if (fieldsToRemove)
         zfree(fieldsToRemove);
-
-    /* Propagate rewritten command with unknown duration so lazy HDELs that
-     * also used PROP_DURATION_UNKNOWN cannot double-count the call time. */
-    propagateRewrittenHashCommand(c);
 
     vecRelease(vupdated);
     vecRelease(vdeleted);

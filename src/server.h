@@ -754,6 +754,9 @@ typedef enum {
 #define PROPAGATE_NONE 0
 #define PROPAGATE_AOF 1
 #define PROPAGATE_REPL 2
+/* Also-propagate ops without a measured duration. Resolved to leftover
+ * enclosing call() time before propagateNow(). Must not reach feedAppendOnlyFile. */
+#define PROP_DURATION_UNKNOWN -1
 
 /* Actions pause types */
 #define PAUSE_ACTION_CLIENT_WRITE     (1<<0)
@@ -3834,9 +3837,6 @@ int commandCheckArity(struct redisCommand *cmd, int argc, sds *err);
 void startCommandExecution(void);
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
-
-/* Propagated commands without duration marked with reserved value */
-#define PROP_DURATION_UNKNOWN -1
 
 void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long duration);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);

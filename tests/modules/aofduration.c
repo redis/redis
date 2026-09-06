@@ -8,8 +8,6 @@
 
 #include "redismodule.h"
 
-#define UNUSED(x) (void)(x)
-
 /* wrapper for RM_Call */
 int aofd_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     if(argc < 2){
@@ -226,7 +224,73 @@ int aofd_rm_run_steps_bg(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     pthread_t tid;
     int res = pthread_create(&tid, NULL, run_steps_bg_worker, bg);
     assert(res == 0);
+    pthread_detach(tid);
 
+    return REDISMODULE_OK;
+}
+
+typedef struct {
+    long long delayusec;
+    int do_replicate;
+    RedisModuleBlockedClient *bc;
+} bg_reply_data;
+
+int aofd_reply_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    bg_reply_data *bg = RedisModule_GetBlockedClientPrivateData(ctx);
+    if (bg && bg->do_replicate) {
+        RedisModule_Replicate(ctx, "set", "cc", "fromreply", "1");
+    } else {
+        RedisModuleCallReply *rep = RedisModule_Call(ctx, "set", "cc", "fromreply", "1");
+        if (rep) RedisModule_FreeCallReply(rep);
+    }
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+void aofd_reply_free(RedisModuleCtx *ctx, void *privdata) {
+    REDISMODULE_NOT_USED(ctx);
+    RedisModule_Free(privdata);
+}
+
+void *aofd_bg_reply_worker(void *arg) {
+    bg_reply_data *bg = arg;
+    RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bg->bc);
+    RedisModule_ThreadSafeContextLock(ctx);
+    RedisModule_BlockedClientMeasureTimeStart(bg->bc);
+    struct timespec ts = {
+        bg->delayusec / 1000000,
+        (bg->delayusec % 1000000) * 1000
+    };
+    nanosleep(&ts, NULL);
+    RedisModule_BlockedClientMeasureTimeEnd(bg->bc);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    RedisModule_FreeThreadSafeContext(ctx);
+    /* Hand bg to the reply/free callbacks; do not free it here. */
+    RedisModule_UnblockClient(bg->bc, bg);
+    return NULL;
+}
+
+/* Sleep in a thread (measured), then RM_Replicate or RM_Call from the reply
+ * callback on the main thread. argv: <replicate|rm_call> <delay_usec> */
+int aofd_rm_bg_sleep_reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+
+    const char *mode = RedisModule_StringPtrLen(argv[1], NULL);
+    long long delayusec;
+    if (RedisModule_StringToLongLong(argv[2], &delayusec) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx, "ERR invalid delay");
+
+    bg_reply_data *bg = RedisModule_Alloc(sizeof(*bg));
+    bg->delayusec = delayusec;
+    bg->do_replicate = (strcmp(mode, "replicate") == 0);
+    bg->bc = RedisModule_BlockClient(ctx, aofd_reply_cb, NULL, aofd_reply_free, 0);
+
+    pthread_t tid;
+    int res = pthread_create(&tid, NULL, aofd_bg_reply_worker, bg);
+    assert(res == 0);
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 
@@ -249,6 +313,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "aofd.rm_run_steps", aofd_rm_run_steps,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "aofd.rm_run_steps_bg", aofd_rm_run_steps_bg,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "aofd.rm_bg_sleep_reply", aofd_rm_bg_sleep_reply,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "aofd.sleep_usec", aofd_sleep,"allow-stale", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;

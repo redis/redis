@@ -3883,6 +3883,9 @@ int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, in
         incrRefCount(argv[i]);
     }
 
+    /* This array is only an argv carrier: propagateModuleCommands() and
+     * propagateModuleCommandsAtEnd() write op->argv straight to the migration
+     * stream, never through propagateNow(). So dbid, target and duration are unused. */
     redisOpArrayAppend(target, 0, argvcopy, argc, 0, 0);
     return C_OK;
 }

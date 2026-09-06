@@ -335,9 +335,28 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
         assert_morethan $d_after $d_before
     }
 
+    test { AOF Duration - fix: HIMPORT SET rewrites to RESTORE but its execution time is now counted } {
+        # HIMPORT SET preventCommandPropagation()s itself and alsoPropagate()s
+        # RESTORE. Duration 0 dropped the real SET cost; UNKNOWN credits it.
+        r himport prepare aofdfs f1 f2
+        reset_aof_duration
+
+        set size_before [s aof_current_size]
+        set d_before [s aof_cmd_duration]
+
+        r himport set aofdh aofdfs v1 v2
+
+        set size_after [s aof_current_size]
+        set d_after [s aof_cmd_duration]
+
+        assert_morethan $size_after $size_before
+        assert_morethan $d_after $d_before
+        r himport discard aofdfs
+    }
+
     test { AOF Duration - propagation without duration is not counted while AOF is disabled } {
         # Ops marked with PROP_DURATION_UNKNOWN (SPOP w/ count, HEXPIRE, XCLAIM,
-        # or any module using RM_Replicate/RM_ReplicateVerbatim) only learn their
+        # HIMPORT SET, or any module using RM_Replicate/RM_ReplicateVerbatim) only learn their
         # real duration once the whole call() finishes. That real duration must
         # only be credited to aof_cmd_duration if the op is actually being
         # written to the AOF - not just because it happened to also be sent to
@@ -399,5 +418,38 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
         set d [s aof_cmd_duration]
         assert_morethan_equal $d $delayusec
         assert_lessthan $d [expr {$delayusec * 2}]
+    }
+
+    test { AOF Duration - RM_Call !A does not write HEXPIRE/HGETDEL to AOF } {
+        r del h2 h4 ctrl
+        r hset h2 a 1
+        r hset h4 e 1
+        reset_aof_duration
+        RedisModule_run_steps r \
+            [list "rm_call_flags" "!A" "hgetdel" "h2" "FIELDS" "1" "a"] \
+            [list "rm_call_flags" "!A" "hexpire" "h4" "100" "FIELDS" "1" "e"] \
+            [list "rm_call_flags" "!A" "set" "ctrl" "1"]
+        assert_equal [r hexists h2 a] 0
+        assert_equal [r get ctrl] 1
+        r debug loadaof
+        assert_equal [r hexists h2 a] 1
+        assert_equal [r httl h4 FIELDS 1 e] -1
+        assert_equal [r exists ctrl] 0
+    }
+
+    test { AOF Duration - blocked reply callback RM_Replicate counts sleep once } {
+        set delayusec 50000
+        reset_aof_duration
+        r aofd.rm_bg_sleep_reply replicate $delayusec
+        set d [s aof_cmd_duration]
+        assert_morethan_equal $d $delayusec
+        assert_lessthan $d [expr {$delayusec * 2}]
+    }
+
+    test { AOF Duration - blocked reply callback RM_Call does not count sleep } {
+        set delayusec 50000
+        reset_aof_duration
+        r aofd.rm_bg_sleep_reply rm_call $delayusec
+        assert_equal [s aof_cmd_duration] 0
     }
 }
