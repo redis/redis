@@ -75,6 +75,7 @@ void bitroarDefrag(robj *o);
 unsigned long bitroarDefragIncremental(robj *o, unsigned long cursor);
 size_t bitroarAllocSize(const robj *o);
 size_t bitroarContainerCount(const robj *o);
+size_t bitroarContainerCountUpTo(const robj *o, size_t limit);
 
 /* Read operations */
 uint64_t bitroarLen(const robj *o);
