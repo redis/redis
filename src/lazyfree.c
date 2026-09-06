@@ -228,6 +228,35 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
  * slower... So under a certain limit we just free the object synchronously. */
 #define LAZYFREE_THRESHOLD 64
 
+/* Release detached zset elements staged for a non-store set operation. */
+void lazyfreeFreeDetachedZsetElems(void *args[]) {
+    zbtElem **elems = args[0];
+    unsigned long n = (unsigned long)(uintptr_t)args[1];
+
+    for (unsigned long i = 0; i < n; i++) zbtFreeElem(elems[i]);
+    zfree(elems);
+    atomicDecr(lazyfree_objects, n);
+    atomicIncr(lazyfreed_objects, n);
+}
+
+/* Free detached zset elements, offloading large results to a bio thread when
+ * requested. */
+void zsetFreeDetachedElems(zbtElem **elems, unsigned long n, int allow_async) {
+    if (elems == NULL) return;
+    if (n == 0) {
+        zfree(elems);
+        return;
+    }
+    if (allow_async && n > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, n);
+        bioCreateLazyFreeJob(lazyfreeFreeDetachedZsetElems, 2, elems,
+                             (void *)(uintptr_t)n);
+    } else {
+        for (unsigned long i = 0; i < n; i++) zbtFreeElem(elems[i]);
+        zfree(elems);
+    }
+}
+
 /* Free an object, if the object is huge enough, free it in async way. */
 void freeObjAsync(robj *key, robj *obj, int dbid) {
     size_t free_effort = lazyfreeGetFreeEffort(key,obj,dbid);

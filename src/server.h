@@ -3901,7 +3901,7 @@ zbtElem *zbtNthInRange(zbtree *t, zrangespec *range, long n, unsigned long *out_
 zbtElem *zbtNthInLexRange(zbtree *t, zlexrangespec *range, long n, unsigned long *out_rank, zbtIter *it);
 unsigned long zbtDeleteRangeByScore(zbtree *t, zrangespec *range, dict *d);
 unsigned long zbtDeleteRangeByLex(zbtree *t, zlexrangespec *range, dict *d);
-unsigned long zbtDeleteRangeByRank(zbtree *t, unsigned int start, unsigned int end, dict *d);
+unsigned long zbtDeleteRangeByRank(zbtree *t, unsigned long start, unsigned long end, dict *d);
 void zbtReplaceElem(zbtree *t, zbtElem *olde, zbtElem *newe);
 void zbtDefragNodes(zbtree *t, void *(*fn)(void *));
 int zbtDefragNodesIncremental(zbtree *t, void *(*fn)(void *), unsigned int budget);
@@ -3915,6 +3915,9 @@ unsigned long zsetLength(const robj *zobj);
 size_t zsetAllocSize(const robj *o);
 void zsetConvert(robj *zobj, int encoding);
 void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelelen);
+robj *zsetCreateFromElems(robj *reuse, zbtElem **elems, unsigned long n,
+                          size_t maxelelen, size_t totelelen, int dict_indexed);
+void zsetFreeDetachedElems(zbtElem **elems, unsigned long n, int allow_async);
 void zsetBuildTreeFromElems(zset *zs, zbtElem **elems, unsigned long n);
 void zsetBuildTreeFromDict(zset *zs);
 int zsetScore(robj *zobj, sds member, double *score);
@@ -4473,6 +4476,7 @@ size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
 void freeObjAsync(robj *key, robj *obj, int dbid);
+void zsetFreeDetachedElems(zbtElem **elems, unsigned long n, int allow_async);
 void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 
 /* API to get key arguments from commands */

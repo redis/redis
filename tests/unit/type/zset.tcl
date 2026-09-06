@@ -2981,6 +2981,77 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries 128
     }
 
+    test "Large B-tree ZPOPMIN/ZPOPMAX bulk delete edge cases" {
+        with_btree_encoding {
+            r del zpopkey
+            for {set i 0} {$i < 200} {incr i} { r zadd zpopkey $i m$i }
+            assert_encoding btree zpopkey
+
+            # Count exceeds cardinality: pops everything and deletes the key.
+            set res [r zpopmin zpopkey 500]
+            assert_equal 400 [llength $res]
+            assert_equal m0 [lindex $res 0]
+            assert_equal 0 [lindex $res 1]
+            assert_equal m199 [lindex $res 398]
+            assert_equal 199 [lindex $res 399]
+            assert_equal 0 [r exists zpopkey]
+
+            # ZPOPMAX preserves descending reply order, including score ties.
+            r del zpopkey
+            r zadd zpopkey 1 a 1 b 1 c 2 d 2 e
+            assert_encoding btree zpopkey
+            assert_equal {e 2 d 2 c 1} [r zpopmax zpopkey 3]
+            assert_equal {b 1 a 1} [r zpopmax zpopkey 10]
+            assert_equal 0 [r exists zpopkey]
+        }
+    }
+
+    test "Large B-tree ZUNION/ZDIFF WITHSCORES RESP3" {
+        with_btree_encoding {
+            r del z1 z2
+            r zadd z1 1 a 2 b 3 c
+            r zadd z2 2 b 3 c 4 d
+            r hello 3
+            assert_equal {{a 1.0} {b 4.0} {d 4.0} {c 6.0}} [r zunion 2 z1 z2 withscores]
+            assert_equal {{a 1.0}} [r zdiff 2 z1 z2 withscores]
+            r hello 2
+        }
+    }
+
+    test "ZUNIONSTORE builds listpack directly when compact-eligible" {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        set original_value [lindex [r config get zset-max-listpack-value] 1]
+        r config set zset-max-listpack-entries 128
+        r config set zset-max-listpack-value 64
+
+        r del zua zub zdest
+        for {set i 0} {$i < 64} {incr i} { r zadd zua $i [format m%02d $i] }
+        for {set i 32} {$i < 96} {incr i} { r zadd zub $i [format m%02d $i] }
+        assert_equal 96 [r zunionstore zdest 2 zua zub]
+        assert_encoding listpack zdest
+
+        r config set zset-max-listpack-entries 63
+        r del zdest2
+        assert_equal 96 [r zunionstore zdest2 2 zua zub]
+        assert_encoding btree zdest2
+
+        r config set zset-max-listpack-entries $original_max
+        r config set zset-max-listpack-value $original_value
+    }
+
+    test "ZDIFFSTORE algorithm 2 with large btree sources" {
+        with_btree_encoding {
+            r del zd0 zd1 zd2 zddest
+            for {set i 0} {$i < 500} {incr i} { r zadd zd0 $i [format a%04d $i] }
+            for {set i 0} {$i < 50} {incr i} { r zadd zd1 $i [format b%04d $i] }
+            for {set i 0} {$i < 50} {incr i} { r zadd zd2 $i [format c%04d $i] }
+            assert_equal 500 [r zdiffstore zddest 3 zd0 zd1 zd2]
+            assert_equal 500 [r zcard zddest]
+            assert_equal [format a%04d 49] [lindex [r zrange zddest 49 49] 0]
+            assert_equal [format a%04d 499] [lindex [r zrange zddest -1 -1] 0]
+        }
+    }
+
     foreach type {single multiple single_multiple} {
         test "ZADD overflows the maximum allowed elements in a listpack - $type" {
             r del myzset
