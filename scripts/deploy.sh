@@ -9,6 +9,13 @@
 #                   Where files are copied; never part of the conf's paths.
 #         PROG_SUFFIX  suffix appended to the core program names, matching
 #                   `make PROG_SUFFIX=…` (src/Makefile). Modules are unaffected.
+#         SKIP_BUILD  1 = do not build, install the artifacts already in the
+#                   tree. Not a default: `make install` and `make deploy` both
+#                   build, and each module's build short-circuits on an
+#                   up-to-date artifact anyway. Meant for
+#                   `sudo make install SKIP_BUILD=1`, where compiling as root
+#                   would leave root-owned files in ~/.cargo and
+#                   modules/*/src/bin.
 #         MAKE      make binary (defaults to `make`); only used when shelling
 #                   into build.sh, which itself respects it.
 #
@@ -44,8 +51,10 @@ modules="$(resolve_modules "$*" "$cloned" "redis none")"
 # Phase 1: build via the shared orchestrator. Pass the resolved module list
 # verbatim so build.sh sees the same selection we intend to install.
 # ---------------------------------------------------------------------------
-echo "==> Building before deploy (delegating to scripts/build.sh)"
-echo
+if [ "${SKIP_BUILD:-0}" = 0 ]; then
+  echo "==> Building before deploy (delegating to scripts/build.sh)"
+  echo
+fi
 # Build artifacts always go to the dev tree — PREFIX is irrelevant to the
 # build phase. Two scrubs needed before handing off to build.sh:
 #   1. PREFIX env shadow — so anything reading $PREFIX in build.sh / scripts
@@ -67,7 +76,9 @@ build_makeflags="$(printf '%s' " ${MAKEFLAGS:-} " | sed -E 's/ PREFIX=[^ ]*/ /g;
 # phase 2 below filters out modules that genuinely don't have a .so to copy,
 # so we'd rather install what's available than bail out wholesale.
 build_rc=0
-if [ -z "$modules" ]; then
+if [ "${SKIP_BUILD:-0}" != 0 ]; then
+  echo "==> SKIP_BUILD=$SKIP_BUILD — installing the artifacts already in the tree"
+elif [ -z "$modules" ]; then
   MAKEFLAGS="$build_makeflags" PREFIX="" "$SCRIPT_DIR/build.sh" redis || build_rc=$?
 else
   MAKEFLAGS="$build_makeflags" PREFIX="" "$SCRIPT_DIR/build.sh" $modules || build_rc=$?

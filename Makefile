@@ -119,7 +119,7 @@ bootstrap:
 	+@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
-#        [PROG_SUFFIX=<suffix>]
+#        [PROG_SUFFIX=<suffix>] [SKIP_BUILD=1]
 #   Install Redis core + selected modules (default: every cloned module),
 #   then rewrite the `loadmodule` paths in redis-full.conf (and redis.conf, if
 #   it carries a Modules block) to point at the installed .so paths under
@@ -128,7 +128,7 @@ bootstrap:
 deploy: PREFIX ?= /usr/local
 deploy:
 	+@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' PROG_SUFFIX='$(PROG_SUFFIX)' \
-	    scripts/deploy.sh $(DEPLOY_ARGS)
+	    SKIP_BUILD='$(SKIP_BUILD)' scripts/deploy.sh $(DEPLOY_ARGS)
 
 # uninstall [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
 #           [PROG_SUFFIX=<suffix>]
