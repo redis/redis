@@ -330,21 +330,8 @@ generated config to point there. `DESTDIR=<path>` stages the files for
 packaging without changing the paths written to the config, and
 `PROG_SUFFIX=<suffix>` installs suffixed program names (`redis-server-alt`, …).
 
-> **`sudo make install` needs the Rust toolchain on root's `PATH`.** Because
-> install builds first, it asks each module whether it is up to date — and the
-> Query Engine (`redisearch`) and JSON (`redisjson`) answer that question by
-> invoking `cargo`. A default `rustup` installation lives in your home
-> directory, which `sudo` drops from `PATH`, so those two fail with
-> `cargo: command not found` even when there is nothing to compile. Either
-> build as your user first and keep the toolchain reachable:
->
-> ```sh
-> make -j "$(nproc)"
-> sudo -E env "PATH=$PATH" make install
-> ```
->
-> or install Rust system-wide so root can see it. Redis core, `redisbloom` and
-> `redistimeseries` are unaffected — they decide freshness with make alone.
+> To install without building at all, use `SKIP_BUILD=1`:
+> `sudo make install SKIP_BUILD=1`
 
 ### Building Redis - flags and general notes
 
