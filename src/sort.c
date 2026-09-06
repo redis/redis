@@ -22,6 +22,16 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
     return so;
 }
 
+/* Build a string object from a listpack zset member (integer or buffer). */
+static robj *sortStringObjectFromListpackEntry(unsigned char *eptr) {
+    unsigned int vlen;
+    long long vlong;
+    unsigned char *vstr = lpGetValue(eptr, &vlen, &vlong);
+    if (vstr)
+        return createStringObject((char *)vstr, vlen);
+    return createStringObjectFromLongLong(vlong);
+}
+
 /* Return the value associated to the key with a name obtained using
  * the following rules:
  *
@@ -337,20 +347,11 @@ void sortCommandGeneric(client *c, int readonly) {
         sortby = NULL;
     }
 
-    /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET) {
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
-        zsetConvert(sortval, OBJ_ENCODING_BTREE);
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
-    }
-
     /* Obtain the length of the object to sort. */
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
     case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
-    case OBJ_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
+    case OBJ_ZSET: vectorlen = zsetLength(sortval); break;
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
 
@@ -444,53 +445,92 @@ void sortCommandGeneric(client *c, int readonly) {
          *
          * Note that in this case we also handle LIMIT here in a direct
          * way, just getting the required range, as an optimization. */
-
-        zset *zs = sortval->ptr;
-        zbtree *t = zs->tree;
-        zbtIter it;
-        zbtElem *ln;
-        sds sdsele;
         int rangelen = vectorlen;
 
-        /* Check if starting point is trivial, before doing log(N) lookup. */
-        if (desc) {
-            long zsetlen = dictSize(((zset*)sortval->ptr)->dict);
-            ln = zbtElemByRank(t, start > 0 ? (unsigned long)(zsetlen-start) : t->length, &it);
-        } else {
-            ln = zbtElemByRank(t, start > 0 ? (unsigned long)(start+1) : 1, &it);
-        }
+        if (sortval->encoding == OBJ_ENCODING_BTREE) {
+            zset *zs = sortval->ptr;
+            zbtree *t = zs->tree;
+            zbtIter it;
+            zbtElem *ln;
+            sds sdsele;
 
-        while(rangelen--) {
-            serverAssertWithInfo(c,sortval,ln != NULL);
-            sdsele = zbtGetEle(ln);
-            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
-            vector[j].u.score = 0;
-            vector[j].u.cmpobj = NULL;
-            j++;
-            ln = desc ? zbtIterPrev(&it) : zbtIterNext(&it);
+            if (rangelen > 0) {
+                if (desc) {
+                    ln = zbtElemByRank(t, zsetLength(sortval) - start, &it);
+                } else {
+                    ln = zbtElemByRank(t, start + 1, &it);
+                }
+
+                while(rangelen--) {
+                    serverAssertWithInfo(c,sortval,ln != NULL);
+                    sdsele = zbtGetEle(ln);
+                    vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
+                    vector[j].u.score = 0;
+                    vector[j].u.cmpobj = NULL;
+                    j++;
+                    ln = desc ? zbtIterPrev(&it) : zbtIterNext(&it);
+                }
+            }
+        } else if (sortval->encoding == OBJ_ENCODING_LISTPACK) {
+            unsigned char *zl = sortval->ptr;
+            unsigned char *eptr = NULL, *sptr = NULL;
+
+            if (rangelen > 0) {
+                eptr = lpSeek(zl, desc ? -2 - 2 * start : 2 * start);
+                serverAssertWithInfo(c,sortval,eptr != NULL);
+                sptr = lpNext(zl, eptr);
+                serverAssertWithInfo(c,sortval,sptr != NULL);
+            }
+
+            while(rangelen--) {
+                vector[j].obj = sortStringObjectFromListpackEntry(eptr);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+                if (desc) zzlPrev(zl,&eptr,&sptr);
+                else zzlNext(zl,&eptr,&sptr);
+            }
+        } else {
+            serverPanic("Unknown sorted set encoding");
         }
         /* Fix start/end: output code is not aware of this optimization. */
         end -= start;
         start = 0;
     } else if (sortval->type == OBJ_ZSET) {
-        dict *set = ((zset*)sortval->ptr)->dict;
-        dictIterator di;
-        dictEntry *setele;
-        sds sdsele;
+        if (sortval->encoding == OBJ_ENCODING_BTREE) {
+            dict *set = ((zset*)sortval->ptr)->dict;
+            dictIterator di;
+            dictEntry *setele;
+            sds sdsele;
 
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
-        dictInitIterator(&di, set);
-        while((setele = dictNext(&di)) != NULL) {
-            sdsele = zbtGetEle(dictGetKey(setele));
-            vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
-            vector[j].u.score = 0;
-            vector[j].u.cmpobj = NULL;
-            j++;
+            if (server.memory_tracking_enabled)
+                oldsize = kvobjAllocSize(sortval);
+            dictInitIterator(&di, set);
+            while((setele = dictNext(&di)) != NULL) {
+                sdsele = zbtGetEle(dictGetKey(setele));
+                vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+            }
+            dictResetIterator(&di);
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+        } else if (sortval->encoding == OBJ_ENCODING_LISTPACK) {
+            unsigned char *zl = sortval->ptr;
+            unsigned char *eptr = lpSeek(zl, 0);
+            unsigned char *sptr = eptr ? lpNext(zl, eptr) : NULL;
+
+            while (eptr != NULL) {
+                vector[j].obj = sortStringObjectFromListpackEntry(eptr);
+                vector[j].u.score = 0;
+                vector[j].u.cmpobj = NULL;
+                j++;
+                zzlNext(zl,&eptr,&sptr);
+            }
+        } else {
+            serverPanic("Unknown sorted set encoding");
         }
-        dictResetIterator(&di);
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else {
         serverPanic("Unknown type");
     }

@@ -1179,6 +1179,19 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrange zsetc{t} 0 -1 withscores]
         }
 
+        test "ZDIFF algorithm 2 subtracts every source-0 member - $encoding" {
+            # algo_one = 3*5/2 = 7, algo_two = 3+1+1+1+0 = 6 -> algorithm 2
+            r del zseta{t} zsetb{t} zsetc{t} zsetd{t} zsete{t}
+            r zadd zseta{t} 1 a 2 b 3 c
+            r zadd zsetb{t} 1 a
+            r zadd zsetc{t} 1 b
+            r zadd zsetd{t} 1 c
+            r zadd zsete{t} 9 leftover
+            assert_equal {} [r zdiff 5 zseta{t} zsetb{t} zsetc{t} zsetd{t} nx{t}]
+            assert_equal 0 [r zdiffstore zsete{t} 5 zseta{t} zsetb{t} zsetc{t} zsetd{t} nx{t}]
+            assert_equal 0 [r exists zsete{t}]
+        }
+
         test "ZDIFF fuzzing - $encoding" {
             for {set j 0} {$j < 100} {incr j} {
                 unset -nocomplain s
@@ -3049,6 +3062,130 @@ start_server {tags {"zset"}} {
             assert_equal 500 [r zcard zddest]
             assert_equal [format a%04d 49] [lindex [r zrange zddest 49 49] 0]
             assert_equal [format a%04d 499] [lindex [r zrange zddest -1 -1] 0]
+        }
+    }
+
+    test "ZDIFF algorithm 2 with intset source 0 against btree subtrahends" {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r del s0 z1 z2 z3 zdest
+        r sadd s0 1 2 3 4 5
+        assert_encoding intset s0
+        r config set zset-max-listpack-entries 0
+        r zadd z1 1 1
+        r zadd z2 1 2
+        r zadd z3 1 x
+        assert_encoding btree z1
+        # algo_one = 5*4/2 = 10, algo_two = 5+1+1+1 = 8 -> algorithm 2
+        assert_equal {3 4 5} [lsort [r zdiff 4 s0 z1 z2 z3]]
+        assert_equal 3 [r zdiffstore zdest 4 s0 z1 z2 z3]
+        assert_equal {3 1 4 1 5 1} [r zrange zdest 0 -1 withscores]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test "ZDIFF algorithm 2 with listpack source 0 against btree subtrahends" {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 128
+        r del z0 z1 z2 z3 z4 zdest
+        r zadd z0 1 a 2 b 3 c 4 d 5 e
+        assert_encoding listpack z0
+        r config set zset-max-listpack-entries 0
+        r zadd z1 1 a
+        r zadd z2 1 b
+        r zadd z3 1 c
+        r zadd z4 1 z
+        assert_encoding btree z1
+        # algo_one = 5*5/2 = 12, algo_two = 5+1+1+1+1 = 9 -> algorithm 2
+        assert_equal {d 4 e 5} [r zdiff 5 z0 z1 z2 z3 z4 withscores]
+        assert_equal 2 [r zdiffstore zdest 5 z0 z1 z2 z3 z4]
+        assert_equal {d 4 e 5} [r zrange zdest 0 -1 withscores]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test "ZADD bulk-builds an empty btree destination" {
+        with_btree_encoding {
+            r del zbulk zincr
+            set args {}
+            for {set i 0} {$i < 200} {incr i} {
+                lappend args $i m$i
+                r zadd zincr $i m$i
+            }
+            assert_equal 200 [r zadd zbulk {*}$args]
+            assert_encoding btree zbulk
+            assert_equal 200 [r zcard zbulk]
+            assert_equal [debug_digest_value zincr] [debug_digest_value zbulk]
+            assert_equal 100 [r zrank zbulk m100]
+            assert_equal m0 [lindex [r zrange zbulk 0 0] 0]
+            assert_equal m199 [lindex [r zrange zbulk -1 -1] 0]
+            set d1 [debug_digest_value zbulk]
+            r debug reload
+            assert_encoding btree zbulk
+            assert_equal 200 [r zcard zbulk]
+            assert_equal $d1 [debug_digest_value zbulk]
+        }
+    }
+
+    test "ZADD bulk path flushes on duplicate members" {
+        with_btree_encoding {
+            # Duplicate after a unique prefix: last write wins.
+            r del z
+            assert_equal 3 [r zadd z ch 1 a 2 b 3 a]
+            assert_equal 2 [r zcard z]
+            assert_equal 3 [r zscore z a]
+            assert_equal 2 [r zscore z b]
+
+            # Duplicate as the last pair.
+            r del z
+            assert_equal 4 [r zadd z ch 1 a 2 b 3 c 4 a]
+            assert_equal 3 [r zcard z]
+            assert_equal 4 [r zscore z a]
+
+            # NX: the repeated member is not updated; later new members still add.
+            r del z
+            assert_equal 3 [r zadd z nx 1 a 2 b 9 a 4 c]
+            assert_equal 3 [r zcard z]
+            assert_equal 1 [r zscore z a]
+            assert_equal 4 [r zscore z c]
+
+            # GT updates only when the repeated score is greater.
+            r del z
+            assert_equal 2 [r zadd z gt ch 1 a 2 b 0 a]
+            assert_equal 1 [r zscore z a]
+            r del z
+            assert_equal 3 [r zadd z gt ch 1 a 2 b 5 a]
+            assert_equal 5 [r zscore z a]
+
+            # LT updates only when the repeated score is lower.
+            r del z
+            assert_equal 3 [r zadd z lt ch 5 a 2 b 1 a]
+            assert_equal 1 [r zscore z a]
+            r del z
+            assert_equal 2 [r zadd z lt ch 1 a 2 b 5 a]
+            assert_equal 1 [r zscore z a]
+        }
+    }
+
+    test "ZADD bulk path score ties, infinities, XX, and INCR" {
+        with_btree_encoding {
+            r del z
+            assert_equal 3 [r zadd z 1 a 1 b 1 c]
+            assert_equal {a b c} [r zrange z 0 -1]
+
+            r del z
+            assert_equal 3 [r zadd z -inf min 0 mid +inf max]
+            assert_equal {min mid max} [r zrange z 0 -1]
+            assert {[r zscore z min] == -inf}
+            assert {[r zscore z mid] == 0}
+            assert {[r zscore z max] == inf}
+
+            r del z
+            assert_equal 0 [r zadd z xx 1 a 2 b]
+            assert_equal 0 [r exists z]
+
+            r del z
+            assert_equal 1 [r zadd z incr 1 a]
+            assert_equal 1 [r zscore z a]
+            r zadd z incr 2 a
+            assert_equal 3 [r zscore z a]
         }
     }
 
