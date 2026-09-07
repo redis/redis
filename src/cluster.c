@@ -1847,9 +1847,8 @@ int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err) {
         return C_ERR;
     }
 
-    /* Sort and merge adjacent slot ranges. */
-    slotRangeArraySortAndMerge(slots);
-
+    /* Validate each range before sorting and merging since merge itself relies
+     * on each range already being well-formed. */
     for (int i = 0; i < slots->num_ranges; i++) {
         if (slots->ranges[i].start >= CLUSTER_SLOTS ||
             slots->ranges[i].end >= CLUSTER_SLOTS)
@@ -1873,6 +1872,9 @@ int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err) {
             used_slots[j]++;
         }
     }
+
+    /* Sort and merge adjacent slot ranges. */
+    slotRangeArraySortAndMerge(slots);
     return C_OK;
 }
 

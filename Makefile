@@ -90,10 +90,11 @@ endif
 .DEFAULT:
 	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
 
-# `install` is an alias for `deploy` that does NOT build: it copies the
-# artifacts already in the tree, like upstream's install. Rebuild with
-# `make install SKIP_BUILD=0`, or just use `make deploy`.
-install: SKIP_BUILD ?= 1
+# `install` is an alias for `deploy` — same args, same PREFIX/DESTDIR. Like
+# upstream's install it builds first; nothing already up to date is recompiled,
+# because Redis core and each module short-circuit on their own artifacts. See
+# the `sudo make install` note in README.md: redisearch and redisjson ask cargo
+# whether they are up to date, so it has to be on root's PATH.
 install: deploy
 
 # clean [<name> ...|all|.|redis|none] — Redis core + selected modules.
@@ -118,7 +119,7 @@ bootstrap:
 	+@scripts/bootstrap.sh $(BOOTSTRAP_ARGS)
 
 # deploy [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
-#        [PROG_SUFFIX=<suffix>]
+#        [PROG_SUFFIX=<suffix>] [SKIP_BUILD=1]
 #   Install Redis core + selected modules (default: every cloned module),
 #   then rewrite the `loadmodule` paths in redis-full.conf (and redis.conf, if
 #   it carries a Modules block) to point at the installed .so paths under
@@ -127,8 +128,7 @@ bootstrap:
 deploy: PREFIX ?= /usr/local
 deploy:
 	+@PREFIX='$(PREFIX)' DESTDIR='$(DESTDIR)' PROG_SUFFIX='$(PROG_SUFFIX)' \
-	    SKIP_BUILD='$(SKIP_BUILD)' \
-	    scripts/deploy.sh $(DEPLOY_ARGS)
+	    SKIP_BUILD='$(SKIP_BUILD)' scripts/deploy.sh $(DEPLOY_ARGS)
 
 # uninstall [<name> ...|all|.|redis|none] [PREFIX=<path>] [DESTDIR=<path>]
 #           [PROG_SUFFIX=<suffix>]

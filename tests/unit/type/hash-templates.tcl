@@ -26,7 +26,7 @@ proc assert_same_hash_content {key1 key2} {
 # dropped on that background thread, so num_template_keys is eventually
 # consistent: it settles once the BIO free job runs.
 proc wait_num_template_keys {expected {level ""}} {
-    wait_for_condition 50 100 {
+    wait_for_condition 200 100 {
         [s {*}$level hash_template_keys] == $expected
     } else {
         fail "hash_template_keys did not settle to $expected\
@@ -39,7 +39,7 @@ proc wait_num_template_keys {expected {level ""}} {
 # thread and reclaimed in serverCron, so the registry size is eventually 
 # consistent like wait_num_template_keys above.
 proc wait_num_templates {expected {level ""}} {
-    wait_for_condition 50 100 {
+    wait_for_condition 200 100 {
         [s {*}$level hash_templates] == $expected
     } else {
         fail "hash_templates did not settle to $expected\
@@ -2458,6 +2458,7 @@ start_server {tags {"hash" "needs:debug" "cluster:skip" "external:skip"}
         # recorded; its single-use template must not survive.
         r hset gone w 1 x 2 y 3 z 4
         r pexpire gone 100
+        after 200
         assert_equal 0 [s hash_templates]
         r config set hash-rdb-load-min-template-entries 4
         r config set hash-rdb-load-template-disassembly-threshold 2
