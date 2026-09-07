@@ -568,6 +568,16 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                 if (conn->ssl_error) zfree(conn->ssl_error);
                 conn->ssl_error = errno ? zstrdup(strerror(errno)) : NULL;
                 break;
+            case SSL_ERROR_ZERO_RETURN:
+                /* The peer sent a close_notify alert, which is a clean
+                 * shutdown and not an error. OpenSSL leaves the error queue
+                 * empty in this case, so going through updateTLSError() would
+                 * record a meaningless "error:00000000:lib(0)::reason(0)"
+                 * string and report it as if it were a failure. */
+                conn->c.last_errno = 0;
+                if (conn->ssl_error) zfree(conn->ssl_error);
+                conn->ssl_error = NULL;
+                break;
             default:
                 /* Error! */
                 updateTLSError(conn);
