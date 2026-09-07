@@ -576,7 +576,7 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                  * string and report it as if it were a failure. */
                 conn->c.last_errno = 0;
                 if (conn->ssl_error) zfree(conn->ssl_error);
-                conn->ssl_error = NULL;
+                conn->ssl_error = zstrdup("connection closed");
                 break;
             default:
                 /* Error! */
