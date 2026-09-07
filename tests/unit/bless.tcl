@@ -1,21 +1,21 @@
 start_server {tags {"bless"}} {
-    test {BLESS SET/GET/LIST basics} {
+    test {BLESS SET/GET/SCAN basics} {
         r flushall
         r set k v
         # SET NO-EVICT protects; reply 1 on change, 0 on no-op
         assert_equal 1 [r bless set k no-evict]
         assert_equal 0 [r bless set k no-evict]
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [llength [r bless list no-evict]]
+        assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
         # a second key
         r set k2 v
         assert_equal 1 [r bless set k2 no-evict]
         assert_equal {NO-EVICT} [r bless get k2]
-        assert_equal 2 [llength [r bless list no-evict]]
+        assert_equal 2 [llength [lindex [r bless scan 0 no-evict] 1]]
         # CLEAR removes the protection
         assert_equal 1 [r bless clear k no-evict]
         assert_equal {} [r bless get k]
-        assert_equal 1 [llength [r bless list no-evict]]
+        assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
     }
 
     test {BLESS SET/GET/CLEAR on a missing key errors} {
@@ -40,31 +40,56 @@ start_server {tags {"bless"}} {
         assert_equal {NO-EVICT} [r bless get k]
     }
 
-    test {BLESS LIST returns keys with the given flag; the flag is required} {
+    test {BLESS SCAN returns keys with the given flag; the flag is required} {
         r flushall
         r set a 1; r set b 2; r set c 3
         r bless set a no-evict
         r bless set b no-evict
-        assert_equal [lsort {a b}] [lsort [r bless list no-evict]]
-        # CLEAR removes the key from the list
+        assert_equal [lsort {a b}] [lsort [lindex [r bless scan 0 no-evict] 1]]
+        # CLEAR removes the key from the scan
         r bless clear a no-evict
-        assert_equal {b} [r bless list no-evict]
-        # the flag is required (no default) -> a bare LIST is an arity error
-        assert_error {*wrong number*} {r bless list}
-        # LIST accepts only NO-EVICT; NONE/junk are a syntax error
-        assert_error {*syntax*} {r bless list bogus}
-        assert_error {*syntax*} {r bless list none}
+        assert_equal {b} [lindex [r bless scan 0 no-evict] 1]
+        # the flag is required (no default) -> SCAN without a flag is an arity error
+        assert_error {*wrong number*} {r bless scan 0}
+        # SCAN accepts only NO-EVICT; NONE/junk are a syntax error
+        assert_error {*syntax*} {r bless scan 0 bogus}
+        assert_error {*syntax*} {r bless scan 0 none}
     }
 
-    test {BLESS survives value overwrite (all types); LIST stays consistent} {
+    test {BLESS SCAN COUNT paginates; without COUNT one call returns all with cursor 0} {
+        r flushall
+        for {set i 0} {$i < 20} {incr i} { r set k:$i v; r bless set k:$i no-evict }
+        # no COUNT -> the whole index in one call, cursor 0
+        set res [r bless scan 0 no-evict]
+        assert_equal 0 [lindex $res 0]
+        assert_equal 20 [llength [lindex $res 1]]
+        # COUNT 1 -> walk the cursor; it must take more than one call and
+        # collect the full set exactly once
+        set cursor 0; set seen {}; set calls 0
+        while 1 {
+            set res [r bless scan $cursor no-evict COUNT 1]
+            set cursor [lindex $res 0]
+            lappend seen {*}[lindex $res 1]
+            incr calls
+            if {$cursor == 0} break
+        }
+        assert {$calls > 1}
+        assert_equal 20 [llength [lsort -unique $seen]]
+        # bad COUNT / bad token
+        assert_error {*syntax*} {r bless scan 0 no-evict COUNT 0}
+        assert_error {*syntax*} {r bless scan 0 no-evict BOGUS 5}
+        assert_error {*not an integer*} {r bless scan 0 no-evict COUNT x}
+    }
+
+    test {BLESS survives value overwrite (all types); SCAN stays consistent} {
         r flushall
         # string overwrite via SET
         r set k v1
         r bless set k no-evict
         r set k v2
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [llength [r bless list no-evict]]
-        assert_equal {k} [r bless list no-evict]
+        assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
+        assert_equal {k} [lindex [r bless scan 0 no-evict] 1]
         # overwrite that changes the type (hash -> string) keeps the blessing
         r hset h f v
         r bless set h no-evict
@@ -75,14 +100,14 @@ start_server {tags {"bless"}} {
         r bless set lst no-evict
         r rpush lst b c
         assert_equal {NO-EVICT} [r bless get lst]
-        assert_equal 3 [llength [r bless list no-evict]]
+        assert_equal 3 [llength [lindex [r bless scan 0 no-evict] 1]]
         # CLEAR and key removal are the only things that clear it
         r bless clear k no-evict
         assert_equal {} [r bless get k]
         r del h
         r set h x
         assert_equal {} [r bless get h]
-        assert_equal 1 [llength [r bless list no-evict]]
+        assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
     }
 
     test {SET keeps blessing; DEL+SET clears it} {
@@ -92,28 +117,28 @@ start_server {tags {"bless"}} {
         r bless set k no-evict
         r set k v2
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [llength [r bless list no-evict]]
+        assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
         # SET, DEL, SET  -> key removal clears the blessing; the recreated key is plain
         r del k
         r set k v3
         assert_equal {} [r bless get k]
-        assert_equal 0 [llength [r bless list no-evict]]
+        assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
     }
 
     test {MOVE transfers the blessing and leaves no ghost in the source index} {
         r flushall
         r set k v
         r bless set k no-evict
-        assert_equal 1 [llength [r bless list no-evict]]
+        assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
         r move k 10
         # source DB (9): key gone, index has no ghost entry
         assert_equal 0 [r exists k]
-        assert_equal 0 [llength [r bless list no-evict]]
-        assert_equal {} [r bless list no-evict]
+        assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
+        assert_equal {} [lindex [r bless scan 0 no-evict] 1]
         # destination DB (10): key present and still blessed
         r select 10
         assert_equal {NO-EVICT} [r bless get k]
-        assert_equal 1 [llength [r bless list no-evict]]
+        assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
         r flushall
         r select 9
     } {OK} {cluster:skip}
@@ -123,10 +148,10 @@ start_server {tags {"bless"}} {
         r set a 1; r set b 2; r set c 3
         r bless set a no-evict
         r bless set b no-evict
-        assert_equal 2 [llength [r bless list no-evict]]
+        assert_equal 2 [llength [lindex [r bless scan 0 no-evict] 1]]
         r debug reload
         # index rebuilt on load; flags and values intact
-        assert_equal 2 [llength [r bless list no-evict]]
+        assert_equal 2 [llength [lindex [r bless scan 0 no-evict] 1]]
         assert_equal {NO-EVICT} [r bless get a]
         assert_equal {NO-EVICT} [r bless get b]
         assert_equal {}         [r bless get c]
@@ -143,7 +168,7 @@ start_server {tags {"bless"}} {
         r del a
         r restore a 0 $d
         assert_equal {} [r bless get a]
-        assert_equal 0 [llength [r bless list no-evict]]
+        assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
     }
 
     test {RESTORE REPLACE keeps the destination's blessing (payload carries none)} {
@@ -191,9 +216,9 @@ start_server {tags {"bless"}} {
         r set a 1
         r bless set a no-evict
         r bless clear a no-evict
-        assert_equal 0 [llength [r bless list no-evict]]
+        assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
         r debug reload
-        assert_equal 0 [llength [r bless list no-evict]]
+        assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
         assert_equal {} [r bless get a]
     } {} {needs:debug}
 
@@ -235,7 +260,7 @@ start_server {tags {"bless"}} {
         # async path: emptyDbAsync swaps blessed_keys and frees the old one on BIO
         r flushdb async
         assert_equal 0 [s blessed_keys]
-        assert_equal 0 [llength [r bless list no-evict]]
+        assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
         # blessing works again on the fresh index
         r set c 3
         r bless set c no-evict
@@ -256,7 +281,7 @@ start_server {tags {"bless"}} {
         for {set i 0} {$i < 100} {incr i} {
             assert_equal 1 [r bless set k no-evict]
             assert_equal {NO-EVICT} [r bless get k]
-            assert_equal 1 [llength [r bless list no-evict]]
+            assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
             # Capture the size once the slot exists, then require it to stay put.
             if {$i == 0} { set blessed [r memory usage k] }
             # Subsequent SETs reuse the existing slot -> no further growth.
@@ -264,7 +289,7 @@ start_server {tags {"bless"}} {
 
             assert_equal 1 [r bless clear k no-evict]
             assert_equal {} [r bless get k]
-            assert_equal 0 [llength [r bless list no-evict]]
+            assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
             # CLEAR zeroes the mask but keeps the slot (like PERSIST) -> no shrink.
             assert_equal $blessed [r memory usage k]
         }
@@ -353,7 +378,7 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
             r set b:$j [string repeat y 1000]
             r bless set b:$j no-evict
         }
-        assert_equal 500 [llength [r bless list no-evict]]
+        assert_equal 500 [llength [lindex [r bless scan 0 no-evict] 1]]
         set used [s used_memory]
 
         # Over maxmemory but within the 1.25x factor, and every key is blessed so
@@ -367,7 +392,7 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
 
         # Unbless -> keys become evictable, so eviction works again (no OOM).
         for {set j 0} {$j < 500} {incr j} { r bless clear b:$j no-evict }
-        assert_equal 0 [llength [r bless list no-evict]]
+        assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
         r config set maxmemory [expr {$used - 50000}]
         assert_equal OK [r set afterunbless v]
         r config set maxmemory 0
@@ -470,13 +495,13 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
             r bless set b:$j no-evict
         }
         for {set j 0} {$j < 50} {incr j} { r set victim:$j [string repeat z 1000] }
-        assert_equal 500 [llength [r bless list no-evict]]
+        assert_equal 500 [llength [lindex [r bless scan 0 no-evict] 1]]
         set used [s used_memory]
         # tight headroom -> every write forces eviction of the unblessed minority
         r config set maxmemory [expr {$used + 100000}]
         for {set j 0} {$j < 3000} {incr j} { assert_equal OK [r set flood:$j [string repeat w 1000]] }
         # blessed majority untouched ...
-        assert_equal 500 [llength [r bless list no-evict]]
+        assert_equal 500 [llength [lindex [r bless scan 0 no-evict] 1]]
         # ... and the unblessed victims were reclaimed, not falsely protected
         set survivors 0
         for {set j 0} {$j < 50} {incr j} { incr survivors [r exists victim:$j] }

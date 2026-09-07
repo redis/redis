@@ -2465,29 +2465,32 @@ struct COMMAND_ARG BLESS_GET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/********** BLESS LIST ********************/
+/********** BLESS SCAN ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
-/* BLESS LIST history */
-#define BLESS_LIST_History NULL
+/* BLESS SCAN history */
+#define BLESS_SCAN_History NULL
 #endif
 
 #ifndef SKIP_CMD_TIPS_TABLE
-/* BLESS LIST tips */
-const char *BLESS_LIST_Tips[] = {
-"request_policy:all_shards",
-"nondeterministic_output_order",
+/* BLESS SCAN tips */
+const char *BLESS_SCAN_Tips[] = {
+"nondeterministic_output",
+"request_policy:special",
+"response_policy:special",
 };
 #endif
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* BLESS LIST key specs */
-#define BLESS_LIST_Keyspecs NULL
+/* BLESS SCAN key specs */
+#define BLESS_SCAN_Keyspecs NULL
 #endif
 
-/* BLESS LIST argument table */
-struct COMMAND_ARG BLESS_LIST_Args[] = {
+/* BLESS SCAN argument table */
+struct COMMAND_ARG BLESS_SCAN_Args[] = {
+{MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("no-evict",ARG_TYPE_PURE_TOKEN,-1,"NO-EVICT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** BLESS SET ********************/
@@ -2519,7 +2522,7 @@ struct COMMAND_ARG BLESS_SET_Args[] = {
 struct COMMAND_STRUCT BLESS_Subcommands[] = {
 {MAKE_CMD("clear","Removes protection flags from a key.","O(1)","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_CLEAR_History,0,BLESS_CLEAR_Tips,0,blessCommand,4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_CLEAR_Keyspecs,1,NULL,2),.args=BLESS_CLEAR_Args},
 {MAKE_CMD("get","Returns the active protection flags of a key.","O(1).","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_GET_History,0,BLESS_GET_Tips,0,blessCommand,3,CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_GET_Keyspecs,1,NULL,1),.args=BLESS_GET_Args},
-{MAKE_CMD("list","Lists blessed keys carrying the given flag. The flag is required (no default); NONE is not listable (unblessed keys are untracked) and any other flag is a syntax error.","O(N) where N is the number of blessed keys.","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_LIST_History,0,BLESS_LIST_Tips,2,blessCommand,3,0,ACL_CATEGORY_KEYSPACE,BLESS_LIST_Keyspecs,0,NULL,1),.args=BLESS_LIST_Args},
+{MAKE_CMD("scan","Incrementally iterates the blessed keys of the current database that carry the given flag. Without COUNT a single call returns all of them with a 0 cursor; with COUNT it paginates like SCAN.","O(1) for every call. O(N) for a complete iteration, where N is the number of blessed keys.","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_SCAN_History,0,BLESS_SCAN_Tips,3,blessCommand,-4,0,ACL_CATEGORY_KEYSPACE,BLESS_SCAN_Keyspecs,0,NULL,3),.args=BLESS_SCAN_Args},
 {MAKE_CMD("set","Adds protection flags to a key against memory pressure.","O(1)","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_SET_History,0,BLESS_SET_Tips,0,blessCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_KEYSPACE,BLESS_SET_Keyspecs,1,NULL,2),.args=BLESS_SET_Args},
 {0}
 };

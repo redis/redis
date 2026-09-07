@@ -1,0 +1,56 @@
+{
+    "SCAN": {
+        "summary": "Incrementally iterates the blessed keys of the current database that carry the given flag. Without COUNT a single call returns all of them with a 0 cursor; with COUNT it paginates like SCAN.",
+        "complexity": "O(1) for every call. O(N) for a complete iteration, where N is the number of blessed keys.",
+        "group": "generic",
+        "since": "8.12.0",
+        "arity": -4,
+        "container": "BLESS",
+        "function": "blessCommand",
+        "command_flags": [],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:SPECIAL",
+            "RESPONSE_POLICY:SPECIAL"
+        ],
+        "acl_categories": [
+            "KEYSPACE"
+        ],
+        "arguments": [
+            {
+                "name": "cursor",
+                "type": "integer"
+            },
+            {
+                "name": "no-evict",
+                "type": "pure-token",
+                "token": "NO-EVICT"
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "token": "COUNT",
+                "optional": true
+            }
+        ],
+        "reply_schema": {
+            "description": "cursor and scan response in array form",
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": [
+                {
+                    "description": "cursor for the next call, '0' when the iteration is complete",
+                    "type": "string"
+                },
+                {
+                    "description": "key names blessed with the requested flag",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
+        }
+    }
+}

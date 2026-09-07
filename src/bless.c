@@ -13,7 +13,7 @@
  * it persists to RDB and rides DUMP/RESTORE, slot migration and AOF rewrite.
  *
  * Each redisDb also keeps an in-RAM index of its NO-EVICT keys (db->blessed_keys)
- * for BLESS LIST and INFO's blessed_keys count. It is per-DB (like db->expires)
+ * for BLESS SCAN and INFO's blessed_keys count. It is per-DB (like db->expires)
  * so it stays correct across SWAPDB. The eviction path never consults it -
  * blessNoEvict() reads the bit inline from the key's keymeta.
  *
@@ -24,6 +24,7 @@
  */
 
 #include "server.h"
+#include "vector.h"
 
 /* Bless is a single LEVEL per key, stored in the shared ATTR mask (see reserved
  * bits in server.h). Setting a level replaces any previous one.
@@ -241,9 +242,73 @@ static void blessGetCommand(client *c) {
         addReplyBulkCString(c, "NO-EVICT");
 }
 
+/* ---- BLESS SCAN ---- */
+
+typedef struct {
+    uint64_t flag; /* attribute bit(s) a key must carry to be emitted */
+    vec *keys;     /* matches collected so far (index's own sds, not copied) */
+    long sampled;  /* entries visited so far, bounds COUNT like SCAN does */
+} blessScanData;
+
+static void blessScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    blessScanData *d = privdata;
+    d->sampled++;
+    uint64_t mask = (uint64_t)(uintptr_t)dictGetVal(de);
+    if ((mask & d->flag) == d->flag)
+        vecPush(d->keys, dictGetKey(de));
+}
+
+/* BLESS SCAN <cursor> <NO-EVICT> [COUNT <count>] - cursored scan of the current
+ * DB's blessed index, filtered by flag. SCAN-style reply: [next-cursor, [key ...]].
+ * Without COUNT the whole index is walked in this one call and the cursor comes
+ * back 0; with COUNT, the loop stops once ~count entries were sampled, like
+ * scanGenericCommand, with a maxiterations guard against a sparse table. */
+static void blessScanCommand(client *c) {
+    unsigned long long cursor;
+    if (parseScanCursorOrReply(c, c->argv[2], &cursor) == C_ERR) return;
+    /* The flag is required; only NO-EVICT exists today. */
+    if (strcasecmp(c->argv[3]->ptr, "no-evict")) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+    long count = LONG_MAX; /* unbounded: walk the whole index in this call */
+    if (c->argc == 6) {
+        if (strcasecmp(c->argv[4]->ptr, "count")) {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+        if (getLongFromObjectOrReply(c, c->argv[5], &count, NULL) != C_OK) return;
+        if (count < 1) {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    } else if (c->argc != 4) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+
+    vec keys;
+    vecInit(&keys, NULL, 0);
+    blessScanData data = { .flag = BLESS_NOEVICT, .keys = &keys };
+    long maxiterations = (count > LONG_MAX / 10) ? LONG_MAX : count * 10;
+    do {
+        cursor = kvstoreScan(c->db->blessed_keys, cursor, -1, blessScanCallback, NULL, &data);
+    } while (cursor && maxiterations-- && data.sampled < count);
+
+    addReplyArrayLen(c, 2);
+    addReplyBulkLongLong(c, cursor);
+    addReplyArrayLen(c, vecSize(&keys));
+    for (size_t i = 0; i < vecSize(&keys); i++) {
+        sds key = vecGet(&keys, i);
+        addReplyBulkCBuffer(c, key, sdslen(key));
+    }
+    vecRelease(&keys);
+}
+
 /* BLESS is a container. All subcommands share this dispatcher (OBJECT-style);
  * per-subcommand arity and key specs are enforced by the command table.
- * LIST reports the current DB only, like KEYS. (The instance-wide blessed-key
+ * SCAN reports the current DB only, like SCAN. (The instance-wide blessed-key
  * count is exposed via INFO's blessed_keys field, not a command.) */
 void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
@@ -253,29 +318,8 @@ void blessCommand(client *c) {
         blessGenericCommand(c, 0);          /* BLESS CLEAR <key> NO-EVICT [flag ...] - turn flags OFF */
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
-    } else if (!strcasecmp(sub, "list")) {
-        /* BLESS LIST NO-EVICT - array of keys in the current DB carrying the given
-         * flag. The flag is required (no default); arity guarantees one token. */
-        uint64_t flag;
-        if (blessParseFlags(c, 2, &flag) != C_OK) {
-            addReplyErrorObject(c, shared.syntaxerr);
-            return;
-        }
-        void *replylen = addReplyDeferredLen(c);
-        unsigned long n = 0;
-        kvstoreIterator kvs_it;
-        kvstoreIteratorInit(&kvs_it, c->db->blessed_keys);
-        dictEntry *de;
-        while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
-            uint64_t mask = (uint64_t)(uintptr_t)dictGetVal(de);
-            if ((mask & flag) == flag) {
-                sds name = dictGetKey(de);
-                addReplyBulkCBuffer(c, name, sdslen(name));
-                n++;
-            }
-        }
-        kvstoreIteratorReset(&kvs_it);
-        setDeferredArrayLen(c, replylen, n);
+    } else if (!strcasecmp(sub, "scan")) {
+        blessScanCommand(c);
     } else {
         addReplySubcommandSyntaxError(c);
     }
