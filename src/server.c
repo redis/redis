@@ -1305,6 +1305,36 @@ void clientsCron(void) {
     }
 }
 
+/* Refresh server.clients_unshared_mem incrementally, once per serverCron tick.
+ *
+ * Recomputing c->reply_bytes_unshared requires rescanning a client's whole pending
+ * reply buffer, so instead of redoing that for every client on every call, we spread
+ * it out like clientsCron() does for updateClientMemoryUsage(): process a rotating
+ * slice of clients_with_pending_ref_reply per tick (~listLength/hz clients, so the
+ * whole list gets rescanned about once per second), folding each client's delta into
+ * the running total.
+ *
+ * c->reply_bytes_shared needs no such treatment since it's already kept exact for
+ * free at write time, so getClientsSharedMemoryUsage() still sums it on demand. */
+void clientsUnsharedMemCron(void) {
+    int numclients = listLength(server.clients_with_pending_ref_reply);
+    if (!numclients) return;
+    int iterations = numclients / server.hz;
+    if (iterations < CLIENTS_CRON_MIN_ITERATIONS)
+        iterations = (numclients < CLIENTS_CRON_MIN_ITERATIONS) ?
+                     numclients : CLIENTS_CRON_MIN_ITERATIONS;
+
+    while (listLength(server.clients_with_pending_ref_reply) && iterations--) {
+        listNode *head = listFirst(server.clients_with_pending_ref_reply);
+        client *c = listNodeValue(head);
+        listRotateHeadToTail(server.clients_with_pending_ref_reply);
+
+        server.clients_unshared_mem -= c->reply_bytes_unshared;
+        updateClientUnsharedReplyBytes(c);
+        server.clients_unshared_mem += c->reply_bytes_unshared;
+    }
+}
+
 static int resizeShouldSkip(int didx) {
     if (!server.cluster_enabled) return 0;
 
@@ -1694,6 +1724,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     databasesCron();
 
     backupCron();
+
+    /* Refresh the cached unshared client reply memory total used by
+     * getClientsSharedMemoryUsage(), instead of rescanning every pending client's
+     * reply buffer on every INFO/MEMORY call (or, in some deployments, per-command).
+     * Like clientsCron() above, this must run every tick (not throttled to
+     * once/sec) since it paces itself at listLength/server.hz clients per call so
+     * the full list gets rescanned roughly once per second. */
+    clientsUnsharedMemCron();
 
     /* Start a scheduled AOF rewrite if this was requested while another state
      * prevented it earlier. */

@@ -2044,6 +2044,10 @@ void unlinkClient(client *c) {
  * contain any referenced robj. */
 void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
+        /* Withdraw this client's contribution before it leaves the list,
+         * since it won't be revisited by clientsUnsharedMemCron() again. */
+        server.clients_unshared_mem -= c->reply_bytes_unshared;
+        c->reply_bytes_unshared = 0;
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }
 }
@@ -2104,14 +2108,9 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
     listRewind(server.clients_with_pending_ref_reply, &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-
-        /* Total shared reply bytes (logical size, shared with keyspace). */
         *shared_mem += c->reply_bytes_shared;
-
-        /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
-        updateClientUnsharedReplyBytes(c);
-        *unshared_mem += c->reply_bytes_unshared;
     }
+    *unshared_mem += server.clients_unshared_mem;
 }
 
 /* Drop all of the client's Pub/Sub state: unsubscribe every channel, shard
