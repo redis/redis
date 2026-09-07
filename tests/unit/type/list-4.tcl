@@ -98,6 +98,40 @@ foreach {type large} [array get largevalue] {
     }
 }
 
+    test {LMOVEM notifications match LMOVE push-before-pop order} {
+        set orig_notify [lindex [r config get notify-keyspace-events] 1]
+        r config set notify-keyspace-events Egl
+        r del k{t} src{t} dst{t} last{t} new{t}
+        r rpush k{t} a b
+        r rpush src{t} a b
+        r rpush last{t} a
+
+        set rd [redis_deferring_client]
+        set pattern __keyevent@*__:*
+        assert_equal {1} [psubscribe $rd $pattern]
+
+        assert_equal {a} [r lmovem k{t} k{t} left right]
+        assert_match "pmessage $pattern __keyevent@*__:rpush k{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:lpop k{t}" [$rd read]
+        assert_equal {b a} [r lrange k{t} 0 -1]
+
+        assert_equal {a} [r lmovem src{t} dst{t} left right]
+        assert_match "pmessage $pattern __keyevent@*__:rpush dst{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:lpop src{t}" [$rd read]
+        assert_equal {b} [r lrange src{t} 0 -1]
+        assert_equal {a} [r lrange dst{t} 0 -1]
+
+        assert_equal {a} [r lmovem last{t} new{t} left right]
+        assert_match "pmessage $pattern __keyevent@*__:rpush new{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:lpop last{t}" [$rd read]
+        assert_match "pmessage $pattern __keyevent@*__:del last{t}" [$rd read]
+        assert_equal {0} [r exists last{t}]
+        assert_equal {a} [r lrange new{t} 0 -1]
+
+        $rd close
+        r config set notify-keyspace-events $orig_notify
+    }
+
     test {LMOVEM missing or empty source} {
         r del src{t} dst{t}
         assert_equal {} [r lmovem src{t} dst{t} left right]
