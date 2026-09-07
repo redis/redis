@@ -24,6 +24,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 #include "vector.h"
 
 /* Bless is a single LEVEL per key, stored in the shared ATTR mask (see reserved
@@ -259,6 +260,13 @@ static void blessScanCallback(void *privdata, const dictEntry *de, dictEntryLink
         vecPush(d->keys, dictGetKey(de));
 }
 
+/* Same slot-skip rule as SCAN/KEYS/RANDOMKEY (db.c's accessKeysShouldSkipDictIndex):
+ * don't enumerate keys in a slot this node can't currently serve, e.g. mid-ASM-import. */
+static int blessScanShouldSkipDict(dict *d, int didx) {
+    UNUSED(d);
+    return !clusterCanAccessKeysInSlot(didx);
+}
+
 /* BLESS SCAN <cursor> <NO-EVICT> [COUNT <count>] - cursored scan of the current
  * DB's blessed index, filtered by flag. SCAN-style reply: [next-cursor, [key ...]].
  * Without COUNT the whole index is walked in this one call and the cursor comes
@@ -293,7 +301,8 @@ static void blessScanCommand(client *c) {
     blessScanData data = { .flag = BLESS_NOEVICT, .keys = &keys };
     long maxiterations = (count > LONG_MAX / 10) ? LONG_MAX : count * 10;
     do {
-        cursor = kvstoreScan(c->db->blessed_keys, cursor, -1, blessScanCallback, NULL, &data);
+        cursor = kvstoreScan(c->db->blessed_keys, cursor, -1, blessScanCallback,
+                             blessScanShouldSkipDict, &data);
     } while (cursor && maxiterations-- && data.sampled < count);
 
     addReplyArrayLen(c, 2);
