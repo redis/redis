@@ -3910,7 +3910,6 @@ void exitExecutionUnit(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 void defragWhileBlocked(void);
-int defragBitmapShouldBeDeferred(const robj *ob);
 void defragFragCachePut(size_t frag_bytes, size_t allocated);
 int  defragFragCacheTake(float *out_frag_pct, size_t *out_frag_bytes);
 unsigned int getLRUClock(void);

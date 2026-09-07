@@ -23,11 +23,6 @@
 #include <stddef.h>
 #include <math.h>
 
-int defragBitmapShouldBeDeferred(const robj *ob) {
-    return bitroarContainerCountUpTo(ob, server.active_defrag_max_scan_fields + 1) >
-           server.active_defrag_max_scan_fields;
-}
-
 #ifdef HAVE_DEFRAG
 
 #define DEFRAG_CYCLE_US 500 /* Standard duration of defrag cycle (in microseconds) */
@@ -790,7 +785,8 @@ void defragBitmapObject(defragKeysCtx *ctx, kvobj *ob) {
     serverAssert(ob->type == OBJ_BITMAP);
     /* Only the threshold decision is needed here. Avoid a full main-thread
      * ART walk before scheduling a large bitmap for incremental defrag. */
-    if (defragBitmapShouldBeDeferred(ob))
+    if (bitroarContainerCountUpTo(ob, server.active_defrag_max_scan_fields + 1) >
+        server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
     else
         bitroarDefrag(ob);
