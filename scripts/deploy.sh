@@ -7,10 +7,15 @@
 #                     $PREFIX/lib/redis/modules/    - per-module .so files
 #         DESTDIR   optional staging root prepended to PREFIX (for packaging).
 #                   Where files are copied; never part of the conf's paths.
-#         SKIP_BUILD  1 = install what is already built, skip phase 1 entirely
-#                   (the default for `make install`; `make deploy` builds).
 #         PROG_SUFFIX  suffix appended to the core program names, matching
 #                   `make PROG_SUFFIX=…` (src/Makefile). Modules are unaffected.
+#         SKIP_BUILD  1 = do not build, install the artifacts already in the
+#                   tree. Not a default: `make install` and `make deploy` both
+#                   build, and each module's build short-circuits on an
+#                   up-to-date artifact anyway. Meant for
+#                   `sudo make install SKIP_BUILD=1`, where compiling as root
+#                   would leave root-owned files in ~/.cargo and
+#                   modules/*/src/bin.
 #         MAKE      make binary (defaults to `make`); only used when shelling
 #                   into build.sh, which itself respects it.
 #
@@ -174,6 +179,10 @@ if [ -n "$installed_modules" ]; then
     grep -qF "$LOADMODULE_BEGIN" "$conf" 2>/dev/null || return 0
     local tmp
     tmp="$(mktemp "${conf}.deploy.XXXXXX")"
+    # Clone the conf's mode (and owner, when root) onto the temp file: mktemp
+    # creates it 0600, and the mv below would carry that — plus root ownership
+    # under `sudo` — onto a conf the user still has to write.
+    cp -p "$conf" "$tmp"
     trap 'rm -f "$tmp" "$new_lines_file"' EXIT
     awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v newfile="$new_lines_file" '
       $0 == begin {
