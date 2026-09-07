@@ -521,8 +521,7 @@ size_t bitroarContainerCountUpTo(const robj *o, size_t limit) {
     art_iterator_t it = art_init_iterator((art_t *)&bitmap->roaring->art, true);
     while (it.value != NULL && count < limit) {
         count++;
-        if (count < limit)
-            art_iterator_next(&it);
+        art_iterator_next(&it);
     }
     return count;
 }
