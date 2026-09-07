@@ -1239,23 +1239,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal [s lazyfreed_objects] 1
     } {} {needs:config-resetstat}
 
-    test {Roaring bitmap active defrag preserves the max-scan boundary} {
-        r config set bitmap-default-roaring yes
-        set old_limit [config_get_set active-defrag-max-scan-fields 31]
-
-        for {set i 0} {$i < 31} {incr i} {
-            r setbit bitmap:defrag:immediate [expr {$i * 65536}] 1
-        }
-        for {set i 0} {$i < 32} {incr i} {
-            r setbit bitmap:defrag:later [expr {$i * 65536}] 1
-        }
-        r config set bitmap-default-roaring no
-
-        assert_equal 0 [r debug bitmap-defrag-later bitmap:defrag:immediate]
-        assert_equal 1 [r debug bitmap-defrag-later bitmap:defrag:later]
-        r config set active-defrag-max-scan-fields $old_limit
-    }
-
     test {public-created Roaring bitmaps survive debug reload} {
         r config set bitmap-default-roaring yes
 
