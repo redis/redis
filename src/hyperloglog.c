@@ -2352,6 +2352,13 @@ void pfmergeCommand(client *c) {
                 switch (hdr->encoding) {
                     case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
                     case HLL_SPARSE: hllSparseSet(kv,j,max[j]); break;
+                    /* hllSparseSet() promotes the destination on its own, and
+                     * under the ultra backend it lands on HLL_ULTRA rather than
+                     * HLL_DENSE, so the rest of the loop has to keep writing
+                     * through the same fold that promotion used. */
+                    case HLL_ULTRA:
+                        ullFoldClassicReg(hdr->registers,j,max[j],HLL_ULTRA_GET_P(hdr));
+                        break;
                 }
             }
         }

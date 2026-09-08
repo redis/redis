@@ -510,6 +510,26 @@ start_server {tags {"hll"}} {
         r config set hll-sparse-max-bytes 3000
     }
 
+    test {ULL: classic-only PFMERGE keeps every register when the dest promotes mid-merge} {
+        r config set hll-dense-encoding classic
+        r config set hll-sparse-max-bytes 3000
+        r del pd{t} ps1{t} ps2{t}
+        for {set i 0} {$i < 100} {incr i} { r pfadd ps1{t} "s$i" }
+        for {set i 100} {$i < 200} {incr i} { r pfadd ps2{t} "s$i" }
+        assert_equal {sparse} [r pfdebug encoding ps1{t}]
+        assert_equal {sparse} [r pfdebug encoding ps2{t}]
+        # All sources are sparse, so the merge goes through the classic-only
+        # loop, and the tiny sparse budget makes the destination promote to the
+        # ULL dense encoding in the middle of it.
+        r config set hll-dense-encoding ultra
+        r config set hll-sparse-max-bytes 100
+        r pfmerge pd{t} ps1{t} ps2{t}
+        assert_equal {ultra} [r pfdebug encoding pd{t}]
+        assert {abs([r pfcount pd{t}] - 200) < 200*0.05}
+        r config set hll-sparse-max-bytes 3000
+        r config set hll-dense-encoding classic
+    } {OK} {needs:pfdebug}
+
     test {ULL: mixed PFMERGE into a pre-existing ULL dest works} {
         r config set hll-dense-encoding ultra; r config set hll-sparse-max-bytes 0
         r del md{t} cs{t}
