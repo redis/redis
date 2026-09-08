@@ -480,6 +480,30 @@ start_server {tags {"cli"}} {
         assert_equal "(integer) 1" [run_cli incr counter]
     }
 
+    foreach {mode prefix} {
+        --no-raw {(big number) }
+        --raw {}
+        --csv {}
+        --json {}
+        --quoted-json {}
+    } {
+        test "RESP3 big number replies in $mode mode" {
+            foreach number {123456789012345678901234567890 -123456789012345678901234567890} {
+                assert_equal "${prefix}${number}" \
+                    [run_cli -3 $mode eval {return {big_number=ARGV[1]}} 0 $number]
+
+                set expected "${prefix}${number}"
+                if {$mode eq "--no-raw"} {
+                    set expected "1) $expected"
+                } elseif {$mode eq "--json" || $mode eq "--quoted-json"} {
+                    set expected "\[$number\]"
+                }
+                assert_equal $expected \
+                    [run_cli -3 $mode eval {return {{big_number=ARGV[1]}}} 0 $number]
+            }
+        }
+    }
+
     test_tty_cli "Bulk reply" {
         r set key "tab\tnewline\n"
         assert_equal "\"tab\\tnewline\\n\"" [run_cli get key]

@@ -1870,6 +1870,9 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"(integer) %lld\n",r->integer);
     break;
+    case REDIS_REPLY_BIGNUM:
+        out = sdscatprintf(out,"(big number) %s\n",r->str);
+    break;
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"(double) %s\n",r->str);
     break;
@@ -2078,6 +2081,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
         break;
+    case REDIS_REPLY_BIGNUM:
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"%s",r->str);
         break;
@@ -2126,6 +2130,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
     break;
+    case REDIS_REPLY_BIGNUM:
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"%s",r->str);
         break;
@@ -2194,6 +2199,7 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
         break;
+    case REDIS_REPLY_BIGNUM:
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"%s",r->str);
         break;
