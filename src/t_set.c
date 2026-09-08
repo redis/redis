@@ -126,20 +126,14 @@ int setTypeAdd(robj *subject, sds value) {
  * Returns 1 if the value was added and 0 if it was already a member. */
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
-    if (!str) {
-        if (set->encoding == OBJ_ENCODING_INTSET) {
-            uint8_t success = 0;
-            set->ptr = intsetAdd(set->ptr, llval, &success);
-            if (success) maybeConvertIntset(set);
-            return success;
-        }
-        /* Convert int to string. */
+    if (!str && set->encoding != OBJ_ENCODING_INTSET) {
+        /* Only intset can consume a bare integer directly; other encodings
+         * need it stringified first. */
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
     }
 
-    serverAssert(str);
     if (set->encoding == OBJ_ENCODING_HT) {
         return setTypeOpsHT.rawAdd(set, str, len, llval, str_is_sds);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
@@ -154,51 +148,27 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         }
         return added;
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
-        long long value;
-        if (string2ll(str, len, &value)) {
-            uint8_t success = 0;
-            set->ptr = intsetAdd(set->ptr,value,&success);
-            if (success) {
-                maybeConvertIntset(set);
-                return 1;
-            }
-        } else {
-            /* Check if listpack encoding is safe not to cross any threshold. */
-            size_t maxelelen = 0, totsize = 0;
-            unsigned long n = intsetLen(set->ptr);
-            if (n != 0) {
-                size_t elelen1 = sdigits10(intsetMax(set->ptr));
-                size_t elelen2 = sdigits10(intsetMin(set->ptr));
-                maxelelen = max(elelen1, elelen2);
-                size_t s1 = lpEstimateBytesRepeatedInteger(intsetMax(set->ptr), n);
-                size_t s2 = lpEstimateBytesRepeatedInteger(intsetMin(set->ptr), n);
-                totsize = max(s1, s2);
-            }
-            if (intsetLen((const intset*)set->ptr) < server.set_max_listpack_entries &&
-                len <= server.set_max_listpack_value &&
-                maxelelen <= server.set_max_listpack_value &&
-                lpSafeToAdd(NULL, totsize + len))
-            {
-                /* In the "safe to add" check above we assumed all elements in
-                 * the intset are of size maxelelen. This is an upper bound. */
-                setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK,
-                                        intsetLen(set->ptr) + 1, 1);
-                unsigned char *lp = set->ptr;
-                lp = lpAppend(lp, (unsigned char *)str, len);
-                lp = lpShrinkToFit(lp);
-                set->ptr = lp;
-                return 1;
-            } else {
-                setTypeConvertAndExpand(set, OBJ_ENCODING_HT,
-                                        intsetLen(set->ptr) + 1, 1);
-                /* The set *was* an intset and this value is not integer
-                 * encodable, so dictAdd should always work. */
-                sds newval = sdsnewlen(str,len);
-                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
-                return 1;
-            }
+        int added = setTypeOpsIntset.rawAdd(set, str, len, llval, str_is_sds);
+        if (added != -1) {
+            if (added) maybeConvertIntset(set);
+            return added;
         }
+        /* Not representable as an integer: convert to a bigger encoding. */
+        unsigned long cap = setTypeOpsIntset.size(set) + 1;
+        int target = setTypeOpsIntset.resolveEncodingForAdd(set, str, len, llval, str_is_sds);
+        setTypeConvertAndExpand(set, target, cap, 1);
+        if (target == OBJ_ENCODING_LISTPACK) {
+            added = setTypeOpsListpack.rawAdd(set, str, len, llval, str_is_sds);
+            serverAssert(added == 1);
+            /* The listpack was sized off an upper-bound estimate; shrink it
+             * down to its actual content now that we're done growing it. */
+            setTypeListpackShrinkToFit(set);
+        } else {
+            serverAssert(target == OBJ_ENCODING_HT);
+            added = setTypeOpsHT.rawAdd(set, str, len, llval, str_is_sds);
+            serverAssert(added == 1);
+        }
+        return added;
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -219,12 +189,7 @@ int setTypeRemove(robj *setobj, sds value) {
  * Returns 1 if the value was deleted and 0 if it was not a member of the set. */
 int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
-    if (!str) {
-        if (setobj->encoding == OBJ_ENCODING_INTSET) {
-            int success;
-            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
-            return success;
-        }
+    if (!str && setobj->encoding != OBJ_ENCODING_INTSET) {
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
@@ -235,12 +200,7 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
     } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
         return setTypeOpsListpack.rawRemove(setobj, str, len, llval, str_is_sds);
     } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        long long llval;
-        if (string2ll(str, len, &llval)) {
-            int success;
-            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
-            if (success) return 1;
-        }
+        return setTypeOpsIntset.rawRemove(setobj, str, len, llval, str_is_sds);
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -261,9 +221,7 @@ int setTypeIsMember(robj *subject, sds value) {
  * Returns 1 if the value is a member of the set and 0 if it isn't. */
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
-    if (!str) {
-        if (set->encoding == OBJ_ENCODING_INTSET)
-            return intsetFind(set->ptr, llval);
+    if (!str && set->encoding != OBJ_ENCODING_INTSET) {
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
@@ -272,8 +230,7 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         return setTypeOpsListpack.isMember(set, str, len, llval, str_is_sds);
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
-        long long llval;
-        return string2ll(str, len, &llval) && intsetFind(set->ptr, llval);
+        return setTypeOpsIntset.isMember(set, str, len, llval, str_is_sds);
     } else if (set->encoding == OBJ_ENCODING_HT) {
         return setTypeOpsHT.isMember(set, str, len, llval, str_is_sds);
     } else {
@@ -287,7 +244,7 @@ void setTypeInitIterator(setTypeIterator *si, robj *subject) {
     if (si->encoding == OBJ_ENCODING_HT) {
         setTypeOpsHT.iterInit(si);
     } else if (si->encoding == OBJ_ENCODING_INTSET) {
-        si->ii = 0;
+        setTypeOpsIntset.iterInit(si);
     } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
         setTypeOpsListpack.iterInit(si);
     } else {
@@ -300,6 +257,8 @@ void setTypeResetIterator(setTypeIterator *si) {
         setTypeOpsHT.iterReset(si);
     else if (si->encoding == OBJ_ENCODING_LISTPACK)
         setTypeOpsListpack.iterReset(si);
+    else if (si->encoding == OBJ_ENCODING_INTSET)
+        setTypeOpsIntset.iterReset(si);
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -327,9 +286,7 @@ int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
     if (si->encoding == OBJ_ENCODING_HT) {
         if (setTypeOpsHT.iterNext(si, str, len, llele) == -1) return -1;
     } else if (si->encoding == OBJ_ENCODING_INTSET) {
-        if (!intsetGet(si->subject->ptr,si->ii++,llele))
-            return -1;
-        *str = NULL;
+        if (setTypeOpsIntset.iterNext(si, str, len, llele) == -1) return -1;
     } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
         if (setTypeOpsListpack.iterNext(si, str, len, llele) == -1) return -1;
     } else {
@@ -372,8 +329,7 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) 
     if (setobj->encoding == OBJ_ENCODING_HT) {
         setTypeOpsHT.randomElement(setobj, str, len, llele);
     } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        *llele = intsetRandom(setobj->ptr);
-        *str = NULL; /* Not needed. Defensive. */
+        setTypeOpsIntset.randomElement(setobj, str, len, llele);
     } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
         setTypeOpsListpack.randomElement(setobj, str, len, llele);
     } else {
@@ -415,7 +371,7 @@ unsigned long setTypeSize(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_HT) {
         return setTypeOpsHT.size(subject);
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        return intsetLen((const intset*)subject->ptr);
+        return setTypeOpsIntset.size(subject);
     } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
         return setTypeOpsListpack.size(subject);
     } else {
@@ -429,7 +385,7 @@ size_t setTypeAllocSize(const robj *o) {
     if (o->encoding == OBJ_ENCODING_HT) {
         size = setTypeOpsHT.allocSize(o);
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
-        size = intsetAllocSize(o->ptr);
+        size = setTypeOpsIntset.allocSize(o);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         size = setTypeOpsListpack.allocSize(o);
     } else {
@@ -521,12 +477,7 @@ robj *setTypeDup(robj *o) {
 
     /* Create a new set object that have the same encoding as the original object's encoding */
     if (o->encoding == OBJ_ENCODING_INTSET) {
-        intset *is = o->ptr;
-        size_t size = intsetBlobLen(is);
-        intset *newis = zmalloc(size);
-        memcpy(newis,is,size);
-        set = createObject(OBJ_SET, newis);
-        set->encoding = OBJ_ENCODING_INTSET;
+        set = setTypeOpsIntset.dup(o);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         set = setTypeOpsListpack.dup(o);
     } else if (o->encoding == OBJ_ENCODING_HT) {

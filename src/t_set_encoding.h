@@ -60,4 +60,10 @@ extern const setTypeOps setTypeOpsIntset;
 extern const setTypeOps setTypeOpsListpack;
 extern const setTypeOps setTypeOpsHT;
 
+/* Shrinks a listpack-encoded set's backing listpack down to its actual
+ * content size. Exposed (rather than folded into rawAdd) for the one caller
+ * in t_set.c that just converted an intset into a listpack using a
+ * capacity estimate that can overshoot the listpack's real size. */
+void setTypeListpackShrinkToFit(robj *set);
+
 #endif

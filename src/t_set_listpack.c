@@ -120,6 +120,10 @@ static robj *lpSetDup(robj *o) {
     return set;
 }
 
+void setTypeListpackShrinkToFit(robj *set) {
+    set->ptr = lpShrinkToFit(set->ptr);
+}
+
 const setTypeOps setTypeOpsListpack = {
     .rawAdd = lpRawAdd,
     .resolveEncodingForAdd = lpResolveEncodingForAdd,
