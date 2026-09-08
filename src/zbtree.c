@@ -149,7 +149,7 @@ static void zbtScoreEncode(double d, uint8_t *enc, unsigned char *buf) {
  * the score is stored as a raw double so a later in-place write cannot
  * overflow the allocation. */
 static zbtElem *zbtCreateElemBufGen(double score, const char *buf, size_t len,
-                                    int wide)
+                                    int wide, size_t *usable)
 {
     uint8_t enc;
     unsigned char sbuf[8];
@@ -166,7 +166,7 @@ static zbtElem *zbtCreateElemBufGen(double score, const char *buf, size_t len,
     size_t sds_buf_size = sds_hdr_len + len + 1;
     size_t total = hdr + sds_buf_size;
 
-    zbtElem *e = zmalloc(total);
+    zbtElem *e = zmalloc_usable(total, usable);
     e->enc = enc;
     memcpy(e->data, sbuf, score_sz);
     size_t sds_offset = hdr + sds_hdr_len;
@@ -184,7 +184,22 @@ static zbtElem *zbtCreateElemBufGen(double score, const char *buf, size_t len,
  * holding plain bytes (listpack entries, integer members) can build an
  * element without first materializing a temporary sds. */
 zbtElem *zbtCreateElemBuf(double score, const char *buf, size_t len) {
-    return zbtCreateElemBufGen(score, buf, len, 0);
+    return zbtCreateElemBufGen(score, buf, len, 0, NULL);
+}
+
+zbtElem *zbtCreateElemBufUsable(double score, const char *buf, size_t len,
+                                size_t *usable)
+{
+    return zbtCreateElemBufGen(score, buf, len, 0, usable);
+}
+
+/* Duplicate the complete packed representation. This preserves the source
+ * score encoding and copies the member with a single memcpy. */
+zbtElem *zbtDupElem(const zbtElem *elem, size_t *usable) {
+    size_t size = zbtGetOffset(elem) + sdslen(zbtGetEle(elem)) + 1;
+    zbtElem *copy = zmalloc_usable(size, usable);
+    memcpy(copy, elem, size);
+    return copy;
 }
 
 /* Same as zbtCreateElemBuf(), for callers that already hold an sds. The caller
@@ -196,14 +211,14 @@ zbtElem *zbtCreateElem(double score, sds ele) {
 /* Like zbtCreateElem(), but the score is forced to ZBT_SCORE_DBL so a later
  * in-place write of any double (ZUNIONSTORE aggregation) cannot overflow. */
 zbtElem *zbtCreateElemWide(double score, sds ele) {
-    return zbtCreateElemBufGen(score, ele, sdslen(ele), 1);
+    return zbtCreateElemBufGen(score, ele, sdslen(ele), 1, NULL);
 }
 
 /* Free a detached element that is not owned by any tree. Used by callers that
  * allocate an element with zbtCreateElem() but fail before ownership is
  * transferred to a tree (e.g. duplicate detection on RDB load). */
 void zbtFreeElem(zbtElem *e) {
-    zfree(e);  /* embedded sds is part of the allocation, no separate free */
+    zfree_usable(e, NULL);  /* embedded sds is part of the allocation */
 }
 
 /* Compare {score, ele} with element 'e'. Returns 1 (bigger), 0 (equal),
@@ -271,8 +286,9 @@ static void zbtFreeSubtree(zbtree *t, zbtNode *n) {
     if (n->isleaf) {
         zbtLeaf *lf = (zbtLeaf *)n;
         for (uint32_t i = 0; i < n->count; i++) {
-            t->alloc_size -= zmalloc_usable_size(lf->elems[i]);
-            zbtFreeElem(lf->elems[i]);
+            size_t usable;
+            zfree_usable(lf->elems[i], &usable);
+            t->alloc_size -= usable;
         }
     } else {
         zbtInner *in = (zbtInner *)n;
@@ -559,7 +575,7 @@ static int zbtShareOverflow(zbtree *t, zbtLeaf *lf, int ins_idx) {
 
 /* Insert an already-allocated element. The caller must guarantee the member
  * is not already present. Ownership of 'e' transfers to the tree. */
-void zbtInsertElem(zbtree *t, zbtElem *e) {
+static void zbtInsertElemWithSize(zbtree *t, zbtElem *e, size_t usable) {
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
     zbtLeaf *lf = zbtFindLeaf(t, score, ele);
@@ -580,7 +596,7 @@ void zbtInsertElem(zbtree *t, zbtElem *e) {
     lf->elems[idx] = e;
     lf->n.count++;
     t->length++;
-    t->alloc_size += zmalloc_usable_size(e);
+    t->alloc_size += usable;
 
     if (lf->n.count > ZBT_LEAF_MAX) {
         /* Append/prepend must split with the existing bias: the neighbour is
@@ -594,9 +610,14 @@ void zbtInsertElem(zbtree *t, zbtElem *e) {
     }
 }
 
+void zbtInsertElem(zbtree *t, zbtElem *e) {
+    zbtInsertElemWithSize(t, e, zmalloc_usable_size(e));
+}
+
 zbtElem *zbtInsert(zbtree *t, double score, sds ele) {
-    zbtElem *e = zbtCreateElem(score, ele);
-    zbtInsertElem(t, e);
+    size_t usable;
+    zbtElem *e = zbtCreateElemBufUsable(score, ele, sdslen(ele), &usable);
+    zbtInsertElemWithSize(t, e, usable);
     return e;
 }
 
@@ -605,7 +626,9 @@ zbtElem *zbtInsert(zbtree *t, double score, sds ele) {
  * transfers to the tree. 't' must be freshly created and empty. This is much
  * cheaper than n independent zbtInsert() calls (used by RDB load, COPY and
  * listpack->tree conversion, where the source order is already known). */
-void zbtBuildFromSorted(zbtree *t, zbtElem **elems, unsigned long n) {
+void zbtBuildFromSortedWithSize(zbtree *t, zbtElem **elems, unsigned long n,
+                                size_t elems_alloc_size)
+{
     if (n == 0) return;
     serverAssert(t->length == 0);
 
@@ -670,8 +693,14 @@ void zbtBuildFromSorted(zbtree *t, zbtElem **elems, unsigned long n) {
     zfree(level);
 
     t->length = n;
+    t->alloc_size += elems_alloc_size;
+}
+
+void zbtBuildFromSorted(zbtree *t, zbtElem **elems, unsigned long n) {
+    size_t elems_alloc_size = 0;
     for (unsigned long i = 0; i < n; i++)
-        t->alloc_size += zmalloc_usable_size(elems[i]);
+        elems_alloc_size += zmalloc_usable_size(elems[i]);
+    zbtBuildFromSortedWithSize(t, elems, n, elems_alloc_size);
 }
 
 /*-----------------------------------------------------------------------------
@@ -843,8 +872,9 @@ void zbtDeleteElem(zbtree *t, zbtElem *e) {
             ((int)lf->n.count - idx - 1) * sizeof(zbtElem *));
     lf->n.count--;
     t->length--;
-    t->alloc_size -= zmalloc_usable_size(e);
-    zbtFreeElem(e);
+    size_t usable;
+    zfree_usable(e, &usable);
+    t->alloc_size -= usable;
 
     if (lf->n.parent && lf->n.count < ZBT_LEAF_MIN)
         zbtRebalanceLeaf(t, lf);
@@ -870,7 +900,8 @@ zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore) {
             ((int)lf->n.count - idx - 1) * sizeof(zbtElem *));
     lf->n.count--;
     t->length--;
-    t->alloc_size -= zmalloc_usable_size(e);
+    size_t old_usable = zmalloc_usable_size(e);
+    t->alloc_size -= old_usable;
     if (lf->n.parent && lf->n.count < ZBT_LEAF_MIN)
         zbtRebalanceLeaf(t, lf);
     else
@@ -882,13 +913,14 @@ zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore) {
     if (zbtScoreEncSize(newenc) == zbtScoreEncSize(e->enc)) {
         e->enc = newenc;
         memcpy(e->data, newbuf, zbtScoreEncSize(newenc));
-        zbtInsertElem(t, e);
+        zbtInsertElemWithSize(t, e, old_usable);
         return e;
     }
 
-    zbtElem *ne = zbtCreateElem(newscore, ele);
-    zbtFreeElem(e);
-    zbtInsertElem(t, ne);
+    size_t new_usable;
+    zbtElem *ne = zbtCreateElemBufUsable(newscore, ele, sdslen(ele), &new_usable);
+    zfree_with_size(e, old_usable);
+    zbtInsertElemWithSize(t, ne, new_usable);
     return ne;
 }
 
@@ -1344,8 +1376,9 @@ static unsigned long zbtDeleteRankRange(zbtree *t, unsigned long first,
         for (int k = 0; k < take; k++) {
             zbtElem *el = lf->elems[idx + k];
             dictDelete(d, zbtGetEle(el));
-            t->alloc_size -= zmalloc_usable_size(el);
-            zbtFreeElem(el);
+            size_t usable;
+            zfree_usable(el, &usable);
+            t->alloc_size -= usable;
         }
         memmove(&lf->elems[idx], &lf->elems[idx + take],
                 ((int)lf->n.count - idx - take) * sizeof(zbtElem *));

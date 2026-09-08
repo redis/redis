@@ -2149,7 +2149,9 @@ robj *zsetCreateFromElems(robj *reuse, zbtElem **elems, unsigned long n,
         dictExpand(zs->dict, n);
         dictAddNonExistingBatch(zs->dict, (void **)elems, n);
     }
-    zsetBuildTreeFromElems(zs, elems, n);
+    /* Already sorted above; skip zsetBuildTreeFromElems()'s second check. */
+    serverAssert(zs->tree->length == 0);
+    zbtBuildFromSorted(zs->tree, elems, n);
     return zobj;
 }
 
@@ -2782,6 +2784,8 @@ typedef void (*zrangeResultEmitCBufferFunction)(
     zrange_result_handler *c, const void *p, size_t len, double score);
 typedef void (*zrangeResultEmitLongLongFunction)(
     zrange_result_handler *c, long long ll, double score);
+typedef void (*zrangeResultEmitElemFunction)(
+    zrange_result_handler *c, const zbtElem *elem);
 
 void zrangeGenericCommand (zrange_result_handler *handler, int argc_start, int store,
                            zrange_type rangetype, zrange_direction direction);
@@ -2804,10 +2808,15 @@ struct zrange_result_handler {
     zbtElem                            **staged;
     unsigned long                        staged_cnt;
     unsigned long                        staged_cap;
+    size_t                               staged_alloc_size;
+    size_t                               staged_maxelelen;
+    size_t                               staged_totelelen;
+    int                                  stage_store;
     zrangeResultBeginFunction            beginResultEmission;
     zrangeResultFinalizeFunction         finalizeResultEmission;
     zrangeResultEmitCBufferFunction      emitResultFromCBuffer;
     zrangeResultEmitLongLongFunction     emitResultFromLongLong;
+    zrangeResultEmitElemFunction         emitResultFromElem;
 };
 
 /* Result handler methods for responding the ZRANGE to clients.
@@ -2876,13 +2885,17 @@ static void zrangeResultFinalizeClient(zrange_result_handler *handler,
 /* Result handler methods for storing the ZRANGESTORE to a zset. */
 static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 {
-    handler->dstobj = zsetTypeCreate(length >= 0 ? length : 0, 0);
+    /* Score and lex ranges don't know their cardinality before the walk. Build
+     * them in a tree unconditionally instead of routing every result through
+     * zsetAdd(). Rank ranges retain the compact listpack path for small known
+     * results. */
+    handler->dstobj = length < 0 ? createZsetObject() :
+                                  zsetTypeCreate(length, 0);
 
-    /* The bulk build needs the final element count in advance and a B+ tree to
-     * build into. A listpack destination (small range, or unknown length) keeps
-     * using the incremental zsetAdd() path, which also handles the conversion
-     * to a B+ tree if the destination outgrows the listpack limits. */
-    if (length > 0 && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+    if (handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
+        handler->stage_store = 1;
+    }
+    if (handler->stage_store && length > 0) {
         handler->staged = zmalloc(sizeof(zbtElem *) * length);
         handler->staged_cap = length;
     }
@@ -2895,11 +2908,23 @@ static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
 static int zrangeResultStageForStore(zrange_result_handler *handler,
     const char *value, size_t value_length_in_bytes, double score)
 {
-    if (handler->staged == NULL) return 0;
-    serverAssert(handler->staged_cnt < handler->staged_cap);
+    if (!handler->stage_store) return 0;
+    if (handler->staged_cnt == handler->staged_cap) {
+        unsigned long newcap = handler->staged_cap ?
+                               handler->staged_cap * 2 : 16;
+        handler->staged = zrealloc(handler->staged,
+                                   sizeof(zbtElem *) * newcap);
+        handler->staged_cap = newcap;
+    }
 
-    zbtElem *elem = zbtCreateElemBuf(score, value, value_length_in_bytes);
+    size_t usable;
+    zbtElem *elem = zbtCreateElemBufUsable(score, value,
+                                           value_length_in_bytes, &usable);
     handler->staged[handler->staged_cnt++] = elem;
+    handler->staged_alloc_size += usable;
+    if (value_length_in_bytes > handler->staged_maxelelen)
+        handler->staged_maxelelen = value_length_in_bytes;
+    handler->staged_totelelen += value_length_in_bytes;
     return 1;
 }
 
@@ -2925,14 +2950,30 @@ static void zrangeResultBuildStagedTree(zrange_result_handler *handler)
                                      zbtGetEle(elems[i - 1]), elems[i]) < 0);
     }
 
+    if (zsetElemsFitListpack(n, handler->staged_maxelelen,
+                             handler->staged_totelelen))
+    {
+        robj *compact = zsetCreateListpackFromElems(elems, n);
+        decrRefCount(handler->dstobj);
+        handler->dstobj = compact;
+        for (unsigned long i = 0; i < n; i++) zbtFreeElem(elems[i]);
+        zfree(elems);
+        handler->staged = NULL;
+        handler->staged_cnt = handler->staged_cap = 0;
+        handler->staged_alloc_size = 0;
+        return;
+    }
+
     zset *zs = handler->dstobj->ptr;
     /* The range is taken from a sorted set, so members are unique: index them
      * in one batch that skips the per-insert duplicate scan. */
     dictAddNonExistingBatch(zs->dict, (void **)elems, n);
-    zbtBuildFromSorted(zs->tree, elems, n);
+    zbtBuildFromSortedWithSize(zs->tree, elems, n,
+                               handler->staged_alloc_size);
     zfree(elems);
     handler->staged = NULL;
     handler->staged_cnt = handler->staged_cap = 0;
+    handler->staged_alloc_size = 0;
 }
 
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
@@ -2966,9 +3007,36 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     serverAssert(retval);
 }
 
+static void zrangeResultEmitElemForStore(zrange_result_handler *handler,
+    const zbtElem *source)
+{
+    if (!handler->stage_store) {
+        sds ele = zbtGetEle(source);
+        zrangeResultEmitCBufferForStore(handler, ele, sdslen(ele),
+                                        zbtGetScore(source));
+        return;
+    }
+
+    if (handler->staged_cnt == handler->staged_cap) {
+        unsigned long newcap = handler->staged_cap ?
+                               handler->staged_cap * 2 : 16;
+        handler->staged = zrealloc(handler->staged,
+                                   sizeof(zbtElem *) * newcap);
+        handler->staged_cap = newcap;
+    }
+    size_t usable;
+    zbtElem *copy = zbtDupElem(source, &usable);
+    handler->staged[handler->staged_cnt++] = copy;
+    handler->staged_alloc_size += usable;
+    size_t elelen = sdslen(zbtGetEle(source));
+    if (elelen > handler->staged_maxelelen)
+        handler->staged_maxelelen = elelen;
+    handler->staged_totelelen += elelen;
+}
+
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
 {
-    if (handler->staged) {
+    if (handler->stage_store && result_count) {
         serverAssert(handler->staged_cnt == result_count);
         zrangeResultBuildStagedTree(handler);
     }
@@ -3010,6 +3078,7 @@ static void zrangeResultHandlerInit(zrange_result_handler *handler,
         handler->finalizeResultEmission = zrangeResultFinalizeStore;
         handler->emitResultFromCBuffer = zrangeResultEmitCBufferForStore;
         handler->emitResultFromLongLong = zrangeResultEmitLongLongForStore;
+        handler->emitResultFromElem = zrangeResultEmitElemForStore;
         break;
     }
 }
@@ -3103,8 +3172,12 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
 
         while(rangelen--) {
             serverAssertWithInfo(c,zobj,ln != NULL);
-            sds ele = zbtGetEle(ln);
-            handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
+            if (handler->emitResultFromElem) {
+                handler->emitResultFromElem(handler, ln);
+            } else {
+                sds ele = zbtGetEle(ln);
+                handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
+            }
             ln = reverse ? zbtIterPrev(&it) : zbtIterNext(&it);
         }
     } else {
@@ -3228,8 +3301,12 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
             }
 
             rangelen++;
-            sds ele = zbtGetEle(ln);
-            handler->emitResultFromCBuffer(handler, ele, sdslen(ele), score);
+            if (handler->emitResultFromElem) {
+                handler->emitResultFromElem(handler, ln);
+            } else {
+                sds ele = zbtGetEle(ln);
+                handler->emitResultFromCBuffer(handler, ele, sdslen(ele), score);
+            }
 
             /* Move to next node */
             if (reverse) {
@@ -3503,8 +3580,12 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
             }
 
             rangelen++;
-            sds ele = zbtGetEle(ln);
-			handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
+            if (handler->emitResultFromElem) {
+                handler->emitResultFromElem(handler, ln);
+            } else {
+                sds ele = zbtGetEle(ln);
+                handler->emitResultFromCBuffer(handler, ele, sdslen(ele), zbtGetScore(ln));
+            }
 
             /* Move to next node */
             if (reverse) {

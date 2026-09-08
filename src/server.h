@@ -3879,9 +3879,13 @@ void zbtFree(zbtree *t);
 size_t zbtAllocSize(const zbtree *t);
 zbtElem *zbtCreateElem(double score, sds ele);
 zbtElem *zbtCreateElemBuf(double score, const char *buf, size_t len);
+zbtElem *zbtCreateElemBufUsable(double score, const char *buf, size_t len, size_t *usable);
+zbtElem *zbtDupElem(const zbtElem *elem, size_t *usable);
 zbtElem *zbtCreateElemWide(double score, sds ele);
 void zbtFreeElem(zbtElem *e);
 void zbtBuildFromSorted(zbtree *t, zbtElem **elems, unsigned long n);
+void zbtBuildFromSortedWithSize(zbtree *t, zbtElem **elems, unsigned long n,
+                                size_t elems_alloc_size);
 zbtElem *zbtInsert(zbtree *t, double score, sds ele);
 void zbtInsertElem(zbtree *t, zbtElem *e);
 void zbtDeleteElem(zbtree *t, zbtElem *e);

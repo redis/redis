@@ -2658,11 +2658,17 @@ start_server {tags {"zset"}} {
     test {ZRANGESTORE with zset-max-listpack-entries 0 #10767 case} {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 0
-        r del z1{t} z2{t}
-        r zadd z1{t} 1 a
+        r del z1{t} z2{t} z3{t}
+        r zadd z1{t} 1 a 1 b 1 c
         assert_encoding btree z1{t}
-        assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
+        assert_equal 3 [r zrangestore z2{t} z1{t} 0 -1]
         assert_encoding btree z2{t}
+        assert_equal 2 [r zrangestore z2{t} z1{t} 1 1 BYSCORE REV LIMIT 1 2]
+        assert_equal {a b} [r zrange z2{t} 0 -1]
+        assert_encoding btree z2{t}
+        assert_equal 2 [r zrangestore z3{t} z1{t} \[b \[c BYLEX]
+        assert_equal {b c} [r zrange z3{t} 0 -1]
+        assert_encoding btree z3{t}
         r config set zset-max-listpack-entries $original_max
     }
 

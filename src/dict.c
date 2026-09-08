@@ -642,16 +642,25 @@ void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
     enum { PF = 8 };
     uint64_t hring[PF];
 
+    /* Validate the known-absent contract before fixing the destination table:
+     * dictFind() may advance rehashing in debug builds. */
+#ifdef DEBUG_ASSERTIONS
+    for (size_t i = 0; i < n; i++)
+        assert(dictFind(d, dictStoredKey2Key(d, keys[i])) == NULL);
+#endif
+
     /* Size to the final element count once. Repeated mid-batch growth would
      * reallocate the table and strand the buckets we prefetch ahead. */
     dictExpand(d, dictSize(d) + n);
+    int htidx = dictIsRehashing(d) ? 1 : 0;
 
     /* Prime the hash window for the first PF inserts. */
     size_t primed = n < PF ? n : PF;
     for (size_t j = 0; j < primed; j++) {
         uint64_t h = dictGetHash(d, dictStoredKey2Key(d, keys[j]));
         hring[j & (PF - 1)] = h;
-        redis_prefetch_write((void *)dictBucketHint(d, h));
+        redis_prefetch_write(&d->ht_table[htidx]
+            [h & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
     }
 
     for (size_t i = 0; i < n; i++) {
@@ -665,9 +674,9 @@ void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
          * This read must precede the one-window-ahead store below, which lands
          * on the same ring slot. */
         void *key = keys[i];
-        debugAssert(dictFind(d, dictStoredKey2Key(d, key)) == NULL);
         uint64_t h = hring[i & (PF - 1)];
-        dictEntryLink bucket = dictBucketForInsertByHash(d, h);
+        dictEntryLink bucket = &d->ht_table[htidx]
+            [h & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])];
         if (d->type->keyDup) key = d->type->keyDup(d, key);
         dictInsertKeyAtLink(d, key, bucket);
 
@@ -676,7 +685,8 @@ void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
         if (i + PF < n) {
             uint64_t hn = dictGetHash(d, dictStoredKey2Key(d, keys[i + PF]));
             hring[(i + PF) & (PF - 1)] = hn;
-            redis_prefetch_write((void *)dictBucketHint(d, hn));
+            redis_prefetch_write(&d->ht_table[htidx]
+                [hn & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
         }
     }
 }
