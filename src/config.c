@@ -452,14 +452,11 @@ static int reading_config_file;
  * post-load advisories must run only when the outermost load finishes. */
 static int config_load_depth;
 
-/* Value of tls-cluster as of the last time applyTlsCluster() acted on it, in the
- * manner of clusterUpdateMyselfIp()'s prev_ip. It lets a refused CONFIG SET be a
- * true no-op: configSetCommand() restores the previous value and calls every
- * apply callback of the command a second time, and that second call must not
- * reconfigure anything for a value that never effectively moved. The zero
- * initialiser matches the tls-cluster default, which is what is in force when no
- * configuration is loaded at all; the post-load block below takes it from there. */
-static int tls_cluster_applied;
+/* Previous value of tls-cluster. This variable is used to detect if the
+ * value actually changed after a CONFIG SET. configSetCommand() calls every
+ * apply callback again on rollback even when nothing changed, so without it,
+ * things like TLS setup below would run again for no reason. */
+static int prev_tls_cluster;
 
 /* Defined with the TLS config hooks below; used by the post-load checks. */
 static void tlsWarnExpectedPeerNameScope(void);
@@ -499,7 +496,7 @@ static int clusterBusPortProtectionUnmet(void) {
  * unauthenticated once the operator has waived protected mode. Called when the
  * outermost config load finishes and from the tls-cluster apply callback, which
  * covers every way the bus can lose its authentication at runtime (leaving TLS
- * always changes tls-cluster, whether alone or together with 
+ * always changes tls-cluster, whether alone or together with
  * cluster_bus_port_protected_mode). */
 static void clusterBusWarnIfUnprotected(void) {
     if (!server.cluster_enabled || server.tls_cluster || server.cluster_bus_port_protected_mode) return;
@@ -715,7 +712,7 @@ void loadServerConfigFromString(char *config) {
         }
         /* The startup value is the one in force: initListeners() configures TLS
          * from it, and the server exits if that fails. */
-        tls_cluster_applied = server.tls_cluster;
+        prev_tls_cluster = server.tls_cluster;
 
         clusterBusWarnIfUnprotected();
         tlsWarnExpectedPeerNameScope();
@@ -3020,7 +3017,7 @@ static int applyTlsCluster(const char **err) {
      * the session cache held on it, and clusterNotifyTopologyChanged() reports a
      * NODE change to modules - so a refused set would otherwise not be the no-op
      * it reports being. */
-    if (server.tls_cluster == tls_cluster_applied) return 1;
+    if (server.tls_cluster == prev_tls_cluster) return 1;
 
     if (!applyTlsCfg(err)) return 0;
 
@@ -3029,7 +3026,7 @@ static int applyTlsCluster(const char **err) {
      * them when the preferred port changes. */
     clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 
-    tls_cluster_applied = server.tls_cluster;
+    prev_tls_cluster = server.tls_cluster;
     clusterBusWarnIfUnprotected();
     return 1;
 }
