@@ -2046,8 +2046,7 @@ void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
         /* Withdraw this client's contribution before it leaves the list,
          * since it won't be revisited by clientsUnsharedMemCron() again. */
-        server.clients_unshared_mem -= c->reply_bytes_unshared;
-        c->reply_bytes_unshared = 0;
+        setClientUnsharedReplyBytes(c, 0);
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }
 }
@@ -2077,16 +2076,34 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
     return total;
 }
 
+/* Set the client's cached unshared reply bytes to an already-known value,
+ * keeping server.clients_unshared_mem in sync when the client is tracked in
+ * clients_with_pending_ref_reply. Every writer of reply_bytes_unshared - full
+ * recompute, forcing it to 0, or withdrawing it on unlink - goes through this
+ * so the running total never drifts from the field it mirrors. */
+void setClientUnsharedReplyBytes(client *c, unsigned long long new_unshared) {
+    if (new_unshared != c->reply_bytes_unshared && clientIsInPendingRefReplyList(c)) {
+        if (new_unshared >= c->reply_bytes_unshared)
+            server.clients_unshared_mem += new_unshared - c->reply_bytes_unshared;
+        else
+            server.clients_unshared_mem -= c->reply_bytes_unshared - new_unshared;
+    }
+    c->reply_bytes_unshared = new_unshared;
+}
+
 /* Update the client's unshared reply memory (solely owned). */
 void updateClientUnsharedReplyBytes(client *c) {
-    c->reply_bytes_unshared = 0;
+    unsigned long long new_unshared = 0;
 
     /* No shared memory means no unshared memory either. */
-    if (c->reply_bytes_shared == 0) return;
+    if (c->reply_bytes_shared == 0) {
+        setClientUnsharedReplyBytes(c, new_unshared);
+        return;
+    }
 
     /* Scan the static output buffer. */
     if (c->buf_encoded)
-        c->reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
+        new_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
 
     /* Scan each block in the reply list. */
     listIter reply_li;
@@ -2096,8 +2113,10 @@ void updateClientUnsharedReplyBytes(client *c) {
         clientReplyBlock *block = listNodeValue(reply_ln);
         if (block == NULL) continue; /* deferred-length placeholder */
         if (block->buf_encoded)
-            c->reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
+            new_unshared += computeUnsharedReplyBytes(block->buf, block->used);
     }
+
+    setClientUnsharedReplyBytes(c, new_unshared);
 }
 
 /* Compute shared reply memory: total shared reply bytes and the unshared subset where the key

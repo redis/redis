@@ -1165,7 +1165,7 @@ int updateClientMemUsageAndBucket(client *c) {
             updateClientUnsharedReplyBytes(c);
     } else {
         /* No shared bytes: clear any stale cached unshared. */
-        c->reply_bytes_unshared = 0;
+        setClientUnsharedReplyBytes(c, 0);
     }
 
     /* Update client memory usage. */
@@ -1311,8 +1311,9 @@ void clientsCron(void) {
  * reply buffer, so instead of redoing that for every client on every call, we spread
  * it out like clientsCron() does for updateClientMemoryUsage(): process a rotating
  * slice of clients_with_pending_ref_reply per tick (~listLength/hz clients, so the
- * whole list gets rescanned about once per second), folding each client's delta into
- * the running total.
+ * whole list gets rescanned about once per second). updateClientUnsharedReplyBytes()
+ * itself folds each client's delta into the running total, so it stays correct even
+ * when other callers (e.g. CLIENT LIST) refresh the same field between cron ticks.
  *
  * c->reply_bytes_shared needs no such treatment since it's already kept exact for
  * free at write time, so getClientsSharedMemoryUsage() still sums it on demand. */
@@ -1329,9 +1330,13 @@ void clientsUnsharedMemCron(void) {
         client *c = listNodeValue(head);
         listRotateHeadToTail(server.clients_with_pending_ref_reply);
 
-        server.clients_unshared_mem -= c->reply_bytes_unshared;
+        /* Clients handled by IO threads own their reply buffers: the IO thread may
+         * be concurrently freeing/mutating them from writeToClient(), so scanning
+         * them here would race. Their IO thread refreshes reply_bytes_unshared
+         * itself instead, see runClientCronFromIOThread(). */
+        if (c->tid != IOTHREAD_MAIN_THREAD_ID) continue;
+
         updateClientUnsharedReplyBytes(c);
-        server.clients_unshared_mem += c->reply_bytes_unshared;
     }
 }
 
