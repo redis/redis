@@ -15,6 +15,7 @@
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "hyperloglog.h"
+#include "t_set_encoding.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -140,21 +141,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
 
     serverAssert(str);
     if (set->encoding == OBJ_ENCODING_HT) {
-        /* Avoid duping the string if it is an sds string. */
-        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
-        dict *ht = set->ptr;
-        dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
-        if (link == NULL) {
-            /* Key doesn't already exist in the set. Add it but dup the key. */
-            if (sdsval == str) sdsval = sdsdup(sdsval);
-            dictSetKeyAtLink(ht, sdsval, &bucket, 1);
-            *htGetMetadataSize(ht) += sdsAllocSize(sdsval);
-            return 1;
-        } else if (sdsval != str) {
-            /* String is already a member. Free our temporary sds copy. */
-            sdsfree(sdsval);
-            return 0;
-        }
+        return setTypeOpsHT.rawAdd(set, str, len, llval, str_is_sds);
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
@@ -261,10 +248,7 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
     }
 
     if (setobj->encoding == OBJ_ENCODING_HT) {
-        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
-        int deleted = (dictDelete(setobj->ptr, sdsval) == DICT_OK);
-        if (sdsval != str) sdsfree(sdsval); /* free temp copy */
-        return deleted;
+        return setTypeOpsHT.rawRemove(setobj, str, len, llval, str_is_sds);
     } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = setobj->ptr;
         unsigned char *p = lpFirst(lp);
@@ -317,13 +301,8 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
         long long llval;
         return string2ll(str, len, &llval) && intsetFind(set->ptr, llval);
-    } else if (set->encoding == OBJ_ENCODING_HT && str_is_sds) {
-        return dictFind(set->ptr, (sds)str) != NULL;
     } else if (set->encoding == OBJ_ENCODING_HT) {
-        sds sdsval = sdsnewlen(str, len);
-        int result = dictFind(set->ptr, sdsval) != NULL;
-        sdsfree(sdsval);
-        return result;
+        return setTypeOpsHT.isMember(set, str, len, llval, str_is_sds);
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -333,7 +312,7 @@ void setTypeInitIterator(setTypeIterator *si, robj *subject) {
     si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == OBJ_ENCODING_HT) {
-        dictInitIterator(&si->di, subject->ptr);
+        setTypeOpsHT.iterInit(si);
     } else if (si->encoding == OBJ_ENCODING_INTSET) {
         si->ii = 0;
     } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
@@ -345,7 +324,7 @@ void setTypeInitIterator(setTypeIterator *si, robj *subject) {
 
 void setTypeResetIterator(setTypeIterator *si) {
     if (si->encoding == OBJ_ENCODING_HT)
-        dictResetIterator(&si->di);
+        setTypeOpsHT.iterReset(si);
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -371,11 +350,7 @@ void setTypeResetIterator(setTypeIterator *si) {
  * When there are no more elements -1 is returned. */
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
     if (si->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictNext(&si->di);
-        if (de == NULL) return -1;
-        *str = dictGetKey(de);
-        *len = sdslen(*str);
-        *llele = -123456789; /* Not needed. Defensive. */
+        if (setTypeOpsHT.iterNext(si, str, len, llele) == -1) return -1;
     } else if (si->encoding == OBJ_ENCODING_INTSET) {
         if (!intsetGet(si->subject->ptr,si->ii++,llele))
             return -1;
@@ -431,10 +406,7 @@ sds setTypeNextObject(setTypeIterator *si) {
  * be NULL. If str is set to NULL, the value is an integer stored in llele. */
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) {
     if (setobj->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictGetFairRandomKey(setobj->ptr);
-        *str = dictGetKey(de);
-        *len = sdslen(*str);
-        *llele = -123456789; /* Not needed. Defensive. */
+        setTypeOpsHT.randomElement(setobj, str, len, llele);
     } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
         *llele = intsetRandom(setobj->ptr);
         *str = NULL; /* Not needed. Defensive. */
@@ -482,7 +454,7 @@ robj *setTypePopRandom(robj *set) {
 
 unsigned long setTypeSize(const robj *subject) {
     if (subject->encoding == OBJ_ENCODING_HT) {
-        return dictSize((const dict*)subject->ptr);
+        return setTypeOpsHT.size(subject);
     } else if (subject->encoding == OBJ_ENCODING_INTSET) {
         return intsetLen((const intset*)subject->ptr);
     } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
@@ -496,8 +468,7 @@ size_t setTypeAllocSize(const robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_SET);
     size_t size = 0;
     if (o->encoding == OBJ_ENCODING_HT) {
-        dict *d = o->ptr;
-        size += sizeof(dict) + dictMemUsage(d) + *htGetMetadataSize(d);
+        size = setTypeOpsHT.allocSize(o);
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         size = intsetAllocSize(o->ptr);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -605,18 +576,7 @@ robj *setTypeDup(robj *o) {
         set = createObject(OBJ_SET, new_lp);
         set->encoding = OBJ_ENCODING_LISTPACK;
     } else if (o->encoding == OBJ_ENCODING_HT) {
-        set = createSetObject();
-        dict *d = o->ptr;
-        dictExpand(set->ptr, dictSize(d));
-        setTypeIterator si;
-        setTypeInitIterator(&si, o);
-        char *str;
-        size_t len = 0;
-        int64_t intobj = 0;
-        while (setTypeNext(&si, &str, &len, &intobj) != -1) {
-            setTypeAdd(set, (sds)str);
-        }
-        setTypeResetIterator(&si);
+        set = setTypeOpsHT.dup(o);
     } else {
         serverPanic("Unknown set encoding");
     }
