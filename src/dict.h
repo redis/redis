@@ -165,6 +165,12 @@ struct dict {
     dictEntry **ht_table[2];
     unsigned long ht_used[2];
 
+    /* Live entry structs across both tables. A no_value dict stores the key
+     * straight into an empty bucket instead of allocating one, so this runs
+     * below dictSize() by the number of occupied buckets. For every other dict
+     * each key owns an entry and this equals dictSize(). */
+    unsigned long allocated_entries;
+
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
     /* Note: pauserehash is a full unsigned so iterator increments
@@ -271,6 +277,7 @@ dictEntry * dictFind(dict *d, const void *key);
 void dictFindBatch(dict *d, void **keys, dictEntry **results, size_t n);
 dictEntry *dictFindByHashAndPtr(dict *d, const void *oldptr, const uint64_t hash);
 int dictShrinkIfNeeded(dict *d);
+void dictShrinkIfNeededAndComplete(dict *d);
 int dictExpandIfNeeded(dict *d);
 void *dictGetKey(const dictEntry *de);
 int dictEntryIsKey(const dictEntry *de);

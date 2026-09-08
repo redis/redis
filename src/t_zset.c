@@ -1449,7 +1449,7 @@ void zremCommand(client *c) {
     }
     if (!keyremoved && zobj->encoding == OBJ_ENCODING_BTREE) {
         dictResumeAutoResize(((zset*)zobj->ptr)->dict);
-        dictShrinkIfNeeded(((zset*)zobj->ptr)->dict);
+        dictShrinkIfNeededAndComplete(((zset*)zobj->ptr)->dict);
     }
 
     if (server.memory_tracking_enabled && !keyremoved)
@@ -1573,7 +1573,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         } else {
-            dictShrinkIfNeeded(zs->dict);
+            dictShrinkIfNeededAndComplete(zs->dict);
         }
     } else {
         serverPanic("Unknown sorted set encoding");
@@ -3960,7 +3960,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         dictResumeAutoResize(zs->dict);
         serverAssertWithInfo(c, zobj, deleted == (unsigned long)result_count);
 
-        if (zsetLength(zobj) > 0) dictShrinkIfNeeded(zs->dict);
+        if (zsetLength(zobj) > 0) dictShrinkIfNeededAndComplete(zs->dict);
 
         char *events[2] = {"zpopmin","zpopmax"};
         notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);

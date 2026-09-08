@@ -227,6 +227,7 @@ int _dictInit(dict *d, dictType *type)
     _dictReset(d, 0);
     _dictReset(d, 1);
     d->type = type;
+    d->allocated_entries = 0;
     d->rehashidx = -1;
     d->pauserehash = 0;
     d->pauseAutoResize = 0;
@@ -356,13 +357,17 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
                 /* The destination bucket is empty, allowing the key to be stored 
                  * directly without allocating a dictEntry. If an old entry was 
                  * previously allocated, free its memory. */                
-                if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
+                if (!entryIsKey(de)) {
+                    zfree(decodeMaskedPtr(de));
+                    d->allocated_entries--;
+                }
                 
                 de = encodeEntryKey(d, storedKey);
                 
             } else if (entryIsKey(de)) {
                 /* We don't have an allocated entry but we need one. */
                 de = createEntryNoValue(storedKey, d->ht_table[1][h]);
+                d->allocated_entries++;
             } else {
                 dictSetNext(de, d->ht_table[1][h]);
             }
@@ -573,6 +578,7 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink li
         entry->key = key;
         entry->next = *bucket;
     }
+    if (!entryIsKey(entry)) d->allocated_entries++;
     *bucket = entry;
     d->ht_used[htidx]++;
 
@@ -835,7 +841,10 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);
     dictFreeVal(d, he);
-    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+    if (!entryIsKey(he)) {
+        zfree(decodeMaskedPtr(he));
+        d->allocated_entries--;
+    }
 }
 
 /* Destroy an entire dictionary */
@@ -854,7 +863,10 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
             nextHe = dictGetNext(he);
             dictFreeKey(d, he);
             dictFreeVal(d, he);
-            if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+            if (!entryIsKey(he)) {
+                zfree(decodeMaskedPtr(he));
+                d->allocated_entries--;
+            }
             d->ht_used[htidx]--;
             he = nextHe;
         }
@@ -1107,7 +1119,10 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink plink, int table_index) {
     *plink = dictGetNext(de);
     dictFreeKey(d, de);
     dictFreeVal(d, de);
-    if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
+    if (!entryIsKey(de)) {
+        zfree(decodeMaskedPtr(de));
+        d->allocated_entries--;
+    }
     _dictShrinkIfNeeded(d);
     dictResumeRehashing(d);
 }
@@ -1218,13 +1233,12 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    /* Account for the actual per-entry structure size: no_value=1 dicts (sets,
-     * the sorted-set element index, hashes) allocate a dictEntryNoValue (or
-     * store the key inline in the bucket), not a full dictEntry. Mirrors what
-     * kvstoreMemUsage() already does via dictEntryMemUsage(). This is a strict
-     * over-estimate still (inline-stored keys allocate nothing), but no longer
-     * charges the value slot that a no_value dict never has. */
-    return dictSize(d) * dictEntryMemUsage(d->type->no_value) +
+    /* Charge only the entries that were really allocated. A no_value dict
+     * (set, hash, sorted-set element index) puts the first key of a bucket
+     * inline and allocates a dictEntryNoValue for the rest, so at a normal
+     * load factor well under half the keys own one; counting every key here
+     * inflated a 1M-element sorted set by ~10 MB. */
+    return d->allocated_entries * dictEntryMemUsage(d->type->no_value) +
         dictBuckets(d) * sizeof(dictEntry*);
 }
 
@@ -1838,7 +1852,40 @@ int dictShrinkIfNeeded(dict *d) {
     return DICT_ERR;
 }
 
-static void _dictShrinkIfNeeded(dict *d) 
+/* Shrink the table if it became sparse, and finish the resulting rehash before
+ * returning instead of leaving it to later operations.
+ *
+ * Incremental rehashing assumes something will keep stepping it. That holds for
+ * keyspace dicts, which the cron drives through kvstore, but a dict owned by a
+ * single object (sorted set, set, hash) is only ever stepped by commands
+ * touching that object. A bulk deletion is the worst case for the assumption:
+ * it starts a shrink with its very last act, so the old table stays allocated
+ * until some later command happens to step it, and stays forever if none does.
+ *
+ * A rehash already running on entry is left alone: it belongs to an earlier
+ * resize, so finishing it here would charge an unrelated command for the whole
+ * table. dictShrinkIfNeeded() is a no-op in that state anyway. */
+void dictShrinkIfNeededAndComplete(dict *d) {
+    if (dictIsRehashing(d) || dictIsRehashingPaused(d)) return;
+    if (dictShrinkIfNeeded(d) != DICT_OK) return;
+
+    /* Only walk the table when no child process is alive. DICT_RESIZE_ENABLE
+     * means exactly that, and while a fork is running, moving every bucket at
+     * once is the one thing worth avoiding: it would rewrite pages the child
+     * still shares and multiply copy-on-write. Leaving the rehash incremental
+     * there also keeps the pre-existing shrink behaviour during a save. */
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize != DICT_RESIZE_ENABLE) return;
+
+    /* dictRehash() reports 0 both when the table is done and when the resize
+     * policy is holding it back, so this cannot spin. */
+    while (dictIsRehashing(d) && dictRehash(d, 1000)) {
+        /* Move the remaining buckets. */
+    }
+}
+
+static void _dictShrinkIfNeeded(dict *d)
 {
     /* Automatic resizing is disallowed. Return */
     if (d->pauseAutoResize > 0) return;
@@ -2146,6 +2193,30 @@ static dictType BenchmarkDictTypeNoValue = {
     .no_value = 1,
 };
 
+/* Ground truth for d->allocated_entries: walk both tables and count the entries
+ * that are a real allocation rather than a key stored inline in its bucket. */
+static unsigned long dictWalkAllocatedEntries(const dict *d) {
+    unsigned long allocated = 0;
+    for (int table = 0; table <= 1; table++) {
+        for (unsigned long i = 0; i < DICTHT_SIZE(d->ht_size_exp[table]); i++) {
+            for (dictEntry *de = d->ht_table[table][i]; de; de = dictGetNext(de)) {
+                if (!entryIsKey(de)) allocated++;
+            }
+        }
+    }
+    return allocated;
+}
+
+static unsigned long dictWalkOccupiedBuckets(const dict *d) {
+    unsigned long occupied = 0;
+    for (int table = 0; table <= 1; table++) {
+        for (unsigned long i = 0; i < DICTHT_SIZE(d->ht_size_exp[table]); i++) {
+            if (d->ht_table[table][i]) occupied++;
+        }
+    }
+    return occupied;
+}
+
 #define start_benchmark() start = timeInMilliseconds()
 #define end_benchmark(msg) do { \
     elapsed = timeInMilliseconds()-start; \
@@ -2300,16 +2371,18 @@ int dictTest(int argc, char **argv, int flags) {
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
     }
 
-    TEST("dictMemUsage sizes no_value entries by dictEntryNoValue (not dictEntry)") {
-        /* Regression: MEMORY USAGE used to overcount no_value=1 dicts (sets,
-         * the sorted-set element index, hashes) by charging sizeof(dictEntry)
-         * per entry instead of sizeof(dictEntryNoValue).
+    TEST("dictMemUsage charges only the entries that were really allocated") {
+        /* Regression: MEMORY USAGE used to charge one entry per key. A no_value
+         * dict (set, hash, sorted-set element index) stores the first key of
+         * each bucket inline and allocates a dictEntryNoValue only for the
+         * rest, so charging every key inflated a 1M-element sorted set by
+         * ~10 MB.
          *
          * A dictEntry is {next, key, value-union}; a dictEntryNoValue is
          * {next, key}. Dropping the value makes a no_value entry smaller by
          * exactly the size of the value union, which is 8 bytes (it holds a
          * uint64_t/double) on both 64-bit (dictEntry 24 -> dictEntryNoValue 16)
-         * and 32-bit (16 -> 8). dictMemUsage() must reflect that 8 B/entry. */
+         * and 32-bit (16 -> 8). */
         const size_t value_union_bytes = 8;
         assert(sizeof(dictEntry) - sizeof(dictEntryNoValue) == value_union_bytes);
 
@@ -2320,16 +2393,52 @@ int dictTest(int argc, char **argv, int flags) {
             assert(dictAdd(dn, stringFromLongLong(i), (void *)i) == DICT_OK);
             assert(dictAdd(dv, stringFromLongLong(i), NULL) == DICT_OK);
         }
-
-        /* Identical keys and resize policy => identical bucket geometry, so the
-         * two dicts' reported memory differs only by the value union that each
-         * of the n no_value entries drops: n * 8 bytes. */
         assert(dictSize(dn) == (unsigned long)n && dictSize(dv) == (unsigned long)n);
-        assert(dictBuckets(dn) == dictBuckets(dv));
-        assert(dictMemUsage(dn) - dictMemUsage(dv) == (size_t)n * value_union_bytes);
+
+        /* Every key in a normal dict owns an entry; a no_value dict allocates
+         * one for all but the inline key of each occupied bucket. */
+        assert(dn->allocated_entries == (unsigned long)n);
+        assert(dv->allocated_entries == dictWalkAllocatedEntries(dv));
+        assert(dv->allocated_entries == (unsigned long)n - dictWalkOccupiedBuckets(dv));
+        assert(dv->allocated_entries < (unsigned long)n);
+
+        assert(dictMemUsage(dn) == (size_t)n * sizeof(dictEntry) +
+                                   dictBuckets(dn) * sizeof(dictEntry *));
+        assert(dictMemUsage(dv) == dv->allocated_entries * sizeof(dictEntryNoValue) +
+                                   dictBuckets(dv) * sizeof(dictEntry *));
 
         dictRelease(dn);
         dictRelease(dv);
+    }
+
+    TEST("allocated_entries stays exact across rehashing and deletion") {
+        /* Rehashing moves keys between the inline and allocated forms in both
+         * directions, and deletion never re-inlines the survivor of a chain,
+         * so the counter cannot be derived from size and load factor. */
+        dict *dr = dictCreate(&BenchmarkDictTypeNoValue);
+        long n = 5000;
+
+        for (long i = 0; i < n; i++)
+            assert(dictAdd(dr, stringFromLongLong(i), NULL) == DICT_OK);
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        while (dictIsRehashing(dr)) dictRehashMicroseconds(dr, 1000);
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        for (long i = 0; i < n; i += 2) {
+            char *key = stringFromLongLong(i);
+            assert(dictDelete(dr, key) == DICT_OK);
+            zfree(key);
+        }
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        while (dictIsRehashing(dr)) dictRehashMicroseconds(dr, 1000);
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        dictEmpty(dr, NULL);
+        assert(dr->allocated_entries == 0);
+
+        dictRelease(dr);
     }
 
     srand(12345);
