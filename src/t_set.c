@@ -25,6 +25,19 @@
  * number of additional elements to process between two hllCount() checks. */
 #define HLL_CHECK_INTERVAL_FLOOR 1024
 
+/* Returns the setTypeOps table for the given OBJ_ENCODING_* value. This is
+ * the single place that maps a set's encoding to its backend implementation;
+ * every other function below dispatches through it instead of switching on
+ * robj->encoding itself. */
+static const setTypeOps *setTypeGetOps(int encoding) {
+    switch (encoding) {
+    case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
+    case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
+    case OBJ_ENCODING_HT: return &setTypeOpsHT;
+    default: serverPanic("Unknown set encoding");
+    }
+}
+
 /* Compute the UNION or DIFF (per 'op') of the 'setnum' sets named in 'setkeys'.
  *   dstkey          - if non-NULL, store the result into this key (…STORE) and
  *                     reply with its cardinality; otherwise reply to the client.
@@ -134,45 +147,29 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         str_is_sds = 0;
     }
 
-    if (set->encoding == OBJ_ENCODING_HT) {
-        return setTypeOpsHT.rawAdd(set, str, len, llval, str_is_sds);
-    } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
-        int added = setTypeOpsListpack.rawAdd(set, str, len, llval, str_is_sds);
-        if (added == -1) {
-            /* Size limit is reached. Convert to a bigger encoding and add. */
-            unsigned long cap = setTypeOpsListpack.size(set) + 1;
-            int target = setTypeOpsListpack.resolveEncodingForAdd(set, str, len, llval, str_is_sds);
-            setTypeConvertAndExpand(set, target, cap, 1);
-            serverAssert(target == OBJ_ENCODING_HT);
-            added = setTypeOpsHT.rawAdd(set, str, len, llval, str_is_sds);
-        }
-        return added;
-    } else if (set->encoding == OBJ_ENCODING_INTSET) {
-        int added = setTypeOpsIntset.rawAdd(set, str, len, llval, str_is_sds);
-        if (added != -1) {
-            if (added) maybeConvertIntset(set);
-            return added;
-        }
-        /* Not representable as an integer: convert to a bigger encoding. */
-        unsigned long cap = setTypeOpsIntset.size(set) + 1;
-        int target = setTypeOpsIntset.resolveEncodingForAdd(set, str, len, llval, str_is_sds);
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    int added = ops->rawAdd(set, str, len, llval, str_is_sds);
+    if (added == -1) {
+        /* Doesn't fit under the current encoding: figure out the encoding
+         * to convert to, convert, and retry there. */
+        unsigned long cap = ops->size(set) + 1;
+        int target = ops->resolveEncodingForAdd(set, str, len, llval, str_is_sds);
         setTypeConvertAndExpand(set, target, cap, 1);
+        added = setTypeGetOps(target)->rawAdd(set, str, len, llval, str_is_sds);
+        serverAssert(added == 1);
         if (target == OBJ_ENCODING_LISTPACK) {
-            added = setTypeOpsListpack.rawAdd(set, str, len, llval, str_is_sds);
-            serverAssert(added == 1);
-            /* The listpack was sized off an upper-bound estimate; shrink it
-             * down to its actual content now that we're done growing it. */
+            /* Only reachable when converting from intset, whose capacity
+             * estimate for the listpack it builds is an upper bound; shrink
+             * it down to its actual content now that we're done growing it. */
             setTypeListpackShrinkToFit(set);
-        } else {
-            serverAssert(target == OBJ_ENCODING_HT);
-            added = setTypeOpsHT.rawAdd(set, str, len, llval, str_is_sds);
-            serverAssert(added == 1);
         }
         return added;
-    } else {
-        serverPanic("Unknown set encoding");
     }
-    return 0;
+
+    /* Post-insert overflow check: an intset that grew past the configured
+     * limit converts to a hash table. */
+    if (added && set->encoding == OBJ_ENCODING_INTSET) maybeConvertIntset(set);
+    return added;
 }
 
 /* Deletes a value provided as an sds string from the set. Returns 1 if the
@@ -195,16 +192,7 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
         str_is_sds = 0;
     }
 
-    if (setobj->encoding == OBJ_ENCODING_HT) {
-        return setTypeOpsHT.rawRemove(setobj, str, len, llval, str_is_sds);
-    } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
-        return setTypeOpsListpack.rawRemove(setobj, str, len, llval, str_is_sds);
-    } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        return setTypeOpsIntset.rawRemove(setobj, str, len, llval, str_is_sds);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
-    return 0;
+    return setTypeGetOps(setobj->encoding)->rawRemove(setobj, str, len, llval, str_is_sds);
 }
 
 /* Check if an sds string is a member of the set. Returns 1 if the value is a
@@ -227,38 +215,17 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
         str_is_sds = 0;
     }
 
-    if (set->encoding == OBJ_ENCODING_LISTPACK) {
-        return setTypeOpsListpack.isMember(set, str, len, llval, str_is_sds);
-    } else if (set->encoding == OBJ_ENCODING_INTSET) {
-        return setTypeOpsIntset.isMember(set, str, len, llval, str_is_sds);
-    } else if (set->encoding == OBJ_ENCODING_HT) {
-        return setTypeOpsHT.isMember(set, str, len, llval, str_is_sds);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    return setTypeGetOps(set->encoding)->isMember(set, str, len, llval, str_is_sds);
 }
 
 void setTypeInitIterator(setTypeIterator *si, robj *subject) {
     si->subject = subject;
     si->encoding = subject->encoding;
-    if (si->encoding == OBJ_ENCODING_HT) {
-        setTypeOpsHT.iterInit(si);
-    } else if (si->encoding == OBJ_ENCODING_INTSET) {
-        setTypeOpsIntset.iterInit(si);
-    } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
-        setTypeOpsListpack.iterInit(si);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    setTypeGetOps(si->encoding)->iterInit(si);
 }
 
 void setTypeResetIterator(setTypeIterator *si) {
-    if (si->encoding == OBJ_ENCODING_HT)
-        setTypeOpsHT.iterReset(si);
-    else if (si->encoding == OBJ_ENCODING_LISTPACK)
-        setTypeOpsListpack.iterReset(si);
-    else if (si->encoding == OBJ_ENCODING_INTSET)
-        setTypeOpsIntset.iterReset(si);
+    setTypeGetOps(si->encoding)->iterReset(si);
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -283,15 +250,7 @@ void setTypeResetIterator(setTypeIterator *si) {
  *
  * When there are no more elements -1 is returned. */
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
-    if (si->encoding == OBJ_ENCODING_HT) {
-        if (setTypeOpsHT.iterNext(si, str, len, llele) == -1) return -1;
-    } else if (si->encoding == OBJ_ENCODING_INTSET) {
-        if (setTypeOpsIntset.iterNext(si, str, len, llele) == -1) return -1;
-    } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
-        if (setTypeOpsListpack.iterNext(si, str, len, llele) == -1) return -1;
-    } else {
-        serverPanic("Wrong set encoding in setTypeNext");
-    }
+    if (setTypeGetOps(si->encoding)->iterNext(si, str, len, llele) == -1) return -1;
     return si->encoding;
 }
 
@@ -326,15 +285,7 @@ sds setTypeNextObject(setTypeIterator *si) {
  * Note that both the str, len and llele pointers should be passed and cannot
  * be NULL. If str is set to NULL, the value is an integer stored in llele. */
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) {
-    if (setobj->encoding == OBJ_ENCODING_HT) {
-        setTypeOpsHT.randomElement(setobj, str, len, llele);
-    } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        setTypeOpsIntset.randomElement(setobj, str, len, llele);
-    } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
-        setTypeOpsListpack.randomElement(setobj, str, len, llele);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    setTypeGetOps(setobj->encoding)->randomElement(setobj, str, len, llele);
     return setobj->encoding;
 }
 
@@ -368,30 +319,12 @@ robj *setTypePopRandom(robj *set) {
 }
 
 unsigned long setTypeSize(const robj *subject) {
-    if (subject->encoding == OBJ_ENCODING_HT) {
-        return setTypeOpsHT.size(subject);
-    } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        return setTypeOpsIntset.size(subject);
-    } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
-        return setTypeOpsListpack.size(subject);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    return setTypeGetOps(subject->encoding)->size(subject);
 }
 
 size_t setTypeAllocSize(const robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_SET);
-    size_t size = 0;
-    if (o->encoding == OBJ_ENCODING_HT) {
-        size = setTypeOpsHT.allocSize(o);
-    } else if (o->encoding == OBJ_ENCODING_INTSET) {
-        size = setTypeOpsIntset.allocSize(o);
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        size = setTypeOpsListpack.allocSize(o);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
-    return size;
+    return setTypeGetOps(o->encoding)->allocSize(o);
 }
 
 /* Convert the set to specified encoding. The resulting dict (when converting
@@ -471,21 +404,8 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
  *
  * The resulting object always has refcount set to 1 */
 robj *setTypeDup(robj *o) {
-    robj *set;
-
     serverAssert(o->type == OBJ_SET);
-
-    /* Create a new set object that have the same encoding as the original object's encoding */
-    if (o->encoding == OBJ_ENCODING_INTSET) {
-        set = setTypeOpsIntset.dup(o);
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        set = setTypeOpsListpack.dup(o);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        set = setTypeOpsHT.dup(o);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
-    return set;
+    return setTypeGetOps(o->encoding)->dup(o);
 }
 
 void saddCommand(client *c) {
