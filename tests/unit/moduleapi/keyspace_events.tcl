@@ -343,7 +343,7 @@ tags "modules external:skip" {
     # they enable the keysizes histogram assertion. Future tests for other
     # commands can share this isolated server without leaking that state.
     start_server [list overrides [list loadmodule "$testmodule" enable-debug-command yes]] {
-        tags {"modules" "regression"} {
+        tags {"regression"} {
             test "SETBIT and BITFIELD should update keysizes before module callbacks" {
                 # Enable keysizes histogram assertion for this isolated server.
                 r DEBUG KEYSIZES-HIST-ASSERT 1
