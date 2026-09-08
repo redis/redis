@@ -2819,7 +2819,7 @@ void xreadCommand(client *c) {
             }
         } else if (!strcasecmp(o,"BLOCK") && moreargs) {
             i++;
-            if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
+            if (getMonotonicTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
                 UNIT_MILLISECONDS) != C_OK) return;
         } else if (!strcasecmp(o,"COUNT") && moreargs) {
             i++;
