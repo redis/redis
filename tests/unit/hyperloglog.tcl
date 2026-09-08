@@ -750,4 +750,12 @@ start_server {tags {"hll"}} {
         r config set appendonly no
         r config set hll-dense-encoding classic
     } undefined {needs:debug}
+    test {ULL type: PFSETVALUE refuses to overwrite a non-HLL key} {
+        r del t
+        r rpush t a b c
+        assert_error {WRONGTYPE*} {r pfsetvalue t xxx}
+        assert_equal {list} [r type t]
+        assert_equal {a b c} [r lrange t 0 -1]
+        r del t
+    }
 }

@@ -2476,6 +2476,13 @@ void pfSetValueCommand(client *c) {
     robj *key = c->argv[1];
     robj *value = c->argv[2];
 
+    /* Like every other PF* write, refuse to clobber a key that does not hold
+     * an HLL: this command is reachable by any client with the hyperloglog
+     * ACL category. */
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db,key,&link);
+    if (kv != NULL && isHLLObjectOrReply(c,kv) != C_OK) return;
+
     /* The value must be a structurally valid HLL blob. */
     if (!sdsEncodedObject(value)) {
         addReplyError(c,"Invalid HyperLogLog value");
@@ -2488,7 +2495,8 @@ void pfSetValueCommand(client *c) {
         return;
     }
 
-    setKey(c,c->db,key,&o,0);
+    setKeyByLink(c,c->db,key,&o,
+                 kv ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST,&link);
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",key,c->db->id);
     server.dirty++;
     addReply(c,shared.ok);
