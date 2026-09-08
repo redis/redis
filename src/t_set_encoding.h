@@ -22,19 +22,24 @@
  * belongs to (intset, listpack or hash table). This lets t_set.c dispatch to
  * the right implementation without an if/else chain on robj->encoding.
  *
- * resolveEncodingForAdd is called before inserting a new member. It decides
- * which encoding the member must end up under: the object's current
- * encoding if it fits as-is, or a bigger one (an OBJ_ENCODING_* value) if
- * the object needs to be converted first. It never mutates the object -
- * the caller is responsible for calling setTypeConvertAndExpand() when the
- * returned encoding differs from the current one, then dispatching rawAdd()
- * to the (possibly new) encoding's ops. This keeps the "does this operation
- * require a conversion" decision and the actual conversion in the caller
- * (t_set.c), rather than having each encoding's rawAdd call back into
+ * rawAdd() attempts to insert a member under the object's *current*
+ * encoding. It returns 1 if added, 0 if the member already existed, or -1
+ * if the value cannot be added as-is (a configured limit would be
+ * exceeded, or the encoding structurally can't represent the value) - in
+ * which case it does not mutate the object at all.
+ *
+ * resolveEncodingForAdd() is only called after rawAdd() returns -1. It
+ * decides which bigger encoding (an OBJ_ENCODING_* value) the object must
+ * be converted to before rawAdd() can be retried. It never mutates the
+ * object - the caller (t_set.c) is responsible for calling
+ * setTypeConvertAndExpand() and then re-dispatching rawAdd() to the new
+ * encoding's ops. This keeps the "does this operation require a
+ * conversion, and to what" decision and the actual conversion in the
+ * caller, rather than having each encoding's rawAdd call back into
  * shared/core code. */
 typedef struct {
-    int (*resolveEncodingForAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
+    int (*resolveEncodingForAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     int (*rawRemove)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     int (*isMember)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 
