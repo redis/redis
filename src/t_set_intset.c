@@ -138,4 +138,6 @@ const setTypeOps setTypeOpsIntset = {
     .size = isSize,
     .allocSize = isAllocSize,
     .dup = isSetDup,
+    /* .buildFromIterator intentionally left NULL: setTypeConvertAndExpand()
+     * never targets intset (see maybeConvertToIntset() in t_set.c). */
 };

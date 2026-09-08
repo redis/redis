@@ -111,6 +111,25 @@ static robj *htDup(robj *o) {
     return set;
 }
 
+static void *htBuildFromIterator(setTypeIterator *si, unsigned long cap, int panic) {
+    dict *d = dictCreate(&setDictType);
+    if (panic) {
+        dictExpand(d, cap);
+    } else if (dictTryExpand(d, cap) != DICT_OK) {
+        dictRelease(d);
+        return NULL;
+    }
+
+    /* To add the elements we extract integers and create redis objects */
+    size_t *alloc_size = htGetMetadataSize(d);
+    sds element;
+    while ((element = setTypeNextObject(si)) != NULL) {
+        serverAssert(dictAdd(d, element, NULL) == DICT_OK);
+        *alloc_size += sdsAllocSize(element);
+    }
+    return d;
+}
+
 const setTypeOps setTypeOpsHT = {
     .resolveEncodingForAdd = htResolveEncodingForAdd,
     .rawAdd = htRawAdd,
@@ -122,5 +141,6 @@ const setTypeOps setTypeOpsHT = {
     .randomElement = htRandomElement,
     .size = htSize,
     .allocSize = htAllocSize,
+    .buildFromIterator = htBuildFromIterator,
     .dup = htDup,
 };

@@ -124,6 +124,21 @@ void setTypeListpackShrinkToFit(robj *set) {
     set->ptr = lpShrinkToFit(set->ptr);
 }
 
+static void *lpBuildFromIterator(setTypeIterator *si, unsigned long cap, int panic) {
+    UNUSED(panic); /* lpNew() always panics on OOM, regardless of 'panic'. */
+    unsigned char *lp = lpNew(cap);
+    char *str;
+    size_t len = 0;
+    int64_t llele = 0;
+    while (setTypeNext(si, &str, &len, &llele) != -1) {
+        if (str != NULL)
+            lp = lpAppend(lp, (unsigned char *)str, len);
+        else
+            lp = lpAppendInteger(lp, llele);
+    }
+    return lp;
+}
+
 const setTypeOps setTypeOpsListpack = {
     .rawAdd = lpRawAdd,
     .resolveEncodingForAdd = lpResolveEncodingForAdd,
@@ -136,4 +151,5 @@ const setTypeOps setTypeOpsListpack = {
     .size = lpSize,
     .allocSize = lpAllocSize,
     .dup = lpSetDup,
+    .buildFromIterator = lpBuildFromIterator,
 };

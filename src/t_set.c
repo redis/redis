@@ -339,62 +339,38 @@ void setTypeConvert(robj *setobj, int enc) {
  * C_ERR on OOM (panic=0). If panic=1 is given, this function always returns
  * C_OK. */
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
-    setTypeIterator si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
+    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK) {
+        serverPanic("Unsupported set conversion");
+    }
 
-    if (enc == OBJ_ENCODING_HT) {
-        dict *d = dictCreate(&setDictType);
-        sds element;
-
-        /* Presize the dict to avoid rehashing */
-        if (panic) {
-            dictExpand(d, cap);
-        } else if (dictTryExpand(d, cap) != DICT_OK) {
-            dictRelease(d);
-            return C_ERR;
-        }
-
-        /* To add the elements we extract integers and create redis objects */
-        size_t *alloc_size = htGetMetadataSize(d);
-        setTypeInitIterator(&si, setobj);
-        while ((element = setTypeNextObject(&si)) != NULL) {
-            serverAssert(dictAdd(d,element,NULL) == DICT_OK);
-            *alloc_size += sdsAllocSize(element);
-        }
-        setTypeResetIterator(&si);
-
-        freeSetObject(setobj); /* frees the internals but not setobj itself */
-        setobj->encoding = OBJ_ENCODING_HT;
-        setobj->ptr = d;
-    } else if (enc == OBJ_ENCODING_LISTPACK) {
+    /* 'cap' is an element count; the listpack builder wants a byte size
+     * hint instead (see setTypeOps.buildFromIterator in t_set_encoding.h). */
+    unsigned long buildCap = cap;
+    if (enc == OBJ_ENCODING_LISTPACK) {
         /* Preallocate the minimum two bytes per element (enc/value + backlen) */
-        size_t estcap = cap * 2;
+        buildCap = cap * 2;
         if (setobj->encoding == OBJ_ENCODING_INTSET && setTypeSize(setobj) > 0) {
             /* If we're converting from intset, we have a better estimate. */
             size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(setobj->ptr), cap);
             size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(setobj->ptr), cap);
-            estcap = max(s1, s2);
+            buildCap = max(s1, s2);
         }
-        unsigned char *lp = lpNew(estcap);
-        char *str;
-        size_t len = 0;
-        int64_t llele = 0;
-        setTypeInitIterator(&si, setobj);
-        while (setTypeNext(&si, &str, &len, &llele) != -1) {
-            if (str != NULL)
-                lp = lpAppend(lp, (unsigned char *)str, len);
-            else
-                lp = lpAppendInteger(lp, llele);
-        }
-        setTypeResetIterator(&si);
-
-        freeSetObject(setobj); /* frees the internals but not setobj itself */
-        setobj->encoding = OBJ_ENCODING_LISTPACK;
-        setobj->ptr = lp;
-    } else {
-        serverPanic("Unsupported set conversion");
     }
+
+    setTypeIterator si;
+    setTypeInitIterator(&si, setobj);
+    void *newptr = setTypeGetOps(enc)->buildFromIterator(&si, buildCap, panic);
+    setTypeResetIterator(&si);
+    if (newptr == NULL) {
+        serverAssert(!panic);
+        return C_ERR;
+    }
+
+    freeSetObject(setobj); /* frees the internals but not setobj itself */
+    setobj->encoding = enc;
+    setobj->ptr = newptr;
     return C_OK;
 }
 
