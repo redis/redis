@@ -2027,13 +2027,28 @@ static kvobj *hllPrepareWriteDest(client *c, robj *keyarg, kvobj *kv,
 
 /* Finalize an HLL write: promote the value to the OBJ_HLL_ULTRA type when the
  * ultra dense backend is selected (the blob is unchanged) and update the
- * per-type keysizes histogram for the size change and any type move. Returns
- * 1 if the type was promoted, so the caller can propagate the change even when
- * the registers were untouched (otherwise a replica would keep the old
- * type). */
-static int hllWriteFinalize(redisDb *db, kvobj *kv, int oldtype, uint64_t oldlen) {
-    if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA && kv->type == OBJ_STRING)
+ * per-type keysizes and allocation size histograms for the size change and any
+ * type move. 'oldsize' is the kvobjAllocSize() taken before the write, and is
+ * only read when memory tracking is on.
+ *
+ * Both histograms are keyed by the object type and only cover the basic ones,
+ * so a promotion has to book the old size out while the value still says
+ * OBJ_STRING, and the new size in once it doesn't. Returns 1 if the type was
+ * promoted, so the caller can propagate the change even when the registers
+ * were untouched (otherwise a replica would keep the old type). */
+static int hllWriteFinalize(redisDb *db, robj *keyarg, kvobj *kv, int oldtype,
+                            uint64_t oldlen, int64_t oldsize)
+{
+    int track = server.memory_tracking_enabled;
+    int slot = track ? getKeySlot(keyarg->ptr) : 0;
+
+    if (server.hll_dense_encoding == HLL_DENSE_ENCODING_ULTRA && kv->type == OBJ_STRING) {
+        if (track) updateSlotAllocSize(db, slot, kv, oldsize, -1);
+        oldsize = -1;
         kv->type = OBJ_HLL_ULTRA;
+    }
+    if (track) updateSlotAllocSize(db, slot, kv, oldsize, kvobjAllocSize(kv));
+
     uint64_t newlen = sdslen(kv->ptr);
     if (kv->type == oldtype) {
         updateKeysizesHist(db, kv->type, oldlen, newlen);
@@ -2082,9 +2097,7 @@ void pfaddCommand(client *c) {
     hdr = kv->ptr;
     /* A type promotion is a change that must reach replicas/AOF even when no
      * register was updated, so treat it like a modification too. */
-    int promoted = hllWriteFinalize(c->db, kv, oldtype, oldlen);
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+    int promoted = hllWriteFinalize(c->db, c->argv[1], kv, oldtype, oldlen, oldsize);
     if (updated || promoted) {
         if (updated) HLL_INVALIDATE_CACHE(hdr);
         keyModified(c,c->db,c->argv[1],kv,1);
@@ -2345,9 +2358,7 @@ void pfmergeCommand(client *c) {
         hdr = kv->ptr;
         HLL_INVALIDATE_CACHE(hdr);
 
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
-        hllWriteFinalize(c->db, kv, oldtype, oldLen);
+        hllWriteFinalize(c->db, c->argv[1], kv, oldtype, oldLen, oldsize);
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
         server.dirty++;
@@ -2403,9 +2414,7 @@ void pfmergeCommand(client *c) {
         kv->ptr = s;
         hdr = kv->ptr;
 
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
-        hllWriteFinalize(c->db, kv, oldtype, oldLen);
+        hllWriteFinalize(c->db, c->argv[1], kv, oldtype, oldLen, oldsize);
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
         server.dirty++;
@@ -2454,14 +2463,12 @@ void pfmergeCommand(client *c) {
     sdsfree(kv->ptr);
     kv->ptr = s;
 
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
+    hllWriteFinalize(c->db, c->argv[1], kv, oldtype, oldLen, oldsize);
     keyModified(c,c->db,c->argv[1],kv,1);
     /* We generate a PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
 
-    hllWriteFinalize(c->db, kv, oldtype, oldLen);
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -2684,9 +2691,7 @@ void pfdebugCommand(client *c) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            hllWriteFinalize(c->db, o, oldtype, oldlen);
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
+            hllWriteFinalize(c->db, c->argv[2], o, oldtype, oldlen, oldsize);
             server.dirty++; /* Force propagation on encoding change. */
         }
 
@@ -2773,9 +2778,7 @@ void pfdebugCommand(client *c) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            hllWriteFinalize(c->db, o, oldtype, oldlen);
-            if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), o, oldsize, kvobjAllocSize(o));
+            hllWriteFinalize(c->db, c->argv[2], o, oldtype, oldlen, oldsize);
             conv = 1;
             server.dirty++; /* Force propagation on encoding change. */
         }

@@ -759,3 +759,22 @@ start_server {tags {"hll"}} {
         r del t
     }
 }
+
+# Memory tracking can only be enabled at startup.
+start_server {tags {"hll external:skip needs:debug"} overrides {key-memory-histograms yes}} {
+    test {ULL type: promotion keeps the alloc size histogram consistent} {
+        r debug allocsize-slots-assert 1
+        r config set hll-dense-encoding classic
+        r del k{t} k2{t}
+        r pfadd k{t} a b c d e
+        r pfadd k2{t} f g h
+        r config set hll-dense-encoding ultra
+        r pfadd k{t} a b c        ; # promotes in place, registers untouched
+        r pfmerge k2{t} k{t}      ; # promotes the merge destination
+        r del k{t} k2{t}
+        r debug allocsize-slots-assert 0
+        r config set hll-dense-encoding classic
+        # The assertion panics on a mismatch, so getting here is the check.
+        r ping
+    } {PONG}
+}
