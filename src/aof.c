@@ -2577,8 +2577,6 @@ static int aofEmitSliceElements(rio *r, robj *key, arSlice *s, uint64_t slice_id
     return 1;
 }
 
-/* Emit the commands needed to rebuild an array object.
- * The function returns 0 on error, 1 on success. */
 /* Emit PFSETVALUE <key> <blob> to reconstruct an OBJ_HLL_ULTRA key, whose
  * blob is a plain raw sds. */
 int rewriteHLLObject(rio *r, robj *key, robj *o) {
@@ -2590,6 +2588,8 @@ int rewriteHLLObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
+/* Emit the commands needed to rebuild an array object.
+ * The function returns 0 on error, 1 on success. */
 int rewriteArrayObject(rio *r, robj *key, robj *o) {
     redisArray *ar = o->ptr;
     long long count = 0, items = ar->count;
