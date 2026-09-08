@@ -3041,7 +3041,7 @@ static int applyClusterBusPortProtectedMode(const char **err) {
     if (clusterBusPortProtectionUnmet()) {
         *err = "can't enable cluster-bus-port-protected-mode while tls-cluster is disabled, "
                "as that leaves the cluster bus port unauthenticated; enable tls-cluster "
-               "first, or in the same CONFIG SET call";
+               "first, or in the same CONFIG SET command";
         return 0;
     }
     return 1;
