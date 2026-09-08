@@ -907,7 +907,7 @@ start_server {tags {"cli external:skip"}} {
         # every sampled key of a type has size 0, leaving biggest_key unset even
         # though the key was counted.
         r set foo ""
-        set cmd [rediscli [srv host] [srv port] [list -n 9 --bigkeys]]
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
         set result [exec {*}$cmd]
         assert_match {*Biggest string found "foo" has 0 bytes*} $result
     }
