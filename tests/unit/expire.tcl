@@ -328,6 +328,7 @@ start_server {tags {"expire"}} {
         r flushall
         r config resetstat
         r config set latency-tracking yes
+        r debug set-active-expire 1
         r psetex activelagkey 100 v
         wait_for_condition 50 100 {
             [latencyrstat_percentiles active r expire_lag_percentiles_usec] ne {}
@@ -335,19 +336,26 @@ start_server {tags {"expire"}} {
             fail "active expire cycle recorded no lag sample"
         }
         assert_match {*p50=*} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
-    }
+    } {} {needs:debug}
 
     test {Expiration lag: nothing is recorded while latency tracking is off} {
         r flushall
         r config resetstat
         r config set latency-tracking no
+        r debug set-active-expire 0
         r psetex offlagkey 100 v
         after 600
+        # Take the lazy path on purpose: with the active cycle running the key
+        # would usually be reaped before anyone reads it.
         assert_equal {} [r get offlagkey]
+        # Read INFO with tracking back on. The whole latencystats body is emitted
+        # only while tracking is on, so asserting on it with tracking off would
+        # match nothing whether or not a sample had been recorded.
+        r config set latency-tracking yes
         assert_match {} [latencyrstat_percentiles lazy r expire_lag_percentiles_usec]
         assert_match {} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
-        r config set latency-tracking yes
-    } {OK}
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
 
     # Start a new server with empty data and AOF file.
     start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
