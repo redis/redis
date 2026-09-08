@@ -613,13 +613,6 @@ static int is_in_slow_bg_operation(RedisModuleCtx *ctx, RedisModuleString **argv
     return REDISMODULE_OK;
 }
 
-static int blocked_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
-{
-    UNUSED(argv);
-    UNUSED(argc);
-    return RedisModule_ReplyWithSimpleString(ctx, "TIMEOUT");
-}
-
 static void timer_callback(RedisModuleCtx *ctx, void *data)
 {
     UNUSED(ctx);
