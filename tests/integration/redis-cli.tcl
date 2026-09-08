@@ -488,15 +488,18 @@ start_server {tags {"cli"}} {
         --quoted-json {}
     } {
         test "RESP3 big number replies in $mode mode" {
-            foreach number {123456789012345678901234567890 -123456789012345678901234567890} {
-                assert_equal "${prefix}${number}" \
+            foreach number {123456789012345678901234567890 -123456789012345678901234567890 00123456789012345678901234567890 -00123456789012345678901234567890 0} {
+                set expected "${prefix}${number}"
+                if {$mode eq "--json" || $mode eq "--quoted-json"} {
+                    set expected "\"$number\""
+                }
+                assert_equal $expected \
                     [run_cli -3 $mode eval {return {big_number=ARGV[1]}} 0 $number]
 
-                set expected "${prefix}${number}"
                 if {$mode eq "--no-raw"} {
                     set expected "1) $expected"
                 } elseif {$mode eq "--json" || $mode eq "--quoted-json"} {
-                    set expected "\[$number\]"
+                    set expected "\[$expected\]"
                 }
                 assert_equal $expected \
                     [run_cli -3 $mode eval {return {{big_number=ARGV[1]}}} 0 $number]

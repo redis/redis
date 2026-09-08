@@ -2199,9 +2199,12 @@ static sds cliFormatReplyJson(sds out, redisReply *r, int mode) {
     case REDIS_REPLY_INTEGER:
         out = sdscatprintf(out,"%lld",r->integer);
         break;
-    case REDIS_REPLY_BIGNUM:
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"%s",r->str);
+        break;
+    case REDIS_REPLY_BIGNUM:
+        /* Preserve arbitrary precision and leading zeros in valid JSON. */
+        out = jsonStringOutput(out,r->str,r->len,mode);
         break;
     case REDIS_REPLY_STRING:
     case REDIS_REPLY_VERB:
