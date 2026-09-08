@@ -811,6 +811,8 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldAllocSize, kvobjAllocSize(o));
         *strGrowSize = sdslen(o->ptr) - *strOldSize;
         
+        /* New keys are accounted for by dbAddByLink() above; here the key
+         * already existed, so account for the growth ourselves. */
         if (*strGrowSize != 0)
             updateKeysizesHist(c->db, OBJ_STRING, *strOldSize, *strOldSize + *strGrowSize);
     }
