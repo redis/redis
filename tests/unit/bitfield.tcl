@@ -166,6 +166,7 @@ start_server {tags {"bitops"}} {
     }
 
     test {BITFIELD OVERFLOW FAIL accounts for string growth} {
+        r del bits
         r set bits {}
         set dirty [s rdb_changes_since_last_save]
         set result [r bitfield bits overflow fail set u1 63 2]
