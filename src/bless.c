@@ -269,9 +269,9 @@ static int blessScanShouldSkipDict(dict *d, int didx) {
 
 /* BLESS SCAN <cursor> <NO-EVICT> [COUNT <count>] - cursored scan of the current
  * DB's blessed index, filtered by flag. SCAN-style reply: [next-cursor, [key ...]].
- * Without COUNT the whole index is walked in this one call and the cursor comes
- * back 0; with COUNT, the loop stops once ~count entries were sampled, like
- * scanGenericCommand, with a maxiterations guard against a sparse table. */
+ * Same semantics as scanGenericCommand: COUNT is a non-strict ball-park hint (the
+ * loop stops once ~count entries were sampled, with a maxiterations guard against
+ * a sparse table) and defaults to 1000 when omitted, just like plain SCAN. */
 static void blessScanCommand(client *c) {
     unsigned long long cursor;
     if (parseScanCursorOrReply(c, c->argv[2], &cursor) == C_ERR) return;
@@ -280,7 +280,7 @@ static void blessScanCommand(client *c) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
-    long count = LONG_MAX; /* unbounded: walk the whole index in this call */
+    long count = 1000; /* ball-park default, like SCAN's COUNT */
     if (c->argc == 6) {
         if (strcasecmp(c->argv[4]->ptr, "count")) {
             addReplyErrorObject(c, shared.syntaxerr);
