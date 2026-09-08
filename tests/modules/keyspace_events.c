@@ -124,6 +124,10 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
     REDISMODULE_NOT_USED(type);
     const char *key_str = RedisModule_StringPtrLen(key, NULL);
 
+    /* Delete the key from within the notification callback, to verify the
+     * keyspace bookkeeping (e.g. keysizes histogram) was already updated by
+     * the time subscribers run. Returns early, intentionally skipping the
+     * StringDMA check below, which expects the key to still exist. */
     if (strcmp(event, "setbit") == 0 && strncmp(key_str, "stringdel_", 10) == 0) {
         RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s!", key);
         if (rep) RedisModule_FreeCallReply(rep);
