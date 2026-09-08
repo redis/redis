@@ -59,7 +59,7 @@ start_server {tags {"bless"}} {
     test {BLESS SCAN paginates with COUNT and iterates the full set; bad args error} {
         r flushall
         for {set i 0} {$i < 20} {incr i} { r set k:$i v; r bless set k:$i no-evict }
-        # small set fits under the default COUNT (1000), so one call returns it all
+        # small set fits under the default COUNT (1024), so one call returns it all
         set res [r bless scan 0 no-evict]
         assert_equal 0 [lindex $res 0]
         assert_equal 20 [llength [lindex $res 1]]
