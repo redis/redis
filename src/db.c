@@ -3055,12 +3055,23 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
 
-    /* Read the deadline before the key goes away, so we can record how long it
-     * outlived it. Only this branch, where a deletion is about to happen, is in
-     * a position to know it. */
+    /* Read the deadline and the clock before the key goes away, so we can record
+     * how long it outlived it. Only this branch, where a deletion is about to
+     * happen, is in a position to know it.
+     *
+     * mstime() rather than commandTimeSnapshot(), because the snapshot is frozen
+     * for the whole execution unit and anything that waits inside a MULTI, a
+     * script or a nested RM_Call would be subtracted from the lag. And read here
+     * rather than after the deletion, so that freeing the value does not land in
+     * this histogram: deleteKeyAndPropagate() already times the delete and
+     * reports it as the expire-del latency event, and the active cycle likewise
+     * passes a timestamp taken before it deletes. */
     long long expire_at = -1;
-    if (server.latency_tracking_enabled)
+    long long caught_at = 0;
+    if (server.latency_tracking_enabled) {
         expire_at = getExpire(db, key ? key->ptr : NULL, kv);
+        caught_at = mstime();
+    }
 
     /* Perform deletion */
     if (key) {
@@ -3072,7 +3083,7 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         decrRefCount(tmpkey);
     }
     if (expire_at > 0)
-        updateExpireLagHistogram(&server.expire_lag_lazy_histogram, expire_at, commandTimeSnapshot());
+        updateExpireLagHistogram(&server.expire_lag_lazy_histogram, expire_at, caught_at);
     return KEY_DELETED;
 }
 

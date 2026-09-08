@@ -3878,7 +3878,7 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
-void updateExpireLagHistogram(struct hdr_histogram** lag_histogram, long long expire_at, long long deleted_at);
+void updateExpireLagHistogram(struct hdr_histogram** lag_histogram, long long expire_at, long long caught_at);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
 int abortShutdown(void);

@@ -3870,12 +3870,17 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
  * A key stops being readable the instant its deadline passes, but it is only
  * deleted, and its `expired` notification only published, once some client
  * touches it or the active expire cycle happens to sample it. This histogram
- * measures that gap so operators can see it instead of inferring it. */
-void updateExpireLagHistogram(struct hdr_histogram **lag_histogram, long long expire_at, long long deleted_at) {
+ * measures that gap so operators can see it instead of inferring it.
+ *
+ * Both callers pass the clock as of the moment they caught the key, not as of
+ * the moment the deletion returned, so that freeing a large value stays out of
+ * this histogram. That cost is already reported on its own as the expire-del
+ * latency event. */
+void updateExpireLagHistogram(struct hdr_histogram **lag_histogram, long long expire_at, long long caught_at) {
     if (expire_at <= 0) return; /* Unknown deadline, nothing meaningful to record. */
     /* Clamp while still in milliseconds. Converting first would depend on the
      * two timestamps being close enough for the product to fit. */
-    long long lag_ms = deleted_at - expire_at;
+    long long lag_ms = caught_at - expire_at;
     if (lag_ms > EXPIRE_LAG_HISTOGRAM_MAX_VALUE / 1000000)
         lag_ms = EXPIRE_LAG_HISTOGRAM_MAX_VALUE / 1000000;
     int64_t lag_ns = lag_ms > 0 ? (int64_t)lag_ms * 1000000 : 0;
