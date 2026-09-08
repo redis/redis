@@ -884,28 +884,10 @@ static int bitroarStringTooLarge(robj *o) {
 #endif
 }
 
-/* Return the propagation targets enabled for this invocation of call(). This
- * matters for Lua redis.set_repl() and selective RM_Call propagation: an
- * explicitly queued transition must never escape to a target suppressed for
- * its triggering command. */
-static int bitroarPropagationTarget(client *c) {
-    int target = PROPAGATE_NONE;
-
-    if (c->command_call_flags & CMD_CALL_PROPAGATE_AOF)
-        target |= PROPAGATE_AOF;
-    if (c->command_call_flags & CMD_CALL_PROPAGATE_REPL)
-        target |= PROPAGATE_REPL;
-    if (c->flags & (CLIENT_PREVENT_AOF_PROP | CLIENT_MODULE_PREVENT_AOF_PROP))
-        target &= ~PROPAGATE_AOF;
-    if (c->flags & (CLIENT_PREVENT_REPL_PROP | CLIENT_MODULE_PREVENT_REPL_PROP))
-        target &= ~PROPAGATE_REPL;
-    return target;
-}
-
 /* Queue the current command before synchronous notification callbacks, while
- * retaining the exact AOF/replica target selected for this call(). */
+ * alsoPropagate() applies this call's AOF/replica target restrictions. */
 static void bitroarPropagateCurrentCommand(client *c) {
-    alsoPropagate(c->db->id, c->argv, c->argc, bitroarPropagationTarget(c));
+    alsoPropagate(c->db->id, c->argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL);
     preventCommandPropagation(c);
 }
 
@@ -916,7 +898,7 @@ static void bitroarPropagateConvert(client *c, robj *key) {
 
     argv[0] = createStringObject("BITCONVERT", 10);
     argv[1] = key;
-    alsoPropagate(c->db->id, argv, 2, bitroarPropagationTarget(c));
+    alsoPropagate(c->db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
     decrRefCount(argv[0]);
 }
 
@@ -1504,18 +1486,17 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * and AOF replay first reproduce BITOP's logical string result and then convert
  * it without consulting their local bitmap-default-roaring setting.
  *
- * Capture one target for both commands and queue the pair before local
- * notifications. This keeps target filtering stable across the pair and places
- * callback-propagated writes after it. Multiple pending operations are emitted
- * transactionally by propagatePendingCommands(). */
+ * Queue the pair before local notifications, so alsoPropagate() applies the
+ * same target restrictions to both commands and callback-propagated writes
+ * follow them. Multiple pending operations are emitted transactionally by
+ * propagatePendingCommands(). */
 static void bitroarPropagateBitopAndConvert(client *c) {
     robj *argv[2];
-    int target = bitroarPropagationTarget(c);
 
-    alsoPropagate(c->db->id, c->argv, c->argc, target);
+    alsoPropagate(c->db->id, c->argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL);
     argv[0] = createStringObject("BITCONVERT", 10);
     argv[1] = c->argv[2];
-    alsoPropagate(c->db->id, argv, 2, target);
+    alsoPropagate(c->db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
     preventCommandPropagation(c);
     decrRefCount(argv[0]);
 }

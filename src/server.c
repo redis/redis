@@ -4084,7 +4084,6 @@ static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
 void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
-    int client_old_call_flags = c->command_call_flags;
     struct redisCommand *real_cmd = c->realcmd;
     client *prev_client = server.executing_client;
     server.executing_client = c;
@@ -4165,7 +4164,6 @@ void call(client *c, int flags) {
     server.allowed_propagate_targets = prev_targets & call_targets;
 
     c->cmd->proc(c);
-    c->command_call_flags = client_old_call_flags;
 
     server.allowed_propagate_targets = prev_targets;
 
