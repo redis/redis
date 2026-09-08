@@ -6112,9 +6112,12 @@ void bytesToHuman(char *s, size_t size, unsigned long long n) {
     }
 }
 
-/* Fill percentile distribution of latencies. */
-sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
-    info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
+/* Fill percentile distribution of latencies. The field prefix is a parameter
+ * because `latency_percentiles_usec_` is a command keyed namespace: everything
+ * under it is expected to be a command name. Anything that is not one needs a
+ * prefix of its own. */
+sds fillPercentileDistributionLatencies(sds info, const char* prefix, const char* histogram_name, struct hdr_histogram* histogram) {
+    info = sdscatfmt(info,"%s_%s:",prefix,histogram_name);
     for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
         char fbuf[128];
         size_t len = snprintf(fbuf, sizeof(fbuf), "%f", server.latency_tracking_info_percentiles[j]);
@@ -6294,7 +6297,7 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
         char *tmpsafe;
         c = (struct redisCommand *) dictGetVal(de);
         if (c->latency_histogram) {
-            info = fillPercentileDistributionLatencies(info,
+            info = fillPercentileDistributionLatencies(info, "latency_percentiles_usec",
                 getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe),
                 c->latency_histogram);
             if (tmpsafe != NULL) zfree(tmpsafe);
@@ -7084,10 +7087,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (server.latency_tracking_enabled) {
             info = genRedisInfoStringLatencyStats(info, server.commands);
             if (server.expire_lag_active_histogram)
-                info = fillPercentileDistributionLatencies(info, "expire_lag_active",
+                info = fillPercentileDistributionLatencies(info, "expire_lag_percentiles_usec", "active",
                     server.expire_lag_active_histogram);
             if (server.expire_lag_lazy_histogram)
-                info = fillPercentileDistributionLatencies(info, "expire_lag_lazy",
+                info = fillPercentileDistributionLatencies(info, "expire_lag_percentiles_usec", "lazy",
                     server.expire_lag_lazy_histogram);
         }
     }

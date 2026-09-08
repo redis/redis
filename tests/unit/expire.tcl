@@ -316,9 +316,9 @@ start_server {tags {"expire"}} {
         # The read is what deletes the key here, so the reported lag is the
         # time the key spent past its deadline before anyone asked for it.
         assert_equal {} [r get lagkey]
-        set line [latencyrstat_percentiles expire_lag_lazy r]
+        set line [latencyrstat_percentiles lazy r expire_lag_percentiles_usec]
         assert_match {*p50=*} $line
-        assert_match {} [latencyrstat_percentiles expire_lag_active r]
+        assert_match {} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
         regexp {p50=([0-9.]+)} $line -> p50
         assert {$p50 >= 400000}
         r debug set-active-expire 1
@@ -330,11 +330,11 @@ start_server {tags {"expire"}} {
         r config set latency-tracking yes
         r psetex activelagkey 100 v
         wait_for_condition 50 100 {
-            [latencyrstat_percentiles expire_lag_active r] ne {}
+            [latencyrstat_percentiles active r expire_lag_percentiles_usec] ne {}
         } else {
             fail "active expire cycle recorded no lag sample"
         }
-        assert_match {*p50=*} [latencyrstat_percentiles expire_lag_active r]
+        assert_match {*p50=*} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
     }
 
     test {Expiration lag: nothing is recorded while latency tracking is off} {
@@ -344,8 +344,8 @@ start_server {tags {"expire"}} {
         r psetex offlagkey 100 v
         after 600
         assert_equal {} [r get offlagkey]
-        assert_match {} [latencyrstat_percentiles expire_lag_lazy r]
-        assert_match {} [latencyrstat_percentiles expire_lag_active r]
+        assert_match {} [latencyrstat_percentiles lazy r expire_lag_percentiles_usec]
+        assert_match {} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
         r config set latency-tracking yes
     } {OK}
 
