@@ -143,6 +143,22 @@ start_server {tags {"modules external:skip"}} {
             assert_match "WRONGTYPE A type error: foo5" $e
         }
 
+        test "RESP$proto: redis.call reply parsing with invalid CRLF character" {
+            # When Lua parses redis.call replies, the current implementation only
+            # searches for '\r' characters without verifying that '\n' follows. If a '\r'
+            # appears in the protocol data (not as part of the CRLF delimiter), the parser
+            # incorrectly treats it as a valid '\r\n' terminator.
+            #
+            # Example: Protocol data containing "\rx=100000000000" would be parsed as:
+            #   - '\rx' is treated as line terminator (should require '\r\n')
+            #   - '=100000000000' is interpreted as length specifier
+            #   - Lua attempts to create a massive string → Out of Memory
+            r deferred 1
+            r eval {return redis.call('rw.simplestring_array', '\rx=100000000000', 'hello')} 0
+            assert_equal [r rawread 30] "*2\r\n+ x=100000000000\r\n+hello\r\n"
+            r deferred 0
+        }
+
         r hello 2
     }
 

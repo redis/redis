@@ -623,6 +623,48 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
+    test_nontty_cli "Latency mode reports requested percentiles" {
+        # Single-shot --latency in CSV mode samples for one second then exits.
+        # Without percentiles the line is "min,max,avg,count" (4 fields); with
+        # --latency-percentiles one extra column per percentile is appended.
+        set base [run_cli --csv -i 1 --latency]
+        assert_equal 4 [llength [split [string trim $base] ","]]
+
+        set out [run_cli --csv -i 1 --latency --latency-percentiles 50,99]
+        set fields [split [string trim $out] ","]
+        assert_equal 6 [llength $fields]
+
+        # Sanity-check the values: all are non-negative numbers reported in ms
+        # (fields: min,max,avg,count,p50,p99). Percentiles come from an HDR
+        # histogram and are bucket-quantized, so we only assert that they are
+        # monotonic (p50 <= p99); comparing them against the exact min/max
+        # scalars could differ by a quantum and is intentionally avoided.
+        lassign $fields min max avg count p50 p99
+        foreach v [list $min $max $avg $p50 $p99] {
+            assert {[string is double -strict $v]}
+            assert {$v >= 0}
+        }
+        assert {$p50 <= $p99}
+    }
+
+    test_nontty_cli "Latency mode reports percentiles as JSON object" {
+        set out [run_cli --json -i 1 --latency --latency-percentiles 50,99.9]
+        # Labels are echoed verbatim (not reformatted), so "99.9" stays "99.9".
+        assert_match {*"percentiles":*"50":*"99.9":*} $out
+    }
+
+    test_nontty_cli "Latency mode rejects invalid percentiles" {
+        # The argument is validated during option parsing, before any server
+        # connection or the sampling loop, so each invocation exits immediately
+        # with a nonzero status; exec folds the stderr message into $output.
+        foreach bad {bogus nan inf -1 101} {
+            set cmd [rediscli [srv host] [srv port] \
+                [list --latency --latency-percentiles 50,$bad]]
+            catch {exec {*}$cmd} output
+            assert_match "*Invalid percentile*" $output
+        }
+    }
+
     test_nontty_cli "Test command-line hinting - latest server" {
         # cli will connect to the running server and will use COMMAND DOCS
         catch {run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt} output

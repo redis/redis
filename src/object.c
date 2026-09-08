@@ -804,6 +804,19 @@ void dismissHashObject(robj *o, size_t size_hint) {
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = o->ptr;
         dismissMemory(lpt->lp, lpBytes((unsigned char*)lpt->lp));
+    } else if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+        unsigned char *lp = o->ptr;
+        dismissMemory(lp, lpBytes(lp));
+    } else if (o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+        hashTemplateArray *hta = o->ptr;
+        unsigned long long n = hta->field_count;
+        /* We iterate all values only when average value size is bigger than
+         * a page size, mirroring the heuristic used for OBJ_ENCODING_HT. */
+        if (n > 0 && size_hint / n >= server.page_size) {
+            for (unsigned long long i = 0; i < n; i++)
+                dismissSds(hta->values[i]);
+        }
+        dismissMemory(hta, sizeof(*hta) + n * sizeof(sds));
     } else {
         serverPanic("Unknown hash encoding type");
     }
@@ -1302,6 +1315,8 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
+	case OBJ_ENCODING_TMPL_LP: return "template-listpack";
+	case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
     default: return "unknown";
     }
 }
@@ -1333,9 +1348,23 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     serverPanic("Unknown object type");
 }
 
+/* Returns the size in bytes consumed by the object header, key and value in RAM.
+ * Note that the returned value is accurate approximation of the actual allocated
+ * size. For performance reasons it accumulates requested size instead in several
+ * cases (e.g. kvobj allocation, type 5 sds, listpacks, etc) but it does so in a
+ * self-consistent way.
+ */
 size_t kvobjAllocSize(kvobj *o) {
-    /* All kv-objects has at least kvobj header and embedded key */
-    size_t asize = zmalloc_size(kvobjGetAllocPtr(o));
+    debugServerAssert(o->iskvobj);
+    size_t asize = sizeof(kvobj);
+    /* Add metadata size */
+    asize += getNumMeta(o->metabits) * sizeof(uint64_t);
+    /* Add embedded key size */
+    asize += 1; /* embedded key header size */
+    asize += sdsAllocSize(kvobjGetKey(o));
+    /* Add embedded string size */
+    if (o->encoding == OBJ_ENCODING_EMBSTR)
+        asize += sdsAllocSize(o->ptr);
 
     if (o->type == OBJ_STRING) {
         asize += stringObjectAllocSize(o);
@@ -1440,6 +1469,21 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->clients_slaves = 0;
         mh->repl_backlog = server.repl_buffer_mem;
     }
+
+    /* Replicas' compression state is allocated per client and is not part of
+     * the shared replication buffer accounted for above, so it needs to be
+     * added separately regardless of which branch was taken. */
+    if (listLength(server.slaves)) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *replica = listNodeValue(ln);
+            mh->clients_slaves += clientCompressionMemoryUsage(replica);
+        }
+    }
+
     if (server.repl_backlog) {
         /* The approximate memory of rax tree for indexed blocks. */
         mh->repl_backlog +=
@@ -1482,6 +1526,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->script_vm = evalScriptsMemoryVM();
     mh->script_vm += functionsMemoryVM();
     mem_total+=mh->script_vm;
+
+    mh->hash_templates = hashTemplatesMemUsage();
+    mem_total+=mh->hash_templates;
 
     /* Cluster atomic slot migration buffers. */
     mh->asm_import_input_buffer = asmGetImportInputBufferSize();
@@ -1734,7 +1781,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
-        addReplyBulkCString(c,strEncoding(kv->encoding));
+        addReplyBulkCString(c, strEncoding(kv->encoding));
     } else if (!strcasecmp(c->argv[1]->ptr,"idletime") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
@@ -1806,11 +1853,19 @@ NULL
             return;
         }
         size_t usage = kvobjComputeSize(c->argv[2], kv, samples, c->db->id);
+
+        /* Add this key's share of the hash-template cost (see the comment of
+         * hashTemplatePerKeyMemoryShare()). */
+        if (kv->type == OBJ_HASH &&
+            (kv->encoding == OBJ_ENCODING_TMPL_LP ||
+             kv->encoding == OBJ_ENCODING_TMPL_ARRAY))
+            usage += hashTemplatePerKeyMemoryShare(kv);
+
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,35+mh->num_dbs);
+        addReplyMapLen(c,36+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1853,6 +1908,9 @@ NULL
 
         addReplyBulkCString(c,"script.VMs");
         addReplyLongLong(c,mh->script_vm);
+
+        addReplyBulkCString(c,"hash.templates");
+        addReplyLongLong(c,mh->hash_templates);
 
         for (size_t j = 0; j < mh->num_dbs; j++) {
             char dbname[32];

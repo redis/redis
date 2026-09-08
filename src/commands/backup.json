@@ -1,0 +1,9 @@
+{
+    "BACKUP": {
+        "summary": "A container for backup management commands.",
+        "complexity": "Depends on subcommand.",
+        "group": "server",
+        "since": "8.10.0",
+        "arity": 2
+    }
+}

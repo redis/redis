@@ -55,6 +55,184 @@ dict* getClientPubSubShardChannels(client *c);
  */
 void channelList(client *c, sds pat, kvstore *pubsub_channels);
 
+/* Sentinel "user" for subscriptions that originated while the client had no ACL
+ * user (c->user == NULL: e.g. CLIENT_MASTER, internal/module contexts). It is a
+ * static object that is never registered in the ACL rax, so no ACL operation can
+ * match or dereference it. It is only ever written as a *stamped* provenance
+ * value (see pubsubStampCurrentUser) — never as a live current identity. */
+static user pubsubNoAuthUser;
+
+static int pubsubUserIsNoAuth(user *u) {
+    return u == &pubsubNoAuthUser;
+}
+
+/* Effective ACL owner of a client subscription entry. Never returns NULL:
+ *   - a stamped value             -> that user* (a real user, or the sentinel)
+ *   - NULL value, real c->user    -> c->user (owned by the current identity)
+ *   - NULL value, c->user == NULL -> the no-auth sentinel
+ * A NULL c->user resolves to the sentinel because such a subscription is owned
+ * by a no-auth context — the same thing a stamped sentinel denotes. Callers can
+ * therefore compare or pass the result to pubsubUserIsNoAuth() without a NULL
+ * guard; it never matches a real registered user. */
+static user *pubsubEntryOwner(client *c, dictEntry *de) {
+    user *stamped = dictGetVal(de);
+    if (stamped) return stamped;
+    return c->user ? c->user : &pubsubNoAuthUser;
+}
+
+/* Return 1 if the client holds any Pub/Sub subscription whose provenance was
+ * stamped with user `u` (i.e. created while authenticated as `u`, before the
+ * client switched identity). Subscriptions owned by the *current* user are
+ * caught separately via c->user == u, so this only scans stamped values. Uses
+ * the CLIENT_PUBSUB_REAUTHED hint: with no stamps there is nothing to scan.
+ * Used by ACL DELUSER (ACLFreeUserAndKillClients). */
+int pubsubClientHasStampedOwner(client *c, user *u) {
+    if (!(c->flags & CLIENT_PUBSUB_REAUTHED)) return 0;
+    dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
+    for (int i = 0; i < 3; i++) {
+        dict *d = dicts[i];
+        if (dictSize(d) == 0) continue;
+        dictIterator di;
+        dictEntry *de;
+        dictInitIterator(&di, d);
+        while ((de = dictNext(&di)) != NULL) {
+            if (dictGetVal(de) == u) {
+                dictResetIterator(&di);
+                return 1;
+            }
+        }
+        dictResetIterator(&di);
+    }
+    return 0;
+}
+
+/* Return 1 if any subscription in dict `d` whose effective owner is `owner` is
+ * denied by the `upcoming` channel list. */
+int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner,
+                                    list *upcoming, int is_pattern)
+{
+    if (dictSize(d) == 0) return 0;
+    dictIterator di;
+    dictEntry *de;
+    int denied = 0;
+    dictInitIterator(&di, d);
+    while (!denied && ((de = dictNext(&di)) != NULL)) {
+        if (pubsubEntryOwner(c, de) != owner) continue;
+        robj *o = dictGetKey(de);
+        int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), is_pattern);
+        denied = (res == ACL_DENIED_CHANNEL);
+    }
+    dictResetIterator(&di);
+    return denied;
+}
+
+/* ACL LOAD phase 1 (read-only): validate a client's Pub/Sub subscriptions
+ * against the freshly-loaded ACL. Returns C_OK if the client may keep all its
+ * subscriptions, or C_ERR if it must be killed because a provenance user
+ * disappeared or a still-held subscription is no longer permitted.
+ *
+ * Each subscription's owner is its stamped provenance user*, or c->user while
+ * the stored value is still NULL. `user_channels` caches getUpcomingChannelList()
+ * results keyed by owner name. The ACL owner-resolution and channel-permission
+ * helpers this drives (pubsubACLLoadResolveOwner, getUpcomingChannelList,
+ * ACLCheckChannelAgainstList) are exported from acl.c. */
+static int pubsubACLLoadValidateClient(client *c, rax *old_users, rax *user_channels) {
+    dict *dicts[3] = { c->pubsub_patterns, c->pubsub_channels, c->pubsubshard_channels };
+    int is_pattern[3] = { 1, 0, 0 };
+    for (int i = 0; i < 3; i++) {
+        dict *d = dicts[i];
+        if (dictSize(d) == 0) continue;
+        dictIterator di;
+        dictEntry *de;
+        dictInitIterator(&di, d);
+        while ((de = dictNext(&di)) != NULL) {
+            user *owner = pubsubEntryOwner(c, de);
+            /* No-auth-origin subscriptions are never ACL channel-restricted. */
+            if (pubsubUserIsNoAuth(owner)) continue;
+
+            user *old_owner = NULL, *new_owner = NULL;
+            aclLoadOwnerStatus st =
+                pubsubACLLoadResolveOwner(owner, old_users, &old_owner, &new_owner);
+            /* Module/external users are not governed by ACL LOAD; skip them. */
+            if (st == ACL_LOAD_OWNER_UNMANAGED) continue;
+            /* A registered ACL user disappeared: the client must be killed. */
+            if (st == ACL_LOAD_OWNER_GONE) {
+                dictResetIterator(&di);
+                return C_ERR;
+            }
+
+            /* Cache the upcoming channel list per managed owner. Keyed by owner
+             * name, which is safe because only registry users (unique names)
+             * reach here — module users, which may collide on name, were
+             * skipped above by the pointer-identity check. */
+            list *channels = NULL;
+            if (!raxFind(user_channels, (unsigned char*)owner->name, sdslen(owner->name), (void**)&channels)) {
+                channels = getUpcomingChannelList(new_owner, old_owner);
+                raxInsert(user_channels, (unsigned char*)owner->name, sdslen(owner->name), channels, NULL);
+            }
+            /* A NULL upcoming list means the new permissions are a superset of
+             * the old ones for this owner, so nothing can be violated. */
+            if (channels != NULL) {
+                robj *o = dictGetKey(de);
+                if (ACLCheckChannelAgainstList(channels, o->ptr, sdslen(o->ptr), is_pattern[i])
+                        == ACL_DENIED_CHANNEL) {
+                    dictResetIterator(&di);
+                    return C_ERR;
+                }
+            }
+        }
+        dictResetIterator(&di);
+    }
+    return C_OK;
+}
+
+/* ACL LOAD phase 2 (mutate): after the client survived validation, translate
+ * every stamped provenance value from its old user object to the freshly-loaded
+ * object of the same identity. NULL values (owned by the current user, which the
+ * caller reassigns) and the no-auth sentinel are left untouched, as are module/
+ * external users, which ACL LOAD does not own. */
+static void pubsubACLLoadRekeyDict(dict *d, rax *old_users) {
+    if (dictSize(d) == 0) return;
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, d);
+    while ((de = dictNext(&di)) != NULL) {
+        user *stamped = dictGetVal(de);
+        if (stamped == NULL || pubsubUserIsNoAuth(stamped)) continue;
+        user *old_owner = NULL, *new_owner = NULL;
+        aclLoadOwnerStatus st =
+            pubsubACLLoadResolveOwner(stamped, old_users, &old_owner, &new_owner);
+        if (st == ACL_LOAD_OWNER_UNMANAGED) continue; /* module/external: leave as-is */
+        serverAssert(st == ACL_LOAD_OWNER_MANAGED);   /* GONE ruled out by phase 1 */
+        dictSetVal(d, de, new_owner);                 /* default rekeys to itself */
+    }
+    dictResetIterator(&di);
+}
+
+static void pubsubACLLoadRekeyClient(client *c, rax *old_users) {
+    pubsubACLLoadRekeyDict(c->pubsub_patterns, old_users);
+    pubsubACLLoadRekeyDict(c->pubsub_channels, old_users);
+    pubsubACLLoadRekeyDict(c->pubsubshard_channels, old_users);
+}
+
+/* Reconcile one client's Pub/Sub subscriptions against the freshly-loaded ACL
+ * during ACL LOAD. Returns C_OK if the client keeps its subscriptions — in which
+ * case any stamped provenance values have been re-keyed to the new user objects —
+ * or C_ERR if it must be killed because a provenance user disappeared or a
+ * still-held subscription is no longer permitted.
+ *
+ * Validation (phase 1) is read-only and runs to completion before any re-keying
+ * (phase 2), so a rejected client is never left partially re-keyed. Re-keying is
+ * skipped for clients that never re-authed while subscribed: they carry no stamps
+ * (every value is NULL), so the CLIENT_PUBSUB_REAUTHED hint avoids the walk. */
+int pubsubACLLoadReconcileClient(client *c, rax *old_users, rax *user_channels) {
+    if (pubsubACLLoadValidateClient(c, old_users, user_channels) == C_ERR)
+        return C_ERR;
+    if (c->flags & CLIENT_PUBSUB_REAUTHED)
+        pubsubACLLoadRekeyClient(c, old_users);
+    return C_OK;
+}
+
 /*
  * Pub/Sub type for global channels.
  */
@@ -238,6 +416,46 @@ void unmarkClientAsPubSub(client *c) {
         c->flags &= ~CLIENT_PUBSUB;
         server.pubsub_clients--;
     }
+    /* Callers only reach here once the client holds no subscriptions, so no
+     * stamped provenance can remain either. Clear the fast-path hint so ACL
+     * scans can skip this client in O(1) again.
+     *
+     * The read-before-write guard is not an optimization: writing c->flags is
+     * only safe for main-thread-resident clients, and this function must stay
+     * safe even if reached for an IO-thread-owned victim. A client with
+     * CLIENT_PUBSUB_REAUTHED set held live subscriptions when it was stamped
+     * (pubsubStampCurrentUser), which marked it CLIENT_PUBSUB and moved it to
+     * the main thread for good (isClientMustHandledByMainThread), so the
+     * guarded write can never touch an IO-owned client. */
+    if (c->flags & CLIENT_PUBSUB_REAUTHED)
+        c->flags &= ~CLIENT_PUBSUB_REAUTHED;
+}
+
+/* Freeze provenance before an identity switch: stamp every still-NULL
+ * subscription value with the client's *current* owner. A NULL value means
+ * "owned by whoever c->user is now"; once c->user changes those entries would
+ * be misattributed to the new user, so we record the leaving identity here.
+ * When c->user is NULL the owner is the no-auth sentinel — a non-NULL, ACL-
+ * unmatchable stamp (we cannot stamp NULL, as that is the "current user"
+ * marker). Entries already stamped (from an earlier switch) are left as-is. */
+static void pubsubStampDict(dict *d, user *owner) {
+    if (dictSize(d) == 0) return;
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, d);
+    while ((de = dictNext(&di)) != NULL) {
+        if (dictGetVal(de) == NULL) dictSetVal(d, de, owner);
+    }
+    dictResetIterator(&di);
+}
+
+void pubsubStampCurrentUser(client *c) {
+    if (clientTotalPubSubSubscriptionCount(c) == 0) return;
+    user *owner = c->user ? c->user : &pubsubNoAuthUser;
+    pubsubStampDict(c->pubsub_channels, owner);
+    pubsubStampDict(c->pubsub_patterns, owner);
+    pubsubStampDict(c->pubsubshard_channels, owner);
+    c->flags |= CLIENT_PUBSUB_REAUTHED;
 }
 
 /* Subscribe a client to a channel. Returns 1 if the operation succeeded, or
@@ -248,10 +466,11 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     int retval = 0;
     unsigned int slot = 0;
 
-    /* Add the channel to the client -> channels hash table */
-    dictEntryLink bucket;
-    dictEntryLink link = dictFindLink(type.clientPubSubChannels(c),channel,&bucket);
-    if (link == NULL) { /* Not yet subscribed to this channel */
+    /* Add the channel to the client -> channels hash table, with a single
+     * lookup: the new entry is created keyed by the caller's object and
+     * re-keyed to the canonical server-shared object below. */
+    dictEntry *client_de = dictAddRaw(type.clientPubSubChannels(c), channel, NULL);
+    if (client_de) { /* Not yet subscribed */
         retval = 1;
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
@@ -270,7 +489,16 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         }
 
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
-        dictSetKeyAtLink(type.clientPubSubChannels(c), channel, &bucket, 1);
+        /* Store the canonical (server-shared) channel object in the client's
+         * entry — defrag relies on the server kvstore and every subscriber
+         * sharing one robj (see defragPubsubScanCallback) — with an explicit
+         * NULL value, meaning "owned by whoever c->user is now"; provenance is
+         * stamped with a concrete user* only on identity switch (see
+         * pubsubStampCurrentUser). dictAddRaw leaves the value uninitialized
+         * and flat-lazy reads it, hence the explicit NULL. Content-equal keys
+         * hash identically, so the in-place key swap is safe. */
+        dictSetKey(type.clientPubSubChannels(c), client_de, channel);
+        dictSetVal(type.clientPubSubChannels(c), client_de, NULL);
         incrRefCount(channel);
     }
     /* Notify the client */

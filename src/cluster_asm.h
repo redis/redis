@@ -34,20 +34,19 @@ int asmDebugSetTrimMethod(const char *method, int active_trim_delay);
 
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
-int asmNotifyConfigUpdated(struct asmTask *task, sds *err);
 size_t asmGetPeakSyncBufferSize(void);
 size_t asmGetImportInputBufferSize(void);
 size_t asmGetMigrateOutputMemoryUsage(void);
 int clusterAsmCancel(const char *task_id, const char *reason);
 int clusterAsmCancelBySlot(int slot, const char *reason);
 int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slots, const char *reason);
-int clusterAsmCancelByNode(void *node, const char *reason);
+int clusterAsmCancelInvalidTasks(void);
 int isSlotInAsmTask(int slot);
 int isSlotInTrimJob(int slot);
 sds asmCatInfoString(sds info);
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);
-struct asmTask *asmLookupTaskBySlotRangeArray(struct slotRangeArray *slots);
+const char *asmLookupTaskBySlotRangeArray(struct slotRangeArray *slots);
 void asmCancelTrimJobs(void);
 sds asmDumpActiveImportTask(void);
 int asmReplicaHandleMasterTask(sds task_info);
@@ -56,15 +55,7 @@ int asmIsTrimInProgress(void);
 int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc);
 void asmActiveTrimCycle(void);
 int asmIsKeyInTrimJob(sds keyname);
-int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc);
-int asmTrimSlots(struct asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup);
+int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, int argc);
+int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
 int asmIsBgTrimRunning(void);
-void asmBgTrimCounterDecr(void);
-void asmBgTrimCounterIncr(void);
-
-/* Context for ASM background trim */
-struct asmTrimCtx *asmTrimCtxCreate(struct slotRangeArray *slots, kvstore *target_kvstore);
-void asmTrimCtxRetain(struct asmTrimCtx *ctx);
-void asmTrimCtxRelease(struct asmTrimCtx *ctx);
 #endif
-

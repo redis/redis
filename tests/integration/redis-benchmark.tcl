@@ -153,6 +153,16 @@ tags {"benchmark network external:skip logreqres:skip"} {
                 assert_match  {} [cmdstat get]
             }
 
+            test {benchmark: specific tls-groups} {
+                r flushall
+                r config resetstat
+                set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000 --tls-groups prime256v1"]
+                common_bench_setup $cmd
+                assert_match  {*calls=1000,*} [cmdstat set]
+                # assert one of the non benchmarked commands is not present
+                assert_match  {} [cmdstat get]
+            }
+
             test {benchmark: tls connecting using URI with authentication set,get} {
                 r config set masterauth pass
                 set cmd [redisbenchmarkuriuserpass $master_host $master_port "default" pass "-c 5 -n 10 -t set,get"]

@@ -8,6 +8,11 @@ start_server {tags {"bitops"}} {
         set results
     } {0 -100 101}
 
+    test {BITFIELD signed i64 SET handles positive values} {
+        r del bits
+        r bitfield bits set i64 0 32 get i64 0
+    } {0 32}
+
     test {BITFIELD unsigned SET and GET basics} {
         r del bits
         set results {}
@@ -41,6 +46,15 @@ start_server {tags {"bitops"}} {
         r bitfield bits set u8 #2 67
         r get bits
     } {ABC}
+
+    test {BITFIELD #<idx> form rejects offsets that overflow when scaled by type width} {
+        assert_error {*ERR bit offset is not an integer or out of range*} {
+            r bitfield_ro bits get i64 #144115188075855872
+        }
+        assert_error {*ERR bit offset is not an integer or out of range*} {
+            r bitfield bits get i64 #144115188075855872
+        }
+    }
 
     test {BITFIELD basic INCRBY form} {
         r del bits

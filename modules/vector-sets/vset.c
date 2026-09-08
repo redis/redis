@@ -49,9 +49,9 @@
  *       operations destroying the object, we need to wait that all the
  *       background threads working with this object finished their work.
  *    B) When we modify the HNSW nodes bypassing the normal locking
- *       provided by the HNSW library. This only happens when we update
- *       an existing node attribute so far, in VSETATTR and when we call
- *       VADD to update a node with the SETATTR option.
+ *       provided by the HNSW library. This happens when we update an
+ *       existing node attribute (VSETATTR, VADD with SETATTR) or when
+ *       we delete a node from the graph (VREM).
  *
  *  3. Often during read operations performed by Redis commands in the
  *     main thread (VCARD, VEMB, VRANDMEMBER, ...) we don't acquire any
@@ -112,6 +112,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdint.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -554,6 +555,7 @@ int VADD_CASReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
             newnode = hnsw_insert(vset->hnsw, vec, NULL, 0, 0, nv, ef);
             RedisModule_Assert(newnode != NULL);
         }
+        if (attrib != NULL) vset->numattribs++;
         RedisModule_DictSet(vset->dict,val,newnode);
         val = NULL; // Don't free it later.
         attrib = NULL; // Don't free it later.
@@ -836,7 +838,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     /* Perform search */
     hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
     float *distances = RedisModule_Alloc(sizeof(float)*ef);
-    unsigned int found;
+    int found;
     if (ground_truth) {
         found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
                     distances, slot, 0,
@@ -863,7 +865,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
     long long arraylen = 0;
-    for (unsigned int i = 0; i < found && i < count; i++) {
+    for (int i = 0; i < found && (unsigned long)i < count; i++) {
         if (distances[i]/2 > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
         RedisModule_ReplyWithString(ctx, nv->item);
@@ -1250,6 +1252,10 @@ int VREM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithBool(ctx, 0);
     }
 
+    /* Background VSIM operations read the nodes we are about to free,
+     * so wait for background operations before deleting from the graph. */
+    vectorSetWaitAllBackgroundClients(vset, 0);
+
     /* Remove from dictionary */
     RedisModule_DictDel(vset->dict, element, NULL);
 
@@ -1583,6 +1589,11 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         /* Count = 0 is a special case, return empty array */
         if (count == 0) {
             return RedisModule_ReplyWithEmptyArray(ctx);
+        }
+        /* Negating LLONG_MIN to get abs(count) is UB and overflows the reply length. */
+        if (count == LLONG_MIN) {
+            return RedisModule_ReplyWithError(ctx,
+                "ERR COUNT value is out of range");
         }
     }
 
@@ -2177,7 +2188,7 @@ size_t VectorSetMemUsage(const void *value) {
     /* Add the 0.33 remaining part, but upper layers have less links. */
     size += (sizeof(hnswNode*) * other_levels_links * vset->hnsw->node_count)/3;
 
-    /* Associated string value and attributres.
+    /* Associated string value and attributes.
      * Use Redis Module API to get string size, and guess that all the
      * elements have similar size as the first few. */
     size_t items_scanned = 0, items_size = 0;
@@ -2199,7 +2210,7 @@ size_t VectorSetMemUsage(const void *value) {
     if (items_scanned)
         size += items_size / items_scanned * vset->hnsw->node_count;
 
-    /* Add memory usage due to attributres. */
+    /* Add memory usage due to attributes. */
     if (attribs_scanned == 0) {
         /* We were not lucky enough to find a single attribute in the
          * first few items? Let's use a fixed arbitrary value. */

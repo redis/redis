@@ -751,6 +751,16 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert {$ttl <= 10 && $ttl > 5}
     }
 
+    test {Extended SET PX option with a TTL that overflows when added to the current time} {
+        r del foo
+        r set foo bar
+        assert_error "ERR invalid expire time in 'set' command" {
+            r set foo baz px 9223372036854775807
+        }
+        assert_equal bar [r get foo]
+        assert_equal -1 [r pttl foo]
+    }
+
     test "Extended SET EXAT option" {
         r del foo
         r set foo bar exat [expr [clock seconds] + 10]
@@ -1592,6 +1602,36 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         set wrong_digest [format %016x [expr ([scan [r digest mykey] %x] + 1) & 0xffffffffffffffff]]
         assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
         assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET - mutually exclusive flags} {
+        r set mykey "hello"
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" XX}
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFNE "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "hello" XX}
+
+        assert_error "*syntax error*" {r set mykey "world" NX IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef NX}
+
+        assert_error "*syntax error*" {r set mykey "world" XX IFDNE 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDNE 0123456789abcdef XX}
+
+        # IF* conditions are mutually exclusive with each other
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFNE "world"}
+        assert_error "*syntax error*" {r set mykey "world" IFNE "world" IFEQ "hello"}
+        assert_error "*syntax error*" {r set mykey "world" IFEQ "hello" IFDEQ 0123456789abcdef}
+        assert_error "*syntax error*" {r set mykey "world" IFDEQ 0123456789abcdef IFDNE fedcba9876543210}
+
+        assert_equal "hello" [r get mykey]
     }
 
     test {DIGEST always returns exactly 16 hex characters with leading zeros} {

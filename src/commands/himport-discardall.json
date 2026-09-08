@@ -1,0 +1,21 @@
+{
+    "DISCARDALL": {
+        "summary": "Removes all session-local fieldsets for the connection.",
+        "complexity": "O(N) where N is the number of session-local fieldsets.",
+        "group": "hash",
+        "since": "8.10.0",
+        "arity": 2,
+        "container": "HIMPORT",
+        "function": "himportDiscardallCommand",
+        "acl_categories": [
+            "HASH"
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "Number of fieldsets removed."
+        },
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS"
+        ]
+    }
+}

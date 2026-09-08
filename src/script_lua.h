@@ -16,7 +16,7 @@
  *
  * * Execute Lua code, assuming that the code is located on
  *   the top of the Lua stack. In addition, parsing the execution
- *   result and convert it to the resp and reply ot the client.
+ *   result and convert it to the resp and reply to the client.
  *
  * * Run Redis commands from within the Lua code (Including
  *   parsing the reply and create a Lua object out of it).

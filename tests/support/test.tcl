@@ -126,6 +126,9 @@ proc assert_refcount_morethan {key ref} {
 # max retries and delay between retries. Otherwise the 'elsescript' is
 # executed.
 proc wait_for_condition {maxtries delay e _else_ elsescript} {
+    if {$::compression} {
+        set maxtries [expr $maxtries * 3]
+    }
     if {$_else_ ne "else"} {
         error "$_else_ must be equal to \"else\""
     }
