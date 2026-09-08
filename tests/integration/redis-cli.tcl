@@ -902,6 +902,18 @@ start_server {tags {"cli external:skip"}} {
 }
 
 start_server {tags {"cli external:skip"}} {
+    test "bigkeys reports a zero-size key as the biggest key of its type" {
+        # type->biggest starts at 0, so a strict '<' comparison never fires when
+        # every sampled key of a type has size 0, leaving biggest_key unset even
+        # though the key was counted.
+        r set foo ""
+        set cmd [rediscli [srv host] [srv port] [list -n 9 --bigkeys]]
+        set result [exec {*}$cmd]
+        assert_match {*Biggest string found "foo" has 0 bytes*} $result
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
     # Regression for the parseRedisUri() bug where "redis://:password@host"
     # produced an empty ACL username and the server replied WRONGPASS.
     r config set requirepass "uri-no-username-pass"
