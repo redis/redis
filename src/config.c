@@ -481,17 +481,6 @@ static int clusterBusPortProtectionUnmet(void) {
     return server.cluster_enabled && server.cluster_bus_port_protected_mode && !server.tls_cluster;
 }
 
-/* Reported when the check above trips at startup. The CONFIG SET path names the
- * option it refuses to change instead. */
-#define CLUSTER_BUS_PORT_PROTECTED_MODE_ERR \
-    "cluster-bus-port-protected-mode is enabled but tls-cluster is disabled, which " \
-    "leaves the cluster bus port of this node unauthenticated: any host able to reach " \
-    "the port can join the cluster and speak the cluster protocol, and threaten the " \
-    "whole cluster. Either set 'tls-cluster yes', which makes every cluster " \
-    "bus peer present a certificate verified against your CA, or set " \
-    "'cluster-bus-port-protected-mode no' to acknowledge that the cluster bus port is " \
-    "reachable by trusted hosts only, for instance because a firewall blocks it."
-
 /* Counterpart of the check above: report a cluster node whose bus port is left
  * unauthenticated once the operator has waived protected mode. Called when the
  * outermost config load finishes and from the tls-cluster apply callback, which
@@ -699,9 +688,18 @@ void loadServerConfigFromString(char *config) {
     if (config_load_depth == 0) {
         /* Refuse a cluster node whose bus port would be left unauthenticated,
          * unless the operator waived protection. Checked before anything else in
-         * this block so that a fatal error is not preceded by unrelated warnings. */
+         * this block so that a fatal error is not preceded by unrelated warnings.
+         * The CONFIG SET path reports the option it refuses to change instead. */
         if (clusterBusPortProtectionUnmet()) {
-            err = CLUSTER_BUS_PORT_PROTECTED_MODE_ERR;
+            err = "cluster-bus-port-protected-mode is enabled but tls-cluster is "
+                  "disabled, which leaves the cluster bus port of this node "
+                  "unauthenticated: any host able to reach the port can join the "
+                  "cluster and speak the cluster protocol, and threaten the whole "
+                  "cluster. Either set 'tls-cluster yes', which makes every cluster "
+                  "bus peer present a certificate verified against your CA, or set "
+                  "'cluster-bus-port-protected-mode no' to acknowledge that the "
+                  "cluster bus port is reachable by trusted hosts only, for instance "
+                  "because a firewall blocks it.";
             goto loaderr;
         }
 
