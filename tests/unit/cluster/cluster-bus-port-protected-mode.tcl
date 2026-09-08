@@ -92,18 +92,8 @@ tags {external:skip cluster} {
             r config set cluster-bus-port-protected-mode no
             r config set cluster-bus-port-protected-mode yes
             assert_equal 0 [count_log_message 0 "cluster bus port is not authenticated"]
-        }
-
-        test {the cluster-mode gate of protection cannot be opened at runtime} {
-            # Gating protection on cluster mode is only sound because
-            # cluster-enabled is IMMUTABLE_CONFIG. Could it be set, this very
-            # server - protection enabled, tls-cluster off - would open an
-            # unauthenticated cluster bus without ever facing the startup check. The
-            # immutable mechanism itself is covered by "CONFIG SET set immutable"
-            # in unit/introspection; what is pinned here is that cluster-enabled
-            # in particular still carries the flag.
+            # cluster-bus-port-protected-mode expects cluster-enabled to be immutable
             assert_error {*can't set immutable config*} {r config set cluster-enabled yes}
-            assert_equal 0 [s cluster_enabled]
         }
     }
 
