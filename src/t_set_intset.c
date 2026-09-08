@@ -126,6 +126,10 @@ static robj *isSetDup(robj *o) {
     return set;
 }
 
+static void isFree(robj *set) {
+    zfree(set->ptr);
+}
+
 const setTypeOps setTypeOpsIntset = {
     .rawAdd = isRawAdd,
     .resolveEncodingForAdd = isResolveEncodingForAdd,
@@ -138,6 +142,7 @@ const setTypeOps setTypeOpsIntset = {
     .size = isSize,
     .allocSize = isAllocSize,
     .dup = isSetDup,
+    .free = isFree,
     /* .buildFromIterator intentionally left NULL: setTypeConvertAndExpand()
      * never targets intset (see maybeConvertToIntset() in t_set.c). */
 };

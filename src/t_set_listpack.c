@@ -120,6 +120,10 @@ static robj *lpSetDup(robj *o) {
     return set;
 }
 
+static void lpSetFree(robj *set) {
+    zfree(set->ptr);
+}
+
 void setTypeListpackShrinkToFit(robj *set) {
     set->ptr = lpShrinkToFit(set->ptr);
 }
@@ -151,5 +155,6 @@ const setTypeOps setTypeOpsListpack = {
     .size = lpSize,
     .allocSize = lpAllocSize,
     .dup = lpSetDup,
+    .free = lpSetFree,
     .buildFromIterator = lpBuildFromIterator,
 };

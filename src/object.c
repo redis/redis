@@ -564,21 +564,7 @@ void freeListObject(robj *o) {
 }
 
 void freeSetObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-#ifdef DEBUG_ASSERTIONS
-        dictEmpty(o->ptr, NULL);
-        debugServerAssert(*htGetMetadataSize(o->ptr) == 0);
-#endif
-        dictRelease((dict*) o->ptr);
-        break;
-    case OBJ_ENCODING_INTSET:
-    case OBJ_ENCODING_LISTPACK:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown set encoding type");
-    }
+    setTypeFree(o);
 }
 
 void freeZsetObject(robj *o) {

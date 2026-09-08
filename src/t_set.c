@@ -118,7 +118,7 @@ static void maybeConvertToIntset(robj *set) {
         serverAssert(success);
     }
     setTypeResetIterator(&si);
-    freeSetObject(set); /* frees the internals but not robj itself */
+    setTypeFree(set); /* frees the internals but not robj itself */
     set->ptr = is;
     set->encoding = OBJ_ENCODING_INTSET;
 }
@@ -368,7 +368,7 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         return C_ERR;
     }
 
-    freeSetObject(setobj); /* frees the internals but not setobj itself */
+    setTypeFree(setobj); /* frees the internals but not setobj itself */
     setobj->encoding = enc;
     setobj->ptr = newptr;
     return C_OK;
@@ -382,6 +382,13 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
 robj *setTypeDup(robj *o) {
     serverAssert(o->type == OBJ_SET);
     return setTypeGetOps(o->encoding)->dup(o);
+}
+
+/* Frees the internals of a set object (but not the robj itself). Called by
+ * freeSetObject() in object.c, mirroring how freeHashObject() there just
+ * delegates to hashTypeFree() in t_hash.c. */
+void setTypeFree(robj *o) {
+    setTypeGetOps(o->encoding)->free(o);
 }
 
 void saddCommand(client *c) {

@@ -111,6 +111,14 @@ static robj *htDup(robj *o) {
     return set;
 }
 
+static void htFree(robj *set) {
+#ifdef DEBUG_ASSERTIONS
+    dictEmpty(set->ptr, NULL);
+    debugServerAssert(*htGetMetadataSize(set->ptr) == 0);
+#endif
+    dictRelease((dict *)set->ptr);
+}
+
 static void *htBuildFromIterator(setTypeIterator *si, unsigned long cap, int panic) {
     dict *d = dictCreate(&setDictType);
     if (panic) {
@@ -141,6 +149,7 @@ const setTypeOps setTypeOpsHT = {
     .randomElement = htRandomElement,
     .size = htSize,
     .allocSize = htAllocSize,
+    .free = htFree,
     .buildFromIterator = htBuildFromIterator,
     .dup = htDup,
 };

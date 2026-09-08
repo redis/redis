@@ -53,6 +53,7 @@ typedef struct {
     size_t (*allocSize)(const robj *set);
 
     robj *(*dup)(robj *set);
+    void (*free)(robj *set);
 
     /* Builds a fresh instance of this encoding from an iterator over an
      * existing set, to be assigned to the converted object's ptr by the
