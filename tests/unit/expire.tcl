@@ -324,6 +324,27 @@ start_server {tags {"expire"}} {
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
+    test {Expiration lag: lazy deletion measures elapsed time, not the execution unit clock} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking yes
+        r debug set-active-expire 0
+        r psetex unitlagkey 100 v
+        after 200
+        # The deletion happens inside the transaction, after the sleep. The clock
+        # the execution unit carries is frozen at EXEC, so reading that instead of
+        # the current time would drop the whole second the key spent waiting.
+        r multi
+        r debug sleep 1
+        r get unitlagkey
+        assert_equal {} [lindex [r exec] 1]
+        set line [latencyrstat_percentiles lazy r expire_lag_percentiles_usec]
+        assert_match {*p50=*} $line
+        regexp {p50=([0-9.]+)} $line -> p50
+        assert {$p50 >= 900000}
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     test {Expiration lag: the active cycle reports its own samples} {
         r flushall
         r config resetstat
