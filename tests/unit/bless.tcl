@@ -76,7 +76,7 @@ start_server {tags {"bless"}} {
         assert {$calls > 1}
         assert_equal 20 [llength [lsort -unique $seen]]
         # bad COUNT / bad token
-        assert_error {*syntax*} {r bless scan 0 no-evict COUNT 0}
+        assert_error {*out of range*} {r bless scan 0 no-evict COUNT 0}
         assert_error {*syntax*} {r bless scan 0 no-evict BOGUS 5}
         assert_error {*not an integer*} {r bless scan 0 no-evict COUNT x}
     }

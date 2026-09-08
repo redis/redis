@@ -286,11 +286,8 @@ static void blessScanCommand(client *c) {
             addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
-        if (getLongFromObjectOrReply(c, c->argv[5], &count, NULL) != C_OK) return;
-        if (count < 1) {
-            addReplyErrorObject(c, shared.syntaxerr);
+        if (getRangeLongFromObjectOrReply(c, c->argv[5], 1, LONG_MAX, &count, NULL) != C_OK)
             return;
-        }
     } else if (c->argc != 4) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
