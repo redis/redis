@@ -685,7 +685,39 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_match "*SUCCESS*" $output
         r acl deluser clitest
     }
-    
+
+if {!$::tls} { ;# fake_cmddocs_node doesn't support TLS
+    foreach mode {nested oddlen} {
+        test "redis-cli survives malformed COMMAND DOCS reply ($mode)" {
+            set tclsh [info nameofexecutable]
+            set script "tests/helpers/fake_cmddocs_node.tcl"
+            set port [find_available_port $::baseport $::portcount]
+            set nodepid [exec $tclsh $script $port $mode &]
+            # Make sure the fake node started listening.
+            wait_for_condition 50 50 {
+                [catch {close [socket "127.0.0.1" $port]}] == 0
+            } else {
+                catch {exec kill $nodepid}
+                fail "Failed to start fake COMMAND DOCS node"
+            }
+            # --test_hint_file makes redis-cli connect, run cliInitHelp() (which
+            # issues COMMAND DOCS and fills the help entries - the vulnerable
+            # path), then evaluate the hint suite and exit. A hint mismatch is a
+            # normal non-zero exit; a heap overflow is a fatal signal.
+            set suite [write_tmpfile "foo bar\n"]
+            set cmd [rediscli "127.0.0.1" $port [list --test_hint_file $suite]]
+            set code [catch {exec {*}$cmd 2>@1} output opts]
+            catch {exec kill $nodepid}
+            file delete $suite
+            # Only a crash (SIGSEGV, or an AddressSanitizer SIGABRT) shows up as
+            # CHILDKILLED; a clean run or a hint mismatch does not.
+            if {[lindex [dict get $opts -errorcode] 0] eq "CHILDKILLED"} {
+                fail "redis-cli crashed on malformed COMMAND DOCS ($mode): $output"
+            }
+        }
+    }
+}
+
     proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
         r function flush

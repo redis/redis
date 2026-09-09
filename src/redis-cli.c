@@ -544,7 +544,7 @@ static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
         return;
     }
 
-    for (size_t i = 0; i < argMap->elements; i += 2) {
+    for (size_t i = 0; i + 1 < argMap->elements; i += 2) {
         assert(argMap->element[i]->type == REDIS_REPLY_STRING);
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
@@ -634,18 +634,26 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
 
 /* Initialize a command help entry for the command/subcommand described in 'specs'.
  * 'next' points to the next help entry to be filled in.
+ * 'end' points one past the last usable entry (the end of the allocation); this
+ * function never writes at or beyond it, so a reply that would produce more
+ * entries than were counted by cliCountCommands() is truncated rather than
+ * overflowing the buffer.
  * 'groups' is a set of command group names to be filled in.
  * Returns a pointer to the next available position in the help entries table.
  * If the command has subcommands, this is called recursively for the subcommands.
  */
 static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
-                                          helpEntry *next, redisReply *specs,
-                                          dict *groups) {
+                                          helpEntry *next, helpEntry *end,
+                                          redisReply *specs, dict *groups) {
+    /* Defensive bound: the reply is untrusted, and if for any reason it yields
+     * more entries than cliCountCommands() allocated, stop instead of writing
+     * past the end of the helpEntries array. */
+    if (next >= end) return next;
     helpEntry *help = next++;
     cliFillInCommandHelpEntry(help, cmdname, subcommandname);
 
     assert(specs->type == REDIS_REPLY_MAP || specs->type == REDIS_REPLY_ARRAY);
-    for (size_t j = 0; j < specs->elements; j += 2) {
+    for (size_t j = 0; j + 1 < specs->elements; j += 2) {
         assert(specs->element[j]->type == REDIS_REPLY_STRING);
         char *key = specs->element[j]->str;
         if (!strcmp(key, "summary")) {
@@ -671,15 +679,19 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             help->docs.numargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, help->docs.args);
             help->docs.params = makeHint(NULL, 0, 0, help->docs);
-        } else if (!strcmp(key, "subcommands")) {
+        } else if (!strcmp(key, "subcommands") && subcommandname == NULL) {
+            /* Only top-level commands may have subcommands. Redis has no nested
+             * subcommands, and cliCountCommands() only reserves space for one
+             * level, so ignore any deeper nesting a malicious server might send.
+             * Together with the count that keeps allocation and fill in lockstep. */
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
-            for (size_t i = 0; i < subcommands->elements; i += 2) {
+            for (size_t i = 0; i + 1 < subcommands->elements; i += 2) {
                 assert(subcommands->element[i]->type == REDIS_REPLY_STRING);
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
                 assert(subcommand->type == REDIS_REPLY_MAP || subcommand->type == REDIS_REPLY_ARRAY);
-                next = cliInitCommandHelpEntry(cmdname, subcommandname, next, subcommand, groups);
+                next = cliInitCommandHelpEntry(cmdname, subcommandname, next, end, subcommand, groups);
             }
         }
     }
@@ -690,13 +702,18 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
 static size_t cliCountCommands(redisReply* commandTable) {
     size_t numCommands = commandTable->elements / 2;
 
-    /* The command docs table maps command names to a map of their specs. */    
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    /* The command docs table maps command names to a map of their specs.
+     * The reply comes from the server and may be malformed, so every paired
+     * access is guarded with `i + 1 < elements` to avoid reading past the
+     * element array on an odd-length reply. Only one level of subcommands is
+     * counted here; that must match the fill side in
+     * cliInitCommandHelpEntry(), which refuses to recurse deeper. */
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);  /* Command name. */
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
                commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *map = commandTable->element[i + 1];
-        for (size_t j = 0; j < map->elements; j += 2) {
+        for (size_t j = 0; j + 1 < map->elements; j += 2) {
             assert(map->element[j]->type == REDIS_REPLY_STRING);
             char *key = map->element[j]->str;
             if (!strcmp(key, "subcommands")) {
@@ -752,15 +769,20 @@ void cliInitGroupHelpEntries(dict *groups) {
 /* Initializes help entries for all commands in the COMMAND DOCS reply. */
 void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
     helpEntry *next = helpEntries;
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    helpEntry *end = helpEntries + helpEntriesLen;
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
         char *cmdname = commandTable->element[i]->str;
 
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
                commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *cmdspecs = commandTable->element[i + 1];
-        next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs, groups);
+        next = cliInitCommandHelpEntry(cmdname, NULL, next, end, cmdspecs, groups);
     }
+    /* The number actually filled in may be lower than the count returned by
+     * cliCountCommands() if the reply was malformed. Trim helpEntriesLen so we
+     * never sort or read uninitialized trailing entries. */
+    helpEntriesLen = next - helpEntries;
 }
 
 /* Does the server version support a command/argument only available "since" some version?
