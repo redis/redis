@@ -1551,6 +1551,7 @@ typedef struct client {
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     unsigned long long reply_bytes_shared; /* Bytes shared with keyspace objects in reply list. */
     unsigned long long reply_bytes_unshared; /* Cached subset of reply_bytes_shared solely owned by this client. */
+    mstime_t last_unshared_refresh; /* Timestamp of last reply_bytes_unshared recompute */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */

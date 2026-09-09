@@ -1210,13 +1210,18 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
-    /* Recomputing c->reply_bytes_unshared requires rescanning the client's
-     * whole pending reply buffer, so instead of doing that on every write we
-     * refresh it here, since this function already runs once per second per
-     * client (from clientsCron() for main-thread clients, or from
-     * runClientCronFromIOThread() for IO-thread-owned ones, which is why this
-     * is safe to call regardless of which thread owns the client). */
-    updateClientUnsharedReplyBytes(c);
+    /* Recomputing c->reply_bytes_unshared requires rescanning the client's whole
+     * pending reply buffer, so throttle it to once per 1000/server.hz ms: this
+     * function can run as often as every tick when there are few clients (see
+     * CLIENTS_CRON_MIN_ITERATIONS below), and we don't want to pay for a full
+     * buffer rescan on every one of those visits. It's safe to call regardless
+     * of which thread owns the client, since this is invoked either from
+     * clientsCron() for main-thread clients or from runClientCronFromIOThread()
+     * for IO-thread-owned ones, i.e. always on the thread that owns c. */
+    if (c->last_unshared_refresh + 1000/server.hz <= now) {
+        c->last_unshared_refresh = now;
+        updateClientUnsharedReplyBytes(c);
+    }
 
     /* Iterating all the clients in getMemoryOverheadData() is too slow and
      * in turn would make the INFO command too slow. So we perform this
