@@ -65,6 +65,10 @@
  *   heap-capacity hint.
  */
 
+#include  "config.h"
+
+#define VEC_DEFAULT_INITCAP 8
+
 typedef struct vec {
     size_t size;       /* Number of elements in the vector. */
     size_t cap;        /* Capacity of the vector. */
@@ -103,8 +107,14 @@ void vecClear(vec *v);
 /* Ensure capacity is at least mincap. */
 void vecReserve(vec *v, size_t mincap);
 
-/* Append one element, growing storage as needed. */
-void vecPush(vec *v, void *value);
+/* Push one element, growing storage as needed. */
+static inline void vecPush(vec *v, void *value) {
+    if (unlikely(v->size == v->cap)) {
+        size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
+        vecReserve(v, newcap);
+    }
+    v->data[v->size++] = value;
+}
 
 #ifdef REDIS_TEST
 int vectorTest(int argc, char **argv, int flags);

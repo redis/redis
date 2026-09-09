@@ -8,14 +8,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include <stdlib.h> /* abort(), used by assert() on non-GCC-compatible builds */
 #include <string.h>
 
 #include "vector.h"
 #include "redisassert.h"
 #include "zmalloc.h"
-
-#define VEC_DEFAULT_INITCAP 8
 
 /*
  * Vector initialization.
@@ -82,16 +79,6 @@ void vecReserve(vec *v, size_t mincap) {
 
     v->data = newdata;
     v->cap = mincap;
-}
-
-/* Append one element, growing storage as needed. */
-void vecPush(vec *v, void *value) {
-    if (unlikely(v->size == v->cap)) {
-        size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
-        vecReserve(v, newcap);
-    }
-
-    v->data[v->size++] = value;
 }
 
 #ifdef REDIS_TEST
