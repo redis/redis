@@ -930,7 +930,11 @@ start_server {tags {"repl external:skip"}} {
     $master config set repl-diskless-sync yes
     $master config set repl-rdb-channel yes
     $master config set rdbcompression no
-    $master config set rdb-key-save-delay 300
+    # The upstream variant of this test populates 10000 keys, so at 300
+    # microseconds per key the save takes about 3 seconds, and that is the
+    # window a replica has to be killed in. This one populates 200 keys, so
+    # the delay per key is raised to keep the window the same length.
+    $master config set rdb-key-save-delay 15000
     $master config set client-output-buffer-limit "replica 0 0 0"
     $master config set repl-diskless-sync-delay 5
 
@@ -963,6 +967,11 @@ start_server {tags {"repl external:skip"}} {
                 } else {
                     fail "Replicas didn't connect: [s -2 connected_slaves]"
                 }
+
+                # The replica has to go away while the RDB is still being
+                # written, otherwise the master never reaches the second chunk
+                # of a value and the test passes without covering it.
+                assert_equal 1 [s -2 rdb_bgsave_in_progress]
 
                 # kill one of the replicas
                 catch {$replica1 shutdown nosave}
