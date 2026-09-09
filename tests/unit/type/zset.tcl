@@ -1356,8 +1356,11 @@ start_server {tags {"zset"}} {
     proc with_btree_encoding {body} {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 0
-        uplevel 1 $body
+        # Restore the limit even if the body fails, otherwise every later test
+        # in this file would keep running with the btree-only setting.
+        catch {uplevel 1 $body} res opts
         r config set zset-max-listpack-entries $original_max
+        return -options $opts $res
     }
 
     test "Large B-tree ZREMRANGEBYRANK removes an exact contiguous window" {
@@ -1423,7 +1426,7 @@ start_server {tags {"zset"}} {
             assert_equal 5000 [r zcard zrl]
             assert_equal $d1 [debug_digest_value zrl]
         }
-    }
+    } {} {needs:debug}
 
     # A run of identical scores wider than a B-tree leaf, with a distinct
     # score on either side, so that a score bound lands inside the run
@@ -3128,7 +3131,7 @@ start_server {tags {"zset"}} {
             assert_equal 200 [r zcard zbulk{t}]
             assert_equal $d1 [debug_digest_value zbulk{t}]
         }
-    }
+    } {} {needs:debug}
 
     test "ZADD bulk path flushes on duplicate members" {
         with_btree_encoding {
