@@ -3440,7 +3440,7 @@ void blockingOperationStarts(void);
 void blockingOperationEnds(void);
 int handleClientsWithPendingWrites(void);
 int clientHasPendingReplies(client *c);
-int updateClientMemUsageAndBucket(client *c);
+int updateClientMemUsageAndBucket(client *c, int unshared_reply_bytes_fresh);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
 void tryUnlinkClientFromPendingRefReply(client *c, int force);

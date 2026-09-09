@@ -3047,7 +3047,7 @@ int writeToClient(client *c, int handler_installed) {
     /* Update client's memory usage after writing.
      * Since this isn't thread safe we do this conditionally. */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
-        updateClientMemUsageAndBucket(c);
+        updateClientMemUsageAndBucket(c, 0);
     }
     return C_OK;
 }
@@ -3667,7 +3667,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        if (c->conn) updateClientMemUsageAndBucket(c);
+        if (c->conn) updateClientMemUsageAndBucket(c, 0);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -3992,7 +3992,7 @@ int processInputBuffer(client *c) {
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
-        updateClientMemUsageAndBucket(c);
+        updateClientMemUsageAndBucket(c, 0);
 
     return C_OK;
 }
@@ -4616,7 +4616,7 @@ NULL
             addReply(c,shared.ok);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             c->flags &= ~CLIENT_NO_EVICT;
-            updateClientMemUsageAndBucket(c);
+            updateClientMemUsageAndBucket(c, 0);
             addReply(c,shared.ok);
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -5867,7 +5867,7 @@ void evictClients(void) {
                  * evicting clients, we update again before evicting, if the memory
                  * used by the client does not decrease or memory usage bucket is not
                  * changed, then we will evict it, otherwise, not evict it. */
-                updateClientMemUsageAndBucket(c);
+                updateClientMemUsageAndBucket(c, 0);
             }
             if (c->last_memory_usage >= last_memory ||
                 c->mem_usage_bucket == &server.client_mem_usage_buckets[curr_bucket])

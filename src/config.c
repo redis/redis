@@ -3331,7 +3331,7 @@ static int applyClientMaxMemoryUsage(const char **err) {
             removeClientFromMemUsageBucket(c, 0);
         } else {
             /* Update each client(s) memory usage and add to appropriate bucket. */
-            updateClientMemUsageAndBucket(c);
+            updateClientMemUsageAndBucket(c, 0);
         }
     }
     resumeAllIOThreads();
