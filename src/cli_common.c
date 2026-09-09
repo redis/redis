@@ -80,6 +80,14 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
             goto error;
         }
 #endif
+#if CLI_TLS_SUPPORTS_GROUPS
+        if (config.groups) {
+            if (!cliSslCtxSetGroupsList(ssl_ctx, config.groups)) {
+                *err = "Error while configuring TLS groups";
+                goto error;
+            }
+        }
+#endif
     }
 
     SSL *ssl = SSL_new(ssl_ctx);

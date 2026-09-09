@@ -3870,7 +3870,6 @@ int processInputBuffer(client *c) {
                 pcmd->reploff = c->io_read_reploff - sdslen(c->querybuf) + c->qb_pos;
 
             preprocessCommand(c, pcmd);
-            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
             resetClientQbufState(c);
         }
 
@@ -5771,6 +5770,12 @@ void processEventsWhileBlocked(void) {
     mstime_t prev_cmd_time_snapshot = server.cmd_time_snapshot;
     server.cmd_time_snapshot = server.mstime;
 
+    /* The commands processed here belong to other clients, so they must not
+     * inherit the propagation restrictions of the command we are currently
+     * blocked in (see server.allowed_propagate_targets). */
+    int prev_propagate_targets = server.allowed_propagate_targets;
+    server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
+
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
      * avoid handling the read part of clients using threaded I/O.
@@ -5796,6 +5801,7 @@ void processEventsWhileBlocked(void) {
     ProcessingEventsWhileBlocked--;
     serverAssert(ProcessingEventsWhileBlocked >= 0);
 
+    server.allowed_propagate_targets = prev_propagate_targets;
     server.cmd_time_snapshot = prev_cmd_time_snapshot;
 }
 
@@ -6076,20 +6082,21 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
     return cmd;
 }
 
-/* Get cached key result for current pending command */
-getKeysResult *getClientCachedKeyResult(client *c) {
-    pendingCommand *pcmd = c->current_pending_cmd;
-    if (pcmd) {
-        /* Preprocess the command if needed */
-        if (!(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED)) {
-            preprocessCommand(c, pcmd);
-            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
-        }
+/* Get the cached key result of 'pcmd', or NULL if it has none, in which case
+ * the caller is expected to extract the keys from the command arguments itself.
+ *
+ * 'pcmd' must be the pendingCommand that 'c->cmd' / 'c->argv' were populated
+ * from: the cached result records key positions within that command's argv, so
+ * handing over an unrelated pendingCommand (for instance the client's current
+ * pending command while a queued MULTI command is being executed) would return
+ * key positions that have nothing to do with the command being checked. */
+getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd) {
+    if (!pcmd) return NULL;
+    serverAssert(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED);
 
-        /* Return cached result if available */
-        if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)
-            return &c->current_pending_cmd->keys_result;
-    }
+    /* Return cached result if available */
+    if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)
+        return &pcmd->keys_result;
     return NULL;
 }
 

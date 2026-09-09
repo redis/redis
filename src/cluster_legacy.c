@@ -2435,7 +2435,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 /* After completing slot ranges migration, the destination node
                  * will broadcast a PONG message to all the nodes. We need to
                  * detect that the slot was moved from us to the sender, and
-                 * call asmNotifyConfigUpdated() to notify the ASM state machine. */
+                 * call clusterAsmProcess() to notify the ASM state machine. */
                 if (server.cluster->slots[j] == myself && sender != myself)
                     sra = slotRangeArrayAppend(sra, j);
 
@@ -2472,19 +2472,20 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     }
 
     /* Notify ASM about the config update */
-    struct asmTask *asm_task = NULL;
+    const char *asm_task_id = NULL;
     if (sra && sra->num_ranges > 0 && server.masterhost == NULL) {
-        sds err = NULL;
-        asm_task = asmLookupTaskBySlotRangeArray(sra);
-        if (!asm_task) {
+        char *err = NULL;
+        asm_task_id = asmLookupTaskBySlotRangeArray(sra);
+        if (!asm_task_id) {
             /* If no task was found, it means the config update is not related
              * to current ASM task, but this node learned about the config
              * update from cluster protocol, and we need to cancel any
              * conflicting tasks that overlap with the slot ranges. */
             clusterAsmCancelBySlotRangeArray(sra, "slots configuration updated");
-        } else if (asmNotifyConfigUpdated(asm_task, &err) != C_OK) {
-            serverLog(LL_WARNING, "ASM config update failed: %s", err);
-            sdsfree(err);
+        } else if (clusterAsmProcess(asm_task_id, ASM_EVENT_DONE, NULL, &err) != C_OK) {
+            serverLog(LL_WARNING,
+                    "Failed to complete ASM task %s after slot configuration update: %s",
+                    asm_task_id, err);
         }
     }
     slotRangeArrayFree(sra);
@@ -2533,7 +2534,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG|
                              CLUSTER_TODO_BROADCAST_PONG);
-    } else if (dirty_slots_count && !asm_task) {
+    } else if (dirty_slots_count && !asm_task_id) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
          * we are serving some slots, so this master node was not demoted to
@@ -5423,6 +5424,8 @@ void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
+    /* Capture a cross-shard move before updateShardId() adopts the new shard ID. */
+    int shard_changed = memcmp(myself->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0;
     int was_master = clusterNodeIsMaster(myself);
     if (was_master) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
@@ -5436,6 +5439,19 @@ void clusterSetMaster(clusterNode *n) {
     updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
+    /* Replication histories from different shards are unrelated. Discard the
+     * cached master so the replica performs a full sync and reports offset 0
+     * until it has synchronized with its new master. */
+    if (shard_changed) {
+        replicationDiscardCachedMaster();
+        /* A replica moved across shards has no valid replication history for
+         * its new master. Restore repl_down_since to its initial value of zero,
+         * treating the replica like one that has never synchronized with its
+         * current master and has been disconnected since forever. This prevents
+         * automatic failover when cluster-replica-validity-factor is non-zero,
+         * while a zero validity factor preserves availability-first behavior. */
+        server.repl_down_since = 0;
+    }
     removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
 

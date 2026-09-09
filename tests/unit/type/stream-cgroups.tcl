@@ -3305,7 +3305,6 @@ start_server {
             set claim_before [r XREADGROUP GROUP group1 consumer2 CLAIM 500 STREAMS mystream >]
             assert_equal [llength [lindex $claim_before 0 1]] 1
             
-            r SAVE
             r DEBUG RELOAD
 
             # After reload: idle time resets, message not immediately claimable

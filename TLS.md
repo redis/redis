@@ -126,8 +126,21 @@ Notes:
 * Multiple names may be supplied as a single space-separated value (quote it in
   the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
   a match against any one of them succeeds.
-* Full-label wildcards (`*.example.com`) match; partial-label wildcards
-  (`f*.example.com`) do not.
+* Wildcards are matched from the **certificate**, not from this option: a
+  certificate whose SAN is a full-label wildcard (`*.example.com`) matches a
+  concrete name configured here (`node.example.com`), while a partial-label
+  wildcard in the certificate (`f*.example.com`) never matches. Configuring a
+  wildcard as the expected name does not perform wildcard matching.
+* A name beginning with a dot (e.g. `.example.com`) is **not** a host name.
+  OpenSSL treats it as a *parent domain*: it accepts any subdomain at **any
+  depth** (`node.example.com`, `a.b.example.com`, ...) and does **not** accept
+  `example.com` itself. A short suffix is correspondingly broad — `.com` accepts
+  every name in that TLD, which under a shared or public CA is close to accepting
+  any CA-signed certificate. This is a legitimate pattern, but much wider than
+  pinning explicit hosts, so Redis logs a warning reporting how many such entries
+  are configured, at startup and on `CONFIG SET`, to make the scope visible.
+  Prefer explicit host names, a deeper parent (`.dc1.example.com`), or several
+  space-separated names.
 * The option is opt-in and defaults to unset (no peer-name check), preserving the
   previous behavior.
 * It does **not** apply to ordinary client connections on the data port, whose
@@ -141,6 +154,42 @@ Notes:
   any OpenSSL version. When compiled out, if `tls-expected-peer-name` is set each
   affected connection logs a warning and proceeds without the name check (CA
   chain validation still applies).
+
+TLS groups
+----------
+
+The `tls-groups` option controls the OpenSSL named groups used
+during TLS handshakes. The value is passed directly to OpenSSL, so it accepts
+the syntax supported by `SSL_CTX_set1_groups_list()` (or the older
+`SSL_CTX_set1_curves_list()` API), for example:
+
+    tls-groups X25519:prime256v1
+
+Redis does not filter the list, so any group name accepted by the linked
+OpenSSL build can be used.
+
+The setting applies to both the server context and Redis' client context used
+for replication, cluster, and other server-to-server TLS connections. The
+client and server must have at least one group in common for the handshake to
+succeed.
+
+This option requires OpenSSL 1.0.2 or newer, which provides the
+`SSL_CTX_set1_curves_list()` API used by Redis. Newer OpenSSL versions also
+provide the equivalent `SSL_CTX_set1_groups_list()` API. Building TLS support
+against an older OpenSSL fails with a clear compile-time error by default. To
+build Redis without this option, define `TLS_NO_GROUPS`, for
+example:
+
+    make BUILD_TLS=yes CFLAGS=-DTLS_NO_GROUPS
+
+When the feature is compiled out, setting `tls-groups` causes TLS
+context configuration to fail instead of silently ignoring the requested
+preference.
+
+`redis-cli` and `redis-benchmark` expose `--tls-groups` when built with
+OpenSSL support for named group configuration. When the feature is compiled
+out, the command-line option is not accepted, matching the behavior of other
+TLS options that depend on OpenSSL build capabilities.
 
 Connections
 -----------

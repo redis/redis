@@ -1274,15 +1274,6 @@ typedef struct {
     uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
 } kvstoreDictMetadata;
 
-/* Context for ASM background trim with delta histogram tracking */
-typedef struct asmTrimCtx {
-    int refcount;                      /* For shared bg/main thread ownership */
-    struct slotRangeArray *slots;      /* Slot ranges being trimmed */
-    kvstore *target_kvstore;           /* Target kvstore to update (for validation) */
-    keysizesHist delta_keysizes_hist;  /* Delta populated by BIO thread */
-    keysizesHist delta_allocsizes_hist;/* Delta populated by BIO thread */
-} asmTrimCtx;
-
 /* forward declaration for functions ctx */
 typedef struct functionsLibCtx functionsLibCtx;
 
@@ -1943,6 +1934,7 @@ typedef struct redisOpArray {
     redisOp *ops;
     int numops;
     int capacity;
+    int targets;    /* Union of the targets of the ops above. */
 } redisOpArray;
 
 /* This structure is returned by the getMemoryOverheadData() function in
@@ -2072,6 +2064,7 @@ typedef struct redisTLSContextConfig {
     char *protocols;
     char *ciphers;
     char *ciphersuites;
+    char *groups;
     int prefer_server_ciphers;
     int session_caching;
     int session_cache_size;
@@ -2499,7 +2492,13 @@ struct redisServer {
     int child_info_nread;           /* Num of bytes of the last read from pipe */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
-    int replication_allowed;        /* Are we allowed to replicate? */
+    int allowed_propagate_targets;  /* The PROPAGATE_* targets that the command
+                                       currently running may reach. Each call()
+                                       intersects it with its own targets (see
+                                       getPropagateTargetsForCall()), so that effect
+                                       commands queued via alsoPropagate()
+                                       honor Lua redis.set_repl() and selective
+                                       RM_Call() propagation. */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -3531,7 +3530,7 @@ void unprotectClient(client *c);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
-getKeysResult *getClientCachedKeyResult(client *c);
+getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd);
 /* reply macros */
 #define ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c, str) addReplyBulkCBuffer(c, str, strlen(str))
 
@@ -3661,6 +3660,7 @@ void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
+void replicationDiscardCachedMaster(void);
 void resizeReplicationBacklog(void);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
@@ -3821,7 +3821,7 @@ int ACLUserHasUnrestrictedKeyAccess(user *u, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int *idxptr);
 int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
-int ACLCheckAllPerm(client *c, int *idxptr);
+int ACLCheckAllPerm(client *c, pendingCommand *pcmd, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
@@ -3976,6 +3976,8 @@ void startCommandExecution(void);
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
+void alsoPropagateForced(int dbid, robj **argv, int argc, int target);
+int getPropagateTargetsForCall(client *c, int flags);
 int shouldPropagate(int target);
 void postExecutionUnitOperations(void);
 int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target);
@@ -4452,8 +4454,7 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
 void replySlotsFlush(client *c, struct slotRangeArray *slots);
-int flushCommandCommon(client *c, int type, int flags, struct asmTrimCtx *trim_ctx);
-void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata);
+int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *slots);
 void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots);
 void blockClientForAsyncFlush(client *c);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
@@ -4475,7 +4476,9 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 void streamMoveIdmpKeys(dict *src, dict *dst, struct slotRangeArray *slots);
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, dict *stream_idmp_keys, struct asmTrimCtx *ctx);
+typedef void (*lazyfreeKvsCallback)(kvstore *kvs, void *userdata);
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires,
+                      dict *stream_idmp_keys, lazyfreeKvsCallback callback, void *userdata);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);

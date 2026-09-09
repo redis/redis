@@ -1954,9 +1954,18 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     return relevant_error;
 }
 
-/* High level API for checking if a client can execute the queued up command */
-int ACLCheckAllPerm(client *c, int *idxptr) {
-    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, getClientCachedKeyResult(c), idxptr);
+/* High level API for checking if a client can execute the queued up command.
+ *
+ * 'pcmd' is the pendingCommand that c->cmd / c->argv were populated from, and
+ * is used to reuse its cached key extraction result. It may be NULL for clients
+ * that don't build pendingCommand structs (module and script fake clients), in
+ * which case the keys are extracted from c->argv. */
+int ACLCheckAllPerm(client *c, pendingCommand *pcmd, int *idxptr) {
+    /* The cached key result holds key positions within pcmd->argv, so it is only
+     * usable for the command we are actually about to check. */
+    serverAssert(!pcmd || (pcmd->cmd == c->cmd));
+    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc,
+                getClientCachedKeyResult(pcmd), idxptr);
 }
 
 /* If 'new' can access all channels 'original' could then return NULL;
