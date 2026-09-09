@@ -10315,13 +10315,11 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
             zfree(timer);
         } else {
-            /* We call getMonotonicUs() again instead of using the cached 'now' so that
-             * 'next_period' isn't affected by the time it took to execute
-             * previous calls to 'callback.
-             * We need to cast 'expiretime' so that the compiler will not treat
-             * the difference as unsigned (Causing next_period to be huge) in
-             * case expiretime < getMonotonicUs() */
-            next_period = ((long long)expiretime - getMonotonicUs()) / 1000; /* Scale to milliseconds. */
+            /* Read the clock again so callback time does not affect the delay.
+             * Check before subtracting to avoid unsigned underflow if the timer
+             * expires while callbacks are running. */
+            now = getMonotonicUs();
+            next_period = expiretime > now ? (expiretime - now) / 1000 : 0;
             break;
         }
     }
@@ -10426,9 +10424,9 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     if (timer->module != ctx->module)
         return REDISMODULE_ERR;
     if (remaining) {
-        int64_t rem = ntohu64(id) - getMonotonicUs();
-        if (rem < 0) rem = 0;
-        *remaining = rem / 1000; /* Scale to milliseconds. */
+        uint64_t expiretime = ntohu64(id);
+        uint64_t now = getMonotonicUs();
+        *remaining = expiretime > now ? (expiretime - now) / 1000 : 0;
     }
     if (data) *data = timer->data;
     return REDISMODULE_OK;
