@@ -4934,7 +4934,7 @@ void waitaofCommand(client *c) {
         return;
     if (getPositiveLongFromObjectOrReply(c,c->argv[2],&numreplicas,NULL) != C_OK)
         return;
-    if (getMonotonicTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_MILLISECONDS) != C_OK)
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[3], &timeout,UNIT_MILLISECONDS) != C_OK)
         return;
 
     if (server.masterhost) {
