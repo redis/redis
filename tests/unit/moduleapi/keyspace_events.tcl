@@ -176,6 +176,18 @@ tags "modules external:skip" {
             r himport discard bigfs
         }
 
+        test "Subkey notification: HSETEX on a template hash triggers hset" {
+            r himport prepare fieldset2 f1 f2
+            r himport set myhash fieldset2 v1 v2
+            r keyspace.reset_subkey_events
+            r hsetex myhash FIELDS 2 f1 v9 f3 v3
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hset myhash 2 f1 f3" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset2
+        }
+
         test "Subkey notification: HDEL triggers module subkey callback" {
             r hset myhash f1 v1 f2 v2
             r keyspace.reset_subkey_events
@@ -184,6 +196,30 @@ tags "modules external:skip" {
             assert_equal 1 [llength $events]
             assert_equal "hdel myhash 1 f1" [lindex $events 0]
             r del myhash
+        }
+
+        test "Subkey notification: HDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset3 f1 f2 f3
+            r himport set myhash fieldset3 v1 v2 v3
+            r keyspace.reset_subkey_events
+            r hdel myhash f1 f1 f2
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset3
+        }
+
+        test "Subkey notification: HGETDEL on a template hash lists a repeated field once" {
+            r himport prepare fieldset4 f1 f2 f3
+            r himport set myhash fieldset4 v1 v2 v3
+            r keyspace.reset_subkey_events
+            assert_equal {v1 {} v2} [r hgetdel myhash FIELDS 3 f1 f1 f2]
+            set events [r keyspace.get_subkey_events]
+            assert_equal 1 [llength $events]
+            assert_equal "hdel myhash 2 f1 f2" [lindex $events 0]
+            r del myhash
+            r himport discard fieldset4
         }
 
         test "Subkey notification: non-subkey event calls subkey callback with count=0" {
@@ -300,6 +336,33 @@ tags "modules external:skip" {
 
         test "Verify RM_StringDMA with expiration are not causing invalid memory access" {
             assert_equal {OK} [r set x 1 EX 1]
+        }
+    }
+
+    # Keep callback-ordering regression tests in a dedicated server because
+    # they enable the keysizes histogram assertion. Future tests for other
+    # commands can share this isolated server without leaking that state.
+    start_server [list overrides [list loadmodule "$testmodule" enable-debug-command yes]] {
+        tags {"regression"} {
+            test "SETBIT and BITFIELD should update keysizes before module callbacks" {
+                # Enable keysizes histogram assertion for this isolated server.
+                r DEBUG KEYSIZES-HIST-ASSERT 1
+
+                # SETBIT callback deletion.
+                r set stringdel_setbit x
+                r setbit stringdel_setbit 16 1
+                assert_equal 0 [r exists stringdel_setbit]
+
+                # BITFIELD SET callback deletion.
+                r set stringdel_bitfield x
+                r bitfield stringdel_bitfield set u8 16 1
+                assert_equal 0 [r exists stringdel_bitfield]
+
+                # BITFIELD OVERFLOW FAIL still grows the string before rejecting the write.
+                r set stringdel_bitfield_fail x
+                r bitfield stringdel_bitfield_fail overflow fail set u8 72 256
+                assert_equal 0 [r exists stringdel_bitfield_fail]
+            }
         }
     }
 

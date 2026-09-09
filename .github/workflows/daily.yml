@@ -546,17 +546,44 @@ jobs:
     - name: warm up
       run: |
         ./src/redis-server --daemonize yes --logfile /dev/null
+        # Wait up to 10 seconds for the daemonized child to finish startup after its parent exit
+        for attempt in {1..100}; do
+          ./src/redis-cli ping 2>/dev/null | grep -q PONG && break
+          if [ "$attempt" -eq 100 ]; then
+            echo "Redis on port 6379 did not become ready"
+            exit 1
+          fi
+          sleep 0.1
+        done
+
         ./src/redis-benchmark -n 1 > /dev/null
         ./src/redis-cli save | grep OK > /dev/null
         vmtouch -v ./dump.rdb > /dev/null
     - name: test
       run: |
+        wait_for_redis_start() {
+          local port="$1"
+          for attempt in {1..100}; do
+            ./src/redis-cli -p "$port" ping 2>/dev/null | grep -q PONG && return 0
+            if [ "$attempt" -eq 100 ]; then
+              echo "Redis on port $port did not become ready"
+              return 1
+            fi
+            sleep 0.1
+          done
+        }
+
         echo "test SAVE doesn't increase cache"
         CACHE0=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE0"
         ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080 --repl-diskless-sync no --pidfile /tmp/master/redis.pid --rdbcompression no --enable-debug-command yes
+        
+        # Runtime TSC calibration can delay startup on x86, while the daemonized
+        # parent exits before the child listens. Wait before the first command.
+        wait_for_redis_start 8080
         ./src/redis-cli -p 8080 debug populate 10000 k 102400
         ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/slave --port 8081 --repl-diskless-load disabled --rdbcompression no
+        wait_for_redis_start 8081
         ./src/redis-cli -p 8080 save > /dev/null
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
@@ -584,8 +611,22 @@ jobs:
         kill -15 $PID
         while [ -x /proc/${PID} ]; do sleep 1; done
         ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080
-        while [ $(./src/redis-cli -p 8080 info persistence | grep "loading:1") ]; do sleep 1; done;
+        
+        # The daemonized parent can exit before the child listens, so tolerate
+        # connection failures until INFO is available, then wait for RDB loading.
+        for attempt in {1..600}; do
+          if ./src/redis-cli -p 8080 info persistence 2>/dev/null |
+            grep "^loading:0" > /dev/null; then
+            break
+          fi
+          sleep 1
+          if [ "$attempt" -eq 600 ]; then
+            echo "Redis on port 8080 did not finish loading within 10 minutes"
+            exit 1
+          fi
+        done
         sleep 1 # wait for the completion of cache reclaim bio
+        
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
         grep -q " 0%" <<< $VMOUT

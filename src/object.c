@@ -1463,6 +1463,21 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->clients_slaves = 0;
         mh->repl_backlog = server.repl_buffer_mem;
     }
+
+    /* Replicas' compression state is allocated per client and is not part of
+     * the shared replication buffer accounted for above, so it needs to be
+     * added separately regardless of which branch was taken. */
+    if (listLength(server.slaves)) {
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.slaves, &li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *replica = listNodeValue(ln);
+            mh->clients_slaves += clientCompressionMemoryUsage(replica);
+        }
+    }
+
     if (server.repl_backlog) {
         /* The approximate memory of rax tree for indexed blocks. */
         mh->repl_backlog +=

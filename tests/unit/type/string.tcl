@@ -751,6 +751,16 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert {$ttl <= 10 && $ttl > 5}
     }
 
+    test {Extended SET PX option with a TTL that overflows when added to the current time} {
+        r del foo
+        r set foo bar
+        assert_error "ERR invalid expire time in 'set' command" {
+            r set foo baz px 9223372036854775807
+        }
+        assert_equal bar [r get foo]
+        assert_equal -1 [r pttl foo]
+    }
+
     test "Extended SET EXAT option" {
         r del foo
         r set foo bar exat [expr [clock seconds] + 10]

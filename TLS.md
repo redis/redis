@@ -62,17 +62,145 @@ both TCP and TLS available, but you'll need to assign different ports.
 To make a Replica connect to the master using TLS, use `--tls-replication yes`,
 and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`.
 
+Peer certificate verification
+-----------------------------
+
+By default, Redis TLS validates only that a peer certificate **chains to the
+trusted CA** (`tls-ca-cert-file` / `tls-ca-cert-dir`) and is not expired. It does
+**not** verify that the certificate belongs to the specific peer being contacted.
+
+### Trust model and the CA assumption
+
+This default is safe **only under a dedicated, per-cluster CA**: since that CA
+signs certificates exclusively for your own nodes, "chains to the CA" is
+equivalent to "is a legitimate peer". This is the recommended Redis TLS
+deployment model.
+
+If you instead use a **shared, organizational, or public CA**, that CA also signs
+certificates for machines that are not part of your deployment. In that case CA
+validation alone is insufficient:
+
+* A machine-in-the-middle holding any certificate signed by the same CA can
+  impersonate a master/peer on outbound connections (replication, cluster bus,
+  `MIGRATE`) and, for replication, capture the `AUTH <masteruser> <masterauth>`
+  credentials a replica sends.
+* Because the cluster bus has no per-message authentication (a message's sender
+  is identified only by the public node ID in its header), such a certificate can
+  also open an inbound cluster-bus connection and forge messages that impersonate
+  a real member — for example a `FAIL` message that marks a healthy node as
+  failed.
+
+### `tls-expected-peer-name`
+
+To close this gap under a shared CA, set `tls-expected-peer-name`. When set, the
+peer certificate must additionally carry one of the configured names in its
+Subject Alternative Name (SAN) field (CN is used only as a fallback), verified as
+part of CA chain validation. Issue every node's certificate with a shared
+cluster-identity SAN (e.g. `node.my-redis-cluster.example.com`) and set this
+option to that name on every node; a certificate signed by the same CA but
+lacking the name is then rejected.
+
+The expected name is taken from local configuration only — never from the address
+dialed or from any data received over the wire (such as a gossip-announced
+hostname), since the whole purpose is to distinguish a real peer from an
+impostor.
+
+The check is enforced in **both directions** of server-to-server TLS:
+
+* **Outbound** — the peer's *server* certificate is verified when this node dials
+  a master, cluster peer, or `MIGRATE` target.
+* **Inbound cluster bus** — the connecting peer's *client* certificate is verified
+  on accept, which is what blocks the impersonation/forgery described above.
+
+Because a node's outbound (client) certificate is now verified by its peers, the
+identity SAN must be present on **whichever certificate the node presents in both
+roles**. In practice this means the SAN must be on `tls-client-cert-file` (used
+for outbound cluster/replication connections) as well as on `tls-cert-file`; when
+no separate client certificate is configured, `tls-cert-file` is used for both
+roles and only needs the SAN once. If a separate client certificate without the
+SAN is configured, peers will reject this node's inbound cluster-bus connections
+and the cluster will not form.
+
+Notes:
+
+* Multiple names may be supplied as a single space-separated value (quote it in
+  the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
+  a match against any one of them succeeds.
+* Wildcards are matched from the **certificate**, not from this option: a
+  certificate whose SAN is a full-label wildcard (`*.example.com`) matches a
+  concrete name configured here (`node.example.com`), while a partial-label
+  wildcard in the certificate (`f*.example.com`) never matches. Configuring a
+  wildcard as the expected name does not perform wildcard matching.
+* A name beginning with a dot (e.g. `.example.com`) is **not** a host name.
+  OpenSSL treats it as a *parent domain*: it accepts any subdomain at **any
+  depth** (`node.example.com`, `a.b.example.com`, ...) and does **not** accept
+  `example.com` itself. A short suffix is correspondingly broad — `.com` accepts
+  every name in that TLD, which under a shared or public CA is close to accepting
+  any CA-signed certificate. This is a legitimate pattern, but much wider than
+  pinning explicit hosts, so Redis logs a warning reporting how many such entries
+  are configured, at startup and on `CONFIG SET`, to make the scope visible.
+  Prefer explicit host names, a deeper parent (`.dc1.example.com`), or several
+  space-separated names.
+* The option is opt-in and defaults to unset (no peer-name check), preserving the
+  previous behavior.
+* It does **not** apply to ordinary client connections on the data port, whose
+  identity and authorization are handled by `AUTH`/ACL (and optionally
+  `tls-auth-clients-user`).
+* Peer-name verification uses the OpenSSL `X509_VERIFY_PARAM` host API, available
+  since OpenSSL 1.0.2. Building the TLS support against an older OpenSSL fails
+  with an error by default. Define `TLS_NO_PEER_NAME_VERIFICATION`
+  (e.g. `make BUILD_TLS=yes CFLAGS=-DTLS_NO_PEER_NAME_VERIFICATION`) to compile
+  the feature out — either to build against an older OpenSSL, or to disable it on
+  any OpenSSL version. When compiled out, if `tls-expected-peer-name` is set each
+  affected connection logs a warning and proceeds without the name check (CA
+  chain validation still applies).
+
+TLS groups
+----------
+
+The `tls-groups` option controls the OpenSSL named groups used
+during TLS handshakes. The value is passed directly to OpenSSL, so it accepts
+the syntax supported by `SSL_CTX_set1_groups_list()` (or the older
+`SSL_CTX_set1_curves_list()` API), for example:
+
+    tls-groups X25519:prime256v1
+
+Redis does not filter the list, so any group name accepted by the linked
+OpenSSL build can be used.
+
+The setting applies to both the server context and Redis' client context used
+for replication, cluster, and other server-to-server TLS connections. The
+client and server must have at least one group in common for the handshake to
+succeed.
+
+This option requires OpenSSL 1.0.2 or newer, which provides the
+`SSL_CTX_set1_curves_list()` API used by Redis. Newer OpenSSL versions also
+provide the equivalent `SSL_CTX_set1_groups_list()` API. Building TLS support
+against an older OpenSSL fails with a clear compile-time error by default. To
+build Redis without this option, define `TLS_NO_GROUPS`, for
+example:
+
+    make BUILD_TLS=yes CFLAGS=-DTLS_NO_GROUPS
+
+When the feature is compiled out, setting `tls-groups` causes TLS
+context configuration to fail instead of silently ignoring the requested
+preference.
+
+`redis-cli` and `redis-benchmark` expose `--tls-groups` when built with
+OpenSSL support for named group configuration. When the feature is compiled
+out, the command-line option is not accepted, matching the behavior of other
+TLS options that depend on OpenSSL build capabilities.
+
 Connections
 -----------
 
 All socket operations now go through a connection abstraction layer that hides
 I/O and read/write event handling from the caller.
 
-**Multi-threading I/O is not currently supported for TLS**, as a TLS connection
-needs to do its own manipulation of AE events which is not thread safe. The
-solution is probably to manage independent AE loops for I/O threads and longer
-term association of connections with threads. This may potentially improve
-overall performance as well.
+Multi-threading I/O is supported for TLS since Redis 8.0. TLS connections are
+assigned to I/O threads like plain TCP connections, and each I/O thread's
+event loop drains any connection-level pending data (typical for TLS) via the
+connection abstraction layer.
 
 Sync IO for TLS is currently implemented in a hackish way, i.e. making the
 socket blocking and configuring socket-level timeout.  This means the timeout
@@ -81,16 +209,6 @@ However I believe that getting rid of syncio completely in favor of pure async
 work is probably a better move than trying to fix that. For replication it would
 probably not be so hard. For cluster keys migration it might be more difficult,
 but there are probably other good reasons to improve that part anyway.
-
-To-Do List
-----------
-
-- [ ] redis-benchmark support. The current implementation is a mix of using
-  hiredis for parsing and basic networking (establishing connections), but
-  directly manipulating sockets for most actions. This will need to be cleaned
-  up for proper TLS support. The best approach is probably to migrate to hiredis
-  async mode.
-- [ ] redis-cli `--slave` and `--rdb` support.
 
 Multi-port
 ----------

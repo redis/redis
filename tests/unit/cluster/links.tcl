@@ -259,7 +259,7 @@ start_cluster 3 0 {tags {external:skip cluster}} {
         set link_mem_after_pubs [getInfoProperty $res mem_cluster_links]
         
         # We expect the memory to have increased by more than
-        # the culmulative size of the publish messages
+        # the cumulative size of the publish messages
         set mem_diff_floor [expr $msg_size * $num_msgs]
         set mem_diff [expr $link_mem_after_pubs - $link_mem_before_pubs]
         assert {$mem_diff > $mem_diff_floor}

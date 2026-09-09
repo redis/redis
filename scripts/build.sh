@@ -25,6 +25,7 @@ set -eu
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)" || exit 1
 . "$SCRIPT_DIR/lib/manifest.sh"
 cd "$REPO_ROOT"
+PROG_SUFFIX="${PROG_SUFFIX:-}"
 
 MAKE_BIN="${MAKE:-make}"
 
@@ -62,14 +63,14 @@ if [ -z "$modules" ]; then
   fi
 else
   echo
-  echo "==> Building modules (REDIS_SERVER=$REPO_ROOT/src/redis-server):"
+  echo "==> Building modules (REDIS_SERVER=$REPO_ROOT/src/redis-server$PROG_SUFFIX):"
   echo "   $modules"
   for name in $modules; do
     echo
     echo "==> [module] $name (modules/$name)"
     mkdir -p "modules/$name"
     if ! "$MAKE_BIN" -C "modules/$name" -f "$REPO_ROOT/modules/common.mk" \
-        REDIS_SERVER="$REPO_ROOT/src/redis-server"; then
+        REDIS_SERVER="$REPO_ROOT/src/redis-server$PROG_SUFFIX"; then
       failed="$failed $name"
       echo "==> [module] $name: FAILED (continuing with remaining modules)"
     fi
@@ -82,7 +83,7 @@ fi
 
 echo
 echo "==> Build complete."
-echo "    redis-server: $PWD/src/redis-server"
+echo "    redis-server: $PWD/src/redis-server$PROG_SUFFIX"
 if [ -n "$modules" ]; then
   echo "    Module artifacts:"
   for name in $modules; do

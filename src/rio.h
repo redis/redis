@@ -23,6 +23,7 @@
 
 #define RIO_FLAG_READ_ERROR (1<<0)
 #define RIO_FLAG_WRITE_ERROR (1<<1)
+#define RIO_FLAG_DUMP_PAYLOAD (1ULL<<2)
 
 #define RIO_TYPE_FILE (1<<0)
 #define RIO_TYPE_BUFFER (1<<1)

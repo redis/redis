@@ -31,8 +31,6 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
-static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX, "Must be equal");
-
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
@@ -67,6 +65,19 @@ void updateLRM(robj *o) {
     }
 }
 
+/* Return the histogram row that tracks `type`, or NULL if the type is untracked. */
+int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
+    switch (type) {
+    case OBJ_STRING: return hist[KEYSIZES_ROW_STRING];
+    case OBJ_LIST:   return hist[KEYSIZES_ROW_LIST];
+    case OBJ_SET:    return hist[KEYSIZES_ROW_SET];
+    case OBJ_ZSET:   return hist[KEYSIZES_ROW_ZSET];
+    case OBJ_HASH:   return hist[KEYSIZES_ROW_HASH];
+    case OBJ_STREAM: return hist[KEYSIZES_ROW_STREAM];
+    default:         return NULL;
+    }
+}
+
 /* 
  * Update histogram of keys-sizes
  * 
@@ -82,38 +93,39 @@ void updateLRM(robj *o) {
  * Example mapping of key lengths to bins:
  *               [1,2)->1 [2,4)->2 [4,8)->3 [8,16)->4 ...
  *
- * Since strings can be zero length, the histogram also tracks:
+ * Since strings and streams can be empty (zero length), the histogram also tracks:
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
-    if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
+    int64_t *hist = keysizesHistRow(kvstoreHist, type);
+    if (unlikely(hist == NULL)) /* untracked type, e.g. OBJ_MODULE */
         return;
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
         debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[type][old_bin]--;
-        debugServerAssert(kvstoreHist[type][old_bin] >= 0);
+        hist[old_bin]--;
+        debugServerAssert(hist[old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
-            /* Only strings can be empty. Yet, a command flow might temporarily
-             * dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[type][0]--;
-            debugServerAssert(kvstoreHist[type][0] >= 0);
+            /* Only strings and streams can be empty. Yet, a command flow might
+             * temporarily dbAdd() empty collection, and only after add elements. */
+            hist[0]--;
+            debugServerAssert(hist[0] >= 0);
         }
     }
-    
+
     if (newLen > 0) {
         int new_bin = log2ceil(newLen) + 1;
         debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
-        kvstoreHist[type][new_bin]++;
+        hist[new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
-            /* Only strings can be empty. Yet, a command flow might temporarily
-             * dbAdd() empty collection, and only after add elements. */
-            kvstoreHist[type][0]++;
+            /* Only strings and streams can be empty. Yet, a command flow might
+             * temporarily dbAdd() empty collection, and only after add elements. */
+            hist[0]++;
         }
     }
 }
@@ -148,35 +160,40 @@ void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int6
 
 static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
                           size_t (*fn)(kvobj *), const char *name) {
-    /* Scan DB and build expected histogram by scanning all keys */
-    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
+    /* Scan DB and build expected histogram by scanning all keys. Rows are
+     * addressed like hist[]'s, via keysizesHistRow(); untracked types stay 0. */
+    keysizesHist scanHist = {{0}};
     dictEntry *de;
     kvstoreIterator kvs_it;
     kvstoreIteratorInit(&kvs_it, kvs);
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
-        if (kv->type < OBJ_TYPE_BASIC_MAX) {
+        int64_t *scanRow = keysizesHistRow(scanHist, kv->type);
+        if (scanRow) {
             int64_t len = fn(kv);
-            scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
+            scanRow[(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
-    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        volatile int64_t *keysizesHist = hist[type];
+    /* Iterate object types rather than rows, to report the mismatching type. */
+    for (int type = 0; type < OBJ_TYPE_MAX; type++) {
+        int64_t *scanRow = keysizesHistRow(scanHist, type);
+        if (!scanRow) continue; /* untracked type: no histogram row */
+        volatile int64_t *histRow = keysizesHistRow(hist, type);
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-            if (scanHist[type][i] == keysizesHist[i])
+            if (scanRow[i] == histRow[i])
                 continue;
 
             /* print scanStr vs. expected histograms for debugging */
             char scanStr[500] = {0}, keysizesStr[500] = {0};
             int l1 = 0, l2 = 0;
             for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
-                if (scanHist[type][j])
+                if (scanRow[j])
                     l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1,
-                                        "[%d]=%"PRId64" ", j, scanHist[type][j]);
-                if (keysizesHist[j])
+                                        "[%d]=%"PRId64" ", j, scanRow[j]);
+                if (histRow[j])
                     l2 += snprintf(keysizesStr + l2, sizeof(keysizesStr) - l2,
-                                            "[%d]=%"PRId64" ", j, keysizesHist[j]);
+                                            "[%d]=%"PRId64" ", j, histRow[j]);
             }
             serverPanic("%s: type=%d\nscanStr=%s\nkeysizes=%s\n",
                         name, type, scanStr, keysizesStr);
@@ -781,6 +798,16 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, db->id);
         if (oldtype != newtype)
             notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, db->id);
+
+        /* Overwriting a key with a list must wake blocked clients. Same
+         * type: only "grew" waiters (e.g. BLMOVEM EXACTLY). Type changed:
+         * treat as a fresh list (wakes BLPOP/BLMOVE/modules). */
+        if (newtype == OBJ_LIST) {
+            if (oldtype == OBJ_LIST)
+                signalKeyAsReadyNonEmptyList(db, key);
+            else
+                signalKeyAsReady(db, key, OBJ_LIST);
+        }
     } else {
         /* Add the new key to the database */
         dbAddByLink(db, key, valref, link);
@@ -1120,21 +1147,24 @@ void discardTempDb(redisDb *tempDb) {
     zfree(tempDb);
 }
 
-/* Move entries whose robj keys belong to the given slot from src dict to dst.
+/* Move entries whose robj keys belong to the given slotRangeArray from src dict to dst.
  * Matching entries are removed from src and added to dst. */
-void streamMoveIdmpKeys(dict *src, dict *dst, int slot) {
+void streamMoveIdmpKeys(dict *src, dict *dst, slotRangeArray *slots) {
     if (dictSize(src) == 0) return;
 
+    /* slots must not be NULL */
+    serverAssert(slots != NULL);
     dictIterator *di = dictGetSafeIterator(src);
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
-        if (calculateKeySlot(key->ptr) == slot) {
-            if (dictAddRaw(dst, key, NULL)) {
-                incrRefCount(key);
-            }
-            dictDelete(src, key);
+        /* Check if key belongs to the slot range. */
+        if (!slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
+            continue;
+        if (dictAddRaw(dst, key, NULL)) {
+            incrRefCount(key);
         }
+        dictDelete(src, key);
     }
     dictReleaseIterator(di);
 }
@@ -1268,33 +1298,11 @@ void blockClientForAsyncFlush(client *c) {
     blockClient(c, BLOCKED_LAZYFREE);
 }
 
-/* CB function on blocking ASYNC FLUSH/TRIM completion.
- * We will unblock the client and send the proper reply if provided. */
-void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
-
-    /* If ASM Trim context provided, apply histogram delta */
-    asmTrimCtx *ctx = userdata;
-    if (ctx) {
-        kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
-        /* Apply histogram delta only if target_kvstore hasn't changed */
-        if (ctx->target_kvstore == server.db[0].keys && meta) {
-            for (int type = 0; type < MAX_KEYSIZES_TYPES; type++) {
-                for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                    meta->keysizes_hist[type][bin] -= ctx->delta_keysizes_hist[type][bin];
-                    meta->allocsizes_hist[type][bin] -= ctx->delta_allocsizes_hist[type][bin];
-                }
-            }
-        }
-        /* Decrement counter unconditionally to track job completion. If kvstore was
-         * replaced (e.g., by FLUSHALL), the new histogram is already consistent (reset
-         * to 0 for empty DB), so it's safe to resume assertions when counter reaches 0. */
-        asmBgTrimCounterDecr();
-    }
-
-    unblockClientForAsyncFlush(client_id, (ctx) ? ctx->slots : NULL);
-
-    /* Release context and slots */
-    asmTrimCtxRelease(ctx);
+/* CB function on blocking ASYNC FLUSH completion. */
+static void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata) {
+    slotRangeArray *slots = userdata;
+    unblockClientForAsyncFlush(client_id, slots);
+    slotRangeArrayFree(slots);
 }
 
 /* Unblock client on async flush/trim completion */
@@ -1342,10 +1350,10 @@ void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
  *
- * trim_ctx - provided only by SFLUSH command, otherwise NULL. Contains slots to
- *            be used on completion to reply with the slots flush result. 
+ * slots - provided only by SFLUSH command, otherwise NULL. Used on completion
+ *         to reply with the slots flush result; ownership remains with caller.
  */
-int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
+int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1369,12 +1377,8 @@ int flushCommandCommon(client *c, int type, int flags, asmTrimCtx *trim_ctx) {
      * lazyfree jobs in queue were processed */
     if (blocking_async) {
         blockClientForAsyncFlush(c);
-        /* Retain trim_ctx if provided so kvsAsyncFreeDoneCB can release it later */
-        if (trim_ctx) {
-            asmBgTrimCounterIncr();
-            asmTrimCtxRetain(trim_ctx);
-        }
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id, trim_ctx);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, kvsAsyncFreeDoneCB, c->id,
+                        slots ? slotRangeArrayDup(slots) : NULL);
     }
 
 #if defined(USE_JEMALLOC)
@@ -2912,10 +2916,7 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
 
     /* If the master decided to delete a key we must propagate it to replicas no matter what.
      * Even if module executed a command without asking for propagation. */
-    int prev_replication_allowed = server.replication_allowed;
-    server.replication_allowed = 1;
-    alsoPropagate(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
-    server.replication_allowed = prev_replication_allowed;
+    alsoPropagateForced(db->id,argv,2,PROPAGATE_AOF|PROPAGATE_REPL);
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
@@ -3054,11 +3055,10 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     return KEY_DELETED;
 }
 
-/* CB passed to kvstoreExpand.
- * The purpose is to skip expansion of unused dicts in cluster mode (all
- * dicts not mapped to *my* slots) */
+/* Callback passed to kvstoreExpand. Skip expansion for slots not owned by this
+ * node, or by its master when this node is a replica. */
 static int dbExpandSkipSlot(int slot) {
-    return !clusterNodeCoversSlot(getMyClusterNode(), slot);
+    return !clusterNodeCoversSlot(clusterNodeGetMaster(getMyClusterNode()), slot);
 }
 
 /*
@@ -3274,6 +3274,9 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
 
             first += spec->fk.keynum.firstkey;
+            /* Reject invalid specs and bound numkeys before it overflows 'last' below. */
+            if (step <= 0 || first < 0 || numkeys - 1 > (argc - 1 - first) / step)
+                goto invalid_spec;
             last = first + ((long)numkeys - 1) * step;
         } else {
             /* unknown spec */

@@ -36,7 +36,7 @@
 # Two-word command with multiple non-token block args:  CONFIG SET parameter value [parameter value ...]
 "CONFIG SET param " "value [parameter value ...]"
 "CONFIG SET param val " "[parameter value ...]"
-"CONFIG SET param val parm2 val2 " "[parameter value ...]"
+"CONFIG SET param val param2 val2 " "[parameter value ...]"
 
 # Command with nested optional args:  ZRANDMEMBER key [count [WITHSCORES]]
 "ZRANDMEMBER k " "[count [WITHSCORES]]"

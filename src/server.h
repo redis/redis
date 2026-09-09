@@ -456,6 +456,11 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
 #define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
 #define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
+#define CLIENT_PUBSUB_REAUTHED (1ULL<<55) /* Client re-authenticated while holding Pub/Sub
+                                             subscriptions, so a subscription value may carry a
+                                             provenance stamp (see pubsubStampCurrentUser). Fast-path
+                                             hint: while unset, every subscription is owned by
+                                             c->user, so ACL scans can skip the client in O(1). */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -476,7 +481,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * various issues that can occur while reading or parsing data from a client. */
 #define CLIENT_READ_TOO_BIG_INLINE_REQUEST 1
 #define CLIENT_READ_UNBALANCED_QUOTES 2
-#define CLIENT_READ_MASTER_USING_INLINE_PROTOCAL 3
+#define CLIENT_READ_MASTER_USING_INLINE_PROTOCOL 3
 #define CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING 4
 #define CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING 5
 #define CLIENT_READ_EXPECTED_DOLLAR 6
@@ -880,7 +885,6 @@ typedef enum {
 #define OBJ_SET 2       /* Set object. */
 #define OBJ_ZSET 3      /* Sorted set object. */
 #define OBJ_HASH 4      /* Hash object. */
-#define OBJ_TYPE_BASIC_MAX 5 /* Max number of basic object types. */
 
 /* The "module" object type is a special one that signals that the object
  * is one directly managed by a Redis module. In this case the value points
@@ -1245,8 +1249,22 @@ typedef struct redisDb {
 
 /* maximum number of bins of keysizes histogram */
 #define MAX_KEYSIZES_BINS 60
-#define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
-typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+
+/* Per-type keysizes/allocsizes histograms: one row per tracked type, i.e. the
+ * basic types plus streams. Rows are addressed with keysizesHistRow() rather
+ * than by object type, so untracked types in between (OBJ_MODULE) cost no row
+ * and the histogram stays plain storage: zeroing initializes it, and it can be
+ * copied or moved like any other array. */
+enum {
+    KEYSIZES_ROW_STRING = 0,
+    KEYSIZES_ROW_LIST,
+    KEYSIZES_ROW_SET,
+    KEYSIZES_ROW_ZSET,
+    KEYSIZES_ROW_HASH,
+    KEYSIZES_ROW_STREAM,
+    MAX_KEYSIZES_ROWS   /* must stay last */
+};
+typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
 typedef struct {
@@ -1262,15 +1280,6 @@ typedef struct {
     uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
     uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
 } kvstoreDictMetadata;
-
-/* Context for ASM background trim with delta histogram tracking */
-typedef struct asmTrimCtx {
-    int refcount;                      /* For shared bg/main thread ownership */
-    struct slotRangeArray *slots;      /* Slot ranges being trimmed */
-    kvstore *target_kvstore;           /* Target kvstore to update (for validation) */
-    keysizesHist delta_keysizes_hist;  /* Delta populated by BIO thread */
-    keysizesHist delta_allocsizes_hist;/* Delta populated by BIO thread */
-} asmTrimCtx;
 
 /* forward declaration for functions ctx */
 typedef struct functionsLibCtx functionsLibCtx;
@@ -1603,9 +1612,12 @@ typedef struct client {
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
-    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
-    dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE) */
-    dict *pubsubshard_channels;  /* shard level channels a client is interested in (SSUBSCRIBE) */
+    dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE). The dict value
+                             * holds the subscription's originating ACL user*: NULL means
+                             * "owned by whoever c->user is now", a non-NULL user* is a
+                             * provenance stamp frozen when the client switched identity. */
+    dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE); value as above */
+    dict *pubsubshard_channels;  /* shard level channels (SSUBSCRIBE); value as above */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1627,8 +1639,8 @@ typedef struct client {
     void *auth_module;      /* The module that owns the callback, which is used
                              * to disconnect the client if the module is
                              * unloaded for cleanup. Opaque for Redis Core.*/
-    compressionState *compression_state; /* Opauqe handle to compression state */
-    int compression_level;  /* Compression level (0 means no compresison).
+    compressionState *compression_state; /* Opaque handle to compression state */
+    int compression_level;  /* Compression level (0 means no compression).
                              * Currently not relevant for non-replication
                              * connections. */
     /* If this client is in tracking mode and this field is non zero,
@@ -1777,7 +1789,7 @@ struct sharedObjectsStruct {
     *hdel, *hpexpireat, *hpersist, *hsetex, *restore, *replace,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields,
-    *getack, *special_asterick, *special_equals, *default_username, *redacted,
+    *getack, *special_asterisk, *special_equals, *default_username, *redacted,
     *ssubscribebulk,*sunsubscribebulk, *smessagebulk,
     *select[PROTO_SHARED_SELECT_CMDS],
     *integers[OBJ_SHARED_INTEGERS],
@@ -1851,6 +1863,7 @@ typedef struct redisOpArray {
     redisOp *ops;
     int numops;
     int capacity;
+    int targets;    /* Union of the targets of the ops above. */
 } redisOpArray;
 
 /* This structure is returned by the getMemoryOverheadData() function in
@@ -1980,10 +1993,13 @@ typedef struct redisTLSContextConfig {
     char *protocols;
     char *ciphers;
     char *ciphersuites;
+    char *groups;
     int prefer_server_ciphers;
     int session_caching;
     int session_cache_size;
     int session_cache_timeout;
+    char *expected_peer_name;       /* Space-separated SAN(s) to verify on outbound
+                                       server-to-server TLS connections. NULL = disabled. */
 } redisTLSContextConfig;
 
 /*-----------------------------------------------------------------------------
@@ -2092,7 +2108,7 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
-    redisAtomic int module_gil_acquring; /* Indicates whether the GIL is being acquiring by the main thread. */
+    redisAtomic int module_gil_acquiring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
@@ -2279,6 +2295,7 @@ struct redisServer {
     int allow_access_expired;       /* If > 0, allow access to logically expired keys */
     int allow_access_trimmed;       /* If > 0, allow access to logically trimmed keys */
     int active_defrag_enabled;
+    int active_defrag_paused;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
     int allow_keymeta_registration; /* Allow keymeta class registration outside server startup (for testing). */
@@ -2405,7 +2422,13 @@ struct redisServer {
     int child_info_nread;           /* Num of bytes of the last read from pipe */
     /* Propagation of commands in AOF / replication */
     redisOpArray also_propagate;    /* Additional command to propagate. */
-    int replication_allowed;        /* Are we allowed to replicate? */
+    int allowed_propagate_targets;  /* The PROPAGATE_* targets that the command
+                                       currently running may reach. Each call()
+                                       intersects it with its own targets (see
+                                       getPropagateTargetsForCall()), so that effect
+                                       commands queued via alsoPropagate()
+                                       honor Lua redis.set_repl() and selective
+                                       RM_Call() propagation. */
     /* Logging */
     char *logfile;                  /* Path of log file */
     int syslog_enabled;             /* Is syslog enabled? */
@@ -2610,7 +2633,7 @@ struct redisServer {
                                    xor of NOTIFY_... flags. */
     kvstore *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
     unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
-    unsigned int watching_clients; /* # of clients are wathcing keys */
+    unsigned int watching_clients; /* # of clients are watching keys */
     /* Cluster */
     int cluster_enabled;      /* Is cluster enabled? */
     int cluster_port;         /* Set the cluster port for a node. */
@@ -2640,6 +2663,7 @@ struct redisServer {
                                       to set in order to suppress certain
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
+    uint64_t cluster_topology_change_flags; /* Pending CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits */
     int cluster_module_trim_disablers; /* Number of module requests to disable trimming */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
@@ -3171,7 +3195,7 @@ typedef struct {
     dictEntry *de;
 
     /* For TMPL_LP and TMPL_ARRAY encodings. */
-    int tmpl_index;  /* Current field index in template (-1 = not started). */
+    long long field_index;  /* Current field index in template (-1 = not started). */
     struct hashTemplate *tmpl;  /* Cached template pointer. */
 } hashTypeIterator;
 
@@ -3436,7 +3460,7 @@ void unprotectClient(client *c);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
-getKeysResult *getClientCachedKeyResult(client *c);
+getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd);
 /* reply macros */
 #define ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c, str) addReplyBulkCBuffer(c, str, strlen(str))
 
@@ -3498,7 +3522,7 @@ uint64_t trackingGetTotalKeys(void);
 uint64_t trackingGetTotalPrefixes(void);
 void trackingBroadcastInvalidationMessages(user *u);
 void trackingBroadcastFlushClientPrefixes(client *c);
-void clientSetUser(client *c, user *new_user);
+void clientSetUser(client *c, user *new_user, int auth_changed);
 int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 
 /* List data type */
@@ -3566,6 +3590,7 @@ void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);
 void replicationHandleMasterDisconnection(void);
 void replicationCacheMaster(client *c);
+void replicationDiscardCachedMaster(void);
 void resizeReplicationBacklog(void);
 void replicationSetMaster(char *ip, int port);
 void replicationUnsetMaster(void);
@@ -3647,7 +3672,7 @@ void backgroundRewriteDoneHandler(int exitcode, int bysignal);
 void killAppendOnlyChild(void);
 void aofLoadManifestFromDisk(void);
 void aofOpenIfNeededOnServerStart(void);
-void aofHandlePreloadOnServerStart(void);
+void aofSetupAfterPreloadFile(void);
 void aofManifestFree(aofManifest *am);
 void backupCron(void);
 int backupIsInProgress(void);
@@ -3710,12 +3735,23 @@ void addAuthErrReply(client *c, robj *err);
 unsigned long ACLGetCommandID(sds cmdname);
 void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
+/* ACL LOAD owner-resolution, exported for the Pub/Sub provenance reconciliation
+ * that lives in pubsub.c (pubsubACLLoadReconcileClient). */
+typedef enum {
+    ACL_LOAD_OWNER_UNMANAGED = 0, /* module/external user: leave the stamp as-is */
+    ACL_LOAD_OWNER_MANAGED,       /* registered ACL user (including default) */
+    ACL_LOAD_OWNER_GONE,          /* registered ACL user removed by the reload */
+} aclLoadOwnerStatus;
+aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
+                                             user **old_out, user **new_out);
+list *getUpcomingChannelList(user *new, user *original);
+int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern);
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
 int ACLUserHasUnrestrictedKeyAccess(user *u, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
 int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int *idxptr);
 int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
-int ACLCheckAllPerm(client *c, int *idxptr);
+int ACLCheckAllPerm(client *c, pendingCommand *pcmd, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
@@ -3840,6 +3876,8 @@ void call(client *c, int flags);
 
 void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long duration);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
+void alsoPropagateForced(int dbid, robj **argv, int argc, int target);
+int getPropagateTargetsForCall(client *c, int flags);
 int shouldPropagate(int target);
 void postExecutionUnitOperations(void);
 void postExecutionUnitOperationsEx(long duration);
@@ -3986,6 +4024,7 @@ typedef struct hashTemplate {
                           * RESTORE find the template with one O(1) blob lookup.*/
     mstime_t fields_lp_last_used; /* Last time fields_lp was used, for cron idle reclaim. */
     unsigned int fits_in_listpack;  /* 1 if fields fit in listpack (DUMP serializes them as LP blob) */
+    unsigned int defrag_field;      /* Defrag resume point into 'fields'. */
 } hashTemplate;
 
 /* Global registry for hash templates. */
@@ -3998,7 +4037,9 @@ typedef struct hashTemplateRegistry {
     size_t by_id_cap;           /* How many chunk pointers by_id can hold. */
     size_t by_id_chunks;        /* How many chunks are currently allocated. */
     size_t by_id_next;          /* The next id that has never been used. */
+    size_t by_id_free_chunk_hint; /* Lowest chunk index that may hold a free id. */
     size_t total_key_refs;      /* Sum of key_refcount across all templates. */
+    size_t fields_lp_cache_bytes; /* Total lpBytes() of cached fields listpack blobs. */
     size_t total_mem_size;      /* Sum of every live template's mem_size, plus any
                                  * attached fields_lp blobs. */
 } hashTemplateRegistry;
@@ -4011,6 +4052,7 @@ typedef struct hashTemplateRegistry {
 typedef struct hashTemplateArray {
     uint64_t tmpl_id;    /* Template id; resolve via hashTemplateGetById. */
     unsigned long long field_count;
+    size_t alloc_size;   /* Usable struct/array bytes plus value SDS alloc sizes. */
     sds values[];       /* Flexible array: values in template field order. */
 } hashTemplateArray;
 
@@ -4097,14 +4139,14 @@ void hashTemplatesInit(void);
 hashTemplate *hashTemplateGetOrCreate(sds *fields, unsigned long long field_count);
 hashTemplate *hashTemplateGetByFieldsLp(unsigned char *fields_lp);
 hashTemplate *hashTemplateGetById(uint64_t id);
-hashTemplate *hashTemplateDefrag(hashTemplate *tmpl);
+void hashTemplateDefrag(hashTemplate *tmpl, dictEntry *bf, monotime endtime);
 int hashTemplateDefragByIdChunk(unsigned long chunk_idx);
 hashTemplate *hashTypeGetTemplate(robj *o);
 void hashTemplateIncrKeyRef(hashTemplate *tmpl);
 void hashTemplateIncrHoldRef(hashTemplate *tmpl);
 void hashTemplateDecrHoldRef(hashTemplate *tmpl);
-unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int cache);
-void hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp);
+unsigned char *hashTemplateGetFieldsLp(hashTemplate *tmpl, int *cache);
+int hashTemplateIndexFieldsLp(hashTemplate *tmpl, unsigned char *fields_lp);
 void hashTemplatesCron(void);
 robj *createHashObjectFromTemplate(hashTemplate *tmpl, sds *values, int take);
 int hashTemplateValidateFields(sds *fields, unsigned long long field_count);
@@ -4138,8 +4180,13 @@ int serverPubsubShardSubscriptionCount(void);
 size_t pubsubMemOverhead(client *c);
 void unmarkClientAsPubSub(client *c);
 int pubsubTotalSubscriptions(void);
+int clientTotalPubSubSubscriptionCount(client *c);
 dict *getClientPubSubChannels(client *c);
 dict *getClientPubSubShardChannels(client *c);
+int pubsubClientHasStampedOwner(client *c, user *u);
+int pubsubDictHasDeniedSubForOwner(client *c, dict *d, user *owner, list *upcoming, int is_pattern);
+void pubsubStampCurrentUser(client *c);
+int pubsubACLLoadReconcileClient(client *c, rax *old_users, rax *user_channels);
 
 /* Keyspace events notification */
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
@@ -4245,6 +4292,7 @@ int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char
 int moduleSetNumericConfig(client *c, sds name, long long val, const char **err);
 
 /* db.c -- Keyspace access API */
+int64_t *keysizesHistRow(keysizesHist hist, uint32_t type);
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen);
 void updateKeysizesHist(redisDb *db, uint32_t type, int64_t oldLen, int64_t newLen);
 void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize);
@@ -4307,8 +4355,7 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
 void replySlotsFlush(client *c, struct slotRangeArray *slots);
-int flushCommandCommon(client *c, int type, int flags, struct asmTrimCtx *trim_ctx);
-void kvsAsyncFreeDoneCB(uint64_t client_id, void *userdata);
+int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *slots);
 void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots);
 void blockClientForAsyncFlush(client *c);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
@@ -4329,8 +4376,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
-void streamMoveIdmpKeys(dict *src, dict *dst, int slot);
-void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires, dict *stream_idmp_keys, struct asmTrimCtx *ctx);
+void streamMoveIdmpKeys(dict *src, dict *dst, struct slotRangeArray *slots);
+typedef void (*lazyfreeKvsCallback)(kvstore *kvs, void *userdata);
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires,
+                      dict *stream_idmp_keys, lazyfreeKvsCallback callback, void *userdata);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
@@ -4446,7 +4495,7 @@ void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numloca
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
-void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey, unsigned long *watched_keys);
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blocking_keys_on_nokey, unsigned long *watched_keys);
 void blockedBeforeSleep(void);
 
 /* timeout.c -- Blocked clients timeout and connections timeout. */

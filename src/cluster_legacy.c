@@ -47,8 +47,6 @@ void clusterSendPing(clusterLink *link, int type);
 void clusterSendFail(char *nodename);
 void clusterSendFailoverAuthIfNeeded(clusterNode *node, clusterMsg *request);
 void clusterUpdateState(void);
-static void clusterFireTopologyChangeEventIfNeeded(void);
-static void clusterNotifyTopologyChange(uint64_t change_flags);
 int clusterNodeCoversSlot(clusterNode *n, int slot);
 list *clusterGetNodesInMyShard(clusterNode *node);
 int clusterNodeAddSlave(clusterNode *master, clusterNode *slave);
@@ -101,7 +99,7 @@ int verifyClusterNodeId(const char *name, int length);
 static void updateShardId(clusterNode *node, const char *shard_id);
 
 int getNodeDefaultClientPort(clusterNode *n) {
-    return server.tls_cluster ? n->tls_port : n->tcp_port;
+    return clusterDefaultClientPortIsTLS() ? n->tls_port : n->tcp_port;
 }
 
 static inline int getNodeDefaultReplicationPort(clusterNode *n) {
@@ -113,7 +111,7 @@ int clusterNodeClientPort(clusterNode *n, int use_tls) {
 }
 
 static inline int defaultClientPort(void) {
-    return server.tls_cluster ? server.tls_port : server.port;
+    return clusterDefaultClientPortIsTLS() ? server.tls_port : server.port;
 }
 
 #define isSlotUnclaimed(slot) \
@@ -497,7 +495,7 @@ int clusterLoadConfig(char *filename) {
         /* If neither TCP or TLS port is found in aux field, it is considered
          * an old version of nodes.conf file.*/
         if (!aux_tcp_port && !aux_tls_port) {
-            if (server.tls_cluster) {
+            if (clusterDefaultClientPortIsTLS()) {
                 n->tls_port = atoi(port);
             } else {
                 n->tcp_port = atoi(port);
@@ -853,7 +851,13 @@ void clusterUpdateMyselfFlags(void) {
 * The option can be set at runtime via CONFIG SET. */
 void clusterUpdateMyselfAnnouncedPorts(void) {
     if (!myself) return;
+    int old_tcp_port = myself->tcp_port;
+    int old_tls_port = myself->tls_port;
+
     deriveAnnouncedPorts(&myself->tcp_port,&myself->tls_port,&myself->cport);
+    if (myself->tcp_port != old_tcp_port || myself->tls_port != old_tls_port) {
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
+    }
 }
 
 /* We want to take myself->ip in sync with the cluster-announce-ip option.
@@ -881,6 +885,7 @@ void clusterUpdateMyselfIp(void) {
         } else {
             myself->ip[0] = '\0'; /* Force autodetection. */
         }
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
     }
 }
 
@@ -899,6 +904,7 @@ static void updateAnnouncedHostname(clusterNode *node, char *new) {
         sdsclear(node->hostname);
     }
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 }
 
 static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
@@ -966,7 +972,6 @@ void clusterInit(void) {
     server.cluster->currentEpoch = 0;
     server.cluster->state = CLUSTER_FAIL;
     server.cluster->size = 0;
-    server.cluster->topology_change_flags = 0;
     server.cluster->todo_before_sleep = 0;
     server.cluster->nodes = dictCreate(&clusterNodesDictType);
     server.cluster->shards = dictCreate(&clusterSdsToListType);
@@ -1293,6 +1298,21 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         connEnableTcpNoDelay(conn);
         connKeepAlive(conn,server.cluster_node_timeout / 1000 * 2);
 
+        /* When tls-expected-peer-name is configured, verify the connecting peer's
+         * certificate SAN/CN against it before completing the TLS handshake. This
+         * closes the cluster-bus node-ID impersonation vector: a certificate that
+         * chains to the CA but lacks the cluster identity (e.g. a sibling cert from
+         * a shared CA) cannot open a bus link and inject forged messages. No-op for
+         * non-TLS connections. */
+        if (server.tls_ctx_config.expected_peer_name != NULL &&
+            connSetVerifyName(conn, server.tls_ctx_config.expected_peer_name) == C_ERR)
+        {
+            serverLog(LL_VERBOSE,
+                "Error setting expected peer name on cluster node connection from %s:%d", cip, cport);
+            connClose(conn);
+            continue;
+        }
+
         /* Use non-blocking I/O for cluster messages. */
         serverLog(LL_VERBOSE,"Accepting cluster node connection from %s:%d", cip, cport);
 
@@ -1541,7 +1561,7 @@ void clusterAddNode(clusterNode *node) {
     retval = dictAdd(server.cluster->nodes,
             sdsnewlen(node->name,CLUSTER_NAMELEN), node);
     serverAssert(retval == DICT_OK);
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 }
 
 /* Remove a node from the cluster. The function performs the high level
@@ -1552,10 +1572,10 @@ void clusterAddNode(clusterNode *node) {
  * 2) Remove all the failure reports sent by this node and referenced by
  *    other nodes.
  * 3) Remove the node from the owning shard
- * 4) Cancel all ASM tasks that involve the node.
- * 5) Free the node with freeClusterNode() that will in turn remove it
+ * 4) Free the node with freeClusterNode() that will in turn remove it
  *    from the hash table and from the list of slaves of its master, if
  *    it is a slave node.
+ * 5) Notify Redis of the topology change.
  */
 void clusterDelNode(clusterNode *delnode) {
     int j;
@@ -1585,13 +1605,11 @@ void clusterDelNode(clusterNode *delnode) {
     /* 3) Remove the node from the owning shard */
     clusterRemoveNodeFromShard(delnode);
 
-    /* 4) Cancel all ASM tasks that involve the node. */
-    clusterAsmCancelByNode(delnode, "node deleted");
-
-    /* 5) Free the node, unlinking it from the cluster. */
+    /* 4) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    /* 5) Notify Redis of the topology change. */
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
 }
 
 /* Node lookup by name */
@@ -2048,7 +2066,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
      * handshake. */
     n = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_MEET);
     memcpy(n->ip,norm_ip,sizeof(n->ip));
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         n->tls_port = port;
     } else {
         n->tcp_port = port;
@@ -2059,7 +2077,7 @@ int clusterStartHandshake(char *ip, int port, int cport) {
 }
 
 static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp_port) {
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         *tls_port = ntohs(hdr->port);
         *tcp_port = ntohs(hdr->pport);
     } else {
@@ -2069,7 +2087,7 @@ static void getClientPortFromClusterMsg(clusterMsg *hdr, int *tls_port, int *tcp
 }
 
 static void getClientPortFromGossip(clusterMsgDataGossip *g, int *tls_port, int *tcp_port) {
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         *tls_port = ntohs(g->port);
         *tcp_port = ntohs(g->pport);
     } else {
@@ -2208,8 +2226,8 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 !(flags & CLUSTER_NODE_NOADDR) &&
                 !(flags & (CLUSTER_NODE_FAIL|CLUSTER_NODE_PFAIL)) &&
                 (strcasecmp(node->ip,g->ip) ||
-                 node->tls_port != (server.tls_cluster ? ntohs(g->port) : ntohs(g->pport)) ||
-                 node->tcp_port != (server.tls_cluster ? ntohs(g->pport) : ntohs(g->port)) ||
+                 node->tls_port != msg_tls_port ||
+                 node->tcp_port != msg_tcp_port ||
                  node->cport != ntohs(g->cport)))
             {
                 if (node->link) freeClusterLink(node->link);
@@ -2303,6 +2321,13 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     if (node->tcp_port == tcp_port && node->cport == cport && node->tls_port == tls_port &&
         strcmp(ip,node->ip) == 0) return 0;
 
+    /* Both client ports are part of the announced node configuration and may
+     * be relevant to modules. The cluster bus port is internal, so changing it
+     * alone is not a module-visible topology change. */
+    int topology_changed = node->tcp_port != tcp_port ||
+                           node->tls_port != tls_port ||
+                           strcmp(ip,node->ip) != 0;
+
     /* IP / port is different, update it. */
     memcpy(node->ip,ip,sizeof(ip));
     node->tcp_port = tcp_port;
@@ -2318,8 +2343,8 @@ int nodeUpdateAddressIfNeeded(clusterNode *node, clusterLink *link,
     if (nodeIsSlave(myself) && myself->slaveof == node)
         replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
 
-    /* A node moving to a different address is a topology change. */
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE);
+    if (topology_changed)
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
     return 1;
 }
 
@@ -2336,7 +2361,7 @@ void clusterSetNodeAsMaster(clusterNode *n) {
     n->flags &= ~CLUSTER_NODE_SLAVE;
     n->flags |= CLUSTER_NODE_MASTER;
     n->slaveof = NULL;
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 
     /* Update config and state. */
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -2410,7 +2435,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                 /* After completing slot ranges migration, the destination node
                  * will broadcast a PONG message to all the nodes. We need to
                  * detect that the slot was moved from us to the sender, and
-                 * call asmNotifyConfigUpdated() to notify the ASM state machine. */
+                 * call clusterAsmProcess() to notify the ASM state machine. */
                 if (server.cluster->slots[j] == myself && sender != myself)
                     sra = slotRangeArrayAppend(sra, j);
 
@@ -2447,19 +2472,20 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     }
 
     /* Notify ASM about the config update */
-    struct asmTask *asm_task = NULL;
+    const char *asm_task_id = NULL;
     if (sra && sra->num_ranges > 0 && server.masterhost == NULL) {
-        sds err = NULL;
-        asm_task = asmLookupTaskBySlotRangeArray(sra);
-        if (!asm_task) {
+        char *err = NULL;
+        asm_task_id = asmLookupTaskBySlotRangeArray(sra);
+        if (!asm_task_id) {
             /* If no task was found, it means the config update is not related
              * to current ASM task, but this node learned about the config
              * update from cluster protocol, and we need to cancel any
              * conflicting tasks that overlap with the slot ranges. */
             clusterAsmCancelBySlotRangeArray(sra, "slots configuration updated");
-        } else if (asmNotifyConfigUpdated(asm_task, &err) != C_OK) {
-            serverLog(LL_WARNING, "ASM config update failed: %s", err);
-            sdsfree(err);
+        } else if (clusterAsmProcess(asm_task_id, ASM_EVENT_DONE, NULL, &err) != C_OK) {
+            serverLog(LL_WARNING,
+                    "Failed to complete ASM task %s after slot configuration update: %s",
+                    asm_task_id, err);
         }
     }
     slotRangeArrayFree(sra);
@@ -2508,7 +2534,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG|
                              CLUSTER_TODO_BROADCAST_PONG);
-    } else if (dirty_slots_count && !asm_task) {
+    } else if (dirty_slots_count && !asm_task_id) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
          * we are serving some slots, so this master node was not demoted to
@@ -3150,6 +3176,9 @@ int clusterProcessPacket(clusterLink *link) {
                                     sender->shard_id,
                                     (unsigned long long)senderConfigEpoch,
                                     (unsigned long long)sender->configEpoch);
+                            /* Ignore the rest of this stale packet to prevent it from reverting
+                             * newer topology changes and creating an invalid replication chain. */
+                            return 1;
                         } else {
                             /* A failover occurred in the shard where `sender` belongs to and `sender` is no longer
                              * a primary. Update slot assignment to `master`, which is the new primary in the shard */
@@ -3186,7 +3215,7 @@ int clusterProcessPacket(clusterLink *link) {
                     sender->flags &= ~(CLUSTER_NODE_MASTER|
                                        CLUSTER_NODE_MIGRATE_TO);
                     sender->flags |= CLUSTER_NODE_SLAVE;
-                    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+                    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 
                     /* Update config and state. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
@@ -3204,12 +3233,39 @@ int clusterProcessPacket(clusterLink *link) {
                      * primary in the very first time. */
                     updateShardId(sender, master->shard_id);
 
-                    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+                    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 
                     /* Update config. */
                     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
                 }
             }
+        }
+
+        /* Safeguard against sub-replicas: our master may have just been demoted
+         * above, or by an earlier packet. We cannot leave this to the same check
+         * in clusterUpdateSlotsConfigWith(), which is only reached when the
+         * sender claims slots we attribute to someone else: once the demotion
+         * handling above hands them to the new master, that difference is gone.
+         *
+         * This runs on every packet rather than only on the demotion itself, so
+         * it also recovers a node that learned of the demotion before it knew
+         * the new master. Only follow a grandmaster we believe is a master, so
+         * that a chain that has not settled yet cannot make us resync from a
+         * node that owns no slots. */
+        clusterNode *grandmaster = nodeIsSlave(myself) && myself->slaveof ?
+                                   myself->slaveof->slaveof : NULL;
+        if (grandmaster && clusterNodeIsMaster(grandmaster) && grandmaster != myself &&
+            !(server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION))
+        {
+            serverLog(LL_NOTICE,
+                      "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s (%s)",
+                      grandmaster->name, grandmaster->human_nodename);
+            clusterSetMaster(grandmaster);
+            /* Save the new config and broadcast to the other nodes. */
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                 CLUSTER_TODO_UPDATE_STATE|
+                                 CLUSTER_TODO_FSYNC_CONFIG|
+                                 CLUSTER_TODO_BROADCAST_PONG);
         }
 
         /* Update our info about served slots.
@@ -3683,7 +3739,7 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     memset(hdr->slaveof,0,CLUSTER_NAMELEN);
     if (myself->slaveof != NULL)
         memcpy(hdr->slaveof,myself->slaveof->name, CLUSTER_NAMELEN);
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         hdr->port = htons(announced_tls_port);
         hdr->pport = htons(announced_tcp_port);
     } else {
@@ -3723,7 +3779,7 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
     gossip->ping_sent = htonl(n->ping_sent/1000);
     gossip->pong_received = htonl(n->pong_received/1000);
     memcpy(gossip->ip,n->ip,sizeof(n->ip));
-    if (server.tls_cluster) {
+    if (clusterDefaultClientPortIsTLS()) {
         gossip->port = htons(n->tls_port);
         gossip->pport = htons(n->tcp_port);
     } else {
@@ -4817,7 +4873,7 @@ void clusterCron(void) {
     dictInitSafeIterator(&di, server.cluster->nodes);
     while((de = dictNext(&di)) != NULL) {
         clusterNode *node = dictGetVal(de);
-        /* We free the inbound or outboud link to the node if the link has an
+        /* We free the inbound or outbound link to the node if the link has an
          * oversized message send queue and immediately try reconnecting. */
         clusterNodeCronFreeLinkOnBufferLimitReached(node);
         /* The protocol is that function(s) below return non-zero if the node was
@@ -5034,12 +5090,6 @@ void clusterBeforeSleep(void) {
     if (flags & CLUSTER_TODO_BROADCAST_PONG)
         clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
 
-    /* Notify subscribed modules about cluster topology changes. Done here, after
-     * the state update above, so the notification reflects the current state and
-     * fires at most once per event-loop iteration regardless of how many slots
-     * or nodes changed. */
-    if (flags & CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE)
-        clusterFireTopologyChangeEventIfNeeded();
 }
 
 void clusterDoBeforeSleep(int flags) {
@@ -5131,6 +5181,16 @@ int clusterNodeCoversSlot(clusterNode *n, int slot) {
     return bitmapTestBit(n->slots,slot);
 }
 
+/* Notify Redis about a topology change affecting a single slot without
+ * allocating a slotRangeArray for every call. */
+static int clusterNotifyTopologyChangedForSingleSlot(int slot) {
+    static slotRangeArray *slots = NULL;
+    if (slots == NULL) slots = slotRangeArrayCreate(1);
+
+    slotRangeArraySet(slots, 0, slot, slot);
+    return clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT, slots);
+}
+
 /* Add the specified slot to the list of slots that node 'n' will
  * serve. Return C_OK if the operation ended with success.
  * If the slot is already assigned to another instance this is considered
@@ -5141,8 +5201,9 @@ int clusterAddSlot(clusterNode *n, int slot) {
     server.cluster->slots[slot] = n;
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
+    /* Reset statistics separately while the slot may be imported by legacy slot migration. */
     clusterSlotStatReset(slot);
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT);
+    clusterNotifyTopologyChangedForSingleSlot(slot);
     return C_OK;
 }
 
@@ -5154,15 +5215,12 @@ int clusterDelSlot(int slot) {
 
     if (!n) return C_ERR;
 
-    /* Cleanup the channels in master/replica as part of slot deletion. */
-    removeChannelsInSlot(slot);
     /* Clear the slot bit. */
     serverAssert(clusterNodeClearSlotBit(n,slot) == 1);
     server.cluster->slots[slot] = NULL;
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
-    clusterSlotStatReset(slot);
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT);
+    clusterNotifyTopologyChangedForSingleSlot(slot);
     return C_OK;
 }
 
@@ -5216,41 +5274,6 @@ void clusterCloseAllSlots(void) {
 #define CLUSTER_MAX_REJOIN_DELAY 5000
 #define CLUSTER_MIN_REJOIN_DELAY 500
 #define CLUSTER_WRITABLE_DELAY 2000
-
-/* Record a pending RedisModuleEvent_ClusterTopologyChange (the change_flags are
- * REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_* bits) and request it to be fired
- * from the next clusterBeforeSleep(). Called from every slot/role mutation and
- * on the cluster's OK/FAIL transition. */
-static void clusterNotifyTopologyChange(uint64_t change_flags) {
-    server.cluster->topology_change_flags |= change_flags;
-    clusterDoBeforeSleep(CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE);
-}
-
-/* Fire the cluster topology-change notification to modules, if one is pending.
- * Called once per event-loop iteration from clusterBeforeSleep() in response to
- * CLUSTER_TODO_FIRE_TOPOLOGY_CHANGE, which is requested by every slot/role
- * mutation and on the cluster's OK/FAIL transition. This debounces a reshuffle
- * that touches many slots into a single notification, and reports every reason
- * that contributed via the change_flags bitmask in the event data. The check
- * here makes a redundant TODO a harmless no-op.
- *
- * The cluster first becoming ready is delivered through this same path: the
- * OK/FAIL transition records a STATE reason (slot assignment at startup records
- * a SLOT reason too), so no dedicated "startup" notification is needed. */
-static void clusterFireTopologyChangeEventIfNeeded(void) {
-    if (!server.cluster->topology_change_flags) return;
-
-    /* No data payload beyond the change reasons: a subscribing module reads
-     * whatever else it needs about the new topology via the cluster info module
-     * APIs (CLUSTER SLOTS, RedisModule_GetClusterNodesList/NodeInfo,
-     * RedisModule_GetClusterSize, ...). */
-    RedisModuleClusterTopologyChangeInfo info = {
-        .version = REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION,
-        .change_flags = server.cluster->topology_change_flags,
-    };
-    server.cluster->topology_change_flags = 0;
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE, 0, &info);
-}
 
 void clusterUpdateState(void) {
     int j, new_state;
@@ -5349,7 +5372,7 @@ void clusterUpdateState(void) {
 
         /* The OK/FAIL transition (in particular the first reach of OK, i.e. the
          * cluster becoming ready at startup) is itself a topology-change reason. */
-        clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE);
+        clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE, NULL);
     }
 }
 
@@ -5401,6 +5424,8 @@ void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
+    /* Capture a cross-shard move before updateShardId() adopts the new shard ID. */
+    int shard_changed = memcmp(myself->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0;
     int was_master = clusterNodeIsMaster(myself);
     if (was_master) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
@@ -5414,15 +5439,25 @@ void clusterSetMaster(clusterNode *n) {
     updateShardId(myself, n->shard_id);
     clusterNodeAddSlave(n,myself);
     replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
+    /* Replication histories from different shards are unrelated. Discard the
+     * cached master so the replica performs a full sync and reports offset 0
+     * until it has synchronized with its new master. */
+    if (shard_changed) {
+        replicationDiscardCachedMaster();
+        /* A replica moved across shards has no valid replication history for
+         * its new master. Restore repl_down_since to its initial value of zero,
+         * treating the replica like one that has never synchronized with its
+         * current master and has been disconnected since forever. This prevents
+         * automatic failover when cluster-replica-validity-factor is non-zero,
+         * while a zero validity factor preserves availability-first behavior. */
+        server.repl_down_since = 0;
+    }
     removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
 
-    /* Cancel all ASM tasks when switching into slave */
-    if (was_master) clusterAsmCancel(NULL, "switching to replica");
-
     /* Role change is now applied (a demotion, or a replica re-pointing to a new
-     * primary); notify modules. */
-    clusterNotifyTopologyChange(REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE);
+     * primary). */
+    clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE, NULL);
 }
 
 /* -----------------------------------------------------------------------------
@@ -5925,18 +5960,6 @@ sds genClusterInfoString(void) {
     return info;
 }
 
-
-void removeChannelsInSlot(unsigned int slot) {
-    if (countChannelsInSlot(slot) == 0) return;
-
-    pubsubShardUnsubscribeAllChannelsInSlot(slot);
-}
-
-/* Get the count of the channels for a given slot. */
-unsigned int countChannelsInSlot(unsigned int hashslot) {
-    return kvstoreDictSize(server.pubsubshard_channels, hashslot);
-}
-
 int clusterNodeIsMyself(clusterNode *n) {
     return n == server.cluster->myself;
 }
@@ -5954,13 +5977,8 @@ int getClusterSize(void) {
 }
 
 int getMyShardSlotCount(void) {
-    if (!nodeIsSlave(server.cluster->myself)) {
-        return server.cluster->myself->numslots;
-    } else if (server.cluster->myself->slaveof) {
-        return server.cluster->myself->slaveof->numslots;
-    } else {
-        return 0;
-    }
+    clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
+    return master->numslots;
 }
 
 char **getClusterNodesList(size_t *numnodes) {

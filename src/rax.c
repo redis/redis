@@ -409,7 +409,7 @@ raxNode *raxAddChild(rax *rax, raxNode *n, unsigned char c, raxNode **childptr, 
 }
 
 /* ------------------------ FIXED-LENGTH helpers --------------------------- */
-/* Layout of nodes leafs is unchanged; only slot interpretation differs. Depth 
+/* Layout of nodes leaves is unchanged; only slot interpretation differs. Depth 
  * is tracked implicitly: either by raxLowWalk or raxIterator.
  *
  * The child-pointer slots hold inlined values of the key instead of a pointer 
@@ -663,13 +663,15 @@ static inline int raxLowWalk(rax *rax, unsigned char *s, size_t len,
                 j = h->size;
                 break;
             } else {
-                /* Even when h->size is large, linear scan provides good
-                 * performances compared to other approaches that are in theory
-                 * more sounding, like performing a binary search. */
-                for (j = 0; j < h->size; j++) {
-                    if (v[j] == s[i]) break;
-                }
-                if (j == h->size) break;
+                /* Lookup the matching child edge. memchr() is used instead
+                 * of an open-coded scalar loop because libc implementations
+                 * on most platforms are SIMD-optimized (SSE2/AVX2 on x86,
+                 * NEON on arm64), which is significantly faster than a
+                 * byte-by-byte scan at the small fan-out sizes (<= 256)
+                 * that rax nodes can have. */
+                unsigned char *p = memchr(v, s[i], h->size);
+                if (p == NULL) break;
+                j = (size_t)(p - v);
             }
             i++;
         }
@@ -2276,17 +2278,25 @@ int raxRandomWalk(raxIterator *it, size_t steps) {
 
     raxNode *n = it->node;
     while(steps > 0 || (!n->iskey && it->leaf_slot_idx < 0)) {
+        /* A fixed-length inlined value is a virtual leaf: logically it has no
+         * children, even though it->node points to the leaf parent whose slots
+         * contain values. Move back to that parent before selecting the next
+         * edge. Otherwise the value slots could be interpreted as raxNode
+         * pointers when the walk continues from an already-positioned leaf. */
+        if (it->leaf_slot_idx >= 0) {
+            it->leaf_slot_idx = -1;
+            int todel = n->iscompr ? n->size : 1;
+            raxIteratorDelChars(it,todel);
+            continue;
+        }
+
         int numchildren = n->iscompr ? 1 : n->size;
         int r = rand() % (numchildren+(n != it->rt->head));
 
         if (r == numchildren) {
-            /* Go up: if parked on a virtual leaf, exit it (the leaf parent
-             * stays as n). Otherwise pop the real parent. Either way, the
-             * edge to strip is owned by the resulting `n`. */
-            if (it->leaf_slot_idx >= 0)
-                it->leaf_slot_idx = -1;
-            else
-                n = raxStackPop(&it->stack);
+            /* Go up to the real parent. The virtual-leaf case was normalized
+             * at the beginning of the loop. */
+            n = raxStackPop(&it->stack);
             int todel = n->iscompr ? n->size : 1;
             raxIteratorDelChars(it,todel);
         } else {
@@ -2864,6 +2874,31 @@ int raxTest(int argc, char **argv, int flags) {
             assert(yielded == 3);
             raxStop(&ri);
         }
+
+        raxFree(r);
+    }
+
+    TEST("inline-leaf: random walk from a virtual leaf") {
+        /* A single fixed-length key is stored as an iscompr=1 leaf parent at
+         * the root. Seeking positions the iterator on its virtual leaf. A
+         * subsequent random walk must first move back to the leaf parent;
+         * treating its value slot as a child raxNode would crash. Multiple
+         * steps exercise leaving and re-entering the same virtual leaf. */
+        rax *r = raxNewEx(0, NULL, 8);
+        unsigned char key[8] = {'A','A','A','A','A','A','A','A'};
+        void *value = (void*)(uintptr_t)1;
+        assert(raxInsert(r, key, sizeof(key), value, NULL) == 1);
+
+        raxIterator ri;
+        raxStart(&ri, r);
+        assert(raxSeek(&ri, "^", NULL, 0) == 1);
+        assert(ri.leaf_slot_idx == 0);
+        assert(raxRandomWalk(&ri, 8) == 1);
+        assert(ri.key_len == sizeof(key));
+        assert(memcmp(ri.key, key, sizeof(key)) == 0);
+        assert(ri.data == value);
+        assert(ri.leaf_slot_idx == 0);
+        raxStop(&ri);
 
         raxFree(r);
     }

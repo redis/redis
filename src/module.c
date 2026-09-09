@@ -385,6 +385,8 @@ typedef struct RedisModuleCommandFilterCtx {
     RedisModuleString **argv;
     int argv_len;
     int argc;
+    int argv_changed; /* Set when a filter modified argv, so the caller knows
+                       * it must refresh what it cached about the command. */
     client *c;
 } RedisModuleCommandFilterCtx;
 
@@ -2525,7 +2527,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                  * loop (ae.c) and avoid potential race conditions. */
 
                 int acquiring;
-                atomicGet(server.module_gil_acquring, acquiring);
+                atomicGet(server.module_gil_acquiring, acquiring);
                 if (!acquiring) {
                     /* If the main thread has not yet entered the acquiring GIL state,
                      * we attempt to wake it up and exit without waiting for it to
@@ -6050,6 +6052,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
     }
 
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
@@ -6057,6 +6060,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         if (created) moduleDelKeyIfEmpty(key);
         return REDISMODULE_ERR;
     }
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count increased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
@@ -6103,8 +6107,10 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
     }
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     streamID streamid = {id->ms, id->seq};
     if (streamDeleteItem(s, &streamid)) {
+        updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         return REDISMODULE_OK;
@@ -6371,7 +6377,13 @@ int RM_StreamIteratorDelete(RedisModuleKey *key) {
         return REDISMODULE_ERR;
     }
     streamIterator *si = key->iter;
+    stream *s = key->kv->ptr;
+    size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     streamIteratorRemoveEntry(si, &key->u.stream.currentid);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     key->u.stream.currentid.ms = 0; /* Make sure repeated Delete() fails */
     key->u.stream.currentid.seq = 0;
     key->u.stream.numfieldsleft = 0; /* Make sure NextField() fails */
@@ -6407,7 +6419,9 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     int approx = flags & REDISMODULE_STREAM_TRIM_APPROX ? 1 : 0;
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     long long retval = streamTrimByLength(s, length, approx);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;
@@ -6443,7 +6457,9 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     streamID minid = (streamID){id->ms, id->seq};
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
+    int64_t old_entries = (int64_t) s->length;
     long long retval = streamTrimByID(s, minid, approx);
+    updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;
@@ -6923,6 +6939,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             }
             goto cleanup;
         }
+        /* Fresh temp client from the pool — it holds no Pub/Sub subscriptions,
+         * so this direct identity assignment needs no provenance stamping. */
+        serverAssert(clientTotalPubSubSubscriptionCount(c) == 0);
         c->user = user;
     }
 
@@ -7160,16 +7179,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
-    /* We need to use a global replication_allowed flag in order to prevent
-     * replication of nested RM_Calls. Example:
-     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
-     * 2. module2.bar internally calls RM_Call of INCR with '!'
-     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
-     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar */
-    int prev_replication_allowed = server.replication_allowed;
-    server.replication_allowed = replicate && server.replication_allowed;
-
-    /* Run the command */
+    /* Run the command. call() takes care of restricting what the command may
+     * propagate (including nested RM_Calls) to the targets requested here, and
+     * of restoring the previous restrictions once it returns. */
     int call_flags = CMD_CALL_FROM_MODULE;
     if (replicate) {
         if (!(flags & REDISMODULE_ARGV_NO_AOF))
@@ -7178,7 +7190,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
-    server.replication_allowed = prev_replication_allowed;
 
     if (c->flags & CLIENT_BLOCKED) {
         serverAssert(flags & REDISMODULE_ARGV_ALLOW_BLOCK);
@@ -7196,11 +7207,16 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         };
         reply = callReplyCreatePromise(promise);
         c->bstate.async_rm_call_handle = promise;
-        if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
+        /* The unblocked command will be reprocessed by a brand new call(), and
+         * these client flags are the only state surviving until then: record in
+         * them every target it may not reach, the ones excluded by the outer
+         * call() included (call() restored its targets before returning). */
+        int targets = getPropagateTargetsForCall(c, call_flags) & server.allowed_propagate_targets;
+        if (!(targets & PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
         }
-        if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
+        if (!(targets & PROPAGATE_REPL)) {
             /* No need for replication propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
         }
@@ -10013,6 +10029,7 @@ size_t RM_GetClusterSize(void) {
  * * REDISMODULE_NODE_PFAIL:        We see the node as failing
  * * REDISMODULE_NODE_FAIL:         The cluster agrees the node is failing
  * * REDISMODULE_NODE_NOFAILOVER:   The slave is configured to never failover
+ * * REDISMODULE_NODE_PORT_TLS:     The returned port is a TLS port (added in Redis 8.12)
  */
 int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *master_id, int *port, int *flags) {
     UNUSED(ctx);
@@ -10046,6 +10063,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
         if (clusterNodeTimedOut(node)) *flags |= REDISMODULE_NODE_PFAIL;
         if (clusterNodeIsFailing(node)) *flags |= REDISMODULE_NODE_FAIL;
         if (clusterNodeIsNoFailover(node)) *flags |= REDISMODULE_NODE_NOFAILOVER;
+        if (clusterDefaultClientPortIsTLS()) *flags |= REDISMODULE_NODE_PORT_TLS;
     }
     return REDISMODULE_OK;
 }
@@ -11059,7 +11077,7 @@ static int authenticateClientWithUser(RedisModuleCtx *ctx, user *user, RedisModu
     moduleNotifyUserChanged(ctx->client);
 
     ctx->client->authenticated = 1;
-    clientSetUser(ctx->client, user);
+    clientSetUser(ctx->client, user, 1);
 
     if (clientHasModuleAuthInProgress(ctx->client)) {
         ctx->client->flags |= CLIENT_MODULE_AUTH_HAS_RESULT;
@@ -11997,6 +12015,7 @@ void moduleCallCommandFilters(client *c) {
         .argv = c->argv,
         .argv_len = c->argv_len,
         .argc = c->argc,
+        .argv_changed = 0,
         .c = c
     };
 
@@ -12012,6 +12031,9 @@ void moduleCallCommandFilters(client *c) {
         f->callback(&filter);
     }
 
+    /* Nothing was modified by the filters, there's nothing to refresh. */
+    if (!filter.argv_changed) return;
+
     /* If the filter sets a new command, including command or subcommand,
      * the command looked up will be invalid. */
     c->lookedcmd = NULL;
@@ -12020,19 +12042,19 @@ void moduleCallCommandFilters(client *c) {
     c->argv_len = filter.argv_len;
     c->argc = filter.argc;
 
-    /* Update pending command if it exists. */
+    /* Everything the pending command derived from the old argv (command, keys,
+     * slot, read error) is stale now, so preprocess it again. */
     pendingCommand *pcmd = c->current_pending_cmd;
     if (pcmd) {
         pcmd->argv = filter.argv;
         pcmd->argc = filter.argc;
         pcmd->argv_len = filter.argv_len;
-        pcmd->cmd = NULL;
-        pcmd->slot = INVALID_CLUSTER_SLOT;
-        pcmd->flags = 0;
+        preprocessCommand(c, pcmd);
 
-        /* Reset keys result */
-        getKeysFreeResult(&pcmd->keys_result);
-        pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
+        /* Keep the client fields we populated from the pending command in sync. */
+        c->lookedcmd = pcmd->cmd;
+        c->slot = pcmd->slot;
+        c->read_error = pcmd->read_error;
     }
 }
 
@@ -12073,6 +12095,7 @@ int RM_CommandFilterArgInsert(RedisModuleCommandFilterCtx *fctx, int pos, RedisM
     }
     fctx->argv[pos] = arg;
     fctx->argc++;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
@@ -12088,6 +12111,7 @@ int RM_CommandFilterArgReplace(RedisModuleCommandFilterCtx *fctx, int pos, Redis
 
     decrRefCount(fctx->argv[pos]);
     fctx->argv[pos] = arg;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
@@ -12105,6 +12129,7 @@ int RM_CommandFilterArgDelete(RedisModuleCommandFilterCtx *fctx, int pos)
         fctx->argv[i] = fctx->argv[i+1];
     }
     fctx->argc--;
+    fctx->argv_changed = 1;
 
     return REDISMODULE_OK;
 }
@@ -12995,7 +13020,7 @@ static uint64_t moduleEventVersions[] = {
  *         first becoming ready at startup).
  *     * `REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE`:
  *         A node joined or left the cluster, or an existing node's address
- *         (ip/port) changed.
+ *         (IP, hostname, or port) changed.
  *
  *     More than one bit may be set. Beyond the change reasons, the module reads
  *     whatever else it needs about the new topology via the cluster info APIs
@@ -13359,7 +13384,7 @@ void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
     server.module_configs_queue = dictCreate(&sdsKeyValueHashDictType);
-    server.module_gil_acquring = 0;
+    server.module_gil_acquiring = 0;
     modules = dictCreate(&modulesDictType);
     moduleAuthCallbacks = listCreate();
 

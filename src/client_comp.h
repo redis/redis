@@ -39,6 +39,10 @@ int clientReadBufAndDecompress(struct client *c, char *input_buf, size_t input_l
 int clientHasPendingCompressionFlush(struct client *c);
 int clientHasPendingCompressedData(struct client *c);
 
+/* Bytes used by the client's compression state (struct + input/output
+ * buffers), or 0 if compression is not active for the client. */
+size_t clientCompressionMemoryUsage(struct client *c);
+
 /* Client-level compression API. These are the networking-facing wrappers that
  * apply the client's compressor around the client's connection.
  *

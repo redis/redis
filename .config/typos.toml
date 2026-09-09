@@ -1,0 +1,71 @@
+# See https://github.com/crate-ci/typos/blob/master/docs/reference.md to configure typos
+
+[files]
+extend-exclude = [
+    "deps/",
+    # crc16_slottable is primarily pre-generated random strings.
+    "src/crc16_slottable.h",
+    # Third-party imported code.
+    "src/pqsort.c",
+    "src/lzf*",
+    "src/sha1.c",
+]
+
+[default]
+extend-ignore-re = [
+    # Redis command names with past-tense suffix in docs/log messages.
+    '(WATCH|SELECT|DUMP)ed',
+    'RESTOREd',
+    # Italian poetry in lolwut8.c.
+    'le cose',
+    # ANSI escape sequences inside redis-cli reverse-search test regexes
+    # (e.g. `k\x1B[1mey\x1B[0m`).
+    '\[1mey',
+    # Time zone abbreviations in release note timestamps.
+    '\d{2}:\d{2}:\d{2} [A-Z]{3}',
+    # JSONPath 'nin' (not in) operator name.
+    '`nin`',
+]
+
+[default.extend-words]
+exat = "exat"
+optin = "optin"
+smove = "smove"
+# 'tre' is the name of the TRE regex library dependency.
+tre = "tre"
+# 'ser' appears as a substring in existing Redis identifiers, preserved to avoid sweeping renames.
+ser = "ser"
+# Short identifiers used across C/TCL/header sources.
+fo = "fo"
+pn = "pn"
+seeked = "seeked"
+
+[default.extend-identifiers]
+# POSIX glob struct field; not a typo.
+gl_pathc = "gl_pathc"
+
+[type.c]
+extend-ignore-re = [
+    "Georg Nees",
+    '\[l\]ist',  # eval.c help text
+]
+
+[type.c.extend-identifiers]
+clen = "clen"
+fle = "fle"
+nd = "nd"
+ot = "ot"
+# Local variable abbreviations widespread across the codebase.
+cpy = "cpy"
+# Latency-tracking subsystem identifiers.
+advices = "advices"
+# t_string GETRANGE/SETRANGE locals.
+arange_start = "arange_start"
+arange_end = "arange_end"
+
+[type.tcl.extend-identifiers]
+oll = "oll"
+
+[type.systemd.extend-words]
+# systemd = .conf
+ake = "ake"

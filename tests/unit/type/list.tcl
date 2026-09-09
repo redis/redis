@@ -1298,6 +1298,20 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd close
         set _ $res
     } {foo{t} aguacate}
+
+    test "$pop when existing key is overwritten by SORT..STORE" {
+        set rd [redis_deferring_client]
+        r del owfoo{t} ownotfoo{t}
+
+        bpop_command $rd $pop owfoo{t} 0
+        wait_for_blocked_client
+        r set owfoo{t} placeholder        ;# wrong type: client stays blocked
+        r rpush ownotfoo{t} 3 1 2
+        r sort ownotfoo{t} store owfoo{t} ;# owfoo{t} overwritten -> list [1 2 3]
+        set res [$rd read]
+        assert_equal {owfoo{t} 1} $res
+        $rd close
+    }
 }
 
     test "BLPOP: timeout value out of range" {

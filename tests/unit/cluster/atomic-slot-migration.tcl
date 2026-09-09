@@ -275,6 +275,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # invalid slot range
         assert_error {*greater than end slot number*} {R 0 CLUSTER MIGRATION IMPORT 200 100}
+        assert_error {*greater than end slot number*} {R 0 CLUSTER MIGRATION IMPORT 100 200 201 150}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 17000 18000}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 14000 18000}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 0 16384}
@@ -948,7 +949,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "ASM task did not start"
         }
 
-        # update expire time during mirgration
+        # update expire time during migration
         R 1 setex $slot0_key 100 "a"
         R 1 expire $slot1_key 80
         R 1 expire $slot2_key 60
@@ -1456,9 +1457,15 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Source write pause timeout" {
+        set prev_config_lag [lindex [R 0 config get cluster-slot-migration-handoff-max-lag-bytes] 1]
+
         # set timeout to 0, so the task will fail immediately when checking timeout
         R 0 config set cluster-slot-migration-write-pause-timeout 0
+        # The destination cron will be paused before migration starts. Increase the
+        # lag threshold so its first ACK can enter handoff under TSan's slower timing.
+        R 0 config set cluster-slot-migration-handoff-max-lag-bytes 100mb
         R 1 debug asm-failpoint "import-main-channel" "takeover"
+        R 1 debug pause-cron 1 ;# prevent retrying the failed import task
 
         # start migration from node 0 to 1
         set task_id [setup_slot_migration_with_delay 0 1 0 100]
@@ -1473,16 +1480,60 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             [string match {*Write pause timeout*} \
                 [migration_status 0 $task_id last_error]]
         } else {
-            fail "ASM task did not fail"
+            fail "ASM task did not fail: source=[migration_status 0 $task_id state], destination=[migration_status 1 $task_id state]"
         }
 
         stop_write_load $load_handle
 
         # reset config
         R 0 config set cluster-slot-migration-write-pause-timeout 10000
+        R 0 config set cluster-slot-migration-handoff-max-lag-bytes $prev_config_lag
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
         R 1 debug asm-failpoint "" ""
+        R 1 debug pause-cron 0
+    }
+
+    test "Source write pause timeout runs before STREAM-EOF" {
+        # hold the task right before the handoff, so we can expire the write
+        # pause while it is still waiting to send STREAM-EOF
+        R 0 debug asm-failpoint "migrate-main-channel" "handoff-prep"
+
+        # do not take over the slots, so a STREAM-EOF sent by mistake leaves
+        # the source in the stream-eof state instead of completing the task
+        R 1 debug asm-failpoint "import-main-channel" "takeover"
+
+        # start migration from node 0 to 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+        wait_for_condition 2000 10 {
+            [string match {*send-stream*} [migration_status 0 $task_id state]] &&
+            [string match {*wait-stream-eof*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not reach the pre-handoff states"
+        }
+
+        # pause the source cron so it cannot enforce the timeout first, then
+        # expire the timeout and release the handoff while rejecting retries
+        R 0 debug pause-cron 1
+        R 0 config set cluster-slot-migration-write-pause-timeout 0
+        R 0 debug asm-failpoint "migrate-main-channel" "none"
+
+        # node 0 must fail while still in handoff, without handing the slots over
+        wait_for_condition 2000 10 {
+            [string match {*failed*} [migration_status 0 $task_id state]] &&
+            [string match {*Write pause timeout*state: handoff*} \
+                [migration_status 0 $task_id last_error]]
+        } else {
+            fail "ASM task did not leave handoff: [migration_status 0 $task_id state]"
+        }
+
+        # reset config
+        R 0 config set cluster-slot-migration-write-pause-timeout 10000
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
+        R 0 debug asm-failpoint "" ""
+        R 1 debug asm-failpoint "" ""
+        R 0 debug pause-cron 0
     }
 
     test "Sync buffer drain timeout" {
@@ -1713,6 +1764,123 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # cleanup
         wait_for_asm_done
         R 0 CLUSTER MIGRATION IMPORT 0 1
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+    }
+
+    test {Test bgtrim IDMP: disjoint ranges with in-range gap + far-slot; dedup on dest and source} {
+        # One IMPORT with two non-adjacent slot ranges (union trim). Slot between the ranges and a
+        # far slot stay on the source; migrated keys move to the dest. Exercises slotRangeArray
+        # membership + IDMP correctness (stream_idmp_keys vs one bg trim batch).
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+
+        set k0 [slot_key 0 idmp]
+        set k1 [slot_key 1 idmp]
+        set k2 [slot_key 2 idmp]
+        set k4 [slot_key 4 idmp]
+        set k5 [slot_key 5 idmp]
+        set k6 [slot_key 6 idmp]
+        set k101 [slot_key 101 idmp]
+
+        foreach k [list $k0 $k1 $k2 $k4 $k5 $k6 $k101] {
+            R 0 XADD $k IDMP p1 "init" * field "init"
+            R 0 XCFGSET $k IDMP-DURATION 86400
+        }
+
+        set id0 [R 0 XADD $k0 IDMP p1 "r0" * field v0]
+        set id1 [R 0 XADD $k1 IDMP p1 "r1" * field v1]
+        set id2 [R 0 XADD $k2 IDMP p1 "r2" * field v2]
+        set id4 [R 0 XADD $k4 IDMP p1 "r4" * field v4]
+        set id5 [R 0 XADD $k5 IDMP p1 "r5" * field v5]
+        set id6 [R 0 XADD $k6 IDMP p1 "r6" * field v6]
+        set id101 [R 0 XADD $k101 IDMP p1 "r101" * field v101]
+
+        foreach k [list $k0 $k1 $k2 $k4 $k5 $k6 $k101] {
+            assert_equal 1 [dict get [R 0 XINFO STREAM $k] pids-tracked]
+        }
+
+        # Migrate [0-2] and [5-6] in a single IMPORT; slot 4 and 101 are outside both ranges.
+        # After migration, trimmed slots are owned by node 1: use R 1 for those keys (R 0 replies MOVED).
+        R 1 CLUSTER MIGRATION IMPORT 0 2 5 6
+        wait_for_asm_done
+
+        wait_for_condition 1000 10 {
+            [R 1 EXISTS $k0] == 1 && [R 1 EXISTS $k1] == 1 && [R 1 EXISTS $k2] == 1 &&
+            [R 1 EXISTS $k5] == 1 && [R 1 EXISTS $k6] == 1 &&
+            [R 0 EXISTS $k4] == 1 && [R 0 EXISTS $k101] == 1
+        } else {
+            fail "Migrated streams missing on destination or survivors missing on source"
+        }
+
+        foreach k [list $k0 $k1 $k2 $k5 $k6] {
+            assert_equal 1 [dict get [R 1 XINFO STREAM $k] pids-tracked]
+        }
+        assert_equal $id0 [R 1 XADD $k0 IDMP p1 "r0" * field dup]
+        assert_equal $id1 [R 1 XADD $k1 IDMP p1 "r1" * field dup]
+        assert_equal $id2 [R 1 XADD $k2 IDMP p1 "r2" * field dup]
+        assert_equal $id5 [R 1 XADD $k5 IDMP p1 "r5" * field dup]
+        assert_equal $id6 [R 1 XADD $k6 IDMP p1 "r6" * field dup]
+
+        assert_equal 1 [dict get [R 0 XINFO STREAM $k4] pids-tracked]
+        assert_equal 1 [dict get [R 0 XINFO STREAM $k101] pids-tracked]
+        assert_equal $id4 [R 0 XADD $k4 IDMP p1 "r4" * field dup]
+        assert_equal $id101 [R 0 XADD $k101 IDMP p1 "r101" * field dup]
+
+        # cleanup
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 2 5 6
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+    }
+
+    test {Test bgtrim IDMP: many streams; outer ranges migrated, inner + high slots kept} {
+        # Many IDMP entries across the shard; only outer slot ranges migrate so most keys stay on
+        # the source — selective trim vs a large stream_idmp_keys dict (same multi-range ASM path).
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+
+        set keys {}
+        foreach slot {0 1 2 3 4 5 6 7 101 102 103} {
+            lappend keys [slot_key $slot idmp]
+        }
+
+        foreach k $keys {
+            R 0 XADD $k IDMP p1 "init" * field "init"
+            R 0 XCFGSET $k IDMP-DURATION 86400
+            R 0 XADD $k IDMP p1 "req" * field v1
+            assert_equal 1 [dict get [R 0 XINFO STREAM $k] pids-tracked]
+        }
+
+        # Single IMPORT: ranges [0-1] and [6-7]; slots 2-5 and 101-103 are not trimmed on source.
+        R 1 CLUSTER MIGRATION IMPORT 0 1 6 7
+        wait_for_asm_done
+
+        set kept_slots {2 3 4 5 101 102 103}
+        # Trimmed slots are served by node 1 after migration; survivors stay on node 0.
+        # wait_for_condition body must be a single expr (no foreach/set).
+        wait_for_condition 1000 10 {
+            [R 1 EXISTS [slot_key 0 idmp]] == 1 && [R 1 EXISTS [slot_key 1 idmp]] == 1 &&
+            [R 1 EXISTS [slot_key 6 idmp]] == 1 && [R 1 EXISTS [slot_key 7 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 2 idmp]] == 1 && [R 0 EXISTS [slot_key 3 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 4 idmp]] == 1 && [R 0 EXISTS [slot_key 5 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 101 idmp]] == 1 && [R 0 EXISTS [slot_key 102 idmp]] == 1 &&
+            [R 0 EXISTS [slot_key 103 idmp]] == 1
+        } else {
+            fail "Selective IDMP trim did not match migrated slot ranges"
+        }
+
+        foreach slot $kept_slots {
+            set k [slot_key $slot idmp]
+            assert_equal 1 [dict get [R 0 XINFO STREAM $k] pids-tracked]
+            R 0 XADD $k IDMP p1 "after_trim" * field x
+        }
+
+        # cleanup
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 1 6 7
         wait_for_asm_done
         R 0 flushall
         R 0 debug asm-trim-method default
@@ -3161,6 +3329,79 @@ start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list 
         set task_id [R 0 CLUSTER MIGRATION IMPORT 0 1]
         wait_for_log_messages 0 {"*Can not start import task*trim is disabled by module*"} $logline 1000 10
         R 0 asm.enable_trim
+        wait_for_asm_done
+    }
+}
+
+start_cluster 2 2 [list tags {external:skip cluster modules} config_lines [list cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
+    test "Slot stats are not tracked for imported data on masters and replicas" {
+        # Migrate slot 0 from node 0 to node 1 with a 2s default delay so the live
+        # write below is applied as imported data.
+        setup_slot_migration_with_delay 0 1 0 0
+
+        # Forward a write while slot 0 is being imported.
+        set import_key [slot_key 0 import_key]
+        R 0 SET $import_key value
+        wait_for_asm_done
+        R 0 CONFIG SET rdb-key-save-delay 0
+
+        # The destination master and replica have all imported keys, but do not
+        # count the commands used to apply them as slot CPU or network activity.
+        foreach node {1 3} {
+            assert {$import_key in [R $node CLUSTER GETKEYSINSLOT 0 10]}
+            set slot_stats [R $node CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+            assert_equal 1 [llength $slot_stats]
+            set stats [lindex $slot_stats 0 1]
+            # There is key-count, but no cpu-usec network-bytes-in/out.
+            assert_equal 3 [dict get $stats key-count]
+            foreach metric {cpu-usec network-bytes-in network-bytes-out} {
+                assert_equal 0 [dict get $stats $metric]
+            }
+        }
+
+        # The source master and replica no longer retain keys or statistics for
+        # the migrated slot.
+        foreach node {0 2} {
+            assert_equal {} [R $node CLUSTER GETKEYSINSLOT 0 10]
+            assert_equal {} [R $node CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+        }
+
+        # Commands issued after the migration must be tracked by both the new
+        # master and its replica.
+        R 1 SET $import_key updated
+        wait_for_ofs_sync [Rn 1] [Rn 3]
+        foreach node {1 3} {
+            set slot_stats [R $node CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+            set stats [lindex $slot_stats 0 1]
+            assert {[dict get $stats network-bytes-in] > 0}
+        }
+
+        # Migrate slot back to node 0.
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
+
+    test "Sharded pub/sub channels are unsubscribed after slot migration" {
+        set channelname [slot_key 0 myshardchan]
+
+        # Subscribe to the channel on the source master's replica(node 2).
+        set rd [redis_deferring_client -2]
+        $rd ssubscribe $channelname
+        $rd read
+
+        # Migrate slot 0 from node 0 to node 1.
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+
+        # Verify the replica client receives sunsubscribe for the migrated slot.
+        set msg [$rd read]
+        assert {"sunsubscribe" eq [lindex $msg 0]}
+        assert {$channelname eq [lindex $msg 1]}
+        assert {"0" eq [lindex $msg 2]}
+        $rd close
+
+        # cleanup: migrate slot back to node 0
+        R 0 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
     }
 }
