@@ -1398,15 +1398,15 @@ start_server {tags {"zset"}} {
 
     test "Large B-tree COPY preserves digest and cardinality" {
         with_btree_encoding {
-            r del zcopy_src zcopy_dst
+            r del zcopy_src{t} zcopy_dst{t}
             for {set i 0} {$i < 5000} {incr i} {
-                r zadd zcopy_src [expr {$i * 1.5}] [format m%06d $i]
+                r zadd zcopy_src{t} [expr {$i * 1.5}] [format m%06d $i]
             }
-            assert_encoding btree zcopy_src
-            r copy zcopy_src zcopy_dst
-            assert_encoding btree zcopy_dst
-            assert_equal [r zcard zcopy_src] [r zcard zcopy_dst]
-            assert_equal [debug_digest_value zcopy_src] [debug_digest_value zcopy_dst]
+            assert_encoding btree zcopy_src{t}
+            r copy zcopy_src{t} zcopy_dst{t}
+            assert_encoding btree zcopy_dst{t}
+            assert_equal [r zcard zcopy_src{t}] [r zcard zcopy_dst{t}]
+            assert_equal [debug_digest_value zcopy_src{t}] [debug_digest_value zcopy_dst{t}]
         }
     }
 
@@ -3027,12 +3027,12 @@ start_server {tags {"zset"}} {
 
     test "Large B-tree ZUNION/ZDIFF WITHSCORES RESP3" {
         with_btree_encoding {
-            r del z1 z2
-            r zadd z1 1 a 2 b 3 c
-            r zadd z2 2 b 3 c 4 d
+            r del z1{t} z2{t}
+            r zadd z1{t} 1 a 2 b 3 c
+            r zadd z2{t} 2 b 3 c 4 d
             r hello 3
-            assert_equal {{a 1.0} {b 4.0} {d 4.0} {c 6.0}} [r zunion 2 z1 z2 withscores]
-            assert_equal {{a 1.0}} [r zdiff 2 z1 z2 withscores]
+            assert_equal {{a 1.0} {b 4.0} {d 4.0} {c 6.0}} [r zunion 2 z1{t} z2{t} withscores]
+            assert_equal {{a 1.0}} [r zdiff 2 z1{t} z2{t} withscores]
             r hello 2
         }
     }
@@ -3043,16 +3043,16 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries 128
         r config set zset-max-listpack-value 64
 
-        r del zua zub zdest
-        for {set i 0} {$i < 64} {incr i} { r zadd zua $i [format m%02d $i] }
-        for {set i 32} {$i < 96} {incr i} { r zadd zub $i [format m%02d $i] }
-        assert_equal 96 [r zunionstore zdest 2 zua zub]
-        assert_encoding listpack zdest
+        r del zua{t} zub{t} zdest{t}
+        for {set i 0} {$i < 64} {incr i} { r zadd zua{t} $i [format m%02d $i] }
+        for {set i 32} {$i < 96} {incr i} { r zadd zub{t} $i [format m%02d $i] }
+        assert_equal 96 [r zunionstore zdest{t} 2 zua{t} zub{t}]
+        assert_encoding listpack zdest{t}
 
         r config set zset-max-listpack-entries 63
-        r del zdest2
-        assert_equal 96 [r zunionstore zdest2 2 zua zub]
-        assert_encoding btree zdest2
+        r del zdest2{t}
+        assert_equal 96 [r zunionstore zdest2{t} 2 zua{t} zub{t}]
+        assert_encoding btree zdest2{t}
 
         r config set zset-max-listpack-entries $original_max
         r config set zset-max-listpack-value $original_value
@@ -3060,73 +3060,73 @@ start_server {tags {"zset"}} {
 
     test "ZDIFFSTORE algorithm 2 with large btree sources" {
         with_btree_encoding {
-            r del zd0 zd1 zd2 zddest
-            for {set i 0} {$i < 500} {incr i} { r zadd zd0 $i [format a%04d $i] }
-            for {set i 0} {$i < 50} {incr i} { r zadd zd1 $i [format b%04d $i] }
-            for {set i 0} {$i < 50} {incr i} { r zadd zd2 $i [format c%04d $i] }
-            assert_equal 500 [r zdiffstore zddest 3 zd0 zd1 zd2]
-            assert_equal 500 [r zcard zddest]
-            assert_equal [format a%04d 49] [lindex [r zrange zddest 49 49] 0]
-            assert_equal [format a%04d 499] [lindex [r zrange zddest -1 -1] 0]
+            r del zd0{t} zd1{t} zd2{t} zddest{t}
+            for {set i 0} {$i < 500} {incr i} { r zadd zd0{t} $i [format a%04d $i] }
+            for {set i 0} {$i < 50} {incr i} { r zadd zd1{t} $i [format b%04d $i] }
+            for {set i 0} {$i < 50} {incr i} { r zadd zd2{t} $i [format c%04d $i] }
+            assert_equal 500 [r zdiffstore zddest{t} 3 zd0{t} zd1{t} zd2{t}]
+            assert_equal 500 [r zcard zddest{t}]
+            assert_equal [format a%04d 49] [lindex [r zrange zddest{t} 49 49] 0]
+            assert_equal [format a%04d 499] [lindex [r zrange zddest{t} -1 -1] 0]
         }
     }
 
     test "ZDIFF algorithm 2 with intset source 0 against btree subtrahends" {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
-        r del s0 z1 z2 z3 zdest
-        r sadd s0 1 2 3 4 5
-        assert_encoding intset s0
+        r del s0{t} z1{t} z2{t} z3{t} zdest{t}
+        r sadd s0{t} 1 2 3 4 5
+        assert_encoding intset s0{t}
         r config set zset-max-listpack-entries 0
-        r zadd z1 1 1
-        r zadd z2 1 2
-        r zadd z3 1 x
-        assert_encoding btree z1
+        r zadd z1{t} 1 1
+        r zadd z2{t} 1 2
+        r zadd z3{t} 1 x
+        assert_encoding btree z1{t}
         # algo_one = 5*4/2 = 10, algo_two = 5+1+1+1 = 8 -> algorithm 2
-        assert_equal {3 4 5} [lsort [r zdiff 4 s0 z1 z2 z3]]
-        assert_equal 3 [r zdiffstore zdest 4 s0 z1 z2 z3]
-        assert_equal {3 1 4 1 5 1} [r zrange zdest 0 -1 withscores]
+        assert_equal {3 4 5} [lsort [r zdiff 4 s0{t} z1{t} z2{t} z3{t}]]
+        assert_equal 3 [r zdiffstore zdest{t} 4 s0{t} z1{t} z2{t} z3{t}]
+        assert_equal {3 1 4 1 5 1} [r zrange zdest{t} 0 -1 withscores]
         r config set zset-max-listpack-entries $original_max
     }
 
     test "ZDIFF algorithm 2 with listpack source 0 against btree subtrahends" {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 128
-        r del z0 z1 z2 z3 z4 zdest
-        r zadd z0 1 a 2 b 3 c 4 d 5 e
-        assert_encoding listpack z0
+        r del z0{t} z1{t} z2{t} z3{t} z4{t} zdest{t}
+        r zadd z0{t} 1 a 2 b 3 c 4 d 5 e
+        assert_encoding listpack z0{t}
         r config set zset-max-listpack-entries 0
-        r zadd z1 1 a
-        r zadd z2 1 b
-        r zadd z3 1 c
-        r zadd z4 1 z
-        assert_encoding btree z1
+        r zadd z1{t} 1 a
+        r zadd z2{t} 1 b
+        r zadd z3{t} 1 c
+        r zadd z4{t} 1 z
+        assert_encoding btree z1{t}
         # algo_one = 5*5/2 = 12, algo_two = 5+1+1+1+1 = 9 -> algorithm 2
-        assert_equal {d 4 e 5} [r zdiff 5 z0 z1 z2 z3 z4 withscores]
-        assert_equal 2 [r zdiffstore zdest 5 z0 z1 z2 z3 z4]
-        assert_equal {d 4 e 5} [r zrange zdest 0 -1 withscores]
+        assert_equal {d 4 e 5} [r zdiff 5 z0{t} z1{t} z2{t} z3{t} z4{t} withscores]
+        assert_equal 2 [r zdiffstore zdest{t} 5 z0{t} z1{t} z2{t} z3{t} z4{t}]
+        assert_equal {d 4 e 5} [r zrange zdest{t} 0 -1 withscores]
         r config set zset-max-listpack-entries $original_max
     }
 
     test "ZADD bulk-builds an empty btree destination" {
         with_btree_encoding {
-            r del zbulk zincr
+            r del zbulk{t} zincr{t}
             set args {}
             for {set i 0} {$i < 200} {incr i} {
                 lappend args $i m$i
-                r zadd zincr $i m$i
+                r zadd zincr{t} $i m$i
             }
-            assert_equal 200 [r zadd zbulk {*}$args]
-            assert_encoding btree zbulk
-            assert_equal 200 [r zcard zbulk]
-            assert_equal [debug_digest_value zincr] [debug_digest_value zbulk]
-            assert_equal 100 [r zrank zbulk m100]
-            assert_equal m0 [lindex [r zrange zbulk 0 0] 0]
-            assert_equal m199 [lindex [r zrange zbulk -1 -1] 0]
-            set d1 [debug_digest_value zbulk]
+            assert_equal 200 [r zadd zbulk{t} {*}$args]
+            assert_encoding btree zbulk{t}
+            assert_equal 200 [r zcard zbulk{t}]
+            assert_equal [debug_digest_value zincr{t}] [debug_digest_value zbulk{t}]
+            assert_equal 100 [r zrank zbulk{t} m100]
+            assert_equal m0 [lindex [r zrange zbulk{t} 0 0] 0]
+            assert_equal m199 [lindex [r zrange zbulk{t} -1 -1] 0]
+            set d1 [debug_digest_value zbulk{t}]
             r debug reload
-            assert_encoding btree zbulk
-            assert_equal 200 [r zcard zbulk]
-            assert_equal $d1 [debug_digest_value zbulk]
+            assert_encoding btree zbulk{t}
+            assert_equal 200 [r zcard zbulk{t}]
+            assert_equal $d1 [debug_digest_value zbulk{t}]
         }
     }
 

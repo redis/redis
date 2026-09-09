@@ -602,15 +602,6 @@ static dictEntryLink dictBucketForInsertByHash(dict *d, uint64_t hash) {
     return &d->ht_table[htidx][hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])];
 }
 
-/* Advisory-only bucket address for prefetching: it reflects the table state
- * right now and neither steps rehashing nor grows the table. By insert time the
- * address may be stale (a rehash step can flip the active table), which only
- * wastes a prefetch hint and never corrupts anything. */
-static inline dictEntryLink dictBucketHint(dict *d, uint64_t hash) {
-    int htidx = dictIsRehashing(d) ? 1 : 0;
-    return &d->ht_table[htidx][hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])];
-}
-
 /* Add a key the caller knows is absent, skipping the duplicate scan that
  * dictAdd()/dictAddRaw() perform. On the bulk sorted-set paths every member is
  * unique by construction, so that scan is pure overhead (a cache-missing bucket
@@ -688,39 +679,6 @@ void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
             redis_prefetch_write(&d->ht_table[htidx]
                 [hn & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
         }
-    }
-}
-
-/* Batch form of dictFind() for an array of independent lookup keys, with the
- * same two-window software pipeline dictAddNonExistingBatch() uses: it hides
- * the dependent cache miss each lookup would otherwise stall on (the
- * destination bucket) behind a lookahead distance instead of paying it once
- * per key, serially. Unlike the insert side there is no hash to carry between
- * the priming and authoritative steps - dictFind() recomputes it - so the
- * prefetch hint is naturally advisory: a rehash step between the hint and the
- * lookup only wastes the prefetch. Writes one result per key into 'results'
- * positionally (NULL for a key not found). */
-void dictFindBatch(dict *d, void **keys, dictEntry **results, size_t n) {
-    if (n == 0) return;
-
-    enum { PF = 8 };
-
-    /* Prime the prefetch window for the first PF lookups. */
-    size_t primed = n < PF ? n : PF;
-    for (size_t j = 0; j < primed; j++)
-        redis_prefetch_read((void *)dictBucketHint(d, dictGetHash(d, keys[j])));
-
-    for (size_t i = 0; i < n; i++) {
-        /* Two windows ahead: bring the key's own bytes into cache before it
-         * is hashed. */
-        if (i + 2 * PF < n)
-            redis_prefetch_read(keys[i + 2 * PF]);
-
-        results[i] = dictFind(d, keys[i]);
-
-        /* One window ahead: hash the key and prefetch its bucket. */
-        if (i + PF < n)
-            redis_prefetch_read((void *)dictBucketHint(d, dictGetHash(d, keys[i + PF])));
     }
 }
 
