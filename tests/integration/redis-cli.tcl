@@ -687,12 +687,16 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     }
 
 if {!$::tls} { ;# fake_cmddocs_node doesn't support TLS
-    foreach mode {nested oddlen} {
+    foreach mode {nested oddlen oddspec oddsubs oddargs} {
         test "redis-cli survives malformed COMMAND DOCS reply ($mode)" {
             set tclsh [info nameofexecutable]
             set script "tests/helpers/fake_cmddocs_node.tcl"
             set port [find_available_port $::baseport $::portcount]
-            set nodepid [exec $tclsh $script $port $mode &]
+            # The fake node logs each command it serves here, so we can tell a
+            # survived-the-overflow run apart from one where redis-cli never
+            # reached the vulnerable code at all.
+            set servedlog [tmpfile "cmddocs-served"]
+            set nodepid [exec $tclsh $script $port $mode $servedlog &]
             # Make sure the fake node started listening.
             wait_for_condition 50 50 {
                 [catch {close [socket "127.0.0.1" $port]}] == 0
@@ -702,18 +706,45 @@ if {!$::tls} { ;# fake_cmddocs_node doesn't support TLS
             }
             # --test_hint_file makes redis-cli connect, run cliInitHelp() (which
             # issues COMMAND DOCS and fills the help entries - the vulnerable
-            # path), then evaluate the hint suite and exit. A hint mismatch is a
-            # normal non-zero exit; a heap overflow is a fatal signal.
+            # path), then evaluate the hint suite and exit. The suite is a
+            # single case that is not expected to match, so a plain non-zero
+            # exit is normal here and the checks below tolerate it.
             set suite [write_tmpfile "foo bar\n"]
             set cmd [rediscli "127.0.0.1" $port [list --test_hint_file $suite]]
-            set code [catch {exec {*}$cmd 2>@1} output opts]
+            catch {exec {*}$cmd 2>@1} output opts
+            # Collect everything and clean up before asserting, so a failure
+            # doesn't leak the fake node or the temporary files.
             catch {exec kill $nodepid}
+            set served ""
+            if {[file exists $servedlog]} {
+                set fd [open $servedlog "r"]
+                set served [read $fd]
+                close $fd
+            }
             file delete $suite
-            # Only a crash (SIGSEGV, or an AddressSanitizer SIGABRT) shows up as
-            # CHILDKILLED; a clean run or a hint mismatch does not.
+            file delete $servedlog
+            # A hard crash shows up as a fatal signal; a hint mismatch is a
+            # plain non-zero exit and must not be confused with one.
             if {[lindex [dict get $opts -errorcode] 0] eq "CHILDKILLED"} {
                 fail "redis-cli crashed on malformed COMMAND DOCS ($mode): $output"
             }
+            # A sanitizer diagnosis is not a signal: on Linux AddressSanitizer
+            # prints its report and _exit(1)s, so it has to be matched in the
+            # output. Only hard errors are matched - a LeakSanitizer report is
+            # titled differently and must not fail this test.
+            if {[string match "*ERROR: AddressSanitizer*" $output] ||
+                [string match "*runtime error:*" $output]} {
+                fail "redis-cli tripped a sanitizer on malformed COMMAND DOCS ($mode): $output"
+            }
+            # Surviving is only meaningful if the malformed reply was actually
+            # parsed. Without these two checks the test would also pass when
+            # redis-cli never reaches the vulnerable code - on a failed connect
+            # cliInitHelp() silently falls back to the static cli_commands.c
+            # table. The log proves the fake node served COMMAND DOCS; the
+            # summary line testHintSuite() prints on its way out proves
+            # redis-cli got past building the help entries.
+            assert_match "*COMMAND DOCS*" $served
+            assert_match "*passed*" $output
         }
     }
 }
