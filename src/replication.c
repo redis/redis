@@ -1208,6 +1208,7 @@ int startBgsaveForReplication(int mincapa, int req) {
 void syncCommand(client *c) {
     /* ignore SYNC if already slave or in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
+    if (moduleRequireReplicationCompatibility(c) != C_OK) return;
 
     /* Check if this is a failover request to a replica with the same replid and
      * become a master if so. */
@@ -1475,7 +1476,9 @@ void replconfCommand(client *c) {
 
     /* Process every option-value pair. */
     for (j = 1; j < c->argc; j+=2) {
-        if (!strcasecmp(c->argv[j]->ptr,"listening-port")) {
+        if (!strcasecmp(c->argv[j]->ptr,"module-compatibility")) {
+            if (moduleCheckReplicationCompatibility(c, c->argv[j+1]->ptr) != C_OK) return;
+        } else if (!strcasecmp(c->argv[j]->ptr,"listening-port")) {
             long port;
 
             if ((getLongFromObjectOrReply(c,c->argv[j+1],
@@ -1643,6 +1646,7 @@ void replconfCommand(client *c) {
                 return;
             }
             c->main_ch_client_id = (uint64_t)client_id;
+            c->module_compatibility_checked = main_ch->module_compatibility_checked;
             /* Inherit the rdb-no-compress and rdb-no-checksum request from the main channel. */
             if (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
                 c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
@@ -3115,6 +3119,13 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
      * Return PSYNC_NOT_SUPPORTED on errors we don't understand, otherwise
      * return PSYNC_TRY_LATER if we believe this is a transient error. */
 
+    if (!strncmp(reply, "-MODULECONFIG", 13)) {
+        /* Do not fall back to SYNC: it would fail identically and retry tightly. */
+        serverLog(LL_WARNING, "Module replication compatibility check failed: %s", reply);
+        sdsfree(reply);
+        return PSYNC_TRY_LATER;
+    }
+
     if (!strncmp(reply,"-NOMASTERLINK",13) ||
         !strncmp(reply,"-LOADING",8))
     {
@@ -3380,6 +3391,28 @@ void syncWithMaster(connection *conn) {
         if (err[0] == '-') {
             serverLog(LL_NOTICE,"(Non critical) Master does not understand "
                                   "REPLCONF capa: %s", err);
+        }
+        sdsfree(err);
+        err = NULL;
+        sds compatibility = moduleReplicationCompatibility();
+        if (sdslen(compatibility)) {
+            err = sendCommand(conn, "REPLCONF", "module-compatibility", compatibility, NULL);
+            sdsfree(compatibility);
+            if (err) goto write_error;
+            server.repl_state = REPL_STATE_RECEIVE_MODULE_COMPATIBILITY_REPLY;
+            return;
+        }
+        sdsfree(compatibility);
+        server.repl_state = REPL_STATE_SEND_PSYNC;
+    }
+
+    if (server.repl_state == REPL_STATE_RECEIVE_MODULE_COMPATIBILITY_REPLY) {
+        err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
+        if (strcmp(err, "+OK")) {
+            serverLog(LL_WARNING, "Module replication compatibility check failed: %s", err);
+            sdsfree(err);
+            goto error;
         }
         sdsfree(err);
         err = NULL;

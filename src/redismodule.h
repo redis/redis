@@ -1286,6 +1286,7 @@ REDISMODULE_API int (*RedisModule_ModuleTypeReplaceValue)(RedisModuleKey *key, R
 REDISMODULE_API RedisModuleType * (*RedisModule_ModuleTypeGetType)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_ModuleTypeGetValue)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsIOError)(RedisModuleIO *io) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetReplicationCompatibility)(RedisModuleCtx *ctx, const char *data, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetModuleOptions)(RedisModuleCtx *ctx, int options) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SignalModifiedKey)(RedisModuleCtx *ctx, RedisModuleString *keyname) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SaveUnsigned)(RedisModuleIO *io, uint64_t value) REDISMODULE_ATTR;
@@ -1688,6 +1689,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ModuleTypeGetValue);
     REDISMODULE_GET_API(IsIOError);
     REDISMODULE_GET_API(SetModuleOptions);
+    REDISMODULE_GET_API(SetReplicationCompatibility);
     REDISMODULE_GET_API(SignalModifiedKey);
     REDISMODULE_GET_API(SaveUnsigned);
     REDISMODULE_GET_API(LoadUnsigned);
