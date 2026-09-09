@@ -2045,7 +2045,7 @@ void unlinkClient(client *c) {
 void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
         /* Withdraw this client's contribution before it leaves the list,
-         * since it won't be revisited by clientsUnsharedMemCron() again. */
+         * since it won't be revisited by clientsCronRunClient() again. */
         setClientUnsharedReplyBytes(c, 0);
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }

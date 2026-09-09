@@ -1210,6 +1210,14 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
+    /* Recomputing c->reply_bytes_unshared requires rescanning the client's
+     * whole pending reply buffer, so instead of doing that on every write we
+     * refresh it here, since this function already runs once per second per
+     * client (from clientsCron() for main-thread clients, or from
+     * runClientCronFromIOThread() for IO-thread-owned ones, which is why this
+     * is safe to call regardless of which thread owns the client). */
+    updateClientUnsharedReplyBytes(c);
+
     /* Iterating all the clients in getMemoryOverheadData() is too slow and
      * in turn would make the INFO command too slow. So we perform this
      * computation incrementally and track the (not instantaneous but updated
@@ -1302,41 +1310,6 @@ void clientsCron(void) {
         if (c->tid != IOTHREAD_MAIN_THREAD_ID) continue;
 
         clientsCronRunClient(c);
-    }
-}
-
-/* Refresh server.clients_unshared_mem incrementally, once per serverCron tick.
- *
- * Recomputing c->reply_bytes_unshared requires rescanning a client's whole pending
- * reply buffer, so instead of redoing that for every client on every call, we spread
- * it out like clientsCron() does for updateClientMemoryUsage(): process a rotating
- * slice of clients_with_pending_ref_reply per tick (~listLength/hz clients, so the
- * whole list gets rescanned about once per second). updateClientUnsharedReplyBytes()
- * itself folds each client's delta into the running total, so it stays correct even
- * when other callers (e.g. CLIENT LIST) refresh the same field between cron ticks.
- *
- * c->reply_bytes_shared needs no such treatment since it's already kept exact for
- * free at write time, so getClientsSharedMemoryUsage() still sums it on demand. */
-void clientsUnsharedMemCron(void) {
-    int numclients = listLength(server.clients_with_pending_ref_reply);
-    if (!numclients) return;
-    int iterations = numclients / server.hz;
-    if (iterations < CLIENTS_CRON_MIN_ITERATIONS)
-        iterations = (numclients < CLIENTS_CRON_MIN_ITERATIONS) ?
-                     numclients : CLIENTS_CRON_MIN_ITERATIONS;
-
-    while (listLength(server.clients_with_pending_ref_reply) && iterations--) {
-        listNode *head = listFirst(server.clients_with_pending_ref_reply);
-        client *c = listNodeValue(head);
-        listRotateHeadToTail(server.clients_with_pending_ref_reply);
-
-        /* Clients handled by IO threads own their reply buffers: the IO thread may
-         * be concurrently freeing/mutating them from writeToClient(), so scanning
-         * them here would race. Their IO thread refreshes reply_bytes_unshared
-         * itself instead, see runClientCronFromIOThread(). */
-        if (c->tid != IOTHREAD_MAIN_THREAD_ID) continue;
-
-        updateClientUnsharedReplyBytes(c);
     }
 }
 
@@ -1729,14 +1702,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     databasesCron();
 
     backupCron();
-
-    /* Refresh the cached unshared client reply memory total used by
-     * getClientsSharedMemoryUsage(), instead of rescanning every pending client's
-     * reply buffer on every INFO/MEMORY call (or, in some deployments, per-command).
-     * Like clientsCron() above, this must run every tick (not throttled to
-     * once/sec) since it paces itself at listLength/server.hz clients per call so
-     * the full list gets rescanned roughly once per second. */
-    clientsUnsharedMemCron();
 
     /* Start a scheduled AOF rewrite if this was requested while another state
      * prevented it earlier. */
