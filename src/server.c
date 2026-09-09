@@ -3747,7 +3747,8 @@ static void propagateNow(int dbid, robj **argv, int argc, int target, long long 
     /* Every PROP_DURATION_UNKNOWN op must have been resolved by
      * assignLeftoverDurationToUnknownOps() before reaching here. Letting the
      * reserved value through would decrement server.aof_cmd_duration. */
-    serverAssert(duration != PROP_DURATION_UNKNOWN);
+    debugServerAssert(duration != PROP_DURATION_UNKNOWN);
+    if (duration < 0) duration = 0;
 
     if (!shouldPropagate(target))
         return;

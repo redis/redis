@@ -3826,17 +3826,14 @@ cleanup:
         server.aof_buf = sdsempty();
         aofDelTempIncrAofFile();
     }
-    if (rewrite_success) {
-        aof_cmd_duration_at_rewrite = 0;
-    } else if (server.aof_state == AOF_WAIT_REWRITE) {
+    if (server.aof_state == AOF_WAIT_REWRITE) {
         /* Temp INCR was discarded; nothing durable to replay. */
         server.aof_cmd_duration = 0;
-        aof_cmd_duration_at_rewrite = 0;
-    } else {
+    } else if (!rewrite_success) {
         /* Old AOF still on disk; put its estimate back. Keep incr-during-rewrite. */
         server.aof_cmd_duration += aof_cmd_duration_at_rewrite;
-        aof_cmd_duration_at_rewrite = 0;
     }
+    aof_cmd_duration_at_rewrite = 0;
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
     /* Schedule a new rewrite only when AOF is enabled by config. BACKUP's
