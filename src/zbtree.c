@@ -146,10 +146,11 @@ static void zbtScoreEncode(double d, uint8_t *enc, unsigned char *buf) {
  * member is copied from 'buf', which does not have to be an sds: callers
  * holding plain bytes (listpack entries, integer members) can build an
  * element without first materializing a temporary sds. When 'wide' is set
- * the score is stored as a raw double so a later in-place write cannot
- * overflow the allocation. */
-static zbtElem *zbtCreateElemBufGen(double score, const char *buf, size_t len,
-                                    int wide, size_t *usable)
+ * the score is stored as a raw double so a later in-place write of any
+ * double (ZUNIONSTORE aggregation) cannot overflow the allocation. When
+ * 'usable' is not NULL it receives the usable size of the allocation. */
+zbtElem *zbtCreateElem(double score, const char *buf, size_t len,
+                       int wide, size_t *usable)
 {
     uint8_t enc;
     unsigned char sbuf[8];
@@ -178,21 +179,6 @@ static zbtElem *zbtCreateElemBufGen(double score, const char *buf, size_t len,
     return e;
 }
 
-/* Allocate an element with the member SDS embedded in the same allocation
- * (single block: zbtElem header + score bytes + sds header + data). The
- * member is copied from 'buf', which does not have to be an sds: callers
- * holding plain bytes (listpack entries, integer members) can build an
- * element without first materializing a temporary sds. */
-zbtElem *zbtCreateElemBuf(double score, const char *buf, size_t len) {
-    return zbtCreateElemBufGen(score, buf, len, 0, NULL);
-}
-
-zbtElem *zbtCreateElemBufUsable(double score, const char *buf, size_t len,
-                                size_t *usable)
-{
-    return zbtCreateElemBufGen(score, buf, len, 0, usable);
-}
-
 /* Duplicate the complete packed representation. This preserves the source
  * score encoding and copies the member with a single memcpy. */
 zbtElem *zbtDupElem(const zbtElem *elem, size_t *usable) {
@@ -200,18 +186,6 @@ zbtElem *zbtDupElem(const zbtElem *elem, size_t *usable) {
     zbtElem *copy = zmalloc_usable(size, usable);
     memcpy(copy, elem, size);
     return copy;
-}
-
-/* Same as zbtCreateElemBuf(), for callers that already hold an sds. The caller
- * keeps ownership of 'ele' (it is copied). */
-zbtElem *zbtCreateElem(double score, sds ele) {
-    return zbtCreateElemBuf(score, ele, sdslen(ele));
-}
-
-/* Like zbtCreateElem(), but the score is forced to ZBT_SCORE_DBL so a later
- * in-place write of any double (ZUNIONSTORE aggregation) cannot overflow. */
-zbtElem *zbtCreateElemWide(double score, sds ele) {
-    return zbtCreateElemBufGen(score, ele, sdslen(ele), 1, NULL);
 }
 
 /* Free a detached element that is not owned by any tree. Used by callers that
@@ -616,7 +590,7 @@ void zbtInsertElem(zbtree *t, zbtElem *e) {
 
 zbtElem *zbtInsert(zbtree *t, double score, sds ele) {
     size_t usable;
-    zbtElem *e = zbtCreateElemBufUsable(score, ele, sdslen(ele), &usable);
+    zbtElem *e = zbtCreateElem(score, ele, sdslen(ele), 0, &usable);
     zbtInsertElemWithSize(t, e, usable);
     return e;
 }
@@ -918,7 +892,7 @@ zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore) {
     }
 
     size_t new_usable;
-    zbtElem *ne = zbtCreateElemBufUsable(newscore, ele, sdslen(ele), &new_usable);
+    zbtElem *ne = zbtCreateElem(newscore, ele, sdslen(ele), 0, &new_usable);
     zfree_with_size(e, old_usable);
     zbtInsertElemWithSize(t, ne, new_usable);
     return ne;
@@ -1812,7 +1786,7 @@ int zbtreeTest(int argc, char **argv, int flags) {
             char buf[32];
             snprintf(buf, sizeof(buf), "bm:%08d", i);
             sds s = sdsnew(buf);
-            arr[i] = zbtCreateElem((double)i, s);
+            arr[i] = zbtCreateElem((double)i, s, sdslen(s), 0, NULL);
             sdsfree(s);
         }
         zbtree *bt = zbtCreate();
@@ -1859,7 +1833,7 @@ int zbtreeTest(int argc, char **argv, int flags) {
             char buf[32];
             snprintf(buf, sizeof(buf), "fz:%08d", i);
             sds sd = sdsnew(buf);
-            arr[i] = zbtCreateElem((double)i, sd);
+            arr[i] = zbtCreateElem((double)i, sd, sdslen(sd), 0, NULL);
             sdsfree(sd);
         }
         zbtree *bt = zbtCreate();
@@ -2028,7 +2002,7 @@ int zbtreeTest(int argc, char **argv, int flags) {
             char buf[32];
             snprintf(buf, sizeof(buf), "dm:%08d", i);
             sds s = sdsnew(buf);
-            arr[i] = zbtCreateElem((double)i, s);
+            arr[i] = zbtCreateElem((double)i, s, sdslen(s), 0, NULL);
             sdsfree(s);
         }
         zbtree *bt = zbtCreate();
@@ -2164,7 +2138,7 @@ int zbtreeTest(int argc, char **argv, int flags) {
                 char buf[32];
                 snprintf(buf, sizeof(buf), "r%d:%05d", r, i);
                 sds s = sdsnew(buf);
-                arr[at++] = zbtCreateElem(runs[r].score, s);
+                arr[at++] = zbtCreateElem(runs[r].score, s, sdslen(s), 0, NULL);
                 sdsfree(s);
             }
         }

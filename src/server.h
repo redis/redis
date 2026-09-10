@@ -3877,11 +3877,8 @@ typedef struct {
 zbtree *zbtCreate(void);
 void zbtFree(zbtree *t);
 size_t zbtAllocSize(const zbtree *t);
-zbtElem *zbtCreateElem(double score, sds ele);
-zbtElem *zbtCreateElemBuf(double score, const char *buf, size_t len);
-zbtElem *zbtCreateElemBufUsable(double score, const char *buf, size_t len, size_t *usable);
+zbtElem *zbtCreateElem(double score, const char *buf, size_t len, int wide, size_t *usable);
 zbtElem *zbtDupElem(const zbtElem *elem, size_t *usable);
-zbtElem *zbtCreateElemWide(double score, sds ele);
 void zbtFreeElem(zbtElem *e);
 void zbtBuildFromSorted(zbtree *t, zbtElem **elems, unsigned long n);
 void zbtBuildFromSortedWithSize(zbtree *t, zbtElem **elems, unsigned long n,

@@ -743,7 +743,7 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
             else
                 ele = sdsnewlen((char*)vstr,vlen);
 
-            zbtElem *elem = zbtCreateElem(score, ele);
+            zbtElem *elem = zbtCreateElem(score, ele, sdslen(ele), 0, NULL);
             sdsfree(ele); /* zbtCreateElem copied it, we can free our copy */
             elems[cnt++] = elem;
             zzlNext(zl,&eptr,&sptr);
@@ -1175,7 +1175,9 @@ robj *zsetDup(robj *o) {
         zbtIter it;
         zbtElem *ln = zbtFirst(t, &it);
         while (ln) {
-            zbtElem *znode = zbtCreateElem(zbtGetScore(ln), zbtGetEle(ln));
+            sds ele = zbtGetEle(ln);
+            zbtElem *znode = zbtCreateElem(zbtGetScore(ln), ele, sdslen(ele),
+                                           0, NULL);
             elems[cnt++] = znode;
             ln = zbtIterNext(&it);
         }
@@ -1360,7 +1362,7 @@ void zaddGenericCommand(client *c, int flags) {
                 break;
             }
 
-            zbtElem *znode = zbtCreateElem(score, ele);
+            zbtElem *znode = zbtCreateElem(score, ele, sdslen(ele), 0, NULL);
             dictSetKeyAtLink(zs->dict, znode, &bucket, 1);
             staged[staged_cnt++] = znode;
             added++;
@@ -2241,7 +2243,7 @@ static void zdiffAlgorithm1(zsetopsrc *src, long setnum, size_t *maxelelen, size
             tmp = zuiNewSdsFromValue(&zval);
             /* Detached element: indexed in one batch and the tree built in one
              * pass below. */
-            znode = zbtCreateElem(zval.score, tmp);
+            znode = zbtCreateElem(zval.score, tmp, sdslen(tmp), 0, NULL);
             staged[staged_cnt++] = znode;
             if (sdslen(tmp) > *maxelelen) *maxelelen = sdslen(tmp);
             (*totelelen) += sdslen(tmp);
@@ -2294,7 +2296,7 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
                 /* Detached element: zdiff() builds the tree in one pass at
                  * the end, so the removals below stay dict-only. The first set's
                  * members are unique, so skip the per-insert duplicate scan. */
-                znode = zbtCreateElem(zval.score, tmp);
+                znode = zbtCreateElem(zval.score, tmp, sdslen(tmp), 0, NULL);
                 src0elems[src0cnt++] = znode;
                 cardinality++;
                 sdsfree(tmp); /* zbtCreateElem copied it, we can free our copy */
@@ -2593,7 +2595,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     tmp = zuiNewSdsFromValue(&zval);
                     /* Detached element: indexed in one batch and the tree built
                      * in one pass below. */
-                    znode = zbtCreateElem(score, tmp);
+                    znode = zbtCreateElem(score, tmp, sdslen(tmp), 0, NULL);
                     staged[staged_cnt++] = znode;
                     totelelen += sdslen(tmp);
                     if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
@@ -2644,7 +2646,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
 
                     /* Create a detached element with embedded sds and score. */
-                    znode = zbtCreateElemWide(score, tmp);
+                    znode = zbtCreateElem(score, tmp, sdslen(tmp), 1, NULL);
                     /* Add element pointer to dict using the bucket we already found */
                     dictSetKeyAtLink(dstzset->dict, znode, &bucket, 1);
                     if (staged_cnt == staged_cap) {
@@ -2918,8 +2920,8 @@ static int zrangeResultStageForStore(zrange_result_handler *handler,
     }
 
     size_t usable;
-    zbtElem *elem = zbtCreateElemBufUsable(score, value,
-                                           value_length_in_bytes, &usable);
+    zbtElem *elem = zbtCreateElem(score, value, value_length_in_bytes,
+                                  0, &usable);
     handler->staged[handler->staged_cnt++] = elem;
     handler->staged_alloc_size += usable;
     if (value_length_in_bytes > handler->staged_maxelelen)

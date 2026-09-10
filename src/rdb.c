@@ -3103,7 +3103,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
             totelelen += sdslen(sdsele);
 
-            znode = zbtCreateElem(score, sdsele);
+            znode = zbtCreateElem(score, sdsele, sdslen(sdsele), 0, NULL);
             sdsfree(sdsele); /* zbtCreateElem copies the sds into the element. */
             if (dictAdd(zs->dict, znode, NULL) != DICT_OK) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");

@@ -825,7 +825,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
             /* Detached element: results come out in match or distance order,
              * so the tree is packed in one pass below rather than reached
              * through one insert per result. */
-            znode = zbtCreateElem(score,gp->member);
+            znode = zbtCreateElem(score,gp->member,sdslen(gp->member),0,NULL);
             staged[i] = znode;
             sdsfree(gp->member); /* zbtCreateElem copies the sds, so free the original */
             gp->member = NULL;
