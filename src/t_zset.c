@@ -711,7 +711,6 @@ zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
 
 /* Populate the rangespec according to the objects min and max. */
 static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
-    char *eptr;
     spec->minex = spec->maxex = 0;
 
     /* Parse the min-max interval. If one of the values is prefixed
@@ -721,28 +720,18 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     if (min->encoding == OBJ_ENCODING_INT) {
         spec->min = (long)min->ptr;
     } else {
+        char *ptr = min->ptr;
         size_t len = sdslen(min->ptr);
-        if (((char*)min->ptr)[0] == '(') {
-            spec->min = fast_float_strtod((char*)min->ptr+1,len-1,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
-            spec->minex = 1;
-        } else {
-            spec->min = fast_float_strtod((char*)min->ptr,len,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
-        }
+        if (*ptr == '(') { ptr++; len--; spec->minex = 1; }
+        if (!string2d(ptr, len, &spec->min)) return C_ERR;
     }
     if (max->encoding == OBJ_ENCODING_INT) {
         spec->max = (long)max->ptr;
     } else {
+        char *ptr = max->ptr;
         size_t len = sdslen(max->ptr);
-        if (((char*)max->ptr)[0] == '(') {
-            spec->max = fast_float_strtod((char*)max->ptr+1,len-1,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
-            spec->maxex = 1;
-        } else {
-            spec->max = fast_float_strtod((char*)max->ptr,len,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
-        }
+        if (*ptr == '(') { ptr++; len--; spec->maxex = 1; }
+        if (!string2d(ptr, len, &spec->max)) return C_ERR;
     }
 
     return C_OK;
