@@ -148,16 +148,26 @@ proc cluster_allocate_slaves {masters slaves} {
     }
 }
 
+# Verify that every node which will own slots is writable.
+proc assert_cluster_master_nodes {masters} {
+    for {set id 0} {$id < $masters} {incr id} {
+        assert_equal master [RI $id role]
+    }
+}
+
 # Create a cluster composed of the specified number of masters and slaves.
 proc create_cluster {masters slaves} {
-    cluster_allocate_slots $masters
-    if {$slaves} {
-        cluster_allocate_slaves $masters $slaves
-    }
-    assert_cluster_state ok
-
     set ::cluster_master_nodes $masters
     set ::cluster_replica_nodes $slaves
+
+    assert_cluster_master_nodes $masters
+    cluster_allocate_slots $masters
+    wait_for_cluster_propagation
+    if {$slaves} {
+        cluster_allocate_slaves $masters $slaves
+        wait_for_cluster_propagation
+    }
+    assert_cluster_state ok
 }
 
 proc cluster_allocate_with_continuous_slots {n} {
@@ -176,14 +186,17 @@ proc cluster_allocate_with_continuous_slots {n} {
 # Create a cluster composed of the specified number of masters and slaves,
 # but with a continuous slot range. 
 proc cluster_create_with_continuous_slots {masters slaves} {
-    cluster_allocate_with_continuous_slots $masters
-    if {$slaves} {
-        cluster_allocate_slaves $masters $slaves
-    }
-    assert_cluster_state ok
-
     set ::cluster_master_nodes $masters
     set ::cluster_replica_nodes $slaves
+
+    assert_cluster_master_nodes $masters
+    cluster_allocate_with_continuous_slots $masters
+    wait_for_cluster_propagation
+    if {$slaves} {
+        cluster_allocate_slaves $masters $slaves
+        wait_for_cluster_propagation
+    }
+    assert_cluster_state ok
 }
 
 
