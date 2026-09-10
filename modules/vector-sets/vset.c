@@ -2304,6 +2304,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .rdb_load = VectorSetRdbLoad,
         .rdb_save = VectorSetRdbSave,
         .aof_rewrite = NULL,
+        .alloc_size = NULL,
         .mem_usage = VectorSetMemUsage,
         .free = VectorSetFree,
         .digest = VectorSetDigest

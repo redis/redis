@@ -44,7 +44,7 @@ typedef long long ustime_t;
 
 /* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
  * structure is changed, this version number needs to be changed synchronistically. */
-#define REDISMODULE_TYPE_METHOD_VERSION 5
+#define REDISMODULE_TYPE_METHOD_VERSION 6
 
 /* Version of the RedisModuleKeyMetaClassConfig structure. Once the RedisModuleKeyMetaClassConfig 
  * structure is changed, this version number needs to be changed synchronistically. */
@@ -1034,6 +1034,7 @@ typedef void (*RedisModuleTypeSaveFunc)(RedisModuleIO *rdb, void *value);
 typedef int (*RedisModuleTypeAuxLoadFunc)(RedisModuleIO *rdb, int encver, int when);
 typedef void (*RedisModuleTypeAuxSaveFunc)(RedisModuleIO *rdb, int when);
 typedef void (*RedisModuleTypeRewriteFunc)(RedisModuleIO *aof, RedisModuleString *key, void *value);
+typedef size_t (*RedisModuleTypeAllocSizeFunc)(const void *value);
 typedef size_t (*RedisModuleTypeMemUsageFunc)(const void *value);
 typedef size_t (*RedisModuleTypeMemUsageFunc2)(RedisModuleKeyOptCtx *ctx, const void *value, size_t sample_size);
 typedef void (*RedisModuleTypeDigestFunc)(RedisModuleDigest *digest, void *value);
@@ -1096,6 +1097,7 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeUnlinkFunc2 unlink2;
     RedisModuleTypeCopyFunc2 copy2;
     RedisModuleTypeAuxSaveFunc aux_save2;
+    RedisModuleTypeAllocSizeFunc alloc_size;
 } RedisModuleTypeMethods;
 
 /* Key metadata class configuration structure.
