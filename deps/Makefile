@@ -140,7 +140,9 @@ lua: .make-prerequisites
 JEMALLOC_CFLAGS=$(ENABLE_LTO) $(CFLAGS)
 JEMALLOC_LDFLAGS=$(ENABLE_LTO) $(LDFLAGS)
 
-ifneq ($(DEB_HOST_GNU_TYPE),)
+ifneq ($(HOST),)
+JEMALLOC_CONFIGURE_OPTS += --host=$(HOST)
+else ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
 endif
 
