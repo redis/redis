@@ -1716,7 +1716,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
     }
 
-    if (blessNoEvict(val) && rdbSaveType(rdb, RDB_OPCODE_KEY_NOEVICT) == -1)
+    if (blessIsNoEvict(val) && rdbSaveType(rdb, RDB_OPCODE_KEY_NOEVICT) == -1)
         return -1;
 
     /* if needed save key metadata  */

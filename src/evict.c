@@ -154,7 +154,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         sds key = kvobjGetKey(kv);
 
         /* Blessed NO-EVICT keys are never eviction candidates. */
-        if (blessNoEvict(kv)) continue;
+        if (blessIsNoEvict(kv)) continue;
         (*candidates)++;
 
         /* Calculate the idle time according to the policy. This is called
@@ -660,7 +660,7 @@ int performEvictions(void) {
                          * key pooled while unblessed may since have been marked
                          * NO-EVICT. The entry is already removed from the pool
                          * above; skip it as a target and try the next one. */
-                        if (blessNoEvict(kv)) continue;
+                        if (blessIsNoEvict(kv)) continue;
                         bestkey = kvobjGetKey(kv);
                         break;
                     } else {
@@ -718,7 +718,7 @@ int performEvictions(void) {
                         if (de == NULL) break;
                         total_sampled_keys++;
                         kvobj *kv = dictGetKV(de);
-                        if (blessNoEvict(kv)) continue;
+                        if (blessIsNoEvict(kv)) continue;
                         bestkey = kvobjGetKey(kv);
                         bestdbid = j;
                         break;

@@ -315,7 +315,7 @@ void restoreCommand(client *c) {
     int oldtype = oldval ? oldval->type : -1;
 
     /* RESTORE REPLACE keeps the destination's NO-EVICT flag. */
-    int noevict = replace && oldval && blessNoEvict(oldval);
+    int noevict = replace && oldval && blessIsNoEvict(oldval);
 
     /* Call dbDelete() only when a key is actually present:
      *   oldval != NULL -> key exists.

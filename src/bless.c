@@ -14,7 +14,7 @@
  * Each redisDb also keeps an in-RAM index of its NO-EVICT keys (db->blessed_keys)
  * for BLESS SCAN and INFO's blessed_keys count. It is per-DB (like db->expires)
  * so it stays correct across SWAPDB. The eviction path never consults it -
- * blessNoEvict() reads the bit directly from kvBits.
+ * blessIsNoEvict() reads the bit directly from kvBits.
  *
  * Eviction (see evict.c): blessed keys are never chosen as victims. If eviction
  * can't free enough because blessed keys hold the memory, used memory is allowed
@@ -94,9 +94,9 @@ static void blessUntrack(redisDb *db, sds keyname) {
     kvstoreDictDelete(db->blessed_keys, slot, keyname);
 }
 
-/* Plain value objects do not have a kvBits byte. */
-int blessNoEvict(kvobj *kv) {
-    return kv->iskvobj && kvobjBits(kv)->no_evict;
+int blessIsNoEvict(kvobj *kv) {
+    debugServerAssert(kv->iskvobj);
+    return kvobjBits(kv)->no_evict;
 }
 
 /* Update the bit and its derived index without reallocating the key. */
@@ -136,7 +136,7 @@ void blessedIndexReconcileMoved(redisDb *db, kvstore *moved) {
 
 /* Re-emit the flag after the value in command-format AOF and ASM. */
 int blessRewrite(rio *r, robj *key, kvobj *kv) {
-    if (!blessNoEvict(kv)) return C_OK;
+    if (!blessIsNoEvict(kv)) return C_OK;
     if (rioWriteBulkCount(r, '*', 4) == 0 ||
         rioWriteBulkString(r, "BLESS", 5) == 0 ||
         rioWriteBulkString(r, "SET", 3) == 0 ||
@@ -162,7 +162,7 @@ static void blessGenericCommand(client *c, int add) {
         return;
     }
 
-    if (blessNoEvict(o) == add) {
+    if (blessIsNoEvict(o) == add) {
         addReply(c, shared.czero);
         return;
     }
@@ -183,7 +183,7 @@ static void blessGetCommand(client *c) {
         addReplyErrorObject(c, shared.nokeyerr);
         return;
     }
-    int noevict = blessNoEvict(o);
+    int noevict = blessIsNoEvict(o);
     addReplyArrayLen(c, noevict);
     if (noevict)
         addReplyBulkCString(c, "NO-EVICT");

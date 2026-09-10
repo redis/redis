@@ -4334,7 +4334,7 @@ void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink li
 void blessSetNoEvict(redisDb *db, kvobj *kv, int enabled);
 int blessRewrite(rio *r, robj *key, kvobj *kv);
 kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
-int blessNoEvict(kvobj *kv);
+int blessIsNoEvict(kvobj *kv);
 unsigned long long blessedKeysCount(void);
 size_t blessedIndexMemUsage(redisDb *db);
 void blessedIndexReconcileMoved(redisDb *db, kvstore *moved);

@@ -459,7 +459,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->numMeta * sizeof(uint64_t));
     }
 
-    if (blessNoEvict(kv)) blessSetNoEvict(db, kv, 1);
+    if (blessIsNoEvict(kv)) blessSetNoEvict(db, kv, 1);
 
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
@@ -895,7 +895,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
         incrRefCount(kv); /* refcnt=1->2 */
-        if (blessNoEvict(kv)) blessSetNoEvict(db, kv, 0);
+        if (blessIsNoEvict(kv)) blessSetNoEvict(db, kv, 0);
         /* Metadata hook: notify unlink for key metadata cleanup. */
         if (getModuleMetaBits(kv->metabits)) keyMetaOnUnlink(db, key, kv);
         /* Tells the module that the key has been unlinked from the database. */
@@ -2297,7 +2297,7 @@ void renameGenericCommand(client *c, int nx) {
     keyMetaSpecInit(&keymeta);
     if (o->metabits) keyMetaOnRename(c->db, o, c->argv[1], c->argv[2], &keymeta);
 
-    int noevict = blessNoEvict(o);
+    int noevict = blessIsNoEvict(o);
     dbDelete(c->db,c->argv[1]);
     
     kvobjBits(o)->no_evict = noevict;
@@ -2394,7 +2394,7 @@ void moveCommand(client *c) {
     keyMetaSpecInit(&keymeta);
     keyMetaOnMove(kv, c->argv[1], srcid, dbid, &keymeta);
 
-    int noevict = blessNoEvict(kv);
+    int noevict = blessIsNoEvict(kv);
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
@@ -2526,7 +2526,7 @@ void copyCommand(client *c) {
     keyMetaSpecInit(&keymeta);
     if (o->metabits) keyMetaOnCopy(o, key, newkey, c->db->id, dst->id, &keymeta);
 
-    int noevict = blessNoEvict(o);
+    int noevict = blessIsNoEvict(o);
     kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, &keymeta);
     if (noevict) blessSetNoEvict(dst, kvCopy, 1);
 
