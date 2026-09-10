@@ -37,6 +37,7 @@
  * -------------------------------------------------------------------------- */
 
 #include "server.h"
+#include "sha256.h"
 #include "cluster.h"
 #include "cluster_asm.h"
 #include "slowlog.h"
@@ -2365,6 +2366,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     if (ctx->module != NULL) return;
     module = zmalloc(sizeof(*module));
     module->name = sdsnew(name);
+    module->replication_compatibility = NULL;
     module->ver = ver;
     module->apiver = apiver;
     module->types = listCreate();
@@ -2543,6 +2545,93 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
         ctx->next_yield_time = now + 1000000 / server.hz;
     }
     yield_nesting--;
+}
+
+/* Declare configuration that must match before replication or atomic slot migration.
+ * Call once from OnLoad during server startup, after loading immutable module
+ * configuration. The bytes must canonically identify the data format, algorithm
+ * version and configuration (for example a hash seed). Redis stores a SHA-256
+ * digest, not the original bytes, and compares the complete set of declarations.
+ *
+ * Modules using this API cannot be loaded or unloaded at runtime. The module
+ * must also validate restored data: this handshake does not validate RDB payloads
+ * or protect RESTORE/MIGRATE. This is a compatibility check, not authentication.
+ * Returns ERR for an invalid context, empty data, repeated registration or a
+ * runtime load. Peers without this API cannot replicate declared configurations. */
+int RM_SetReplicationCompatibility(RedisModuleCtx *ctx, const char *data, size_t len) {
+    if (!ctx->module || !ctx->module->onload || !listLength(server.loadmodule_queue) ||
+        ctx->module->replication_compatibility || !data || !len) return REDISMODULE_ERR;
+    SHA256_CTX hash;
+    unsigned char digest[SHA256_BLOCK_SIZE];
+    sha256_init(&hash);
+    sha256_update(&hash, (const unsigned char *)data, len);
+    sha256_final(&hash, digest);
+    ctx->module->replication_compatibility = sdsnewlen(digest, sizeof(digest));
+    return REDISMODULE_OK;
+}
+
+/* Order-independent, length-delimited manifest of all declared modules. */
+sds moduleReplicationCompatibility(void) {
+    rax *ordered = raxNew();
+    dictIterator di;
+    dictEntry *de;
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di))) {
+        RedisModule *m = dictGetVal(de);
+        if (m->replication_compatibility)
+            raxInsert(ordered, (unsigned char *)m->name, sdslen(m->name), m, NULL);
+    }
+    dictResetIterator(&di);
+    sds result = sdsempty();
+    if (raxSize(ordered)) {
+        SHA256_CTX hash;
+        unsigned char digest[SHA256_BLOCK_SIZE];
+        sha256_init(&hash);
+        raxIterator it;
+        raxStart(&it, ordered);
+        raxSeek(&it, "^", NULL, 0);
+        while (raxNext(&it)) {
+            RedisModule *m = it.data;
+            /* Names contain no NUL and digests are fixed length. */
+            sha256_update(&hash, it.key, it.key_len);
+            sha256_update(&hash, (const unsigned char *)"\0", 1);
+            sha256_update(&hash, (unsigned char *)m->replication_compatibility, SHA256_BLOCK_SIZE);
+        }
+        raxStop(&it);
+        sha256_final(&hash, digest);
+        static const char hex[] = "0123456789abcdef";
+        char encoded[SHA256_BLOCK_SIZE * 2];
+        for (size_t i = 0; i < sizeof(digest); i++) {
+            encoded[2*i] = hex[digest[i] >> 4];
+            encoded[2*i+1] = hex[digest[i] & 15];
+        }
+        result = sdscatlen(result, encoded, sizeof(encoded));
+    }
+    raxFree(ordered);
+    return result;
+}
+
+int moduleCheckReplicationCompatibility(client *c, sds peer) {
+    sds local = moduleReplicationCompatibility();
+    c->module_compatibility_checked = sdscmp(local, peer) == 0;
+    sdsfree(local);
+    if (!c->module_compatibility_checked) {
+        addReplyError(c, "-MODULECONFIG incompatible module replication configuration");
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+int moduleRequireReplicationCompatibility(client *c) {
+    if (c->module_compatibility_checked) return C_OK;
+    sds local = moduleReplicationCompatibility();
+    int required = sdslen(local) != 0;
+    sdsfree(local);
+    if (required) {
+        addReplyError(c, "-MODULECONFIG module compatibility handshake required");
+        return C_ERR;
+    }
+    return C_OK;
 }
 
 /* Set flags defining capabilities or behavior bit flags.
@@ -13519,6 +13608,7 @@ void moduleFreeModuleStructure(struct RedisModule *module) {
     listRelease(module->usedby);
     listRelease(module->using);
     listRelease(module->module_configs);
+    sdsfree(module->replication_compatibility);
     sdsfree(module->name);
     moduleLoadQueueEntryFree(module->loadmod);
     zfree(module);
@@ -13788,6 +13878,9 @@ int moduleUnload(sds name, const char **errmsg, int forced_unload) {
     } else if (sdslen(module->loadmod->path) == 0) {
         *errmsg = "the module can't be unloaded";
         return C_ERR;
+    } else if (module->replication_compatibility && !forced_unload) {
+        *errmsg = "module replication configuration is immutable until restart";
+        return C_ERR;
     } else if (listLength(module->types) && !forced_unload) {
         *errmsg = "the module exports one or more module-side data "
                   "types, can't unload";
@@ -13953,6 +14046,10 @@ sds genModulesInfoString(sds info) {
         sdsfree(options);
     }
     dictResetIterator(&di);
+    sds compatibility = moduleReplicationCompatibility();
+    if (sdslen(compatibility))
+        info = sdscatfmt(info, "module_replication_compatibility:%S\r\n", compatibility);
+    sdsfree(compatibility);
     return info;
 }
 
@@ -15852,6 +15949,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ModuleTypeGetValue);
     REGISTER_API(IsIOError);
     REGISTER_API(SetModuleOptions);
+    REGISTER_API(SetReplicationCompatibility);
     REGISTER_API(SignalModifiedKey);
     REGISTER_API(SaveUnsigned);
     REGISTER_API(LoadUnsigned);

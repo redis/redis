@@ -550,6 +550,7 @@ typedef enum {
     REPL_STATE_RECEIVE_REQ_REPLY,   /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_CLIENT_COMP, /* Wait for CLIENT_COMP reply */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
+    REPL_STATE_RECEIVE_MODULE_COMPATIBILITY_REPLY, /* Wait for compatibility validation */
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
     /* --- End of handshake states --- */
@@ -1030,6 +1031,7 @@ struct RedisModule {
     char *name;     /* Module name. */
     int ver;        /* Module version. We use just progressive integers. */
     int apiver;     /* Module API version as requested during initialization.*/
+    sds replication_compatibility; /* Immutable digest of module data configuration. */
     list *types;    /* Module data types. */
     list *usedby;   /* List of modules using APIs from this one. */
     list *using;    /* List of modules we use some APIs of. */
@@ -1695,6 +1697,7 @@ typedef struct client {
     unsigned long long net_output_bytes;   /* Total network output bytes sent to this client. */
     unsigned long long commands_processed; /* Total count of commands this client executed. */
     struct asmTask *task;       /* Atomic slot migration task */
+    int module_compatibility_checked; /* Peer matched the module configuration. */
     char *node_id;              /* Node ID to connect to for atomic slot migration */
 
     redisAtomic int pending_read; /* Flag indicating an IO thread client residing
@@ -3249,6 +3252,9 @@ void modulesCron(void);
 int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
 int moduleUnload(sds name, const char **errmsg, int forced_unload);
+sds moduleReplicationCompatibility(void);
+int moduleCheckReplicationCompatibility(client *c, sds peer);
+int moduleRequireReplicationCompatibility(client *c);
 void moduleLoadInternalModules(void);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
