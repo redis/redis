@@ -97,7 +97,7 @@ typedef long long ssize_t;
 #define REDIS_PREFER_IPV4 0x800
 #define REDIS_PREFER_IPV6 0x1000
 
-#define REDIS_KEEPALIVE_INTERVAL 15 /* seconds */
+#define REDIS_KEEPALIVE_INTERVAL 300 /* seconds */
 
 /* number of times we retry to connect in the case of EADDRNOTAVAIL and
  * SO_REUSEADDR is being used. */
