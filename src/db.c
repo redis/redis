@@ -895,7 +895,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
         incrRefCount(kv); /* refcnt=1->2 */
-        if (blessNoEvict(kv)) blessUntrack(db, key->ptr);
+        if (blessNoEvict(kv)) blessSetNoEvict(db, kv, 0);
         /* Metadata hook: notify unlink for key metadata cleanup. */
         if (getModuleMetaBits(kv->metabits)) keyMetaOnUnlink(db, key, kv);
         /* Tells the module that the key has been unlinked from the database. */
@@ -2297,8 +2297,10 @@ void renameGenericCommand(client *c, int nx) {
     keyMetaSpecInit(&keymeta);
     if (o->metabits) keyMetaOnRename(c->db, o, c->argv[1], c->argv[2], &keymeta);
 
+    int noevict = blessNoEvict(o);
     dbDelete(c->db,c->argv[1]);
     
+    kvobjBits(o)->no_evict = noevict;
     dbAddInternal(c->db, c->argv[2], &o, NULL, &keymeta);
 
     /* If hash with HFEs, register in DB subexpires */
@@ -2392,9 +2394,11 @@ void moveCommand(client *c) {
     keyMetaSpecInit(&keymeta);
     keyMetaOnMove(kv, c->argv[1], srcid, dbid, &keymeta);
 
+    int noevict = blessNoEvict(kv);
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
+    kvobjBits(kv)->no_evict = noevict;
     dbAddInternal(dst, c->argv[1], &kv, &dstBucket, &keymeta);
 
     /* If object of type hash with expiration on fields. Taken care to add the

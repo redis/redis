@@ -4332,7 +4332,6 @@ void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink li
 
 /* BLESS - per-key protection from eviction. */
 void blessSetNoEvict(redisDb *db, kvobj *kv, int enabled);
-void blessUntrack(redisDb *db, sds key);
 int blessRewrite(rio *r, robj *key, kvobj *kv);
 kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
 int blessNoEvict(kvobj *kv);

@@ -86,7 +86,7 @@ static void blessTrack(redisDb *db, sds keyname) {
     *blessedBytesRef(db->blessed_keys) += sdsAllocSize(dup);
 }
 
-void blessUntrack(redisDb *db, sds keyname) {
+static void blessUntrack(redisDb *db, sds keyname) {
     int slot = getKeySlot(keyname);
     dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
     if (!de) return;
