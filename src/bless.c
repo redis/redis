@@ -76,7 +76,7 @@ kvstore *blessedKvstoreCreate(int slot_count_bits, int flags) {
 
 /* ---- per-DB index helpers (main thread only) ---- */
 
-static void blessedSetPut(redisDb *db, sds keyname) {
+static void blessTrack(redisDb *db, sds keyname) {
     int slot = getKeySlot(keyname);
     dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
     if (de) return;
@@ -103,7 +103,7 @@ int blessNoEvict(kvobj *kv) {
 void blessSetNoEvict(redisDb *db, kvobj *kv, int enabled) {
     serverAssert(kv->iskvobj);
     kvobjBits(kv)->no_evict = enabled != 0;
-    if (enabled) blessedSetPut(db, kvobjGetKey(kv));
+    if (enabled) blessTrack(db, kvobjGetKey(kv));
     else blessUntrack(db, kvobjGetKey(kv));
 }
 
