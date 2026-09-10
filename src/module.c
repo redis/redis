@@ -6069,16 +6069,13 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
 
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    streamLagGuard lag_guard; /* appending raises entries_added, shifting every group's lag */
-    streamLagGuardBegin(&lag_guard, s);
     if (streamAppendItem(s,argv,numfields,&added_id,use_id_ptr,1) == C_ERR) {
         /* Either the ID not greater than all existing IDs in the stream, or
          * the elements are too large to be stored. either way, errno is already
          * set by streamAppendItem. */
         if (created) moduleDelKeyIfEmpty(key);
-        return REDISMODULE_ERR; /* Nothing changed, so no lag guard to close. */
+        return REDISMODULE_ERR;
     }
-    streamLagGuardEnd(&lag_guard, key->db, s);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count increased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -6128,10 +6125,7 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
     streamID streamid = {id->ms, id->seq};
-    streamLagGuard lag_guard; /* deleting lowers length, shifting every group's lag */
-    streamLagGuardBegin(&lag_guard, s);
     if (streamDeleteItem(s, &streamid)) {
-        streamLagGuardEnd(&lag_guard, key->db, s);
         updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -6402,10 +6396,7 @@ int RM_StreamIteratorDelete(RedisModuleKey *key) {
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    streamLagGuard lag_guard; /* deleting lowers length, shifting every group's lag */
-    streamLagGuardBegin(&lag_guard, s);
     streamIteratorRemoveEntry(si, &key->u.stream.currentid);
-    streamLagGuardEnd(&lag_guard, key->db, s);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -6445,10 +6436,7 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    streamLagGuard lag_guard; /* trimming lowers length, shifting every group's lag */
-    streamLagGuardBegin(&lag_guard, s);
     long long retval = streamTrimByLength(key->db, s, length, approx);
-    streamLagGuardEnd(&lag_guard, key->db, s);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -6486,10 +6474,7 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    streamLagGuard lag_guard; /* trimming lowers length, shifting every group's lag */
-    streamLagGuardBegin(&lag_guard, s);
     long long retval = streamTrimByID(key->db, s, minid, approx);
-    streamLagGuardEnd(&lag_guard, key->db, s);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
