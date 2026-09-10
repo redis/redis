@@ -1578,6 +1578,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * handler if we don't return here fast enough. */
     if (server.watchdog_period) watchdogScheduleSignal(server.watchdog_period);
 
+    /* Update the time cache, primarily to update daylight info. */
+    updateCachedTime(1);
+
     server.hz = server.config_hz;
     /* Adapt the server.hz value to the number of configured clients. If we have
      * many clients, we want to call serverCron() with an higher frequency. */
@@ -2198,7 +2201,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
     if (server.io_threads_num > 1) atomicSetWithSync(server.running, 1);
 
     /* Update the time cache. */
-    updateCachedTime(1);
+    updateCachedTime(0);
 
     /* Update command time snapshot in case it'll be required without a command
      * e.g. somehow used by module timers. Don't update it while yielding to a
