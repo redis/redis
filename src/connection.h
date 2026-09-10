@@ -123,6 +123,10 @@ struct connListener {
     int fd[CONFIG_BINDADDR_MAX];
     int count;
     char **bindaddr;
+    /* bindaddr is the configured list of addresses to try. bindaddr_actual[i]
+     * is the actual address used by fd[i], keeping successful fds and bind
+     * addresses aligned after failed optional binds are skipped. */
+    char *bindaddr_actual[CONFIG_BINDADDR_MAX];
     int bindaddr_count;
     int port;
     ConnectionType *ct;

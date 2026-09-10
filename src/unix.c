@@ -81,7 +81,9 @@ static int connUnixListen(connListener *listener) {
         }
         anetNonBlock(NULL, fd);
         anetCloexec(fd);
-        listener->fd[listener->count++] = fd;
+        listener->fd[listener->count] = fd;
+        listener->bindaddr_actual[listener->count] = addr;
+        listener->count++;
     }
 
     return C_OK;
