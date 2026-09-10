@@ -1476,6 +1476,13 @@ start_server {tags {"scripting"}} {
         $rd close
         $rd2 close
         $r3 close
+
+        # Turn AOF back off. The initial rewrite it scheduled can still be in
+        # flight, and the busy script of a later test in this stanza prevents
+        # the parent from ever reaping the child, leaving the server in
+        # AOF_WAIT_REWRITE where SHUTDOWN NOSAVE refuses to exit.
+        r config set appendonly no
+
         r DEBUG set-disable-deny-scripts 0
     } {OK} {external:skip needs:debug}
 
