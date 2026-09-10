@@ -377,6 +377,14 @@ void setcpuaffinity(const char *cpulist);
 #endif
 #endif
 
+/* Check if we can compile PCLMULQDQ (carry-less multiply) code */
+#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_PCLMUL
+#define ATTRIBUTE_TARGET_PCLMUL __attribute__((target("pclmul")))
+#endif
+#endif
+
 /* Check for AArch64 (ARM v8) specific optimizations */
 #if defined(__aarch64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || defined(__clang__))
 #if defined(__has_attribute) && __has_attribute(target)
