@@ -1248,12 +1248,19 @@ static int fetchClusterConfiguration(void) {
             success = 0;
             goto cleanup;
         }
+        /* Transfer ownership of firstNode to config.cluster_nodes so the
+         * cleanup block below does not double-free it via freeClusterNodes(). */
+        if (node == firstNode) firstNode = NULL;
     }
 cleanup:
     if (ctx) redisFree(ctx);
     if (!success) {
         if (config.cluster_nodes) freeClusterNodes();
     }
+    /* If firstNode was never claimed by addClusterNode() it still owns the
+     * memory created by createClusterNode() plus any sds set by the "myself"
+     * branch, and freeClusterNodes() above does not see it. Free it here. */
+    if (firstNode) freeClusterNode(firstNode);
     if (reply) freeReplyObject(reply);
     return success;
 }
