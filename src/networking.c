@@ -2032,7 +2032,7 @@ void unlinkClient(client *c) {
     c->cmd = NULL;
 
     /* Clear the tracking status. */
-    if (c->flags & CLIENT_TRACKING) disableTracking(c);
+    if (c->flags & CLIENT_TRACKING) disableTracking(c,0);
 }
 
 /* Remove client from the list of clients with pending referenced replies.
@@ -2149,7 +2149,7 @@ void clearClientConnectionState(client *c) {
 
     serverAssert(!(c->flags &(CLIENT_SLAVE|CLIENT_MASTER)));
 
-    if (c->flags & CLIENT_TRACKING) disableTracking(c);
+    if (c->flags & CLIENT_TRACKING) disableTracking(c,0);
     selectDb(c,0);
 #ifdef LOG_REQ_RES
     c->resp = server.client_default_resp;
@@ -2187,7 +2187,7 @@ void deauthenticateAndCloseClient(client *c) {
     /* The victim may be owned by an IO thread that reads c->flags concurrently:
      * all flag writes below are guarded by flags implying main-thread residency
      * (see clearClientPubSubState); the other writes are not read by IO threads. */
-    disableTracking(c);
+    disableTracking(c,0);
     /* Clear all Pub/Sub subscriptions synchronously *before* dropping the ACL
      * identity. This removes any provenance-stamped user* values right now, so a
      * subsequent synchronous ACLFreeUser() (e.g. the DELUSER that triggered this
@@ -4905,7 +4905,7 @@ NULL
 
             enableTracking(c,redir,options,prefix,numprefix);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
-            disableTracking(c);
+            disableTracking(c,1);
         } else {
             zfree(prefix);
             addReplyErrorObject(c,shared.syntaxerr);
