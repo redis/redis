@@ -187,3 +187,7 @@ void rioSetAutoSync(rio *r, off_t bytes);
 void rioSetReclaimCache(rio *r, int enabled); 
 uint8_t rioCheckType(rio *r);
 #endif
+
+#ifdef REDIS_TEST
+int rioTest(int argc, char *argv[], int flags);
+#endif

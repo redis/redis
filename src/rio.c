@@ -430,7 +430,6 @@ static size_t rioConnsetWrite(rio *r, const void *buf, size_t len) {
     const size_t pre_flush_size = 256 * 1024;
     unsigned char *p = (unsigned char*) buf;
     size_t buflen = len;
-    size_t failed = 0; /* number of connections that write() returned error. */
 
     /* For small writes, we rather keep the data in user-space buffer, and flush
      * it only when it grows. however for larger writes, we prefer to flush
@@ -455,6 +454,10 @@ static size_t rioConnsetWrite(rio *r, const void *buf, size_t len) {
          * TCP socket. */
         size_t limit = PROTO_IOBUF_LEN * 2;
         size_t count = buflen < limit ? buflen : limit;
+        /* Number of connections that are down. Recounted for every chunk:
+         * connections that failed earlier are counted again here, so this
+         * must not carry over from the previous iteration. */
+        size_t failed = 0;
 
         for (size_t i = 0; i < r->io.connset.n_dst; i++) {
             size_t n_written = 0;
@@ -638,3 +641,96 @@ size_t rioWriteBulkDouble(rio *r, double d) {
     dbuf[dlen] = '\0';
     return rioWriteBulkString(r,dbuf,dlen);
 }
+
+/* -------------------------------- Tests ---------------------------------- */
+#ifdef REDIS_TEST
+#include <pthread.h>
+#include <sys/socket.h>
+#include <signal.h>
+#include "testhelp.h"
+
+#define RIOTEST_MAXCONN 8
+
+static void *rioTestDrain(void *arg) {
+    int fd = (int)(long)arg;
+    char buf[16384];
+    ssize_t n;
+    long long total = 0;
+    while ((n = read(fd, buf, sizeof(buf))) > 0) total += n;
+    return (void*)(long)total;
+}
+
+/* Write 'payload' bytes to a connset of 'nconn' connections, of which the
+ * first one is broken before the write starts. Returns what rioWrite()
+ * returned; 'delivered' gets the number of bytes the healthy connections
+ * received (they all receive the same amount). */
+static int rioTestConnsetOneBroken(int nconn, size_t payload, long long *delivered) {
+    int sp[RIOTEST_MAXCONN][2];
+    connection *conns[RIOTEST_MAXCONN];
+    pthread_t drainer[RIOTEST_MAXCONN];
+    long long got = 0;
+    char *buf = zmalloc(payload);
+    rio r;
+    int i, ret;
+
+    memset(buf, 'x', payload);
+    for (i = 0; i < nconn; i++) {
+        if (socketpair(AF_UNIX, SOCK_STREAM, 0, sp[i]) != 0) { zfree(buf); return -1; }
+        conns[i] = connectionTypeTcp()->conn_create_accepted(NULL, sp[i][0], NULL);
+        conns[i]->state = CONN_STATE_CONNECTED;
+        connBlock(conns[i]); /* rdb.c puts these connections in blocking mode. */
+    }
+    /* Connection 0 is broken: half-close it so every write returns EPIPE.
+     * The rest are healthy, and are drained so they never block. */
+    shutdown(sp[0][0], SHUT_WR);
+    for (i = 1; i < nconn; i++)
+        pthread_create(&drainer[i], NULL, rioTestDrain, (void*)(long)sp[i][1]);
+
+    rioInitWithConnset(&r, conns, nconn);
+    ret = rioWrite(&r, buf, payload);
+    /* rdb.c only flushes when the save succeeded:
+     *   if (retval == C_OK && rioFlush(&rdb) == 0) retval = C_ERR; */
+    if (ret) rioFlush(&r);
+
+    for (i = 1; i < nconn; i++) {
+        long long n;
+        close(sp[i][0]);
+        pthread_join(drainer[i], (void**)&n);
+        if (i == 1 || n < got) got = n;
+    }
+    *delivered = got;
+
+    rioFreeConnset(&r);
+    for (i = 0; i < nconn; i++) { zfree(conns[i]); close(sp[i][1]); }
+    close(sp[0][0]);
+    zfree(buf);
+    return ret;
+}
+
+int rioTest(int argc, char **argv, int flags) {
+    UNUSED(argc); UNUSED(argv); UNUSED(flags);
+    static const size_t payloads[] = { 64*1024, 256*1024, 1024*1024 };
+    static const int nconns[] = { 2, 3, 8 };
+    unsigned int pi, ni;
+    int all_ok = 1;
+
+    signal(SIGPIPE, SIG_IGN);
+    initServerConfig();
+    connTypeInitialize();
+
+    printf("\n  conns  payload   rioWrite()  delivered to the healthy connections\n");
+    for (ni = 0; ni < sizeof(nconns)/sizeof(nconns[0]); ni++) {
+        for (pi = 0; pi < sizeof(payloads)/sizeof(payloads[0]); pi++) {
+            long long got = 0;
+            int ret = rioTestConnsetOneBroken(nconns[ni], payloads[pi], &got);
+            int ok = (ret == 1 && got == (long long)payloads[pi]);
+            printf("  %5d  %7zu   %10d   %lld%s\n",
+                   nconns[ni], payloads[pi], ret, got, ok ? "" : "   <== short");
+            if (!ok) all_ok = 0;
+        }
+    }
+    test_cond("connset: one broken connection does not abort the healthy ones",
+              all_ok);
+    return 0;
+}
+#endif
