@@ -18,7 +18,6 @@ set cluster [redis_cluster 127.0.0.1:[get_instance_attrib redis 0 port]]
 
 while {[incr iterations -1]} {
     set tokill [randomInt 10]
-    set other [expr {($tokill+1)%10}] ; # Some other instance.
     set key [randstring 20 20 alpha]
     set val [randstring 20 20 alpha]
     set role [RI $tokill role]
@@ -57,7 +56,10 @@ while {[incr iterations -1]} {
         # Wait for the write to propagate to the slave if we
         # are going to kill a master.
         if {$role eq {master}} {
-            R $tokill wait 1 20000
+            # The WAIT command is only effective if sent by the same client that
+            # performed the last write on the server that will be killed.
+            set link [$cluster get_link [get_instance_addr redis $tokill]]
+            $link wait 1 20000
         }
     }
 
