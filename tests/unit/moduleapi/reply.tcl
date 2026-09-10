@@ -159,6 +159,177 @@ start_server {tags {"modules external:skip"}} {
             r deferred 0
         }
 
+        foreach size {32 65536} {
+            set payload [string repeat x $size]
+            test "RESP$proto: reply buffer nested collections, ordered moves and reuse ($size bytes)" {
+                assert_equal [list before [list $payload [list key 42]] 1 after] [r rw.buffer reuse $payload]
+                assert_equal PONG [r ping]
+            }
+            test "RESP$proto: reply buffer validation preserves content ($size bytes)" {
+                assert_equal [list $payload] [r rw.buffer invalid $payload]
+                assert_equal PONG [r ping]
+            }
+            test "RESP$proto: reply buffer discard and detached destinations ($size bytes)" {
+                set errors [s total_error_replies]
+                foreach mode {discard detached abort} {
+                    assert_equal OK [r rw.buffer $mode $payload]
+                    assert_equal PONG [r ping]
+                }
+                assert_equal $errors [s total_error_replies]
+            }
+        }
+
+        test "RESP$proto: reply buffer errors are counted once at the final destination" {
+            set errors [s total_error_replies]
+            assert_error "BUFFERERR sent" {r rw.buffer errors unused}
+            assert_equal [expr {$errors + 1}] [s total_error_replies]
+            assert_equal PONG [r ping]
+        }
+
+        test "RESP$proto: discarded open reply buffer warns and is released" {
+            set warnings [count_log_message 0 "API misuse detected in module replywith"]
+            assert_equal OK [r rw.buffer open unused]
+            wait_for_condition 50 10 {
+                [count_log_message 0 "API misuse detected in module replywith"] == $warnings + 1
+            } else { fail "Missing postponed collection warning" }
+        }
+
+        test "RESP$proto: reply buffer creation on a failed MULTI block" {
+            r multi
+            r rw.buffer discard unused
+            assert_error {*Blocking module command called from transaction*} {r exec}
+            assert_equal PONG [r ping]
+        }
+
+        foreach completion {normal timeout disconnect} {
+            test "RESP$proto: worker reply buffer lifetime through $completion" {
+                set rd [redis_deferring_client]
+                $rd hello $proto
+                $rd read
+                $rd client id
+                set id [$rd read]
+                set freed [lindex [r rw.buffer_status] 2]
+                set errors [s total_error_replies]
+                set payload [string repeat z 65536]
+                $rd rw.buffer_start $payload string
+                wait_for_condition 100 10 {
+                    [lindex [r rw.buffer_status] 1] == 1
+                } else { fail "Worker did not publish its buffer" }
+                if {$completion eq "timeout"} {
+                    assert_equal 1 [r client unblock $id timeout]
+                    assert_equal [list $payload done] [$rd read]
+                    # Timeout returns while the worker and its buffers remain alive.
+                    assert_equal [list 1 1 $freed] [r rw.buffer_status]
+                    $rd ping
+                    assert_equal PONG [$rd read]
+                } elseif {$completion eq "disconnect"} {
+                    assert_equal 1 [r client kill id $id]
+                }
+                assert_equal OK [r rw.buffer_finish]
+                if {$completion eq "normal"} {
+                    assert_equal [list $payload done] [$rd read]
+                    $rd ping
+                    assert_equal PONG [$rd read]
+                }
+                wait_for_condition 100 10 {
+                    [r rw.buffer_status] eq [list 0 0 [expr {$freed + 1}]]
+                } else { fail "Worker buffers were not released" }
+                assert_equal $errors [s total_error_replies]
+                $rd close
+            }
+        }
+
+        test "RESP$proto: worker errors remain deferred across buffer moves" {
+            set rd [redis_deferring_client]
+            $rd hello $proto
+            $rd read
+            set errors [s total_error_replies]
+            $rd rw.buffer_start unused error
+            wait_for_condition 100 10 {
+                [lindex [r rw.buffer_status] 1] == 1
+            } else { fail "Worker did not publish its buffer" }
+            assert_equal $errors [s total_error_replies]
+            assert_error "BUFFERERR worker" {r rw.buffer_take}
+            assert_equal [expr {$errors + 1}] [s total_error_replies]
+            assert_equal OK [r rw.buffer_take]
+            r rw.buffer_finish
+            assert_equal done [$rd read]
+            wait_for_condition 100 10 {
+                [lindex [r rw.buffer_status] 0] == 0
+            } else { fail "Worker buffers were not released" }
+            assert_equal [expr {$errors + 1}] [s total_error_replies]
+            $rd close
+        }
+
+        foreach drop {off off-error limit} {
+            test "RESP$proto: reply buffer consumed when destination drops replies ($drop)" {
+                set rd [redis_deferring_client]
+                $rd hello $proto
+                $rd read
+                set errors [s total_error_replies]
+                set kind [expr {$drop eq "off-error" ? "error" : "string"}]
+                $rd rw.buffer_start [string repeat q 65536] $kind
+                wait_for_condition 100 10 {
+                    [lindex [r rw.buffer_status] 1] == 1
+                } else { fail "Worker did not publish its buffer" }
+                set dst [redis_deferring_client]
+                $dst hello $proto
+                $dst read
+                if {[string match off* $drop]} {
+                    $dst client reply off
+                    $dst rw.buffer_take
+                    $dst client reply on
+                    assert_equal OK [$dst read]
+                } else {
+                    set limit [lindex [r config get client-output-buffer-limit] 1]
+                    r config set client-output-buffer-limit {normal 1024 0 0}
+                    $dst rw.buffer_take close
+                    assert_error {*I/O error*} {$dst read}
+                    r config set client-output-buffer-limit $limit
+                }
+                assert_equal OK [r rw.buffer_take]
+                r rw.buffer_finish
+                assert_equal done [$rd read]
+                wait_for_condition 100 10 {
+                    [lindex [r rw.buffer_status] 0] == 0
+                } else { fail "Worker buffers were not released" }
+                $dst close
+                $rd close
+                assert_equal $errors [s total_error_replies]
+                assert_equal PONG [r ping]
+            }
+        }
+
+        if {[lsearch $::denytags "resp3"] < 0} {
+            test "RESP$proto: reply buffer protocol compatibility preserves rejected source" {
+                set rd [redis_deferring_client]
+                $rd hello $proto
+                $rd read
+                $rd rw.buffer_start payload string
+                wait_for_condition 100 10 {
+                    [lindex [r rw.buffer_status] 1] == 1
+                } else { fail "Worker did not publish its buffer" }
+                set other [expr {5 - $proto}]
+                r hello $other
+                if {$proto == 3} {
+                    assert_error "ERR incompatible protocol" {r rw.buffer_take}
+                    r hello $proto
+                    assert_equal payload [r rw.buffer_take]
+                } else {
+                    assert_equal payload [r rw.buffer_take]
+                    r hello $proto
+                }
+                assert_equal OK [r rw.buffer_take]
+                r rw.buffer_finish
+                assert_equal done [$rd read]
+                wait_for_condition 100 10 {
+                    [lindex [r rw.buffer_status] 0] == 0
+                } else { fail "Worker buffers were not released" }
+                $rd close
+                assert_equal PONG [r ping]
+            }
+        }
+
         r hello 2
     }
 
