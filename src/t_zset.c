@@ -44,6 +44,7 @@
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
+#include <ctype.h>
 
 #define ZSL_OFFSET_MAX_ELE  UINT16_MAX
 #define ZSL_OFFSET_NO_ELE   UINT16_MAX
@@ -709,9 +710,39 @@ zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank) {
     return zslGetElementByRankFromNode(zsl->header, zsl->level - 1, rank);
 }
 
+/* Parse a single score bound used by zslParseRange. If the string is
+ * prefixed by '(' the bound is exclusive. The parser requires that the
+ * full input (minus the optional leading '(') represents a valid double:
+ * empty strings, a bare '(', leading whitespace, and any trailing junk
+ * (including embedded NULs) are all rejected. Returns C_OK on success,
+ * storing the parsed score in *score and exclusive flag in *ex. */
+static int zslParseScoreBound(robj *item, double *score, int *ex) {
+    char *eptr;
+    char *ptr = item->ptr;
+    size_t len = sdslen(ptr);
+    size_t off = 0;
+
+    *ex = 0;
+    if (len > 0 && ptr[0] == '(') {
+        *ex = 1;
+        off = 1;
+    }
+    /* Reject empty numeric part (covers "" and a bare "("). */
+    if (len - off == 0) return C_ERR;
+    /* Reject leading whitespace to match string2d() semantics. */
+    if (isspace((unsigned char)ptr[off])) return C_ERR;
+
+    *score = fast_float_strtod(ptr + off, len - off, &eptr);
+    /* Require that the parser consumed the entire remaining input. Using
+     * a length-based check (instead of eptr[0] != '\0') also rejects
+     * inputs that contain embedded NULs such as "1\0junk". */
+    if ((size_t)(eptr - (ptr + off)) != len - off) return C_ERR;
+    if (isnan(*score)) return C_ERR;
+    return C_OK;
+}
+
 /* Populate the rangespec according to the objects min and max. */
 static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
-    char *eptr;
     spec->minex = spec->maxex = 0;
 
     /* Parse the min-max interval. If one of the values is prefixed
@@ -721,28 +752,14 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
     if (min->encoding == OBJ_ENCODING_INT) {
         spec->min = (long)min->ptr;
     } else {
-        size_t len = sdslen(min->ptr);
-        if (((char*)min->ptr)[0] == '(') {
-            spec->min = fast_float_strtod((char*)min->ptr+1,len-1,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
-            spec->minex = 1;
-        } else {
-            spec->min = fast_float_strtod((char*)min->ptr,len,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
-        }
+        if (zslParseScoreBound(min, &spec->min, &spec->minex) != C_OK)
+            return C_ERR;
     }
     if (max->encoding == OBJ_ENCODING_INT) {
         spec->max = (long)max->ptr;
     } else {
-        size_t len = sdslen(max->ptr);
-        if (((char*)max->ptr)[0] == '(') {
-            spec->max = fast_float_strtod((char*)max->ptr+1,len-1,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
-            spec->maxex = 1;
-        } else {
-            spec->max = fast_float_strtod((char*)max->ptr,len,&eptr);
-            if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
-        }
+        if (zslParseScoreBound(max, &spec->max, &spec->maxex) != C_OK)
+            return C_ERR;
     }
 
     return C_OK;
