@@ -2195,7 +2195,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 }
             }
 
-            /* If from our POV the node is up (no failure flags are set),
+            /* If from sender's POV the node is up (no failure flags are set),
              * we have no pending ping for the node, nor we have failure
              * reports for this node, update the last pong time with the
              * one we see from the other nodes. */
