@@ -43,6 +43,11 @@ test "Pub/Sub shard basics" {
     $anotherclient close
 }
 
+test "PUBSUB SHARDNUMSUB blocks CROSSSLOT" {
+    catch {$cluster pubsub shardnumsub channel.0 channel.1} err
+    assert_match {CROSSSLOT Keys*} $err
+}
+
 test "client can't subscribe to multiple shard channels across different slots in same call" {
     catch {$cluster ssubscribe channel.0 channel.1} err
     assert_match {CROSSSLOT Keys*} $err
