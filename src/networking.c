@@ -212,6 +212,7 @@ client *createClient(connection *conn) {
     c->slave_capa = SLAVE_CAPA_NONE;
     c->slave_req = SLAVE_REQ_NONE;
     c->main_ch_client_id = 0;
+    c->slave_nodeid = NULL;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
@@ -2462,6 +2463,7 @@ void freeClient(client *c) {
     sdsfree(c->peerid);
     sdsfree(c->sockname);
     sdsfree(c->slave_addr);
+    sdsfree(c->slave_nodeid);
     sdsfree(c->node_id);
     zfree(c);
 }
