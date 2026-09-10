@@ -585,99 +585,90 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink li
     return entry;
 }
 
-/* Bucket a key with the given hash must be inserted into, having advanced
- * rehashing and grown the table exactly as dictFindLinkForInsert() would.
- * Unlike that function it never scans the bucket for an existing copy of the
- * key, so the caller must guarantee the key is not already present. This is the
- * authoritative bucket used for the insert itself. */
+/* Return the bucket a key with the given hash should be inserted into.
+ * Rehashing and expansion follow dictFindLinkForInsert(), but the bucket is
+ * not scanned for an existing key. The caller must guarantee the key is absent. */
 static dictEntryLink dictBucketForInsertByHash(dict *d, uint64_t hash) {
-    unsigned long idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+    unsigned long idx, table;
 
-    /* Rehash and expand in the same order as the insert lookup would, so the
-     * table we hand back is the one dictInsertKeyAtLink() expects. */
+    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+
+    /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d, idx);
+
+    /* Expand the hash table if needed */
     _dictExpandIfNeeded(d);
 
-    int htidx = dictIsRehashing(d) ? 1 : 0;
-    return &d->ht_table[htidx][hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])];
+    table = dictIsRehashing(d) ? 1 : 0;
+    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+    return &d->ht_table[table][idx];
 }
 
-/* Add a key the caller knows is absent, skipping the duplicate scan that
- * dictAdd()/dictAddRaw() perform. On the bulk sorted-set paths every member is
- * unique by construction, so that scan is pure overhead (a cache-missing bucket
- * load plus a dependent deref per chained entry). The debug assertion turns the
- * "known absent" promise into a checked precondition under -DDEBUG_ASSERTIONS,
- * which CI builds with, while release builds pay nothing. Returns the inserted
- * entry. */
+/* Add a key that is known not to exist. Unlike dictAdd()/dictAddRaw() this
+ * does not search the bucket for a duplicate. Returns the inserted entry. */
 dictEntry *dictAddNonExisting(dict *d, void *key __stored_key) {
     const void *lookup_key = dictStoredKey2Key(d, key);
+    uint64_t hash;
+    dictEntryLink bucket;
+
     debugAssert(dictFind(d, lookup_key) == NULL);
 
-    uint64_t hash = dictGetHash(d, lookup_key);
-    dictEntryLink bucket = dictBucketForInsertByHash(d, hash);
+    hash = dictGetHash(d, lookup_key);
+    bucket = dictBucketForInsertByHash(d, hash);
+    /* Dup the key if necessary. */
     if (d->type->keyDup) key = d->type->keyDup(d, key);
     return dictInsertKeyAtLink(d, key, bucket);
 }
 
-/* Batch form of dictAddNonExisting() for an array of known-absent keys, with a
- * software pipeline that hides the two dependent cache misses each insert would
- * otherwise stall on: the destination bucket, and the member bytes needed to
- * hash it. The table is grown once up front so it does not resize mid-batch. */
+/* Batch form of dictAddNonExisting() for an array of known-absent keys.
+ * Prefetches upcoming keys and destination buckets, and expands the table
+ * once so it does not resize mid-batch. */
+#define DICT_ADD_BATCH_PREFETCH 8 /* Power of two: ring index is a mask. */
 void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
+    uint64_t hashes[DICT_ADD_BATCH_PREFETCH], hash;
+    size_t i, primed;
+    int htidx;
+    unsigned long idx;
+    void *key;
+
     if (n == 0) return;
 
-    /* PF is the prefetch distance in elements and must stay a power of two so
-     * the ring index is a mask. Elements are pulled in 2*PF ahead, hashed and
-     * their buckets prefetched PF ahead, and inserted using the hash stored a
-     * window earlier. */
-    enum { PF = 8 };
-    uint64_t hring[PF];
-
-    /* Validate the known-absent contract before fixing the destination table:
-     * dictFind() may advance rehashing in debug builds. */
+    /* dictFind() may advance rehashing, so check before we pick the table. */
 #ifdef DEBUG_ASSERTIONS
-    for (size_t i = 0; i < n; i++)
-        assert(dictFind(d, dictStoredKey2Key(d, keys[i])) == NULL);
+    for (i = 0; i < n; i++)
+        debugAssert(dictFind(d, dictStoredKey2Key(d, keys[i])) == NULL);
 #endif
 
-    /* Size to the final element count once. Repeated mid-batch growth would
-     * reallocate the table and strand the buckets we prefetch ahead. */
+    /* Expand once. Mid-batch growth would reallocate the table and invalidate
+     * prefetched buckets. */
     dictExpand(d, dictSize(d) + n);
-    int htidx = dictIsRehashing(d) ? 1 : 0;
+    htidx = dictIsRehashing(d) ? 1 : 0;
 
-    /* Prime the hash window for the first PF inserts. */
-    size_t primed = n < PF ? n : PF;
-    for (size_t j = 0; j < primed; j++) {
-        uint64_t h = dictGetHash(d, dictStoredKey2Key(d, keys[j]));
-        hring[j & (PF - 1)] = h;
-        redis_prefetch_write(&d->ht_table[htidx]
-            [h & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
+    primed = n < DICT_ADD_BATCH_PREFETCH ? n : DICT_ADD_BATCH_PREFETCH;
+    for (i = 0; i < primed; i++) {
+        hashes[i] = dictGetHash(d, dictStoredKey2Key(d, keys[i]));
+        idx = hashes[i] & DICTHT_SIZE_MASK(d->ht_size_exp[htidx]);
+        redis_prefetch_write(&d->ht_table[htidx][idx]);
     }
 
-    for (size_t i = 0; i < n; i++) {
-        /* Two windows ahead: bring the element (and its embedded member bytes,
-         * which share the allocation) into cache before it is hashed. */
-        if (i + 2 * PF < n)
-            redis_prefetch_read(keys[i + 2 * PF]);
+    for (i = 0; i < n; i++) {
+        /* Prefetch the key two windows ahead so its bytes are warm when hashed. */
+        if (i + 2 * DICT_ADD_BATCH_PREFETCH < n)
+            redis_prefetch_read(keys[i + 2 * DICT_ADD_BATCH_PREFETCH]);
 
-        /* Insert element i with the hash computed a window ago; the bucket is
-         * resolved authoritatively here, so a stale prefetch hint is harmless.
-         * This read must precede the one-window-ahead store below, which lands
-         * on the same ring slot. */
-        void *key = keys[i];
-        uint64_t h = hring[i & (PF - 1)];
-        dictEntryLink bucket = &d->ht_table[htidx]
-            [h & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])];
+        key = keys[i];
+        hash = hashes[i & (DICT_ADD_BATCH_PREFETCH - 1)];
+        idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx]);
+        /* Dup the key if necessary. */
         if (d->type->keyDup) key = d->type->keyDup(d, key);
-        dictInsertKeyAtLink(d, key, bucket);
+        dictInsertKeyAtLink(d, key, &d->ht_table[htidx][idx]);
 
-        /* One window ahead: hash the member and prefetch its bucket for a
-         * future iteration. */
-        if (i + PF < n) {
-            uint64_t hn = dictGetHash(d, dictStoredKey2Key(d, keys[i + PF]));
-            hring[(i + PF) & (PF - 1)] = hn;
-            redis_prefetch_write(&d->ht_table[htidx]
-                [hn & DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
+        /* Hash the next window and prefetch its bucket. */
+        if (i + DICT_ADD_BATCH_PREFETCH < n) {
+            hash = dictGetHash(d, dictStoredKey2Key(d, keys[i + DICT_ADD_BATCH_PREFETCH]));
+            hashes[(i + DICT_ADD_BATCH_PREFETCH) & (DICT_ADD_BATCH_PREFETCH - 1)] = hash;
+            idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx]);
+            redis_prefetch_write(&d->ht_table[htidx][idx]);
         }
     }
 }
@@ -1201,11 +1192,8 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    /* Charge only the entries that were really allocated. A no_value dict
-     * (set, hash, sorted-set element index) puts the first key of a bucket
-     * inline and allocates a dictEntryNoValue for the rest, so at a normal
-     * load factor well under half the keys own one; counting every key here
-     * inflated a 1M-element sorted set by ~10 MB. */
+    /* Charge allocated entries only: a no_value dict stores some keys
+     * directly in empty buckets without a dictEntry. */
     return d->allocated_entries * dictEntryMemUsage(d->type->no_value) +
         dictBuckets(d) * sizeof(dictEntry*);
 }
@@ -1820,36 +1808,25 @@ int dictShrinkIfNeeded(dict *d) {
     return DICT_ERR;
 }
 
-/* Shrink the table if it became sparse, and finish the resulting rehash before
- * returning instead of leaving it to later operations.
+/* Shrink the hash table if needed and complete the rehash immediately.
  *
- * Incremental rehashing assumes something will keep stepping it. That holds for
- * keyspace dicts, which the cron drives through kvstore, but a dict owned by a
- * single object (sorted set, set, hash) is only ever stepped by commands
- * touching that object. A bulk deletion is the worst case for the assumption:
- * it starts a shrink with its very last act, so the old table stays allocated
- * until some later command happens to step it, and stays forever if none does.
+ * Unlike the keyspace dicts, which the cron steps through kvstore, a dict
+ * owned by a single object is only stepped by commands that touch it. A bulk
+ * deletion would otherwise leave the old table allocated until later.
  *
- * A rehash already running on entry is left alone: it belongs to an earlier
- * resize, so finishing it here would charge an unrelated command for the whole
- * table. dictShrinkIfNeeded() is a no-op in that state anyway. */
+ * A rehash already in progress is left alone. If resizing is not fully
+ * enabled (e.g. a child save is running) the rehash stays incremental. */
 void dictShrinkIfNeededAndComplete(dict *d) {
+    dictResizeEnable can_resize;
+
     if (dictIsRehashing(d) || dictIsRehashingPaused(d)) return;
     if (dictShrinkIfNeeded(d) != DICT_OK) return;
 
-    /* Only walk the table when no child process is alive. DICT_RESIZE_ENABLE
-     * means exactly that, and while a fork is running, moving every bucket at
-     * once is the one thing worth avoiding: it would rewrite pages the child
-     * still shares and multiply copy-on-write. Leaving the rehash incremental
-     * there also keeps the pre-existing shrink behaviour during a save. */
-    dictResizeEnable can_resize;
     atomicGet(dict_can_resize, can_resize);
     if (can_resize != DICT_RESIZE_ENABLE) return;
 
-    /* dictRehash() reports 0 both when the table is done and when the resize
-     * policy is holding it back, so this cannot spin. */
     while (dictIsRehashing(d) && dictRehash(d, 1000)) {
-        /* Move the remaining buckets. */
+        /* Continue rehashing */
     }
 }
 
@@ -2152,8 +2129,7 @@ dictType BenchmarkDictType = {
     NULL
 };
 
-/* Same as BenchmarkDictType, but a no_value=1 (set-style) dict -- used to verify
- * that dictMemUsage() sizes entries as dictEntryNoValue, not dictEntry. */
+/* Same as BenchmarkDictType, with no_value=1. */
 static dictType BenchmarkDictTypeNoValue = {
     .hashFunction = hashCallback,
     .keyCompare = compareCallback,
@@ -2161,8 +2137,7 @@ static dictType BenchmarkDictTypeNoValue = {
     .no_value = 1,
 };
 
-/* Ground truth for d->allocated_entries: walk both tables and count the entries
- * that are a real allocation rather than a key stored inline in its bucket. */
+/* Count allocated entries (skip keys stored inline in a bucket). */
 static unsigned long dictWalkAllocatedEntries(const dict *d) {
     unsigned long allocated = 0;
     for (int table = 0; table <= 1; table++) {
@@ -2339,18 +2314,7 @@ int dictTest(int argc, char **argv, int flags) {
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
     }
 
-    TEST("dictMemUsage charges only the entries that were really allocated") {
-        /* Regression: MEMORY USAGE used to charge one entry per key. A no_value
-         * dict (set, hash, sorted-set element index) stores the first key of
-         * each bucket inline and allocates a dictEntryNoValue only for the
-         * rest, so charging every key inflated a 1M-element sorted set by
-         * ~10 MB.
-         *
-         * A dictEntry is {next, key, value-union}; a dictEntryNoValue is
-         * {next, key}. Dropping the value makes a no_value entry smaller by
-         * exactly the size of the value union, which is 8 bytes (it holds a
-         * uint64_t/double) on both 64-bit (dictEntry 24 -> dictEntryNoValue 16)
-         * and 32-bit (16 -> 8). */
+    TEST("dictMemUsage charges only allocated entries") {
         const size_t value_union_bytes = 8;
         assert(sizeof(dictEntry) - sizeof(dictEntryNoValue) == value_union_bytes);
 
@@ -2363,8 +2327,8 @@ int dictTest(int argc, char **argv, int flags) {
         }
         assert(dictSize(dn) == (unsigned long)n && dictSize(dv) == (unsigned long)n);
 
-        /* Every key in a normal dict owns an entry; a no_value dict allocates
-         * one for all but the inline key of each occupied bucket. */
+        /* A no_value dict allocates an entry for all but the inline key of
+         * each occupied bucket. */
         assert(dn->allocated_entries == (unsigned long)n);
         assert(dv->allocated_entries == dictWalkAllocatedEntries(dv));
         assert(dv->allocated_entries == (unsigned long)n - dictWalkOccupiedBuckets(dv));
@@ -2380,9 +2344,6 @@ int dictTest(int argc, char **argv, int flags) {
     }
 
     TEST("allocated_entries stays exact across rehashing and deletion") {
-        /* Rehashing moves keys between the inline and allocated forms in both
-         * directions, and deletion never re-inlines the survivor of a chain,
-         * so the counter cannot be derived from size and load factor. */
         dict *dr = dictCreate(&BenchmarkDictTypeNoValue);
         long n = 5000;
 
@@ -2640,10 +2601,7 @@ int dictTest(int argc, char **argv, int flags) {
     }
 
     TEST("dictAddNonExistingBatch() stays correct across a rehash") {
-        /* Seed a dict, then start incremental rehashing and leave it unfinished
-         * so the batch runs against two live tables. The batch resolves each
-         * insert bucket freshly, so the advisory prefetch hints going stale as
-         * the active table flips must not corrupt anything. */
+        /* Leave rehashing unfinished so the batch runs against two tables. */
         dictType dt = BenchmarkDictType;
         dt.no_value = 1;
         dict *d = dictCreate(&dt);

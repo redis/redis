@@ -165,11 +165,7 @@ struct dict {
     dictEntry **ht_table[2];
     unsigned long ht_used[2];
 
-    /* Live entry structs across both tables. A no_value dict stores the key
-     * straight into an empty bucket instead of allocating one, so this runs
-     * below dictSize() by the number of occupied buckets. For every other dict
-     * each key owns an entry and this equals dictSize(). */
-    unsigned long allocated_entries;
+    unsigned long allocated_entries; /* allocated dictEntry structs (not inline keys) */
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
