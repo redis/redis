@@ -26,7 +26,14 @@ static RedisModuleDict *Keyspace;
  * Set the specified key to the specified value. */
 int cmd_SET(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3) return RedisModule_WrongArity(ctx);
-    RedisModule_DictSet(Keyspace,argv[1],argv[2]);
+
+    /* If the key already exists, we must free its old value to avoid a memory leak. */
+    RedisModuleString *oldval = RedisModule_DictGet(Keyspace,argv[1],NULL);
+    if (oldval) {
+        RedisModule_FreeString(NULL, oldval);
+    }
+
+    RedisModule_DictReplace(Keyspace,argv[1],argv[2]);
     /* We need to keep a reference to the value stored at the key, otherwise
      * it would be freed when this callback returns. */
     RedisModule_RetainString(NULL,argv[2]);
