@@ -279,8 +279,8 @@ void restoreCommand(client *c) {
     payload.flags |= RIO_FLAG_DUMP_PAYLOAD;
 
     /* Initialize metadata spec to collect metadata+expiry from payload. */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
+    kvSpec keymeta;
+    kvSpecInit(&keymeta);
 
     /* Compute TTL early so we can add it to metadata spec in correct order */
     if (ttl) {
@@ -288,7 +288,7 @@ void restoreCommand(client *c) {
             addReplyErrorExpireTime(c);
             return;
         }
-        keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
+        kvSpecAddMeta(&keymeta, KEY_META_ID_EXPIRE, ttl);
     }
 
     /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
@@ -301,7 +301,7 @@ void restoreCommand(client *c) {
     /* Load the object */
     if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
     {
-        keyMetaSpecCleanup(&keymeta);
+        kvSpecCleanup(&keymeta);
         addReplyError(c,"Bad data format");
         return;
     }
@@ -311,6 +311,9 @@ void restoreCommand(client *c) {
     dictEntryLink link = NULL;
     kvobj *oldval = lookupKeyWriteWithLink(c->db, key, &link);
     int oldtype = oldval ? oldval->type : -1;
+
+    /* RESTORE REPLACE keeps the destination's NO-EVICT flag. */
+    keymeta.no_evict = replace && oldval && blessIsNoEvict(oldval);
 
     /* Call dbDelete() only when a key is actually present:
      *   oldval != NULL -> key exists.
@@ -332,7 +335,7 @@ void restoreCommand(client *c) {
         }
         /* Update the stats, see setGenericCommand for details. */
         server.stat_expiredkeys++;
-        keyMetaSpecCleanup(&keymeta);
+        kvSpecCleanup(&keymeta);
         decrRefCount(obj);
         addReply(c, shared.ok);
         return;

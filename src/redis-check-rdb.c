@@ -268,6 +268,9 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 decrRefCount(o);
             }
             continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_KEY_NOEVICT) {
+            /* Payload-less NO-EVICT flag for the next key. */
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;

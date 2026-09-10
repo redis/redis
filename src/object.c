@@ -94,6 +94,7 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits) {
     kv->iskvobj = 1;
     kv->metabits = keyMetaBits;
     kvobjBits(kv)->key_sds_type = key_sds_type;
+    kvobjBits(kv)->no_evict = 0;
     kvobjBits(kv)->unused = 0;
 
     /* Store embedded key, right after the kvBits. */
@@ -195,6 +196,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     o->metabits = keyMetaBits;
     o->iskvobj = 1;
     kvobjBits(o)->key_sds_type = key_sds_type;
+    kvobjBits(o)->no_evict = 0;
     kvobjBits(o)->unused = 0;
 
     /* Store embedded key, right after the kvBits. */
@@ -325,6 +327,7 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
     }
     
     kv->lru = val->lru;
+    if (val->iskvobj) kvobjBits(kv)->no_evict = kvobjBits(val)->no_evict;
 
     /* Transfer module metadata from `val` to new `kv` (if `val` of type kvobj with metadata). */
     if (val->metabits & KEY_META_MASK_MODULES)
@@ -1554,14 +1557,24 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db[mh->num_dbs].overhead_ht_expires = mem;
         mem_total+=mem;
 
+        /* The bless NO-EVICT index (db->blessed_keys) is a derived per-DB kvstore;
+         * count it as overhead, not dataset. blessedIndexMemUsage is O(1) - the sds
+         * key-copy bytes it owns are tracked in the index's kvstore metadata. */
+        mem = blessedIndexMemUsage(db);
+        mh->db[mh->num_dbs].overhead_ht_blessed = mem;
+        mem_total+=mem;
+
         mh->num_dbs++;
 
         mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->keys);
         mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->expires);
+        mh->overhead_db_hashtable_lut += kvstoreOverheadHashtableLut(db->blessed_keys);
         mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->keys);
         mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->expires);
+        mh->overhead_db_hashtable_rehashing += kvstoreOverheadHashtableRehashing(db->blessed_keys);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->keys);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->expires);
+        mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->blessed_keys);
     }
 
     /* Hotkeys memory overhead */
@@ -1915,13 +1928,16 @@ NULL
             char dbname[32];
             snprintf(dbname,sizeof(dbname),"db.%zd",mh->db[j].dbid);
             addReplyBulkCString(c,dbname);
-            addReplyMapLen(c,2);
+            addReplyMapLen(c,3);
 
             addReplyBulkCString(c,"overhead.hashtable.main");
             addReplyLongLong(c,mh->db[j].overhead_ht_main);
 
             addReplyBulkCString(c,"overhead.hashtable.expires");
             addReplyLongLong(c,mh->db[j].overhead_ht_expires);
+
+            addReplyBulkCString(c,"overhead.hashtable.blessed");
+            addReplyLongLong(c,mh->db[j].overhead_ht_blessed);
         }
 
         addReplyBulkCString(c,"overhead.db.hashtable.lut");

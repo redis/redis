@@ -1353,6 +1353,7 @@ void databasesCron(void) {
             redisDb *db = &server.db[resize_db % server.dbnum];
             kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB, resizeShouldSkip);
             kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB, resizeShouldSkip);
+            kvstoreTryResizeDicts(db->blessed_keys, CRON_DICTS_PER_DB, resizeShouldSkip);
             resize_db++;
         }
 
@@ -1365,6 +1366,9 @@ void databasesCron(void) {
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                elapsed_us += kvstoreIncrementallyRehash(db->blessed_keys, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 rehash_db++;
@@ -3121,6 +3125,7 @@ void initServer(void) {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
         server.db[j].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
         server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
@@ -6885,6 +6890,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
+            "blessed_keys:%llu\r\n", blessedKeysCount(),
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
             "evicted_scripts:%lld\r\n", server.stat_evictedscripts,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,

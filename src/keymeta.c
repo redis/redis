@@ -47,7 +47,7 @@ typedef struct KeyMetaClass {
 static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
 
 /* Add metadata to keymeta spec, handling out-of-order metaid */
-static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
+static void kvSpecAddMetaUnordered(kvSpec *keymeta, int metaid, uint64_t metaval);
 
 
 /* Encode 64b For module entity encode. Encode 32b class spec for RDB. 
@@ -175,12 +175,12 @@ void keyMetaInit(void) {
 
 /* Prepare key metadata spec for copy of `srcKv` */
 void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDbId,
-                   KeyMetaSpec *keymeta)
+                   kvSpec *keymeta)
 {
     uint64_t *pMeta = ((uint64_t *)kv) - 1;
     if (kv->metabits & KEY_META_MASK_EXPIRE) {
         if (*pMeta != KM_EXPIRE_RESET_VALUE)
-            keyMetaSpecAdd(keymeta, KEY_META_ID_EXPIRE, *pMeta);
+            kvSpecAddMeta(keymeta, KEY_META_ID_EXPIRE, *pMeta);
         pMeta--;
     }
 
@@ -197,7 +197,7 @@ void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDb
             if (tmpMeta != keyMetaClass[keyMetaId].conf.reset_value &&
                 keyMetaClass[keyMetaId].conf.copy &&
                 keyMetaClass[keyMetaId].conf.copy(&ctx, &tmpMeta))
-                keyMetaSpecAdd(keymeta, keyMetaId, tmpMeta);
+                kvSpecAddMeta(keymeta, keyMetaId, tmpMeta);
         }
         mbits >>= 1;
         keyMetaId++;
@@ -205,14 +205,14 @@ void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDb
 }
 
 /* Prepare metadata spec for rename of `kv` */
-void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey, KeyMetaSpec *kms) {
+void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey, kvSpec *kms) {
     uint64_t *pMeta = ((uint64_t *)kv) - 1;
 
     /* Handle builtin expire: add only if set and value != -1, but always advance
      * the pointer when the expire bit is set since the slot exists either way. */
     if (kv->metabits & KEY_META_MASK_EXPIRE) {
         if (*pMeta != KM_EXPIRE_RESET_VALUE)
-            keyMetaSpecAdd(kms, KEY_META_ID_EXPIRE, *pMeta);
+            kvSpecAddMeta(kms, KEY_META_ID_EXPIRE, *pMeta);
         pMeta--; /* skip expire slot */
     }
 
@@ -230,7 +230,7 @@ void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey,
                 (!keyMetaClass[keyMetaId].conf.rename || 
                  keyMetaClass[keyMetaId].conf.rename(&ctx, &tmpMeta))) 
             {
-                keyMetaSpecAdd(kms, keyMetaId, tmpMeta);
+                kvSpecAddMeta(kms, keyMetaId, tmpMeta);
                 /* Set old metadata slot to reset_value to prevent free callback */
                 *pMeta = keyMetaClass[keyMetaId].conf.reset_value;
             }
@@ -242,14 +242,14 @@ void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey,
 }
 
 /* Prepare metadata spec for move of `kv` from srcDbId to dstDbId */
-void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, KeyMetaSpec *kms) {
+void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, kvSpec *kms) {
     uint64_t *pMeta = ((uint64_t *)kv) - 1;
 
     /* Handle builtin expire: add only if set and value != -1, but always advance
      * the pointer when the expire bit is set since the slot exists either way. */
     if (kv->metabits & KEY_META_MASK_EXPIRE) {
         if (*pMeta != KM_EXPIRE_RESET_VALUE)
-            keyMetaSpecAdd(kms, KEY_META_ID_EXPIRE, *pMeta);
+            kvSpecAddMeta(kms, KEY_META_ID_EXPIRE, *pMeta);
         pMeta--; /* skip expire slot */
     }
 
@@ -267,7 +267,7 @@ void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, KeyMetaSpec *
                 (!keyMetaClass[keyMetaId].conf.move || 
                  keyMetaClass[keyMetaId].conf.move(&ctx, &tmpMeta))) 
             {
-                keyMetaSpecAdd(kms, keyMetaId, tmpMeta);
+                kvSpecAddMeta(kms, keyMetaId, tmpMeta);
                 /* If keep, set old metadata to reset_value to prevent free callback */
                 *pMeta = keyMetaClass[keyMetaId].conf.reset_value;
             }
@@ -355,7 +355,7 @@ void keyMetaOnFree(kvobj *kv) {
     } while (mbits != 0);
 }
 
-/* Free any metadata stored in a KeyMetaSpec. This is called when RDB load fails 
+/* Free any metadata stored in a kvSpec. This is called when RDB load fails
  * after some metadata has been loaded. It invokes the free cb for each metadata 
  * class that was already loaded, preventing memory leaks from partially-loaded metadata.
  *
@@ -363,7 +363,7 @@ void keyMetaOnFree(kvobj *kv) {
  * - We pass NULL for keyname since the key doesn't exist yet.
  * - The kms->meta[] array is stored in reverse order: smallest metaid at the end.
  */
-void keyMetaSpecCleanup(KeyMetaSpec *kms) {
+void kvSpecCleanup(kvSpec *kms) {
     if (kms->numMeta == 0) return;
 
     /* Iterate through the metadata array in reverse order (largest to smallest ID) */
@@ -432,7 +432,7 @@ int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
 
 /* Load module metadata from RDB.
  * Returns 0 on success, -1 on error.
- * Stores loaded metadata in the provided KeyMetaSpec structure.
+ * Stores loaded metadata in the provided kvSpec structure.
  *
  * Format (same as save):
  *   1B: NUM_CLASSES (already read by caller)
@@ -441,7 +441,7 @@ int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
  *     ?B: VALUE (from rdb_load callback)
  *     1B: RDB_MODULE_OPCODE_EOF
  */
-int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
+int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, kvSpec *kms) {
     if (numClasses > KEY_META_MAX_NUM_MODULES) {
         serverLog(LL_WARNING, "Too many metadata classes: %d (max %d)",
                   numClasses, KEY_META_MAX_NUM_MODULES);
@@ -504,7 +504,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
 
         if (io.error) {
             /* rdb_load succeeded but loading EOF failed */
-            if (rc == 1) keyMetaSpecAddUnordered(kms, classId, meta);
+            if (rc == 1) kvSpecAddMetaUnordered(kms, classId, meta);
             goto error;
         }
 
@@ -515,7 +515,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
         if (rc == 1) {
             /* Add metadata, handling out-of-order classIds that may occur when
              * modules register in different order at load time vs save time */
-            keyMetaSpecAddUnordered(kms, classId, meta);
+            kvSpecAddMetaUnordered(kms, classId, meta);
         } else if (rc == 0) {
             /* Ignore/skip - don't attach metadata, continue loading */
         } else if (rc == -1) {
@@ -537,7 +537,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
 
 error:
     /* Clean up any metadata that was successfully loaded before the error */
-    keyMetaSpecCleanup(kms);
+    kvSpecCleanup(kms);
     return -1;
 }
 
@@ -874,7 +874,7 @@ int keyMetaGetMetadata(KeyMetaClassId kmcId, kvobj *kv, uint64_t *metadata) {
 }
 
 /* Add metadata to keymeta spec. Must be in range 0..7 and in order! */
-void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
+void kvSpecAddMeta(kvSpec *keymeta, int metaid, uint64_t metaval) {
     /* Verify added in order and for the first time */
     debugServerAssert(keymeta->metabits == 0 || (1<<metaid) > keymeta->metabits);
     keymeta->metabits |= 1 << metaid ;
@@ -887,7 +887,7 @@ void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
  * This is useful when metadata may arrive in different order than class IDs
  * (e.g., RDB load with different module registration order).
  * The function maintains the sorted order of the reverse-populated array. */
-static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
+static void kvSpecAddMetaUnordered(kvSpec *keymeta, int metaid, uint64_t metaval) {
     debugServerAssert(metaid >= 0 && metaid < KEY_META_ID_MAX);
     debugServerAssert((keymeta->metabits & (1 << metaid)) == 0); /* Not already added */
 

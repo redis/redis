@@ -135,6 +135,9 @@
                         },
                         "overhead.hashtable.expires": {
                             "type": "integer"
+                        },
+                        "overhead.hashtable.blessed": {
+                            "type": "integer"
                         }
                     },
                     "additionalProperties": false
