@@ -92,6 +92,28 @@ if {!$::valgrind} {
         }
     }
 
+    # test crash report generated when child process crashes
+    set server_path [tmpdir server2_child.log]
+    start_server [list overrides [list dir $server_path]] {
+        test "Crash report generated without recursive crash when child process crashes" {
+            r config set rdb-key-save-delay 10000000
+            r debug populate 1000
+            r bgsave
+            wait_for_condition 50 100 {
+                [s rdb_bgsave_in_progress] == 1
+            } else {
+                fail "bgsave did not start"
+            }
+            set child_pid [get_child_pid 0]
+            assert {$child_pid > 0}
+            exec kill -SIGSEGV $child_pid
+            wait_for_log_messages 0 [list "*REDIS BUG REPORT END*"] 0 200 100
+            assert_equal [count_log_message 0 "Crashed running signal handler"] 0
+            assert_equal [count_log_message 0 "crashed by signal"] 1
+            assert_equal "PONG" [r ping]
+        }
+    }
+
     # test DEBUG SIGALRM being non-fatal
     set server_path [tmpdir server3.log]
     start_server [list overrides [list dir $server_path]] {
