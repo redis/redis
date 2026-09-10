@@ -1034,7 +1034,6 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
             dictEmpty(dbarray[j].stream_idmp_keys, callback);
-            /* The blessed-keys index is derived from the keys; wipe it too. */
             kvstoreEmpty(dbarray[j].blessed_keys, NULL);
         }
         /* Because all keys of database are removed, reset average ttl. */
