@@ -2347,7 +2347,7 @@ error:
  * 
  * Returns: 0 on success, -1 on error
  */
-int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
+int rdbResolveKeyType(rio *rdb, int *type, int dbid, kvSpec *keymeta) {
     if (*type == RDB_OPCODE_KEY_META) {
         /* Load key metadata from RDB */
         uint64_t numClasses;
@@ -2360,7 +2360,7 @@ int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
         /* Read the actual object type after metadata */
         *type = rdbLoadObjectType(rdb);
         if (*type == -1) {
-            keyMetaSpecCleanup(keymeta);
+            kvSpecCleanup(keymeta);
             return -1;
         }
     } else if (!rdbIsObjectType(*type)) {
@@ -4704,9 +4704,8 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
     /* Key-specific attributes, set by opcodes before the key type. */
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
-    int noevict = 0;
-    KeyMetaSpec keyMeta; /* Updated by OPCODE_KEY_META and OPCODE_EXPIRETIME */
-    keyMetaSpecInit(&keyMeta);
+    kvSpec keyMeta; /* Key attributes populated by RDB opcodes. */
+    kvSpecInit(&keyMeta);
 
     while(1) {
         sds key;
@@ -4722,14 +4721,14 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
              * load the actual type, and continue. */
             expiretime = rdbLoadTime(rdb);
             expiretime *= 1000;
-            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
+            kvSpecAddMeta(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             expiretime = rdbLoadMillisecondTime(rdb,rdbver);
-            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
+            kvSpecAddMeta(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
@@ -4745,7 +4744,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             lru_idle = qword;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_KEY_NOEVICT) {
-            noevict = 1;
+            keyMeta.no_evict = 1;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
@@ -4955,7 +4954,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
 
         /* Read key */
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&keyMeta);
             goto eoferr;
         }
         /* Read value */
@@ -4970,7 +4969,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
          * the keys they are, since the log of operations in the incr AOF
          * is assumed to work in the exact keyspace state. */
         if (val == NULL) {
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&keyMeta);
             /* Since we used to have bug that could lead to empty keys
              * (See #8453), we rather not fail when empty key is encountered
              * in an RDB file, instead we will silently discard it and
@@ -5001,7 +5000,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             }
             sdsfree(key);
             decrRefCount(val);
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&keyMeta);
             server.rdb_last_load_keys_expired++;
         } else {
             robj keyobj;
@@ -5024,8 +5023,6 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
                     serverPanic("Duplicated key found in RDB file");
                 }
             }
-
-            if (noevict) blessSetNoEvict(db, kv, 1);
 
             /* Track few-key template keys for disassembly at the end of RDb load. */
             rdbLoadTemplateCtxRecord(rdb_load_tmpl_ctx, kv, db);
@@ -5062,8 +5059,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
         expiretime = -1;
         lfu_freq = -1;
         lru_idle = -1;
-        noevict = 0;
-        keyMetaSpecInit(&keyMeta);
+        kvSpecInit(&keyMeta);
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5) {

@@ -95,6 +95,22 @@ struct RedisModuleKeyOptCtx {
 #include "crc64.h"
 #include "keymeta.h"
 
+/* Attributes and metadata for a new key. */
+typedef struct kvSpec {
+    uint8_t no_evict;
+    uint16_t numMeta;
+    uint16_t metabits;
+    /* Metadata is stored from the end backward, lowest class ID last. */
+    uint64_t meta[KEY_META_ID_MAX];
+} kvSpec;
+
+static inline void kvSpecInit(kvSpec *spec) {
+    /* meta[] is unused until metadata entries are added. */
+    spec->no_evict = 0;
+    spec->metabits = 0;
+    spec->numMeta = 0;
+}
+
 struct hdr_histogram;
 
 /* helpers */
@@ -4325,8 +4341,8 @@ kvobj *kvobjCommandLookupOrReply(client *c, robj *key, robj *reply);
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
-kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const KeyMetaSpec *m);
-kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec);
+kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const kvSpec *m);
+kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const kvSpec *keyMetaSpec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 

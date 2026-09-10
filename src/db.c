@@ -428,17 +428,18 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * link - Optional link to bucket where the key should be added.
  *          On return, get updated, by need, to the inserted key.
  *          
- * keymeta - Defines metadata to be attached to the key. Including optional 
- *           expiration and modules metadata to be copied (REQUIRED).
+ * keymeta - Defines attributes and metadata of the new key, including NO-EVICT,
+ *           optional expiration and module metadata (REQUIRED).
  */
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, 
-                     const KeyMetaSpec *keymeta) 
+                     const kvSpec *keymeta)
 {
     int slot = getKeySlot(key->ptr);
     dictEntryLink tmp = NULL;
     if (link == NULL) link = &tmp;
     robj *val = *valref;
     kvobj *kv = kvobjSet(key->ptr, val, keymeta->metabits);
+    kvobjBits(kv)->no_evict = 0;
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
     
@@ -459,7 +460,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
                    keymeta->numMeta * sizeof(uint64_t));
     }
 
-    if (blessIsNoEvict(kv)) blessSetNoEvict(db, kv, 1);
+    if (keymeta->no_evict) blessSetNoEvict(db, kv, 1);
 
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
@@ -472,14 +473,14 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 
 /* Read dbAddInternal() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    KeyMetaSpec keyMetaEmpty; /* No metadata added */
-    keyMetaSpecInit(&keyMetaEmpty);
+    kvSpec keyMetaEmpty; /* No metadata added */
+    kvSpecInit(&keyMetaEmpty);
     return dbAddInternal(db, key, valref, NULL, &keyMetaEmpty);
 }
 
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
-    KeyMetaSpec keyMetaEmpty; /* No metadata added */
-    keyMetaSpecInit(&keyMetaEmpty);
+    kvSpec keyMetaEmpty; /* No metadata added */
+    kvSpecInit(&keyMetaEmpty);
     return dbAddInternal(db, key, valref, link, &keyMetaEmpty);
 }
 
@@ -535,7 +536,7 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
  *
  * If added to db, returns pointer to the object, Otherwise NULL is returned.
  */
-kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec) {
+kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const kvSpec *keyMetaSpec) {
     /* Add new kvobj to the db. */
     int slot = getKeySlot(key);
 
@@ -546,9 +547,10 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
     if (link != NULL)
         return NULL;
 
-    /* Create kvobj with metadata bits from KeyMetaSpec */
+    /* Create kvobj with metadata bits from kvSpec */
     robj *val = *valref;
     kvobj *kv = kvobjSet(key, val, keyMetaSpec->metabits);
+    kvobjBits(kv)->no_evict = 0;
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
@@ -567,6 +569,8 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
                    keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
                    keyMetaSpec->numMeta * sizeof(uint64_t));
     }
+
+    if (keyMetaSpec->no_evict) blessSetNoEvict(db, kv, 1);
 
     updateKeysizesHist(db, kv->type, -1, (int64_t) getObjectLength(kv));
     if (server.memory_tracking_enabled)
@@ -2292,14 +2296,13 @@ void renameGenericCommand(client *c, int nx) {
         minHashExpireTime = estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
 
     /* Prepare metadata for the renamed key */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
+    kvSpec keymeta;
+    kvSpecInit(&keymeta);
     if (o->metabits) keyMetaOnRename(c->db, o, c->argv[1], c->argv[2], &keymeta);
 
-    int noevict = blessIsNoEvict(o);
+    keymeta.no_evict = blessIsNoEvict(o);
     dbDelete(c->db,c->argv[1]);
     
-    kvobjBits(o)->no_evict = noevict;
     dbAddInternal(c->db, c->argv[2], &o, NULL, &keymeta);
 
     /* If hash with HFEs, register in DB subexpires */
@@ -2389,15 +2392,14 @@ void moveCommand(client *c) {
         hashExpireTime = estoreRemove(src->subexpires, slot, kv);
 
     /* Move a side metadata before dbDelete() */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
+    kvSpec keymeta;
+    kvSpecInit(&keymeta);
     keyMetaOnMove(kv, c->argv[1], srcid, dbid, &keymeta);
 
-    int noevict = blessIsNoEvict(kv);
+    keymeta.no_evict = blessIsNoEvict(kv);
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
-    kvobjBits(kv)->no_evict = noevict;
     dbAddInternal(dst, c->argv[1], &kv, &dstBucket, &keymeta);
 
     /* If object of type hash with expiration on fields. Taken care to add the
@@ -2521,13 +2523,12 @@ void copyCommand(client *c) {
     }
 
     /* Prepare metadata for the new key */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
+    kvSpec keymeta;
+    kvSpecInit(&keymeta);
     if (o->metabits) keyMetaOnCopy(o, key, newkey, c->db->id, dst->id, &keymeta);
 
-    int noevict = blessIsNoEvict(o);
+    keymeta.no_evict = blessIsNoEvict(o);
     kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, &keymeta);
-    if (noevict) blessSetNoEvict(dst, kvCopy, 1);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
