@@ -872,8 +872,8 @@ proc errorrstat {cmd r} {
     }
 }
 
-proc latencyrstat_percentiles {cmd r} {
-    if {[regexp "\r\nlatency_percentiles_usec_$cmd:(.*?)\r\n" [$r info latencystats] _ value]} {
+proc latencyrstat_percentiles {cmd r {prefix latency_percentiles_usec}} {
+    if {[regexp "\r\n${prefix}_$cmd:(.*?)\r\n" [$r info latencystats] _ value]} {
         set _ $value
     }
 }
