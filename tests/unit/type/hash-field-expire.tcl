@@ -1182,6 +1182,10 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*invalid number of fields*} {r hsetex myhash fields 9223372036854775808 a b}
             assert_error {*invalid number of fields*} {r hsetex myhash fields 0 a b}
             assert_error {*invalid number of fields*} {r hsetex myhash fields -1 a b}
+
+            # KEY keyword (key-level TTL): requires EX/PX/EXAT/PXAT or KEEPTTL
+            assert_error {*KEY requires one of EX, PX, EXAT, PXAT or KEEPTTL*} {r hsetex myhash KEY FIELDS 1 f1 v1}
+            assert_error {*KEY specified multiple times*} {r hsetex myhash KEY KEY EX 10 FIELDS 1 f1 v1}
         }
         
         test "HSETEX - Basic test ($type)" {
@@ -1350,6 +1354,61 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r httl myhash FIELDS 1 f1] 9000 10000
             assert_range [r httl myhash FIELDS 1 f2] 9000 10000
             assert_range [r httl myhash FIELDS 1 f3] 9000 10000
+        }
+
+        test "HSETEX KEY - key TTL with EX ($type)" {
+            r del myhash
+            assert_equal [r hsetex myhash KEY EX 100 FIELDS 1 f1 v1] 1
+            assert_equal [r hget myhash f1] "v1"
+            assert_range [r TTL myhash] 1 100
+            assert_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
+        }
+
+        test "HSETEX KEY - KEEPTTL preserves key TTL ($type)" {
+            r del myhash
+            r hset myhash f1 v1
+            r expire myhash 1000
+            assert_range [r TTL myhash] 900 1000
+            assert_equal [r hsetex myhash KEY KEEPTTL FIELDS 1 f1 v11] 1
+            assert_equal [r hget myhash f1] "v11"
+            assert_range [r TTL myhash] 900 1000
+        }
+
+        test "HSETEX KEY - past expiry deletes key without setting fields ($type)" {
+            r del myhash
+            r hset myhash f1 v1
+            assert_equal [r hsetex myhash KEY EXAT [expr {[clock seconds] - 1}] FIELDS 1 f2 v2] 1
+            assert_equal [r exists myhash] 0
+        }
+
+        test "HSETEX KEY - past expiry respects FXX no-op ($type)" {
+            r del myhash
+            r hset myhash f1 v1
+            assert_equal [r hsetex myhash FXX KEY EXAT [expr {[clock seconds] - 1}] FIELDS 1 f2 v2] 0
+            assert_equal [r exists myhash] 1
+            assert_equal [r hget myhash f1] "v1"
+        }
+
+        test "HSETEX KEY - past expiry on missing key with FNX ($type)" {
+            r del myhash
+            assert_equal [r hsetex myhash FNX KEY EXAT [expr {[clock seconds] - 1}] FIELDS 1 f1 v1] 1
+            assert_equal [r exists myhash] 0
+        }
+
+        test "HSETEX KEY - FNX sets new hash with key TTL ($type)" {
+            r del myhash
+            assert_equal [r hsetex myhash FNX KEY EX 100 FIELDS 1 f1 v1] 1
+            assert_range [r TTL myhash] 1 100
+            assert_equal [r hget myhash f1] "v1"
+        }
+
+        test "HSETEX KEY - FXX with KEY EX ($type)" {
+            r del myhash
+            assert_equal [r hsetex myhash FXX KEY EX 100 FIELDS 1 f1 v1] 0
+            r hset myhash f1 v1
+            assert_equal [r hsetex myhash FXX KEY EX 100 FIELDS 1 f1 v2] 1
+            assert_equal [r hget myhash f1] "v2"
+            assert_range [r TTL myhash] 1 100
         }
 
         test "HSETEX - Test multiple 'FIELDS' arguments raise error ($type)" {
@@ -2112,6 +2171,19 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hsetex h1 KEEPTTL FIELDS 1 f1 v1}
                 {hsetex h1 FNX FIELDS 1 f2 v2}
                 {hsetex h1 FXX FIELDS 1 f2 v22}
+            }
+            close_replication_stream $repl
+        } {} {needs:repl}
+
+        test "Test HSETEX KEY command replication" {
+            r flushall
+            set repl [attach_to_replication_stream]
+            r hsetex hk KEY EX 100 FIELDS 1 f v
+            r hsetex hk KEY KEEPTTL FIELDS 1 f v2
+            assert_replication_stream $repl {
+                {select *}
+                {hsetex hk KEY PXAT * FIELDS 1 f v}
+                {hsetex hk KEY KEEPTTL FIELDS 1 f v2}
             }
             close_replication_stream $repl
         } {} {needs:repl}
