@@ -131,6 +131,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         setupKeyMeta blessed $maxClasses 0 1
         assert_equal {NO-EVICT} [r bless get blessed]
         r debug reload
+        assert_range [r ttl blessed] 9990 10000
         assert_equal {NO-EVICT} [r bless get blessed]
         for {set i 1} {$i <= $maxClasses} {incr i} {
             assert_equal "meta$i" [r keymeta.get [cname $i] blessed]

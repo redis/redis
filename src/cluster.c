@@ -295,7 +295,7 @@ void restoreCommand(client *c) {
 
     /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
     type = rdbLoadType(&payload);
-    if (rdbResolveKeyType(&payload, &type, c->db->id, &keymeta, NULL) == -1) {
+    if (rdbResolveKeyType(&payload, &type, c->db->id, &keymeta) == -1) {
         addReplyError(c,"Bad data format");
         return;
     }

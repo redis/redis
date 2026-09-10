@@ -1716,14 +1716,14 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
     }
 
+    if (blessNoEvict(val) && rdbSaveType(rdb, RDB_OPCODE_KEY_NOEVICT) == -1)
+        return -1;
+
     /* if needed save key metadata  */
     if (getModuleMetaBits(val->metabits)) {
         if (rdbSaveKeyMetadata(rdb, key, val, dbid) == -1)
             return -1;
     }
-
-    if (blessNoEvict(val) && rdbSaveType(rdb, RDB_OPCODE_KEY_NOEVICT) == -1)
-        return -1;
 
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
@@ -2343,12 +2343,11 @@ error:
 /* Load object type and optional key metadata (into `keymeta`) from RDB stream.
  * This function handles the RDB_OPCODE_KEY_META opcode that may appear before
  * the actual object type in RDB streams (both regular RDB files and DUMP payloads).
- * If `noevict` is non-NULL, accept and return the RDB-only NO-EVICT flag.
  * The `type` parameter is updated with the actual object type.
  * 
  * Returns: 0 on success, -1 on error
  */
-int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta, int *noevict) {
+int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
     if (*type == RDB_OPCODE_KEY_META) {
         /* Load key metadata from RDB */
         uint64_t numClasses;
@@ -2358,25 +2357,14 @@ int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta, int *
         if (rdbLoadKeyMetadata(rdb, dbid, numClasses, keymeta) == -1) {
             return -1;
         }
-        /* Read the next opcode / type after metadata */
-        if ((*type = rdbLoadType(rdb)) == -1) {
+        /* Read the actual object type after metadata */
+        *type = rdbLoadObjectType(rdb);
+        if (*type == -1) {
             keyMetaSpecCleanup(keymeta);
             return -1;
         }
-    }
-
-    if (noevict) *noevict = 0;
-    if (noevict && *type == RDB_OPCODE_KEY_NOEVICT) {
-        *noevict = 1;
-        if ((*type = rdbLoadType(rdb)) == -1) {
-            keyMetaSpecCleanup(keymeta);
-            return -1;
-        }
-    }
-
-    if (!rdbIsObjectType(*type)) {
+    } else if (!rdbIsObjectType(*type)) {
         /* Not metadata and not a valid object type */
-        keyMetaSpecCleanup(keymeta);
         return -1;
     }
 
@@ -4716,6 +4704,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
     /* Key-specific attributes, set by opcodes before the key type. */
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
+    int noevict = 0;
     KeyMetaSpec keyMeta; /* Updated by OPCODE_KEY_META and OPCODE_EXPIRETIME */
     keyMetaSpecInit(&keyMeta);
 
@@ -4754,6 +4743,9 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             uint64_t qword;
             if ((qword = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
             lru_idle = qword;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_KEY_NOEVICT) {
+            noevict = 1;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
@@ -4958,8 +4950,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
         }
 
         /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
-        int noevict;
-        if (rdbResolveKeyType(rdb, &type, dbid, &keyMeta, &noevict) == -1)
+        if (rdbResolveKeyType(rdb, &type, dbid, &keyMeta) == -1)
             goto eoferr;
 
         /* Read key */
@@ -5071,6 +5062,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
         expiretime = -1;
         lfu_freq = -1;
         lru_idle = -1;
+        noevict = 0;
         keyMetaSpecInit(&keyMeta);
     }
     /* Verify the checksum if RDB version is >= 5 */
