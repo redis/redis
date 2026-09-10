@@ -736,12 +736,17 @@ proc stop_bg_complex_data {handle} {
 
 # Write num keys with the given key prefix and value size (in bytes). If idx is
 # given, it's the index (AKA level) used with the srv procedure and it specifies
-# to which Redis instance to write the keys.
-proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0} {random false}} {
+# to which Redis instance to write the keys. random_value can be used to avoid
+# generating the random value during a timing-sensitive operation.
+proc populate {num {prefix key:} {size 3} {idx 0} {prints false} {expires 0} {random false} {random_value ""}} {
     r $idx deferred 1
     if {$num > 16} {set pipeline 16} else {set pipeline $num}
     if {$random} {
-        set baseval [randstring $size $size]
+        if {$random_value eq ""} {
+            set baseval [randstring $size $size]
+        } else {
+            set baseval $random_value
+        }
     } else {
         set val [string repeat A $size]
     }
