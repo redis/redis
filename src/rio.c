@@ -44,6 +44,10 @@
 
 /* ------------------------- Buffer I/O implementation ----------------------- */
 
+/* Track if sync_file_range is available at runtime. It may be blocked by
+ * seccomp filters even if available at compile time. */
+static int redis_sync_file_range_available = 1;
+
 /* Returns 1 or 0 for success/failure. */
 static size_t rioBufferWrite(rio *r, const void *buf, size_t len) {
     r->io.buffer.ptr = sdscatlen(r->io.buffer.ptr,(char*)buf,len);
@@ -118,21 +122,42 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
             serverAssert(r->io.file.buffered == r->io.file.autosync);
 
 #if HAVE_SYNC_FILE_RANGE
-            /* Start writeout asynchronously. */
-            if (sync_file_range(fileno(r->io.file.fp),
-                    processed - r->io.file.autosync, r->io.file.autosync,
-                    SYNC_FILE_RANGE_WRITE) == -1)
-                return 0;
-
-            if (processed >= (size_t)r->io.file.autosync * 2) {
-                /* To keep the promise to 'autosync', we should make sure last
-                 * asynchronous writeout persists into disk. This call may block
-                 * if last writeout is not finished since disk is slow. */
+            if (redis_sync_file_range_available) {
+                /* Start writeout asynchronously. */
                 if (sync_file_range(fileno(r->io.file.fp),
-                        processed - r->io.file.autosync*2,
-                        r->io.file.autosync, SYNC_FILE_RANGE_WAIT_BEFORE|
-                        SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER) == -1)
-                    return 0;
+                        processed - r->io.file.autosync, r->io.file.autosync,
+                        SYNC_FILE_RANGE_WRITE) == -1) {
+                    /* ENOSYS means sync_file_range is not available (may be
+                     * blocked by seccomp filters on some systems). Fall back
+                     * to fsync for this and all future calls. */
+                    if (errno == ENOSYS) {
+                        redis_sync_file_range_available = 0;
+                    } else {
+                        return 0;
+                    }
+                }
+
+                if (redis_sync_file_range_available &&
+                    processed >= (size_t)r->io.file.autosync * 2) {
+                    /* To keep the promise to 'autosync', we should make sure last
+                     * asynchronous writeout persists into disk. This call may block
+                     * if last writeout is not finished since disk is slow. */
+                    if (sync_file_range(fileno(r->io.file.fp),
+                            processed - r->io.file.autosync*2,
+                            r->io.file.autosync, SYNC_FILE_RANGE_WAIT_BEFORE|
+                            SYNC_FILE_RANGE_WRITE|SYNC_FILE_RANGE_WAIT_AFTER) == -1) {
+                        if (errno == ENOSYS) {
+                            redis_sync_file_range_available = 0;
+                        } else {
+                            return 0;
+                        }
+                    }
+                }
+            }
+
+            /* Fall back to fsync if sync_file_range is not available */
+            if (!redis_sync_file_range_available) {
+                if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
             }
 #else
             if (redis_fsync(fileno(r->io.file.fp)) == -1) return 0;
