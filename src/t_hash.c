@@ -20,7 +20,7 @@
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
  * update the expiration time of the hash object in global HFE DS. */
-#define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
+#define HASH_NEW_EXPIRE_DIFF_THRESHOLD 4000
 
 /* Reserve 2 bits out of hash-field expiration time for possible future lightweight
  * indexing/categorizing of fields. It can be achieved by hacking HFE as follows:
@@ -1724,8 +1724,10 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
         serverAssert(ptr && lpGetIntegerValue(ptr, &val));
 
         /* Fields are ordered by expiry time. If we reached to a non-expired
-         * or a non-volatile field, we know rest is not yet expired. */
-        if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
+         * or a non-volatile field, we know rest is not yet expired. A field is
+         * expired iff its expire-time is strictly less than `now`, matching
+         * lazy-expiry semantics (see hashTypeIsExpired()) and ebExpire(). */
+        if (val == HASH_LP_NO_TTL || (uint64_t) val >= info->now)
             break;
 
         /* Collect expired field for subkey notification. */
@@ -6494,7 +6496,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
                 continue;
             }
 
-            if (expire <= commandTimeSnapshot()) {
+            if (expire < commandTimeSnapshot()) {
                 addReplyLongLong(c, HFE_GET_NO_FIELD);
                 continue;
             }

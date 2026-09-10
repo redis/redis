@@ -79,28 +79,17 @@
  * The rax tree is basically a B-tree and its depth is bounded by the sizeof of
  * the key. Holding 6 bytes for expiration-time key is more than enough to represent
  * unix-time in msec, and in turn the depth of the tree is limited to 6 levels.
- * At a first glance it might look sufficient but we need take into consideration
- * the heavyweight maintenance and traversal of each node in the B-tree.
- *
- * And so, we can further prune the tree such that holding keys with msec precision
- * in the tree doesn't bring with it much value. The active-expiration operation can
- * live with deletion of expired items, say, older than 1 sec, which means the size
- * of time-expiration keys to the rax tree become no more than ~4.5 bytes and we
- * also get rid of the "noisy" bits which most probably will cause to yet another
- * branching and modification of the rax tree in case of items with time-expiration
- * difference of less than 1 second. The lazy expiration will still be precise and
- * without compromise on accuracy because the exact expiration-time is kept
- * attached as well to each item, in `ExpireMeta`, and each traversal of item with
- * expiration will behave as expected down to the msec. Take care to configure
- * `EB_BUCKET_KEY_PRECISION` according to your needs.
  *
  * EBUCKET KEY
  * -----------
- * Taking into account configured value of `EB_BUCKET_KEY_PRECISION`, two items
- * with expiration-time t1 and t2 will be considered to have the same key in the
- * rax-tree/buckets if and only if:
- *
- *              EB_BUCKET_KEY(t1) == EB_BUCKET_KEY(t2)
+ * The key of a bucket in the rax-tree is the expiration-time of its first item
+ * at the time the bucket is created (or split). Removing the first item does
+ * not re-key the bucket, so in general the key is a lower bound on the
+ * expiration-times of the items in the bucket, and each bucket covers the range
+ * of expiration-times that starts at its own key and ends just before the key
+ * of the following bucket. Extended segments are the exception: they hold only
+ * items that all share the same expiration-time, which is also, always, the key
+ * of their bucket.
  *
  * EBUCKETS CREATION
  * -----------------
@@ -124,27 +113,6 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include "rax.h"
-
-/*
- * EB_BUCKET_KEY_PRECISION - Defines the number of bits to ignore from the
- * expiration-time when mapping to buckets. The higher the value, the more items
- * with similar expiration-time will be aggregated into the same bucket. The lower
- * the value, the more "accurate" the active expiration of buckets will be.
- *
- * Note that the accurate time expiration of each item is preserved anyway and
- * enforced by lazy expiration. It only impacts the active expiration that will
- * be able to work on buckets older than (1<<EB_BUCKET_KEY_PRECISION) msec ago.
- * For example if EB_BUCKET_KEY_PRECISION is 10, then active expiration
- * will work only on buckets that already got expired at least 1sec ago.
- *
- * The idea of it is to trim the rax tree depth, avoid having too many branches,
- * and reduce frequent modifications of the tree to the minimum.
- */
-#define EB_BUCKET_KEY_PRECISION 0   /* TBD: modify to 10 */
-
-/* From expiration time to bucket-key */
-#define EB_BUCKET_KEY(exptime) ((exptime) >> EB_BUCKET_KEY_PRECISION)
-
 
 #define EB_EXPIRE_TIME_MAX     ((uint64_t)0x0000FFFFFFFFFFFF) /* Maximum expire-time. */
 #define EB_EXPIRE_TIME_INVALID (EB_EXPIRE_TIME_MAX+1) /* assumed bigger than max */
@@ -250,7 +218,9 @@ typedef struct ExpireInfo {
 
     uint64_t maxToExpire;         /* [INPUT ] Limit of number expired items to scan */
     void *ctx;                    /* [INPUT ] context to pass to onExpireItem */
-    uint64_t now;                 /* [INPUT ] Current time in msec. */
+    uint64_t now;                 /* [INPUT ] Current time in msec. An item is
+                                     considered expired iff its expiration time
+                                     is strictly less than `now`. */
     uint64_t itemsExpired;        /* [OUTPUT] Returns the number of expired or updated items. */
     uint64_t nextExpireTime;      /* [OUTPUT] Next expiration time. Returns
                                      EB_EXPIRE_TIME_INVALID if none left. */
@@ -291,7 +261,7 @@ static inline int ebIsEmpty(ebuckets eb) { return eb == NULL; }
 
 uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type);
 
-uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate);
+uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type);
 
 uint64_t ebGetTotalItems(ebuckets eb, EbucketsType *type);
 

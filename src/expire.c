@@ -155,7 +155,7 @@ typedef struct SubexpireCtx {
  * Active sub-expiration callback
  *
  * Called by activeSubexpires() for each key registered in the subexpires DB
- * with an expiration-time on its "elements"  that are less than or equal current
+ * with an expiration-time on its "elements" that is strictly less than current
  * time.
  *
  * This callback performs the following actions for each hash:
@@ -195,7 +195,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 /* DB active expire and update hashes with time-expiration on fields.
  *
  * The callback function activeSubexpiresCb() is invoked for each hash registered
- * in the subexpires DB with an expiration-time less than or equal to the
+ * in the subexpires DB with an expiration-time strictly less than the
  * current time. This callback performs the following actions for each hash:
  * - If the hash has one or more fields to expire, it will delete those fields.
  * - If there are more fields to expire, it will update the hash with the next
