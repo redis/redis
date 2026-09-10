@@ -1809,23 +1809,21 @@ int dictShrinkIfNeeded(dict *d) {
 }
 
 /* Shrink the hash table if needed and complete the rehash immediately.
- *
  * Unlike the keyspace dicts, which the cron steps through kvstore, a dict
  * owned by a single object is only stepped by commands that touch it. A bulk
- * deletion would otherwise leave the old table allocated until later.
- *
- * A rehash already in progress is left alone. If resizing is not fully
- * enabled (e.g. a child save is running) the rehash stays incremental. */
+ * deletion would otherwise leave the old table allocated until later. */
 void dictShrinkIfNeededAndComplete(dict *d) {
-    dictResizeEnable can_resize;
-
-    if (dictIsRehashing(d) || dictIsRehashingPaused(d)) return;
+    /* Incremental rehashing already in progress. Return. */
+    if (dictIsRehashing(d) || d->pauserehash != 0) return;
     if (dictShrinkIfNeeded(d) != DICT_OK) return;
 
+    /* If resizing is not fully enabled (e.g. a child save is running)
+     * leave the rehash incremental. */
+    dictResizeEnable can_resize;
     atomicGet(dict_can_resize, can_resize);
     if (can_resize != DICT_RESIZE_ENABLE) return;
 
-    while (dictIsRehashing(d) && dictRehash(d, 1000)) {
+    while (dictRehash(d, 1000)) {
         /* Continue rehashing */
     }
 }
@@ -2140,21 +2138,33 @@ static dictType BenchmarkDictTypeNoValue = {
 /* Count allocated entries (skip keys stored inline in a bucket). */
 static unsigned long dictWalkAllocatedEntries(const dict *d) {
     unsigned long allocated = 0;
-    for (int table = 0; table <= 1; table++) {
-        for (unsigned long i = 0; i < DICTHT_SIZE(d->ht_size_exp[table]); i++) {
-            for (dictEntry *de = d->ht_table[table][i]; de; de = dictGetNext(de)) {
-                if (!entryIsKey(de)) allocated++;
+    int htidx;
+
+    for (htidx = 0; htidx <= 1; htidx++) {
+        unsigned long i;
+        for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]); i++) {
+            dictEntry *he;
+
+            if ((he = d->ht_table[htidx][i]) == NULL) continue;
+            while(he) {
+                if (!entryIsKey(he)) allocated++;
+                he = dictGetNext(he);
             }
         }
     }
     return allocated;
 }
 
+/* Count occupied buckets across both hash tables. */
 static unsigned long dictWalkOccupiedBuckets(const dict *d) {
     unsigned long occupied = 0;
-    for (int table = 0; table <= 1; table++) {
-        for (unsigned long i = 0; i < DICTHT_SIZE(d->ht_size_exp[table]); i++) {
-            if (d->ht_table[table][i]) occupied++;
+    int htidx;
+
+    for (htidx = 0; htidx <= 1; htidx++) {
+        unsigned long i;
+        for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]); i++) {
+            if (d->ht_table[htidx][i] == NULL) continue;
+            occupied++;
         }
     }
     return occupied;
