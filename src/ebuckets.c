@@ -63,6 +63,9 @@
  */
 #define EB_SEG_MAX_ITEMS 16
 #define EB_LIST_MAX_ITEMS EB_SEG_MAX_ITEMS
+/* Merge only sparse adjacent segments to keep post-remove cleanup bounded and
+ * leave headroom for later additions. */
+#define EB_SEG_MERGE_MAX_ITEMS (EB_SEG_MAX_ITEMS / 2)
 
 /* From expiration time to bucket-key */
 #define EB_BUCKET_KEY(exptime) ((exptime) >> EB_BUCKET_KEY_PRECISION)
@@ -928,6 +931,137 @@ static int ebAddToBucket(EbucketsType *type,
     }
 }
 
+/* Return the last item metadata in a segment. */
+static ExpireMeta *ebSegLastMeta(EbucketsType *type, ExpireMeta *mHead) {
+    ExpireMeta *mLast = mHead;
+    for (uint32_t i = 1; i < mHead->numItems; ++i)
+        mLast = type->getExpireMeta(mLast->next);
+    return mLast;
+}
+
+static int ebSegsCanMerge(ExpireMeta *mLeftHead, ExpireMeta *mRightHead) {
+    return mLeftHead->numItems + mRightHead->numItems <= EB_SEG_MERGE_MAX_ITEMS;
+}
+
+/* Merge next segment into current segment, preserving exact expire-time order. */
+static void ebSegMergeWithNext(EbucketsType *type,
+                               CommonSegHdr *segHdr,
+                               ExpireMeta *mSegHead,
+                               NextSegHdr *nextSegHdr,
+                               ExpireMeta *mNextHead,
+                               ExpireMeta *mNextLast)
+{
+    uint32_t segItems = mSegHead->numItems;
+    uint32_t nextItems = mNextHead->numItems;
+    uint32_t mergedItems = segItems + nextItems;
+    eItem leftItem = segHdr->head;
+    eItem rightItem = nextSegHdr->head;
+    eItem mergedHead = NULL;
+    ExpireMeta *mMergedHead = NULL, *mMergedLast = NULL;
+    int firstItemBucket = mSegHead->firstItemBucket;
+    int lastItemBucket = mNextLast->lastItemBucket;
+    void *tailNext = mNextLast->next;
+
+    assert(ebSegsCanMerge(mSegHead, mNextHead));
+    assert(mNextLast->lastInSegment);
+
+    /* Merge the two sorted item chains into segHdr. */
+    while (segItems || nextItems) {
+        eItem item;
+        ExpireMeta *mItem;
+
+        if (nextItems == 0) {
+            item = leftItem;
+            mItem = type->getExpireMeta(item);
+            leftItem = mItem->next;
+            --segItems;
+        } else if (segItems == 0) {
+            item = rightItem;
+            mItem = type->getExpireMeta(item);
+            rightItem = mItem->next;
+            --nextItems;
+        } else {
+            ExpireMeta *mLeft = type->getExpireMeta(leftItem);
+            ExpireMeta *mRight = type->getExpireMeta(rightItem);
+            if (ebGetMetaExpTime(mLeft) <= ebGetMetaExpTime(mRight)) {
+                item = leftItem;
+                mItem = mLeft;
+                leftItem = mItem->next;
+                --segItems;
+            } else {
+                item = rightItem;
+                mItem = mRight;
+                rightItem = mItem->next;
+                --nextItems;
+            }
+        }
+
+        if (mMergedLast)
+            mMergedLast->next = item;
+        else {
+            mergedHead = item;
+            mMergedHead = mItem;
+        }
+
+        mItem->firstItemBucket = 0;
+        mItem->numItems = 0;
+        mItem->lastInSegment = 0;
+        mItem->lastItemBucket = 0;
+        mMergedLast = mItem;
+    }
+
+    segHdr->head = mergedHead;
+    mMergedHead->firstItemBucket = firstItemBucket;
+    mMergedHead->numItems = mergedItems;
+    mMergedLast->lastInSegment = 1;
+    mMergedLast->lastItemBucket = lastItemBucket;
+
+    if (lastItemBucket) {
+        mMergedLast->next = segHdr;
+    } else {
+        NextSegHdr *nextNextSegHdr = tailNext;
+        mMergedLast->next = nextNextSegHdr;
+        nextNextSegHdr->prevSeg = segHdr;
+    }
+
+    FirstSegHdr *firstSegHdr = firstItemBucket ?
+            (FirstSegHdr *)segHdr :
+            ((NextSegHdr *)segHdr)->firstSeg;
+    --firstSegHdr->numSegs;
+
+    zfree(nextSegHdr);
+}
+
+/* After remove, try one adjacent merge to keep sparse buckets compact. */
+static void ebSegMerge(EbucketsType *type, CommonSegHdr *segHdr, ExpireMeta *mSegLast) {
+    ExpireMeta *mSegHead = type->getExpireMeta(segHdr->head);
+    FirstSegHdr *firstSegHdr = mSegHead->firstItemBucket ?
+            (FirstSegHdr *)segHdr :
+            ((NextSegHdr *)segHdr)->firstSeg;
+
+    if (firstSegHdr->numSegs <= 1)
+        return;
+
+    assert(mSegLast->lastInSegment);
+    if (!mSegLast->lastItemBucket) {
+        NextSegHdr *nextSegHdr = mSegLast->next;
+        ExpireMeta *mNextHead = type->getExpireMeta(nextSegHdr->head);
+        if (ebSegsCanMerge(mSegHead, mNextHead)) {
+            ExpireMeta *mNextLast = ebSegLastMeta(type, mNextHead);
+            ebSegMergeWithNext(type, segHdr, mSegHead, nextSegHdr, mNextHead, mNextLast);
+            return;
+        }
+    }
+
+    if (!mSegHead->firstItemBucket) {
+        CommonSegHdr *prevSegHdr = ((NextSegHdr *)segHdr)->prevSeg;
+        ExpireMeta *mPrevHead = type->getExpireMeta(prevSegHdr->head);
+        if (ebSegsCanMerge(mPrevHead, mSegHead)) {
+            ebSegMergeWithNext(type, prevSegHdr, mPrevHead, (NextSegHdr *)segHdr, mSegHead, mSegLast);
+        }
+    }
+}
+
 /*
  * Remove item from rax
  *
@@ -936,12 +1070,12 @@ static int ebAddToBucket(EbucketsType *type,
  * Note: The function is optimized to remove items locally from segments without
  *       traversing rax tree or stepping long extended-segments. Therefore, it is
  *       assumed that the item is present in the bucket without verification.
- *
- * TODO: Written straightforward. Should be optimized to merge small segments.
  */
 static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
     ExpireMeta *mItem = type->getExpireMeta(item);
     rax *rax = ebGetRaxPtr(*eb);
+    CommonSegHdr *mergeSegHdr = NULL;
+    ExpireMeta *mMergeSegLast = NULL;
 
     /* if item is the only one left in a single-segment bucket, then delete bucket */
     if (unlikely(mItem->firstItemBucket && mItem->lastItemBucket)) {
@@ -998,6 +1132,8 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
             else
                 ((NextSegHdr *) mIter->next)->prevSeg = (CommonSegHdr *) firstHdr;
 
+            mergeSegHdr = (CommonSegHdr *)firstHdr;
+            mMergeSegLast = mIter;
         } else if (mItem->lastItemBucket) {
             /* If last item/segment in bucket, then
              * - promote previous segment to be last segment
@@ -1016,6 +1152,8 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
             mIter->lastItemBucket = 1;
             zfree(currHdr);
 
+            mergeSegHdr = prevHdr;
+            mMergeSegLast = mIter;
         } else {
             /* item/segment is not the first or last item/segment.
              * - Update previous segment to point next segment.
@@ -1035,6 +1173,8 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
             nextHdr->firstSeg->numSegs--;
             zfree(currHdr);
 
+            mergeSegHdr = prevHdr;
+            mMergeSegLast = mIter;
         }
     } else {
         /* At least 2 items in current segment */
@@ -1063,6 +1203,8 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
             mNewHead->numItems = mItem->numItems - 1;
             currHdr->head = newHead;
 
+            mergeSegHdr = currHdr;
+            mMergeSegLast = mIter;
         } else if (mItem->lastInSegment) {
             /* If item is last in segment, then
              * - find previous item and let it inherit (next, lastInSegment, lastItemBucket)
@@ -1089,6 +1231,8 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
             else
                 ((NextSegHdr *) currHdr)->firstSeg->totalItems--;
 
+            mergeSegHdr = currHdr;
+            mMergeSegLast = mIter;
         } else {
             /* - Item is in the middle of segment. Find previous item and update to point next.
              * - Find and Update segment header to numItems-1
@@ -1101,6 +1245,7 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
                 currHdr = (CommonSegHdr *) mIter->next;
             else
                 currHdr = (CommonSegHdr *) ((NextSegHdr *) mIter->next)->prevSeg;
+            mMergeSegLast = mIter;
 
             ExpireMeta *mHead = type->getExpireMeta(currHdr->head);
             mHead->numItems--;
@@ -1116,8 +1261,16 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
                 ((FirstSegHdr *) currHdr)->totalItems--;
             else
                 ((NextSegHdr *) currHdr)->firstSeg->totalItems--;
+
+            mergeSegHdr = currHdr;
         }
     }
+
+    if (mergeSegHdr) {
+        assert(mMergeSegLast);
+        ebSegMerge(type, mergeSegHdr, mMergeSegLast);
+    }
+
     *ebRaxNumItems(rax) -= 1;
     return 1; /* removed */
 }
@@ -2314,6 +2467,139 @@ void *defragItemCallback(void *ptr, void *privdata) {
     return newitem;
 }
 
+#ifdef EB_TEST_BENCHMARK
+static uint32_t ebBenchNextRand(uint64_t *state) {
+    *state = (*state * 6364136223846793005ULL) + 1;
+    return (uint32_t) (*state >> 32);
+}
+
+static void ebShuffleItems(MyItem **items, uint32_t numItems) {
+    if (numItems <= 1) return;
+
+    uint64_t state = 0x9e3779b97f4a7c15ULL ^ numItems;
+    for (uint32_t i = numItems - 1; i > 0; --i) {
+        uint32_t j = ebBenchNextRand(&state) % (i + 1);
+        MyItem *tmp = items[i];
+        items[i] = items[j];
+        items[j] = tmp;
+    }
+}
+
+static void benchmarkRemoveHeavy(uint32_t numItems, uint32_t numBuckets, int shuffled) {
+    assert(numItems > 0);
+    assert(numBuckets > 0);
+    struct timeval timeBefore, timeAfter, timeRemove;
+    ebuckets eb = ebCreate();
+    MyItem **items = zmalloc(sizeof(*items) * numItems);
+    MyItem **removeOrder = zmalloc(sizeof(*removeOrder) * numItems);
+    uint64_t baseExpire = 1805092100000ULL;
+
+    for (uint32_t i = 0; i < numItems; ++i) {
+        uint64_t expireTime = baseExpire + (i % numBuckets);
+        MyItem *item = zmalloc(sizeof(*item));
+        items[i] = item;
+        removeOrder[i] = item;
+        ebAdd(&eb, &myEbucketsType2, item, expireTime);
+    }
+
+    if (shuffled)
+        ebShuffleItems(removeOrder, numItems);
+
+    gettimeofday(&timeBefore, NULL);
+    for (uint32_t i = 0; i < numItems; ++i)
+        assert(ebRemove(&eb, &myEbucketsType2, removeOrder[i]));
+    gettimeofday(&timeAfter, NULL);
+    timersub(&timeAfter, &timeBefore, &timeRemove);
+
+    assert(eb == NULL);
+
+    double elapsedUsec = ((double)timeRemove.tv_sec * 1000000.0) + (double)timeRemove.tv_usec;
+    double usecPerRemove = elapsedUsec / numItems;
+    double removesPerSec = ((double)numItems * 1000000.0) / elapsedUsec;
+
+    printf("Remove-heavy (items=%u, buckets=%u, order=%s): %ld.%06ld, %.3f usec/remove, %.0f remove/sec\n",
+           numItems,
+           numBuckets,
+           shuffled ? "shuffled" : "linear",
+           (long int)timeRemove.tv_sec,
+           (long int)timeRemove.tv_usec,
+           usecPerRemove,
+           removesPerSec);
+
+    for (uint32_t i = 0; i < numItems; ++i)
+        zfree(items[i]);
+    zfree(removeOrder);
+    zfree(items);
+}
+
+static uint32_t benchmarkRemoveHeavyItemsCount(uint32_t maxRemoveItems) {
+    uint32_t removeItems = 250000;
+    uint32_t minItemsForCompaction = (uint32_t)(EB_SEG_MAX_ITEMS * 512);
+
+    if (removeItems < minItemsForCompaction)
+        removeItems = minItemsForCompaction;
+    if (removeItems > maxRemoveItems)
+        removeItems = maxRemoveItems;
+    return removeItems;
+}
+
+static void benchmarkRemoveHeavySuite(uint32_t maxRemoveItems) {
+    uint32_t removeItems = benchmarkRemoveHeavyItemsCount(maxRemoveItems);
+    struct RemoveHeavyCase {
+        uint32_t numBuckets;
+        int shuffled;
+    };
+    static const struct RemoveHeavyCase removeHeavyCases[] = {
+        {1, 0},
+        {1, 1},
+        {1024, 1},
+    };
+
+    for (uint32_t i = 0; i < ARRAY_SIZE(removeHeavyCases); ++i) {
+        benchmarkRemoveHeavy(removeItems, removeHeavyCases[i].numBuckets, removeHeavyCases[i].shuffled);
+    }
+}
+
+#endif
+
+/* Test helpers for ebRemove segment-merge coverage. */
+static FirstSegHdr *ebTestGetFirstSegHdr(ebuckets eb) {
+    rax *rax = ebGetRaxPtr(eb);
+    raxIterator ri;
+    raxStart(&ri, rax);
+    raxSeek(&ri, "^", NULL, 0);
+    assert(raxNext(&ri));
+    FirstSegHdr *firstSeg = ri.data;
+    raxStop(&ri);
+    return firstSeg;
+}
+
+static void assertBucketExpireOrder(EbucketsType *type, FirstSegHdr *firstSegHdr) {
+    CommonSegHdr *segHdr = (CommonSegHdr *)firstSegHdr;
+
+    while (1) {
+        ExpireMeta *mHead = type->getExpireMeta(segHdr->head);
+        ExpireMeta *mIter = mHead;
+        uint64_t prevExpire = ebGetMetaExpTime(mIter);
+
+        for (uint32_t i = 1; i < mHead->numItems; ++i) {
+            mIter = type->getExpireMeta(mIter->next);
+            uint64_t currExpire = ebGetMetaExpTime(mIter);
+            assert(prevExpire <= currExpire);
+            prevExpire = currExpire;
+        }
+
+        ExpireMeta *mLast = ebSegLastMeta(type, mHead);
+        if (mLast->lastItemBucket)
+            break;
+
+        NextSegHdr *nextSegHdr = mLast->next;
+        ExpireMeta *mNextHead = type->getExpireMeta(nextSegHdr->head);
+        assert(ebGetMetaExpTime(mLast) <= ebGetMetaExpTime(mNextHead));
+        segHdr = (CommonSegHdr *)nextSegHdr;
+    }
+}
+
 int ebucketsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -2353,6 +2639,9 @@ int ebucketsTest(int argc, char **argv, int flags) {
         }
 
         distributeTest(0, expireRanges, itemsPerRange, ARRAY_SIZE(expireRanges), 1, 1);
+
+        printf("\n------ TEST EBUCKETS: remove-heavy microbenchmark ------\n");
+        benchmarkRemoveHeavySuite((uint32_t)testCases[tid].items);
         return 0;
     }
 #endif
@@ -2575,6 +2864,120 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 }
             }
         }
+    }
+
+    TEST("ebuckets - ebRemove merges adjacent small segments") {
+        ebuckets eb = NULL;
+        MyItem items[EB_SEG_MAX_ITEMS + 1];
+        uint64_t expireAt = 12345 << EB_BUCKET_KEY_PRECISION;
+
+        /* Force rax with an extended bucket: first segment has 1 item, second has 16. */
+        for (int i = 0; i < (int)ARRAY_SIZE(items); ++i)
+            ebAdd(&eb, &myEbucketsType2, items + i, expireAt);
+
+        FirstSegHdr *firstSeg = ebTestGetFirstSegHdr(eb);
+        assert(firstSeg->numSegs == 2);
+
+        for (int i = 0; i < EB_SEG_MAX_ITEMS - (EB_SEG_MERGE_MAX_ITEMS - 1); ++i)
+            assert(ebRemove(&eb, &myEbucketsType2, items + i));
+
+        firstSeg = ebTestGetFirstSegHdr(eb);
+        assert(firstSeg->numSegs == 1);
+        assert(firstSeg->totalItems == EB_SEG_MERGE_MAX_ITEMS);
+        assertBucketExpireOrder(&myEbucketsType2, firstSeg);
+
+        ebDestroy(&eb, &myEbucketsType2, NULL);
+    }
+
+    TEST("ebuckets - ebRemove skips merge while combined segment is above threshold") {
+        ebuckets eb = NULL;
+        MyItem items[EB_SEG_MAX_ITEMS + 1];
+        uint64_t expireAt = 54321 << EB_BUCKET_KEY_PRECISION;
+
+        for (int i = 0; i < (int)ARRAY_SIZE(items); ++i)
+            ebAdd(&eb, &myEbucketsType2, items + i, expireAt);
+
+        FirstSegHdr *firstSeg = ebTestGetFirstSegHdr(eb);
+        assert(firstSeg->numSegs == 2);
+
+        for (int i = 0; i < EB_SEG_MAX_ITEMS - EB_SEG_MERGE_MAX_ITEMS; ++i)
+            assert(ebRemove(&eb, &myEbucketsType2, items + i));
+
+        firstSeg = ebTestGetFirstSegHdr(eb);
+        assert(firstSeg->numSegs == 2);
+        assert(firstSeg->totalItems == EB_SEG_MERGE_MAX_ITEMS + 1);
+        assertBucketExpireOrder(&myEbucketsType2, firstSeg);
+
+        ebDestroy(&eb, &myEbucketsType2, NULL);
+    }
+
+    TEST("ebuckets - ebSegMergeWithNext preserves exact expire order") {
+        MyItem items[4];
+        memset(items, 0, sizeof(items));
+        for (int i = 0; i < (int)ARRAY_SIZE(items); ++i)
+            ebSetMetaExpTime(&items[i].mexpire, i);
+
+        ebSetMetaExpTime(&items[0].mexpire, 20);
+        ebSetMetaExpTime(&items[1].mexpire, 30);
+        ebSetMetaExpTime(&items[2].mexpire, 10);
+        ebSetMetaExpTime(&items[3].mexpire, 25);
+
+        FirstSegHdr firstSeg = { .head = items + 0, .totalItems = 4, .numSegs = 2 };
+        NextSegHdr *nextSeg = zmalloc(sizeof(*nextSeg));
+        nextSeg->head = items + 2;
+        nextSeg->prevSeg = (CommonSegHdr *)&firstSeg;
+        nextSeg->firstSeg = &firstSeg;
+
+        items[0].mexpire.firstItemBucket = 1;
+        items[0].mexpire.numItems = 2;
+        items[0].mexpire.next = items + 1;
+        items[1].mexpire.next = nextSeg;
+        items[1].mexpire.lastInSegment = 1;
+
+        items[2].mexpire.numItems = 2;
+        items[2].mexpire.next = items + 3;
+        items[3].mexpire.next = nextSeg;
+        items[3].mexpire.lastInSegment = 1;
+        items[3].mexpire.lastItemBucket = 1;
+
+        ebSegMergeWithNext(&myEbucketsType2,
+                           (CommonSegHdr *)&firstSeg,
+                           &items[0].mexpire,
+                           nextSeg,
+                           &items[2].mexpire,
+                           &items[3].mexpire);
+
+        assert(firstSeg.numSegs == 1);
+        assert(firstSeg.totalItems == 4);
+        assertBucketExpireOrder(&myEbucketsType2, &firstSeg);
+    }
+
+    TEST_COND("ebuckets - ebRemove merges and preserves exact expire order",
+              EB_BUCKET_KEY_PRECISION > 0) {
+        ebuckets eb = NULL;
+        MyItem items[EB_SEG_MAX_ITEMS + 1];
+        uint64_t base = (uint64_t)1 << EB_BUCKET_KEY_PRECISION;
+        uint64_t lowExpire = base;
+        uint64_t highExpire = base + 1;
+
+        for (int i = 0; i < EB_SEG_MAX_ITEMS; ++i)
+            ebAdd(&eb, &myEbucketsType2, items + i, lowExpire);
+        ebAdd(&eb, &myEbucketsType2, items + EB_SEG_MAX_ITEMS, highExpire);
+
+        FirstSegHdr *firstSeg = ebTestGetFirstSegHdr(eb);
+        assert(firstSeg->numSegs == 2);
+
+        for (int i = 0; i < EB_SEG_MAX_ITEMS - (EB_SEG_MERGE_MAX_ITEMS - 1); ++i)
+            assert(ebRemove(&eb, &myEbucketsType2, items + i));
+
+        firstSeg = ebTestGetFirstSegHdr(eb);
+        assert(firstSeg->numSegs == 1);
+        assert(firstSeg->totalItems == EB_SEG_MERGE_MAX_ITEMS);
+        assertBucketExpireOrder(&myEbucketsType2, firstSeg);
+        assert(ebGetNextTimeToExpire(eb, &myEbucketsType2) == lowExpire);
+        assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 1) == highExpire);
+
+        ebDestroy(&eb, &myEbucketsType2, NULL);
     }
 
     TEST("ebuckets - test min/max expire time") {

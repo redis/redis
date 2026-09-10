@@ -110,7 +110,6 @@
  *
  * TODO
  * ----
- * - ebRemove() optimize to merge small segments into one segment.
  * - ebAdd() Fix pathological case of cascade addition of items into rax such
  *   that their values are smaller/bigger than visited extended-segment which ends
  *   up with multiple segments with a single item in each segment.
