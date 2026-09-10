@@ -620,7 +620,68 @@ start_server {tags {"introspection"}} {
         start_server {config "default.conf" overrides {save {900 1}} args {--save {}}} {
             assert_match [r config get save] {save {}}
         }
+
     } {} {external:skip}
+
+    test {CONFIG SET save rejects out of range params} {
+        set original [lindex [r config get save] 1]
+
+        # Values that don't fit struct saveparam, both just above the limit and
+        # way beyond what strtoll() can represent.
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "1 2147483648"}
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "2147483648 1"}
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "1 999999999999999999999999"}
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "999999999999999999999999 1"}
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "1 21474836499999999999999999999999"}
+
+        # Non numeric, empty and out of range values, also when a valid pair comes first
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "900 foo"}
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "900 "}
+        assert_error {ERR CONFIG SET failed*Invalid save parameters} {r config set save "900 1 1 2147483648"}
+
+        # A rejected CONFIG SET must leave the previous save params untouched
+        assert_equal $original [lindex [r config get save] 1]
+
+        # Valid values are still accepted, leading zeros and '+' included
+        r config set save "3600 1 300 100"
+        assert_equal {3600 1 300 100} [lindex [r config get save] 1]
+        r config set save "0300 +010"
+        assert_equal {300 10} [lindex [r config get save] 1]
+        r config set save "2147483647 2147483647"
+        assert_equal {2147483647 2147483647} [lindex [r config get save] 1]
+
+        # The same limits apply when the value comes from the command line
+        set pidfile [tmpfile invalid-save.pid]
+        set code [catch {
+            exec src/redis-server --port 0 --daemonize yes --pidfile $pidfile --save "1 2147483648"
+        } err]
+        if {$code == 0 && [file exists $pidfile]} {
+            set fd [open $pidfile r]
+            catch {exec kill [string trim [read $fd]]}
+            close $fd
+        }
+        file delete $pidfile
+        assert {$code != 0}
+        assert_match {*Invalid save parameters*} $err
+
+        # The same limits apply when loading a config file
+        set config [tmpfile invalid-save.conf]
+        set pidfile [tmpfile invalid-save.pid]
+        set fd [open $config w]
+        puts $fd "port 0\ndaemonize yes\npidfile $pidfile\nsave 1 2147483648"
+        close $fd
+        set code [catch {exec src/redis-server $config} err]
+        if {$code == 0 && [file exists $pidfile]} {
+            set fd [open $pidfile r]
+            catch {exec kill [string trim [read $fd]]}
+            close $fd
+        }
+        file delete $config $pidfile
+        assert {$code != 0}
+        assert_match {*Invalid save parameters*} $err
+
+        r config set save $original
+    } {OK} {external:skip}
 
     test {CONFIG sanity} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
