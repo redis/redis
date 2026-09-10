@@ -3358,8 +3358,6 @@ static int applyStreamStats(const char **err) {
             if (meta) {
                 memset(meta->distrib_cgroups_pel, 0,
                        sizeof(meta->distrib_cgroups_pel));
-                memset(meta->distrib_cgroups_lag, 0,
-                       sizeof(meta->distrib_cgroups_lag));
             }
         }
     } else if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {

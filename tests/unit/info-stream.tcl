@@ -5,9 +5,6 @@
 # properties, identical in form to the "INFO keysizes" section. One sample per
 # consumer group per metric:
 #   - distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
-#   - distrib_cgroups_lag: the group's backlog of unconsumed messages, bounded
-#     by the live stream length (matching XINFO GROUPS lag); groups whose lag is
-#     unavailable due to fragmentation (XINFO NULL) contribute no sample.
 # Collection is gated on the stream-stats directive and reconstructed exactly
 # from RDB / replication.
 ################################################################################
@@ -119,11 +116,6 @@ proc verify_stream_metric {cmd exp field placeholder xinfo_field waitCond} {
 # distrib_cgroups_pel: placeholder "PEL", cross-checked against XINFO 'pending'.
 proc verify_pel {cmd exp {waitCond 0}} {
     uplevel 1 [list verify_stream_metric $cmd $exp distrib_cgroups_pel PEL pending $waitCond]
-}
-
-# distrib_cgroups_lag: placeholder "LAG", cross-checked against XINFO 'lag'.
-proc verify_lag {cmd exp {waitCond 0}} {
-    uplevel 1 [list verify_stream_metric $cmd $exp distrib_cgroups_lag LAG lag $waitCond]
 }
 
 # Seed a stream with 'n' entries 1-1..n-1.
@@ -276,163 +268,6 @@ proc test_all_stream_stats { {replMode 0} } {
         $server select 0
     }
 
-    test "STREAM-STATS - lag grows on XADD, shrinks on XREADGROUP $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 4
-        # A group created at 0 on a 4-entry stream has lag 4.
-        verify_lag {$server xgroup create st g 0} {db0_LAG:4=1}
-        # Reading 3 entries lowers lag to 1; reading the rest to 0.
-        verify_lag {$server xreadgroup group g c count 3 streams st >} {db0_LAG:1=1}
-        verify_lag {$server xreadgroup group g c count 10 streams st >} {db0_LAG:0=1}
-        # Producing more raises the caught-up group's lag again.
-        verify_lag {$server xadd st 5-1 f v} {db0_LAG:1=1}
-        verify_lag {$server xadd st 6-1 f v} {db0_LAG:2=1}
-    }
-
-    test "STREAM-STATS - lag is bounded: trimming unread entries lowers it $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 8
-        # Group at 0 that hasn't read: lag 8.
-        verify_lag {$server xgroup create st g 0} {db0_LAG:8=1}
-        # Trimming to the newest 4 removes 4 unread entries. The backlog is the
-        # live window (4), not the raw producer-minus-read (8) -- it crosses a
-        # bin (8 -> "4"), and matches XINFO lag. A naive added-read would stay 8.
-        verify_lag {$server xtrim st maxlen 4} {db0_LAG:4=1}
-        # The group still catches up to 0 by reading the 4 live entries.
-        verify_lag {$server xreadgroup group g c count 100 streams st >} {db0_LAG:0=1}
-    }
-
-    test "STREAM-STATS - lag with multiple groups $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 8
-        $server xgroup create st g1 0
-        $server xgroup create st g2 0
-        $server xreadgroup group g1 c count 8 streams st >
-        $server xreadgroup group g2 c count 2 streams st >
-        # g1 caught up (lag 0); g2 read 2 of 8 -> lag 6 -> bin "4".
-        verify_lag {} {db0_LAG:0=1,4=1}
-    }
-
-    test "STREAM-STATS - fragmented group (NULL lag) is excluded $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 5
-        $server xgroup create st g 0
-        $server xreadgroup group g c count 2 streams st >
-        verify_lag {} {db0_LAG:2=1} ;# lag 3 -> "2"
-        # Deleting an entry ahead of the group leaves a tombstone ahead, so its
-        # lag becomes unavailable (XINFO reports NULL) and it drops out.
-        verify_lag {$server xdel st 4-1} {}
-    }
-
-    test "STREAM-STATS - XGROUP SETID and DESTROY move the lag sample $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 8
-        verify_lag {$server xgroup create st g 0} {db0_LAG:8=1}
-        verify_lag {$server xgroup setid st g $} {db0_LAG:0=1} ;# jump to tail -> lag 0
-        verify_lag {$server xgroup setid st g 0} {db0_LAG:8=1} ;# back to head -> lag 8
-        # ENTRIESREAD above entries_added is clamped down to it. Unlike XSETID's
-        # clamp, this one adjusts the parsed argument before it ever reaches
-        # cg->entries_read, and the old lag here is sampled directly rather than
-        # reconstructed -- so the sample moves once (8 -> 0) instead of being
-        # duplicated. Do not convert this path to streamLagGuard: XGROUP SETID
-        # changes the group's own counters, which is precisely what the guard
-        # cannot reconstruct an old lag across.
-        verify_lag {$server xgroup setid st g 8-1 entriesread 999} {db0_LAG:0=1}
-        verify_lag {} {__EVAL__ 0}
-        verify_lag {$server xgroup destroy st g} {}
-    }
-
-    test "STREAM-STATS - XCLAIM LASTID moves the lag sample $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 8
-        verify_lag {$server xgroup create st g 0} {db0_LAG:8=1}
-        # LASTID advances the group's read position, so it shifts the lag on its
-        # own -- even here, where nothing is claimed because 8-1 isn't in the PEL.
-        # Read position at the tail -> lag 0.
-        verify_lag {$server xclaim st g c 0 8-1 JUSTID LASTID 8-1} {db0_LAG:0=1}
-        verify_lag {$server xgroup setid st g 0} {db0_LAG:8=1}
-        # A read position in mid-stream can't be turned into a logical read
-        # counter, so the lag becomes unavailable (XINFO NULL) and the group
-        # leaves the histogram.
-        verify_lag {$server xclaim st g c 0 5-1 JUSTID LASTID 5-1} {}
-        # Same path, but with an entry that really transfers. Only then does
-        # XCLAIM propagate verbatim, as XCLAIM ... LASTID -- the shape XAUTOCLAIM
-        # and XREADGROUP history reads also emit -- rather than the XGROUP SETID
-        # emitted when nothing is claimed. In replicaMode that is what the replica
-        # replays back into this branch. The lag reaches 0 either way, so assert
-        # the claim happened instead of trusting the setup silently.
-        # The previous step left the read position at 5-1, so this delivers 6-1 --
-        # the only entry the test ever puts in the PEL, and so the only one the
-        # claim below can transfer.
-        assert_equal 6-1 [lindex [$server xreadgroup group g c count 1 streams st >] 0 1 0 0]
-        # Still no sample: the read position stays mid-stream, so the lag remains
-        # unavailable. It is the LASTID below, not this read, that brings the group back.
-        verify_lag {} {}
-        assert_equal {6-1} [$server xclaim st g c2 0 6-1 JUSTID LASTID 8-1]
-        verify_lag {} {db0_LAG:0=1}
-        verify_lag {} {__EVAL__ 0}
-    }
-
-    test "STREAM-STATS - lag bin is clamped for out-of-range values $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 3
-        $server xgroup create st g 0
-        $server xreadgroup group g c count 1 streams st > ;# read pos in range, small entries_read
-        # Unlike key sizes, lag is not physically bounded: XSETID ENTRIESADDED can
-        # push entries_added to ~2^63, so lag (added - read) exceeds the histogram
-        # range. The bin must clamp to the last bucket ("256P", the top of the 60
-        # bins) rather than writing past distrib_cgroups_lag (a heap OOB).
-        verify_lag {$server xsetid st 3-1 entriesadded 9223372036854775806} {db0_LAG:256P=1}
-        assert_equal PONG [$server ping] ;# no crash / corruption
-    }
-
-    test "STREAM-STATS - XSETID clamping entries_read keeps the lag sample $suffix" {
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 10
-        $server xgroup create st g 0
-        $server xgroup setid st g 10-1 entriesread 10 ;# read pos at tail, entries_read=10
-        verify_lag {$server xtrim st maxlen 2} {db0_LAG:0=1} ;# entries_added stays 10
-        # Dropping entries_added below the group's entries_read would make the lag
-        # negative (3 - 10), so XSETID clamps entries_read down to entries_added.
-        # That clamp is a per-group change made *inside* the stream-wide lag guard's
-        # window, which breaks the guard's premise that a group's own entries_read
-        # is untouched -- the old lag would be recomputed against the already
-        # clamped counter and the sample counted twice (0=2). The clamp therefore
-        # accounts for its own lag movement, leaving exactly one sample.
-        verify_lag {$server xsetid st 10-1 entriesadded 3} {db0_LAG:0=1}
-        verify_lag {} {__EVAL__ 0} ;# and it agrees with XINFO GROUPS
-        assert_equal PONG [$server ping]
-    }
-
-    test "STREAM-STATS - XSETID clamps only the groups that need it $suffix" {
-        # The clamp walks every group, so cover a mixed stream: one group above the
-        # new entries_added (clamped, and thus accounting for its own lag move) and
-        # one below it (untouched, so the guard alone must move its sample).
-        #
-        # The numbers matter. If the clamp runs inside the guard's window, the old
-        # lag is recomputed as entries_added(12) - clamped entries_read(4) = 8, and
-        # the guard decrements that bin instead of the group's real one. entriesread
-        # 11 puts g0's true old lag at 1, a *different* bin from 8, so the bogus
-        # decrement misses and g0's stale sample survives alongside its new one.
-        # Pick entriesread 8 instead and the wrong value (12-6=6) shares bin "4"
-        # with the right one (12-8=4), the decrement lands correctly by accident,
-        # and the test proves nothing.
-        verify_lag {$server FLUSHALL} {}
-        seed_stream $server st 12
-        $server xgroup create st g0 0
-        $server xgroup create st g1 0
-        $server xgroup setid st g0 12-1 entriesread 11 ;# above the new entries_added
-        $server xgroup setid st g1 3-1 entriesread 3   ;# below it, must stay as is
-        verify_lag {$server xtrim st maxlen 2} {db0_LAG:1=1,2=1}
-        # g0 is clamped to 4 (lag 0); g1 keeps entries_read 3 (lag stays at the live
-        # length, 2). Double-counting the clamp leaves g0's old "1" sample behind.
-        verify_lag {$server xsetid st 12-1 entriesadded 4} {db0_LAG:0=1,2=1}
-        verify_lag {} {__EVAL__ 0}
-        assert_equal 4 [dict get [lindex [$server xinfo groups st] 0] entries-read]
-        assert_equal 3 [dict get [lindex [$server xinfo groups st] 1] entries-read]
-        assert_equal PONG [$server ping]
-    }
-
     test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
         verify_pel {$server FLUSHALL} {}
         for {set s 0} {$s < 6} {incr s} {
@@ -446,10 +281,9 @@ proc test_all_stream_stats { {replMode 0} } {
             catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
             catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
         }
-        # Both metrics must match an independent reconstruction from XINFO GROUPS
-        # (pending for PEL, lag for LAG) -- across trims/deletes/reads/acks.
+        # PEL must match an independent reconstruction from XINFO GROUPS
+        # (pending) -- across trims/deletes/reads/acks.
         verify_pel {} {__EVAL__ 0}
-        verify_lag {} {__EVAL__ 0}
     }
 }
 
@@ -471,19 +305,15 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000
         verify_pel {} {__EVAL__ 0}
-        verify_lag {} {__EVAL__ 0}
 
-        # A reload must reconstruct both metrics for a random dataset too.
+        # A reload must reconstruct the metric for a random dataset too.
         set before_pel [get_info_stream_field r distrib_cgroups_pel]
-        set before_lag [get_info_stream_field r distrib_cgroups_lag]
         r DEBUG RELOAD
         assert_equal $before_pel [get_info_stream_field r distrib_cgroups_pel]
-        assert_equal $before_lag [get_info_stream_field r distrib_cgroups_lag]
 
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000 {useexpire}
         verify_pel {} {__EVAL__ 0}
-        verify_lag {} {__EVAL__ 0}
     } {} {cluster:skip}
 
     test "STREAM-STATS - DEBUG RELOAD reconstructs the histogram from RDB" {
@@ -497,9 +327,8 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         set before [get_info_stream_stripped r]
         r DEBUG RELOAD
         assert_equal $before [get_info_stream_stripped r]
-        # Both metrics match an independent reconstruction from XINFO GROUPS.
+        # The metric matches an independent reconstruction from XINFO GROUPS.
         assert_equal [eval_stream_histogram r 0 distrib_cgroups_pel pending] [get_info_stream_field r distrib_cgroups_pel]
-        assert_equal [eval_stream_histogram r 0 distrib_cgroups_lag lag] [get_info_stream_field r distrib_cgroups_lag]
     }
 
     test "STREAM-STATS - section is empty after the streams are removed" {

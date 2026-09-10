@@ -101,7 +101,6 @@ typedef struct asmBgTrimState {
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
     int64_t delta_distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
-    int64_t delta_distrib_cgroups_lag[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
     int track_stream_stats;      /* stream-stats state captured when the trim job was
                                     scheduled; the BIO thread reads this instead of the
                                     live config, and the delta is applied only if it was
@@ -3097,8 +3096,8 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
 
-        /* Update the INFO `stream` per-consumer-group deltas (distrib_cgroups_pel
-         * and distrib_cgroups_lag): one sample per consumer group. Bg slot trim
+        /* Update the INFO `stream` per-consumer-group delta (distrib_cgroups_pel):
+         * one sample per consumer group. Bg slot trim
          * frees stream keys without going through streamKeyRemoved, so record each
          * group's samples here. Done before the keysizes row lookup below, so it
          * stays reachable regardless of whether streams are a tracked keysizes
@@ -3126,9 +3125,6 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                      * we skip. */
                     int bin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_PEL));
                     if (bin >= 0) trim_job->bg->delta_distrib_cgroups_pel[bin]++;
-
-                    int lbin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_LAG));
-                    if (lbin >= 0) trim_job->bg->delta_distrib_cgroups_lag[lbin]++;
                 }
                 raxStop(&ri);
             }
@@ -3168,8 +3164,7 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
             }
         }
-        /* distrib_cgroups_pel and distrib_cgroups_lag are single-row
-         * histograms (not per-type).
+        /* distrib_cgroups_pel is a single-row histogram (not per-type).
          * Apply the delta only if the stream histogram still holds the same
          * generation of samples the job was scheduled against: stream-stats
          * was enabled at schedule (track_stream_stats) and has not been reset
@@ -3185,9 +3180,6 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
                 int64_t dpel = job->bg->delta_distrib_cgroups_pel[bin];
                 int64_t *pel = &meta->distrib_cgroups_pel[bin];
                 *pel = (*pel > dpel) ? (*pel - dpel) : 0;
-                int64_t dlag = job->bg->delta_distrib_cgroups_lag[bin];
-                int64_t *lag = &meta->distrib_cgroups_lag[bin];
-                *lag = (*lag > dlag) ? (*lag - dlag) : 0;
             }
         }
     }
