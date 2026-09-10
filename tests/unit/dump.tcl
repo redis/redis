@@ -52,6 +52,24 @@ start_server {tags {"dump"}} {
         set e
     } {ERR no such key} {needs:debug}
 
+    test {RESTORE with a TTL that overflows when added to the current time} {
+        r set foo bar
+        set encoded [r dump foo]
+        set expiredkeys [s expired_keys]
+        assert_error "ERR invalid expire time in 'restore' command" {
+            r restore foo 9223372036854775807 $encoded replace
+        }
+        # The existing key is untouched and nothing was counted as expired.
+        assert_equal bar [r get foo]
+        assert_equal -1 [r pttl foo]
+        assert_equal $expiredkeys [s expired_keys]
+
+        # The same value is a valid absolute timestamp with ABSTTL.
+        r restore foo 9223372036854775807 $encoded absttl replace
+        assert_morethan [r pttl foo] 0
+        r del foo
+    }
+
     test {RESTORE can set LRU} {
         r set foo bar
         set encoded [r dump foo]

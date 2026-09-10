@@ -284,7 +284,10 @@ void restoreCommand(client *c) {
 
     /* Compute TTL early so we can add it to metadata spec in correct order */
     if (ttl) {
-        if (!absttl) ttl+=commandTimeSnapshot();
+        if (!absttl && add_overflow_ll(ttl, commandTimeSnapshot(), &ttl)) {
+            addReplyErrorExpireTime(c);
+            return;
+        }
         keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
     }
 
