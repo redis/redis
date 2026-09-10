@@ -107,9 +107,6 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
     set classesSpec(3) "KEEPONCOPY:ALLOWIGNORE:RDBLOAD:RDBSAVE"
     set classesSpec(4) "ALLOWIGNORE:RDBLOAD:RDBSAVE"
     set classesSpec(5) "KEEPONRENAME:KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
-    # ATTR permanently holds module id 1, so only 6 module classes register and the
-    # loop breaks at cid 7. Put KEEPONMOVE:UNLINKFREE (the move+unlink callback pair
-    # bless relies on) within 1..6 so it is actually exercised.
     set classesSpec(6) "KEEPONMOVE:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
     set classesSpec(7) "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
 
@@ -126,7 +123,29 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         puts "Registered class $cid with spec $spec"
         assert_range $classes($cid) 1 7
     }
-    assert_equal 6 $maxClasses
+
+    test {NO-EVICT coexists with all seven module metadata classes} {
+        assert_equal 7 $maxClasses
+        r set blessed value
+        r bless set blessed no-evict
+        setupKeyMeta blessed $maxClasses 0 1
+        assert_equal {NO-EVICT} [r bless get blessed]
+        r debug reload
+        assert_equal {NO-EVICT} [r bless get blessed]
+        for {set i 1} {$i <= $maxClasses} {incr i} {
+            assert_equal "meta$i" [r keymeta.get [cname $i] blessed]
+        }
+        r set destination old
+        r bless set destination no-evict
+        r restore destination 0 [r dump blessed] replace
+        assert_equal {NO-EVICT} [r bless get destination]
+        for {set i 1} {$i <= $maxClasses} {incr i} {
+            assert_equal "meta$i" [r keymeta.get [cname $i] destination]
+        }
+        r flushdb
+    }
+
+    assert_equal 7 $maxClasses
 
     # Validates metadata behavior across COPY/RENAME/MOVE operations
     # with varying numbers of metadata classes (1-7), key expiration states,

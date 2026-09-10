@@ -457,14 +457,9 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
             memcpy(kvobjGetAllocPtr(kv), 
                    keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta, 
                    keymeta->numMeta * sizeof(uint64_t));
-
-        /* Index a key that arrives already blessed (not via BLESS SET) so COUNT/LIST see it. */
-        if (server.key_attr_class_id > 0 && (keymeta->metabits & KEY_ATTR_METABIT)) {
-            uint64_t mask = 0;
-            if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
-                keyAttrTrackKey(db, key->ptr, mask);
-        }
     }
+
+    if (blessNoEvict(kv)) blessSetNoEvict(db, kv, 1);
 
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
@@ -571,13 +566,6 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
             memcpy(kvobjGetAllocPtr(kv),
                    keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
                    keyMetaSpec->numMeta * sizeof(uint64_t));
-
-        /* Same as dbAddInternal, for the RDB-load path (bypasses dbAddInternal). */
-        if (server.key_attr_class_id > 0 && (keyMetaSpec->metabits & KEY_ATTR_METABIT)) {
-            uint64_t mask = 0;
-            if (keyMetaGetMetadata(server.key_attr_class_id, kv, &mask) && mask)
-                keyAttrTrackKey(db, key, mask);
-        }
     }
 
     updateKeysizesHist(db, kv->type, -1, (int64_t) getObjectLength(kv));
@@ -637,11 +625,8 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         newKeyMetaBits &= ~KEY_META_MASK_EXPIRE; 
 
     if (overwrite) {
-        /* On overwrite, discard module metadata excluding expire and the keyattr
-         * (ATTR) class, which must survive value replacement (e.g. a blessing on
-         * SET k v2). Keeping its bit lets keyMetaTransition() carry the value to
-         * the new object; keyAttrOnOverwrite() below re-adds it to the indexes. */
-        newKeyMetaBits &= (KEY_META_MASK_EXPIRE | KEY_ATTR_METABIT);
+        /* On overwrite, discard module metadata. */
+        newKeyMetaBits &= KEY_META_MASK_EXPIRE;
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
         incrRefCount(old);
@@ -689,6 +674,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         val->lru = old->lru;
         
         kvNew = kvobjSet(key->ptr, val, newKeyMetaBits);
+        kvobjBits(kvNew)->no_evict = kvobjBits(old)->no_evict;
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* if expiry replace the old value at its location in the expire space. */
@@ -707,11 +693,6 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         if (newKeyMetaBits & KEY_META_MASK_MODULES)
             keyMetaTransition(old, kvNew);
     }
-
-    /* Overwrite unlinked the key from the keyattr indexes (attrUnlink); the ATTR
-     * value was carried to the new object above, so re-add it to the indexes. */
-    if (overwrite && (kvNew->metabits & KEY_ATTR_METABIT))
-        keyAttrOnOverwrite(db, key, kvNew);
 
     /* Remove old key and add new key to KEYSIZES histogram */
     int64_t newlen = (int64_t) getObjectLength(kvNew);
@@ -914,6 +895,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
         incrRefCount(kv); /* refcnt=1->2 */
+        if (blessNoEvict(kv)) blessUntrack(db, key->ptr);
         /* Metadata hook: notify unlink for key metadata cleanup. */
         if (getModuleMetaBits(kv->metabits)) keyMetaOnUnlink(db, key, kv);
         /* Tells the module that the key has been unlinked from the database. */
@@ -2540,7 +2522,9 @@ void copyCommand(client *c) {
     keyMetaSpecInit(&keymeta);
     if (o->metabits) keyMetaOnCopy(o, key, newkey, c->db->id, dst->id, &keymeta);
 
+    int noevict = blessNoEvict(o);
     kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, &keymeta);
+    if (noevict) blessSetNoEvict(dst, kvCopy, 1);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */

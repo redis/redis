@@ -94,7 +94,6 @@ struct RedisModuleKeyOptCtx {
 #include "endianconv.h"
 #include "crc64.h"
 #include "keymeta.h"
-#include "keyattr.h"
 
 struct hdr_histogram;
 
@@ -2532,7 +2531,6 @@ struct redisServer {
     int maxmemory_eviction_tenacity;/* Aggressiveness of eviction processing */
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
-    int key_attr_class_id;          /* keymeta class id for per-key attributes (0 = uninit). */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
@@ -4323,8 +4321,10 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
-/* Bless - per-key attributes (see bless.c / keyattr.c) */
-void blessInit(void);
+/* BLESS - per-key protection from eviction. */
+void blessSetNoEvict(redisDb *db, kvobj *kv, int enabled);
+void blessUntrack(redisDb *db, sds key);
+int blessRewrite(rio *r, robj *key, kvobj *kv);
 kvstore *blessedKvstoreCreate(int slot_count_bits, int flags);
 int blessNoEvict(kvobj *kv);
 unsigned long long blessedKeysCount(void);

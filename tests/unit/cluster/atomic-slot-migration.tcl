@@ -194,7 +194,12 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 0 set $slot1_key "b"
             set slot101_key [slot_key 101 mykey]
             R 0 set $slot101_key "c"
-            # 3 keys cost 3s to save
+            # Exercise both command-format (string) and RESTORE (small list) migration.
+            R 0 bless set $slot0_key no-evict
+            set protected_list [slot_key 0 protected-list]
+            R 0 rpush $protected_list a b
+            R 0 bless set $protected_list no-evict
+            # 4 keys cost 4s to save
             R 0 config set rdb-key-save-delay 1000000
 
             # load a function
@@ -241,6 +246,14 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             assert_equal [string repeat a 100] [R 4 get $slot0_key]
             assert_equal [string repeat b 100] [R 4 get $slot1_key]
             assert_equal [R 0 function dump] [R 4 function dump]
+
+            foreach node {1 4} {
+                assert_equal {NO-EVICT} [R $node bless get $slot0_key]
+                assert_equal {NO-EVICT} [R $node bless get $protected_list]
+                assert_equal {} [R $node bless get $slot1_key]
+                assert_equal {a b} [R $node lrange $protected_list 0 -1]
+                assert_equal 2 [llength [lindex [R $node bless scan 0 no-evict] 1]]
+            }
 
             # verify key that was not in the slot range is not migrated
             assert_equal [string repeat c 100] [R 0 get $slot101_key]

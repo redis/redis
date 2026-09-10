@@ -1722,8 +1722,8 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
             return -1;
     }
 
-    /* Per-key attributes (bless): one opcode per attribute, just before TYPE. */
-    if (keyAttrRdbSave(rdb, val) == -1) return -1;
+    if (blessNoEvict(val) && rdbSaveType(rdb, RDB_OPCODE_KEY_NOEVICT) == -1)
+        return -1;
 
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
@@ -2343,11 +2343,12 @@ error:
 /* Load object type and optional key metadata (into `keymeta`) from RDB stream.
  * This function handles the RDB_OPCODE_KEY_META opcode that may appear before
  * the actual object type in RDB streams (both regular RDB files and DUMP payloads).
+ * If `noevict` is non-NULL, accept and return the RDB-only NO-EVICT flag.
  * The `type` parameter is updated with the actual object type.
  * 
  * Returns: 0 on success, -1 on error
  */
-int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
+int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta, int *noevict) {
     if (*type == RDB_OPCODE_KEY_META) {
         /* Load key metadata from RDB */
         uint64_t numClasses;
@@ -2364,18 +2365,14 @@ int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
         }
     }
 
-    /* Per-key attributes (bless): a run of payload-less opcodes, one per
-     * attribute, sitting right before the object type. */
-    uint64_t attrmask = 0, bit;
-    while ((bit = keyAttrBitForOpcode(*type)) != 0) {
-        attrmask |= bit;
+    if (noevict) *noevict = 0;
+    if (noevict && *type == RDB_OPCODE_KEY_NOEVICT) {
+        *noevict = 1;
         if ((*type = rdbLoadType(rdb)) == -1) {
             keyMetaSpecCleanup(keymeta);
             return -1;
         }
     }
-    if (attrmask)
-        keyMetaSpecAddUnordered(keymeta, server.key_attr_class_id, attrmask);
 
     if (!rdbIsObjectType(*type)) {
         /* Not metadata and not a valid object type */
@@ -4961,7 +4958,8 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
         }
 
         /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
-        if (rdbResolveKeyType(rdb, &type, dbid, &keyMeta) == -1) 
+        int noevict;
+        if (rdbResolveKeyType(rdb, &type, dbid, &keyMeta, &noevict) == -1)
             goto eoferr;
 
         /* Read key */
@@ -5035,6 +5033,8 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
                     serverPanic("Duplicated key found in RDB file");
                 }
             }
+
+            if (noevict) blessSetNoEvict(db, kv, 1);
 
             /* Track few-key template keys for disassembly at the end of RDb load. */
             rdbLoadTemplateCtxRecord(rdb_load_tmpl_ctx, kv, db);

@@ -56,6 +56,25 @@ start_server {tags {"bless"}} {
         assert_error {*syntax*} {r bless scan 0 none}
     }
 
+    test {BLESS SCAN skips expired keys before physical deletion} {
+        r flushall
+        r debug set-active-expire 0
+        r set live value
+        r set expired value
+        r bless set live no-evict
+        r bless set expired no-evict
+        r pexpire expired 1
+        wait_for_condition 50 10 {
+            [lindex [r bless scan 0 no-evict] 1] eq {live}
+        } else {
+            r debug set-active-expire 1
+            fail "BLESS SCAN returned an expired key"
+        }
+        set physical_keys [r dbsize]
+        r debug set-active-expire 1
+        assert_equal 2 $physical_keys
+    } {} {needs:debug}
+
     test {BLESS SCAN paginates with COUNT and iterates the full set; bad args error} {
         r flushall
         for {set i 0} {$i < 20} {incr i} { r set k:$i v; r bless set k:$i no-evict }
@@ -233,6 +252,28 @@ start_server {tags {"bless"}} {
         assert_equal 1 [s blessed_keys]
     }
 
+    test {BLESS index completes rehashing in the background} {
+        r flushall
+        r config set activerehashing no
+        r eval {
+            for i = 1, 1025 do
+                local key = 'blessed:' .. i
+                redis.call('SET', key, 'value')
+                redis.call('BLESS', 'SET', key, 'NO-EVICT')
+            end
+        } 0
+        set rehashing [dict get [r memory stats] db.dict.rehashing.count]
+        r config set activerehashing yes
+        assert_morethan $rehashing 0
+        wait_for_condition 50 100 {
+            [dict get [r memory stats] db.dict.rehashing.count] == 0
+        } else {
+            fail "Blessed index rehashing did not complete in the background"
+        }
+        assert_equal 1025 [s blessed_keys]
+        r flushall
+    } {OK} {external:skip}
+
     test {MEMORY STATS blessed overhead counts the key-name copies} {
         r flushall
         set long [string repeat x 2000]
@@ -269,28 +310,42 @@ start_server {tags {"bless"}} {
         assert_equal 0 [s blessed_keys]
     }
 
-    test {BLESS SET/CLEAR reuse the metadata slot: no realloc after the first bless} {
+    test {NO-EVICT survives kvBits key layouts, reallocations, COPY and RENAME} {
+        r flushall
+        foreach len {10 100 200 1000 70000} {
+            set key [string repeat k $len]
+            r set $key 1
+            r bless set $key no-evict
+            # TTL allocation and integer/embedded/raw value transitions.
+            r expire $key 10000
+            r incr $key
+            r append $key [string repeat v 100]
+            r set $key short KEEPTTL
+            assert_equal {NO-EVICT} [r bless get $key]
+            assert {[r ttl $key] > 0}
+            r copy $key copy
+            assert_equal {NO-EVICT} [r bless get copy]
+            r rename copy renamed
+            assert_equal {NO-EVICT} [r bless get renamed]
+            assert_equal [lsort [list $key renamed]] [lsort [lindex [r bless scan 0 no-evict] 1]]
+            r unlink $key renamed
+            assert_equal {} [lindex [r bless scan 0 no-evict] 1]
+        }
+    } {} {cluster:skip}
+
+    test {BLESS SET/CLEAR never changes the key allocation} {
         r flushall
         r set k v
-        # The one-time 8-byte ATTR slot may hide under allocator rounding, so we
-        # don't assert the first bless grows MEMORY USAGE. What must hold on every
-        # allocator: across many set/clear cycles the size stays constant - if
-        # clear re-grew or leaked the slot each round, 100x would accumulate enough
-        # to cross a rounding bucket and show up.
-        set blessed 0
+        set blessed [r memory usage k]
         for {set i 0} {$i < 100} {incr i} {
             assert_equal 1 [r bless set k no-evict]
             assert_equal {NO-EVICT} [r bless get k]
             assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
-            # Capture the size once the slot exists, then require it to stay put.
-            if {$i == 0} { set blessed [r memory usage k] }
-            # Subsequent SETs reuse the existing slot -> no further growth.
             assert_equal $blessed [r memory usage k]
 
             assert_equal 1 [r bless clear k no-evict]
             assert_equal {} [r bless get k]
             assert_equal 0 [llength [lindex [r bless scan 0 no-evict] 1]]
-            # CLEAR zeroes the mask but keeps the slot (like PERSIST) -> no shrink.
             assert_equal $blessed [r memory usage k]
         }
     }
@@ -507,5 +562,23 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         for {set j 0} {$j < 50} {incr j} { incr survivors [r exists victim:$j] }
         assert {$survivors < 50}
         r config set maxmemory 0
+    }
+}
+
+start_server {tags {"bless" "needs:debug" "external:skip"} overrides {appendonly yes}} {
+    foreach preamble {no yes} {
+        test "NO-EVICT survives AOF rewrite and load (RDB preamble $preamble)" {
+            r flushall
+            r config set aof-use-rdb-preamble $preamble
+            r set protected value
+            r bless set protected no-evict
+            r set plain value
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            assert_equal {NO-EVICT} [r bless get protected]
+            assert_equal {} [r bless get plain]
+            assert_equal {protected} [lindex [r bless scan 0 no-evict] 1]
+        }
     }
 }

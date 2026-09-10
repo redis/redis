@@ -1610,8 +1610,7 @@ static doneStatus defragStageBlessedKvstore(void *ctx, monotime endtime) {
     static dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
         /* Unlike expires, the blessed-keys index owns its sds key (sdsdup), so it
-         * must be relocated here. The value is a bitmask stored inline in the
-         * pointer, not an allocation, so there's nothing to defrag for it. */
+         * must be relocated here. Values are NULL, so there is nothing to defrag. */
         .defragKey = (dictDefragAllocFunction *)activeDefragSds,
         .defragVal = NULL,
     };

@@ -1353,6 +1353,7 @@ void databasesCron(void) {
             redisDb *db = &server.db[resize_db % server.dbnum];
             kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB, resizeShouldSkip);
             kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB, resizeShouldSkip);
+            kvstoreTryResizeDicts(db->blessed_keys, CRON_DICTS_PER_DB, resizeShouldSkip);
             resize_db++;
         }
 
@@ -1365,6 +1366,9 @@ void databasesCron(void) {
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                elapsed_us += kvstoreIncrementallyRehash(db->blessed_keys, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 rehash_db++;
@@ -8178,8 +8182,6 @@ int main(int argc, char **argv) {
     moduleInitModulesSystem();
     connTypeInitialize();
     keyMetaInit();
-    keyAttrInit();
-    blessInit();
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */

@@ -8,14 +8,13 @@
  *
  * BLESS - protect keys from eviction ("blessed" keys).
  *
- * Bless is one owner of the generic per-key attribute bitmask (see keyattr.c):
- * it claims the NO-EVICT bit. The bit lives in the key's ATTR keymeta value, so
- * it persists to RDB and rides DUMP/RESTORE, slot migration and AOF rewrite.
+ * The NO-EVICT flag lives in the kvBits byte following each kvobj.
+ * It persists through RDB and AOF; ASM sends it after RESTORE.
  *
  * Each redisDb also keeps an in-RAM index of its NO-EVICT keys (db->blessed_keys)
  * for BLESS SCAN and INFO's blessed_keys count. It is per-DB (like db->expires)
  * so it stays correct across SWAPDB. The eviction path never consults it -
- * blessNoEvict() reads the bit inline from the key's keymeta.
+ * blessNoEvict() reads the bit directly from kvBits.
  *
  * Eviction (see evict.c): blessed keys are never chosen as victims. If eviction
  * can't free enough because blessed keys hold the memory, used memory is allowed
@@ -27,21 +26,14 @@
 #include "cluster.h"
 #include "vector.h"
 
-/* Bless is a single LEVEL per key, stored in the shared ATTR mask (see reserved
- * bits in server.h). Setting a level replaces any previous one.
- *   NONE     = 0
- *   NO-EVICT = bit 0   (never evicted under maxmemory) */
-#define BLESS_NONE     0
-#define BLESS_NOEVICT  (1ULL << 0)
-
-/* Per-DB index: NO-EVICT key name (sds) -> attribute mask (in the value ptr). */
+/* Per-DB index of NO-EVICT key names. */
 static dictType blessedDictType = {
     dictSdsHash,            /* hash function */
     NULL,                   /* key dup */
     NULL,                   /* val dup */
     dictSdsKeyCompare,      /* key compare */
     dictSdsDestructor,      /* key destructor */
-    NULL,                   /* val destructor (mask lives in the pointer) */
+    NULL,                   /* val destructor */
     NULL                    /* allow to resize */
 };
 
@@ -84,20 +76,17 @@ kvstore *blessedKvstoreCreate(int slot_count_bits, int flags) {
 
 /* ---- per-DB index helpers (main thread only) ---- */
 
-static void blessedSetPut(redisDb *db, sds keyname, uint64_t mask) {
+static void blessedSetPut(redisDb *db, sds keyname) {
     int slot = getKeySlot(keyname);
     dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
-    if (de) {
-        kvstoreDictSetVal(db->blessed_keys, slot, de, (void *)(uintptr_t)mask);
-        return;
-    }
+    if (de) return;
     sds dup = sdsdup(keyname);
     de = kvstoreDictAddRaw(db->blessed_keys, slot, dup, NULL);
-    kvstoreDictSetVal(db->blessed_keys, slot, de, (void *)(uintptr_t)mask);
+    kvstoreDictSetVal(db->blessed_keys, slot, de, NULL);
     *blessedBytesRef(db->blessed_keys) += sdsAllocSize(dup);
 }
 
-static void blessedSetDel(redisDb *db, sds keyname) {
+void blessUntrack(redisDb *db, sds keyname) {
     int slot = getKeySlot(keyname);
     dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
     if (!de) return;
@@ -105,10 +94,17 @@ static void blessedSetDel(redisDb *db, sds keyname) {
     kvstoreDictDelete(db->blessed_keys, slot, keyname);
 }
 
-/* True if the key must not be evicted. Reads the NO-EVICT bit inline from the
- * key's keymeta - no index, no lookup. Safe for unblessed keys (mask 0). */
+/* Plain value objects do not have a kvBits byte. */
 int blessNoEvict(kvobj *kv) {
-    return (keyAttrGet(kv) & BLESS_NOEVICT) != 0;
+    return kv->iskvobj && kvobjBits(kv)->no_evict;
+}
+
+/* Update the bit and its derived index without reallocating the key. */
+void blessSetNoEvict(redisDb *db, kvobj *kv, int enabled) {
+    serverAssert(kv->iskvobj);
+    kvobjBits(kv)->no_evict = enabled != 0;
+    if (enabled) blessedSetPut(db, kvobjGetKey(kv));
+    else blessUntrack(db, kvobjGetKey(kv));
 }
 
 /* Instance-wide blessed-key count (sum of the per-DB indexes), for INFO. */
@@ -126,7 +122,7 @@ size_t blessedIndexMemUsage(redisDb *db) {
 }
 
 /* A slot migration (ASM) moved entries out of db->blessed_keys into `moved` via
- * kvstoreMoveDict, which bypasses blessedSetDel; reconcile the byte counter by
+ * kvstoreMoveDict, which bypasses blessUntrack; reconcile the byte counter by
  * subtracting the moved keys' sizes. Main thread, before `moved` is freed. */
 void blessedIndexReconcileMoved(redisDb *db, kvstore *moved) {
     size_t *bytes = blessedBytesRef(db->blessed_keys);
@@ -138,66 +134,23 @@ void blessedIndexReconcileMoved(redisDb *db, kvstore *moved) {
     kvstoreIteratorReset(&it);
 }
 
-/* ---- attribute-owner callbacks (registered with keyattr) ---- */
-
-static void blessTrack(redisDb *db, sds key, uint64_t mask) {
-    if (mask & BLESS_NOEVICT) blessedSetPut(db, key, mask);
-}
-
-static void blessUntrack(redisDb *db, sds key) {
-    blessedSetDel(db, key);
-}
-
-/* Re-emit "BLESS SET <key> <level>" onto the command-format AOF stream,
- * mirroring how TTL re-emits PEXPIREAT: that stream carries no keymeta. */
-static void blessAof(RedisModuleIO *io, uint64_t mask) {
-    if (!(mask & BLESS_NOEVICT)) return;
-    rio *r = io->rio;
+/* Re-emit the flag after the value in command-format AOF and ASM. */
+int blessRewrite(rio *r, robj *key, kvobj *kv) {
+    if (!blessNoEvict(kv)) return C_OK;
     if (rioWriteBulkCount(r, '*', 4) == 0 ||
         rioWriteBulkString(r, "BLESS", 5) == 0 ||
         rioWriteBulkString(r, "SET", 3) == 0 ||
-        rioWriteBulkObject(r, io->key) == 0 ||
+        rioWriteBulkObject(r, key) == 0 ||
         rioWriteBulkString(r, "NO-EVICT", 8) == 0)
-        io->error = 1;
-}
-
-/* Register bless as the owner of the NO-EVICT bit. Called at startup, after
- * keyAttrInit() created the ATTR class. The wire mapping ties our bit to its own
- * RDB opcode, so the on-disk format is decoupled from the in-RAM bit. */
-void blessInit(void) {
-    static const keyAttrWire blessWire[] = {
-        { BLESS_NOEVICT, RDB_OPCODE_KEY_NOEVICT },
-    };
-    keyAttrRegister(BLESS_NOEVICT, blessWire, 1, blessTrack, blessUntrack, blessAof);
+        return C_ERR;
+    return C_OK;
 }
 
 /* ---- commands ---- */
 
-/* Parse flag tokens (argv[first..argc-1]) into a mask. Only NO-EVICT exists
- * today; an unknown token, or the same flag given more than once, is a syntax
- * error. Arity (-4) guarantees at least one token. */
-static int blessParseFlags(client *c, int first, uint64_t *out) {
-    uint64_t mask = 0;
-    for (int i = first; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr, "no-evict") && !(mask & BLESS_NOEVICT))
-            mask |= BLESS_NOEVICT;
-        else return C_ERR;
-    }
-    *out = mask;
-    return C_OK;
-}
-
-/* Present the key in the per-DB index iff it carries any bless flag. */
-static void blessedIndexUpdate(redisDb *db, sds keyname, uint64_t mask) {
-    if (mask) blessedSetPut(db, keyname, mask);
-    else      blessedSetDel(db, keyname);
-}
-
-/* Shared body of BLESS SET (add=1, OR the flags in) and BLESS CLEAR (add=0,
- * AND-NOT them out). Replies 1 if the key's flag set changed, else 0. */
+/* Shared body of BLESS SET and BLESS CLEAR. */
 static void blessGenericCommand(client *c, int add) {
-    uint64_t flags;
-    if (blessParseFlags(c, 3, &flags) != C_OK) {
+    if (strcasecmp(c->argv[3]->ptr, "no-evict")) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
     }
@@ -209,18 +162,11 @@ static void blessGenericCommand(client *c, int add) {
         return;
     }
 
-    uint64_t cur = keyAttrGet(o);
-    uint64_t next = add ? (cur | flags) : (cur & ~flags);
-    if (next == cur) { /* nothing changed */
+    if (blessNoEvict(o) == add) {
         addReply(c, shared.czero);
         return;
     }
-
-    if (keyMetaSetMetadata(c->db, o, server.key_attr_class_id, next) == NULL) {
-        addReplyError(c, "failed to update key attribute metadata");
-        return;
-    }
-    blessedIndexUpdate(c->db, key->ptr, next);
+    blessSetNoEvict(c->db, o, add);
 
     keyModified(c, c->db, key, NULL, 1);
     notifyKeyspaceEvent(NOTIFY_GENERIC, add ? "bless" : "unbless", key, c->db->id);
@@ -237,16 +183,16 @@ static void blessGetCommand(client *c) {
         addReplyErrorObject(c, shared.nokeyerr);
         return;
     }
-    uint64_t mask = keyAttrGet(o);
-    addReplyArrayLen(c, (mask & BLESS_NOEVICT) ? 1 : 0);
-    if (mask & BLESS_NOEVICT)
+    int noevict = blessNoEvict(o);
+    addReplyArrayLen(c, noevict);
+    if (noevict)
         addReplyBulkCString(c, "NO-EVICT");
 }
 
 /* ---- BLESS SCAN ---- */
 
 typedef struct {
-    uint64_t flag; /* attribute bit(s) a key must carry to be emitted */
+    redisDb *db;
     vec *keys;     /* matches collected so far (index's own sds, not copied) */
     long sampled;  /* entries visited so far, bounds COUNT like SCAN does */
 } blessScanData;
@@ -255,9 +201,8 @@ static void blessScanCallback(void *privdata, const dictEntry *de, dictEntryLink
     UNUSED(plink);
     blessScanData *d = privdata;
     d->sampled++;
-    uint64_t mask = (uint64_t)(uintptr_t)dictGetVal(de);
-    if ((mask & d->flag) == d->flag)
-        vecPush(d->keys, dictGetKey(de));
+    if (keyIsExpired(d->db, dictGetKey(de), NULL)) return;
+    vecPush(d->keys, dictGetKey(de));
 }
 
 /* Same slot-skip rule as SCAN/KEYS/RANDOMKEY (db.c's accessKeysShouldSkipDictIndex):
@@ -295,7 +240,7 @@ static void blessScanCommand(client *c) {
 
     vec keys;
     vecInit(&keys, NULL, 0);
-    blessScanData data = { .flag = BLESS_NOEVICT, .keys = &keys };
+    blessScanData data = { .db = c->db, .keys = &keys };
     long maxiterations = (count > LONG_MAX / 10) ? LONG_MAX : count * 10;
     do {
         cursor = kvstoreScan(c->db->blessed_keys, cursor, -1, blessScanCallback,
@@ -319,9 +264,9 @@ static void blessScanCommand(client *c) {
 void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
     if (!strcasecmp(sub, "set")) {
-        blessGenericCommand(c, 1);          /* BLESS SET <key> NO-EVICT [flag ...] - turn flags ON */
+        blessGenericCommand(c, 1);          /* BLESS SET <key> NO-EVICT - enable protection */
     } else if (!strcasecmp(sub, "clear")) {
-        blessGenericCommand(c, 0);          /* BLESS CLEAR <key> NO-EVICT [flag ...] - turn flags OFF */
+        blessGenericCommand(c, 0);          /* BLESS CLEAR <key> NO-EVICT - disable protection */
     } else if (!strcasecmp(sub, "get")) {
         blessGetCommand(c);
     } else if (!strcasecmp(sub, "scan")) {

@@ -268,10 +268,8 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 decrRefCount(o);
             }
             continue; /* Read next opcode. */
-        } else if (KEY_ATTR_IS_RDB_OPCODE(type)) {
-            /* Per-key attribute opcode (bless NO-EVICT, and any future ones):
-             * payload-less, presence flags the next key - skip it. Recognized
-             * generically so new attribute opcodes need no change here. */
+        } else if (type == RDB_OPCODE_KEY_NOEVICT) {
+            /* Payload-less NO-EVICT flag for the next key. */
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */

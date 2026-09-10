@@ -90,6 +90,7 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits) {
     kv->lru = 0;
     kv->iskvobj = 1;
     kv->metabits = keyMetaBits;
+    kvobjBits(kv)->no_evict = 0;
 
     /* The memory after the struct where we embedded data. */
     char *data = (void *)(kv + 1);
@@ -191,6 +192,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     o->lru = 0;
     o->metabits = keyMetaBits;
     o->iskvobj = 1;
+    kvobjBits(o)->no_evict = 0;
 
     /* The memory after the struct where we embedded data. */
     char *data = (char *)(o + 1);
@@ -319,6 +321,7 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
     }
     
     kv->lru = val->lru;
+    if (val->iskvobj) kvobjBits(kv)->no_evict = kvobjBits(val)->no_evict;
 
     /* Transfer module metadata from `val` to new `kv` (if `val` of type kvobj with metadata). */
     if (val->metabits & KEY_META_MASK_MODULES)
