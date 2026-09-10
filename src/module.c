@@ -8429,7 +8429,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
 
     mstime_t timeout = 0;
     if (timeout_ms) {
-        mstime_t now = mstime();
+        mstime_t now = getMonotonicUs() / 1000;
         if (timeout_ms > LLONG_MAX - now) {
             c->bstate.module_blocked_handle = NULL;
             addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
@@ -10294,7 +10294,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
     /* To start let's try to fire all the timers already expired. */
     raxIterator ri;
     raxStart(&ri,Timers);
-    uint64_t now = ustime();
+    uint64_t now = getMonotonicUs();
     long long next_period = 0;
     while(1) {
         raxSeek(&ri,"^",NULL,0);
@@ -10312,13 +10312,11 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
             zfree(timer);
         } else {
-            /* We call ustime() again instead of using the cached 'now' so that
-             * 'next_period' isn't affected by the time it took to execute
-             * previous calls to 'callback.
-             * We need to cast 'expiretime' so that the compiler will not treat
-             * the difference as unsigned (Causing next_period to be huge) in
-             * case expiretime < ustime() */
-            next_period = ((long long)expiretime-ustime())/1000; /* Scale to milliseconds. */
+            /* Read the clock again so callback time does not affect the delay.
+             * Check before subtracting to avoid unsigned underflow if the timer
+             * expires while callbacks are running. */
+            now = getMonotonicUs();
+            next_period = expiretime > now ? (expiretime - now) / 1000 : 0;
             break;
         }
     }
@@ -10352,7 +10350,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     timer->callback = callback;
     timer->data = data;
     timer->dbid = ctx->client ? ctx->client->db->id : 0;
-    uint64_t expiretime = ustime()+period*1000;
+    uint64_t expiretime = getMonotonicUs() + period * 1000;
     uint64_t key;
 
     while(1) {
@@ -10423,9 +10421,9 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     if (timer->module != ctx->module)
         return REDISMODULE_ERR;
     if (remaining) {
-        int64_t rem = ntohu64(id)-ustime();
-        if (rem < 0) rem = 0;
-        *remaining = rem/1000; /* Scale to milliseconds. */
+        uint64_t expiretime = ntohu64(id);
+        uint64_t now = getMonotonicUs();
+        *remaining = expiretime > now ? (expiretime - now) / 1000 : 0;
     }
     if (data) *data = timer->data;
     return REDISMODULE_OK;

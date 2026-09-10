@@ -1309,8 +1309,8 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
     mstime_t timeout;
     int j;
 
-    if (getTimeoutFromObjectOrReply(c,c->argv[timeout_idx],&timeout,UNIT_SECONDS)
-        != C_OK) return;
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[timeout_idx], &timeout,UNIT_SECONDS) != C_OK)
+        return;
 
     /* Traverse all input keys, we take action only based on one key. */
     for (j = 0; j < numkeys; j++) {
@@ -1410,16 +1410,16 @@ void blmoveCommand(client *c) {
         != C_OK) return;
     if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
         != C_OK) return;
-    if (getTimeoutFromObjectOrReply(c,c->argv[5],&timeout,UNIT_SECONDS)
-        != C_OK) return;
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[5], &timeout,UNIT_SECONDS) != C_OK)
+        return;
     blmoveGenericCommand(c,wherefrom,whereto,timeout);
 }
 
 /* BRPOPLPUSH <source> <destination> <timeout> */
 void brpoplpushCommand(client *c) {
     mstime_t timeout;
-    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_SECONDS)
-        != C_OK) return;
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[3], &timeout,UNIT_SECONDS) != C_OK)
+        return;
     blmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, timeout);
 }
 
@@ -1749,7 +1749,8 @@ void blmovemCommand(client *c) {
     mstime_t timeout;
     if (getListPositionFromObjectOrReply(c, c->argv[3], &wherefrom) != C_OK) return;
     if (getListPositionFromObjectOrReply(c, c->argv[4], &whereto) != C_OK) return;
-    if (getTimeoutFromObjectOrReply(c, c->argv[5], &timeout, UNIT_SECONDS) != C_OK) return;
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[5], &timeout, UNIT_SECONDS) != C_OK)
+        return;
     if (lmovemParseOptions(c, 6, &mode, &count, &ordering) != C_OK) return;
     blmovemGenericCommand(c, wherefrom, whereto, timeout, mode, count, ordering);
 }
