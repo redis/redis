@@ -50,6 +50,40 @@ proc cluster_ensure_master {id} {
     }
 }
 
+proc normalized_cluster_shards_topology {reference} {
+    set topology {}
+    foreach shard [R $reference CLUSTER SHARDS] {
+        set node_ids {}
+        foreach node [dict get $shard nodes] {
+            lappend node_ids [dict get $node id]
+        }
+        lappend topology [list [dict get $shard slots] [lsort $node_ids]]
+    }
+    return [lsort $topology]
+}
+
+proc cluster_shards_topology_matches {expected_topology} {
+    foreach_redis_id id {
+        if {[catch {normalized_cluster_shards_topology $id} topology] || $topology ne $expected_topology} {
+            return 0
+        }
+    }
+    return 1
+}
+
+proc remove_shard_ids_from_cluster_config {filename} {
+    set config [open $filename r]
+    set contents [read $config]
+    close $config
+
+    set replacements [regsub -all {,shard-id=[[:xdigit:]]{40}} $contents {} contents]
+    assert_morethan $replacements 0 "No shard-id fields found in $filename"
+
+    set config [open $filename w]
+    puts -nonewline $config $contents
+    close $config
+}
+
 test "Create a 8 nodes cluster with 4 shards" {
     cluster_create_with_split_slots 4 4
 }
@@ -289,4 +323,58 @@ test "CLUSTER MYSHARDID reports same shard id after cluster restart" {
     for {set i 0} {$i < 8} {incr i} {
         assert_equal [dict get $node_ids $i] [R $i cluster myshardid]
     }
+}
+
+test "Loading a pre-shard-id nodes.conf preserves shard topology" {
+    wait_for_condition 1000 50 {
+        [cluster_shards_topology_matches [normalized_cluster_shards_topology 0]]
+    } else {
+        fail "Cluster shard topology did not converge before restart"
+    }
+    set expected_topology [normalized_cluster_shards_topology 0]
+    set cluster_config_files {}
+
+    foreach_redis_id id {
+        set config_file [lindex [R $id CONFIG GET cluster-config-file] 1]
+        if {[file pathtype $config_file] eq "relative"} {
+            set config_file [file join [lindex [R $id CONFIG GET dir] 1] $config_file]
+        }
+        dict set cluster_config_files $id $config_file
+
+        kill_instance redis $id
+        wait_for_condition 50 100 {
+            [instance_is_killed redis $id]
+        } else {
+            fail "instance $id is not killed"
+        }
+    }
+
+    foreach_redis_id id {
+        remove_shard_ids_from_cluster_config [dict get $cluster_config_files $id]
+        restart_instance redis $id
+    }
+
+    assert_cluster_state ok
+    wait_for_condition 1000 50 {
+        [cluster_shards_topology_matches $expected_topology]
+    } else {
+        fail "Cluster shard topology did not converge after loading pre-shard-id configuration"
+    }
+
+    set primary_shard_ids {}
+    foreach_redis_id id {
+        set role [R $id ROLE]
+        set shard_id [R $id CLUSTER MYSHARDID]
+        assert_equal 40 [string length $shard_id]
+
+        if {[lindex $role 0] eq "master"} {
+            assert_equal -1 [lsearch -exact $primary_shard_ids $shard_id]
+            lappend primary_shard_ids $shard_id
+        } else {
+            set primary_id [get_instance_id_by_port redis [lindex $role 2]]
+            assert_equal [R $primary_id CLUSTER MYSHARDID] $shard_id
+        }
+    }
+
+    assert_equal [llength $expected_topology] [llength $primary_shard_ids]
 }
