@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <stddef.h>
 
 #include "net.h"
 #include "sds.h"
@@ -642,10 +643,28 @@ int redisContextConnectUnix(redisContext *c, const char *path, const struct time
     if (sa == NULL)
         goto oom;
 
-    c->addrlen = sizeof(struct sockaddr_un);
     sa->sun_family = AF_UNIX;
-    strncpy(sa->sun_path, path, sizeof(sa->sun_path) - 1);
-    if (connect(c->fd, (struct sockaddr*)sa, sizeof(*sa)) == -1) {
+#ifdef __linux__
+    if (path[0] == '@') {
+        /* Linux abstract socket namespace: a leading '@' maps to a leading NUL byte, following the
+         * convention established by socat and systemd. The address length must cover EXACTLY the NUL
+         * plus the name: any padding would become part of the abstract name, and the connect would
+         * quietly address a different (almost certainly nonexistent) socket. */
+        size_t namelen = strlen(path + 1);
+        if (namelen > sizeof(sa->sun_path) - 1) {
+            __redisSetError(c, REDIS_ERR_OTHER, "Abstract socket name is too long");
+            return REDIS_ERR;
+        }
+        sa->sun_path[0] = '\0';
+        memcpy(sa->sun_path + 1, path + 1, namelen);
+        c->addrlen = offsetof(struct sockaddr_un, sun_path) + 1 + namelen;
+    } else
+#endif
+    {
+        c->addrlen = sizeof(struct sockaddr_un);
+        strncpy(sa->sun_path, path, sizeof(sa->sun_path) - 1);
+    }
+    if (connect(c->fd, (struct sockaddr*)sa, c->addrlen) == -1) {
         if (errno == EINPROGRESS && !blocking) {
             /* This is ok. */
         } else {
