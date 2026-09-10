@@ -817,6 +817,11 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldAllocSize, kvobjAllocSize(o));
         *strGrowSize = sdslen(o->ptr) - *strOldSize;
+
+        /* New keys are accounted for by dbAddByLink() above; here the key
+         * already existed, so account for the growth ourselves. */
+        if (*strGrowSize != 0)
+            updateKeysizesHist(c->db, OBJ_STRING, *strOldSize, *strOldSize + *strGrowSize);
     }
     return o;
 }
@@ -1100,7 +1105,6 @@ void setbitCommand(client *c) {
     }
 
     size_t strOldSize, strGrowSize;
-    int created = (o == NULL);
     o = lookupStringForBitCommand(c, bitoffset, o, link,
                                   &strOldSize, &strGrowSize);
     if (o == NULL) return;
@@ -1120,14 +1124,6 @@ void setbitCommand(client *c) {
         byteval &= ~(1 << bit);
         byteval |= ((on & 0x1) << bit);
         ((uint8_t*)o->ptr)[byte] = byteval;
-
-        /* If this is not a new key and size changed, then update the keysizes
-         * histogram. Otherwise, the histogram already updated in
-         * lookupStringForBitCommand() by calling dbAdd(). Use "not created"
-         * rather than "old size not 0", and update before notification; see
-         * #15598. */
-        if (!created && strGrowSize != 0)
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
 
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
@@ -2527,8 +2523,6 @@ static void bitfieldWriteString(client *c, kvobj *o, struct bitfieldOp *ops,
                                 dictEntryLink link, int transitioned)
 {
     size_t oldSize = 0, growSize = 0;
-    int created = (o == NULL);
-
     o = lookupStringForBitCommand(c,highest_write_offset,o,link,
                                   &oldSize,&growSize);
     if (o == NULL) return; /* Wrong type, or the value can't be grown. */
@@ -2541,13 +2535,6 @@ static void bitfieldWriteString(client *c, kvobj *o, struct bitfieldOp *ops,
         if (transitioned) server.dirty++;
         return;
     }
-
-    /* If this is not a new key and size changed, then update the
-     * keysizes histogram. Otherwise, the histogram already updated
-     * in lookupStringForBitCommand() by calling dbAdd(). "Not created" rather
-     * than "old size not 0": see the same guard in setbitCommand() and #15598. */
-    if (!created && growSize != 0)
-        updateKeysizesHist(c->db,OBJ_STRING,oldSize,oldSize+growSize);
 
     keyModified(c,c->db,c->argv[1],o,1);
     notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);

@@ -326,15 +326,6 @@ tags "modules external:skip" {
             r config set bitmap-default-roaring no
         }
 
-        test "Keyspace notifications: SETBIT updates keysizes before module callbacks" {
-            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
-            assert_equal OK [r config set bitmap-default-roaring no]
-            r set stringdel_setbit x
-            r setbit stringdel_setbit 16 1
-            assert_equal 0 [r exists stringdel_setbit]
-            assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
-        } {} {needs:debug}
-
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
             r set exp 1 PX 10
@@ -653,6 +644,33 @@ tags "modules external:skip" {
             assert_equal bitmap [r type $bitop_dest]
             assert_equal [binary format H* f0] [r debug bitmap-raw $bitop_dest]
             assert_equal 0 [r exists $bitmap_setbit $bitmap_bitfield]
+        }
+    }
+
+    # Keep callback-ordering regression tests in a dedicated server because
+    # they enable the keysizes histogram assertion. Future tests for other
+    # commands can share this isolated server without leaking that state.
+    start_server [list overrides [list loadmodule "$testmodule" enable-debug-command yes]] {
+        tags {"regression"} {
+            test "SETBIT and BITFIELD should update keysizes before module callbacks" {
+                # Enable keysizes histogram assertion for this isolated server.
+                r DEBUG KEYSIZES-HIST-ASSERT 1
+
+                # SETBIT callback deletion.
+                r set stringdel_setbit x
+                r setbit stringdel_setbit 16 1
+                assert_equal 0 [r exists stringdel_setbit]
+
+                # BITFIELD SET callback deletion.
+                r set stringdel_bitfield x
+                r bitfield stringdel_bitfield set u8 16 1
+                assert_equal 0 [r exists stringdel_bitfield]
+
+                # BITFIELD OVERFLOW FAIL still grows the string before rejecting the write.
+                r set stringdel_bitfield_fail x
+                r bitfield stringdel_bitfield_fail overflow fail set u8 72 256
+                assert_equal 0 [r exists stringdel_bitfield_fail]
+            }
         }
     }
 
