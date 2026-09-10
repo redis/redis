@@ -725,21 +725,46 @@ void zmadvise_dontneed(void *ptr) {
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+static int proc_stat_fd = -1;
+static pid_t proc_stat_pid = -1;
+
+static void close_proc_stat_fd(void) {
+    if (proc_stat_fd != -1) close(proc_stat_fd);
+    proc_stat_fd = -1;
+    proc_stat_pid = -1;
+}
+
+static int get_proc_stat_fd(void) {
+    pid_t pid = getpid();
+
+    /* A forked child must reopen /proc/self/stat for its own process. */
+    if (proc_stat_fd != -1 && proc_stat_pid != pid) close_proc_stat_fd();
+    if (proc_stat_fd == -1) {
+        proc_stat_fd = open("/proc/self/stat", O_RDONLY | O_CLOEXEC);
+        if (proc_stat_fd != -1) proc_stat_pid = pid;
+    }
+    return proc_stat_fd;
+}
 #endif
 
 /* Get the i'th field from "/proc/self/stat" note i is 1 based as appears in the 'proc' man page */
 int get_proc_stat_ll(int i, long long *res) {
 #if defined(HAVE_PROC_STAT)
     char buf[4096];
-    int fd, l;
+    ssize_t l = -1;
     char *p, *x;
 
-    if ((fd = open("/proc/self/stat",O_RDONLY)) == -1) return 0;
-    if ((l = read(fd,buf,sizeof(buf)-1)) <= 0) {
-        close(fd);
-        return 0;
+    for (int attempts = 0; attempts < 2; attempts++) {
+        int fd = get_proc_stat_fd();
+        if (fd == -1) return 0;
+
+        l = pread(fd, buf, sizeof(buf)-1, 0);
+        if (l > 0) break;
+
+        close_proc_stat_fd();
     }
-    close(fd);
+    if (l <= 0) return 0;
     buf[l] = '\0';
     if (buf[l-1] == '\n') buf[l-1] = '\0';
 
