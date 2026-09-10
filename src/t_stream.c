@@ -6469,7 +6469,7 @@ void dbgAssertStreamStats(redisDb *db) {
      * pointless, but the row must still be empty. */
     if (!server.stream_stats) {
         static const int64_t empty[MAX_KEYSIZES_BINS] = {0};
-        dbgAssertStreamRow(empty, meta->distrib_cgroups_pel, "distrib_cgroups_pel");
+        dbgAssertStreamRow(empty, meta->distrib_cgroups_pel, "stream_distrib_cgroups_pel");
     } else {
         int64_t scan_pel[MAX_KEYSIZES_BINS] = {0};
 
@@ -6494,7 +6494,7 @@ void dbgAssertStreamStats(redisDb *db) {
         }
         kvstoreIteratorReset(&kvs_it);
 
-        dbgAssertStreamRow(scan_pel, meta->distrib_cgroups_pel, "distrib_cgroups_pel");
+        dbgAssertStreamRow(scan_pel, meta->distrib_cgroups_pel, "stream_distrib_cgroups_pel");
     }
 }
 
