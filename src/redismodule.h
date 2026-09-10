@@ -1190,7 +1190,17 @@ REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromLongDouble)(Re
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromString)(RedisModuleCtx *ctx, const RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromStreamID)(RedisModuleCtx *ctx, const RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringPrintf)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR_PRINTF(2,3) REDISMODULE_ATTR;
-REDISMODULE_API void (*RedisModule_FreeString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_FreeString_raw)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
+
+/* NULL-safe macro that replaces the RedisModule_FreeString function pointer.
+ * Modules compiled with this header get automatic NULL safety. Old modules
+ * compiled with an older header continue to work (ABI compatible) because
+ * the API dict still registers "RedisModule_FreeString" pointing to the
+ * raw function. */
+#define RedisModule_FreeString(ctx, str) do { \
+    RedisModuleString *_rfs_str = (str); \
+    if (_rfs_str != NULL) RedisModule_FreeString_raw((ctx), _rfs_str); \
+} while (0)
 REDISMODULE_API const char * (*RedisModule_StringPtrLen)(const RedisModuleString *str, size_t *len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithError)(RedisModuleCtx *ctx, const char *err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithErrorFormat)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR;
@@ -1629,7 +1639,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateStringFromString);
     REDISMODULE_GET_API(CreateStringFromStreamID);
     REDISMODULE_GET_API(CreateStringPrintf);
-    REDISMODULE_GET_API(FreeString);
+    RedisModule_GetApi("RedisModule_FreeString", ((void **)&RedisModule_FreeString_raw));
     REDISMODULE_GET_API(StringPtrLen);
     REDISMODULE_GET_API(AutoMemory);
     REDISMODULE_GET_API(Replicate);
