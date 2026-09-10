@@ -3948,8 +3948,9 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
 /* aof_cmd_duration: best-effort AOF replay-time estimate (INFO, usec).
  * call() ops use their measured time. Synthetic ops (RM_Replicate, SPOP's
  * SREMs, lazy HDELs) are PROP_DURATION_UNKNOWN and get leftover call() time.
- * That value must be resolved before propagateNow(). After AOFRW the estimate
- * restarts; AOF load rebuilds it from wall-clock, which is a different scale. */
+ * Leftover is resolved only when AOF is enabled (feedAppendOnlyFile is the
+ * sole consumer). After AOFRW the estimate restarts; AOF load rebuilds it
+ * from wall-clock, which is a different scale. */
 
 /* Give leftover call() time to UNKNOWN AOF ops in also_propagate[start..).
  * Known AOF ops keep their own times; REPL-only UNKNOWN gets 0. */
@@ -4015,13 +4016,18 @@ static void propagatePendingCommands(long totalDuration) {
         propagateNow(-1,&shared.multi,1,transaction_target,0);
     }
 
-    /* An unknown-duration op may only claim what known AOF ops didn't. */
-    assignLeftoverDurationToUnknownOps(0, totalDuration);
+    /* Leftover duration is only consumed by feedAppendOnlyFile. Skip the
+     * also_propagate walk when AOF is off (covers AOF_ON and WAIT_REWRITE). */
+    if (server.aof_state != AOF_OFF)
+        assignLeftoverDurationToUnknownOps(0, totalDuration);
 
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
-        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target,rop->duration);
+        /* Duration is unused when AOF is off; pass 0 so UNKNOWN does not
+         * trip propagateNow()'s debug assert. */
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target,
+                     server.aof_state != AOF_OFF ? rop->duration : 0);
     }
 
     if (transaction_target) {
@@ -4485,8 +4491,10 @@ void afterCommand(client *c) {
 
 static void afterCommandEx(client *c, long duration, int ops_before) {
     /* Nested call (script / RM_Call): stamp only UNKNOWN ops this call
-     * queued so leftover does not land on an outer command's UNKNOWN. */
-    if (server.execution_nesting &&
+     * queued so leftover does not land on an outer command's UNKNOWN.
+     * Skip when AOF is off: leftover is only consumed by feedAppendOnlyFile. */
+    if (server.aof_state != AOF_OFF &&
+        server.execution_nesting &&
         server.also_propagate.numops > ops_before)
     {
         assignLeftoverDurationToUnknownOps(ops_before, duration);
