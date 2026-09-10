@@ -32,14 +32,15 @@
  * When iskvobj is set, it also contains:
  *   - metabits: bitmap of additional metadata attached to the object.
  *   - lru: LRU time (relative to global lru_clock) or LFU data (see robj above).
+ *   - kvbits: one extra byte that follows the robj (see struct kvBits below).
  *   - embedded key: the key string is stored inline after the struct.
  *   - embedded value: for small strings, the value is stored inline after the key.
  *
  * Example layout with key and embedded value "myvalue":
- *    +--------------+--------------+--------------------+----------------------+
- *    | serverObject | key-hdr-size | sdshdr5 "mykey" \0 | sdshdr8 "myvalue" \0 |
- *    | 16 bytes     | 1 byte       | 1      +   5   + 1 | 3    +      7    + 1 |
- *    +--------------+--------------+--------------------+----------------------+
+ *    +--------------+----------+--------------------+----------------------+
+ *    | serverObject | kvbits   | sdshdr5 "mykey" \0 | sdshdr8 "myvalue" \0 |
+ *    | 16 bytes     | 1 byte   | 1      +   5   + 1 | 3    +      7    + 1 |
+ *    +--------------+----------+--------------------+----------------------+
  * 
  * kvobj with metadata (+expiration)
  * ---------------------------------
@@ -48,18 +49,18 @@
  * the kvobj itself, in reverse class order.
  * 
  * Example of a key with expiration time (metabits=0b00000001):
- *     +--------------+--------------+--------------+--------------------+
- *     | Expiry Time  | serverObject | key-hdr-size | sdshdr5 "mykey" \0 |
- *     | 8 byte       | 16 bytes     | 1 byte       | 1      +   5   + 1 |
- *     +--------------+--------------+--------------+--------------------+
+ *     +--------------+--------------+----------+--------------------+
+ *     | Expiry Time  | serverObject | kvbits   | sdshdr5 "mykey" \0 |
+ *     | 8 byte       | 16 bytes     | 1 byte   | 1      +   5   + 1 |
+ *     +--------------+--------------+----------+--------------------+
  *                    ^
  *                    +---- kvobjCreate() returns pointer here
  * 
  * Example with metadata of class1 and class3 attached (metabits=0b00001010):
- * +--------------+--------------+--------------+--------------+--------------------+
- * | meta (class3)| meta (class1)| serverObject | key-hdr-size | sdshdr5 "mykey" \0 |
- * | 8 byte       | 8 byte       | 16 bytes     | 1 byte       | 1      +   5   + 1 |
- * +--------------+--------------+--------------+--------------+--------------------+
+ * +--------------+--------------+--------------+----------+--------------------+
+ * | meta (class3)| meta (class1)| serverObject | kvbits   | sdshdr5 "mykey" \0 |
+ * | 8 byte       | 8 byte       | 16 bytes     | 1 byte   | 1      +   5   + 1 |
+ * +--------------+--------------+--------------+----------+--------------------+
  *                               ^
  *                               +---- kvobjCreate() returns pointer here
  * 
@@ -118,6 +119,22 @@ typedef struct redisObject robj;
 
 /* kvobj: see header comment above for definition and memory layout. */
 typedef struct redisObject kvobj;
+
+/* Whenever an robj serves as a kvobj base (iskvobj=1), a single byte of extra
+ * bits is allocated right after it, before the embedded key. Only 2 bits are
+ * used for now, the remaining 6 are free for future use. */
+typedef struct __attribute__ ((__packed__)) kvBits {
+    /* SDS header type of the embedded key: SDS_TYPE_5/8/16 or 32 (values 0..3). 
+     * Keys are never longer than 4GB, so SDS_TYPE_64 is not needed. */
+    unsigned key_sds_type : 2;
+    unsigned unused : 6;       /* Free bits. Available for future use. */
+} kvBits;
+
+/* Returns the kvBits that follow the robj. Valid only if kv->iskvobj is set.
+ * Note that a plain robj has no such byte allocated after it. */
+static inline kvBits *kvobjBits(const kvobj *kv) {
+    return (kvBits *) (void *) (kv + 1);
+}
 
 kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits);
 kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits);
