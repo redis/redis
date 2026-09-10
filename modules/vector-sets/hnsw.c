@@ -1045,7 +1045,7 @@ void hnsw_add_node(HNSW *index, hnswNode *node) {
  * can be accepted or not based on its associated value. In this case
  * a callback 'filter_callback' should be passed, together with a maximum
  * effort for the search (number of candidates to evaluate), since even
- * with a a low "EF" value we risk that there are too few nodes that satisfy
+ * with a low "EF" value we risk that there are too few nodes that satisfy
  * the provided filter, and we could trigger a full scan. */
 pqueue *search_layer_with_filter(
                     HNSW *index, hnswNode *query, hnswNode *entry_point,
@@ -2432,7 +2432,7 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
  *   many levels it has, its ID, the list of neighbors for each level (as node
  *   IDs), and so forth.
  *
- * You need to to save your own node->value in some way as well, but it already
+ * You need to save your own node->value in some way as well, but it already
  * belongs to the user of the API, since, for this library, it's just a pointer,
  * so the user should know how to serialized its private data.
  *
