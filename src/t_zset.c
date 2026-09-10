@@ -17,13 +17,12 @@
  * Sorted set API
  *----------------------------------------------------------------------------*/
 
-/* ZSETs are ordered sets using two data structures to hold the same elements
- * in order to get O(log(N)) INSERT and REMOVE operations into a sorted
- * data structure.
+/* Large ZSETs normally use the packed B+ tree and compact member hash index
+ * implemented in zset_btree.c. The skiplist below remains available for
+ * explicit conversions and as a temporary structure used by bulk commands.
  *
- * The elements are added to a hash table mapping Redis objects to scores.
- * At the same time the elements are added to a skip list mapping scores
- * to Redis objects (so objects are sorted by scores in this "view").
+ * The skiplist holds every element in both a hash table and a skiplist. The
+ * hash table finds a member directly, while the skiplist keeps score order.
  *
  * Note that the SDS string representing the element is the same in both
  * the hash table and skiplist in order to save memory. What we do in order
@@ -42,6 +41,7 @@
  * from tail to head, useful for ZREVRANGE. */
 #include "fast_float_strtod.h"
 #include "server.h"
+#include "zset_btree.h"
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 
@@ -69,7 +69,6 @@ dictType zsetDictType = {
 
 int zslLexValueGteMin(sds value, zlexrangespec *spec);
 int zslLexValueLteMax(sds value, zlexrangespec *spec);
-void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap);
 static zskiplistNode *zslGetElementByRankFromNode(zskiplistNode *start_node, int start_level, unsigned long rank);
 
 static inline unsigned long zslGetNodeSpanAtLevel(zskiplistNode *x, int level) {
@@ -842,6 +841,35 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec) {
         (sdscmplex(value,spec->max) <= 0);
 }
 
+/* Compare a packed B+ tree member with a lexical range bound. */
+static int zbtLexCompare(const unsigned char *value, size_t len, sds bound) {
+    if (bound == shared.minstring) return 1;
+    if (bound == shared.maxstring) return -1;
+    size_t boundlen = sdslen(bound);
+    size_t minlen = len < boundlen ? len : boundlen;
+    int cmp = memcmp(value, bound, minlen);
+    if (cmp != 0) return cmp;
+    if (len < boundlen) return -1;
+    if (len > boundlen) return 1;
+    return 0;
+}
+
+/* Test a packed B+ tree member against the lower lexical bound. */
+static int zbtLexValueGteMin(const unsigned char *value, size_t len,
+                             zlexrangespec *spec)
+{
+    int cmp = zbtLexCompare(value, len, spec->min);
+    return spec->minex ? cmp > 0 : cmp >= 0;
+}
+
+/* Test a packed B+ tree member against the upper lexical bound. */
+static int zbtLexValueLteMax(const unsigned char *value, size_t len,
+                             zlexrangespec *spec)
+{
+    int cmp = zbtLexCompare(value, len, spec->max);
+    return spec->maxex ? cmp < 0 : cmp <= 0;
+}
+
 /* Returns if there is a part of the zset is in the lex range. */
 static int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
     zskiplistNode *x;
@@ -1380,6 +1408,8 @@ unsigned long zsetLength(const robj *zobj) {
         length = zzlLength(zobj->ptr);
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         length = ((const zset*)zobj->ptr)->zsl->length;
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        length = zbtreeLength(zobj->ptr);
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1396,6 +1426,8 @@ size_t zsetAllocSize(const robj *o) {
         zskiplist *zsl = ((zset*)o->ptr)->zsl;
         size = sizeof(zset) + zslAllocSize(zsl) +
             sizeof(dict) + dictMemUsage(d);
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        size = zbtreeAllocSize(o->ptr);
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1417,10 +1449,7 @@ robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
         return createZsetListpackObject();
     }
 
-    robj *zobj = createZsetObject();
-    zset *zs = zobj->ptr;
-    dictExpand(zs->dict, size_hint);
-    return zobj;
+    return createZsetBtreeObject();
 }
 
 /* Check if the existing zset should be converted to another encoding based off the
@@ -1429,7 +1458,7 @@ void zsetTypeMaybeConvert(robj *zobj, size_t size_hint) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK &&
         size_hint > server.zset_max_listpack_entries)
     {
-        zsetConvertAndExpand(zobj, OBJ_ENCODING_SKIPLIST, size_hint);
+        zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE, size_hint);
     }
 }
 
@@ -1454,6 +1483,42 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
         unsigned char *vstr;
         unsigned int vlen;
         long long vlong;
+
+        if (encoding == OBJ_ENCODING_BTREE) {
+            zbtreeSet *bt = zbtreeCreate();
+
+            eptr = lpSeek(zl,0);
+            if (eptr != NULL) {
+                sptr = lpNext(zl,eptr);
+                serverAssertWithInfo(NULL,zobj,sptr != NULL);
+            }
+
+            while (eptr != NULL) {
+                score = zzlGetScore(sptr);
+                vstr = lpGetValue(eptr,&vlen,&vlong);
+                char buf[LONG_STR_SIZE];
+                const unsigned char *raw;
+                size_t rawlen;
+                if (vstr == NULL) {
+                    rawlen = ll2string(buf,sizeof(buf),vlong);
+                    raw = (unsigned char *)buf;
+                } else {
+                    raw = vstr;
+                    rawlen = vlen;
+                }
+                /* A corrupt listpack may contain a duplicate. dictAdd() used
+                 * to catch this when the target was always a skiplist. */
+                int duplicate = zbtreeScoreRaw(bt,raw,rawlen,NULL);
+                serverAssert(!duplicate);
+                zbtreeInsertNewRaw(bt,score,raw,rawlen,NULL);
+                zzlNext(zl,&eptr,&sptr);
+            }
+
+            zfree(zobj->ptr);
+            zobj->ptr = bt;
+            zobj->encoding = OBJ_ENCODING_BTREE;
+            return;
+        }
 
         if (encoding != OBJ_ENCODING_SKIPLIST)
             serverPanic("Unknown target encoding");
@@ -1489,13 +1554,28 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
         zobj->ptr = zs;
         zobj->encoding = OBJ_ENCODING_SKIPLIST;
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
-        unsigned char *zl = lpNew(0);
-
+        if (encoding == OBJ_ENCODING_BTREE) {
+            zs = zobj->ptr;
+            zbtreeSet *bt = zbtreeCreate();
+            node = zs->zsl->header->level[0].forward;
+            while (node) {
+                zbtreeInsertNew(bt, node->score, zslGetNodeElement(node),
+                                NULL);
+                node = node->level[0].forward;
+            }
+            dictRelease(zs->dict);
+            zslFree(zs->zsl);
+            zfree(zs);
+            zobj->ptr = bt;
+            zobj->encoding = OBJ_ENCODING_BTREE;
+            return;
+        }
         if (encoding != OBJ_ENCODING_LISTPACK)
             serverPanic("Unknown target encoding");
 
         /* Approach similar to zslFree(), since we want to free the skiplist at
          * the same time as creating the listpack. */
+        unsigned char *zl = lpNew(0);
         zs = zobj->ptr;
         dictRelease(zs->dict);
         node = zs->zsl->header->level[0].forward;
@@ -1512,23 +1592,63 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
         zfree(zs);
         zobj->ptr = zl;
         zobj->encoding = OBJ_ENCODING_LISTPACK;
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        if (encoding == OBJ_ENCODING_SKIPLIST) {
+            zs = zmalloc(sizeof(*zs));
+            zs->dict = dictCreate(&zsetDictType);
+            zs->zsl = zslCreate();
+            dictExpand(zs->dict, cap);
+
+            zbtreeIterator iter;
+            const unsigned char *raw;
+            size_t len;
+            zbtreeIteratorStart(zobj->ptr, 0, &iter);
+            while (zbtreeIteratorNext(&iter, 0, &raw, &len, &score)) {
+                ele = sdsnewlen(raw, len);
+                node = zslInsert(zs->zsl, score, ele);
+                serverAssert(dictAdd(zs->dict, node, NULL) == DICT_OK);
+                sdsfree(ele);
+            }
+            zbtreeFree(zobj->ptr);
+            zobj->ptr = zs;
+            zobj->encoding = OBJ_ENCODING_SKIPLIST;
+            return;
+        }
+
+        if (encoding != OBJ_ENCODING_LISTPACK)
+            serverPanic("Unknown target encoding");
+
+        unsigned char *zl = lpNew(0);
+        zbtreeIterator iter;
+        const unsigned char *raw;
+        size_t len;
+        zbtreeIteratorStart(zobj->ptr, 0, &iter);
+        while (zbtreeIteratorNext(&iter, 0, &raw, &len, &score)) {
+            ele = sdsnewlen(raw, len);
+            zl = zzlInsertAt(zl, NULL, ele, score);
+            sdsfree(ele);
+        }
+        zbtreeFree(zobj->ptr);
+        zobj->ptr = zl;
+        zobj->encoding = OBJ_ENCODING_LISTPACK;
     } else {
         serverPanic("Unknown sorted set encoding");
     }
 }
 
-/* Convert the sorted set object into a listpack if it is not already a listpack
- * and if the number of elements and the maximum element size and total elements size
- * are within the expected ranges. */
-void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelelen) {
+/* Choose the best encoding after a sorted set was built in bulk. Small sets
+ * become listpacks and larger skiplist sets become B+ trees. */
+void zsetConvertAfterBulkInsert(robj *zobj, size_t maxelelen, size_t totelelen) {
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) return;
-    zset *zset = zobj->ptr;
-
-    if (zset->zsl->length <= server.zset_max_listpack_entries &&
+    unsigned long length = zsetLength(zobj);
+    if (length <= server.zset_max_listpack_entries &&
         maxelelen <= server.zset_max_listpack_value &&
         lpSafeToAdd(NULL, totelelen))
     {
         zsetConvert(zobj,OBJ_ENCODING_LISTPACK);
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST)
+    {
+        zsetConvert(zobj,OBJ_ENCODING_BTREE);
     }
 }
 
@@ -1547,6 +1667,8 @@ int zsetScore(robj *zobj, sds member, double *score) {
         if (de == NULL) return C_ERR;
         zskiplistNode *znode = dictGetKey(de);
         *score = znode->score;
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        if (!zbtreeScore(zobj->ptr, member, score)) return C_ERR;
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1656,7 +1778,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 sdslen(ele) > server.zset_max_listpack_value ||
                 !lpSafeToAdd(zobj->ptr, sdslen(ele)))
             {
-                zsetConvertAndExpand(zobj, OBJ_ENCODING_SKIPLIST, zsetLength(zobj) + 1);
+                zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE,
+                                     zsetLength(zobj) + 1);
             } else {
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
                 if (newscore) *newscore = score;
@@ -1669,8 +1792,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
         }
     }
 
-    /* Note that the above block handling listpack would have either returned or
-     * converted the key to skiplist. */
+    /* The listpack block either returned or converted the key. */
     if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = zobj->ptr;
         zskiplistNode *znode;
@@ -1735,6 +1857,42 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
             *out_flags |= ZADD_OUT_NOP;
             return 1;
         }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeSet *zs = zobj->ptr;
+        zbtreeInsertPosition position;
+        int exists = zbtreeFindForAdd(zs, ele, &curscore, &position);
+
+        if (exists) {
+            if (nx) {
+                *out_flags |= ZADD_OUT_NOP;
+                return 1;
+            }
+            if (incr) {
+                score += curscore;
+                if (isnan(score)) {
+                    *out_flags |= ZADD_OUT_NAN;
+                    return 0;
+                }
+            }
+            if ((lt && score >= curscore) || (gt && score <= curscore)) {
+                *out_flags |= ZADD_OUT_NOP;
+                return 1;
+            }
+            if (newscore) *newscore = score;
+            if (score != curscore) {
+                zbtreeUpdateScore(zs, ele, score, &position);
+                *out_flags |= ZADD_OUT_UPDATED;
+            }
+            return 1;
+        } else if (!xx) {
+            zbtreeInsertNew(zs, score, ele, &position);
+            *out_flags |= ZADD_OUT_ADDED;
+            if (newscore) *newscore = score;
+            return 1;
+        } else {
+            *out_flags |= ZADD_OUT_NOP;
+            return 1;
+        }
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1784,6 +1942,8 @@ int zsetDel(robj *zobj, sds ele) {
         if (zsetRemoveFromSkiplist(zs, ele)) {
             return 1;
         }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        return zbtreeDelete(zobj->ptr, ele);
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1856,6 +2016,8 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
         } else {
             return -1;
         }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        return zbtreeRank(zobj->ptr, ele, reverse, output_score);
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1904,6 +2066,9 @@ robj *zsetDup(robj *o) {
             dictAdd(new_zs->dict, znode, NULL);
             ln = ln->backward;
         }
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        zobj = createObject(OBJ_ZSET, zbtreeDup(o->ptr));
+        zobj->encoding = OBJ_ENCODING_BTREE;
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -1949,6 +2114,15 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
                 *score = (double)val.lval;
             }
         }
+    } else if (zsetobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        unsigned long rank = randomULong() % zsetsize;
+        serverAssert(zbtreeIteratorSeekRank(zsetobj->ptr, rank, &iter));
+        serverAssert(zbtreeIteratorNext(&iter, 0, &ele, &len, score));
+        key->sval = (unsigned char *)ele;
+        key->slen = len;
     } else {
         serverPanic("Unknown zset encoding");
     }
@@ -2256,6 +2430,38 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         } else {
             dictShrinkIfNeeded(zs->dict);
         }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeSet *zs = zobj->ptr;
+        switch(rangetype) {
+        case ZRANGE_AUTO:
+        case ZRANGE_RANK:
+            deleted = zbtreeDeleteRangeByRank(zs, start, end);
+            break;
+        case ZRANGE_SCORE:
+            deleted = zbtreeDeleteRangeByScore(zs, range.min, range.minex,
+                                               range.max, range.maxex);
+            break;
+        case ZRANGE_LEX: {
+            zbtreeIterator first_iter, last_iter;
+            unsigned long first, last;
+            if (zbtreeIteratorSeekLex(zs, lexrange.min, lexrange.minex,
+                                      0, &first_iter, &first) &&
+                zbtreeIteratorSeekLex(zs, lexrange.max, lexrange.maxex,
+                                      1, &last_iter, &last) &&
+                last >= first)
+            {
+                deleted = zbtreeDeleteRangeByRank(zs, first, last);
+            }
+            break;
+        }
+        }
+        if (zbtreeLength(zs) == 0) {
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj,
+                                    oldsize, kvobjAllocSize(zobj));
+            dbDeleteSkipKeysizesUpdate(c->db, key);
+            keyremoved = 1;
+        }
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -2333,6 +2539,9 @@ typedef struct {
                 zset *zs;
                 zskiplistNode *node;
             } sl;
+            struct {
+                zbtreeIterator iter;
+            } bt;
         } zset;
     } iter;
 } zsetopsrc;
@@ -2396,6 +2605,8 @@ void zuiInitIterator(zsetopsrc *op) {
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             it->sl.zs = op->subject->ptr;
             it->sl.node = it->sl.zs->zsl->tail;
+        } else if (op->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIteratorStart(op->subject->ptr, 1, &it->bt.iter);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2425,6 +2636,8 @@ void zuiClearIterator(zsetopsrc *op) {
             UNUSED(it); /* skip */
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             UNUSED(it); /* skip */
+        } else if (op->encoding == OBJ_ENCODING_BTREE) {
+            UNUSED(it); /* skip */
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2453,6 +2666,8 @@ unsigned long zuiLength(zsetopsrc *op) {
         } else if (op->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = op->subject->ptr;
             return zs->zsl->length;
+        } else if (op->encoding == OBJ_ENCODING_BTREE) {
+            return zbtreeLength(op->subject->ptr);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2522,6 +2737,14 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
 
             /* Move to next element. (going backwards, see zuiInitIterator) */
             it->sl.node = it->sl.node->backward;
+        } else if (op->encoding == OBJ_ENCODING_BTREE) {
+            const unsigned char *ele;
+            size_t len;
+            if (!zbtreeIteratorNext(&it->bt.iter, 1, &ele, &len,
+                                    &val->score))
+                return 0;
+            val->estr = (unsigned char *)ele;
+            val->elen = len;
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -2608,6 +2831,12 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
             return 0;
         }
     } else if (op->type == OBJ_ZSET) {
+        if (op->encoding == OBJ_ENCODING_BTREE) {
+            zuiBufferFromValue(val);
+            return zbtreeScoreRaw(op->subject->ptr, val->estr, val->elen,
+                                  score);
+        }
+
         zuiSdsFromValue(val);
 
         if (op->encoding == OBJ_ENCODING_LISTPACK) {
@@ -3145,7 +3374,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
     if (dstkey) {
         if (dstzset->zsl->length) {
-            zsetConvertToListpackIfNeeded(dstobj, maxelelen, totelelen);
+            zsetConvertAfterBulkInsert(dstobj, maxelelen, totelelen);
             setKey(c, c->db, dstkey, &dstobj, 0);
             addReplyLongLong(c, zsetLength(dstobj));
             notifyKeyspaceEvent(NOTIFY_ZSET,
@@ -3494,6 +3723,18 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
             handler->emitResultFromCBuffer(handler, ele, sdslen(ele), ln->score);
             ln = reverse ? ln->backward : ln->level[0].forward;
         }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        unsigned long rank = reverse ? llen - start - 1 : start;
+        serverAssert(zbtreeIteratorSeekRank(zobj->ptr, rank, &iter));
+        while (rangelen--) {
+            serverAssert(zbtreeIteratorNext(&iter, reverse, &ele, &len,
+                                             &score));
+            handler->emitResultFromCBuffer(handler, ele, len, score);
+        }
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -3622,6 +3863,40 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
                 ln = ln->level[0].forward;
             }
         }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        unsigned long rank;
+        int found = reverse ?
+            zbtreeIteratorSeekScore(zobj->ptr, range->max, range->maxex,
+                                    1, &iter, &rank) :
+            zbtreeIteratorSeekScore(zobj->ptr, range->min, range->minex,
+                                    0, &iter, &rank);
+
+        if (found && offset) {
+            if ((!reverse && rank + offset >= zsetLength(zobj)) ||
+                (reverse && (unsigned long)offset > rank))
+            {
+                found = 0;
+            } else {
+                rank = reverse ? rank - offset : rank + offset;
+                found = zbtreeIteratorSeekRank(zobj->ptr, rank, &iter);
+            }
+        }
+
+        while (found && limit-- &&
+               zbtreeIteratorNext(&iter, reverse, &ele, &len, &score))
+        {
+            if (reverse) {
+                if (!zslValueGteMin(score, range)) break;
+            } else {
+                if (!zslValueLteMax(score, range)) break;
+            }
+            rangelen++;
+            handler->emitResultFromCBuffer(handler, ele, len, score);
+        }
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -3711,6 +3986,9 @@ void zcountCommand(client *c) {
                 count -= (zsl->length - rank);
             }
         }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        count = zbtreeCountByScore(zobj->ptr, range.min, range.minex,
+                                   range.max, range.maxex);
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -3786,6 +4064,17 @@ void zlexcountCommand(client *c) {
             if (zn != NULL) {
                 count -= (zsl->length - rank);
             }
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator first_iter, last_iter;
+        unsigned long first, last;
+        if (zbtreeIteratorSeekLex(zobj->ptr, range.min, range.minex,
+                                  0, &first_iter, &first) &&
+            zbtreeIteratorSeekLex(zobj->ptr, range.max, range.maxex,
+                                  1, &last_iter, &last) &&
+            last >= first)
+        {
+            count = last - first + 1;
         }
     } else {
         serverPanic("Unknown sorted set encoding");
@@ -3895,6 +4184,41 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
             } else {
                 ln = ln->level[0].forward;
             }
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        unsigned long rank;
+        int found = reverse ?
+            zbtreeIteratorSeekLex(zobj->ptr, range->max, range->maxex,
+                                  1, &iter, &rank) :
+            zbtreeIteratorSeekLex(zobj->ptr, range->min, range->minex,
+                                  0, &iter, &rank);
+
+        if (found && offset) {
+            if ((!reverse && rank + offset >= zsetLength(zobj)) ||
+                (reverse && (unsigned long)offset > rank))
+            {
+                found = 0;
+            } else {
+                rank = reverse ? rank - offset : rank + offset;
+                found = zbtreeIteratorSeekRank(zobj->ptr, rank, &iter);
+            }
+        }
+
+        while (found && limit &&
+               zbtreeIteratorNext(&iter, reverse, &ele, &len, &score))
+        {
+            /* The seek already placed the iterator inside the near bound, so
+             * only the bound we are moving towards has to be rechecked. */
+            if (reverse ? !zbtLexValueGteMin(ele, len, range) :
+                          !zbtLexValueLteMax(ele, len, range))
+                break;
+            limit--;
+            rangelen++;
+            handler->emitResultFromCBuffer(handler, ele, len, score);
         }
     } else {
         serverPanic("Unknown sorted set encoding");
@@ -4323,6 +4647,15 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             serverAssertWithInfo(c,zobj,zln != NULL);
             ele = sdsdup(zslGetNodeElement(zln));
             score = zln->score;
+        } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIterator iter;
+            const unsigned char *raw;
+            size_t len;
+            serverAssert(zbtreeIteratorStart(zobj->ptr,
+                                              where == ZSET_MAX, &iter));
+            serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX,
+                                             &raw, &len, &score));
+            ele = sdsnewlen(raw, len);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -4570,6 +4903,20 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             }
             zfree(keys);
             zfree(vals);
+        } else if (zsetobj->encoding == OBJ_ENCODING_BTREE) {
+            while (count--) {
+                listpackEntry key;
+                double score;
+                zsetTypeRandomElement(zsetobj, size, &key,
+                                      withscores ? &score : NULL);
+                if (withscores && c->resp > 2)
+                    addReplyArrayLen(c,2);
+                addReplyBulkCBuffer(c, key.sval, key.slen);
+                if (withscores)
+                    addReplyDouble(c, score);
+                if (c->flags & CLIENT_CLOSE_ASAP)
+                    break;
+            }
         }
         goto out;
     }

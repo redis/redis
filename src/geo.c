@@ -30,6 +30,7 @@
 
 #include "geo.h"
 #include "geohash_helper.h"
+#include "zset_btree.h"
 #include "debugmacro.h"
 #include "pqsort.h"
 
@@ -318,6 +319,23 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             }
             if (ga->used && limit && ga->used >= limit) break;
             ln = ln->level[0].forward;
+        }
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        if (!zbtreeIteratorSeekScore(zobj->ptr, range.min, range.minex,
+                                     0, &iter, NULL))
+            return 0;
+        while (zbtreeIteratorNext(&iter, 0, &ele, &len, &score)) {
+            double xy[2];
+            double distance = 0;
+            if (!zslValueLteMax(score, &range)) break;
+            if (geoWithinShape(shape, score, xy, &distance) == C_OK)
+                geoArrayAppend(ga, xy, distance, score,
+                               sdsnewlen(ele, len));
+            if (ga->used && limit && ga->used >= limit) break;
         }
     }
     return ga->used - origincount;
@@ -804,32 +822,24 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     } else {
         /* Target key, create a sorted set with the results. */
         robj *zobj;
-        zset *zs;
         int i;
-        size_t maxelelen = 0, totelelen = 0;
 
-        if (returned_items) {
-            zobj = createZsetObject();
-            zs = zobj->ptr;
-        }
+        if (returned_items)
+            zobj = zsetTypeCreate(returned_items, 0);
 
         for (i = 0; i < returned_items; i++) {
-            zskiplistNode *znode;
             geoPoint *gp = ga->array+i;
             gp->dist /= shape.conversion; /* Fix according to unit. */
             double score = storedist ? gp->dist : gp->score;
-            size_t elelen = sdslen(gp->member);
-
-            if (maxelelen < elelen) maxelelen = elelen;
-            totelelen += elelen;
-            znode = zslInsert(zs->zsl,score,gp->member);
-            serverAssert(dictAdd(zs->dict, znode, NULL) == DICT_OK);
-            sdsfree(gp->member); /* zslInsert copies the sds, so free the original */
+            int out_flags;
+            serverAssert(zsetAdd(zobj, score, gp->member, ZADD_IN_NONE,
+                                 &out_flags, NULL));
+            serverAssert(out_flags & ZADD_OUT_ADDED);
+            sdsfree(gp->member);
             gp->member = NULL;
         }
 
         if (returned_items) {
-            zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
             setKey(c,c->db,storekey,&zobj,0);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);
