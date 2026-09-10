@@ -362,11 +362,11 @@ luaScript *activeDefragLuaScript(luaScript *script) {
  * Returns NULL in case the allocation wasn't moved.
  * When it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-dict *dictDefragTables(dict *d) {
+static dict *dictDefragTablesInternal(dict *d, int defrag_dict) {
     dict *ret = NULL;
     dictEntry **newtable;
     /* handle the dict struct */
-    if ((ret = activeDefragAlloc(d)))
+    if (defrag_dict && (ret = activeDefragAlloc(d)))
         d = ret;
     /* handle the first hash table */
     if (!d->ht_table[0]) return ret; /* created but unused */
@@ -380,6 +380,14 @@ dict *dictDefragTables(dict *d) {
             d->ht_table[1] = newtable;
     }
     return ret;
+}
+
+dict *dictDefragTables(dict *d) {
+    return dictDefragTablesInternal(d, 1);
+}
+
+static dict *kvstoreDictDefragTables(dict *d, int defrag_dict) {
+    return dictDefragTablesInternal(d, defrag_dict);
 }
 
 /* Internal function used by activeDefragZsetNode */
@@ -1525,7 +1533,7 @@ static doneStatus defragStageKvstoreHelper(monotime endtime,
     if (state->slot == ITER_SLOT_DEFRAG_LUT) {
         /* Before we start scanning the kvstore, handle the main structures */
         do {
-            state->cursor = kvstoreDictLUTDefrag(state->kvs, state->cursor, dictDefragTables);
+            state->cursor = kvstoreDictLUTDefrag(state->kvs, state->cursor, kvstoreDictDefragTables);
             if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
         } while (state->cursor != 0);
         state->slot = ITER_SLOT_UNASSIGNED;
