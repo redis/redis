@@ -2964,7 +2964,7 @@ int rewriteArrayObject(rio *r, robj *key, robj *o) {
     return 1;
 }
 
-int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
+int rewriteObject(rio *r, robj *key, kvobj *o, int dbid, long long expiretime) {
     /* Save the key and associated value */
     if (o->type == OBJ_STRING) {
         /* Emit a SET command */

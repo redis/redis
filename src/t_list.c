@@ -444,7 +444,7 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
  * has the same encoding as the original one.
  *
  * The resulting object always has refcount set to 1 */
-robj *listTypeDup(robj *o) {
+robj *listTypeDup(kvobj *o) {
     robj *lobj;
 
     serverAssert(o->type == OBJ_LIST);
@@ -496,8 +496,8 @@ void pushGenericCommand(client *c, int where, int xx) {
             return;
         }
 
-        lobj = createListListpackObject();
-        dbAddByLink(c->db, c->argv[1], &lobj, &link);
+        robj *o = createListListpackObject();
+        lobj = dbAddByLink(c->db, c->argv[1], &o, &link);
     }
 
     if (server.memory_tracking_enabled)
@@ -690,7 +690,7 @@ void lsetCommand(client *c) {
  *
  * 'deleted' is an optional output argument to get an indication
  * if the key got deleted by this function. */
-void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long count, int signal, int *deleted) {
+void listPopRangeAndReplyWithKey(client *c, kvobj *o, robj *key, int where, long count, int signal, int *deleted) {
     long llen = listTypeLength(o);
     long rangelen = (count > llen) ? llen : count;
     long rangestart = (where == LIST_HEAD) ? 0 : -rangelen;
@@ -791,7 +791,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
  *
  * 'deleted' is an optional output argument to get an indication
  * if the key got deleted by this function. */
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, size_t oldsize, int signal, int *deleted) {
+void listElementsRemoved(client *c, robj *key, int where, kvobj *o, long count, size_t oldsize, int signal, int *deleted) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
     unsigned long llen = listTypeLength(o);
     
@@ -878,7 +878,7 @@ void popGenericCommand(client *c, int where) {
  * Always reply with array. */
 void mpopGenericCommand(client *c, robj **keys, int numkeys, int where, long count) {
     int j;
-    robj *o;
+    kvobj *o;
     robj *key;
 
     for (j = 0; j < numkeys; j++) {
@@ -1170,14 +1170,14 @@ void lremCommand(client *c) {
     addReplyLongLong(c,removed);
 }
 
-void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
+void lmoveHandlePush(client *c, robj *dstkey, kvobj *dstobj, robj *value,
                      int where) {
     size_t oldsize = 0;
     int existed = (dstobj != NULL);
     /* Create the list if the key does not exist */
     if (!dstobj) {
-        dstobj = createListListpackObject();
-        dbAdd(c->db, dstkey, &dstobj);
+        robj *o = createListListpackObject();
+        dstobj = dbAdd(c->db, dstkey, &o);
     }
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(dstobj);
@@ -1230,7 +1230,8 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
          * versions of Redis delete keys of empty lists. */
         addReplyNull(c);
     } else {
-        robj *kvdst, *skey = c->argv[1];
+        kvobj *kvdst;
+        robj *skey = c->argv[1];
         int64_t oldlen = 0, newlen = 1; /* init lengths assuming new dst object */
 
         if ((kvdst = lookupKeyWrite(c->db,c->argv[2])) != NULL) {
@@ -1304,7 +1305,7 @@ void rpoplpushCommand(client *c) {
  * When count is -1, a reply of a single bulk-string will be used.
  * When count > 0, an array reply will be used. */
 void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, int timeout_idx, long count) {
-    robj *o;
+    kvobj *o;
     robj *key;
     mstime_t timeout;
     int j;
@@ -1382,7 +1383,7 @@ void brpopCommand(client *c) {
 }
 
 void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout) {
-    robj *key = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *key = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c,key,OBJ_LIST)) return;
 
     if (key == NULL) {
@@ -1582,8 +1583,8 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
     /* Create the destination list if needed (never the case when samekey). */
     int dst_existed = (dstobj != NULL);
     if (dstobj == NULL) {
-        dstobj = createListListpackObject();
-        dbAdd(c->db, dstkey, &dstobj);
+        robj *o = createListListpackObject();
+        dstobj = dbAdd(c->db, dstkey, &o);
     }
 
     long dst_oldlen = samekey ? 0 : (long) listTypeLength(dstobj);

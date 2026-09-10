@@ -584,7 +584,7 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
  * has the same encoding as the original one.
  *
  * The resulting object always has refcount set to 1 */
-robj *setTypeDup(robj *o) {
+robj *setTypeDup(kvobj *o) {
     robj *set;
 
     serverAssert(o->type == OBJ_SET);
@@ -709,7 +709,8 @@ void sremCommand(client *c) {
 }
 
 void smoveCommand(client *c) {
-    robj *srcset, *dstset, *ele;
+    kvobj *srcset, *dstset;
+    robj *ele;
     size_t oldSrcAllocSize = 0, oldDstAllocSize = 0;
     srcset = lookupKeyWrite(c->db,c->argv[1]);
     dstset = lookupKeyWrite(c->db,c->argv[2]);
@@ -758,8 +759,8 @@ void smoveCommand(client *c) {
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
-        dstset = setTypeCreate(ele->ptr, 1);
-        dbAdd(c->db, c->argv[2], &dstset);
+        robj *o = setTypeCreate(ele->ptr, 1);
+        dstset = dbAdd(c->db, c->argv[2], &o);
     }
 
     keyModified(c, c->db, c->argv[1], (srcNewLen > 0) ? srcset : NULL, 1);
@@ -846,7 +847,7 @@ void spopWithCountCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a kv. Otherwise, return nil */
-    robj *set = lookupKeyWriteOrReply(c, c->argv[1], shared.emptyset[c->resp]);
+    kvobj *set = lookupKeyWriteOrReply(c, c->argv[1], shared.emptyset[c->resp]);
     if (set == NULL || checkType(c, set, OBJ_SET)) return;
 
     /* If count is zero, serve an empty set ASAP to avoid special
@@ -1364,12 +1365,12 @@ void srandmemberCommand(client *c) {
 }
 
 typedef struct setopsrc {
-    robj *set;
+    kvobj *set;
     size_t oldsize;
 } setopsrc;
 
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
-    robj *o1 = ((setopsrc*)s1)->set, *o2 = ((setopsrc*)s2)->set;
+    kvobj *o1 = ((setopsrc*)s1)->set, *o2 = ((setopsrc*)s2)->set;
     if (setTypeSize(o1) > setTypeSize(o2)) return 1;
     if (setTypeSize(o1) < setTypeSize(o2)) return -1;
     return 0;
@@ -1378,7 +1379,7 @@ int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
 /* This is used by SDIFF and in this case we can receive NULL that should
  * be handled as empty sets. */
 int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
-    robj *o1 = ((setopsrc*)s1)->set, *o2 = ((setopsrc*)s2)->set;
+    kvobj *o1 = ((setopsrc*)s1)->set, *o2 = ((setopsrc*)s2)->set;
     unsigned long first = o1 ? setTypeSize(o1) : 0;
     unsigned long second = o2 ? setTypeSize(o2) : 0;
 
@@ -1531,7 +1532,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
     if (server.memory_tracking_enabled) {
         for (j = 0; j < setnum; j++) {
-            robj *obj = sets[j].set;
+            kvobj *obj = sets[j].set;
             if (!obj) continue;
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));
@@ -1888,7 +1889,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
     if (must_track_memory) {
         for (j = 0; j < setnum; j++) {
-            robj *obj = sets[j].set;
+            kvobj *obj = sets[j].set;
             if (!obj) continue;
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));

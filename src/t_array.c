@@ -30,7 +30,7 @@
  * Array type operations for COPY command
  * -------------------------------------------------------------------------- */
 
-robj *arrayTypeDup(robj *o) {
+robj *arrayTypeDup(kvobj *o) {
     redisArray *ar = o->ptr;
     redisArray *dup = arDup(ar);
     robj *newobj = createObject(OBJ_ARRAY, dup);
@@ -46,15 +46,15 @@ robj *arrayTypeDup(robj *o) {
 
 /* Lookup array object for write, create it if missing, or reply with
  * WRONGTYPE and return NULL if the key holds a different type. */
-robj *lookupArrayForWriteOrReply(client *c, robj *key) {
-    robj *o = lookupKeyWrite(c->db, key);
-    if (o == NULL) {
-        o = createArrayObject();
-        dbAdd(c->db, key, &o);
-    } else if (checkType(c, o, OBJ_ARRAY)) {
+kvobj *lookupArrayForWriteOrReply(client *c, robj *key) {
+    kvobj *kv = lookupKeyWrite(c->db, key);
+    if (kv == NULL) {
+        robj *o = createArrayObject();
+        kv = dbAdd(c->db, key, &o);
+    } else if (checkType(c, kv, OBJ_ARRAY)) {
         return NULL;
     }
-    return o;
+    return kv;
 }
 
 /* Reply with an array value. This helper is needed because we used
@@ -109,7 +109,7 @@ int arrayParseIndexOrReply(client *c, robj *arg, uint64_t *idx) {
  * Returns the value at idx in O(1).
  * Missing keys and holes both reply with NULL. */
 void argetCommand(client *c) {
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o && checkType(c, o, OBJ_ARRAY)) return;
 
     uint64_t idx;
@@ -125,7 +125,7 @@ void argetCommand(client *c) {
  * of indices. Missing keys and holes reply with NULLs. All indices are
  * validated before the reply starts, so malformed input fails atomically. */
 void armgetCommand(client *c) {
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_ARRAY)) return;
 
     /* Pre-validate all indices so malformed input fails the whole command,
@@ -176,7 +176,7 @@ void armgetCommand(client *c) {
         return;
     }
 
-    robj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
+    kvobj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
     if (o == NULL) return;
 
     redisArray *ar = o->ptr;
@@ -225,7 +225,7 @@ void armsetCommand(client *c) {
         if (arrayParseIndexOrReply(c, c->argv[i], &idx) != C_OK) return;
     }
 
-    robj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
+    kvobj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
     if (o == NULL) return;
 
     redisArray *ar = o->ptr;
@@ -270,7 +270,7 @@ void ardelCommand(client *c) {
         if (arrayParseIndexOrReply(c, c->argv[i], &idx) != C_OK) return;
     }
 
-    robj *o = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *o = lookupKeyWrite(c->db, c->argv[1]);
     if (o == NULL) {
         addReplyLongLong(c, 0);
         return;
@@ -330,7 +330,7 @@ void ardelrangeCommand(client *c) {
         if (arrayParseIndexOrReply(c, c->argv[i + 1], &end) != C_OK) return;
     }
 
-    robj *o = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *o = lookupKeyWrite(c->db, c->argv[1]);
     if (o == NULL) {
         addReplyLongLong(c, 0);
         return;
@@ -383,7 +383,7 @@ void ardelrangeCommand(client *c) {
  * Returns max-index-plus-one in O(1).
  * Missing keys reply with 0. */
 void arlenCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
+    kvobj *o = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
     if (o == NULL || checkType(c, o, OBJ_ARRAY)) return;
 
     redisArray *ar = o->ptr;
@@ -395,7 +395,7 @@ void arlenCommand(client *c) {
  * Returns the number of non-empty elements in O(1).
  * Missing keys reply with 0. */
 void arcountCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
+    kvobj *o = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
     if (o == NULL || checkType(c, o, OBJ_ARRAY)) return;
 
     redisArray *ar = o->ptr;
@@ -421,7 +421,7 @@ void argetrangeCommand(client *c) {
     if (arrayParseIndexOrReply(c, c->argv[2], &start) != C_OK) return;
     if (arrayParseIndexOrReply(c, c->argv[3], &end) != C_OK) return;
 
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_ARRAY)) return;
 
     int reverse = start > end;
@@ -851,7 +851,7 @@ void arscanCommand(client *c) {
         return;
     }
 
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_ARRAY)) return;
 
     if (o == NULL) {
@@ -1208,7 +1208,7 @@ void argrepCommand(client *c) {
         return;
     }
 
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_ARRAY)) {
         arGrepFreePlan(&plan);
         return;
@@ -1421,7 +1421,7 @@ void aropCommand(client *c) {
         return;
     }
 
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o == NULL) {
         if (op == AROP_MATCH || op == AROP_USED) {
             addReplyLongLong(c, 0);
@@ -1483,7 +1483,7 @@ void aropCommand(client *c) {
  * returned as the command return value, and can be inspected later
  * with ARNEXT. */
 void arinsertCommand(client *c) {
-    robj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
+    kvobj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
     if (o == NULL) return;
 
     redisArray *ar = o->ptr;
@@ -1675,7 +1675,7 @@ void arringCommand(client *c) {
     }
     uint64_t ring_size = (uint64_t)ll;
 
-    robj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
+    kvobj *o = lookupArrayForWriteOrReply(c, c->argv[1]);
     if (o == NULL) return;
 
     redisArray *ar = o->ptr;
@@ -1730,7 +1730,7 @@ void arringCommand(client *c) {
  * Missing keys and the pre-insert state reply with 0. If the cursor is in the
  * terminal state where the next append would overflow, the reply is NULL. */
 void arnextCommand(client *c) {
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o == NULL) {
         addReplyLongLong(c, 0);
         return;
@@ -1770,7 +1770,7 @@ void arseekCommand(client *c) {
      * well with the Redis commands usual semantics. However we need to signal
      * back that we ignored the index set if the key is not there, so zero
      * is returned. */
-    robj *o = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *o = lookupKeyWrite(c->db, c->argv[1]);
     if (o == NULL) {
         addReplyLongLong(c, 0);
         return;
@@ -1825,7 +1825,7 @@ void arlastitemsCommand(client *c) {
     }
 
     /* No key? Empty reply. */
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o == NULL) {
         addReplyArrayLen(c, 0);
         return;
@@ -1904,7 +1904,7 @@ void arinfoCommand(client *c) {
         }
     }
 
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o == NULL) {
         addReplyError(c, "no such key");
         return;

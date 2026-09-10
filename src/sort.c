@@ -44,6 +44,9 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     char *p, *f, *k;
     sds spat, ssub;
     robj *keyobj, *fieldobj = NULL, *val;
+    /* The object handed back to the caller: either a hash field value we just
+     * created, or the looked-up kvobj itself with its refcount bumped. */
+    robj *res;
 
     int prefixlen, sublen, postfixlen, fieldlen;
 
@@ -99,7 +102,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
          * is a new object with refcount already incremented. */
         int isHashDeleted;
         hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
-        kv = val;
+        res = val;
 
         if (isHashDeleted)
             goto noobj;
@@ -110,10 +113,11 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
         incrRefCount(kv);
+        res = kv;
     }
     decrRefCount(keyobj);
     if (fieldobj) decrRefCount(fieldobj);
-    return kv;
+    return res;
 
 noobj:
     decrRefCount(keyobj);
@@ -303,8 +307,11 @@ void sortCommandGeneric(client *c, int readonly) {
         return;
     }
 
-    /* Lookup the key to sort. It must be of the right types */
-    sortval = lookupKeyRead(c->db, c->argv[1]);
+    /* Lookup the key to sort. It must be of the right types.
+     * 'sortkv' keeps the keyspace object (NULL when the key is missing) since
+     * 'sortval' below may instead hold a synthetic, non-keyspace empty list. */
+    kvobj *sortkv = lookupKeyRead(c->db, c->argv[1]);
+    sortval = sortkv;
     if (sortval && sortval->type != OBJ_SET &&
                    sortval->type != OBJ_LIST &&
                    sortval->type != OBJ_ZSET)
@@ -341,10 +348,10 @@ void sortCommandGeneric(client *c, int readonly) {
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == OBJ_ZSET) {
         if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
+            oldsize = kvobjAllocSize(sortkv);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortkv, oldsize, kvobjAllocSize(sortkv));
     }
 
     /* Obtain the length of the object to sort. */
@@ -425,7 +432,7 @@ void sortCommandGeneric(client *c, int readonly) {
         listTypeResetIterator(&li);
     } else if (sortval->type == OBJ_SET) {
         if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
+            oldsize = kvobjAllocSize(sortkv);
         setTypeIterator si;
         sds sdsele;
         setTypeInitIterator(&si, sortval);
@@ -437,7 +444,7 @@ void sortCommandGeneric(client *c, int readonly) {
         }
         setTypeResetIterator(&si);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortkv, oldsize, kvobjAllocSize(sortkv));
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original
@@ -484,7 +491,7 @@ void sortCommandGeneric(client *c, int readonly) {
         sds sdsele;
 
         if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
+            oldsize = kvobjAllocSize(sortkv);
         dictInitIterator(&di, set);
         while((setele = dictNext(&di)) != NULL) {
             sdsele = zslGetNodeElement(dictGetKey(setele));
@@ -495,7 +502,7 @@ void sortCommandGeneric(client *c, int readonly) {
         }
         dictResetIterator(&di);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortkv, oldsize, kvobjAllocSize(sortkv));
     } else {
         serverPanic("Unknown type");
     }

@@ -1095,7 +1095,7 @@ void defragModule(defragKeysCtx *ctx, redisDb *db, kvobj *kv) {
  * Returns NULL if the allocation wasn't moved.
  * When it returns a non-null value, the old pointer was already released
  * (unless without_free is set) and should NOT be accessed. */
-robj *activeDefragKvobj(kvobj* kv, int without_free) {
+kvobj *activeDefragKvobj(kvobj* kv, int without_free) {
     void *alloc, *newalloc;
     kvobj *kvNew = NULL;
     /* Use LONG_MIN as sentinel to detect if we have an EMBSTR string */
