@@ -103,7 +103,7 @@ int runClientCronFromIOThread(client *c) {
     } else {
         /* Update the client in the mem usage if clientsCronRunClient is not
          * being called, since that function already performs the update. */
-        updateClientMemUsageAndBucket(c);
+        updateClientMemUsageAndBucket(c, 0);
     }
 
     return 0;

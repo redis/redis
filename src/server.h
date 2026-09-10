@@ -1551,6 +1551,7 @@ typedef struct client {
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     unsigned long long reply_bytes_shared; /* Bytes shared with keyspace objects in reply list. */
     unsigned long long reply_bytes_unshared; /* Cached subset of reply_bytes_shared solely owned by this client. */
+    mstime_t last_unshared_refresh; /* Timestamp of last reply_bytes_unshared recompute */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
@@ -2122,6 +2123,7 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *clients_with_pending_ref_reply; /* Clients with referenced reply objects. */
+    size_t clients_unshared_mem; /* Sum of c->reply_bytes_unshared across clients_with_pending_ref_reply, updated incrementally by cron. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
@@ -3421,6 +3423,7 @@ size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c);
 void updateClientUnsharedReplyBytes(client *c);
+void setClientUnsharedReplyBytes(client *c, unsigned long long new_unshared);
 void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
@@ -3444,7 +3447,7 @@ void blockingOperationStarts(void);
 void blockingOperationEnds(void);
 int handleClientsWithPendingWrites(void);
 int clientHasPendingReplies(client *c);
-int updateClientMemUsageAndBucket(client *c);
+int updateClientMemUsageAndBucket(client *c, int unshared_reply_bytes_fresh);
 void removeClientFromMemUsageBucket(client *c, int allow_eviction);
 void unlinkClient(client *c);
 void tryUnlinkClientFromPendingRefReply(client *c, int force);

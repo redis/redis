@@ -961,7 +961,8 @@ static int luaRedisGenericCommand(lua_State *lua, int raise_error) {
         ldbLogRedisReply(reply);
 
     if (reply != c->buf) sdsfree(reply);
-    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
+    c->reply_bytes = c->reply_bytes_shared = 0;
+    setClientUnsharedReplyBytes(c, 0);
 
 cleanup:
     /* Clean up. Command code may have changed argv/argc so we use the
