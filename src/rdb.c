@@ -433,7 +433,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable
 
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
-    if (lzf_decompress(c,clen,val,len) != len) {
+    if (lzf_decompress2(c,clen,val,len) != len) {
         rdbReportCorruptRDB("Invalid LZF compressed string");
         goto err;
     }
