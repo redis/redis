@@ -22,6 +22,8 @@
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
 
+static_assert(sizeof(kvBits) == 1, "kvBits must be a single byte");
+
 /* Map a metadata ID (bit index) to its compacted slot number among set bits,
  * then return a pointer to that slot. Caller must ensure the ID bit is set. */
 uint64_t *kvobjMetaRef(kvobj *kv, int metaId) {
@@ -52,9 +54,9 @@ uint64_t *kvobjMetaRef(kvobj *kv, int metaId) {
  * 
  * Example of "mykey" with expiration and metadata :
  * 
- *    +------------+------------+-----------+------------------+------------------------+
- *    | m.meta (8) | expiry (8) | robj (16) | key-hdr-size (1) | sdshdr5 "mykey" \0 (7) | 
- *    +------------+------------+-----------+------------------+------------------------+
+ *    +------------+------------+-----------+------------+------------------------+
+ *    | m.meta (8) | expiry (8) | robj (16) | kvbits (1) | sdshdr5 "mykey" \0 (7) | 
+ *    +------------+------------+-----------+------------+------------------------+
  *                              ^
  *                              |
  *                              kvobjCreate() returns pointer to here
@@ -74,11 +76,12 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits) {
     /* Calculate embedded key size */
     char key_sds_type = sdsReqType(key_sds_len);
     size_t key_sds_size = sdsReqSize(key_sds_len, key_sds_type);
+    debugServerAssert(key_sds_type <= SDS_TYPE_32); /* keys are never > 4GB */
 
     /* Compute the base object size */
-    size_t min_size = sizeof(robj);
+    size_t min_size = sizeof(robj) + sizeof(kvBits);
     min_size += sizeMetas;
-    min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
+    min_size += key_sds_size;
 
     /* Allocate object memory */
     char *alloc = zmalloc(min_size);
@@ -90,13 +93,12 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits) {
     kv->lru = 0;
     kv->iskvobj = 1;
     kv->metabits = keyMetaBits;
+    kvobjBits(kv)->key_sds_type = key_sds_type;
     kvobjBits(kv)->no_evict = 0;
+    kvobjBits(kv)->unused = 0;
 
-    /* The memory after the struct where we embedded data. */
-    char *data = (void *)(kv + 1);
-
-    /* Store embedded key. */
-    *data++ = sdsHdrSize(key_sds_type);
+    /* Store embedded key, right after the kvBits. */
+    char *data = (char *) (kvobjBits(kv) + 1);
     sdsnewplacement(data, key_sds_size, key_sds_type, key, key_sds_len);
 
     /* Reset each allocated metadata to its reset_value (such as Expiry=-1, etc) */
@@ -157,9 +159,9 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  * expire to the new object. LRU is set to 0. 
  * 
  * Example of kvobj "mykey" with embedded "myvalue" (16+1+7+11 = 35bytes):
- *    +-----------+------------------+------------------------+----------------------------+
- *    | robj (16) | key-hdr-size (1) | sdshdr5 "mykey" \0 (7) | sdshdr8 "myvalue" \0  (11) | 
- *    +-----------+------------------+------------------------+----------------------------+
+ *    +-----------+------------+------------------------+----------------------------+
+ *    | robj (16) | kvbits (1) | sdshdr5 "mykey" \0 (7) | sdshdr8 "myvalue" \0  (11) | 
+ *    +-----------+------------+------------------------+----------------------------+
  */
 static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
                                      const sds key, uint32_t keyMetaBits)
@@ -172,14 +174,15 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     size_t key_sds_len = sdslen(key);
     char key_sds_type = sdsReqType(key_sds_len);
     size_t key_sds_size = sdsReqSize(key_sds_len, key_sds_type);
+    debugServerAssert(key_sds_type <= SDS_TYPE_32); /* keys are never > 4GB */
 
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
 
     /* Compute base object size */
-    size_t min_size = sizeof(robj) + val_sds_size;
+    size_t min_size = sizeof(robj) + sizeof(kvBits) + val_sds_size;
     min_size += sizeMetas;
-    min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
+    min_size += key_sds_size;
 
     /* Allocate object memory */
     size_t bufsize = 0;
@@ -192,12 +195,12 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     o->lru = 0;
     o->metabits = keyMetaBits;
     o->iskvobj = 1;
+    kvobjBits(o)->key_sds_type = key_sds_type;
     kvobjBits(o)->no_evict = 0;
+    kvobjBits(o)->unused = 0;
 
-    /* The memory after the struct where we embedded data. */
-    char *data = (char *)(o + 1);
-    /* Store embedded key */
-    *data++ = sdsHdrSize(key_sds_type);
+    /* Store embedded key, right after the kvBits. */
+    char *data = (char *) (kvobjBits(o) + 1);
     sdsnewplacement(data, key_sds_size, key_sds_type, key, key_sds_len);
     data += key_sds_size;
 
@@ -215,10 +218,10 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself.
  * 
- * Example of robj with embedded "myvalue" (16+1+11 = 28 bytes):
- *    +-----------+------------------+----------------------------+
- *    | robj (16) | key-hdr-size (1) | sdshdr8 "myvalue" \0  (11) | 
- *    +-----------+------------------+----------------------------+
+ * Example of robj with embedded "myvalue" (16+11 = 27 bytes):
+ *    +-----------+----------------------------+
+ *    | robj (16) | sdshdr8 "myvalue" \0  (11) | 
+ *    +-----------+----------------------------+
  */
 static inline robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     /* Calculate size for embedded value (always SDS_TYPE_8) */
@@ -244,12 +247,15 @@ static inline robj *createEmbeddedStringObject(const char *val_ptr, size_t val_l
     return o;
 }
 
+/* SDS header size of the embedded key, indexed by kvBits->key_sds_type. */
 sds kvobjGetKey(const kvobj *kv) {
-    unsigned char *data = (void *)(kv + 1);
+    static const uint8_t kvobjKeyHdrSize[4] = {
+        sizeof(struct sdshdr5), sizeof(struct sdshdr8),
+        sizeof(struct sdshdr16), sizeof(struct sdshdr32)
+    };
     debugServerAssert(kv->iskvobj);
-    uint8_t hdr_size = *(uint8_t *)data;
-    data += 1 + hdr_size;
-    return (sds)data;
+    kvBits *bits = kvobjBits(kv);
+    return (sds) ((char *) (bits + 1) + kvobjKeyHdrSize[bits->key_sds_type]);
 }
 
 long long kvobjGetExpire(const kvobj *kv) {
@@ -288,8 +294,8 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
 
         /* Embed when the sum is less than a cache line (Metadata is discarded 
          * since we don't have to be accurate and it is placed before the object) */
-        size_t size = sizeof(kvobj);
-        size += (key != NULL) * (sdslen(key) + 3); /* hdr size (1) + hdr (1) + nullterm (1) */
+        size_t size = sizeof(kvobj) + sizeof(kvBits);
+        size += (key != NULL) * (sdslen(key) + 2); /* sds hdr (1) + nullterm (1) */
         size += 4 + len; /* embstr header (3) + nullterm (1) */
         if (size <= CACHE_LINE_SIZE) {
             kv = kvobjCreateEmbedString(val->ptr, len, key, keyMetaBits);
@@ -1355,11 +1361,10 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
  */
 size_t kvobjAllocSize(kvobj *o) {
     debugServerAssert(o->iskvobj);
-    size_t asize = sizeof(kvobj);
+    size_t asize = sizeof(kvobj) + sizeof(kvBits);
     /* Add metadata size */
     asize += getNumMeta(o->metabits) * sizeof(uint64_t);
     /* Add embedded key size */
-    asize += 1; /* embedded key header size */
     asize += sdsAllocSize(kvobjGetKey(o));
     /* Add embedded string size */
     if (o->encoding == OBJ_ENCODING_EMBSTR)

@@ -1613,11 +1613,12 @@ static void lmovemMoveAndReply(client *c, robj *srckey, kvobj *srcobj,
 
     if (samekey) {
         /* In-place rotation: the length is unchanged, so there is no key
-         * creation/deletion and no histogram change. Fire both the pop and the
-         * push notifications and account for the (possibly re-encoded) object. */
-        notifyKeyspaceEvent(NOTIFY_LIST, wherefrom == LIST_HEAD ? "lpop" : "rpop",
-                            srckey, c->db->id);
+         * creation/deletion and no histogram change. Fire the push notification
+         * before the pop notification, matching LMOVE and the distinct-key path,
+         * and account for the (possibly re-encoded) object. */
         notifyKeyspaceEvent(NOTIFY_LIST, whereto == LIST_HEAD ? "lpush" : "rpush",
+                            srckey, c->db->id);
+        notifyKeyspaceEvent(NOTIFY_LIST, wherefrom == LIST_HEAD ? "lpop" : "rpop",
                             srckey, c->db->id);
         keyModified(c, c->db, srckey, srcobj, 1);
         if (server.memory_tracking_enabled)
