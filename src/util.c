@@ -1097,10 +1097,13 @@ long getTimeZone(void) {
 }
 
 /* Return true if the specified path is just a file basename without any
- * relative or absolute path. This function just checks that no / or \
- * character exists inside the specified path, that's enough in the
- * environments where Redis runs. */
+ * relative or absolute path. This function checks that no / or \ character
+ * exists inside the specified path, and that the path is not "." or "..",
+ * which are relative paths that do not stay under the directory they are
+ * joined to. That's enough in the environments where Redis runs. */
 int pathIsBaseName(char *path) {
+    if (path[0] == '\0') return 0;
+    if (!strcmp(path,".") || !strcmp(path,"..")) return 0;
     return strchr(path,'/') == NULL && strchr(path,'\\') == NULL;
 }
 
@@ -1592,6 +1595,25 @@ static void test_string2ll(void) {
     assert(string2ll(buf,strlen(buf),&v) == 0);
 }
 
+static void test_pathIsBaseName(void) {
+    /* A base name has no path separators. */
+    assert(pathIsBaseName("dump.rdb") == 1);
+    assert(pathIsBaseName("appendonlydir") == 1);
+
+    /* Separators are rejected. */
+    assert(pathIsBaseName("a/b") == 0);
+    assert(pathIsBaseName("/abs") == 0);
+    assert(pathIsBaseName("a\\b") == 0);
+
+    /* "." and ".." are relative paths, not base names: joining them to a base
+     * directory does not stay under it. */
+    assert(pathIsBaseName(".") == 0);
+    assert(pathIsBaseName("..") == 0);
+
+    /* The empty string is not a usable base name either. */
+    assert(pathIsBaseName("") == 0);
+}
+
 static void test_string2l(void) {
     char buf[32];
     long v;
@@ -1856,6 +1878,7 @@ int utilTest(int argc, char **argv, int flags) {
 
     test_string2ll();
     test_string2l();
+    test_pathIsBaseName();
     test_string2d();
     test_ll2string();
     test_ld2string();
