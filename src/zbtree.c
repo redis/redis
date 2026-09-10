@@ -549,7 +549,7 @@ static int zbtShareOverflow(zbtree *t, zbtLeaf *lf, int ins_idx) {
 
 /* Insert an already-allocated element. The caller must guarantee the member
  * is not already present. Ownership of 'e' transfers to the tree. */
-static void zbtInsertElemWithSize(zbtree *t, zbtElem *e, size_t usable) {
+static void zbtInsertElem(zbtree *t, zbtElem *e, size_t usable) {
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
     zbtLeaf *lf = zbtFindLeaf(t, score, ele);
@@ -584,14 +584,10 @@ static void zbtInsertElemWithSize(zbtree *t, zbtElem *e, size_t usable) {
     }
 }
 
-void zbtInsertElem(zbtree *t, zbtElem *e) {
-    zbtInsertElemWithSize(t, e, zmalloc_usable_size(e));
-}
-
 zbtElem *zbtInsert(zbtree *t, double score, sds ele) {
     size_t usable;
     zbtElem *e = zbtCreateElem(score, ele, sdslen(ele), 0, &usable);
-    zbtInsertElemWithSize(t, e, usable);
+    zbtInsertElem(t, e, usable);
     return e;
 }
 
@@ -887,14 +883,14 @@ zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore) {
     if (zbtScoreEncSize(newenc) == zbtScoreEncSize(e->enc)) {
         e->enc = newenc;
         memcpy(e->data, newbuf, zbtScoreEncSize(newenc));
-        zbtInsertElemWithSize(t, e, old_usable);
+        zbtInsertElem(t, e, old_usable);
         return e;
     }
 
     size_t new_usable;
     zbtElem *ne = zbtCreateElem(newscore, ele, sdslen(ele), 0, &new_usable);
     zfree_with_size(e, old_usable);
-    zbtInsertElemWithSize(t, ne, new_usable);
+    zbtInsertElem(t, ne, new_usable);
     return ne;
 }
 
@@ -999,31 +995,6 @@ zbtElem *zbtIterPrev(zbtIter *it) {
         if (it->idx < 0) return NULL;
     }
     return lf->elems[it->idx];
-}
-
-/* Position 'it' exactly on the element matching (score,ele). Returns 1 if
- * found. */
-static int zbtSeek(zbtree *t, double score, sds ele, zbtIter *it) {
-    zbtLeaf *lf = zbtFindLeaf(t, score, ele);
-    int found;
-    int idx = zbtLeafSearch(lf, score, ele, &found);
-    it->leaf = (zbtNode *)lf;
-    it->idx = idx;
-    return found;
-}
-
-/* Element-based next/prev (O(log N)). Used where holding an iterator is
- * inconvenient (e.g. the module API cursor). */
-zbtElem *zbtNext(zbtree *t, zbtElem *e) {
-    zbtIter it;
-    if (!zbtSeek(t, zbtGetScore(e), zbtGetEle(e), &it)) return NULL;
-    return zbtIterNext(&it);
-}
-
-zbtElem *zbtPrev(zbtree *t, zbtElem *e) {
-    zbtIter it;
-    if (!zbtSeek(t, zbtGetScore(e), zbtGetEle(e), &it)) return NULL;
-    return zbtIterPrev(&it);
 }
 
 /*-----------------------------------------------------------------------------

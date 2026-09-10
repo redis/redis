@@ -1363,6 +1363,19 @@ start_server {tags {"zset"}} {
         return -options $opts $res
     }
 
+    proc zadd_seq {key n} {
+        r del $key
+        set args {}
+        for {set i 0} {$i < $n} {incr i} {
+            lappend args $i [format m%06d $i]
+            if {[llength $args] >= 200} {
+                r zadd $key {*}$args
+                set args {}
+            }
+        }
+        if {[llength $args]} { r zadd $key {*}$args }
+    }
+
     test "Large B-tree ZREMRANGEBYRANK removes an exact contiguous window" {
         with_btree_encoding {
             r del zr
@@ -1377,6 +1390,122 @@ start_server {tags {"zset"}} {
             # Remove everything that is left.
             assert_equal 2000 [r zremrangebyrank zr 0 -1]
             assert_equal 0 [r exists zr]
+        }
+    }
+
+    # Height-3 trees (more than 64 packed leaves) are the only ones that
+    # run zbtRebalanceInner: a non-root inner must drop below INNER_MIN.
+    test "Large B-tree random rank-range deletes keep a consistent order" {
+        with_btree_encoding {
+            set n 20000
+            zadd_seq zrr $n
+            assert_encoding btree zrr
+            assert_equal $n [r zcard zrr]
+            expr {srand(12345)}
+            while {[r zcard zrr] > 200} {
+                set card [r zcard zrr]
+                set span [expr {1 + int(rand() * 128)}]
+                set lo [expr {int(rand() * $card)}]
+                set hi [expr {$lo + $span}]
+                if {$hi >= $card} { set hi [expr {$card - 1}] }
+                set before $card
+                set got [r zremrangebyrank zrr $lo $hi]
+                assert_equal [expr {$hi - $lo + 1}] $got
+                assert_equal [expr {$before - $got}] [r zcard zrr]
+            }
+            assert_encoding btree zrr
+            set first [lindex [r zrange zrr 0 0] 0]
+            set last [lindex [r zrange zrr -1 -1] 0]
+            assert_equal 0 [r zrank zrr $first]
+            assert_equal [expr {[r zcard zrr] - 1}] [r zrank zrr $last]
+        }
+    }
+
+    test "Large B-tree inner borrow from the right sibling" {
+        with_btree_encoding {
+            # ~3 packed inners under the root (64 leaves * 64 elems * 3).
+            set n 12288
+            zadd_seq zib $n
+            assert_encoding btree zib
+            # Empty most of the leftmost inner while the right siblings stay
+            # packed, so the short inner borrows a child from the right.
+            assert_equal 2500 [r zremrangebyrank zib 0 2499]
+            assert_equal [expr {$n - 2500}] [r zcard zib]
+            assert_encoding btree zib
+            assert_equal [format m%06d 2500] [lindex [r zrange zib 0 0] 0]
+            assert_equal [format m%06d [expr {$n - 1}]] [lindex [r zrange zib -1 -1] 0]
+            assert_equal 0 [r zrank zib [format m%06d 2500]]
+        }
+    }
+
+    test "Large B-tree inner borrow from the left sibling" {
+        with_btree_encoding {
+            set n 12288
+            zadd_seq zib $n
+            assert_encoding btree zib
+            set lo [expr {$n - 2500}]
+            assert_equal 2500 [r zremrangebyrank zib $lo [expr {$n - 1}]]
+            assert_equal $lo [r zcard zib]
+            assert_encoding btree zib
+            assert_equal [format m%06d 0] [lindex [r zrange zib 0 0] 0]
+            assert_equal [format m%06d [expr {$lo - 1}]] [lindex [r zrange zib -1 -1] 0]
+        }
+    }
+
+    test "B-tree compact score encodings and width-changing ZADD" {
+        with_btree_encoding {
+            r del zenc
+            r zadd zenc 32768 a
+            assert_encoding btree zenc
+            assert_equal 32768 [r zscore zenc a]
+            r zadd zenc -32769 b
+            assert_equal -32769 [r zscore zenc b]
+
+            r del zenc
+            r zadd zenc 127 a
+            assert_equal 127 [r zscore zenc a]
+            r zadd zenc 1.5 a
+            assert_equal 1.5 [r zscore zenc a]
+            r zadd zenc 1 a
+            assert_equal 1 [r zscore zenc a]
+
+            r del zenc
+            r zadd zenc 32767 a
+            assert_equal 32767 [r zscore zenc a]
+            r zadd zenc 32768 a
+            assert_equal 32768 [r zscore zenc a]
+
+            # Wider integer encodings and the integer-too-big-for-I48 double
+            # fallback (2^47).
+            r del zenc
+            r zadd zenc 2147483647 i32
+            assert_equal 2147483647 [r zscore zenc i32]
+            r zadd zenc 2147483648 i48
+            assert_equal 2147483648 [r zscore zenc i48]
+            r zadd zenc 140737488355328 dbl47
+            assert_equal 140737488355328 [r zscore zenc dbl47]
+            r zadd zenc inf pinf
+            r zadd zenc -inf ninf
+            assert_equal inf [r zscore zenc pinf]
+            assert_equal -inf [r zscore zenc ninf]
+        }
+    }
+
+    test "B-tree ZRANGEBYSCORE LIMIT rank-jump vs leaf walk" {
+        with_btree_encoding {
+            r del zn
+            set args {}
+            for {set i 0} {$i < 100} {incr i} {
+                lappend args $i [format e%03d $i]
+            }
+            r zadd zn {*}$args
+            assert_encoding btree zn
+            assert_equal {e000} [r zrangebyscore zn -inf +inf LIMIT 0 1]
+            assert_equal {e011 e012 e013 e014 e015} [r zrangebyscore zn -inf +inf LIMIT 11 5]
+            assert_equal {e088 e087 e086 e085 e084} [r zrevrangebyscore zn +inf -inf LIMIT 11 5]
+            r del emptyz
+            assert_equal {} [r zrangebyscore emptyz -inf +inf LIMIT 11 5]
+            assert_equal {} [r zrevrangebyscore emptyz +inf -inf LIMIT 11 5]
         }
     }
 

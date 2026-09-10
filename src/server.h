@@ -3884,7 +3884,6 @@ void zbtBuildFromSorted(zbtree *t, zbtElem **elems, unsigned long n);
 void zbtBuildFromSortedWithSize(zbtree *t, zbtElem **elems, unsigned long n,
                                 size_t elems_alloc_size);
 zbtElem *zbtInsert(zbtree *t, double score, sds ele);
-void zbtInsertElem(zbtree *t, zbtElem *e);
 void zbtDeleteElem(zbtree *t, zbtElem *e);
 zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore);
 int zbtCompare(double score, sds ele, const zbtElem *e);
@@ -3896,8 +3895,6 @@ zbtElem *zbtFirst(zbtree *t, zbtIter *it);
 zbtElem *zbtLast(zbtree *t, zbtIter *it);
 zbtElem *zbtIterNext(zbtIter *it);
 zbtElem *zbtIterPrev(zbtIter *it);
-zbtElem *zbtNext(zbtree *t, zbtElem *e);
-zbtElem *zbtPrev(zbtree *t, zbtElem *e);
 zbtElem *zbtNthInRange(zbtree *t, zrangespec *range, long n, unsigned long *out_rank, zbtIter *it);
 zbtElem *zbtNthInLexRange(zbtree *t, zlexrangespec *range, long n, unsigned long *out_rank, zbtIter *it);
 unsigned long zbtDeleteRangeByScore(zbtree *t, zrangespec *range, dict *d);

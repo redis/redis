@@ -1235,6 +1235,108 @@ run_solo {defrag} {
             expr 1
         } {1}
 
+        # Small btree zsets take the one-shot zbtDefragNodes + zbtReplaceElem
+        # path (length <= active-defrag-max-scan-fields). Large ones use the
+        # incremental walker, which needs height >= 3 to relocate inner nodes.
+        test "Active defrag small and large btree zsets: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set zset-max-listpack-entries 0
+            r config set active-defrag-max-scan-fields 1000
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 512kb
+            r config set maxmemory 0
+
+            set rd [redis_deferring_client]
+            set payload [string repeat A 200]
+            set nkeys 20000
+            set count 0
+            for {set j 0} {$j < $nkeys} {incr j} {
+                $rd setrange "pad:$j" 200 x
+                incr count
+                discard_replies_every $rd $count 1000 1000
+            }
+
+            set small_n 200
+            set args {}
+            for {set j 0} {$j < $small_n} {incr j} {
+                lappend args $j "s:$j:$payload"
+                if {[llength $args] >= 200} {
+                    r zadd smallzset {*}$args
+                    set args {}
+                }
+            }
+            if {[llength $args]} { r zadd smallzset {*}$args }
+            assert_encoding btree smallzset
+            assert_equal $small_n [r zcard smallzset]
+
+            # Height-3 tree (more than 64 packed leaves) so incremental
+            # defrag relocates inner nodes. Cardinality is above
+            # max-scan-fields (1000) so this key uses zbtDefragNodesIncremental.
+            set large_n 5000
+            set args {}
+            for {set j 0} {$j < $large_n} {incr j} {
+                lappend args $j "l:$j:$payload"
+                if {[llength $args] >= 200} {
+                    r zadd largezset {*}$args
+                    set args {}
+                }
+            }
+            if {[llength $args]} { r zadd largezset {*}$args }
+            assert_encoding btree largezset
+            assert_equal $large_n [r zcard largezset]
+
+            set sent 0
+            for {set j 0} {$j < $nkeys} {incr j 2} {
+                $rd del "pad:$j"
+                incr sent
+                discard_replies_every $rd $sent 1000 1000
+            }
+
+            after 120
+            set digest [debug_digest]
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+                wait_for_condition 500 100 {
+                    [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
+                } else {
+                    after 120
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "btree zset defrag did not touch a key."
+                }
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+            }
+
+            assert_encoding btree smallzset
+            assert_encoding btree largezset
+            assert_equal $small_n [r zcard smallzset]
+            assert_equal $large_n [r zcard largezset]
+            assert_equal "s:0:$payload" [lindex [r zrange smallzset 0 0] 0]
+            assert_equal "s:199:$payload" [lindex [r zrange smallzset -1 -1] 0]
+            assert_equal "l:0:$payload" [lindex [r zrange largezset 0 0] 0]
+            assert_equal "l:4999:$payload" [lindex [r zrange largezset -1 -1] 0]
+            assert_equal $digest [debug_digest]
+            r config set zset-max-listpack-entries 128
+            expr 1
+        } {1}
+
         test "Active defrag check-cache: skip path when below threshold: $type" {
             # threshold-lower=99 and ignore-bytes=1gb guarantee the cached
             # value is below both skip conditions every tick, so defrag
