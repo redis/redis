@@ -2189,8 +2189,16 @@ static int numericParseString(standardConfig *config, sds value, const char **er
     if (config->data.numeric.flags & MEMORY_CONFIG) {
         int memerr;
         *res = memtoull(value, &memerr);
-        if (!memerr)
+        if (!memerr) {
+            /* A value with no digits at all ("", or a bare unit like "gb")
+             * parses as 0. Keep accepting it for backward compatibility, but
+             * warn: for limits like maxmemory, 0 silently means "unlimited". */
+            if (strpbrk(value, "0123456789") == NULL)
+                serverLog(LL_WARNING,
+                    "WARNING: %s value '%s' has no numeric part and was interpreted as 0",
+                    config->name, value);
             return 1;
+        }
     }
 
     /* Attempt to parse as percent */
