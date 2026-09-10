@@ -198,14 +198,14 @@ static int rw_buffer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModuleCtx *a = RedisModule_GetReplyBufferContext(bc);
     RedisModuleCtx *b = RedisModule_GetReplyBufferContext(bc);
     assert(RedisModule_GetReplyBufferContext(NULL) == NULL);
-    assert((RedisModule_GetContextFlags(a) & REDISMODULE_CTX_FLAGS_RESP3) ==
-           (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_RESP3));
-
     if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MULTI) {
         RedisModule_ReplyWithString(a, argv[2]);
         RedisModule_UnblockClient(bc, NULL);
         return REDISMODULE_OK;
     }
+
+    assert((RedisModule_GetContextFlags(a) & REDISMODULE_CTX_FLAGS_RESP3) ==
+           (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_RESP3));
 
     if (!strcmp(mode, "reuse")) {
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);

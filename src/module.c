@@ -8469,7 +8469,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->privdata = privdata;
     bc->reply_client = moduleAllocTempClient();
     bc->thread_safe_ctx_client = moduleAllocTempClient();
-    bc->reply_client->resp = c->resp;
+    if (bc->client)
+        bc->reply_client->resp = bc->client->resp;
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
     bc->unblocked = 0;
