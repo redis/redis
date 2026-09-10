@@ -8587,6 +8587,14 @@ static void moduleFreeReplyBuffers(RedisModuleBlockedClient *bc) {
     bc->reply_buffers = NULL;
 }
 
+/* Final release, after all callbacks and the ordinary temporary clients have
+ * been handled. Keep every blocked-handle destruction path consistent. */
+static void moduleFreeBlockedClient(RedisModuleBlockedClient *bc) {
+    moduleFreeReplyBuffers(bc);
+    bc->module->blocked_clients--;
+    zfree(bc);
+}
+
 /* Helper function to invoke the free private data callback of a Module blocked client. */
 void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
     if (bc->privdata && bc->free_privdata) {
@@ -8598,6 +8606,20 @@ void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
         bc->free_privdata(&ctx,bc->privdata);
         moduleFreeContext(&ctx);
     }
+}
+
+/* An auth handle can outlive the ordinary unblock processing while awaiting
+ * command reprocessing. If the client disconnects in that window, the auth
+ * reply callback will never run, but its private data and buffers still need
+ * to be released. The ordinary temporary clients have already been returned
+ * to the pool by moduleHandleBlockedClients(). */
+void moduleFreeAuthBlockedClient(client *c) {
+    RedisModuleBlockedClient *bc = c->module_blocked_client;
+    if (!bc) return;
+    c->module_blocked_client = NULL;
+    bc->client = NULL;
+    moduleInvokeFreePrivDataCallback(NULL, bc);
+    moduleFreeBlockedClient(bc);
 }
 
 /* Unregisters all the module auth callbacks that have been registered by this Module. */
@@ -8668,9 +8690,7 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, r
     moduleInvokeFreePrivDataCallback(c, bc);
     c->module_blocked_client = NULL;
     c->lastcmd->microseconds += bc->background_duration;
-    bc->module->blocked_clients--;
-    moduleFreeReplyBuffers(bc);
-    zfree(bc);
+    moduleFreeBlockedClient(bc);
     return result;
 }
 
@@ -9085,9 +9105,7 @@ void moduleHandleBlockedClients(void) {
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
         if (!(c && clientHasModuleAuthInProgress(c))) {
-            bc->module->blocked_clients--;
-            moduleFreeReplyBuffers(bc);
-            zfree(bc);
+            moduleFreeBlockedClient(bc);
         }
 
         /* Lock again before to iterate the loop. */

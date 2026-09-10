@@ -323,6 +323,21 @@ start_server {tags {"modules external:skip"}} {
         assert_match {} [cmdstat auth]
     }
 
+    test {Disconnect after auth unblock releases reply buffers and private data} {
+        set rd [redis_deferring_client]
+        set errors [s total_error_replies]
+        $rd AUTH foo block_disconnect
+        wait_for_blocked_clients_count 1
+        # Both unblocks are queued under the GIL. The second client's reply
+        # callback kills the retained auth client before its command is retried.
+        # Cleanup runs once with the disconnected flag, without an auth reply.
+        assert_equal {1 0 1} [r testmoduleone.kill_unblocked_auth]
+        assert_error {*I/O error reading reply*} {$rd read}
+        $rd close
+        assert_equal $errors [s total_error_replies]
+        wait_for_blocked_clients_count 0
+    }
+
     test {test RM_AbortBlock Module API during blocking module auth} {
         r config resetstat
         r acl setuser foo >pwd on ~* &* +@all
