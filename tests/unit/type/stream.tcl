@@ -146,6 +146,18 @@ start_server {
         }
     }
 
+    test {XTRIM compacts tombstoned entries in stream nodes} {
+        r DEL mystream
+        for {set i 0} {$i < 20} {incr i} {
+            r XADD mystream * item $i value [format %02d $i]
+        }
+        set before [r MEMORY USAGE mystream]
+        r XTRIM mystream MAXLEN 10
+        set after [r MEMORY USAGE mystream]
+        assert {$before > 0}
+        assert {$after < $before}
+    }
+
     test {XADD with MAXLEN option and the '=' argument} {
         r DEL mystream
         for {set j 0} {$j < 1000} {incr j} {
