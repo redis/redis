@@ -79,6 +79,7 @@ kvstore *blessedKvstoreCreate(int slot_count_bits, int flags) {
 static void blessTrack(redisDb *db, sds keyname) {
     int slot = getKeySlot(keyname);
     dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
+    debugServerAssert(de == NULL);
     if (de) return;
     sds dup = sdsdup(keyname);
     de = kvstoreDictAddRaw(db->blessed_keys, slot, dup, NULL);
@@ -89,6 +90,7 @@ static void blessTrack(redisDb *db, sds keyname) {
 static void blessUntrack(redisDb *db, sds keyname) {
     int slot = getKeySlot(keyname);
     dictEntry *de = kvstoreDictFind(db->blessed_keys, slot, keyname);
+    debugServerAssert(de != NULL);
     if (!de) return;
     *blessedBytesRef(db->blessed_keys) -= sdsAllocSize(dictGetKey(de));
     kvstoreDictDelete(db->blessed_keys, slot, keyname);
