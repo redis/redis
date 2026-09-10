@@ -107,6 +107,16 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         R 0 config set cluster-announce-ip "redis-node-1.example.com"
         assert_equal "redis-node-1.example.com" [lindex [R 0 config get cluster-announce-ip] 1]
 
+        # Accept a long FQDN (regression for #15760: the hostname branch
+        # previously capped length at NET_IP_STR_LEN == 46)
+        set long_host "redis-node-0.redis-headless.some-long-namespace.svc.cluster.local"
+        R 0 config set cluster-announce-ip $long_host
+        assert_equal $long_host [lindex [R 0 config get cluster-announce-ip] 1]
+
+        # Reject a hostname at/over NET_HOST_STR_LEN (256)
+        catch {R 0 config set cluster-announce-ip [string repeat "a" 256]} err
+        assert_match "*less than 256*" $err
+
         # Can be cleared
         R 0 config set cluster-announce-ip ""
         assert_equal "" [lindex [R 0 config get cluster-announce-ip] 1]

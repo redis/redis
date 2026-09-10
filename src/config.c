@@ -2555,15 +2555,10 @@ static int isValidClusterAnnounceIp(char *val, const char **err) {
     if (inet_pton(AF_INET, val, buf) == 1 || inet_pton(AF_INET6, val, buf) == 1) {
         return 1;
     }
-    /* Also accept valid hostnames, but limited to NET_IP_STR_LEN since
-     * cluster_announce_ip is stored in a NET_IP_STR_LEN buffer */
-    if (strlen(val) >= NET_IP_STR_LEN) {
-        *err = "Hostnames for cluster-announce-ip must be less than "
-               STRINGIFY(NET_IP_STR_LEN) " characters";
-        return 0;
-    }
-    /* Also accept valid hostnames */
-    return isValidHostnameChars(val, err);
+    /* Otherwise accept a valid hostname. cluster_announce_ip is a heap-allocated
+     * string config (see createStringConfig below), so it is only bounded by
+     * NET_HOST_STR_LEN - the same limit applied to cluster-announce-hostname. */
+    return isValidAnnouncedHostname(val, err);
 }
 
 /* Validate specified string is a valid proc-title-template */
