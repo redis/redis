@@ -1252,6 +1252,60 @@ void srandmemberWithCountCommand(client *c) {
     /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
     d = dictCreate(&sdsReplyDictType);
 
+    /* Hashtable fast path (covers CASE 3 and CASE 4): for a hashtable-encoded
+     * set the members are live SDS, so we BORROW the member pointers into the
+     * dedup dict (no per-element sdsnewlen) and emit them with addReplyBulkCBuffer
+     * (copies into the reply buffer, takes no ownership). Saves up to `size`
+     * (CASE 3) / `count` (CASE 4) sds alloc+free per call.
+     *
+     * This borrow is safe on two invariants that MUST hold:
+     *  1. SRANDMEMBER is READONLY, so the source set is never mutated (and its
+     *     dict never rehashed/freed) for the lifetime of the borrowed pointers.
+     *  2. `sdsReplyDictType` has a NULL key destructor, so neither the CASE 3
+     *     removals (dictUnlink + dictFreeUnlinkedEntry, no sdsfree) nor the final
+     *     dictRelease ever free the borrowed member SDS (still owned by the set).
+     * intset/listpack members are not borrowable (integers / not live SDS) and
+     * keep the allocating path below. */
+    if (set->encoding == OBJ_ENCODING_HT) {
+        if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
+            /* CASE 3: add all members (borrowed), then remove random to count. */
+            setTypeIterator si;
+            setTypeInitIterator(&si, set);
+            dictExpand(d, size);
+            while (setTypeNext(&si, &str, &len, &llele) != -1)
+                serverAssert(dictAdd(d, (sds)str, NULL) == DICT_OK);
+            setTypeResetIterator(&si);
+            serverAssert(dictSize(d) == size);
+            while (size > count) {
+                dictEntry *de = dictGetFairRandomKey(d);
+                dictUnlink(d, dictGetKey(de));
+                dictFreeUnlinkedEntry(d, de); /* borrowed key: no sdsfree */
+                size--;
+            }
+        } else {
+            /* CASE 4: sample random members (borrowed) until count unique. */
+            unsigned long added = 0;
+            dictExpand(d, count);
+            while (added < count) {
+                setTypeRandomElement(set, &str, &len, &llele);
+                if (dictAdd(d, (sds)str, NULL) == DICT_OK)
+                    added++;
+            }
+        }
+        /* Emit the borrowed members (copied into the reply, not owned). */
+        dictIterator di;
+        dictEntry *de;
+        addReplyArrayLen(c, count);
+        dictInitIterator(&di, d);
+        while ((de = dictNext(&di)) != NULL) {
+            sds ele = dictGetKey(de);
+            addReplyBulkCBuffer(c, ele, sdslen(ele));
+        }
+        dictResetIterator(&di);
+        dictRelease(d);
+        return;
+    }
+
     /* CASE 3:
      * The number of elements inside the set is not greater than
      * SRANDMEMBER_SUB_STRATEGY_MUL times the number of requested elements.
