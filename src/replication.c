@@ -2027,9 +2027,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             /* This is the main channel of the slave that received the RDB.
              * Put it online if RDB delivery is successful. */
             if (bgsaveerr == C_OK) {
-                /* Notify the task that the snapshot bulk delivery is done */
+                /* Notify the task that the main-channel bulk delivery is done */
                 if (slave->flags & CLIENT_ASM_MIGRATING)
-                    asmSlotSnapshotSucceed(slave->task);
+                    asmMainChannelTransferSucceed(slave->task);
                 replicaPutOnline(slave);
             } else {
                 freeClientAsync(slave);
@@ -2038,9 +2038,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
-                /* Notify the task that the snapshot bulk delivery failed */
+                /* Notify the task that the rdb-channel snapshot transfer failed */
                 if (slave->flags & CLIENT_ASM_MIGRATING)
-                    asmSlotSnapshotFailed(slave->task);
+                    asmRdbChannelTransferFailed(slave->task);
                 freeClientAsync(slave);
                 serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
                 continue;
@@ -2054,6 +2054,11 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
             if (type == RDB_CHILD_TYPE_SOCKET) {
                 /* Slots snapshot */
                 if (slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT) {
+                    /* Notify the task that the rdb-channel snapshot transfer
+                     * succeeded so it can mark rdb_channel_state = COMPLETED
+                     * before the slave client is freed. */
+                    if (slave->flags & CLIENT_ASM_MIGRATING)
+                        asmRdbChannelTransferSucceed(slave->task);
                     serverLog(LL_NOTICE, "Streamed slots snapshot transfer succeeded");
                     freeClientAsync(slave);
                     continue;
