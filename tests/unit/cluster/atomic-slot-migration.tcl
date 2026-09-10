@@ -182,16 +182,16 @@ proc reset_default_trim_method {} {
     }
 }
 
-# Return an INFO `stream` per-cgroup histogram (e.g. distrib_cgroups_pel) for a
+# Return an INFO `streams` per-cgroup histogram (e.g. stream_distrib_cgroups_pel) for a
 # node's db (e.g. "1=1,4=1"), or "" if absent.
 proc stream_cgroups_hist {node_id metric {dbnum 0}} {
-    foreach line [split [R $node_id info stream] "\n"] {
+    foreach line [split [R $node_id info streams] "\n"] {
         set line [string trim $line "\r"]
         if {[regexp "^db${dbnum}_${metric}:(.*)$" $line -> val]} { return $val }
     }
     return ""
 }
-proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id distrib_cgroups_pel $dbnum] }
+proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id stream_distrib_cgroups_pel $dbnum] }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
@@ -272,7 +272,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     foreach trim_method {"active" "bg"} {
-        test "Slot trim updates distrib_cgroups_pel histogram (trim method: $trim_method)" {
+        test "Slot trim updates stream_distrib_cgroups_pel histogram (trim method: $trim_method)" {
             R 0 debug asm-trim-method $trim_method
             R 0 flushall
             R 1 flushall

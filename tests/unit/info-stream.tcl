@@ -4,7 +4,7 @@
 # The section reports per-database, base-2 logarithmic histograms of stream
 # properties, identical in form to the "INFO keysizes" section. One sample per
 # consumer group per metric:
-#   - distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
+#   - stream_distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
 # Collection is gated on the stream-stats directive and reconstructed exactly
 # from RDB / replication.
 ################################################################################
@@ -24,17 +24,17 @@ proc hist_label {v} {
 # the section is entirely empty).
 proc get_info_stream_stripped {server} {
     return [string map {
-        "# Stream" ""
+        "# Streams" ""
         " " "" "\n" "" "\r" ""
-    } [$server info stream]]
+    } [$server info streams]]
 }
 
 # Only the "INFO stream" lines for a given metric field (e.g.
-# distrib_cgroups_pel), concatenated and whitespace-stripped -- so a per-metric
+# stream_distrib_cgroups_pel), concatenated and whitespace-stripped -- so a per-metric
 # assertion isn't disturbed by the other metrics' lines.
 proc get_info_stream_field {server field} {
     set out ""
-    foreach line [split [$server info stream] "\n"] {
+    foreach line [split [$server info streams] "\n"] {
         set line [string trim $line "\r"]
         if {[string match "db*_$field:*" $line]} { append out $line }
     }
@@ -113,9 +113,9 @@ proc verify_stream_metric {cmd exp field placeholder xinfo_field waitCond} {
     }
 }
 
-# distrib_cgroups_pel: placeholder "PEL", cross-checked against XINFO 'pending'.
+# stream_distrib_cgroups_pel: placeholder "PEL", cross-checked against XINFO 'pending'.
 proc verify_pel {cmd exp {waitCond 0}} {
-    uplevel 1 [list verify_stream_metric $cmd $exp distrib_cgroups_pel PEL pending $waitCond]
+    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_cgroups_pel PEL pending $waitCond]
 }
 
 # Seed a stream with 'n' entries 1-1..n-1.
@@ -307,9 +307,9 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         verify_pel {} {__EVAL__ 0}
 
         # A reload must reconstruct the metric for a random dataset too.
-        set before_pel [get_info_stream_field r distrib_cgroups_pel]
+        set before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
         r DEBUG RELOAD
-        assert_equal $before_pel [get_info_stream_field r distrib_cgroups_pel]
+        assert_equal $before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
 
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000 {useexpire}
@@ -328,7 +328,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         r DEBUG RELOAD
         assert_equal $before [get_info_stream_stripped r]
         # The metric matches an independent reconstruction from XINFO GROUPS.
-        assert_equal [eval_stream_histogram r 0 distrib_cgroups_pel pending] [get_info_stream_field r distrib_cgroups_pel]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
     }
 
     test "STREAM-STATS - section is empty after the streams are removed" {
@@ -337,7 +337,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         seed_stream r st 4
         r xgroup create st g 0
         r xreadgroup group g c count 4 streams st >
-        assert_equal "db0_distrib_cgroups_pel:4=1" [get_info_stream_field r distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         r del st
         assert_equal "" [get_info_stream_stripped r]
     }
@@ -367,9 +367,9 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
     r select 0
 
     test "STREAM-STATS - section is not part of default INFO" {
-        assert_equal 0 [string match "*# Stream*" [r info]]
-        assert_equal 1 [string match "*# Stream*" [r info everything]]
-        assert_equal 1 [string match "*# Stream*" [r info stream]]
+        assert_equal 0 [string match "*# Streams*" [r info]]
+        assert_equal 1 [string match "*# Streams*" [r info everything]]
+        assert_equal 1 [string match "*# Streams*" [r info streams]]
     }
 
     test "STREAM-STATS - disabled: section present but carries no lines" {
@@ -391,7 +391,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "" [get_info_stream_stripped r]
         # A reload rebuilds the gauge exactly from the keyspace.
         r DEBUG RELOAD
-        assert_equal "db0_distrib_cgroups_pel:4=1" [get_info_stream_field r distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         # Disabling zeroes the histogram so no stale samples linger.
         r config set stream-stats no
         assert_equal "" [get_info_stream_stripped r]

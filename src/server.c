@@ -7241,15 +7241,15 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     /* Stream statistics (per-db distribution histograms).
      * Everything-only section: not part of the default set. Populated only when
      * the stream-stats directive is enabled; otherwise just the header. */
-    if (all_sections || (dictFind(section_dict,"stream") != NULL)) {
+    if (all_sections || (dictFind(section_dict,"streams") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info, "# Stream\r\n");
+        info = sdscatprintf(info, "# Streams\r\n");
 
         if (server.stream_stats) {
             for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
                 kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
                 if (!meta) continue;
-                info = sdscatHistogramRow(info, dbnum, "distrib_cgroups_pel",
+                info = sdscatHistogramRow(info, dbnum, "stream_distrib_cgroups_pel",
                                           meta->distrib_cgroups_pel);
             }
         }
