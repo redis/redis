@@ -102,6 +102,14 @@ void lazyFreeReplicationBacklogRefMem(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
+void lazyFreeSlaveKeysWithExpire(void *args[]) {
+    dict *slave_keys_with_expire = args[0];
+    size_t len = dictSize(slave_keys_with_expire);
+    dictRelease(slave_keys_with_expire);
+    atomicDecr(lazyfree_objects, len);
+    atomicIncr(lazyfreed_objects, len);
+}
+
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
     size_t aux;
@@ -380,5 +388,15 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
     } else {
         listRelease(blocks);
         raxFree(index);
+    }
+}
+
+/* Free slaveKeysWithExpire dict, if the dict is huge enough, free it in async way. */
+void freeSlaveKeysWithExpireAsync(dict *slave_keys_with_expire) {
+    if (dictSize(slave_keys_with_expire) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, dictSize(slave_keys_with_expire));
+        bioCreateLazyFreeJob(lazyFreeSlaveKeysWithExpire, 1, slave_keys_with_expire);
+    } else {
+        dictRelease(slave_keys_with_expire);
     }
 }
