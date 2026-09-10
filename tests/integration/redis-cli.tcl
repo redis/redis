@@ -707,11 +707,12 @@ if {!$::tls} { ;# fake_cmddocs_node doesn't support TLS
             # --test_hint_file makes redis-cli connect, run cliInitHelp() (which
             # issues COMMAND DOCS and fills the help entries - the vulnerable
             # path), then evaluate the hint suite and exit. The suite is a
-            # single case that is not expected to match, so a plain non-zero
-            # exit is normal here and the checks below tolerate it.
+            # single case that is not expected to match, so a non-zero exit is
+            # normal here; the checks below tolerate any exit status and only
+            # look for a crash, so they hold either way.
             set suite [write_tmpfile "foo bar\n"]
             set cmd [rediscli "127.0.0.1" $port [list --test_hint_file $suite]]
-            catch {exec {*}$cmd 2>@1} output opts
+            set code [catch {exec {*}$cmd 2>@1} output opts]
             # Collect everything and clean up before asserting, so a failure
             # doesn't leak the fake node or the temporary files.
             catch {exec kill $nodepid}
@@ -724,8 +725,13 @@ if {!$::tls} { ;# fake_cmddocs_node doesn't support TLS
             file delete $suite
             file delete $servedlog
             # A hard crash shows up as a fatal signal; a hint mismatch is a
-            # plain non-zero exit and must not be confused with one.
-            if {[lindex [dict get $opts -errorcode] 0] eq "CHILDKILLED"} {
+            # plain non-zero exit and must not be confused with one. Read
+            # -errorcode only when catch actually reported an error: on a
+            # clean exit the options dict holds just -code and -level, so
+            # reading -errorcode there would throw a "key not known in
+            # dictionary" error and fail the test for the wrong reason.
+            if {$code != 0 &&
+                [lindex [dict get $opts -errorcode] 0] eq "CHILDKILLED"} {
                 fail "redis-cli crashed on malformed COMMAND DOCS ($mode): $output"
             }
             # A sanitizer diagnosis is not a signal: on Linux AddressSanitizer
