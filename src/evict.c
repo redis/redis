@@ -45,6 +45,9 @@ struct evictionPoolEntry {
 
 static struct evictionPoolEntry *EvictionPoolLRU;
 
+/* Forward decl: used by estimateObjectIdleTime before its definition. */
+unsigned long LFUTimeElapsed(unsigned long ldt);
+
 /* ----------------------------------------------------------------------------
  * Implementation of eviction, aging and LRU
  * --------------------------------------------------------------------------*/
@@ -70,9 +73,63 @@ unsigned int LRU_CLOCK(void) {
     return lruclock;
 }
 
+/* Idle time in ms if o->lru is interpreted as an LRU/LRM clock. */
+static unsigned long long objectLruFieldIdleMs(robj *o) {
+    unsigned long long lruclock = LRU_CLOCK();
+    if (lruclock >= o->lru)
+        return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
+    return (lruclock + (LRU_CLOCK_MAX - o->lru)) * LRU_CLOCK_RESOLUTION;
+}
+
+/* Process uptime in seconds (non-negative). */
+static time_t serverUptimeSeconds(void) {
+    time_t uptime = server.unixtime - server.stat_starttime;
+    return uptime < 0 ? 0 : uptime;
+}
+
+/* True if o->lru still looks like residual LFU encoding rather than an idle
+ * clock. Used only inside the LFU->non-LFU import window.
+ *
+ * Do NOT use LFUTimeElapsed(o->lru>>8): after keys are rewritten to a normal
+ * LRU clock that shift is not an LFU ldt, yet the 24h check often still
+ * passes and would wipe real idle on every OBJECT IDLETIME / eviction sample.
+ * Residual LFU almost always yields an idle outside process uptime when read
+ * as an LRU clock; plausible idles are left alone (access under non-LFU also
+ * rewrites the field via lookupKey). */
+static int objectLruLooksLikeResidualLFU(robj *o) {
+    if (objectLruFieldIdleMs(o) / 1000 >
+        (unsigned long long)serverUptimeSeconds() + 60)
+        return 1;
+    return 0;
+}
+
+/* True if o->lru still looks like a residual LRU/LRM clock rather than LFU
+ * encoding. Used only inside the non-LFU->LFU import window.
+ * LFUTimeElapsed(ldt) > 60 alone misses LRU clocks whose high bits land
+ * near the LFU minute clock; those would keep garbage low-8 frequency. */
+static int objectLruLooksLikeResidualLRU(robj *o) {
+    /* Plausible idle under the current process → residual LRU clock. */
+    if (objectLruFieldIdleMs(o) / 1000 <=
+        (unsigned long long)serverUptimeSeconds() + 60)
+        return 1;
+    return 0;
+}
+
 /* Given an object returns the min number of milliseconds the object was never
  * requested, using an approximated LRU algorithm. */
 unsigned long long estimateObjectIdleTime(robj *o) {
+    /* After LFU -> non-LFU policy switch, lru may still hold LFU encoding.
+     * Convert lazily during the short import window only (no keyspace walk).
+     * Must not run outside the window: permanent heuristics rewrite legitimate
+     * RESTORE IDLETIME / module setlru clocks to a fresh LRU_CLOCK (idle 0).
+     * Only under a non-LFU policy so DEBUG OBJECT cannot rewrite after bounce
+     * back to LFU. */
+    if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
+        server.lru_import_until && mstime() < server.lru_import_until &&
+        objectLruLooksLikeResidualLFU(o))
+    {
+        o->lru = LRU_CLOCK();
+    }
     unsigned long long lruclock = LRU_CLOCK();
     if (lruclock >= o->lru) {
         return (lruclock - o->lru) * LRU_CLOCK_RESOLUTION;
@@ -299,6 +356,17 @@ uint8_t LFULogIncr(uint8_t counter) {
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
 unsigned long LFUDecrAndReturn(robj *o) {
+    /* After non-LFU -> LFU policy switch, lru may still hold an LRU clock.
+     * Convert lazily on first LFU use during the import window, only while
+     * an LFU policy is active. Detect residual LRU by plausible idle vs
+     * process uptime (not only LFUTimeElapsed > 60). */
+    if ((server.maxmemory_policy & MAXMEMORY_FLAG_LFU) &&
+        server.lfu_import_until && mstime() < server.lfu_import_until &&
+        objectLruLooksLikeResidualLRU(o))
+    {
+        o->lru = (LFUGetTimeInMinutes() << 8) | LFU_INIT_VAL;
+        return LFU_INIT_VAL;
+    }
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;

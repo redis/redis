@@ -668,6 +668,9 @@ loaderr:
     exit(1);
 }
 
+/* Forward decl: defined with updateMaxmemoryPolicy; called after config load. */
+static void seedMaxmemoryPolicyBaseline(void);
+
 /* Load the server configuration from the specified filename.
  * The function appends the additional configuration directives stored
  * in the 'options' string to the config file before loading.
@@ -747,6 +750,8 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     }
     loadServerConfigFromString(config);
     sdsfree(config);
+    /* Conf may have set maxmemory-policy without apply; refresh LFU baseline. */
+    seedMaxmemoryPolicyBaseline();
 }
 
 static int performInterfaceSet(standardConfig *config, sds value, const char **errstr) {
@@ -2664,6 +2669,86 @@ static int updateReplBacklogSize(const char **err) {
     return 1;
 }
 
+/* When maxmemory-policy flips between LFU and non-LFU encodings, existing keys
+ * still hold the previous encoding of the shared lru field. Walking the whole
+ * keyspace on CONFIG SET is not acceptable on large instances.
+ *
+ * Lazy convert on short import windows instead:
+ * - non-LFU -> LFU: lfu_import_until; LFUDecrAndReturn / OBJECT FREQ convert
+ * - LFU -> non-LFU: lru_import_until; estimateObjectIdleTime / OBJECT IDLETIME
+ *   convert. Also set lru_field_may_be_lfu so LFU->noeviction->LRU after the
+ *   window expires can reopen import (encoding bit alone would not flip).
+ * Same-encoding switches (allkeys-lru <-> volatile-lru, LFU <-> LFU) are no-ops
+ * unless reopening a dirty idle import. See #15375. */
+#define MAXMEMORY_POLICY_IMPORT_MS 60000 /* 60s lazy convert window */
+
+static int prev_maxmemory_lfu = -1;
+static int prev_idle_scoring = -1;
+/* Keys may still hold LFU-encoded lru after leaving LFU (until imported or
+ * rewritten by access under a non-LFU policy). */
+static int lru_field_may_be_lfu = 0;
+
+/* loadServerConfig only sets maxmemory-policy and never runs apply. Seed the
+ * LFU-bit baseline from the live (default or conf-file) policy so the first
+ * CONFIG SET between LFU variants is not treated as "enter LFU". Called after
+ * defaults (initConfigValues) and again after config load. */
+static void seedMaxmemoryPolicyBaseline(void) {
+    prev_maxmemory_lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
+    prev_idle_scoring = server.maxmemory_policy &
+        (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM) ? 1 : 0;
+}
+
+static int updateMaxmemoryPolicy(const char **err) {
+    UNUSED(err);
+    int lfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU ? 1 : 0;
+    int idle_scoring = server.maxmemory_policy &
+        (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM) ? 1 : 0;
+
+    /* Defensive: if baseline was never seeded, keys already match the live
+     * policy encoding from createObject / initObjectLRUOrLFU. */
+    if (prev_maxmemory_lfu == -1) {
+        prev_maxmemory_lfu = lfu;
+        prev_idle_scoring = idle_scoring;
+        return 1;
+    }
+
+    if (prev_maxmemory_lfu == lfu) {
+        /* LFU bit unchanged. Reopen idle import only when *entering* an
+         * idle-scoring policy from a non-scoring one (LFU -> noeviction ->
+         * LRU), once per leave-LFU cycle. Same-encoding LRU <-> LRU must not
+         * reopen or IDLETIME is rewritten.
+         *
+         * Do not clear lru_field_may_be_lfu merely because the initial window
+         * expired while still on idle scoring: untouched keys may still be
+         * LFU-encoded, and a later non-scoring -> LRU hop needs one reopen. */
+        if (!lfu && lru_field_may_be_lfu && idle_scoring && !prev_idle_scoring)
+        {
+            server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
+            /* One reopen only; further non-scoring hops do not reopen. */
+            lru_field_may_be_lfu = 0;
+        }
+        prev_idle_scoring = idle_scoring;
+        return 1;
+    }
+
+    /* Encoding flipped: enable lazy per-object convert, no keyspace walk.
+     * Clear the opposite window so a quick bounce cannot rewrite under the
+     * wrong active policy. */
+    if (lfu) {
+        server.lfu_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
+        server.lru_import_until = 0;
+        lru_field_may_be_lfu = 0;
+    } else {
+        server.lru_import_until = mstime() + MAXMEMORY_POLICY_IMPORT_MS;
+        server.lfu_import_until = 0;
+        lru_field_may_be_lfu = 1;
+    }
+
+    prev_maxmemory_lfu = lfu;
+    prev_idle_scoring = idle_scoring;
+    return 1;
+}
+
 static int updateMaxmemory(const char **err) {
     UNUSED(err);
     if (server.maxmemory) {
@@ -3433,7 +3518,7 @@ standardConfig static_configs[] = {
     createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
     createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
     createEnumConfig("loglevel", NULL, MODIFIABLE_CONFIG, loglevel_enum, server.verbosity, LL_NOTICE, NULL, NULL),
-    createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, NULL),
+    createEnumConfig("maxmemory-policy", NULL, MODIFIABLE_CONFIG, maxmemory_policy_enum, server.maxmemory_policy, MAXMEMORY_NO_EVICTION, NULL, updateMaxmemoryPolicy),
     createEnumConfig("appendfsync", NULL, MODIFIABLE_CONFIG, aof_fsync_enum, server.aof_fsync, AOF_FSYNC_EVERYSEC, NULL, updateAppendFsync),
     createEnumConfig("oom-score-adj", NULL, MODIFIABLE_CONFIG, oom_score_adj_enum, server.oom_score_adj, OOM_SCORE_ADJ_NO, NULL, updateOOMScoreAdj),
     createEnumConfig("acl-pubsub-default", NULL, MODIFIABLE_CONFIG, acl_pubsub_default_enum, server.acl_pubsub_default, 0, NULL, NULL),
@@ -3632,6 +3717,8 @@ void initConfigValues(void) {
             serverAssert(ret);
         }
     }
+    /* Defaults are live; seed before any client keys or CONFIG SET. */
+    seedMaxmemoryPolicyBaseline();
 }
 
 /* Remove a config by name from the configs dict. */
