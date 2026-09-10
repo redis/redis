@@ -1,0 +1,42 @@
+# Redis code style. Only code changed by a pull request is checked; see
+# utils/check-format.sh. Do not run clang-format over the entire repository.
+BasedOnStyle: LLVM
+
+ColumnLimit: 0
+IndentWidth: 4
+ContinuationIndentWidth: 8
+TabWidth: 4
+UseTab: Never
+
+# Keep opening braces on the same line as functions and control statements.
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: false
+  AfterControlStatement: Never
+  BeforeElse: false
+
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+
+ReflowComments: false
+SortIncludes: Never
+AlignTrailingComments: false
+AlignConsecutiveMacros: false
+AlignEscapedNewlines: DontAlign
+InsertBraces: false
+KeepEmptyLinesAtTheStartOfBlocks: true
+MaxEmptyLinesToKeep: 1
+
+# Use continuation indentation instead of aligning with an opening parenthesis.
+# Indent case/default labels once under switch; indent their bodies again.
+AlignAfterOpenBracket: DontAlign
+AlignOperands: Align
+IndentCaseLabels: true
+IndentGotoLabels: false
+PointerAlignment: Right
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements

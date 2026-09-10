@@ -150,6 +150,11 @@ run:
 test:
 	+@TEST='$(TEST)' PROG_SUFFIX='$(PROG_SUFFIX)' scripts/test.sh $(TEST_ARGS)
 
+# format [BASE=<revision>] [FIX=1] — check or fix changed C and header lines.
+format: BASE ?= unstable
+format:
+	@./utils/check-format.sh '$(BASE)'
+
 # modules-update [<name> ...|all|.] [MODULES_UPDATE_SHALLOW=1]
 #   Idempotent clone/refresh per modules.yaml.
 modules-update:
@@ -177,4 +182,4 @@ sync-redis-conf:
 	    PREFIX='$(PREFIX)' \
 	    scripts/sync-redis-conf.sh
 
-.PHONY: install uninstall clean build run test bootstrap deploy modules-update modules-shallow sync-redis-conf tarball
+.PHONY: install uninstall clean build run test format bootstrap deploy modules-update modules-shallow sync-redis-conf tarball
