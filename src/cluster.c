@@ -119,8 +119,6 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int flags, si
      * metadata separately through keyMetaOnAof(). */
     if (!(flags & DUMP_PAYLOAD_SKIP_KEY_META) && getModuleMetaBits(o->metabits))
         serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
-    /* Per-key attributes (bless) are NOT in the payload: DUMP/RESTORE drop them
-     * (a local decision), and ASM carries them as a follow-up command like TTL. */
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 
