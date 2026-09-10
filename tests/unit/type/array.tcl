@@ -380,6 +380,78 @@ start_server {
         assert_error {*invalid regular expression*} [list r argrep myarray - + RE $invalid NOCASE]
     }
 
+     test {ARGREP RANGE inclusive} {
+        r del myarray
+        r armset myarray 0 5 1 10 2 15 3 20 4 foo 5 25
+
+        assert_equal {1 2 3} [r argrep myarray - + RANGE 10 20]
+    }
+
+    test {ARGREP RANGE exclusive} {
+        r del myarray
+        r armset myarray 0 10 1 15 2 20
+
+        assert_equal {1} [r argrep myarray - + RANGE 10 20 EXCLUSIVE]
+    }
+
+    test {ARGREP RANGE with non-numeric values} {
+        r del myarray
+        r armset myarray 0 hello 1 5 2 world 3 10
+
+        assert_equal {1 3} [r argrep myarray - + RANGE 0 100]
+    }
+
+    test {ARGREP RANGE with WITHVALUES and reverse} {
+        r del myarray
+        r armset myarray 0 5 1 10 2 15
+
+        assert_equal {{2 15} {1 10}} [r argrep myarray 2 0 RANGE 10 20 WITHVALUES]
+    }
+
+    test {ARGREP RANGE combined with AND} {
+        r del myarray
+        r armset myarray 0 10 1 20 2 30
+
+        assert_equal {0} [r argrep myarray - + MATCH 10 RANGE 0 100 AND]
+    }
+
+    test {ARGREP RANGE combined with OR} {
+        r del myarray
+        r armset myarray 0 "foo" 1 10 2 20
+
+        assert_equal {0 2} [r argrep myarray - + MATCH foo RANGE 15 25 OR]
+    }
+
+    test {ARGREP RANGE with LIMIT} {
+        r del myarray
+        r armset myarray 0 10 1 20 2 30
+
+        assert_equal {0 1} [r argrep myarray - + RANGE 0 100 LIMIT 2]
+    }
+
+    test {ARGREP RANGE error cases} {
+        r del myarray
+        r arset myarray 0 5
+
+        # not enough arguments caught by arity
+        catch {r argrep myarray - + RANGE} err
+        assert_match "*wrong number*" $err
+
+        # invalid numeric values
+        assert_error "*not a valid float*" {r argrep myarray - + RANGE not-a-number 10}
+        assert_error "*not a valid float*" {r argrep myarray - + RANGE 10 not-a-number}
+
+        # unknown token after a valid predicate triggers syntax error
+        assert_error "*syntax error*" {r argrep myarray - + RANGE 10 20 FOO}
+    }
+
+    test {ARGREP still works after adding RANGE} {
+        r del myarray
+        r armset myarray 0 alpha 1 beta 2 alphabet
+
+        assert_equal {0 2} [r argrep myarray - + MATCH alpha]
+    }
+
     test {ARSET contiguous write basics} {
         r del myarray
         assert_equal 3 [r arset myarray 0 a b c]
@@ -532,6 +604,201 @@ start_server {
         assert_equal 1 [r arop myarray 0 2 AND]
         assert_equal 7 [r arop myarray 0 2 OR]
         assert_equal 5 [r arop myarray 0 2 XOR]
+    }
+
+    # ARAGG tests
+    test {ARAGG COUNT all elements} {
+        r del myarray
+        r armset myarray 0 a 1 b 2 c
+
+        assert_equal 3 [r aragg myarray - + AGGREGATE COUNT]
+    }
+
+    test {ARAGG COUNT with predicate} {
+        r del myarray
+        r armset myarray 0 apple 1 banana 2 apricot
+
+        assert_equal 1 [r aragg myarray - + MATCH ban AGGREGATE COUNT]
+    }
+
+    test {ARAGG SUM} {
+        r del myarray
+        r armset myarray 0 10 1 20.5 2 30
+
+        # 10 + 20.5 + 30 = 60.5, Redis returns string
+        set res [r aragg myarray - + AGGREGATE SUM]
+        assert_equal "60.5" $res
+    }
+
+    test {ARAGG MIN and MAX} {
+        r del myarray
+        r armset myarray 0 100 1 5 2 20.5
+
+        assert_equal "5" [r aragg myarray - + AGGREGATE MIN]
+        assert_equal "100" [r aragg myarray - + AGGREGATE MAX]
+    }
+
+    test {ARAGG AVG} {
+        r del myarray
+        r armset myarray 0 10 1 20 2 "hello" 3 30
+
+        # numeric: 10,20,30 -> sum=60, numeric_count=3, avg=20
+        set res [r aragg myarray - + AGGREGATE AVG]
+        assert_equal "20" $res
+    }
+
+    test {ARAGG bitwise operations} {
+        r del myarray
+        # 7 (0b0111), 3 (0b0011), 1 (0b0001)
+        r armset myarray 0 7 1 3 2 1
+
+        assert_equal 1 [r aragg myarray - + AGGREGATE AND]
+        assert_equal 7 [r aragg myarray - + AGGREGATE OR]
+        assert_equal 5 [r aragg myarray - + AGGREGATE XOR]
+    }
+
+    test {ARAGG bitwise truncates floats} {
+        r del myarray
+        r armset myarray 0 7.9 1 3.2 2 1.8
+
+        assert_equal 1 [r aragg myarray - + AGGREGATE AND]
+        assert_equal 7 [r aragg myarray - + AGGREGATE OR]
+        assert_equal 5 [r aragg myarray - + AGGREGATE XOR]
+    }
+
+    #  ARAGG – multiple operations
+    test {ARAGG multiple aggregates in one call} {
+        r del myarray
+        r armset myarray 0 10 1 20 2 30
+
+        set res [r aragg myarray - + AGGREGATE SUM MIN MAX COUNT AVG]
+        assert_equal {60 10 30 3 20} $res
+    }
+
+    test {ARAGG mixed numeric and bitwise} {
+        r del myarray
+        r armset myarray 0 5 1 3 2 1
+
+        set res [r aragg myarray - + AGGREGATE SUM AND OR]
+        assert_equal {9 1 7} $res
+    }
+
+    #  ARAGG – predicates and options
+    test {ARAGG with RANGE filter} {
+        r del myarray
+        r armset myarray 0 5 1 10 2 15 3 20
+
+        assert_equal 3 [r aragg myarray - + RANGE 10 20 AGGREGATE COUNT]
+    }
+
+    test {ARAGG with MATCH and NOCASE} {
+        r del myarray
+        r armset myarray 0 Alpha 1 beta 2 ALPHA
+
+        assert_equal 2 [r aragg myarray - + MATCH alpha NOCASE AGGREGATE COUNT]
+    }
+
+    test {ARAGG with AND combination} {
+        r del myarray
+        r armset myarray 0 12 1 123 2 34
+
+        assert_equal 1 [r aragg myarray - + MATCH 12 RANGE 0 100 AND AGGREGATE COUNT]
+    }
+
+    test {ARAGG with OR combination} {
+        r del myarray
+        r armset myarray 0 "foo" 1 10 2 20
+
+        assert_equal 2 [r aragg myarray - + MATCH foo RANGE 15 25 OR AGGREGATE COUNT]
+    }
+
+    test {ARAGG with LIMIT} {
+        r del myarray
+        r armset myarray 0 10 1 20 2 30 3 40
+
+        # only first 2 matching elements are considered
+        set res [r aragg myarray - + LIMIT 2 AGGREGATE SUM]
+        assert_equal "30" $res
+    }
+
+    test {ARAGG with GLOB predicate} {
+        r del myarray
+        r armset myarray 0 "apple" 1 "application" 2 "banana"
+
+        assert_equal 2 [r aragg myarray - + GLOB app* AGGREGATE COUNT]
+    }
+
+    #ARAGG – edge cases and errors    
+    test {ARAGG missing key returns nulls/0} {
+        r del nonexistent
+        set res [r aragg nonexistent - + AGGREGATE SUM COUNT AVG]
+        assert_equal {{} 0 {}} $res
+    }
+
+    test {ARAGG empty array returns nulls/0} {
+        r del myarray
+        r arset myarray 0 a
+        r ardel myarray 0
+        set res [r aragg myarray - + AGGREGATE SUM COUNT]
+        assert_equal {{} 0} $res
+    }
+
+    test {ARAGG AGGREGATE keyword missing} {
+        r del myarray
+        assert_error {*AGGREGATE keyword required*} {r aragg myarray - + MATCH foo}
+    }
+
+    test {ARAGG no operation after AGGREGATE} {
+        r del myarray
+        assert_error {*requires at least one operation*} {r aragg myarray - + MATCH foo AGGREGATE}
+    }
+
+    test {ARAGG unknown operation} {
+        r del myarray
+        assert_error {*unknown aggregate operation: FOO*} {r aragg myarray - + AGGREGATE FOO}
+    }
+
+    test {ARAGG type error on key} {
+        r set mystring hello
+        assert_error {*WRONGTYPE*} {r aragg mystring - + AGGREGATE COUNT}
+    }
+
+    test {ARAGG ignores NaN for numeric aggregates} {
+        r del myarray
+        r armset myarray 0 10 1 "not a number" 2 20
+
+        set res [r aragg myarray - + AGGREGATE SUM COUNT AVG]
+        # count includes non-numeric, sum=30, numeric_count=2 => avg=15
+        assert_equal {30 3 15} $res
+    }
+
+    test {ARAGG non-numeric string ignored by bitwise} {
+        r del myarray
+        r armset myarray 0 7 1 "hello" 2 3
+
+        set res [r aragg myarray - + AGGREGATE AND]
+        # only 7 and 3: 7&3=3
+        assert_equal 3 $res
+    }
+
+    test {ARAGG with invalid regex} {
+        r del myarray
+        assert_error {*invalid regular expression*} {r aragg myarray - + RE {(} AGGREGATE COUNT}
+    }
+
+    test {ARAGG respects start/end bounds} {
+        r del myarray
+        r armset myarray 0 10 1 20 2 30 3 40
+
+        assert_equal 1 [r aragg myarray 1 1 AGGREGATE COUNT]
+    }
+
+    test {ARAGG does not interfere with ARGREP} {
+        r del myarray
+        r armset myarray 0 10 1 20
+
+        assert_equal 2 [r aragg myarray - + AGGREGATE COUNT]
+        assert_equal {0 1} [r argrep myarray - + RANGE 0 100]
     }
 
     # ARINFO tests

@@ -1,11 +1,11 @@
 {
-    "ARGREP": {
-        "summary": "Searches array elements in a range using textual predicates.",
-        "complexity": "O(P * C) where P is the number of visited positions in touched slices and C is the cost of evaluating the predicates on one existing element.",
+    "ARAGG": {
+        "summary": "Compute one or more aggregates over array elements matching optional predicates.",
+        "complexity": "O(P * C + A) where P is the number of visited positions, C is predicate evaluation cost, and A is aggregate computation.",
         "group": "array",
-        "since": "8.8.0",
+        "since": "8.10.0",
         "arity": -6,
-        "function": "argrepCommand",
+        "function": "araggCommand",
         "command_flags": [
             "READONLY"
         ],
@@ -33,35 +33,24 @@
             }
         ],
         "reply_schema": {
-            "anyOf": [
-                {
-                    "description": "Array of matching indexes.",
-                    "type": "array",
-                    "items": {
+            "description": "Array of aggregate results in the same order as the requested operations. Each result is a number (integer or string), or Null if no matching element could be aggregated.",
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
                         "type": "integer",
-                        "description": "Index of a matching element"
+                        "description": "COUNT, AND, OR, XOR operations return an integer"
+                    },
+                    {
+                        "type": "string",
+                        "description": "SUM, MIN, MAX, AVG operations return a string representation of the number"
+                    },
+                    {
+                        "type": "null",
+                        "description": "Returned when no element matched or no numeric value could be aggregated"
                     }
-                },
-                {
-                    "description": "Array of [index, value] pairs. Returned in case `WITHVALUES` was used.",
-                    "type": "array",
-                    "items": {
-                        "type": "array",
-                        "minItems": 2,
-                        "maxItems": 2,
-                        "items": [
-                            {
-                                "type": "integer",
-                                "description": "Index of a matching element"
-                            },
-                            {
-                                "type": "string",
-                                "description": "Value at that index"
-                            }
-                        ]
-                    }
-                }
-            ]
+                ]
+            }
         },
         "arguments": [
             {
@@ -81,6 +70,7 @@
                 "name": "predicate",
                 "type": "oneof",
                 "multiple": true,
+                "optional": true,
                 "arguments": [
                     {
                         "name": "exact",
@@ -191,14 +181,67 @@
                         "token": "LIMIT"
                     },
                     {
-                        "name": "withvalues",
-                        "type": "pure-token",
-                        "token": "WITHVALUES"
-                    },
-                    {
                         "name": "nocase",
                         "type": "pure-token",
                         "token": "NOCASE"
+                    }
+                ]
+            },
+            {
+                "name": "aggregate",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "aggregate",
+                        "type": "pure-token",
+                        "token": "AGGREGATE"
+                    },
+                    {
+                        "name": "operations",
+                        "type": "oneof",
+                        "multiple": true,
+                        "arguments": [
+                            {
+                                "name": "sum",
+                                "type": "pure-token",
+                                "token": "SUM"
+                            },
+                            {
+                                "name": "min",
+                                "type": "pure-token",
+                                "token": "MIN"
+                            },
+                            {
+                                "name": "max",
+                                "type": "pure-token",
+                                "token": "MAX"
+                            },
+                            {
+                                "name": "count",
+                                "type": "pure-token",
+                                "token": "COUNT"
+                            },
+                            {
+                                "name": "avg",
+                                "type": "pure-token",
+                                "token": "AVG"
+                            },
+                            {
+                                "name": "and",
+                                "type": "pure-token",
+                                "token": "AND"
+                            },
+                            {
+                                "name": "or",
+                                "type": "pure-token",
+                                "token": "OR"
+                            },
+                            {
+                                "name": "xor",
+                                "type": "pure-token",
+                                "token": "XOR"
+                            }
+                        ]
                     }
                 ]
             }

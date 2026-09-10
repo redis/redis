@@ -4861,6 +4861,7 @@ void argetrangeCommand(client *c);
 void arscanCommand(client *c);
 void argrepCommand(client *c);
 void aropCommand(client *c);
+void araggCommand(client *c);
 void arinsertCommand(client *c);
 void arringCommand(client *c);
 void arnextCommand(client *c);
