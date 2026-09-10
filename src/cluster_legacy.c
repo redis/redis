@@ -1372,6 +1372,8 @@ clusterNode *createClusterNode(char *nodename, int flags) {
     node->last_in_ping_gossip = 0;
     node->ping_sent = node->pong_received = 0;
     node->data_received = 0;
+    node->last_reconnect_attempt = 0;
+    node->reconnect_retry_delay = 0;
     node->fail_time = 0;
     node->link = NULL;
     node->inbound_link = NULL;
@@ -2236,6 +2238,7 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
+                node->reconnect_retry_delay = 0;
             }
         } else if (!node) {
             /* If it's not in NOADDR state and we don't have it, we
@@ -2959,7 +2962,10 @@ int clusterProcessPacket(clusterLink *link) {
      * use this in order to avoid detecting a timeout from a node that
      * is just sending a lot of data in the cluster bus, for instance
      * because of Pub/Sub. */
-    if (sender) sender->data_received = now;
+    if (sender) {
+        sender->data_received = now;
+        sender->reconnect_retry_delay = 0;
+    }
 
     if (sender && !nodeInHandshake(sender)) {
         /* Update our currentEpoch if we see a newer epoch in the cluster. */
@@ -3136,6 +3142,7 @@ int clusterProcessPacket(clusterLink *link) {
         if (!link->inbound && type == CLUSTERMSG_TYPE_PONG) {
             link->node->pong_received = now;
             link->node->ping_sent = 0;
+            link->node->reconnect_retry_delay = 0;
 
             /* The PFAIL condition can be reversed without external
              * help if it is momentary (that is, if it does not
@@ -4800,17 +4807,42 @@ static int clusterNodeCronHandleReconnect(clusterNode *node, mstime_t handshake_
     }
 
     if (node->link == NULL) {
+        /* Enforce exponential backoff between reconnect attempts to
+         * avoid a reconnect storm when a node is unreachable. */
+        if (node->reconnect_retry_delay > 0 &&
+            now - node->last_reconnect_attempt < node->reconnect_retry_delay)
+        {
+            return 0;
+        }
+
+        /* Record this attempt and grow the backoff delay.
+         * Starts at 500 ms, doubles each time, capped at node_timeout/3. */
+        node->last_reconnect_attempt = now;
+        if (node->reconnect_retry_delay == 0) {
+            node->reconnect_retry_delay = 500;
+        } else {
+            node->reconnect_retry_delay *= 2;
+            mstime_t max_delay = server.cluster_node_timeout / 3;
+            if (max_delay < 500) max_delay = 500;
+            if (node->reconnect_retry_delay > max_delay) {
+                node->reconnect_retry_delay = max_delay;
+            }
+        }
+
         clusterLink *link = createClusterLink(node);
         link->conn = connCreate(server.el, connTypeOfCluster());
         connSetPrivateData(link->conn, link);
+
+        /* Arm ping_sent before the connection attempt so that failure
+         * detection (PFAIL) starts its timeout from the attempt time,
+         * regardless of whether the connect fails synchronously or
+         * asynchronously. */
+        if (node->ping_sent == 0) node->ping_sent = now;
+
         if (connConnect(link->conn, node->ip, node->cport, server.bind_source_addr,
                     clusterLinkConnectHandler) == C_ERR) {
             /* We got a synchronous error from connect before
-             * clusterSendPing() had a chance to be called.
-             * If node->ping_sent is zero, failure detection can't work,
-             * so we claim we actually sent a ping now (that will
-             * be really sent as soon as the link is obtained). */
-            if (node->ping_sent == 0) node->ping_sent = mstime();
+             * clusterSendPing() had a chance to be called. */
             serverLog(LL_DEBUG, "Unable to connect to "
                 "Cluster Node [%s]:%d -> %s", node->ip,
                 node->cport, server.neterr);
