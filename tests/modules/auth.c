@@ -115,12 +115,13 @@ int test_rm_register_auth_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  * The thread entry point that actually executes the blocking part of the AUTH command.
  * This function sleeps for 0.5 seconds and then unblocks the client which will later call
  * `AuthBlock_Reply`.
- * `arg` is expected to contain the RedisModuleBlockedClient, username, and password.
+ * `arg` contains the RedisModuleBlockedClient, username, password, and reply buffer.
  */
 void *AuthBlock_ThreadMain(void *arg) {
     usleep(500000);
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
+    RedisModule_ReplyWithSimpleString(targ[3], "discarded auth reply");
     int result = 2;
     const char *user = RedisModule_StringPtrLen(targ[1], NULL);
     const char *pwd = RedisModule_StringPtrLen(targ[2], NULL);
@@ -136,8 +137,9 @@ void *AuthBlock_ThreadMain(void *arg) {
         goto cleanup;
     }
     /* Provide the result to the blocking reply cb. */
-    void **replyarg = RedisModule_Alloc(sizeof(void*));
+    void **replyarg = RedisModule_Alloc(sizeof(void*)*2);
     replyarg[0] = (void *) (uintptr_t) result;
+    replyarg[1] = targ[3];
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, replyarg);
 cleanup:
@@ -154,6 +156,9 @@ cleanup:
 int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
     REDISMODULE_NOT_USED(password);
     void **targ = RedisModule_GetBlockedClientPrivateData(ctx);
+    /* Auth callbacks run after moduleHandleBlockedClients has released the
+     * ordinary temporary clients. Private buffers must still be alive. */
+    RedisModule_ReplyWithSimpleString(targ[1], "discarded auth callback reply");
     int result = (uintptr_t) targ[0];
     size_t userlen = 0;
     const char *user = RedisModule_StringPtrLen(username, &userlen);
@@ -178,6 +183,8 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
 /* Private data freeing callback for Module Auth. */
 void AuthBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     REDISMODULE_NOT_USED(ctx);
+    void **targ = privdata;
+    RedisModule_ReplyWithSimpleString(targ[1], "discarded auth free reply");
     RedisModule_Free(privdata);
 }
 
@@ -207,10 +214,11 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     RedisModule_BlockedClientMeasureTimeStart(bc);
 
     /* Allocate memory for information needed. */
-    void **targ = RedisModule_Alloc(sizeof(void*)*3);
+    void **targ = RedisModule_Alloc(sizeof(void*)*4);
     targ[0] = bc;
     targ[1] = RedisModule_CreateStringFromString(NULL, username);
     targ[2] = RedisModule_CreateStringFromString(NULL, password);
+    targ[3] = RedisModule_GetReplyBufferContext(bc);
 
     /* Create bg thread and pass the blockedclient, username and password to it. */
     if (pthread_create(&tid, NULL, AuthBlock_ThreadMain, targ) != 0) {
