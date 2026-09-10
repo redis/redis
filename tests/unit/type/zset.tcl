@@ -102,7 +102,7 @@ start_server {tags {"zset"}} {
         if {$encoding == "listpack"} {
             r config set zset-max-ziplist-entries 128
             r config set zset-max-ziplist-value 64
-        } elseif {$encoding == "skiplist"} {
+        } elseif {$encoding == "btree"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
         } else {
@@ -1179,6 +1179,19 @@ start_server {tags {"zset"}} {
             assert_equal {} [r zrange zsetc{t} 0 -1 withscores]
         }
 
+        test "ZDIFF algorithm 2 subtracts every source-0 member - $encoding" {
+            # algo_one = 3*5/2 = 7, algo_two = 3+1+1+1+0 = 6 -> algorithm 2
+            r del zseta{t} zsetb{t} zsetc{t} zsetd{t} zsete{t}
+            r zadd zseta{t} 1 a 2 b 3 c
+            r zadd zsetb{t} 1 a
+            r zadd zsetc{t} 1 b
+            r zadd zsetd{t} 1 c
+            r zadd zsete{t} 9 leftover
+            assert_equal {} [r zdiff 5 zseta{t} zsetb{t} zsetc{t} zsetd{t} nx{t}]
+            assert_equal 0 [r zdiffstore zsete{t} 5 zseta{t} zsetb{t} zsetc{t} zsetd{t} nx{t}]
+            assert_equal 0 [r exists zsete{t}]
+        }
+
         test "ZDIFF fuzzing - $encoding" {
             for {set j 0} {$j < 100} {incr j} {
                 unset -nocomplain s
@@ -1338,7 +1351,297 @@ start_server {tags {"zset"}} {
     }
 
     basics listpack
-    basics skiplist
+    basics btree
+
+    proc with_btree_encoding {body} {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        # Restore the limit even if the body fails, otherwise every later test
+        # in this file would keep running with the btree-only setting.
+        catch {uplevel 1 $body} res opts
+        r config set zset-max-listpack-entries $original_max
+        return -options $opts $res
+    }
+
+    proc zadd_seq {key n} {
+        r del $key
+        set args {}
+        for {set i 0} {$i < $n} {incr i} {
+            lappend args $i [format m%06d $i]
+            if {[llength $args] >= 200} {
+                r zadd $key {*}$args
+                set args {}
+            }
+        }
+        if {[llength $args]} { r zadd $key {*}$args }
+    }
+
+    test "Large B-tree ZREMRANGEBYRANK removes an exact contiguous window" {
+        with_btree_encoding {
+            r del zr
+            for {set i 0} {$i < 3000} {incr i} { r zadd zr $i [format e%05d $i] }
+            assert_encoding btree zr
+            assert_equal 1000 [r zremrangebyrank zr 1000 1999]
+            assert_equal 2000 [r zcard zr]
+            assert_equal [format e%05d 0]    [lindex [r zrange zr 0 0] 0]
+            assert_equal [format e%05d 999]  [lindex [r zrange zr 999 999] 0]
+            assert_equal [format e%05d 2000] [lindex [r zrange zr 1000 1000] 0]
+            assert_equal [format e%05d 2999] [lindex [r zrange zr -1 -1] 0]
+            # Remove everything that is left.
+            assert_equal 2000 [r zremrangebyrank zr 0 -1]
+            assert_equal 0 [r exists zr]
+        }
+    }
+
+    # Height-3 trees (more than 64 packed leaves) are the only ones that
+    # run zbtRebalanceInner: a non-root inner must drop below INNER_MIN.
+    test "Large B-tree random rank-range deletes keep a consistent order" {
+        with_btree_encoding {
+            set n 20000
+            zadd_seq zrr $n
+            assert_encoding btree zrr
+            assert_equal $n [r zcard zrr]
+            expr {srand(12345)}
+            while {[r zcard zrr] > 200} {
+                set card [r zcard zrr]
+                set span [expr {1 + int(rand() * 128)}]
+                set lo [expr {int(rand() * $card)}]
+                set hi [expr {$lo + $span}]
+                if {$hi >= $card} { set hi [expr {$card - 1}] }
+                set before $card
+                set got [r zremrangebyrank zrr $lo $hi]
+                assert_equal [expr {$hi - $lo + 1}] $got
+                assert_equal [expr {$before - $got}] [r zcard zrr]
+            }
+            assert_encoding btree zrr
+            set first [lindex [r zrange zrr 0 0] 0]
+            set last [lindex [r zrange zrr -1 -1] 0]
+            assert_equal 0 [r zrank zrr $first]
+            assert_equal [expr {[r zcard zrr] - 1}] [r zrank zrr $last]
+        }
+    }
+
+    test "Large B-tree inner borrow from the right sibling" {
+        with_btree_encoding {
+            # ~3 packed inners under the root (64 leaves * 64 elems * 3).
+            set n 12288
+            zadd_seq zib $n
+            assert_encoding btree zib
+            # Empty most of the leftmost inner while the right siblings stay
+            # packed, so the short inner borrows a child from the right.
+            assert_equal 2500 [r zremrangebyrank zib 0 2499]
+            assert_equal [expr {$n - 2500}] [r zcard zib]
+            assert_encoding btree zib
+            assert_equal [format m%06d 2500] [lindex [r zrange zib 0 0] 0]
+            assert_equal [format m%06d [expr {$n - 1}]] [lindex [r zrange zib -1 -1] 0]
+            assert_equal 0 [r zrank zib [format m%06d 2500]]
+        }
+    }
+
+    test "Large B-tree inner borrow from the left sibling" {
+        with_btree_encoding {
+            set n 12288
+            zadd_seq zib $n
+            assert_encoding btree zib
+            set lo [expr {$n - 2500}]
+            assert_equal 2500 [r zremrangebyrank zib $lo [expr {$n - 1}]]
+            assert_equal $lo [r zcard zib]
+            assert_encoding btree zib
+            assert_equal [format m%06d 0] [lindex [r zrange zib 0 0] 0]
+            assert_equal [format m%06d [expr {$lo - 1}]] [lindex [r zrange zib -1 -1] 0]
+        }
+    }
+
+    test "B-tree compact score encodings and width-changing ZADD" {
+        with_btree_encoding {
+            r del zenc
+            r zadd zenc 32768 a
+            assert_encoding btree zenc
+            assert_equal 32768 [r zscore zenc a]
+            r zadd zenc -32769 b
+            assert_equal -32769 [r zscore zenc b]
+
+            r del zenc
+            r zadd zenc 127 a
+            assert_equal 127 [r zscore zenc a]
+            r zadd zenc 1.5 a
+            assert_equal 1.5 [r zscore zenc a]
+            r zadd zenc 1 a
+            assert_equal 1 [r zscore zenc a]
+
+            r del zenc
+            r zadd zenc 32767 a
+            assert_equal 32767 [r zscore zenc a]
+            r zadd zenc 32768 a
+            assert_equal 32768 [r zscore zenc a]
+
+            # Wider integer encodings and the integer-too-big-for-I48 double
+            # fallback (2^47).
+            r del zenc
+            r zadd zenc 2147483647 i32
+            assert_equal 2147483647 [r zscore zenc i32]
+            r zadd zenc 2147483648 i48
+            assert_equal 2147483648 [r zscore zenc i48]
+            r zadd zenc 140737488355328 dbl47
+            assert_equal 140737488355328 [r zscore zenc dbl47]
+            r zadd zenc inf pinf
+            r zadd zenc -inf ninf
+            assert_equal inf [r zscore zenc pinf]
+            assert_equal -inf [r zscore zenc ninf]
+        }
+    }
+
+    test "B-tree ZRANGEBYSCORE LIMIT rank-jump vs leaf walk" {
+        with_btree_encoding {
+            r del zn
+            set args {}
+            for {set i 0} {$i < 100} {incr i} {
+                lappend args $i [format e%03d $i]
+            }
+            r zadd zn {*}$args
+            assert_encoding btree zn
+            assert_equal {e000} [r zrangebyscore zn -inf +inf LIMIT 0 1]
+            assert_equal {e011 e012 e013 e014 e015} [r zrangebyscore zn -inf +inf LIMIT 11 5]
+            assert_equal {e088 e087 e086 e085 e084} [r zrevrangebyscore zn +inf -inf LIMIT 11 5]
+            r del emptyz
+            assert_equal {} [r zrangebyscore emptyz -inf +inf LIMIT 11 5]
+            assert_equal {} [r zrevrangebyscore emptyz +inf -inf LIMIT 11 5]
+        }
+    }
+
+    test "Large B-tree ZREMRANGEBYSCORE/BYLEX batched deletion" {
+        with_btree_encoding {
+            r del zs
+            for {set i 0} {$i < 3000} {incr i} { r zadd zs $i m$i }
+            assert_encoding btree zs
+            assert_equal 501 [r zremrangebyscore zs 0 500]
+            assert_equal 2499 [r zcard zs]
+            assert_equal 0 [r zcount zs 0 500]
+            assert_equal 2499 [r zcount zs -inf +inf]
+
+            r del zl
+            for {set i 0} {$i < 2000} {incr i} { r zadd zl 0 [format k%05d $i] }
+            assert_encoding btree zl
+            assert_equal 500 [r zremrangebylex zl \[k00000 \[k00499]
+            assert_equal 1500 [r zcard zl]
+            assert_equal [format k%05d 500] [lindex [r zrange zl 0 0] 0]
+        }
+    }
+
+    test "Large B-tree COPY preserves digest and cardinality" {
+        with_btree_encoding {
+            r del zcopy_src{t} zcopy_dst{t}
+            for {set i 0} {$i < 5000} {incr i} {
+                r zadd zcopy_src{t} [expr {$i * 1.5}] [format m%06d $i]
+            }
+            assert_encoding btree zcopy_src{t}
+            r copy zcopy_src{t} zcopy_dst{t}
+            assert_encoding btree zcopy_dst{t}
+            assert_equal [r zcard zcopy_src{t}] [r zcard zcopy_dst{t}]
+            assert_equal [debug_digest_value zcopy_src{t}] [debug_digest_value zcopy_dst{t}]
+        }
+    }
+
+    test "Large B-tree survives DEBUG RELOAD (RDB save/load)" {
+        with_btree_encoding {
+            r del zrl
+            for {set i 0} {$i < 5000} {incr i} {
+                r zadd zrl [expr {$i - 2500}] [format m%06d $i]
+            }
+            assert_encoding btree zrl
+            set d1 [debug_digest_value zrl]
+            r debug reload
+            assert_encoding btree zrl
+            assert_equal 5000 [r zcard zrl]
+            assert_equal $d1 [debug_digest_value zrl]
+        }
+    } {} {needs:debug}
+
+    # A run of identical scores wider than a B-tree leaf, with a distinct
+    # score on either side, so that a score bound lands inside the run
+    # instead of at a leaf edge.
+    proc create_dup_score_zset {key runlen} {
+        r del $key
+        set args {}
+        for {set i 0} {$i < $runlen} {incr i} { lappend args 10 [format dup%05d $i] }
+        r zadd $key 0 lo
+        r zadd $key {*}$args
+        r zadd $key 20 hi
+    }
+
+    proc dup_score_members {first last} {
+        set res {}
+        for {set i $first} {$i <= $last} {incr i} { lappend res [format dup%05d $i] }
+        return $res
+    }
+
+    test "Large B-tree score ranges span a run of equal scores" {
+        with_btree_encoding {
+            create_dup_score_zset zdup{t} 300
+            assert_encoding btree zdup{t}
+            set run [dup_score_members 0 299]
+
+            assert_equal $run [r zrangebyscore zdup{t} 10 10]
+            assert_equal [lreverse $run] [r zrevrangebyscore zdup{t} 10 10]
+
+            # Both ends of the whole key, and of the run itself.
+            assert_equal {lo} [r zrangebyscore zdup{t} -inf +inf LIMIT 0 1]
+            assert_equal {hi} [r zrevrangebyscore zdup{t} +inf -inf LIMIT 0 1]
+            assert_equal [dup_score_members 0 0] [r zrangebyscore zdup{t} 10 10 LIMIT 0 1]
+            assert_equal [dup_score_members 299 299] [r zrevrangebyscore zdup{t} 10 10 LIMIT 0 1]
+
+            # Exclusive bounds drop the neighbouring scores, never the run.
+            assert_equal $run [r zrangebyscore zdup{t} (0 (20]
+            assert_equal [lreverse $run] [r zrevrangebyscore zdup{t} (20 (0]
+            assert_equal {} [r zrevrangebyscore zdup{t} (10 (10]
+            assert_equal {} [r zrangebyscore zdup{t} (10 (10]
+
+            # A reverse range is exactly its forward range, backwards.
+            foreach {min max} {-inf +inf 0 20 10 10 5 15 10 20 0 10 20 0 30 40} {
+                assert_equal [lreverse [r zrangebyscore zdup{t} $min $max]] \
+                             [r zrevrangebyscore zdup{t} $max $min]
+            }
+        }
+    }
+
+    test "Large B-tree score range LIMIT offset crosses the walk threshold" {
+        with_btree_encoding {
+            create_dup_score_zset zdup{t} 300
+            assert_encoding btree zdup{t}
+
+            # Small offsets step along the leaf chain, larger ones jump by
+            # rank; both have to land on the same element.
+            foreach offset {0 1 9 10 11 12 63 64 65 100 298 299} {
+                assert_equal [dup_score_members $offset $offset] \
+                             [r zrangebyscore zdup{t} 10 10 LIMIT $offset 1]
+                set want [dup_score_members [expr {299 - $offset}] [expr {299 - $offset}]]
+                assert_equal $want [r zrevrangebyscore zdup{t} 10 10 LIMIT $offset 1]
+                assert_equal $want [r zrange zdup{t} 10 10 BYSCORE REV LIMIT $offset 1]
+            }
+
+            # An offset past the end of the range yields nothing, in both
+            # directions and either syntax.
+            foreach offset {300 301 1000} {
+                assert_equal {} [r zrangebyscore zdup{t} 10 10 LIMIT $offset 5]
+                assert_equal {} [r zrevrangebyscore zdup{t} 10 10 LIMIT $offset 5]
+                assert_equal {} [r zrange zdup{t} 10 10 BYSCORE REV LIMIT $offset 5]
+            }
+
+            # An offset that walks out of the range lands on the neighbouring
+            # score, which is out of range and must not be returned.
+            assert_equal {} [r zrevrangebyscore zdup{t} 10 (0 LIMIT 300 5]
+            assert_equal {hi} [r zrangebyscore zdup{t} 10 +inf LIMIT 300 5]
+
+            assert_equal [list [format dup%05d 299] 10 [format dup%05d 298] 10] \
+                [r zrevrangebyscore zdup{t} 10 10 LIMIT 0 2 WITHSCORES]
+            assert_equal [list [format dup%05d 289] 10 [format dup%05d 288] 10] \
+                [r zrange zdup{t} 10 10 BYSCORE REV LIMIT 10 2 WITHSCORES]
+
+            # ZRANGESTORE shares the same lookup.
+            assert_equal 2 [r zrangestore zdst{t} zdup{t} 10 10 BYSCORE REV LIMIT 11 2]
+            assert_equal [dup_score_members 287 288] [r zrange zdst{t} 0 -1]
+        }
+    }
 
     test "ZPOP/ZMPOP against wrong type" {
         r set foo{t} bar
@@ -1700,7 +2003,7 @@ start_server {tags {"zset"}} {
             r config set zset-max-ziplist-entries 256
             r config set zset-max-ziplist-value 64
             set elements 128
-        } elseif {$encoding == "skiplist"} {
+        } elseif {$encoding == "btree"} {
             r config set zset-max-ziplist-entries 0
             r config set zset-max-ziplist-value 0
             if {$::accurate} {set elements 1000} else {set elements 100}
@@ -2214,7 +2517,7 @@ start_server {tags {"zset"}} {
 
     tags {"slow"} {
         stresses listpack
-        stresses skiplist
+        stresses btree
     }
 
     test "BZPOP/BZMPOP against wrong type" {
@@ -2487,11 +2790,17 @@ start_server {tags {"zset"}} {
     test {ZRANGESTORE with zset-max-listpack-entries 0 #10767 case} {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 0
-        r del z1{t} z2{t}
-        r zadd z1{t} 1 a
-        assert_encoding skiplist z1{t}
-        assert_equal 1 [r zrangestore z2{t} z1{t} 0 -1]
-        assert_encoding skiplist z2{t}
+        r del z1{t} z2{t} z3{t}
+        r zadd z1{t} 1 a 1 b 1 c
+        assert_encoding btree z1{t}
+        assert_equal 3 [r zrangestore z2{t} z1{t} 0 -1]
+        assert_encoding btree z2{t}
+        assert_equal 2 [r zrangestore z2{t} z1{t} 1 1 BYSCORE REV LIMIT 1 2]
+        assert_equal {a b} [r zrange z2{t} 0 -1]
+        assert_encoding btree z2{t}
+        assert_equal 2 [r zrangestore z3{t} z1{t} \[b \[c BYLEX]
+        assert_equal {b c} [r zrange z3{t} 0 -1]
+        assert_encoding btree z3{t}
         r config set zset-max-listpack-entries $original_max
     }
 
@@ -2503,7 +2812,7 @@ start_server {tags {"zset"}} {
         assert_equal 1 [r zrangestore z2{t} z1{t} 0 0]
         assert_encoding listpack z2{t}
         assert_equal 2 [r zrangestore z3{t} z1{t} 0 1]
-        assert_encoding skiplist z3{t}
+        assert_encoding btree z3{t}
         r config set zset-max-listpack-entries $original_max
     }
 
@@ -2540,7 +2849,7 @@ start_server {tags {"zset"}} {
         }
     }
 
-    foreach {type contents} "listpack {1 a 2 b 3 c} skiplist {1 a 2 b 3 [randstring 70 90 alpha]}" {
+    foreach {type contents} "listpack {1 a 2 b 3 c} btree {1 a 2 b 3 [randstring 70 90 alpha]}" {
         set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
         r config set zset-max-ziplist-value 10
         create_zset myzset $contents
@@ -2599,7 +2908,7 @@ start_server {tags {"zset"}} {
     r readraw 0
 
     foreach {type contents} "
-        skiplist {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
+        btree {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 [randstring 70 90 alpha]}
         listpack {1 a 2 b 3 c 4 d 5 e 6 f 7 g 7 h 9 i 10 j} " {
         test "ZRANDMEMBER with <count> - $type" {
             set original_max_value [lindex [r config get zset-max-ziplist-value] 1]
@@ -2776,7 +3085,7 @@ start_server {tags {"zset"}} {
                 assert_encoding hashtable set_big{t}
             }
 
-            foreach zset_type {listpack skiplist} {
+            foreach zset_type {listpack btree} {
                 r del zset_small{t} zset_big{t}
 
                 if {$zset_type == "listpack"} {
@@ -2784,12 +3093,12 @@ start_server {tags {"zset"}} {
                     r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
                     assert_encoding listpack zset_small{t}
                     assert_encoding listpack zset_big{t}
-                } elseif {$zset_type == "skiplist"} {
+                } elseif {$zset_type == "btree"} {
                     r config set zset-max-listpack-entries 0
                     r zadd zset_small{t} 1 1 2 2 3 3
                     r zadd zset_big{t} 1 1 2 2 3 3 4 4 5 5
-                    assert_encoding skiplist zset_small{t}
-                    assert_encoding skiplist zset_big{t}
+                    assert_encoding btree zset_small{t}
+                    assert_encoding btree zset_big{t}
                 }
 
                 # Test one key is big and one key is small separately.
@@ -2823,6 +3132,201 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries 128
     }
 
+    test "Large B-tree ZPOPMIN/ZPOPMAX bulk delete edge cases" {
+        with_btree_encoding {
+            r del zpopkey
+            for {set i 0} {$i < 200} {incr i} { r zadd zpopkey $i m$i }
+            assert_encoding btree zpopkey
+
+            # Count exceeds cardinality: pops everything and deletes the key.
+            set res [r zpopmin zpopkey 500]
+            assert_equal 400 [llength $res]
+            assert_equal m0 [lindex $res 0]
+            assert_equal 0 [lindex $res 1]
+            assert_equal m199 [lindex $res 398]
+            assert_equal 199 [lindex $res 399]
+            assert_equal 0 [r exists zpopkey]
+
+            # ZPOPMAX preserves descending reply order, including score ties.
+            r del zpopkey
+            r zadd zpopkey 1 a 1 b 1 c 2 d 2 e
+            assert_encoding btree zpopkey
+            assert_equal {e 2 d 2 c 1} [r zpopmax zpopkey 3]
+            assert_equal {b 1 a 1} [r zpopmax zpopkey 10]
+            assert_equal 0 [r exists zpopkey]
+        }
+    }
+
+    test "Large B-tree ZUNION/ZDIFF WITHSCORES RESP3" {
+        with_btree_encoding {
+            r del z1{t} z2{t}
+            r zadd z1{t} 1 a 2 b 3 c
+            r zadd z2{t} 2 b 3 c 4 d
+            r hello 3
+            assert_equal {{a 1.0} {b 4.0} {d 4.0} {c 6.0}} [r zunion 2 z1{t} z2{t} withscores]
+            assert_equal {{a 1.0}} [r zdiff 2 z1{t} z2{t} withscores]
+            r hello 2
+        }
+    }
+
+    test "ZUNIONSTORE builds listpack directly when compact-eligible" {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        set original_value [lindex [r config get zset-max-listpack-value] 1]
+        r config set zset-max-listpack-entries 128
+        r config set zset-max-listpack-value 64
+
+        r del zua{t} zub{t} zdest{t}
+        for {set i 0} {$i < 64} {incr i} { r zadd zua{t} $i [format m%02d $i] }
+        for {set i 32} {$i < 96} {incr i} { r zadd zub{t} $i [format m%02d $i] }
+        assert_equal 96 [r zunionstore zdest{t} 2 zua{t} zub{t}]
+        assert_encoding listpack zdest{t}
+
+        r config set zset-max-listpack-entries 63
+        r del zdest2{t}
+        assert_equal 96 [r zunionstore zdest2{t} 2 zua{t} zub{t}]
+        assert_encoding btree zdest2{t}
+
+        r config set zset-max-listpack-entries $original_max
+        r config set zset-max-listpack-value $original_value
+    }
+
+    test "ZDIFFSTORE algorithm 2 with large btree sources" {
+        with_btree_encoding {
+            r del zd0{t} zd1{t} zd2{t} zddest{t}
+            for {set i 0} {$i < 500} {incr i} { r zadd zd0{t} $i [format a%04d $i] }
+            for {set i 0} {$i < 50} {incr i} { r zadd zd1{t} $i [format b%04d $i] }
+            for {set i 0} {$i < 50} {incr i} { r zadd zd2{t} $i [format c%04d $i] }
+            assert_equal 500 [r zdiffstore zddest{t} 3 zd0{t} zd1{t} zd2{t}]
+            assert_equal 500 [r zcard zddest{t}]
+            assert_equal [format a%04d 49] [lindex [r zrange zddest{t} 49 49] 0]
+            assert_equal [format a%04d 499] [lindex [r zrange zddest{t} -1 -1] 0]
+        }
+    }
+
+    test "ZDIFF algorithm 2 with intset source 0 against btree subtrahends" {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r del s0{t} z1{t} z2{t} z3{t} zdest{t}
+        r sadd s0{t} 1 2 3 4 5
+        assert_encoding intset s0{t}
+        r config set zset-max-listpack-entries 0
+        r zadd z1{t} 1 1
+        r zadd z2{t} 1 2
+        r zadd z3{t} 1 x
+        assert_encoding btree z1{t}
+        # algo_one = 5*4/2 = 10, algo_two = 5+1+1+1 = 8 -> algorithm 2
+        assert_equal {3 4 5} [lsort [r zdiff 4 s0{t} z1{t} z2{t} z3{t}]]
+        assert_equal 3 [r zdiffstore zdest{t} 4 s0{t} z1{t} z2{t} z3{t}]
+        assert_equal {3 1 4 1 5 1} [r zrange zdest{t} 0 -1 withscores]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test "ZDIFF algorithm 2 with listpack source 0 against btree subtrahends" {
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 128
+        r del z0{t} z1{t} z2{t} z3{t} z4{t} zdest{t}
+        r zadd z0{t} 1 a 2 b 3 c 4 d 5 e
+        assert_encoding listpack z0{t}
+        r config set zset-max-listpack-entries 0
+        r zadd z1{t} 1 a
+        r zadd z2{t} 1 b
+        r zadd z3{t} 1 c
+        r zadd z4{t} 1 z
+        assert_encoding btree z1{t}
+        # algo_one = 5*5/2 = 12, algo_two = 5+1+1+1+1 = 9 -> algorithm 2
+        assert_equal {d 4 e 5} [r zdiff 5 z0{t} z1{t} z2{t} z3{t} z4{t} withscores]
+        assert_equal 2 [r zdiffstore zdest{t} 5 z0{t} z1{t} z2{t} z3{t} z4{t}]
+        assert_equal {d 4 e 5} [r zrange zdest{t} 0 -1 withscores]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test "ZADD bulk-builds an empty btree destination" {
+        with_btree_encoding {
+            r del zbulk{t} zincr{t}
+            set args {}
+            for {set i 0} {$i < 200} {incr i} {
+                lappend args $i m$i
+                r zadd zincr{t} $i m$i
+            }
+            assert_equal 200 [r zadd zbulk{t} {*}$args]
+            assert_encoding btree zbulk{t}
+            assert_equal 200 [r zcard zbulk{t}]
+            assert_equal [debug_digest_value zincr{t}] [debug_digest_value zbulk{t}]
+            assert_equal 100 [r zrank zbulk{t} m100]
+            assert_equal m0 [lindex [r zrange zbulk{t} 0 0] 0]
+            assert_equal m199 [lindex [r zrange zbulk{t} -1 -1] 0]
+            set d1 [debug_digest_value zbulk{t}]
+            r debug reload
+            assert_encoding btree zbulk{t}
+            assert_equal 200 [r zcard zbulk{t}]
+            assert_equal $d1 [debug_digest_value zbulk{t}]
+        }
+    } {} {needs:debug}
+
+    test "ZADD bulk path flushes on duplicate members" {
+        with_btree_encoding {
+            # Duplicate after a unique prefix: last write wins.
+            r del z
+            assert_equal 3 [r zadd z ch 1 a 2 b 3 a]
+            assert_equal 2 [r zcard z]
+            assert_equal 3 [r zscore z a]
+            assert_equal 2 [r zscore z b]
+
+            # Duplicate as the last pair.
+            r del z
+            assert_equal 4 [r zadd z ch 1 a 2 b 3 c 4 a]
+            assert_equal 3 [r zcard z]
+            assert_equal 4 [r zscore z a]
+
+            # NX: the repeated member is not updated; later new members still add.
+            r del z
+            assert_equal 3 [r zadd z nx 1 a 2 b 9 a 4 c]
+            assert_equal 3 [r zcard z]
+            assert_equal 1 [r zscore z a]
+            assert_equal 4 [r zscore z c]
+
+            # GT updates only when the repeated score is greater.
+            r del z
+            assert_equal 2 [r zadd z gt ch 1 a 2 b 0 a]
+            assert_equal 1 [r zscore z a]
+            r del z
+            assert_equal 3 [r zadd z gt ch 1 a 2 b 5 a]
+            assert_equal 5 [r zscore z a]
+
+            # LT updates only when the repeated score is lower.
+            r del z
+            assert_equal 3 [r zadd z lt ch 5 a 2 b 1 a]
+            assert_equal 1 [r zscore z a]
+            r del z
+            assert_equal 2 [r zadd z lt ch 1 a 2 b 5 a]
+            assert_equal 1 [r zscore z a]
+        }
+    }
+
+    test "ZADD bulk path score ties, infinities, XX, and INCR" {
+        with_btree_encoding {
+            r del z
+            assert_equal 3 [r zadd z 1 a 1 b 1 c]
+            assert_equal {a b c} [r zrange z 0 -1]
+
+            r del z
+            assert_equal 3 [r zadd z -inf min 0 mid +inf max]
+            assert_equal {min mid max} [r zrange z 0 -1]
+            assert {[r zscore z min] == -inf}
+            assert {[r zscore z mid] == 0}
+            assert {[r zscore z max] == inf}
+
+            r del z
+            assert_equal 0 [r zadd z xx 1 a 2 b]
+            assert_equal 0 [r exists z]
+
+            r del z
+            assert_equal 1 [r zadd z incr 1 a]
+            assert_equal 1 [r zscore z a]
+            r zadd z incr 2 a
+            assert_equal 3 [r zscore z a]
+        }
+    }
+
     foreach type {single multiple single_multiple} {
         test "ZADD overflows the maximum allowed elements in a listpack - $type" {
             r del myzset
@@ -2850,7 +3354,7 @@ start_server {tags {"zset"}} {
             assert_encoding listpack myzset
             assert_equal $max_entries [r zcard myzset]
             assert_equal 1 [r zadd myzset 1 b]
-            assert_encoding skiplist myzset
+            assert_encoding btree myzset
 
             r config set zset-max-listpack-entries $original_max
         }

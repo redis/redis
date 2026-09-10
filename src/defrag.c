@@ -382,57 +382,19 @@ dict *dictDefragTables(dict *d) {
     return ret;
 }
 
-/* Internal function used by activeDefragZsetNode */
-void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnode, zskiplistNode **update) {
-    int i;
-    for (i = 0; i < zsl->level; i++) {
-        if (update[i]->level[i].forward == oldnode)
-            update[i]->level[i].forward = newnode;
-    }
-    serverAssert(zsl->header!=oldnode);
-    if (newnode->level[0].forward) {
-        serverAssert(newnode->level[0].forward->backward==oldnode);
-        newnode->level[0].forward->backward = newnode;
-    } else {
-        serverAssert(zsl->tail==oldnode);
-        zsl->tail = newnode;
-    }
-}
-
-/* Defrag a single zset node, update dictEntry and skiplist struct */
+/* Defrag a single zset element, updating the B+ tree leaf slot and dict key. */
 void activeDefragZsetNode(zset *zs, dictEntry *de, dictEntryLink plink) {
-    zskiplistNode *znode = dictGetKey(de);
+    zbtElem *elem = dictGetKey(de);
 
-    /* Try to defrag the skiplist node first */
-    zskiplistNode *newnode = activeDefragAllocWithoutFree(znode);
-    if (!newnode) return; /* No defrag needed */
+    /* Try to relocate the element allocation first. */
+    zbtElem *newelem = activeDefragAllocWithoutFree(elem);
+    if (!newelem) return; /* No defrag needed */
 
-    /* Node was defragged, now we need to update all skiplist pointers */
-    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *iter;
-    int i;
-    double score = newnode->score;
-    sds ele = zslGetNodeElement(newnode);
-
-    /* Find all pointers that need to be updated */
-    iter = zs->zsl->header;
-    for (i = zs->zsl->level-1; i >= 0; i--) {
-        while (iter->level[i].forward &&
-            iter->level[i].forward != znode &&
-            zslCompareWithNode(score, ele, iter->level[i].forward) > 0)
-            iter = iter->level[i].forward;
-        update[i] = iter;
-    }
-
-    /* Verify we found the right node */
-    iter = iter->level[0].forward;
-    serverAssert(iter && iter == znode);
-
-    /* Update all skiplist pointers and dict key */
-    zslUpdateNode(zs->zsl, znode, newnode, update);
-    dictSetKeyAtLink(zs->dict, newnode, &plink, 0);
-
-    /* Free the old node now that all pointers have been updated */
-    activeDefragFree(znode);
+    /* Point the tree leaf slot (and any separators) at the relocated element,
+     * then update the dict key. Finally free the old allocation. */
+    zbtReplaceElem(zs->tree, elem, newelem);
+    dictSetKeyAtLink(zs->dict, newelem, &plink, 0);
+    activeDefragFree(elem);
 }
 
 #define DEFRAG_SDS_DICT_NO_VAL 0
@@ -614,13 +576,46 @@ void scanZsetCallback(void *privdata, const dictEntry *_de, dictEntryLink plink)
     server.stat_active_defrag_scanned++;
 }
 
-void scanLaterZset(robj *ob, unsigned long *cursor) {
-    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
+/* Number of B+ tree nodes relocated per incremental slice before re-checking
+ * the time budget. */
+#define ZSET_DEFRAG_NODE_BUDGET 128
+
+/* Bounded, resumable active-defrag for a large B+ tree zset. Runs in two
+ * phases so a single call never blocks the event loop for long:
+ *   1. relocate the tree's internal/leaf nodes incrementally (the resume
+ *      bookmark lives in the tree, so it tolerates mutations between slices);
+ *   2. relocate the dict entries and the elements they point to.
+ * Returns 1 when time is up and more node work remains (the key must be kept),
+ * otherwise 0. When it returns 0 with *cursor == 0 the whole zset is done. */
+int scanLaterZset(robj *ob, unsigned long *cursor, monotime endtime) {
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE);
     zset *zs = (zset*)ob->ptr;
-    dict *d = zs->dict;
+
+    typedef enum { ZSET_PHASE_NODES = 0, ZSET_PHASE_DICT = 1 } zsetDefragPhase;
+    static zsetDefragPhase phase = ZSET_PHASE_NODES;
+
+    /* A freshly scheduled key always enters with cursor == 0; (re)start at the
+     * node phase. During an in-progress node phase the cursor is also 0, which
+     * is fine because the per-tree bookmark preserves the real position. */
+    if (*cursor == 0) phase = ZSET_PHASE_NODES;
+
+    if (phase == ZSET_PHASE_NODES) {
+        do {
+            int more = zbtDefragNodesIncremental(zs->tree, activeDefragAlloc,
+                                                 ZSET_DEFRAG_NODE_BUDGET);
+            server.stat_active_defrag_scanned += ZSET_DEFRAG_NODE_BUDGET;
+            if (!more) { phase = ZSET_PHASE_DICT; break; }
+        } while (getMonotonicUs() <= endtime);
+        /* Node phase not finished: keep the key and yield. */
+        if (phase == ZSET_PHASE_NODES) return 1;
+    }
+
+    /* Dict/element phase. */
     scanLaterZsetData data = {zs};
     dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
-    *cursor = dictScanDefrag(d, *cursor, scanZsetCallback, &defragfns, &data);
+    *cursor = dictScanDefrag(zs->dict, *cursor, scanZsetCallback, &defragfns, &data);
+    if (*cursor == 0) phase = ZSET_PHASE_NODES; /* ready for the next key */
+    return 0;
 }
 
 /* Used as scan callback when all the work is done in the dictDefragFunctions. */
@@ -700,22 +695,30 @@ void defragQuicklist(defragKeysCtx *ctx, kvobj *kv) {
 void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
     zset *zs = (zset*)ob->ptr;
     zset *newzs;
-    zskiplist *newzsl;
+    zbtree *newtree;
     dict *newdict;
-    struct zskiplistNode *newheader;
-    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE);
     if ((newzs = activeDefragAlloc(zs)))
         ob->ptr = zs = newzs;
-    if ((newzsl = activeDefragAlloc(zs->zsl)))
-        zs->zsl = newzsl;
-    if ((newheader = activeDefragAlloc(zs->zsl->header)))
-        zs->zsl->header = newheader;
-    if (dictSize(zs->dict) > server.active_defrag_max_scan_fields)
+    if ((newtree = activeDefragAlloc(zs->tree)))
+        zs->tree = newtree;
+    if (zs->tree->length > server.active_defrag_max_scan_fields) {
+        /* Large zset: defer BOTH the B+ tree node relocation and the
+         * dict/element scan to the bounded incremental steps performed by
+         * scanLaterZset(), so a single defrag call can't block the event loop.
+         * Reset the node-relocation bookmark so this cycle starts at the head. */
+        if (zs->tree->defrag_resume) {
+            sdsfree(zs->tree->defrag_resume);
+            zs->tree->defrag_resume = NULL;
+        }
         defragLater(ctx, ob);
-    else {
-        /* Use dictScanDefrag to iterate and defrag both dictEntry structures and skiplist nodes.
-         * dictScanDefrag handles defragging dictEntry/dictEntryNoValue structures via defragfns,
-         * and calls our callback with plink for each entry so we can defrag skiplist nodes. */
+    } else {
+        /* Small zset: relocate all the tree nodes at once, then use
+         * dictScanDefrag to iterate and defrag both dictEntry structures and
+         * the zset elements. dictScanDefrag handles the dictEntry structures
+         * via defragfns, and calls our callback with plink for each entry so we
+         * can relocate the element and fix the tree leaf slot. */
+        zbtDefragNodes(zs->tree, activeDefragAlloc);
         scanLaterZsetData data = {zs};
         dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
         unsigned long cursor = 0;
@@ -1204,7 +1207,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 ob->ptr = newzl;
-        } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
+        } else if (ob->encoding == OBJ_ENCODING_BTREE) {
             defragZsetSkiplist(ctx, ob);
         } else {
             serverPanic("Unknown sorted set encoding");
@@ -1350,8 +1353,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             return scanLaterList(ob, cursor, endtime);
         } else if (ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterSet(ob, cursor);
-        } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST) {
-            scanLaterZset(ob, cursor);
+        } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE) {
+            return scanLaterZset(ob, cursor, endtime);
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterHash(ob, cursor);
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {

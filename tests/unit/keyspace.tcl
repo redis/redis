@@ -314,7 +314,7 @@ foreach {type large} [array get largevalue] {
         for {set j 0} {$j < 130} {incr j} {
             r zadd zset2{t} [randomInt 50] ele-[randomInt 10]
         }
-        assert_encoding skiplist zset2{t}
+        assert_encoding btree zset2{t}
         r copy zset2{t} newzset2{t}
         set digest [debug_digest_value zset2{t}]
         assert_equal $digest [debug_digest_value newzset2{t}]

@@ -2356,16 +2356,16 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
-    } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
         zset *zs = o->ptr;
         dictIterator di;
         dictEntry *de;
 
         dictInitIterator(&di, zs->dict);
         while((de = dictNext(&di)) != NULL) {
-            zskiplistNode *znode = dictGetKey(de);
-            sds ele = zslGetNodeElement(znode);
-            double score = znode->score;
+            zbtElem *znode = dictGetKey(de);
+            sds ele = zbtGetEle(znode);
+            double score = zbtGetScore(znode);
 
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?

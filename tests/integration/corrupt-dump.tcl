@@ -59,6 +59,22 @@ test {corrupt payload: valid zipped hash header, dup records} {
     }
 }
 
+test {corrupt payload: zset with duplicate members does not crash} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r debug set-skip-checksum-validation 1
+        r config set sanitize-dump-payload yes
+        # RDB_TYPE_ZSET_2 (0x05), 2 entries, member "a" score 1.0 then member "a"
+        # score 2.0. The duplicate member must be reported as corruption *before*
+        # it reaches the B+ tree, rather than tripping an assertion.
+        catch {
+            r restore key 0 "\x05\x02\x01\x61\x00\x00\x00\x00\x00\x00\xf0\x3f\x01\x61\x00\x00\x00\x00\x00\x00\x00\x40\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        } err
+        assert_match "*Bad data format*" $err
+        assert_equal 0 [r exists key]
+        assert_equal PONG [r ping]
+    }
+}
+
 test {corrupt payload: hash listpackex with invalid string TTL} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes

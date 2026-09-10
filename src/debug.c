@@ -202,16 +202,16 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 xorDigest(digest,eledigest,20);
                 zzlNext(zl,&eptr,&sptr);
             }
-        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+        } else if (o->encoding == OBJ_ENCODING_BTREE) {
             zset *zs = o->ptr;
             dictIterator di;
             dictEntry *de;
 
             dictInitIterator(&di, zs->dict);
             while((de = dictNext(&di)) != NULL) {
-                zskiplistNode *znode = dictGetKey(de);
-                sds sdsele = zslGetNodeElement(znode);
-                const int len = fpconv_dtoa(znode->score, buf);
+                zbtElem *znode = dictGetKey(de);
+                sds sdsele = zbtGetEle(znode);
+                const int len = fpconv_dtoa(zbtGetScore(znode), buf);
                 buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));
@@ -1053,7 +1053,7 @@ NULL
 
         /* Get the hash table reference from the object, if possible. */
         switch (o->encoding) {
-        case OBJ_ENCODING_SKIPLIST:
+        case OBJ_ENCODING_BTREE:
             {
                 zset *zs = o->ptr;
                 ht = zs->dict;
@@ -1349,8 +1349,8 @@ void serverLogObjectDebugInfo(const robj *o) {
         serverLog(LL_WARNING,"Hash size: %d", (int) hashTypeLength(o, 0));
     } else if (o->type == OBJ_ZSET) {
         serverLog(LL_WARNING,"Sorted set size: %d", (int) zsetLength(o));
-        if (o->encoding == OBJ_ENCODING_SKIPLIST)
-            serverLog(LL_WARNING,"Skiplist level: %d", (int) ((const zset*)o->ptr)->zsl->level);
+        if (o->encoding == OBJ_ENCODING_BTREE)
+            serverLog(LL_WARNING,"B+ tree length: %lu", ((const zset*)o->ptr)->tree->length);
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
 #ifdef ENABLE_GCRA

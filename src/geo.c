@@ -295,12 +295,13 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             if (ga->used && limit && ga->used >= limit) break;
             zzlNext(zl, &eptr, &sptr);
         }
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+    } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
         zset *zs = zobj->ptr;
-        zskiplist *zsl = zs->zsl;
-        zskiplistNode *ln;
+        zbtree *t = zs->tree;
+        zbtIter it;
+        zbtElem *ln;
 
-        if ((ln = zslNthInRange(zsl, &range, 0, NULL)) == NULL) {
+        if ((ln = zbtNthInRange(t, &range, 0, NULL, &it)) == NULL) {
             /* Nothing exists starting at our min.  No results. */
             return 0;
         }
@@ -308,16 +309,17 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         while (ln) {
             double xy[2];
             double distance = 0;
+            double score = zbtGetScore(ln);
             /* Abort when the node is no longer in range. */
-            if (!zslValueLteMax(ln->score, &range))
+            if (!zslValueLteMax(score, &range))
                 break;
-            if (geoWithinShape(shape, ln->score, xy, &distance) == C_OK) {
+            if (geoWithinShape(shape, score, xy, &distance) == C_OK) {
                 /* Append the new element. */
-                sds ele = zslGetNodeElement(ln);
-                geoArrayAppend(ga, xy, distance, ln->score, sdsdup(ele));
+                sds ele = zbtGetEle(ln);
+                geoArrayAppend(ga, xy, distance, score, sdsdup(ele));
             }
             if (ga->used && limit && ga->used >= limit) break;
-            ln = ln->level[0].forward;
+            ln = zbtIterNext(&it);
         }
     }
     return ga->used - origincount;
@@ -803,18 +805,16 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         }
     } else {
         /* Target key, create a sorted set with the results. */
-        robj *zobj;
-        zset *zs;
         int i;
         size_t maxelelen = 0, totelelen = 0;
+        zbtElem **staged = NULL;
 
         if (returned_items) {
-            zobj = createZsetObject();
-            zs = zobj->ptr;
+            staged = zmalloc(sizeof(zbtElem *) * returned_items);
         }
 
         for (i = 0; i < returned_items; i++) {
-            zskiplistNode *znode;
+            zbtElem *znode;
             geoPoint *gp = ga->array+i;
             gp->dist /= shape.conversion; /* Fix according to unit. */
             double score = storedist ? gp->dist : gp->score;
@@ -822,14 +822,19 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
             if (maxelelen < elelen) maxelelen = elelen;
             totelelen += elelen;
-            znode = zslInsert(zs->zsl,score,gp->member);
-            serverAssert(dictAdd(zs->dict, znode, NULL) == DICT_OK);
-            sdsfree(gp->member); /* zslInsert copies the sds, so free the original */
+            /* Detached element: results come out in match or distance order,
+             * so the tree is packed in one pass below rather than reached
+             * through one insert per result. */
+            znode = zbtCreateElem(score,gp->member,sdslen(gp->member),0,NULL);
+            staged[i] = znode;
+            sdsfree(gp->member); /* zbtCreateElem copies the sds, so free the original */
             gp->member = NULL;
         }
 
         if (returned_items) {
-            zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
+            robj *zobj = zsetCreateFromElems(NULL, staged, returned_items,
+                                             maxelelen, totelelen, 0);
+            zfree(staged);
             setKey(c,c->db,storekey,&zobj,0);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);
