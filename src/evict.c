@@ -594,22 +594,23 @@ int performEvictions(void) {
                     unsigned long sampled_keys = 0;
                     unsigned long current_db_keys = kvstoreSize(kvs);
                     if (current_db_keys == 0) continue;
+                    /* If there are not a lot of keys in the current db, dict/s may be very
+                     * sparsely populated, so avoid sampling repeatedly. */
+                    int is_sparse_db = current_db_keys < (unsigned long) server.maxmemory_samples*10;
 
                     total_keys += current_db_keys;
                     int l = kvstoreNumNonEmptyDicts(kvs);
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
                         sampled_keys += evictionPoolPopulate(db, kvs, pool);
-                        total_sampled_keys += sampled_keys;
                         /* We have sampled enough keys in the current db, exit the loop. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
-                        /* If there are not a lot of keys in the current db, dict/s may be very
-                         * sparsely populated, exit the loop without meeting the sampling
-                         * requirement. */
-                        if (current_db_keys < (unsigned long) server.maxmemory_samples*10)
+                        /* For sparse DBs, exit early without meeting the sampling. */
+                        if (is_sparse_db)
                             break;
                     }
+                    total_sampled_keys += sampled_keys;
                 }
                 if (!total_keys) break; /* No keys to evict. */
 
