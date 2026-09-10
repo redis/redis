@@ -454,6 +454,14 @@ void activeExpireCycle(int type) {
              * but yet not reclaimed). */
             repeat = db_done ? 0 : (data.sampled == 0 || (data.expired * 100 / data.sampled) > config_cycle_acceptable_stale);
 
+            if (!repeat && !db_done) {
+                /* We exited early because local staleness is low.
+                 * Randomize the cursor to avoid being trapped in the clean wake of a client SCAN.
+                 * If the database is globally healthy, this makes activeExpireCycle act as a pure
+                 * random sampler. If it lands in a dirty patch, it will sequentially sweep it. */
+                db->expires_cursor = ((unsigned long long)rand() << 32) | rand();
+            }
+
             /* We can't block forever here even if there are many keys to
              * expire. So after a given amount of microseconds return to the
              * caller waiting for the other active expire cycle. */
