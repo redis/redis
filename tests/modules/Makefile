@@ -78,6 +78,7 @@ TEST_MODULES = \
     moduleconfigstwo.so \
     publish.so \
     usercall.so \
+    aofduration.so \
     postnotifications.so \
     moduleauthtwo.so \
     rdbloadsave.so \

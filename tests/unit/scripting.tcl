@@ -1667,6 +1667,23 @@ start_server {tags {"scripting repl external:skip"}} {
             assert {[r mget a b c d] eq {1 {} 3 4}}
         }
 
+        test "HEXPIRE HGETDEL HGETEX honor redis.set_repl REPL_NONE" {
+            r del h h2 h3
+            r hset h f v
+            r hset h2 a 1
+            r hset h3 c 1
+            run_script {
+                redis.set_repl(redis.REPL_NONE);
+                redis.call('hexpire','h',100,'FIELDS','1','f');
+                redis.call('hgetdel','h2','FIELDS','1','a');
+                redis.call('hgetex','h3','EX','100','FIELDS','1','c');
+            } 3 h h2 h3
+            r debug loadaof
+            assert_equal [r httl h FIELDS 1 f] -1
+            assert_equal [r hexists h2 a] 1
+            assert_equal [r httl h3 FIELDS 1 c] -1
+        }
+
         test "Test selective replication of effect commands from Lua" {
             # Commands that replace their own propagation (the counted form of
             # SPOP propagates as SREM) queue the replacement via
