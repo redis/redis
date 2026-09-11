@@ -100,7 +100,7 @@ typedef struct asmBgTrimState {
     kvstore *target_kvstore;
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
-    int64_t delta_distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `stream`; BIO thread */
+    int64_t delta_distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `Streams`; BIO thread */
     int track_stream_stats;      /* stream-stats state captured when the trim job was
                                     scheduled; the BIO thread reads this instead of the
                                     live config, and the delta is applied only if it was
@@ -3096,7 +3096,7 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
 
-        /* Update the INFO `stream` per-consumer-group delta (distrib_cgroups_pel):
+        /* Update the INFO `Streams` per-consumer-group delta (distrib_cgroups_pel):
          * one sample per consumer group. Bg slot trim
          * frees stream keys without going through streamKeyRemoved, so record each
          * group's samples here. Done before the keysizes row lookup below, so it
@@ -3108,7 +3108,7 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
          * BIO thread; completion re-validates the epoch. Reading the group state
          * here is safe without locking: bg slot trim moved the freed slots into a
          * detached kvstore before this job started, so this thread solely owns
-         * these streams (raxSize and streamCGLag only read them). */
+         * these streams (streamCGroupSample only reads them). */
         if (trim_job->bg->track_stream_stats && kv->type == OBJ_STREAM) {
             stream *s = kv->ptr;
             if (s->cgroups && raxSize(s->cgroups)) {
@@ -3119,10 +3119,10 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                     streamCG *cg = ri.data;
 
                     /* Bin through streamDistribBin() so this path matches the
-                     * live histogram exactly -- it clamps out-of-range values
-                     * and maps "no sample" (a lag that is unknown due to
-                     * fragmentation, or a degenerate negative lag) to -1, which
-                     * we skip. */
+                     * live histogram exactly -- it clamps out-of-range values and
+                     * maps "no sample" to -1, which we skip. A PEL size is never
+                     * negative, so that skip is defensive here; it keeps this path
+                     * correct for a metric that can report "no sample". */
                     int bin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_PEL));
                     if (bin >= 0) trim_job->bg->delta_distrib_cgroups_pel[bin]++;
                 }
@@ -3206,7 +3206,7 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     job->bg = zcalloc(sizeof(*job->bg));
     /* Save the target kvstore for completion validation. */
     job->bg->target_kvstore = server.db[0].keys;
-    /* Capture the INFO `stream` histogram state now, on the main thread: the
+    /* Capture the INFO `Streams` histogram state now, on the main thread: the
      * BIO thread reads track_stream_stats instead of the live config, and the
      * completion applies the delta only if both are still valid (see
      * asmBackgroundTrimDoneCB). */

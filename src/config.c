@@ -3341,7 +3341,7 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
-/* When stream-stats is turned off, zero the per-db INFO `stream` histograms so
+/* When stream-stats is turned off, zero the per-db INFO `Streams` histograms so
  * they hold no stale samples while disabled; re-enabling starts from a clean
  * slate and fills in lazily (a reload rebuilds them exactly). Apply hooks run
  * only on runtime CONFIG SET, so the dbs are always initialized here. */
