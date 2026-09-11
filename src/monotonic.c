@@ -71,14 +71,57 @@ static void (*monotonic_logger)(const char *fmt, ...) __attribute__((format(prin
  */
 
 
+/* The tick rate is only known at runtime, so dividing by it emits a 64-bit
+ * divide on every clock read.  Precompute the reciprocal and multiply instead
+ * (Granlund-Montgomery, as in libdivide).  Exact, not approximate. */
+#define MONO_RECIP_SHIFT_MASK 0x3f
+#define MONO_RECIP_ADD_MARKER 0x40   /* magic needed 65 bits; add back at use */
+
+typedef struct {
+    uint64_t magic;   /* zero iff the divisor is a power of two */
+    unsigned more;    /* shift, plus MONO_RECIP_ADD_MARKER */
+} monoRecip;
+
+static void monoRecipInit(monoRecip *r, uint64_t d) {
+    unsigned log2d = 63 - __builtin_clzll(d);
+    if ((d & (d - 1)) == 0) {
+        r->magic = 0;
+        r->more = log2d;
+        return;
+    }
+
+    __uint128_t num = (__uint128_t)1 << (64 + log2d);
+    uint64_t magic = (uint64_t)(num / d);
+    uint64_t rem = (uint64_t)(num - (__uint128_t)magic * d);
+
+    if (d - rem < (uint64_t)1 << log2d) {
+        r->more = log2d;
+    } else {
+        magic += magic;
+        if (rem + rem >= d || rem + rem < rem) magic++;
+        r->more = log2d | MONO_RECIP_ADD_MARKER;
+    }
+    r->magic = magic + 1;
+}
+
+static inline uint64_t monoRecipDiv(const monoRecip *r, uint64_t x) {
+    if (r->magic == 0) return x >> r->more;
+
+    uint64_t q = (uint64_t)(((__uint128_t)x * r->magic) >> 64);
+    if (r->more & MONO_RECIP_ADD_MARKER) q += (x - q) >> 1;
+    return q >> (r->more & MONO_RECIP_SHIFT_MASK);
+}
+
+
 #if defined(__x86_64__) && defined(__linux__)
 #include <regex.h>
 #include <x86intrin.h>
 
 static long mono_ticksPerMicrosecond = 0;
+static monoRecip mono_recip_x86;
 
 static monotime getMonotonicUs_x86(void) {
-    return __rdtsc() / mono_ticksPerMicrosecond;
+    return monoRecipDiv(&mono_recip_x86, __rdtsc());
 }
 
 /* One calibration measurement: RDTSC ticks across a ~10ms nanosleep, bounded
@@ -252,6 +295,7 @@ static void monotonicInit_x86linux(void) {
         return;
     }
 
+    monoRecipInit(&mono_recip_x86, (uint64_t)mono_ticksPerMicrosecond);
     snprintf(monotonic_info_string, sizeof(monotonic_info_string),
             "X86 TSC @ %ld ticks/us", mono_ticksPerMicrosecond);
     getMonotonicUs = getMonotonicUs_x86;
@@ -260,6 +304,7 @@ static void monotonicInit_x86linux(void) {
 
 #if defined(__aarch64__)
 static long mono_ticksPerMicrosecond = 0;
+static monoRecip mono_recip_aarch64;
 
 /* Read the clock value.
  * CNTVCT_EL0 is a system counter register, that provides the monotonic
@@ -281,7 +326,7 @@ static inline uint32_t cntfrq_hz(void) {
 }
 
 static monotime getMonotonicUs_aarch64(void) {
-    return __cntvct() / mono_ticksPerMicrosecond;
+    return monoRecipDiv(&mono_recip_aarch64, __cntvct());
 }
 
 static void monotonicInit_aarch64(void) {
@@ -290,6 +335,7 @@ static void monotonicInit_aarch64(void) {
         monotonicLog("aarch64, unable to determine clock rate");
         return;
     }
+    monoRecipInit(&mono_recip_aarch64, (uint64_t)mono_ticksPerMicrosecond);
 
     snprintf(monotonic_info_string, sizeof(monotonic_info_string),
             "ARM CNTVCT @ %ld ticks/us", mono_ticksPerMicrosecond);
@@ -300,6 +346,7 @@ static void monotonicInit_aarch64(void) {
 
 #if defined(USE_PROCESSOR_CLOCK) && defined(__riscv) && defined(__linux__)
 static long mono_ticksPerMicrosecond = 0;
+static monoRecip mono_recip_riscv;
 
 static inline uint64_t read_mtime(void) {
     uint64_t val;
@@ -338,7 +385,7 @@ static uint64_t get_timebase_frequency(void) {
 }
 
 static monotime getMonotonicUs_riscv(void) {
-    return read_mtime() / mono_ticksPerMicrosecond;
+    return monoRecipDiv(&mono_recip_riscv, read_mtime());
 }
 
 static void monotonicInit_riscv(void) {
@@ -347,6 +394,7 @@ static void monotonicInit_riscv(void) {
         monotonicLog("riscv, unable to determine clock rate");
         return;
     }
+    monoRecipInit(&mono_recip_riscv, (uint64_t)mono_ticksPerMicrosecond);
     snprintf(monotonic_info_string, sizeof(monotonic_info_string),
             "RISC-V mtime @ %ld ticks/us", mono_ticksPerMicrosecond);
     getMonotonicUs = getMonotonicUs_riscv;
