@@ -100,7 +100,7 @@ typedef struct asmBgTrimState {
     kvstore *target_kvstore;
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
-    int64_t delta_distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `Streams`; BIO thread */
+    int64_t delta_distrib[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS]; /* INFO `Streams`; BIO thread */
     int track_stream_stats;      /* stream-stats state captured when the trim job was
                                     scheduled; the BIO thread reads this instead of the
                                     live config, and the delta is applied only if it was
@@ -3096,8 +3096,8 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
 
-        /* Update the INFO `Streams` per-consumer-group delta (distrib_cgroups_pel):
-         * one sample per consumer group. Bg slot trim
+        /* Update the INFO `Streams` per-consumer-group deltas: one sample per
+         * consumer group, per metric. Bg slot trim
          * frees stream keys without going through streamKeyRemoved, so record each
          * group's samples here. Done before the keysizes row lookup below, so it
          * stays reachable regardless of whether streams are a tracked keysizes
@@ -3121,10 +3121,12 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                     /* Bin through streamDistribBin() so this path matches the
                      * live histogram exactly -- it clamps out-of-range values and
                      * maps "no sample" to -1, which we skip. A PEL size is never
-                     * negative, so that skip is defensive here; it keeps this path
-                     * correct for a metric that can report "no sample". */
-                    int bin = streamDistribBin(streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_PEL));
-                    if (bin >= 0) trim_job->bg->delta_distrib_cgroups_pel[bin]++;
+                     * negative, but an entries_read counter is -1 while the
+                     * group's read position is unknown. */
+                    for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
+                        int bin = streamDistribBin(streamCGroupSample(s, cg, (streamDistribMetric) m));
+                        if (bin >= 0) trim_job->bg->delta_distrib[m][bin]++;
+                    }
                 }
                 raxStop(&ri);
             }
@@ -3164,8 +3166,8 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
             }
         }
-        /* distrib_cgroups_pel is a single-row histogram (not per-type).
-         * Apply the delta only if the stream histogram still holds the same
+        /* The stream histograms are single-row (not per-type), one row per
+         * metric. Apply the deltas only if they still hold the same
          * generation of samples the job was scheduled against: stream-stats
          * was enabled at schedule (track_stream_stats) and has not been reset
          * since (epoch unchanged). Otherwise the samples were either never
@@ -3176,10 +3178,13 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
         if (job->bg->track_stream_stats &&
             job->bg->stream_stats_epoch == server.stream_stats_epoch)
         {
-            for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                int64_t dpel = job->bg->delta_distrib_cgroups_pel[bin];
-                int64_t *pel = &meta->distrib_cgroups_pel[bin];
-                *pel = (*pel > dpel) ? (*pel - dpel) : 0;
+            for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
+                int64_t *row = streamDistribHistRowMeta(meta, (streamDistribMetric) m);
+                if (!row) continue;
+                for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
+                    int64_t delta = job->bg->delta_distrib[m][bin];
+                    row[bin] = (row[bin] > delta) ? (row[bin] - delta) : 0;
+                }
             }
         }
     }

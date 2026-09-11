@@ -546,9 +546,19 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
 
 static void kvstoreOnEmpty(kvstore *kvs) {
     kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
+    /* kvstoreGetMetadata() may return NULL for types without metadata, though
+     * this callback is only installed for types that have it. Check meta
+     * explicitly to satisfy GCC/LTO, which inlines streamStatsResetMeta()'s own
+     * NULL check below and can otherwise treat NULL as possible here, flagging
+     * the following memsets with -Wstringop-overflow. */
+    if (!meta) return;
+
+    /* An emptied kvstore holds no samples for any histogram in here, so clear
+     * them all. The stream rows go through streamStatsResetMeta() so that a
+     * metric added later cannot be left behind holding stale samples. */
     memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
     memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
-    memset(&meta->distrib_cgroups_pel, 0, sizeof(meta->distrib_cgroups_pel));
+    streamStatsResetMeta(meta);
 }
 
 static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
@@ -7249,8 +7259,12 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
                 kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
                 if (!meta) continue;
-                info = sdscatHistogramRow(info, dbnum, "stream_distrib_cgroups_pel",
-                                          meta->distrib_cgroups_pel);
+                for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
+                    streamDistribMetric metric = (streamDistribMetric) m;
+                    int64_t *row = streamDistribHistRowMeta(meta, metric);
+                    if (row)
+                        info = sdscatHistogramRow(info, dbnum, streamDistribMetricName(metric), row);
+                }
             }
         }
     }

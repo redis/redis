@@ -5,6 +5,9 @@
 # properties, identical in form to the "INFO keysizes" section. One sample per
 # consumer group per metric:
 #   - stream_distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
+#   - stream_distrib_cgroups_entries_read: the group's entries_read counter. A
+#     group whose logical read position is unknown (XINFO GROUPS reports NULL)
+#     contributes no sample.
 # Collection is gated on the stream-stats directive and reconstructed exactly
 # from RDB / replication.
 ################################################################################
@@ -117,6 +120,13 @@ proc verify_stream_metric {cmd exp field placeholder xinfo_field waitCond} {
 # stream_distrib_cgroups_pel: placeholder "PEL", cross-checked against XINFO 'pending'.
 proc verify_pel {cmd exp {waitCond 0}} {
     uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_cgroups_pel PEL pending $waitCond]
+}
+
+# stream_distrib_cgroups_entries_read: placeholder "ER", cross-checked against
+# XINFO 'entries-read' -- which is nil while the group's read position is
+# unknown, contributing no sample, exactly like the histogram.
+proc verify_entries_read {cmd exp {waitCond 0}} {
+    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_cgroups_entries_read ER entries-read $waitCond]
 }
 
 # Seed a stream with 'n' entries 1-1..n-1.
@@ -252,6 +262,90 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_pel {$server xtrim st DELREF maxlen 4} {db0_PEL:4=2}
     }
 
+    test "STREAM-STATS - entries_read bin boundaries 1,2,4,8,... $suffix" {
+        # A group created at 0 has no entries_read counter yet; the first read
+        # materializes it, so it ends up equal to the number of entries read and
+        # must land in the bin for the largest power of two <= n.
+        foreach n {1 2 3 4 7 8 15 16 300 512} {
+            verify_entries_read {$server FLUSHALL} {}
+            seed_stream $server st $n
+            $server xgroup create st g 0
+            verify_entries_read {$server xreadgroup group g c count $n streams st >} "db0_ER:[hist_label $n]=1"
+        }
+    }
+
+    test "STREAM-STATS - an unknown entries_read is excluded $suffix" {
+        verify_entries_read {$server FLUSHALL} {}
+        seed_stream $server st 5
+        # XGROUP CREATE leaves entries_read unknown (XINFO GROUPS reports it as
+        # NULL), so the group contributes no sample at all -- unlike the PEL
+        # metric, where the same group counts in bin 0.
+        verify_entries_read {$server xgroup create st g 0} {}
+        verify_pel {} {db0_PEL:0=1}
+        # ENTRIESREAD makes the counter known right away -- clamped to the
+        # stream's entries_added (5 here), so 8 is stored as 5 and bins as "4".
+        verify_entries_read {$server xgroup create st ge 0 ENTRIESREAD 8} {db0_ER:4=1}
+        # Below entries_added it is taken as given.
+        verify_entries_read {$server xgroup create st ge2 0 ENTRIESREAD 2} {db0_ER:2=1,4=1}
+    }
+
+    test "STREAM-STATS - a group starting mid-stream stays excluded $suffix" {
+        verify_entries_read {$server FLUSHALL} {}
+        seed_stream $server st 5
+        $server xgroup create st g 3-1
+        # Reading on from an arbitrary mid-stream ID cannot establish a logical
+        # read position, so the counter stays unknown and the group stays out.
+        verify_entries_read {$server xreadgroup group g c count 1 streams st >} {}
+        # Draining to the stream's last entry makes it knowable again (5 -> "4").
+        verify_entries_read {$server xreadgroup group g c count 10 streams st >} {db0_ER:4=1}
+    }
+
+    test "STREAM-STATS - XGROUP SETID moves and clears the counter $suffix" {
+        verify_entries_read {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g 0
+        verify_entries_read {$server xreadgroup group g c count 8 streams st >} {db0_ER:8=1}
+        # SETID with ENTRIESREAD moves the sample...
+        verify_entries_read {$server xgroup setid st g 0 ENTRIESREAD 2} {db0_ER:2=1}
+        # ...and without it resets the counter to unknown, dropping the sample.
+        verify_entries_read {$server xgroup setid st g 0} {}
+    }
+
+    test "STREAM-STATS - XGROUP DESTROY removes the entries_read sample $suffix" {
+        verify_entries_read {$server FLUSHALL} {}
+        seed_stream $server st 4
+        verify_entries_read {$server xgroup create st g1 0} {}
+        verify_entries_read {$server xgroup create st g2 0 ENTRIESREAD 4} {db0_ER:4=1}
+        verify_entries_read {$server xreadgroup group g1 c count 2 streams st >} {db0_ER:2=1,4=1}
+        verify_entries_read {$server xgroup destroy st g1} {db0_ER:4=1}
+        verify_entries_read {$server xgroup destroy st g2} {}
+    }
+
+    test "STREAM-STATS - XSETID lowering entries_added clamps the counter $suffix" {
+        verify_entries_read {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g 0
+        verify_entries_read {$server xreadgroup group g c count 8 streams st >} {db0_ER:8=1}
+        # XSETID refuses an entries_added below the stream's length, so trim first:
+        # with 6 of 8 entries deleted, length is 2 and ENTRIESADDED 2 is accepted at
+        # the boundary. The clamp then pulls entries_read down with it, 8 -> 2. This
+        # rides the group loop XSETID already runs.
+        $server xdel st 1-1 2-1 3-1 4-1 5-1 6-1
+        verify_entries_read {$server xsetid st 8-1 ENTRIESADDED 2} {db0_ER:2=1}
+    }
+
+    test "STREAM-STATS - XACK and XCLAIM leave entries_read alone $suffix" {
+        verify_entries_read {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g 0
+        verify_entries_read {$server xreadgroup group g c count 8 streams st >} {db0_ER:8=1}
+        # Acknowledging and claiming move the PEL, never the read counter.
+        verify_pel {$server xack st g 1-1 2-1 3-1 4-1} {db0_PEL:4=1}
+        verify_entries_read {} {db0_ER:8=1}
+        verify_pel {$server xclaim st g c2 0 5-1 6-1} {db0_PEL:4=1}
+        verify_entries_read {} {db0_ER:8=1}
+    }
+
     test "STREAM-STATS - multiple streams and databases $suffix" {
         verify_pel {$server FLUSHALL} {}
         seed_stream $server sa 2
@@ -266,6 +360,7 @@ proc test_all_stream_stats { {replMode 0} } {
         $server xgroup create sc g 0
         $server xreadgroup group g c count 8 streams sc >
         verify_pel {} {db0_PEL:2=1,4=1 db5_PEL:8=1}
+        verify_entries_read {} {db0_ER:2=1,4=1 db5_ER:8=1}
         $server select 0
     }
 
@@ -278,14 +373,16 @@ proc test_all_stream_stats { {replMode 0} } {
             catch {$server xreadgroup group g0 c count [expr {int(rand()*20)}] streams strm$s >}
             catch {$server xreadgroup group g1 c count [expr {int(rand()*20)}] streams strm$s >}
             catch {$server xack strm$s g0 [expr {int(rand()*10)+1}]-1}
-            # Trims and deletes must leave the PEL alone -- they only leave
-            # dangling references behind -- so they check the histogram stays put.
+            # Trims and deletes leave the PEL alone (only dangling references
+            # behind), and fragment the stream, which can make a group's
+            # entries_read counter unknowable again (XINFO reports NULL).
             catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
             catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
         }
-        # PEL must match an independent reconstruction from XINFO GROUPS
-        # (pending) -- across trims/deletes/reads/acks.
+        # Both metrics must match an independent reconstruction from XINFO
+        # GROUPS (pending / entries-read) -- across trims/deletes/reads/acks.
         verify_pel {} {__EVAL__ 0}
+        verify_entries_read {} {__EVAL__ 0}
     }
 }
 
@@ -307,15 +404,19 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000
         verify_pel {} {__EVAL__ 0}
+        verify_entries_read {} {__EVAL__ 0}
 
-        # A reload must reconstruct the metric for a random dataset too.
+        # A reload must reconstruct both metrics for a random dataset too.
         set before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
+        set before_er [get_info_stream_field r stream_distrib_cgroups_entries_read]
         r DEBUG RELOAD
         assert_equal $before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal $before_er [get_info_stream_field r stream_distrib_cgroups_entries_read]
 
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000 {useexpire}
         verify_pel {} {__EVAL__ 0}
+        verify_entries_read {} {__EVAL__ 0}
     } {} {cluster:skip}
 
     test "STREAM-STATS - DEBUG RELOAD reconstructs the histogram from RDB" {
@@ -329,8 +430,10 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         set before [get_info_stream_stripped r]
         r DEBUG RELOAD
         assert_equal $before [get_info_stream_stripped r]
-        # The metric matches an independent reconstruction from XINFO GROUPS.
+        # Both metrics match an independent reconstruction from XINFO GROUPS.
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_entries_read entries-read] \
+            [get_info_stream_field r stream_distrib_cgroups_entries_read]
     }
 
     test "STREAM-STATS - section is empty after the streams are removed" {
@@ -340,6 +443,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         r xgroup create st g 0
         r xreadgroup group g c count 4 streams st >
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_entries_read:4=1" [get_info_stream_field r stream_distrib_cgroups_entries_read]
         r del st
         assert_equal "" [get_info_stream_stripped r]
     }
@@ -391,9 +495,10 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         # pre-existing group isn't counted until its next change.
         r config set stream-stats yes
         assert_equal "" [get_info_stream_stripped r]
-        # A reload rebuilds the gauge exactly from the keyspace.
+        # A reload rebuilds the gauges exactly from the keyspace.
         r DEBUG RELOAD
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_entries_read:4=1" [get_info_stream_field r stream_distrib_cgroups_entries_read]
         # Disabling zeroes the histogram so no stale samples linger.
         r config set stream-stats no
         assert_equal "" [get_info_stream_stripped r]

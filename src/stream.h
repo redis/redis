@@ -36,9 +36,12 @@ extern dictType idmpDictType;
 /* INFO `Streams` section: per-database stream distribution histograms. Each
  * enumerator selects a per-db histogram (in kvstoreMetadata), so a single
  * update function serves every metric. STREAM_DISTRIB_MAX marks the end of the
- * enum, keeping streamDistribHistRow's switch exhaustive. */
+ * enum, keeping the per-metric switches exhaustive: adding a metric is one
+ * enumerator here plus one case in each of streamDistribHistRowMeta(),
+ * streamCGroupSample() and streamDistribMetricName(). */
 typedef enum {
-    STREAM_DISTRIB_CGROUPS_PEL = 0, /* distrib_cgroups_pel */
+    STREAM_DISTRIB_CGROUPS_PEL = 0,      /* stream_distrib_cgroups_pel */
+    STREAM_DISTRIB_CGROUPS_ENTRIES_READ, /* stream_distrib_cgroups_entries_read */
     STREAM_DISTRIB_MAX
 } streamDistribMetric;
 
@@ -235,6 +238,9 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 int streamDistribBin(int64_t value);
 int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric);
+int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric metric);
+const char *streamDistribMetricName(streamDistribMetric metric);
+void streamStatsResetMeta(kvstoreMetadata *meta);
 void streamStatsRebuild(void);
 void dbgAssertStreamStats(redisDb *db);
 

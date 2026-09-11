@@ -3354,11 +3354,7 @@ static int applyStreamStats(const char **err) {
          * covers a disable/enable cycle while a trim job is pending. */
         server.stream_stats_epoch++;
         for (int j = 0; j < server.dbnum; j++) {
-            kvstoreMetadata *meta = kvstoreGetMetadata(server.db[j].keys);
-            if (meta) {
-                memset(meta->distrib_cgroups_pel, 0,
-                       sizeof(meta->distrib_cgroups_pel));
-            }
+            streamStatsResetMeta(kvstoreGetMetadata(server.db[j].keys));
         }
     } else if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
         /* Enabling at runtime deliberately does not rescan, so the gauges are
