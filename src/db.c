@@ -1095,7 +1095,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
 
-    /* Resetting the live INFO `stream` histograms starts a new generation. The
+    /* Resetting the live INFO `Streams` histograms starts a new generation. The
      * async path replaces the kvstore, which kvsAsyncFreeDoneCB() already detects
      * via target_kvstore, but a synchronous flush empties it in place: the
      * histograms are zeroed by kvstoreOnEmpty() while the kvstore keeps its
