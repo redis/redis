@@ -1,5 +1,5 @@
 ################################################################################
-# Test the "INFO stream" section.
+# Test the "INFO streams" section.
 #
 # The section reports per-database, base-2 logarithmic histograms of stream
 # properties, identical in form to the "INFO keysizes" section. One sample per
@@ -20,7 +20,7 @@ proc hist_label {v} {
     return $power
 }
 
-# Whole "INFO stream" section, header and whitespace stripped (used to assert
+# Whole "INFO streams" section, header and whitespace stripped (used to assert
 # the section is entirely empty).
 proc get_info_stream_stripped {server} {
     return [string map {
@@ -29,7 +29,7 @@ proc get_info_stream_stripped {server} {
     } [$server info streams]]
 }
 
-# Only the "INFO stream" lines for a given metric field (e.g.
+# Only the "INFO streams" lines for a given metric field (e.g.
 # stream_distrib_cgroups_pel), concatenated and whitespace-stripped -- so a per-metric
 # assertion isn't disturbed by the other metrics' lines.
 proc get_info_stream_field {server field} {
@@ -43,9 +43,10 @@ proc get_info_stream_field {server field} {
 
 # Reconstruct a metric's expected histogram for 'dbid' directly from the
 # keyspace (the INFO-independent cross-check): for every stream, read the given
-# XINFO GROUPS field per group and bin it. A nil field (e.g. lag under
-# fragmentation) contributes no sample, matching the live histogram. Returns the
-# same canonical form as get_info_stream_field.
+# XINFO GROUPS field per group and bin it. A nil field contributes no sample,
+# matching the live histogram. 'pending' is never nil, so that branch is unused
+# today; it keeps the helper usable for a metric XINFO can report as NULL.
+# Returns the same canonical form as get_info_stream_field.
 proc eval_stream_histogram {server dbid metric xinfo_field} {
     $server select $dbid
     array set bin_counts {}
@@ -277,7 +278,8 @@ proc test_all_stream_stats { {replMode 0} } {
             catch {$server xreadgroup group g0 c count [expr {int(rand()*20)}] streams strm$s >}
             catch {$server xreadgroup group g1 c count [expr {int(rand()*20)}] streams strm$s >}
             catch {$server xack strm$s g0 [expr {int(rand()*10)+1}]-1}
-            # Trims and deletes exercise the lag bound and fragmentation (NULL).
+            # Trims and deletes must leave the PEL alone -- they only leave
+            # dangling references behind -- so they check the histogram stays put.
             catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
             catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
         }
@@ -298,7 +300,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
 
     # createComplexDataset drives streams with consumer groups through random
     # XADD / XADD MAXLEN / XTRIM / XREADGROUP / XACKDEL / XDEL sequences, i.e. the
-    # PEL and lag traffic nobody hand-wrote a case for. Two checks run here: the
+    # PEL traffic nobody hand-wrote a case for. Two checks run here: the
     # armed DEBUG STREAM-STATS-ASSERT rebuilds after every one of those commands,
     # and the cross-check below compares the final histograms with XINFO GROUPS.
     test "STREAM-STATS - Test complex dataset" {

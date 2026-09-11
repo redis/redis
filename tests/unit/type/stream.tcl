@@ -53,8 +53,7 @@ start_server {
     tags {"stream"}
 } {
     # Verify the INFO `Streams` histograms against a keyspace rebuild after every
-    # command, this suite drives XADD/XTRIM/XDEL/XSETID hardest, whose lag updates go
-    # through streamLagGuard.
+    # command, this suite drives XADD/XTRIM/XDEL/XSETID hardest.
     # Deliberately not tagged needs:debug: that would skip the entire suite where
     # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
     # the arming there.
