@@ -2493,8 +2493,17 @@ unsigned hashtableSampleEntries(hashtable *ht, void **dst, unsigned count) {
     samples.size = count;
     samples.seen = 0;
     samples.entries = dst;
+    /* Scan consecutive buckets starting at a random position, continuing from
+     * the cursor returned by the previous scan call. Restarting at a fresh
+     * random bucket on every iteration would visit the same bucket more than
+     * once, so 'seen' would count duplicates and, with 'count' close to the
+     * table size, some entries would never be returned (e.g. eviction with
+     * maxmemory-samples >= number of keys would still evict the wrong key).
+     * Following the cursor visits each bucket once per full cycle, so the
+     * samples are distinct and cover the whole table when count == size. */
+    size_t cursor = randomSizeT();
     while (samples.seen < count) {
-        hashtableScan(ht, randomSizeT(), sampleEntriesScanFn, &samples);
+        cursor = hashtableScan(ht, cursor, sampleEntriesScanFn, &samples);
     }
     rehashStepOnReadIfNeeded(ht);
     /* samples.seen is the number of entries scanned. It may be greater than
@@ -3675,6 +3684,48 @@ int hashtableTest(int argc, char **argv, int flags) {
         assert(deviation <= precision + acceptable_probability_deviation);
 
         hashtableRelease(ht);
+    }
+
+    TEST("sample entries are distinct and cover the table") {
+        /* Sampling scans consecutive buckets from a random start. With
+         * count < size the samples must be distinct; with count >= size
+         * every entry must be returned exactly once. Eviction relies on the
+         * latter when maxmemory-samples >= number of keys. */
+        hashtableType type = {0};
+        size_t sizes[] = {1, 6, 7, 8, 60, 100, 1000};
+        for (size_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+            size_t n = sizes[s];
+            hashtable *ht = hashtableCreate(&type);
+            unsigned *picked = zcalloc(sizeof(unsigned) * n);
+            for (size_t j = 0; j < n; j++) assert(hashtableAdd(ht, picked + j));
+            /* A full scan emits each entry exactly once only when the table
+             * is not rehashing, so finish any rehashing started by the adds. */
+            while (hashtableIsRehashing(ht)) hashtableRehashMicroseconds(ht, 1000);
+
+            unsigned counts[] = {(unsigned)(n / 2), (unsigned)n, (unsigned)(n + 5)};
+            for (int c = 0; c < 3; c++) {
+                unsigned count = counts[c];
+                if (count == 0) continue;
+                for (int round = 0; round < 50; round++) {
+                    void **samples = zmalloc(sizeof(void *) * count);
+                    unsigned got = hashtableSampleEntries(ht, samples, count);
+                    assert(got == (count < n ? count : (unsigned)n));
+                    for (unsigned i = 0; i < got; i++) {
+                        unsigned *e = samples[i];
+                        assert(e >= picked && e < picked + n);
+                        (*e)++;
+                        assert(*e == 1); /* no duplicates */
+                    }
+                    for (size_t j = 0; j < n; j++) {
+                        if (count >= n) assert(picked[j] == 1); /* full coverage */
+                        picked[j] = 0;
+                    }
+                    zfree(samples);
+                }
+            }
+            hashtableRelease(ht);
+            zfree(picked);
+        }
     }
 
     TEST("safe iterator invalidation on release") {
