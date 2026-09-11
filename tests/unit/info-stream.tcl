@@ -1,0 +1,401 @@
+################################################################################
+# Test the "INFO streams" section.
+#
+# The section reports per-database, base-2 logarithmic histograms of stream
+# properties, identical in form to the "INFO keysizes" section. One sample per
+# consumer group per metric:
+#   - stream_distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
+# Collection is gated on the stream-stats directive and reconstructed exactly
+# from RDB / replication.
+################################################################################
+
+# Map a value to its histogram bin label, matching the C binning (largest power
+# of two <= value; 0 -> "0"; >=1024 rendered with K/M/... suffix).
+proc hist_label {v} {
+    if {$v == 0} { return 0 }
+    set power 1
+    while { ($power * 2) <= $v } { set power [expr {$power * 2}] }
+    if {$power >= 1048576} { return "[expr {$power / 1048576}]M" }
+    if {$power >= 1024}    { return "[expr {$power / 1024}]K" }
+    return $power
+}
+
+# Whole "INFO streams" section, header and whitespace stripped (used to assert
+# the section is entirely empty).
+proc get_info_stream_stripped {server} {
+    return [string map {
+        "# Streams" ""
+        " " "" "\n" "" "\r" ""
+    } [$server info streams]]
+}
+
+# Only the "INFO streams" lines for a given metric field (e.g.
+# stream_distrib_cgroups_pel), concatenated and whitespace-stripped -- so a per-metric
+# assertion isn't disturbed by the other metrics' lines.
+proc get_info_stream_field {server field} {
+    set out ""
+    foreach line [split [$server info streams] "\n"] {
+        set line [string trim $line "\r"]
+        if {[string match "db*_$field:*" $line]} { append out $line }
+    }
+    return $out
+}
+
+# Reconstruct a metric's expected histogram for 'dbid' directly from the
+# keyspace (the INFO-independent cross-check): for every stream, read the given
+# XINFO GROUPS field per group and bin it. A nil field contributes no sample,
+# matching the live histogram. 'pending' is never nil, so that branch is unused
+# today; it keeps the helper usable for a metric XINFO can report as NULL.
+# Returns the same canonical form as get_info_stream_field.
+proc eval_stream_histogram {server dbid metric xinfo_field} {
+    $server select $dbid
+    array set bin_counts {}
+    foreach key [$server keys *] {
+        if {[$server type $key] ne "stream"} continue
+        foreach g [$server xinfo groups $key] {
+            array set gi $g
+            set v $gi($xinfo_field)
+            if {$v ne {}} { incr bin_counts([hist_label $v]) }
+            unset gi
+        }
+    }
+    if {![array size bin_counts]} { return "" }
+
+    # Sort bins by their numeric power (decode K/M suffixes back to a number).
+    set pairs {}
+    foreach label [array names bin_counts] {
+        set power $label
+        if {[string match "*K" $label]} { set power [expr {[string trimright $label K] * 1024}] }
+        if {[string match "*M" $label]} { set power [expr {[string trimright $label M] * 1048576}] }
+        lappend pairs [list $power "$label=$bin_counts($label)"]
+    }
+    set out {}
+    foreach p [lsort -integer -index 0 $pairs] { lappend out [lindex $p 1] }
+    return "db${dbid}_$metric:[join $out ,]"
+}
+
+# Resolve the expected string for metric 'field': the sentinel "__EVAL__ <dbid>"
+# reconstructs from the keyspace via XINFO 'xinfo_field'; otherwise the literal,
+# with the given short 'placeholder' expanded to the field name.
+proc stream_metric_expand {server exp field placeholder xinfo_field} {
+    if {[regexp {^__EVAL__\s+(\d+)$} $exp -> dbid]} {
+        return [eval_stream_histogram $server $dbid $field $xinfo_field]
+    }
+    return [string map [list $placeholder $field " " "" "\n" "" "\r" ""] $exp]
+}
+
+# Run 'cmd', then assert that metric 'field's INFO stream lines equal 'exp'. In
+# replicaMode the assertion is repeated on the replica after it catches up.
+proc verify_stream_metric {cmd exp field placeholder xinfo_field waitCond} {
+    global replicaMode
+    uplevel 1 $cmd
+
+    if {$replicaMode eq 1} {
+        set server [srv -1 client]
+        set replica [srv 0 client]
+    } else {
+        set server [srv 0 client]
+    }
+
+    set retries [expr {$waitCond ? 50 : 1}]
+
+    wait_for_condition 50 $retries {
+        [stream_metric_expand $server $exp $field $placeholder $xinfo_field] eq [get_info_stream_field $server $field]
+    } else {
+        fail "Expected: `[stream_metric_expand $server $exp $field $placeholder $xinfo_field]` Actual: `[get_info_stream_field $server $field]`. After: $cmd"
+    }
+
+    if {$replicaMode eq 1} {
+        wait_for_condition 50 50 {
+            [stream_metric_expand $server $exp $field $placeholder $xinfo_field] eq [get_info_stream_field $replica $field]
+        } else {
+            fail "Replica mismatch. Expected: `[stream_metric_expand $server $exp $field $placeholder $xinfo_field]` Actual: `[get_info_stream_field $replica $field]`. After: $cmd"
+        }
+    }
+}
+
+# stream_distrib_cgroups_pel: placeholder "PEL", cross-checked against XINFO 'pending'.
+proc verify_pel {cmd exp {waitCond 0}} {
+    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_cgroups_pel PEL pending $waitCond]
+}
+
+# Seed a stream with 'n' entries 1-1..n-1.
+proc seed_stream {server key n} {
+    for {set i 1} {$i <= $n} {incr i} { $server xadd $key $i-1 f v }
+}
+
+proc test_all_stream_stats { {replMode 0} } {
+    global replicaMode
+    set replicaMode $replMode
+    if {$replicaMode eq 1} {
+        set server [srv -1 client]
+        set suffix "(replica)"
+    } else {
+        set server [srv 0 client]
+        set suffix ""
+    }
+
+    test "STREAM-STATS - PEL bin boundaries 1,2,4,8,... $suffix" {
+        # Read exactly n entries into a fresh group -> PEL = n, which must land
+        # in the bin for the largest power of two <= n.
+        foreach n {1 2 3 4 7 8 15 16 300 512} {
+            verify_pel {$server FLUSHALL} {}
+            seed_stream $server st $n
+            $server xgroup create st g 0
+            verify_pel {$server xreadgroup group g c count $n streams st >} "db0_PEL:[hist_label $n]=1"
+        }
+    }
+
+    test "STREAM-STATS - empty group counts in bin 0 $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        verify_pel {$server xgroup create st g0 0 mkstream} {db0_PEL:0=1}
+    }
+
+    test "STREAM-STATS - XREADGROUP grows, XACK shrinks $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g 0
+        verify_pel {} {db0_PEL:0=1}
+        verify_pel {$server xreadgroup group g c count 4 streams st >} {db0_PEL:4=1}
+        verify_pel {$server xack st g 1-1} {db0_PEL:2=1}
+        verify_pel {$server xack st g 2-1 3-1} {db0_PEL:1=1}
+        verify_pel {$server xack st g 4-1} {db0_PEL:0=1}
+    }
+
+    test "STREAM-STATS - XACKDEL shrinks PEL $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g 0
+        $server xreadgroup group g c count 4 streams st >
+        verify_pel {} {db0_PEL:4=1}
+        verify_pel {$server xackdel st g ids 2 1-1 2-1} {db0_PEL:2=1}
+    }
+
+    test "STREAM-STATS - XNACK FORCE grows PEL $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        verify_pel {$server xgroup create st g 0} {db0_PEL:0=1}
+        # FORCE creates unowned PEL entries for existing stream IDs.
+        verify_pel {$server xnack st g SILENT IDS 3 1-1 2-1 3-1 FORCE} {db0_PEL:2=1}
+    }
+
+    test "STREAM-STATS - XCLAIM FORCE grows, claim of deleted shrinks $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g 0
+        # XCLAIM FORCE creates PEL entries for the four (existing) IDs -> PEL=4.
+        # Bin boundaries are chosen so the later purge crosses one (4 -> "4",
+        # 3 -> "2"), otherwise the shrink would be invisible at this granularity.
+        verify_pel {$server xclaim st g c 0 1-1 2-1 3-1 4-1 FORCE} {db0_PEL:4=1}
+        # XDEL removes the stream entry but leaves its PEL reference dangling;
+        # XDEL does not touch the PEL, so the histogram must stay at 4.
+        verify_pel {$server xdel st 1-1} {db0_PEL:4=1}
+        # Re-claiming the now-dangling ID purges it from the PEL -> PEL=3, which
+        # crosses a bin boundary (4 -> "2"), so the purge is observable.
+        verify_pel {$server xclaim st g c2 0 1-1 2-1 3-1 4-1 FORCE} {db0_PEL:2=1}
+    }
+
+    test "STREAM-STATS - XAUTOCLAIM purges deleted PEL entries $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g 0
+        verify_pel {$server xreadgroup group g c count 4 streams st >} {db0_PEL:4=1}
+        # XDEL leaves the deleted entries' PEL references dangling; it does not
+        # touch the PEL, so the histogram must stay at 4.
+        verify_pel {$server xdel st 1-1 2-1} {db0_PEL:4=1}
+        # XAUTOCLAIM purges the two now-dangling refs -> PEL=2, crossing a bin
+        # boundary (4 -> "2"), so the shrink is observable.
+        verify_pel {$server xautoclaim st g c2 0 0} {db0_PEL:2=1}
+    }
+
+    test "STREAM-STATS - XGROUP DELCONSUMER removes its PEL entries $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g 0
+        $server xreadgroup group g c1 count 3 streams st >
+        $server xreadgroup group g c2 count 1 streams st >
+        verify_pel {} {db0_PEL:4=1}
+        verify_pel {$server xgroup delconsumer st g c1} {db0_PEL:1=1}
+    }
+
+    test "STREAM-STATS - XGROUP DESTROY removes the sample $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g1 0
+        $server xgroup create st g2 0
+        verify_pel {$server xreadgroup group g1 c count 4 streams st >} {db0_PEL:0=1,4=1}
+        verify_pel {$server xgroup destroy st g1} {db0_PEL:0=1}
+        verify_pel {$server xgroup destroy st g2} {}
+    }
+
+    test "STREAM-STATS - XDELEX DELREF purges across groups $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g1 0
+        $server xgroup create st g2 0
+        $server xreadgroup group g1 c count 4 streams st >
+        $server xreadgroup group g2 c count 4 streams st >
+        verify_pel {} {db0_PEL:4=2}
+        # DELREF removes the entry's PEL references from every group at once.
+        verify_pel {$server xdelex st DELREF IDS 2 1-1 2-1} {db0_PEL:2=2}
+    }
+
+    test "STREAM-STATS - XADD/XTRIM DELREF purges across groups $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server st 8
+        $server xgroup create st g1 0
+        $server xgroup create st g2 0
+        $server xreadgroup group g1 c count 8 streams st >
+        $server xreadgroup group g2 c count 8 streams st >
+        verify_pel {} {db0_PEL:8=2}
+        # Trim with DELREF prunes the trimmed entries' PEL refs in both groups.
+        verify_pel {$server xtrim st DELREF maxlen 4} {db0_PEL:4=2}
+    }
+
+    test "STREAM-STATS - multiple streams and databases $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        seed_stream $server sa 2
+        seed_stream $server sb 4
+        $server xgroup create sa g 0
+        $server xgroup create sb g 0
+        $server xreadgroup group g c count 2 streams sa >
+        $server xreadgroup group g c count 4 streams sb >
+        verify_pel {} {db0_PEL:2=1,4=1}
+        $server select 5
+        seed_stream $server sc 8
+        $server xgroup create sc g 0
+        $server xreadgroup group g c count 8 streams sc >
+        verify_pel {} {db0_PEL:2=1,4=1 db5_PEL:8=1}
+        $server select 0
+    }
+
+    test "STREAM-STATS - randomized sequence matches keyspace cross-check $suffix" {
+        verify_pel {$server FLUSHALL} {}
+        for {set s 0} {$s < 6} {incr s} {
+            seed_stream $server strm$s [expr {int(rand()*30)+1}]
+            $server xgroup create strm$s g0 0
+            $server xgroup create strm$s g1 0
+            catch {$server xreadgroup group g0 c count [expr {int(rand()*20)}] streams strm$s >}
+            catch {$server xreadgroup group g1 c count [expr {int(rand()*20)}] streams strm$s >}
+            catch {$server xack strm$s g0 [expr {int(rand()*10)+1}]-1}
+            # Trims and deletes must leave the PEL alone -- they only leave
+            # dangling references behind -- so they check the histogram stays put.
+            catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
+            catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
+        }
+        # PEL must match an independent reconstruction from XINFO GROUPS
+        # (pending) -- across trims/deletes/reads/acks.
+        verify_pel {} {__EVAL__ 0}
+    }
+}
+
+start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}} {
+    r select 0
+    # Rebuild both histograms from the keyspace after every command and panic on
+    # any disagreement, so each test below also covers the bookkeeping: a missed
+    # update site, or one computed against mismatched state, fails immediately.
+    r debug stream-stats-assert 1
+
+    test_all_stream_stats 0
+
+    # createComplexDataset drives streams with consumer groups through random
+    # XADD / XADD MAXLEN / XTRIM / XREADGROUP / XACKDEL / XDEL sequences, i.e. the
+    # PEL traffic nobody hand-wrote a case for. Two checks run here: the
+    # armed DEBUG STREAM-STATS-ASSERT rebuilds after every one of those commands,
+    # and the cross-check below compares the final histograms with XINFO GROUPS.
+    test "STREAM-STATS - Test complex dataset" {
+        verify_pel {r FLUSHALL} {}
+        createComplexDataset r 1000
+        verify_pel {} {__EVAL__ 0}
+
+        # A reload must reconstruct the metric for a random dataset too.
+        set before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
+        r DEBUG RELOAD
+        assert_equal $before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
+
+        verify_pel {r FLUSHALL} {}
+        createComplexDataset r 1000 {useexpire}
+        verify_pel {} {__EVAL__ 0}
+    } {} {cluster:skip}
+
+    test "STREAM-STATS - DEBUG RELOAD reconstructs the histogram from RDB" {
+        r FLUSHALL
+        seed_stream r st 8
+        r xgroup create st g1 0
+        r xgroup create st g2 0
+        r xreadgroup group g1 c count 8 streams st >
+        r xreadgroup group g2 c count 3 streams st >
+        r xack st g1 1-1
+        set before [get_info_stream_stripped r]
+        r DEBUG RELOAD
+        assert_equal $before [get_info_stream_stripped r]
+        # The metric matches an independent reconstruction from XINFO GROUPS.
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
+    }
+
+    test "STREAM-STATS - section is empty after the streams are removed" {
+        r FLUSHALL
+        assert_equal "" [get_info_stream_stripped r]
+        seed_stream r st 4
+        r xgroup create st g 0
+        r xreadgroup group g c count 4 streams st >
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        r del st
+        assert_equal "" [get_info_stream_stripped r]
+    }
+
+    # Start a replica to verify the histogram is reconstructed via replication.
+    start_server {tags {needs:repl external:skip} overrides {stream-stats yes}} {
+        set primary [srv -1 client]
+        set primary_host [srv -1 host]
+        set primary_port [srv -1 port]
+        set replica [srv 0 client]
+
+        $replica replicaof $primary_host $primary_port
+        wait_for_condition 50 100 { [s 0 role] eq {slave} } else { fail "Replication not started." }
+
+        $primary select 0
+        # Arm the assertion on both sides: the replica maintains its histograms
+        # from the propagated commands, which is a separate path.
+        $primary debug stream-stats-assert 1
+        $replica debug stream-stats-assert 1
+        test_all_stream_stats 1
+    }
+}
+
+# The section is everything-only (in `all`/`everything`, not `default`) and is
+# gated on the stream-stats directive.
+start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} {
+    r select 0
+
+    test "STREAM-STATS - section is not part of default INFO" {
+        assert_equal 0 [string match "*# Streams*" [r info]]
+        assert_equal 1 [string match "*# Streams*" [r info everything]]
+        assert_equal 1 [string match "*# Streams*" [r info streams]]
+    }
+
+    test "STREAM-STATS - disabled: section present but carries no lines" {
+        r FLUSHALL
+        seed_stream r st 4
+        r xgroup create st g 0
+        r xreadgroup group g c count 4 streams st >
+        assert_equal "" [get_info_stream_stripped r]
+    }
+
+    test "STREAM-STATS - runtime enable is lazy, reload makes it exact" {
+        r FLUSHALL
+        seed_stream r st 4
+        r xgroup create st g 0
+        r xreadgroup group g c count 4 streams st >
+        # Enabling at runtime starts from a clean slate (no rescan): the
+        # pre-existing group isn't counted until its next change.
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        # A reload rebuilds the gauge exactly from the keyspace.
+        r DEBUG RELOAD
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        # Disabling zeroes the histogram so no stale samples linger.
+        r config set stream-stats no
+        assert_equal "" [get_info_stream_stripped r]
+    }
+}
