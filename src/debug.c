@@ -454,7 +454,7 @@ void debugCommand(client *c) {
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
 "STREAM-STATS-ASSERT <0|1>",
-"    Enable/disable INFO `stream` histogram assertion after each command.",
+"    Enable/disable INFO `Streams` histogram assertion after each command.",
 "KEYMETA-AOF-DUMP <key>",
 "    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
