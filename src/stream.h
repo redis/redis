@@ -33,7 +33,7 @@ typedef struct idmpProducer {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
-/* INFO `stream` section: per-database stream distribution histograms. Each
+/* INFO `Streams` section: per-database stream distribution histograms. Each
  * enumerator selects a per-db histogram (in kvstoreMetadata), so a single
  * update function serves every metric. STREAM_DISTRIB_MAX marks the end of the
  * enum, keeping streamDistribHistRow's switch exhaustive. */

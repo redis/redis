@@ -124,13 +124,13 @@ unsigned long streamLength(const robj *subject) {
 }
 
 /* ----------------------------------------------------------------------------
- * INFO `stream` statistics
+ * INFO `Streams` statistics
  *
  * Per-database base-2 logarithmic histograms of stream properties, reported by
- * the INFO `stream` section (distrib_cgroups_pel). They are
+ * the INFO `Streams` section (distrib_cgroups_pel). They are
  * maintained directly from the stream commands and module APIs that change the
  * tracked property, from the stream key lifecycle hooks (streamKeyLoaded /
- * streamKeyRemoved), and from the async slot-trim delta path (lazyfree.c).
+ * streamKeyRemoved), and from the async slot-trim delta path (cluster_asm.c).
  *
  * An update moves one sample from the bin for the property's old value to the
  * bin for its new value; the caller passes both (either may be -1, meaning "no
@@ -164,25 +164,27 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
 
 /* Map a stream property value to its histogram bin, matching the keysizes
  * histogram: 0 -> bin 0, otherwise floor(log2(value)) + 1. A negative value means
- * "no sample" and maps to -1 (used when a sample enters or leaves, and
- * defensively for a negative lag -- entries_read above entries_added -- which has
- * no bucket and is excluded like XINFO's absent lag; XSETID clamps entries_read
- * and RDB load rejects the state, so it should not arise).
+ * "no sample" and maps to -1, which callers skip. For the metric collected today
+ * that is only a consumer group entering or leaving the histogram: a PEL size is
+ * never negative.
  *
- * The bin is clamped to the last bin: unlike key sizes, some samples aren't
- * physically bounded -- e.g. a consumer group's lag is entries_added minus
- * entries_read, and XSETID ... ENTRIESADDED lets entries_added reach ~2^63,
- * whose bin would index past the histogram. Clamping keeps the top bin a "this
- * large or larger" bucket and prevents an out-of-bounds write.
+ * The top-bin clamp and the 64-bit binning below are deliberately stricter than
+ * that one metric needs. A PEL size is bounded by addressable memory, exactly like
+ * a key size, so neither can trigger for it. They are here because this is the
+ * single place every stream metric is binned, and a metric need not be
+ * memory-bounded: a counter the stream keeps in a 64-bit field can reach ~2^63 --
+ * entries_added, which XSETID ... ENTRIESADDED sets independently of how much the
+ * stream actually holds. Paying for both here once means the next metric cannot
+ * silently corrupt the histogram:
  *
- * Binned with log2ceil64() rather than log2ceil(), whose argument is a size_t: on
- * a 32-bit build that narrows the value before its magnitude is known, so a ~2^63
- * lag would be binned by its low 32 bits (landing in "2G") and the clamp above
- * would never see it. Key sizes cannot hit that -- they are bounded by addressable
- * memory -- but a lag is entries_added minus entries_read, and XSETID sets
- * entries_added independently of how much the stream actually holds.
+ * - Clamping to the last bin keeps it a "this large or larger" bucket and
+ *   prevents an out-of-bounds write past the end of the row.
+ * - log2ceil64() is used rather than log2ceil(), whose argument is a size_t: on a
+ *   32-bit build that narrows the value before its magnitude is known, so a ~2^63
+ *   sample would be binned by its low 32 bits (landing in "2G") and the clamp
+ *   above would never see it.
  *
- * Non-static so the async slot-trim delta (lazyfree.c) bins through the exact
+ * Non-static so the async slot-trim delta (cluster_asm.c) bins through the exact
  * same logic instead of duplicating it. */
 int streamDistribBin(int64_t value) {
     if (value < 0) return -1;
@@ -219,8 +221,7 @@ static void streamUpdateStat(redisDb *db, streamDistribMetric metric, int64_t ol
  * per-db histogram for 'metric'. Used by the stream key lifecycle hooks
  * (streamKeyLoaded / streamKeyRemoved), where a whole stream's worth of groups
  * appears or vanishes at once (RDB/replica load, RESTORE, COPY, MOVE, DEBUG
- * RELOAD, key deletion), by streamStatsRebuild(), and by xsetidCommand, which
- * moves stream-wide and per-group lag inputs together. */
+ * RELOAD, key deletion), and by streamStatsRebuild(). */
 static void streamUpdateCGroupsAll(redisDb *db, stream *s, streamDistribMetric metric, int adding) {
     if (!server.stream_stats || !s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;
@@ -3423,7 +3424,7 @@ int streamCleanupEntryCGroupRefs(redisDb *db, stream *s, streamID *id) {
 
         /* Remove from group and consumer PELs. This is the one chokepoint where
          * deleting a single entry can shrink the PEL of several groups at once
-         * (DELREF trims/deletes), so update the INFO `stream` histogram per
+         * (DELREF trims/deletes), so update the INFO `Streams` histogram per
          * group here rather than at the command level. */
         int64_t old_pel = raxSize(group->pel);
         pelListUnlink(group, nack);
@@ -6381,7 +6382,7 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
     stream *s = val->ptr;
     /* A whole stream just appeared without any command touching its groups
      * (RDB/replica load, DEBUG RELOAD, RESTORE, COPY, MOVE), so count each of
-     * its consumer groups in the INFO `stream` histograms; mirror of
+     * its consumer groups in the INFO `Streams` histograms; mirror of
      * streamKeyRemoved. */
     streamUpdateCGroupsAll(db, s, STREAM_DISTRIB_CGROUPS_PEL, 1);
     if (s->idmp_producers != NULL) {
@@ -6398,20 +6399,20 @@ void streamKeyLoaded(redisDb *db, robj *key, robj *val) {
 
 /* To be used when a stream key was removed from ram, un-register from stream_idmp_keys if needed */
 void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
-    /* Drop every consumer group of this stream from the INFO `stream`
+    /* Drop every consumer group of this stream from the INFO `Streams`
      * histograms (mirror of streamKeyLoaded). */
     streamUpdateCGroupsAll(db, val->ptr, STREAM_DISTRIB_CGROUPS_PEL, 0);
     dictDelete(db->stream_idmp_keys, key);
 }
 
 /* --- DEBUG STREAM-STATS-ASSERT -------------------------------------------
- * The INFO `stream` histograms are gauges maintained incrementally, so every
- * path that changes a group's PEL size or lag has to update them. Rebuilding
+ * The INFO `Streams` histograms are gauges maintained incrementally, so every
+ * path that changes a group's PEL size has to update them. Rebuilding
  * them from the keyspace after each command turns any existing stream test into
  * coverage for that: a missed update site, or an update computed against
  * mismatched state, shows up as a bin that disagrees with the scan. */
 
-/* Rebuild every db's INFO `stream` histograms from the keyspace. Primes the
+/* Rebuild every db's INFO `Streams` histograms from the keyspace. Primes the
  * assertion: enabling stream-stats at runtime deliberately does not rescan (see
  * the section comment at the top of this file), so the gauges may legitimately
  * be behind, which the assertion would report as corruption. Bumps the
@@ -6456,7 +6457,7 @@ static void dbgAssertStreamRow(const int64_t *scan, const int64_t *live, const c
     }
 }
 
-/* Verify 'db's INFO `stream` histograms against a fresh scan of its streams.
+/* Verify 'db's INFO `Streams` histograms against a fresh scan of its streams.
  * For debugging only; enabled by DEBUG STREAM-STATS-ASSERT 1. Binned through
  * streamDistribBin() and sampled through the same helpers the live path uses, so
  * this validates the bookkeeping (was every change accounted for, exactly once)

@@ -1,7 +1,7 @@
 start_server {
     tags {"stream"}
 } {
-    # Verify the INFO `stream` histograms against a keyspace rebuild after every
+    # Verify the INFO `Streams` histograms against a keyspace rebuild after every
     # command, so this whole suite doubles as coverage for their bookkeeping.
     # Deliberately not tagged needs:debug: that would skip the entire suite where
     # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
