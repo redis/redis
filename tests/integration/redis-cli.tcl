@@ -901,6 +901,61 @@ start_server {tags {"cli external:skip"}} {
     }
 }
 
+start_server {tags {"cli" "bitmap" "bitmap-roaring" "external:skip"}} {
+    test "bigkeys reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:large" has 5 set bits*} $result
+        assert_match {*2 bitmaps with 7 set bits*avg size 3.50*} $result
+        assert_no_match {*bitmaps with 0 ?*} $result
+    }
+
+    test "keystats reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*"bitmap:large" has 5 set bits*} $result
+        assert_match {*bitmap*7 set bits*3.50*} $result
+    }
+
+    test "bigkeys and keystats report a zero-cardinality native bitmap" {
+        r flushdb
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:zero 0 0
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:zero]
+        assert_equal 0 [r bitcount bitmap:zero]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:zero" has 0 set bits*} $result
+        assert_match {*1 bitmaps with 0 set bits*avg size 0.00*} $result
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*bitmap*"bitmap:zero" has 0 set bits*} $result
+    }
+}
+
 start_server {tags {"cli external:skip"}} {
     test "bigkeys reports a zero-size key as the biggest key of its type" {
         # type->biggest starts at 0, so a strict '<' comparison never fires when

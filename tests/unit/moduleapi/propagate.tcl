@@ -811,6 +811,66 @@ tags "modules aof external:skip" {
             # are back to the 5 members added by the SADD above.
             assert_equal {5 5 3 3 5} [lmap key $keys {r scard $key}]
         }
+
+        test {RM_Call bitmap transitions honor the selective propagation flags} {
+            r config set bitmap-default-roaring yes
+            set repl [attach_to_replication_stream]
+            r set bitmap:rmcall:source [binary format H* 80]
+            set expected_stream [list {select *} [list set bitmap:rmcall:source [binary format H* 80]]]
+            set bitmap_cases {}
+
+            foreach {mode flags on_replica in_aof} {
+                none {} 0 0
+                nested {} 0 0
+                replica !A 1 0
+                aof !R 0 1
+                all ! 1 1
+            } {
+                foreach command {setbit bitfield bitop} {
+                    set key bitmap:rmcall:$mode:$command
+                    switch $command {
+                        setbit {set cmd [list setbit $key 0 1]}
+                        bitfield {set cmd [list bitfield $key SET u1 0 1]}
+                        bitop {set cmd [list bitop or $key bitmap:rmcall:source]}
+                    }
+                    if {$mode eq "nested"} {
+                        # An inner call must not restore targets excluded by
+                        # the outer call, even for the BITCONVERT companion.
+                        r test.rm_call test.rm_call_flags ! {*}$cmd
+                    } elseif {$flags eq {}} {
+                        r test.rm_call {*}$cmd
+                    } else {
+                        r test.rm_call_flags $flags {*}$cmd
+                    }
+                    assert_equal bitmap [r type $key]
+                    assert_equal 1 [r bitcount $key]
+                    lappend bitmap_cases $key $in_aof
+
+                    if {$on_replica} {
+                        lappend expected_stream {multi}
+                        if {$command eq "bitop"} {
+                            lappend expected_stream $cmd [list bitconvert $key]
+                        } else {
+                            lappend expected_stream [list bitconvert $key] $cmd
+                        }
+                        lappend expected_stream {exec}
+                    }
+                }
+            }
+            assert_replication_stream $repl $expected_stream
+            close_replication_stream $repl
+        }
+
+        test {RM_Call bitmap transitions honor the selective propagation flags after AOF reload} {
+            r debug loadaof
+            foreach {key in_aof} $bitmap_cases {
+                assert_equal $in_aof [r exists $key]
+                if {$in_aof} {
+                    assert_equal bitmap [r type $key]
+                    assert_equal 1 [r bitcount $key]
+                }
+            }
+        }
     }
 }
 

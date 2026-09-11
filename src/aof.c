@@ -2834,6 +2834,22 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     return io.error ? 0 : 1;
 }
 
+int rewriteBitmapObject(rio *r, robj *key, robj *o, int dbid) {
+    rio payload;
+    /* KeyMeta is emitted below through its AOF callbacks, so the RESTORE
+     * payload must not contain another copy. */
+    createDumpPayload(&payload, o, key, dbid, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+
+    int ok = rioWriteBulkCount(r,'*',5) &&
+             rioWriteBulkString(r,"RESTORE",7) &&
+             rioWriteBulkObject(r,key) &&
+             rioWriteBulkString(r,"0",1) &&
+             rioWriteBulkString(r,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)) &&
+             rioWriteBulkString(r,"REPLACE",7);
+    sdsfree(payload.io.buffer.ptr);
+    return ok;
+}
+
 static int rewriteFunctions(rio *aof) {
     dict *functions = functionsLibGet();
     dictIterator iter;
@@ -2989,6 +3005,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
 #endif
     } else if (o->type == OBJ_ARRAY) {
         if (rewriteArrayObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_BITMAP) {
+        if (rewriteBitmapObject(r,key,o,dbid) == 0) return C_ERR;
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {
