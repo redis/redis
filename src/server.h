@@ -1293,6 +1293,7 @@ typedef struct {
     keysizesHist keysizes_hist;
     keysizesHist allocsizes_hist;
     int64_t distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `Streams`: per-cgroup PEL size */
+    int64_t distrib_cgroups_entries_read[MAX_KEYSIZES_BINS]; /* INFO `Streams`: per-cgroup entries_read */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
