@@ -494,7 +494,7 @@ proc busy_master_client_field {replica field} {
 foreach threads {1 4} {
     # Leave headroom for slow module GIL scheduling under sanitizers. A timeout
     # and PSYNC retry must not accidentally wake the input being tested.
-    start_server {tags {"repl modules external:skip"} overrides {save "" repl-timeout 300 repl-ping-replica-period 3600 repl-diskless-sync-delay 0}} {
+    start_server {tags {"iothreads repl modules external:skip"} overrides {save "" repl-timeout 300 repl-ping-replica-period 3600 repl-diskless-sync-delay 0}} {
         set master [srv 0 client]
         set master_host [srv 0 host]
         set master_port [srv 0 port]
