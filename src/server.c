@@ -852,6 +852,8 @@ int hasActiveChildProcess(void) {
 void resetChildState(void) {
     server.child_type = CHILD_TYPE_NONE;
     server.child_pid = -1;
+    server.child_start_time = 0;
+    server.child_timeout_killed = 0;
     server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
@@ -1427,6 +1429,48 @@ void exitExecutionUnit(void) {
     --server.execution_nesting;
 }
 
+/* Watchdog for the current fork child (RDB save, AOF rewrite or module fork).
+ *
+ * A child that stops making progress but never exits (for example because it
+ * inherited a locked allocator mutex from another thread at fork() time, see
+ * #15666) otherwise blocks persistence forever: aof_rewrite_in_progress /
+ * rdb_bgsave_in_progress stay set, no new child can be forked, and in the AOF
+ * case the incremental file grows without bound. When fork-child-timeout is
+ * configured, kill such a child once it has been running for that long.
+ *
+ * We use SIGKILL rather than SIGUSR1: a stuck child may not be able to run a
+ * signal handler, and we want this to be reported as a failed save/rewrite
+ * (SIGUSR1 is whitelisted by the done handlers as an intentional kill). The
+ * child is reaped by checkChildrenDone(), which runs the regular
+ * terminated-by-signal handling: status set to error, temp files removed,
+ * AOF rewrite backoff (aofRewriteLimited) applied. */
+void checkChildTimeout(void) {
+    if (!server.fork_child_timeout || !hasActiveChildProcess()) return;
+    if (server.child_timeout_killed) return;
+
+    long long elapsed_ms = (getMonotonicUs() - server.child_start_time) / 1000;
+    if (elapsed_ms < (long long)server.fork_child_timeout * 1000) return;
+
+    long long last_progress_sec = -1; /* -1: no progress report received yet */
+    if (server.stat_current_cow_updated) {
+        last_progress_sec = (long long)(getMonotonicUs() -
+                             server.stat_current_cow_updated) / 1000000;
+    }
+    serverLog(LL_WARNING,
+        "%s child process %ld has been running for %lld seconds, longer than "
+        "fork-child-timeout (%d). Keys processed so far: %zu, last progress "
+        "report %lld seconds ago. Killing it with SIGKILL.",
+        strChildType(server.child_type), (long) server.child_pid,
+        elapsed_ms / 1000, server.fork_child_timeout,
+        server.stat_current_save_keys_processed, last_progress_sec);
+    if (kill(server.child_pid, SIGKILL) == -1 && errno != ESRCH) {
+        serverLog(LL_WARNING, "Failed to kill child process %ld: %s",
+            (long) server.child_pid, strerror(errno));
+    }
+    /* Only kill once; the child is reaped by checkChildrenDone(). */
+    server.child_timeout_killed = 1;
+}
+
 void checkChildrenDone(void) {
     int statloc = 0;
     pid_t pid;
@@ -1709,6 +1753,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (hasActiveChildProcess() || ldbPendingChildren())
     {
         run_with_period(1000) receiveChildInfo();
+        run_with_period(1000) checkChildTimeout();
         checkChildrenDone();
     } else {
         /* If there is not a background saving/rewrite in progress check if
@@ -3152,6 +3197,8 @@ void initServer(void) {
     server.client_pause_in_transaction = 0;
     server.child_pid = -1;
     server.child_type = CHILD_TYPE_NONE;
+    server.child_start_time = 0;
+    server.child_timeout_killed = 0;
     server.rdb_child_type = RDB_CHILD_TYPE_NONE;
     server.rdb_pipe_conns = NULL;
     server.rdb_pipe_numconns = 0;
@@ -7659,6 +7706,8 @@ int redisFork(int purpose) {
         if (isMutuallyExclusiveChildType(purpose)) {
             server.child_pid = childpid;
             server.child_type = purpose;
+            server.child_start_time = getMonotonicUs();
+            server.child_timeout_killed = 0;
             server.stat_current_cow_peak = 0;
             server.stat_current_cow_bytes = 0;
             server.stat_current_cow_updated = 0;
