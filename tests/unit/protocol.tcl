@@ -248,6 +248,18 @@ start_server {tags {"protocol network"}} {
         set _ {}
     } {} {needs:debug resp3}
 
+    test {HELLO reply contains valid server run_id} {
+        set reply [r hello 3]
+        set run_id [dict get $reply run_id]
+        assert {[string length $run_id] == 40}
+        assert {[regexp {^[0-9a-f]{40}$} $run_id]}
+        assert_equal $run_id [s 0 run_id]
+
+        set reply2 [r hello 2]
+        set run_id2 [dict get $reply2 run_id]
+        assert_equal $run_id2 $run_id
+    }
+
     test "test verbatim str parsing" {
         r hello 3
         r debug protocol verbatim
