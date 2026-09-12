@@ -5163,6 +5163,11 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
     loadingFireEvent(rdbflags);
     rioInitWithFile(&rdb,fp);
 
+#ifdef HAVE_FADVISE
+    /* The file is read sequentially: let the kernel use a larger read-ahead window. */
+    posix_fadvise(fileno(fp), 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
 
     fclose(fp);
