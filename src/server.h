@@ -2104,6 +2104,9 @@ struct redisServer {
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
+    monotime child_start_time;  /* When the current child was forked (us) */
+    int child_timeout_killed;   /* True once fork-child-timeout killed the current child */
+    int fork_child_timeout;     /* Kill a fork child running longer than this (seconds), 0 = never */
     redisAtomic int module_gil_acquiring; /* Indicates whether the GIL is being acquiring by the main thread. */
     /* Networking */
     int port;                   /* TCP listening port */
@@ -3919,6 +3922,7 @@ const char *evictPolicyToString(void);
 struct redisMemOverhead *getMemoryOverheadData(void);
 void freeMemoryOverheadData(struct redisMemOverhead *mh);
 void checkChildrenDone(void);
+void checkChildTimeout(void);
 int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);

@@ -357,6 +357,43 @@ tags {"aof external:skip"} {
         }
     }
 
+    test {fork-child-timeout kills an AOF rewrite child that runs for too long} {
+        start_server {overrides {appendonly {yes} save {""}}} {
+            # 10 seconds per key: the child would need ~100 seconds.
+            r config set rdb-key-save-delay 10000000
+            populate 10
+            r config set fork-child-timeout 1
+            set loglines [count_log_lines 0]
+
+            r bgrewriteaof
+            set pid [get_child_pid 0]
+            wait_for_condition 100 100 {
+                [s aof_rewrite_in_progress] == 0
+            } else {
+                fail "stuck AOF rewrite child was not killed by fork-child-timeout"
+            }
+
+            # Reported as a failed rewrite, child gone, temp file removed.
+            assert_equal {err} [s aof_last_bgrewrite_status]
+            assert_equal 1 [s aof_rewrites_consecutive_failures]
+            verify_log_message 0 "*AOF child process $pid has been running for*longer than fork-child-timeout (1)*Killing it with SIGKILL*" $loglines
+            verify_log_message 0 "*Background AOF rewrite terminated by signal 9*" $loglines
+            wait_for_condition 50 100 {
+                ![process_is_alive $pid]
+            } else {
+                fail "child process $pid is still alive"
+            }
+            assert_equal 0 [llength [glob -nocomplain [file join [lindex [r config get dir] 1] temp-rewriteaof-*]]]
+
+            # Once the child is fast again a new rewrite succeeds.
+            r config set rdb-key-save-delay 0
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            assert_equal {ok} [s aof_last_bgrewrite_status]
+            assert_equal 0 [s aof_rewrites_consecutive_failures]
+        }
+    } {} {needs:local-process}
+
     test {Generate timestamp annotations in AOF} {
         start_server {overrides {appendonly {yes}}} {
             r config set aof-timestamp-enabled yes

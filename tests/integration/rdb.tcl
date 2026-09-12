@@ -696,3 +696,55 @@ foreach {type lp_entries} {listpack 512 dict 0} {
 }
 
 } ;# tags
+
+start_server {tags {"rdb external:skip"} overrides {save ""}} {
+    test {fork-child-timeout kills a BGSAVE child that runs for too long} {
+        # 10 seconds per key: the child would need ~100 seconds.
+        r config set rdb-key-save-delay 10000000
+        populate 10
+        r config set fork-child-timeout 1
+        set loglines [count_log_lines 0]
+
+        r bgsave
+        set pid [get_child_pid 0]
+        wait_for_condition 100 100 {
+            [s rdb_bgsave_in_progress] == 0
+        } else {
+            fail "stuck BGSAVE child was not killed by fork-child-timeout"
+        }
+
+        # Reported as a failed save, child gone, temp file removed.
+        assert_equal {err} [s rdb_last_bgsave_status]
+        verify_log_message 0 "*RDB child process $pid has been running for*longer than fork-child-timeout (1)*Killing it with SIGKILL*" $loglines
+        verify_log_message 0 "*Background saving terminated by signal 9*" $loglines
+        wait_for_condition 50 100 {
+            ![process_is_alive $pid]
+        } else {
+            fail "child process $pid is still alive"
+        }
+        assert_equal 0 [llength [glob -nocomplain [file join [lindex [r config get dir] 1] temp-*.rdb]]]
+
+        # Once the child is fast again a new BGSAVE succeeds.
+        r config set rdb-key-save-delay 0
+        r bgsave
+        waitForBgsave r
+        assert_equal {ok} [s rdb_last_bgsave_status]
+    } {} {needs:local-process}
+
+    test {fork-child-timeout does not kill a child that finishes in time} {
+        # 100ms per key: the child needs ~1 second, the timeout is 10.
+        r config set rdb-key-save-delay 100000
+        r config set fork-child-timeout 10
+        set loglines [count_log_lines 0]
+
+        r bgsave
+        waitForBgsave r
+        assert_equal {ok} [s rdb_last_bgsave_status]
+        # Nothing was killed: no watchdog message since the test started.
+        set new_log [exec tail -n +[expr {$loglines + 1}] [srv 0 stdout]]
+        assert_no_match "*longer than fork-child-timeout*" $new_log
+        r config set rdb-key-save-delay 0
+        r config set fork-child-timeout 0
+    }
+}
+
