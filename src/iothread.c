@@ -661,12 +661,17 @@ int processClientsFromIOThread(IOThread *t) {
         if (runClientCronFromIOThread(c)) continue;
 
         /* Process the pending command and input buffer. */
-        if (!isClientReadErrorFatal(c) && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
+        if (!isClientReadErrorFatal(c) &&
+            ((c->io_flags & CLIENT_IO_PENDING_COMMAND) || (c->flags & CLIENT_MASTER))) {
             /* IO-thread reads may enqueue one-by-one complete commands that are
              * executed in main thread without re-entering processInputBuffer().
              * Account this client as active before processing that handoff path. */
-            statsUpdateActiveClients(c);
-            c->flags |= CLIENT_PENDING_COMMAND;
+            /* A master can return with a command deferred during BUSY, or
+             * buffered input explicitly scheduled after BUSY ends. */
+            if (c->io_flags & CLIENT_IO_PENDING_COMMAND)
+                c->flags |= CLIENT_PENDING_COMMAND;
+            if (c->flags & CLIENT_PENDING_COMMAND)
+                statsUpdateActiveClients(c);
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
                 continue;
