@@ -478,3 +478,92 @@ start_server {overrides {io-threads 4 save ""}} {
 }
 
 }
+
+
+# Regression: replication input must remain buffered while a script is BUSY.
+# Observe the master client through a test-only allow-busy module command.
+# CLIENT LIST pauses IO threads while taking the snapshot.
+proc busy_master_client_field {replica field} {
+    set clients [$replica do_rm_call_allow_busy client list type master]
+    if {![regexp [format {(?:^| )%s=([^ \r\n]+)} $field] $clients -> value]} {
+        fail "Missing master client field $field: $clients"
+    }
+    return $value
+}
+
+foreach threads {1 4} {
+    # Leave headroom for slow module GIL scheduling under sanitizers. A timeout
+    # and PSYNC retry must not accidentally wake the input being tested.
+    start_server {tags {"repl modules external:skip"} overrides {save "" repl-timeout 300 repl-ping-replica-period 3600 repl-diskless-sync-delay 0}} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        start_server [list overrides [list save "" io-threads $threads busy-reply-threshold 10]] {
+            set replica [srv 0 client]
+            $replica module load [file normalize tests/modules/blockedclient.so]
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            test "Replication retains buffered input across script BUSY with $threads IO threads" {
+                    $master del busy-counter busy-marker
+                    $master set busy-seed initial
+                    assert_equal 1 [$master wait 1 5000]
+                    if {$threads > 1} {
+                        wait_for_condition 100 10 {
+                            [busy_master_client_field $replica io-thread] > 0
+                        } else {
+                            fail "Master client was not assigned to an IO thread"
+                        }
+                    }
+                    set tid [busy_master_client_field $replica io-thread]
+                    set master_id [busy_master_client_field $replica id]
+                    set rd [redis_deferring_client]
+                    $rd eval {while true do end} 0
+                    wait_for_condition 100 10 {
+                        [catch {$replica ping} reply] && [string match {BUSY*} $reply]
+                    } else {
+                        fail "Replica did not enter BUSY"
+                    }
+
+                    # Once BUSY is published, reception must continue while
+                    # RESP parsing stays paused, just as before threaded IO.
+                    set parsed [busy_master_client_field $replica avg-pipeline-len-sum]
+                    $master incr busy-counter
+                    wait_for_condition 100 10 {
+                        [busy_master_client_field $replica qbuf] > 0
+                    } else {
+                        fail "Replication input was not buffered during BUSY"
+                    }
+                    set qbuf [busy_master_client_field $replica qbuf]
+                    for {set i 1} {$i < 100} {incr i} {
+                        $master incr busy-counter
+                    }
+                    set marker [string repeat x 65536]
+                    $master set busy-marker $marker
+                    wait_for_condition 100 10 {
+                        [busy_master_client_field $replica qbuf] > $qbuf + 65536
+                    } else {
+                        fail "Replica stopped receiving buffered input during BUSY"
+                    }
+                    assert_equal $tid [busy_master_client_field $replica io-thread]
+                    assert_equal $parsed [busy_master_client_field $replica avg-pipeline-len-sum]
+                    assert_equal 0 [busy_master_client_field $replica argv-mem]
+                    assert_equal 0 [$master wait 1 100]
+
+                    $replica script kill
+                    assert_error {ERR*Script killed*} {$rd read}
+                    # Do not issue WAIT or another upstream write to wake the
+                    # master client. Periodic replication PINGs are disabled.
+                    wait_for_condition 100 10 {
+                        [$replica get busy-marker] eq $marker
+                    } else {
+                        fail "Buffered replication did not resume after BUSY"
+                    }
+                    assert_equal 100 [$replica get busy-counter]
+                    assert_equal $master_id [busy_master_client_field $replica id]
+                    assert_equal 0 [status $replica unexpected_error_replies]
+                    assert_equal [$master debug digest] [$replica debug digest]
+            }
+        }
+    }
+}
