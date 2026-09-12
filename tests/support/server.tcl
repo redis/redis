@@ -370,6 +370,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::valgrind && [lsearch $tags "valgrind:skip"] >= 0} {
+        set err "Not supported under valgrind"
+        return 0
+    }
+
     if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
         set err "Not supported in tls mode"
         return 0
