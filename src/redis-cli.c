@@ -1220,8 +1220,10 @@ static sds addHintForArgument(sds hint, cliCommandArg *arg) {
     }
 
     /* Surround an optional arg with brackets, unless it's partially matched. */
-    /* We store the result in a variable since arg->matched flag would be
-       reset inside addHintForRepeatedArgument() which is being called in this codepath
+    /* Preserve the original unmatched state because addHintForRepeatedArgument()
+    * resets arg->matched. If an already-matched optional argument is reset to
+    * unmatched, checking arg->matched again would add a closing ']' even though
+    * no opening '[' was added, resulting in an unbalanced bracket in the hint.
     */
     int optional_unmatched = (arg->flags & CMD_ARG_OPTIONAL) && !arg->matched;
     if (optional_unmatched) {
