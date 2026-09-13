@@ -876,9 +876,10 @@ int isInsideYieldingLongCommand(void) {
 }
 
 int isInsideYieldingLongCommandFromIOThread(void) {
-    int script_timedout;
+    int script_timedout, module_yielding;
     atomicGetWithSync(server.script_timedout, script_timedout);
-    return script_timedout;
+    atomicGetWithSync(server.busy_module_yielding, module_yielding);
+    return script_timedout || module_yielding;
 }
 
 /* Return true if this instance has persistence completely turned off:
@@ -3154,6 +3155,7 @@ void initServer(void) {
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+    atomicSet(server.busy_module_yielding, 0);
     atomicSet(server.script_timedout, 0);
     server.busy_module_yield_reply = NULL;
     server.client_pause_in_transaction = 0;

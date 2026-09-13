@@ -121,6 +121,23 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
         clientCompressionPendingRemove(c);
         connUnbindEventLoop(c->conn);
     }
+    /* Move a client that is still owned by the main thread's return queue.
+     * This can happen when a deferred master command was processed by the
+     * main thread while BUSY, then queued back to its IO thread before the
+     * script ended. */
+    if (!c->io_thread_client_list_node && c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+        list *pending = mainThreadPendingClientsToIOThreads[c->tid];
+        listNode *node = listSearchKey(pending, c);
+        if (node) {
+            listDelNode(pending, node);
+            pthread_mutex_lock(&mainThreadPendingClientsMutexes[c->tid]);
+            listAddNodeTail(mainThreadPendingClients[c->tid], c);
+            pthread_mutex_unlock(&mainThreadPendingClientsMutexes[c->tid]);
+            triggerEventNotifier(mainThreadPendingClientsNotifiers[c->tid]);
+            return;
+        }
+    }
+
     /* Just skip if it already is transferred. */
     if (c->io_thread_client_list_node) {
         IOThread *t = &IOThreads[c->tid];
