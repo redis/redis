@@ -88,7 +88,8 @@ TEST_MODULES = \
     keymeta_notify.so \
     postnotifications_perkey_metadata.so \
     atomicslotmigration.so \
-    cluster_topology.so
+    cluster_topology.so \
+    keyposvalidate.so
 
 .PHONY: all
 
