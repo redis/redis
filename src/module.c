@@ -1026,6 +1026,23 @@ int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, 
     /* We currently always use the array allocated by RM_KeyAtPos() and don't try
      * to optimize for the pre-allocated buffer.
      */
+
+    /* Validate key positions returned by the module. A buggy or malicious
+     * module may declare positions >= argc, which would cause an OOB read
+     * when the positions are used downstream (e.g., in ACL checks at
+     * ACLSelectorCheckKey which does argv[idx]->ptr). Filter them out
+     * here. This matches the validation already done in
+     * RM_RedactClientCommandArgument (which checks pos < argc). */
+    int valid_keys = 0;
+    for (int j = 0; j < result->numkeys; j++) {
+        if (result->keys[j].pos > 0 && result->keys[j].pos < argc) {
+            if (valid_keys != j)
+                result->keys[valid_keys] = result->keys[j];
+            valid_keys++;
+        }
+    }
+    result->numkeys = valid_keys;
+
     moduleFreeContext(&ctx);
     return result->numkeys;
 }
@@ -1045,6 +1062,20 @@ int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int ar
     cp->func(&ctx,(void**)argv,argc);
     /* We currently always use the array allocated by RM_RM_ChannelAtPosWithFlags() and don't try
      * to optimize for the pre-allocated buffer. */
+
+    /* Validate channel positions returned by the module. Same rationale
+     * as in moduleGetCommandKeysViaAPI: filter out positions >= argc to
+     * prevent OOB reads downstream. */
+    int valid_channels = 0;
+    for (int j = 0; j < result->numkeys; j++) {
+        if (result->keys[j].pos > 0 && result->keys[j].pos < argc) {
+            if (valid_channels != j)
+                result->keys[valid_channels] = result->keys[j];
+            valid_channels++;
+        }
+    }
+    result->numkeys = valid_channels;
+
     moduleFreeContext(&ctx);
     return result->numkeys;
 }
