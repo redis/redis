@@ -6,6 +6,9 @@ should be provided by the operating system.
 * **linenoise** is a readline replacement. It is developed by the same authors of Redis but is managed as a separated project and updated as needed.
 * **lua** is Lua 5.1 with minor changes for security and additional libraries.
 * **hdr_histogram** Used for per-command latency tracking histograms.
+* **CRoaring** is the C implementation of Roaring bitmaps used by native Redis
+  bitmap encodings. Redis vendors the C headers and source from upstream and
+  builds it only through the Redis dependency Makefile.
 
 How to upgrade the above dependencies
 ===
@@ -104,3 +107,31 @@ We use a customized version based on master branch commit e4448cf6d1cd08fff51981
 2. Copy updated files from newer version onto files in /hdr_histogram.
 3. Apply the changes from 1 above to the updated files.
 
+CRoaring
+---
+
+Updated source can be found here: https://github.com/RoaringBitmap/CRoaring
+We currently vendor v4.7.2 with a few local patches, each marked with a
+`Local Redis patch` comment at the patch site.
+
+1. Replace `deps/croaring/include` and `deps/croaring/src` with the upstream
+   `include` and `src` trees (C sources and headers only; Redis does not use
+   the upstream CMake build), and refresh `LICENSE`, `AUTHORS`, `README.md`
+   and `SECURITY.md`.
+2. If upstream added, removed or renamed C sources, mirror the change in the
+   source list of `deps/croaring/Makefile`. The Makefile itself is fully
+   Redis-authored (hidden symbol visibility, portable implementation only,
+   flag-change rebuild tracking, refcount regression test) and is kept as is.
+3. Re-apply the local patches unless upstream has independently fixed them.
+   Run `git grep 'Local Redis patch' deps/croaring` before replacing the
+   tree to enumerate them. Currently:
+   * `include/roaring/portability.h`: portability fixes for platforms and
+     toolchains upstream does not exercise the same way (endianness
+     detection, a `__sync`-builtin atomics fallback, a `__has_include`
+     polyfill, an unaligned-access gate, a non-atomic refcount fix).
+   * `include/roaring/roaring64_internal.h` (Redis-added file) and
+     `src/roaring64.c`: expose the private 64-bit bitmap layout so
+     `src/bitroar.c` can walk every allocation for MEMORY USAGE accounting,
+     fork-child page dismissal and active defragmentation.
+4. Run `make -C deps/croaring test` and the bitmap test suites under
+   `tests/` (`bitroar`, `bitroar-oracle`, `bitops`).

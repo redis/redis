@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
@@ -752,6 +753,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     case OBJ_ARRAY:
         return rdbSaveType(rdb,RDB_TYPE_ARRAY);
+    case OBJ_BITMAP:
+        return rdbSaveType(rdb,RDB_TYPE_BITMAP);
     default:
         serverPanic("Unknown object type");
     }
@@ -1134,6 +1137,56 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     }
 
     return nwritten;
+}
+
+/* OBJ_BITMAP persistence (RDB_TYPE_BITMAP): the bitmap's logical byte
+ * length, then an RDB string holding CRoaring's 64-bit portable
+ * serialization (RoaringFormatSpec, canonical little-endian fields on every
+ * architecture). The logical length travels separately because trailing
+ * zero bits are observable through bitmap commands but are not represented
+ * by Roaring containers. The payload size is proportional to the resident
+ * containers, never to the highest set bit, and the same format is shared
+ * by RDB snapshots, DUMP/RESTORE, and the RDB payloads used by AOF. */
+static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
+    ssize_t n, nwritten = 0;
+    uint64_t byte_len = bitroarLen(o);
+    sds payload;
+
+    if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
+    nwritten += n;
+
+    payload = bitroarSerializePortable(o);
+    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload, sdslen(payload))) == -1) {
+        sdsfree(payload);
+        return -1;
+    }
+    nwritten += n;
+    sdsfree(payload);
+
+    return nwritten;
+}
+
+static robj *rdbLoadBitmapObject(rio *rdb) {
+    uint64_t byte_len;
+    size_t payload_len;
+    sds payload;
+    robj *o;
+
+    byte_len = rdbLoadLen(rdb, NULL);
+    if (byte_len == RDB_LENERR || byte_len > BITROAR_MAX_BYTES) return NULL;
+#if SIZE_MAX < UINT64_MAX
+    if (byte_len > (uint64_t)SIZE_MAX) return NULL;
+#endif
+
+    payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
+    if (payload == NULL) return NULL;
+    /* bitroarCreateFromPortable() validates the payload and rejects a byte_len
+     * that cannot hold the highest set bit. A byte_len beyond the highest set
+     * bit is legitimate: trailing zero bytes contain no set bits, yet extend
+     * the logical length. */
+    o = bitroarCreateFromPortable((unsigned char *)payload, payload_len, byte_len);
+    sdsfree(payload);
+    return o;
 }
 
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
@@ -1667,6 +1720,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
             }
         }
+    } else if (o->type == OBJ_BITMAP) {
+        if ((n = rdbSaveBitmapObject(rdb, o)) == -1) return -1;
+        nwritten += n;
     } else {
         serverPanic("Unknown object type");
     }
@@ -4487,6 +4543,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             arSet(ar, idx, v);
+        }
+    } else if (rdbtype == RDB_TYPE_BITMAP) {
+        o = rdbLoadBitmapObject(rdb);
+        if (o == NULL) {
+            rdbReportCorruptRDB("Invalid bitmap RDB payload");
+            return NULL;
         }
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);

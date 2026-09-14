@@ -61,6 +61,7 @@ distclean:
 	-(cd fpconv && $(MAKE) clean) > /dev/null || true
 	-(cd tre && $(MAKE) clean) > /dev/null || true
 	-(cd xxhash && $(MAKE) clean) > /dev/null || true
+	-(cd croaring && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -108,6 +109,18 @@ xxhash: .make-prerequisites
 	cd xxhash && $(MAKE) lib CFLAGS="$(XXHASH_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 .PHONY: xxhash
 
+CROARING_CFLAGS = $(DEPS_CFLAGS) -DROARING_DISABLE_X64=1 -DDISABLENEON=1
+# Do not inherit Redis' LTO flags here: bitcode archives require mutually
+# compatible compiler, archiver and linker plugins, which supported CI and
+# cross-build environments cannot guarantee. CRoaring tracks the resulting
+# flags in its build settings file, so incremental builds still rebuild the
+# archive when needed.
+croaring: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd croaring && $(MAKE) CFLAGS="$(CROARING_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)" ENABLE_LTO= AR="$(AR)"
+
+.PHONY: croaring
+
 ifeq ($(uname_S),SunOS)
 	# Make isinf() available
 	LUA_CFLAGS= -D__C99FEATURES__=1
@@ -128,7 +141,7 @@ endif
 # lua's Makefile defines AR="ar rcu", which is unusual, and makes it more
 # challenging to cross-compile lua (and redis).  These defines make it easier
 # to fit redis into cross-compilation environments, which typically set AR.
-AR=ar
+AR?=ar
 ARFLAGS=rc
 
 lua: .make-prerequisites

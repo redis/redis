@@ -9776,6 +9776,7 @@ typeinfo type_set = { "set", "SCARD", "members" };
 typeinfo type_hash = { "hash", "HLEN", "fields" };
 typeinfo type_zset = { "zset", "ZCARD", "members" };
 typeinfo type_stream = { "stream", "XLEN", "entries" };
+typeinfo type_bitmap = { "bitmap", "BITCOUNT", "set bits" };
 typeinfo type_other = { "other", NULL, "?" };
 
 static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) {
@@ -9942,6 +9943,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     typeinfo_add(types_dict, "hash", &type_hash);
     typeinfo_add(types_dict, "zset", &type_zset);
     typeinfo_add(types_dict, "stream", &type_stream);
+    typeinfo_add(types_dict, "bitmap", &type_bitmap);
 
     signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
@@ -11125,6 +11127,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(memkeys_types_dict, "hash", &type_hash);
     typeinfo_add(memkeys_types_dict, "zset", &type_zset);
     typeinfo_add(memkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(memkeys_types_dict, "bitmap", &type_bitmap);
 
     /* We could use only one typeinfo dictionary if we add new fields to save
      * both memkey and bigkey info. Not sure it would make sense in findBigKeys(). */
@@ -11135,6 +11138,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(bigkeys_types_dict, "hash", &type_hash);
     typeinfo_add(bigkeys_types_dict, "zset", &type_zset);
     typeinfo_add(bigkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(bigkeys_types_dict, "bitmap", &type_bitmap);
 
     size_dist key_length_dist;
     size_dist_entry distribution[] = {

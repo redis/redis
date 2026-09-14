@@ -615,3 +615,25 @@ start_server {tags {"modules external:skip"}} {
         assert_equal [expr $incompatible_ops+3] [s cluster_incompatible_ops]
     }
 }
+
+# The bitmap tags must sit on the server block: tag-filtered runs (e.g.
+# --tags bitmap) decide reachability from start_server tags before any
+# per-test tags are consulted.
+start_server {tags {"modules bitmap bitmap-roaring needs:debug external:skip cluster:skip"}} {
+    r module load $testmodule
+
+    test {module key API exposes bitmap without string access} {
+        set raw [binary format H* 80400100080000]
+
+        r set bitmap:module-boundary $raw
+        r set bitmap:module-string $raw
+        convert_string_bitmap_to_roaring r bitmap:module-boundary
+        assert_equal {bitmap 7 0 0} [r test.keyinfo bitmap:module-boundary]
+        assert_equal {string 7 1 1} [r test.keyinfo bitmap:module-string]
+        assert_equal bitmap [r type bitmap:module-boundary]
+        assert_equal $raw [r debug bitmap-raw bitmap:module-boundary]
+        assert_equal string [r type bitmap:module-string]
+        assert_equal $raw [r get bitmap:module-string]
+        assert_equal 2 [r del bitmap:module-boundary bitmap:module-string]
+    }
+}

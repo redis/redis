@@ -33,6 +33,7 @@
 #include "estore.h"
 #include "chk.h"
 #include "fast_float_strtod.h"
+#include "bitroar.h"
 
 #include <time.h>
 #include <signal.h>
@@ -360,8 +361,8 @@ static void dictDestructorKV(dict *d, void *key) {
         if (hist) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
-            int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
+            int old_bin = (alloc_size == 0) ? 0 :
+                          min(log2ceil(alloc_size) + 1, MAX_KEYSIZES_BINS - 1);
             hist[old_bin]--;
         }
     }
@@ -7206,7 +7207,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_items",
             [OBJ_ZSET] = "distrib_zsets_items",
             [OBJ_HASH] = "distrib_hashes_items",
-            [OBJ_STREAM] = "distrib_streams_items"
+            [OBJ_STREAM] = "distrib_streams_items",
+            [OBJ_BITMAP] = "distrib_bitmaps_sizes"
         };
         static const char *type_sizes_str[OBJ_TYPE_MAX] = {
             [OBJ_STRING] = NULL, /* Skip strings to avoid confusion with distrib_strings_sizes */
@@ -7214,7 +7216,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_sizes",
             [OBJ_ZSET] = "distrib_zsets_sizes",
             [OBJ_HASH] = "distrib_hashes_sizes",
-            [OBJ_STREAM] = "distrib_streams_sizes"
+            [OBJ_STREAM] = "distrib_streams_sizes",
+            [OBJ_BITMAP] = NULL, /* Skip bitmaps to avoid confusion with distrib_bitmaps_sizes */
         };
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
@@ -8242,6 +8245,7 @@ int main(int argc, char **argv) {
     if (exec_name == NULL) exec_name = argv[0];
     server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
+    bitroarInit();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
