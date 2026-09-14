@@ -473,15 +473,15 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 
 /* Read dbAddInternal() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    kvSpec keyMetaEmpty; /* No metadata added */
-    kvSpecInit(&keyMetaEmpty);
-    return dbAddInternal(db, key, valref, NULL, &keyMetaEmpty);
+    kvSpec specEmpty; /* No metadata added */
+    kvSpecInit(&specEmpty);
+    return dbAddInternal(db, key, valref, NULL, &specEmpty);
 }
 
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
-    kvSpec keyMetaEmpty; /* No metadata added */
-    kvSpecInit(&keyMetaEmpty);
-    return dbAddInternal(db, key, valref, link, &keyMetaEmpty);
+    kvSpec specEmpty; /* No metadata added */
+    kvSpecInit(&specEmpty);
+    return dbAddInternal(db, key, valref, link, &specEmpty);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.

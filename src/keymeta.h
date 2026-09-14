@@ -106,14 +106,14 @@ void keyMetaInit(void);
 /* Key metadata event callbacks */
 void keyMetaOnUnlink(struct redisDb *db, robj *key,kvobj *kv);
 void keyMetaOnFree(kvobj *kv);
-void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey, struct kvSpec *kms);
-void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, struct kvSpec *kms);
-void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDbId, struct kvSpec *kms);
+void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey, struct kvSpec *spec);
+void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, struct kvSpec *spec);
+void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDbId, struct kvSpec *spec);
 int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid);
 
 /* RDB serialization */
 int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid);
-int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, struct kvSpec *kms);
+int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, struct kvSpec *spec);
 
 void keyMetaResetModuleValues(kvobj *kv);
 void keyMetaTransition(kvobj *kvOld, kvobj *kvNew);
@@ -142,12 +142,12 @@ static inline void keyMetaResetValues(kvobj *kv) {
 }
 
 /* Add metadata to keymeta spec. metaid must be in range 0..7 and added in order! */
-void kvSpecAddMeta(struct kvSpec *keymeta, int metaid, uint64_t metaval);
+void kvSpecAddMeta(struct kvSpec *spec, int metaid, uint64_t metaval);
 
 /* Free any metadata stored in a kvSpec. This is called when RDB load fails after
  * some metadata has been loaded. It invokes the free cb for each metadata class that 
  * was already loaded, preventing memory leaks from partially-loaded metadata. */
-void kvSpecCleanup(struct kvSpec *kms);
+void kvSpecCleanup(struct kvSpec *spec);
 
 static inline uint32_t getNumMeta(uint16_t metabits) {
     /* Assumed expire is always first meta */
