@@ -36,6 +36,12 @@
 
 #include "lzfP.h"
 
+/* Redis decompresses with the faster lzf_decompress2() (see lzf_d_2.c). This
+ * original upstream decoder is no longer called in production; it is compiled
+ * only in test builds, where the lzf fuzz test uses it as the correctness
+ * oracle for lzf_decompress2(). */
+#ifdef REDIS_TEST
+
 #if AVOID_ERRNO
 # define SET_ERRNO(n)
 #else
@@ -189,3 +195,5 @@ lzf_decompress (const void *const in_data,  size_t in_len,
 #if defined(__GNUC__) && __GNUC__ >= 5
 #pragma GCC diagnostic pop
 #endif
+
+#endif /* REDIS_TEST */

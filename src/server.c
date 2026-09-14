@@ -8116,6 +8116,7 @@ typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
+int lzfTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -8145,6 +8146,7 @@ struct redisTest {
     {"zset", zsetTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
+    {"lzf", lzfTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
