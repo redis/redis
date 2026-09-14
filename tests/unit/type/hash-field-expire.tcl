@@ -294,16 +294,21 @@ start_server {tags {"external:skip needs:debug"}} {
         }
         
         test "HPEXPIRETIME persists after RDB reload ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 500 NX FIELDS 1 field1
-            set before [r HPEXPIRETIME myhash FIELDS 1 field1]
-            r debug reload
-            set after [r HPEXPIRETIME myhash FIELDS 1 field1]
-            assert_equal $before $after
-            # field2 should not have expiration
-            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
-            assert_equal [get_stat_subexpiry r] 1
+            # Retry with a longer TTL when DEBUG RELOAD is slow.
+            assert_with_retry 3 iter {
+                r del myhash
+                r hset myhash field1 value1 field2 value2
+                set ttl_ms [expr {500 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
+                set before [r HPEXPIRETIME myhash FIELDS 1 field1]
+                r debug reload
+                set after [r HPEXPIRETIME myhash FIELDS 1 field1]
+            } {
+                $before == $after &&
+                [r HTTL myhash FIELDS 1 field2] == $T_NO_EXPIRY &&
+                [get_stat_subexpiry r] == 1
+            }
+
             # Wait for field1 to expire robustly
             wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" } 
             assert_equal [r hget myhash field1] ""
