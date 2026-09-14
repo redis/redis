@@ -439,7 +439,6 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     if (link == NULL) link = &tmp;
     robj *val = *valref;
     kvobj *kv = kvobjSet(key->ptr, val, spec->metabits);
-    kvobjBits(kv)->no_evict = 0;
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
     

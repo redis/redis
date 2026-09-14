@@ -174,8 +174,7 @@ void keyMetaInit(void) {
 }
 
 /* Prepare key metadata spec for copy of `srcKv` */
-void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDbId,
-                   kvSpec *spec)
+void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDbId, kvSpec *spec)
 {
     uint64_t *pMeta = ((uint64_t *)kv) - 1;
     if (kv->metabits & KEY_META_MASK_EXPIRE) {
