@@ -10,9 +10,14 @@ TIMEOUT=2000
 NODES=6
 REPLICAS=1
 PROTECTED_MODE=yes
+<<<<<<< HEAD
 # The nodes talk over an unauthenticated cluster bus on loopback, which a cluster
 # node refuses to do by default, so protection has to be waived explicitly.
 BUS_PROTECTED_MODE=no
+=======
+STARTUP_RETRIES=50
+STARTUP_RETRY_DELAY=0.1
+>>>>>>> 6756a3fc8 (address race condition by waiting for cluster nodes to respond before create)
 ADDITIONAL_OPTIONS=""
 
 # You may want to put the above config parameters into config.sh in order to
@@ -39,6 +44,23 @@ fi
 if [ "$1" == "start-and-create" ]
 then
     "$SCRIPT_DIR/create-cluster" start || exit $?
+
+    WAIT_PORT=$PORT
+    while [ $((WAIT_PORT < ENDPORT)) != "0" ]; do
+        WAIT_PORT=$((WAIT_PORT+1))
+        RETRIES=$STARTUP_RETRIES
+
+        while ! "$BIN_PATH/redis-cli" -h "$CLUSTER_HOST" -p "$WAIT_PORT" PING >/dev/null 2>&1; do
+            RETRIES=$((RETRIES-1))
+
+            if [ "$RETRIES" == "0" ]; then
+                echo "Redis instance on port $WAIT_PORT failed to start."
+                exit 1
+            fi
+
+            sleep "$STARTUP_RETRY_DELAY"
+        done
+    done
 
     if [ "$2" == "-f" ]; then
         "$SCRIPT_DIR/create-cluster" create -f
