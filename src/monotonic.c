@@ -74,6 +74,8 @@ static void (*monotonic_logger)(const char *fmt, ...) __attribute__((format(prin
 /* The tick rate is only known at runtime, so dividing by it emits a 64-bit
  * divide on every clock read.  Precompute the reciprocal and multiply instead
  * (Granlund-Montgomery, as in libdivide).  Exact, not approximate. */
+#if defined(__SIZEOF_INT128__)
+
 #define MONO_RECIP_SHIFT_MASK 0x3f
 #define MONO_RECIP_ADD_MARKER 0x40   /* magic needed 65 bits; add back at use */
 
@@ -82,7 +84,7 @@ typedef struct {
     unsigned more;    /* shift, plus MONO_RECIP_ADD_MARKER */
 } monoRecip;
 
-static void monoRecipInit(monoRecip *r, uint64_t d) {
+static inline void monoRecipInit(monoRecip *r, uint64_t d) {
     unsigned log2d = 63 - __builtin_clzll(d);
     if ((d & (d - 1)) == 0) {
         r->magic = 0;
@@ -111,6 +113,22 @@ static inline uint64_t monoRecipDiv(const monoRecip *r, uint64_t x) {
     if (r->more & MONO_RECIP_ADD_MARKER) q += (x - q) >> 1;
     return q >> (r->more & MONO_RECIP_SHIFT_MASK);
 }
+
+#else
+
+typedef struct {
+    uint64_t d;
+} monoRecip;
+
+static inline void monoRecipInit(monoRecip *r, uint64_t d) {
+    r->d = d;
+}
+
+static inline uint64_t monoRecipDiv(const monoRecip *r, uint64_t x) {
+    return x / r->d;
+}
+
+#endif
 
 
 #if defined(__x86_64__) && defined(__linux__)
