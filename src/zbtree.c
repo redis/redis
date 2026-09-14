@@ -310,11 +310,23 @@ static int zbtChildIdx(zbtInner *p, zbtNode *c) {
     serverPanic("zbtree: child not found in parent");
 }
 
-/* Choose the child of inner node 'in' whose key range contains (score,ele). */
+/* Choose the child of inner node 'in' whose key range contains (score,ele).
+ * sep[] is sorted, so the predicate "target >= sep[i]" holds on a prefix and
+ * the last such i can be bisected. Every evaluation dereferences a separator
+ * element, which for large members is a cold line in its own page, so the
+ * comparison count - not the arithmetic - is what this loop costs. */
 static int zbtInnerChildIdx(zbtInner *in, double score, sds ele) {
-    int i = (int)in->n.count - 1;
-    while (i > 0 && zbtCompare(score, ele, in->sep[i]) < 0) i--;
-    return i;
+    int lo = 1, hi = (int)in->n.count - 1, res = 0;
+    while (lo <= hi) {
+        int mid = (lo + hi) >> 1;
+        if (zbtCompare(score, ele, in->sep[mid]) >= 0) {
+            res = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return res;
 }
 
 /* Descend from the root to the leaf that would contain (score,ele). */
@@ -330,14 +342,30 @@ static zbtLeaf *zbtFindLeaf(zbtree *t, double score, sds ele) {
 /* Locate (score,ele) inside a leaf. Sets *found and returns the index where
  * the element is (if found) or where it should be inserted. */
 static int zbtLeafSearch(zbtLeaf *lf, double score, sds ele, int *found) {
-    uint32_t i;
-    for (i = 0; i < lf->n.count; i++) {
-        int c = zbtCompare(score, ele, lf->elems[i]);
-        if (c == 0) { *found = 1; return (int)i; }
-        if (c < 0) { *found = 0; return (int)i; }
+    int lo = 0, hi = (int)lf->n.count, eq = -1;
+    while (lo < hi) {
+        int mid = (lo + hi) >> 1;
+        int c = zbtCompare(score, ele, lf->elems[mid]);
+        if (c > 0) {
+            lo = mid + 1;
+        } else {
+            /* (score,ele) is unique in the tree, so an equal hit is already
+             * the lower bound and survives as 'lo'. */
+            if (c == 0) eq = mid;
+            hi = mid;
+        }
     }
-    *found = 0;
-    return (int)lf->n.count;
+    *found = (eq == lo);
+    return lo;
+}
+
+/* Locate an element already known to live in this leaf. The caller holds the
+ * exact pointer (it came out of the ZSET dict), so identity over the packed
+ * slot array answers the question without dereferencing any element. */
+static int zbtLeafFindPtr(zbtLeaf *lf, const zbtElem *e) {
+    for (uint32_t i = 0; i < lf->n.count; i++)
+        if (lf->elems[i] == e) return (int)i;
+    return -1;
 }
 
 /* Refresh csize/sep for every ancestor of 'n' up to the root. Used after an
@@ -834,9 +862,8 @@ void zbtDeleteElem(zbtree *t, zbtElem *e) {
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
     zbtLeaf *lf = zbtFindLeaf(t, score, ele);
-    int found;
-    int idx = zbtLeafSearch(lf, score, ele, &found);
-    serverAssert(found && lf->elems[idx] == e);
+    int idx = zbtLeafFindPtr(lf, e);
+    serverAssert(idx >= 0);
 
     memmove(&lf->elems[idx], &lf->elems[idx + 1],
             ((int)lf->n.count - idx - 1) * sizeof(zbtElem *));
@@ -862,9 +889,8 @@ zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore) {
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
     zbtLeaf *lf = zbtFindLeaf(t, score, ele);
-    int found;
-    int idx = zbtLeafSearch(lf, score, ele, &found);
-    serverAssert(found && lf->elems[idx] == e);
+    int idx = zbtLeafFindPtr(lf, e);
+    serverAssert(idx >= 0);
 
     memmove(&lf->elems[idx], &lf->elems[idx + 1],
             ((int)lf->n.count - idx - 1) * sizeof(zbtElem *));
@@ -911,9 +937,8 @@ unsigned long zbtRankByElem(zbtree *t, zbtElem *e) {
         n = in->child[ci];
     }
     zbtLeaf *lf = (zbtLeaf *)n;
-    int found;
-    int idx = zbtLeafSearch(lf, score, ele, &found);
-    serverAssert(found);
+    int idx = zbtLeafFindPtr(lf, e);
+    serverAssert(idx >= 0);
     return rank + (unsigned long)idx + 1;
 }
 
