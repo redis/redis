@@ -3967,6 +3967,7 @@ size_t setTypeAllocSize(const robj *o);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
+void setTypeFree(robj *o);
 
 /* Data structure for OBJ_ENCODING_LISTPACK_EX for hash. It contains listpack
  * and metadata fields for hash field expiration.*/
