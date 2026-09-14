@@ -98,6 +98,7 @@ struct RedisModuleKeyOptCtx {
 /* Attributes and metadata for a new key. */
 typedef struct kvSpec {
     uint8_t no_evict;
+    /*** keymeta: ***/
     uint16_t numMeta;
     uint16_t metabits;
     /* Metadata is stored from the end backward, lowest class ID last. */
@@ -4341,8 +4342,8 @@ kvobj *kvobjCommandLookupOrReply(client *c, robj *key, robj *reply);
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
-kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const kvSpec *m);
-kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const kvSpec *keyMetaSpec);
+kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, const kvSpec *spec);
+kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const kvSpec *spec);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
