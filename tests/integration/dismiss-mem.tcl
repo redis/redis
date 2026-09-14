@@ -32,10 +32,16 @@ start_server {tags {"dismiss external:skip needs:debug"}} {
         }
 
         # zset
-        r zadd bigzset1 1.0 $bigstr         ; # skiplist encoding
+        r zadd bigzset1 1.0 $bigstr         ; # B+ tree, external member
+        assert_encoding btree bigzset1
         for {set i 0} {$i < 128} {incr i} {
-            r zadd bigzset2 1.0 $64bytes    ; # ziplist encoding
+            r zadd bigzset2 1.0 [format "%064d" $i]
         }
+        assert_encoding listpack bigzset2
+        for {set i 0} {$i < 512} {incr i} {
+            r zadd bigzset3 $i "${64bytes}:$i"
+        }
+        assert_encoding btree bigzset3
 
         # hash
         r hset bighash1 field1 $bigstr      ; # hash encoding

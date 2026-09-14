@@ -95,12 +95,27 @@ start_server {tags {"modules external:skip"}} {
         lsort [r scan.scan_key zz]
     } {{f1 1} {f2 2}}
 
-    test {Module scan zset skiplist} {
+    test {Module scan zset btree} {
         r config set zset-max-ziplist-entries 2
         r zadd zz 3 f3
-        assert_encoding skiplist zz
+        assert_encoding btree zz
         lsort [r scan.scan_key zz]
     } {{f1 1} {f2 2} {f3 3}}
+
+    test {Module scan zset btree tolerates deleting a returned member} {
+        r del zz
+        for {set i 0} {$i < 100} {incr i} {
+            r zadd zz $i [format "member:%03d" $i]
+        }
+        assert_encoding btree zz
+
+        set visited [lsort -unique [r scan.scan_key_delete zz]]
+        set remaining [r zrange zz 0 -1]
+        assert_equal 99 [llength $remaining]
+        foreach member $remaining {
+            assert {$member in $visited}
+        }
+    }
 
     test {Module scan set intset} {
         r sadd ss 1 2

@@ -23,6 +23,7 @@
 #include "bio.h"
 #include "cluster_asm.h"
 #include "keymeta.h"
+#include "zset_btree.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -712,7 +713,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_ZSET:
         if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_LISTPACK);
-        else if (o->encoding == OBJ_ENCODING_SKIPLIST)
+        else if (o->encoding == OBJ_ENCODING_SKIPLIST ||
+                 o->encoding == OBJ_ENCODING_BTREE)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_2);
         else
             serverPanic("Unknown sorted set encoding");
@@ -1249,6 +1251,25 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 nwritten += n;
                 zn = zn->backward;
+            }
+        } else if (o->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t len;
+            double score;
+
+            if ((n = rdbSaveLen(rdb, zbtreeLength(o->ptr))) == -1)
+                return -1;
+            nwritten += n;
+            zbtreeIteratorStart(o->ptr, 1, &iter);
+            while (zbtreeIteratorNext(&iter, 1, &ele, &len, &score)) {
+                if ((n = rdbSaveRawString(rdb, (unsigned char *)ele,
+                                          len)) == -1)
+                    return -1;
+                nwritten += n;
+                if ((n = rdbSaveBinaryDoubleValue(rdb, score)) == -1)
+                    return -1;
+                nwritten += n;
             }
         } else {
             serverPanic("Unknown sorted set encoding");
@@ -3043,26 +3064,19 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read sorted set value. */
         uint64_t zsetlen;
-        size_t maxelelen = 0, totelelen = 0;
-        zset *zs;
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (zsetlen == 0) goto emptykey;
-
-        o = createZsetObject();
-        zs = o->ptr;
-
-        if (zsetlen > DICT_HT_INITIAL_SIZE && dictTryExpand(zs->dict,zsetlen) != DICT_OK) {
-            rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)zsetlen);
-            decrRefCount(o);
-            return NULL;
-        }
+        /* Large sets can be loaded directly into their final B+ tree. Small
+         * sets still use the listpack selected by zsetTypeCreate(). */
+        size_t size_hint = zsetlen > (uint64_t)SIZE_MAX ?
+                           SIZE_MAX : (size_t)zsetlen;
+        o = zsetTypeCreate(size_hint, 0);
 
         /* Load every single element of the sorted set. */
         while(zsetlen--) {
             sds sdsele;
             double score;
-            zskiplistNode *znode;
 
             if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                 decrRefCount(o);
@@ -3090,26 +3104,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* Don't care about integer-encoded strings. */
-            if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
-            totelelen += sdslen(sdsele);
-
-            znode = zslInsert(zs->zsl,score,sdsele);
-            if (dictAdd(zs->dict, znode, NULL) != DICT_OK) {
+            int out_flags;
+            serverAssert(zsetAdd(o, score, sdsele, ZADD_IN_NX,
+                                 &out_flags, NULL));
+            if (!(out_flags & ZADD_OUT_ADDED)) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
                 decrRefCount(o);
-                sdsfree(sdsele); /* zslInsert copies the sds, so we need to free the original */
+                sdsfree(sdsele);
                 return NULL;
             }
-            sdsfree(sdsele); /* zslInsert copies the sds into the node, so free the original */
-        }
-
-        /* Convert *after* loading, since sorted sets are not stored ordered. */
-        if (zsetLength(o) <= server.zset_max_listpack_entries &&
-            maxelelen <= server.zset_max_listpack_value &&
-            lpSafeToAdd(NULL, totelelen))
-        {
-            zsetConvert(o, OBJ_ENCODING_LISTPACK);
+            sdsfree(sdsele);
         }
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len, original_len;
@@ -3767,7 +3771,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
 
                     if (zsetLength(o) > server.zset_max_listpack_entries)
-                        zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                        zsetConvert(o, OBJ_ENCODING_BTREE);
                     else
                         o->ptr = lpShrinkToFit(o->ptr);
                     break;
@@ -3789,7 +3793,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
 
                 if (zsetLength(o) > server.zset_max_listpack_entries)
-                    zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                    zsetConvert(o, OBJ_ENCODING_BTREE);
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
                 {

@@ -34,6 +34,42 @@ start_server {tags {"modules external:skip"}} {
         assert_equal {hello 100} [r zrange k 0 -1 withscores]
     }
 
+    test {Module zset range iteration with btree encoding} {
+        set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+
+        r del k
+        r zadd k 1 a 2 b 2 c 3 d 4 e
+        assert_encoding btree k
+        assert_equal {d 3 e 4} [r zset.range k score first 2 4 1 0]
+        assert_equal {e 4 d 3} [r zset.range k score last 2 4 1 0]
+        assert_equal {} [r zset.range k score first 10 20 0 0]
+
+        r del k
+        r zadd k 0 alpha 0 beta 0 delta 0 gamma
+        assert_encoding btree k
+        assert_equal {beta 0 delta 0} \
+            [r zset.range k lex first \[beta \(gamma]
+        assert_equal {delta 0 beta 0} \
+            [r zset.range k lex last \[beta \(gamma]
+        assert_equal {} [r zset.range k lex first \[z +]
+
+        r config set zset-max-listpack-entries $old_max_entries
+    }
+
+    test {Module zset range iteration ends after its saved rank is invalidated} {
+        set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+
+        r del k
+        r zadd k 1 a 2 b 3 c
+        assert_encoding btree k
+        assert_equal OK [r zset.range-mutate k]
+        assert_equal {c} [r zrange k 0 -1]
+
+        r config set zset-max-listpack-entries $old_max_entries
+    }
+
     test {Module zset - KEYSIZES is updated as expected (like test at hash.tcl)} {
         proc run_cmd_verify_hist {cmd expOutput {retries 1}} {
             proc K {} {return [string map { "db0_distrib_zsets_items" "db0_ZSET" "# Keysizes" "" " " "" "\n" "" "\r" "" } [r info keysizes] ]}

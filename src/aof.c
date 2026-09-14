@@ -12,6 +12,7 @@
 #include "rio.h"
 #include "functions.h"
 #include "cluster_asm.h"
+#include "zset_btree.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -2389,6 +2390,27 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             items--;
         }
         dictResetIterator(&di);
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        zbtreeIteratorStart(o->ptr, 0, &iter);
+        while (zbtreeIteratorNext(&iter, 0, &ele, &len, &score)) {
+            if (count == 0) {
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                    AOF_REWRITE_ITEMS_PER_CMD : items;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key))
+                    return 0;
+            }
+            if (!rioWriteBulkDouble(r,score) ||
+                !rioWriteBulkString(r,(char *)ele,len))
+                return 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
     } else {
         serverPanic("Unknown sorted zset encoding");
     }

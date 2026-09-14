@@ -103,6 +103,53 @@ int scan_key(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+typedef struct {
+    RedisModuleCtx *ctx;
+    RedisModuleString *first;
+    size_t count;
+} scan_key_delete_pd;
+
+void scan_key_delete_callback(RedisModuleKey *key, RedisModuleString *field,
+                              RedisModuleString *value, void *privdata)
+{
+    REDISMODULE_NOT_USED(value);
+    scan_key_delete_pd *pd = privdata;
+
+    RedisModule_ReplyWithString(pd->ctx, field);
+    pd->count++;
+    if (pd->count == 1) {
+        pd->first = field;
+        RedisModule_RetainString(pd->ctx, field);
+    } else if (pd->count == 2) {
+        int deleted;
+        RedisModule_ZsetRem(key, pd->first, &deleted);
+        RedisModule_FreeString(pd->ctx, pd->first);
+        pd->first = NULL;
+    }
+}
+
+/* Scan a sorted set while deleting the first member from the second callback.
+ * This exercises the documented guarantee that deleting a returned element
+ * does not hide elements that remain present throughout the scan. */
+int scan_key_delete(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1],
+                                              REDISMODULE_READ | REDISMODULE_WRITE);
+    if (!key) return RedisModule_ReplyWithError(ctx, "not found");
+
+    scan_key_delete_pd pd = {.ctx = ctx};
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+    while (RedisModule_ScanKey(key, cursor, scan_key_delete_callback, &pd));
+    RedisModule_ScanCursorDestroy(cursor);
+    if (pd.first) RedisModule_FreeString(ctx, pd.first);
+    RedisModule_ReplySetArrayLength(ctx, pd.count);
+    RedisModule_CloseKey(key);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -115,7 +162,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "scan.scan_key", scan_key, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "scan.scan_key_delete", scan_key_delete, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     return REDISMODULE_OK;
 }
-
-
