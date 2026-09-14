@@ -205,6 +205,78 @@ int zbtCompare(double score, sds ele, const zbtElem *e) {
     return sdscmp(ele, zbtGetEle(e));
 }
 
+/* Compare two member byte ranges and report how far they agree. Bulk blocks
+ * go through memcmp so the vectorized libc path still does the scanning; only
+ * the block that differs is walked word- then byte-wise to pin the exact
+ * offset. */
+static int zbtMemcmpLcp(const unsigned char *a, const unsigned char *b,
+                        size_t n, size_t *agree)
+{
+    size_t i = 0;
+    while (n - i >= 256) {
+        if (memcmp(a + i, b + i, 256) != 0) break;
+        i += 256;
+    }
+    while (i + 8 <= n) {
+        uint64_t x, y;
+        memcpy(&x, a + i, 8);
+        memcpy(&y, b + i, 8);
+        if (x != y) break;
+        i += 8;
+    }
+    while (i < n && a[i] == b[i]) i++;
+    *agree = i;
+    if (i == n) return 0;
+    return a[i] < b[i] ? -1 : 1;
+}
+
+/* Like zbtCompare(), but the caller has already established that the first
+ * 'skip' member bytes match on both sides, so they are not re-read. '*agree'
+ * receives the number of leading member bytes the two members share, or 0
+ * when the scores decided the order and nothing is known about the members.
+ *
+ * Skipping is only sound because the caller derives 'skip' from two bounds
+ * that bracket 'e'; see zbtLcp. */
+static int zbtCompareSkip(double score, sds ele, const zbtElem *e,
+                          size_t skip, size_t *agree)
+{
+    double escore = zbtGetScore(e);
+    if (score < escore) { *agree = 0; return -1; }
+    if (score > escore) { *agree = 0; return 1; }
+
+    sds b = zbtGetEle(e);
+    size_t la = sdslen(ele), lb = sdslen(b);
+    size_t n = la < lb ? la : lb;
+    if (skip > n) skip = n;
+    size_t extra;
+    int c = zbtMemcmpLcp((const unsigned char *)ele + skip,
+                         (const unsigned char *)b + skip, n - skip, &extra);
+    *agree = skip + extra;
+    if (c != 0) return c;
+    if (la == lb) return 0;
+    return la < lb ? -1 : 1;
+}
+
+/* How many leading member bytes the search target is known to share with the
+ * two elements that currently bracket it: 'lo' for the greatest element not
+ * after the target, 'hi' for the smallest one after it. Zero means that
+ * bound was decided by score, which tells us nothing about its member.
+ *
+ * Both bounds agreeing with the target on the first m bytes forces them to
+ * agree with each other on those bytes, so every element sorted between them
+ * starts with the same m bytes too - which is what makes skipping them safe.
+ * The bracket only ever tightens, so the state is carried down the whole
+ * root-to-leaf descent rather than restarted at each node. */
+typedef struct zbtLcp {
+    size_t lo, hi;
+} zbtLcp;
+
+#define ZBT_LCP_INIT ((zbtLcp){0, 0})
+
+static inline size_t zbtLcpSkip(const zbtLcp *l) {
+    return l->lo < l->hi ? l->lo : l->hi;
+}
+
 /* dict keyFromStoredKey callback: recover the member SDS from a stored
  * zbtElem*. */
 const void *zbtGetEleForDict(const void *elem) {
@@ -315,44 +387,56 @@ static int zbtChildIdx(zbtInner *p, zbtNode *c) {
  * the last such i can be bisected. Every evaluation dereferences a separator
  * element, which for large members is a cold line in its own page, so the
  * comparison count - not the arithmetic - is what this loop costs. */
-static int zbtInnerChildIdx(zbtInner *in, double score, sds ele) {
+static int zbtInnerChildIdx(zbtInner *in, double score, sds ele, zbtLcp *lcp) {
     int lo = 1, hi = (int)in->n.count - 1, res = 0;
+    /* sep[0] is the subtree minimum, which is the separator the parent
+     * already compared against, so lcp->lo describes index 0 on entry. */
     while (lo <= hi) {
         int mid = (lo + hi) >> 1;
-        if (zbtCompare(score, ele, in->sep[mid]) >= 0) {
+        size_t agree;
+        if (zbtCompareSkip(score, ele, in->sep[mid], zbtLcpSkip(lcp), &agree) >= 0) {
             res = mid;
             lo = mid + 1;
+            lcp->lo = agree;
         } else {
             hi = mid - 1;
+            lcp->hi = agree;
         }
     }
     return res;
 }
 
-/* Descend from the root to the leaf that would contain (score,ele). */
-static zbtLeaf *zbtFindLeaf(zbtree *t, double score, sds ele) {
+/* Descend from the root to the leaf that would contain (score,ele). '*lcp'
+ * accumulates the prefix knowledge of the descent and is handed to the leaf
+ * search, which continues bisecting inside the same bracket. */
+static zbtLeaf *zbtFindLeaf(zbtree *t, double score, sds ele, zbtLcp *lcp) {
     zbtNode *n = t->root;
     while (!n->isleaf) {
         zbtInner *in = (zbtInner *)n;
-        n = in->child[zbtInnerChildIdx(in, score, ele)];
+        n = in->child[zbtInnerChildIdx(in, score, ele, lcp)];
     }
     return (zbtLeaf *)n;
 }
 
 /* Locate (score,ele) inside a leaf. Sets *found and returns the index where
  * the element is (if found) or where it should be inserted. */
-static int zbtLeafSearch(zbtLeaf *lf, double score, sds ele, int *found) {
+static int zbtLeafSearch(zbtLeaf *lf, double score, sds ele, int *found,
+                         zbtLcp *lcp)
+{
     int lo = 0, hi = (int)lf->n.count, eq = -1;
     while (lo < hi) {
         int mid = (lo + hi) >> 1;
-        int c = zbtCompare(score, ele, lf->elems[mid]);
+        size_t agree;
+        int c = zbtCompareSkip(score, ele, lf->elems[mid], zbtLcpSkip(lcp), &agree);
         if (c > 0) {
             lo = mid + 1;
+            lcp->lo = agree;
         } else {
             /* (score,ele) is unique in the tree, so an equal hit is already
              * the lower bound and survives as 'lo'. */
             if (c == 0) eq = mid;
             hi = mid;
+            lcp->hi = agree;
         }
     }
     *found = (eq == lo);
@@ -580,9 +664,10 @@ static int zbtShareOverflow(zbtree *t, zbtLeaf *lf, int ins_idx) {
 static void zbtInsertElem(zbtree *t, zbtElem *e, size_t usable) {
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
-    zbtLeaf *lf = zbtFindLeaf(t, score, ele);
+    zbtLcp lcp = ZBT_LCP_INIT;
+    zbtLeaf *lf = zbtFindLeaf(t, score, ele, &lcp);
     int found;
-    int idx = zbtLeafSearch(lf, score, ele, &found);
+    int idx = zbtLeafSearch(lf, score, ele, &found, &lcp);
     serverAssert(!found);
 
     /* Landing at either end of an end leaf means the tree is growing in sorted
@@ -861,7 +946,8 @@ static void zbtRebalanceLeaf(zbtree *t, zbtLeaf *lf) {
 void zbtDeleteElem(zbtree *t, zbtElem *e) {
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
-    zbtLeaf *lf = zbtFindLeaf(t, score, ele);
+    zbtLcp lcp = ZBT_LCP_INIT;
+    zbtLeaf *lf = zbtFindLeaf(t, score, ele, &lcp);
     int idx = zbtLeafFindPtr(lf, e);
     serverAssert(idx >= 0);
 
@@ -888,7 +974,8 @@ zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore) {
      * allocation) changes. */
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
-    zbtLeaf *lf = zbtFindLeaf(t, score, ele);
+    zbtLcp lcp = ZBT_LCP_INIT;
+    zbtLeaf *lf = zbtFindLeaf(t, score, ele, &lcp);
     int idx = zbtLeafFindPtr(lf, e);
     serverAssert(idx >= 0);
 
@@ -928,11 +1015,12 @@ zbtElem *zbtUpdateScore(zbtree *t, zbtElem *e, double newscore) {
 unsigned long zbtRankByElem(zbtree *t, zbtElem *e) {
     double score = zbtGetScore(e);
     sds ele = zbtGetEle(e);
+    zbtLcp lcp = ZBT_LCP_INIT;
     unsigned long rank = 0;
     zbtNode *n = t->root;
     while (!n->isleaf) {
         zbtInner *in = (zbtInner *)n;
-        int ci = zbtInnerChildIdx(in, score, ele);
+        int ci = zbtInnerChildIdx(in, score, ele, &lcp);
         for (int i = 0; i < ci; i++) rank += in->csize[i];
         n = in->child[ci];
     }
@@ -944,17 +1032,18 @@ unsigned long zbtRankByElem(zbtree *t, zbtElem *e) {
 
 /* 1-based rank of (score,ele), or 0 when the element does not exist. */
 unsigned long zbtGetRank(zbtree *t, double score, sds ele) {
+    zbtLcp lcp = ZBT_LCP_INIT;
     unsigned long rank = 0;
     zbtNode *n = t->root;
     while (!n->isleaf) {
         zbtInner *in = (zbtInner *)n;
-        int ci = zbtInnerChildIdx(in, score, ele);
+        int ci = zbtInnerChildIdx(in, score, ele, &lcp);
         for (int i = 0; i < ci; i++) rank += in->csize[i];
         n = in->child[ci];
     }
     zbtLeaf *lf = (zbtLeaf *)n;
     int found;
-    int idx = zbtLeafSearch(lf, score, ele, &found);
+    int idx = zbtLeafSearch(lf, score, ele, &found, &lcp);
     if (!found) return 0;
     return rank + (unsigned long)idx + 1;
 }
@@ -1404,9 +1493,10 @@ unsigned long zbtDeleteRangeByRank(zbtree *t, unsigned long start,
  * leaf slot and fix any separator pointers that referenced it. */
 void zbtReplaceElem(zbtree *t, zbtElem *olde, zbtElem *newe) {
     double score = zbtGetScore(newe);
-    zbtLeaf *lf = zbtFindLeaf(t, score, zbtGetEle(newe));
+    zbtLcp lcp = ZBT_LCP_INIT;
+    zbtLeaf *lf = zbtFindLeaf(t, score, zbtGetEle(newe), &lcp);
     int found;
-    int idx = zbtLeafSearch(lf, score, zbtGetEle(newe), &found);
+    int idx = zbtLeafSearch(lf, score, zbtGetEle(newe), &found, &lcp);
     serverAssert(found && lf->elems[idx] == olde);
     lf->elems[idx] = newe;
     zbtUpdateToRoot(t, (zbtNode *)lf);
@@ -1497,10 +1587,12 @@ static zbtInner *zbtDefragRelocInner(zbtree *t, zbtInner *in, void *(*fn)(void *
  * safe to query/modify between steps. */
 int zbtDefragNodesIncremental(zbtree *t, void *(*fn)(void *), unsigned int budget) {
     zbtLeaf *lf;
-    if (t->defrag_resume)
-        lf = zbtFindLeaf(t, t->defrag_resume_score, t->defrag_resume);
-    else
+    if (t->defrag_resume) {
+        zbtLcp lcp = ZBT_LCP_INIT;
+        lf = zbtFindLeaf(t, t->defrag_resume_score, t->defrag_resume, &lcp);
+    } else {
         lf = (zbtLeaf *)t->head;
+    }
 
     unsigned int work = 0;
     while (lf) {
