@@ -977,6 +977,29 @@ start_server {tags {"cli external:skip"}} {
         assert_match "*NOAUTH*" $e
     }
 
+    test "redis-cli --user authentication follows ACL password state" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~allowed:* +get +select
+        r ACL SETUSER uu3 reset on nopass ~allowed:* +get +select
+        r SET foo:abc bar
+        r SET allowed:abc baz
+
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -h $host -p $port -n $::dbnum --user uu2 GET foo:abc]
+        catch {exec {*}$cmd 2>@1} result
+        assert_match "*WRONGPASS*" $result
+
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -h $host -p $port -n $::dbnum --user uu2 -a secret GET allowed:abc]
+        assert_equal "baz" [exec {*}$cmd]
+
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -h $host -p $port -n $::dbnum --user uu3 GET allowed:abc]
+        assert_equal "baz" [exec {*}$cmd]
+
+        r ACL DELUSER uu2 uu3
+    }
+
     r config set requirepass ""
 }
 

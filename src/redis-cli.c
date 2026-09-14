@@ -1609,7 +1609,8 @@ static void cliPressAnyKeyTTY(void) {
 /* Send AUTH command to the server */
 static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
-    if (auth == NULL) return REDIS_OK;
+    if (auth == NULL && user == NULL) return REDIS_OK;
+    if (auth == NULL) auth = "";
 
     if (user == NULL)
         reply = redisCommand(ctx,"AUTH %s",auth);
