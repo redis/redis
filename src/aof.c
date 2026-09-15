@@ -3003,6 +3003,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
     }
 
+    if (blessRewrite(r, key, o) == C_ERR) return C_ERR;
+
     /* If modules metadata is available */
     if ((getModuleMetaBits(o->metabits)) && (keyMetaOnAof(r, key, o, dbid) == 0))
         return C_ERR;
