@@ -12,6 +12,9 @@ REPLICAS=1
 PROTECTED_MODE=yes
 STARTUP_RETRIES=50
 STARTUP_RETRY_DELAY=0.1
+# The nodes talk over an unauthenticated cluster bus on loopback, which a cluster
+# node refuses to do by default, so protection has to be waived explicitly.
+BUS_PROTECTED_MODE=no
 ADDITIONAL_OPTIONS=""
 
 # You may want to put the above config parameters into config.sh in order to
@@ -30,7 +33,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
+        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-bus-port-protected-mode $BUS_PROTECTED_MODE --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
 fi
@@ -101,7 +104,7 @@ then
     while [ $((PORT < ENDPORT)) != "0" ]; do
         PORT=$((PORT+1))
         echo "Starting $PORT"
-        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
+        $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-bus-port-protected-mode $BUS_PROTECTED_MODE --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
 fi
