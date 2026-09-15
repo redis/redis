@@ -314,6 +314,25 @@ make -j "$(nproc)"
 > with no config file, or `make build redis && ./src/redis-server redis.conf`
 > from a git checkout, where `redis.conf` has no module block at all.
 
+#### 4. Install
+
+```sh
+make install PREFIX=/usr/local          # core binaries + every built module
+sudo make install                       # same, into the default /usr/local
+make uninstall PREFIX=/usr/local        # removes exactly what install placed
+```
+
+`install` is an alias for `deploy`: it builds first (nothing already up to date
+is recompiled), copies `redis-server`, `redis-cli` and `redis-benchmark` plus
+the three `redis-server` symlinks to `$PREFIX/bin`, each module's `.so` to
+`$PREFIX/lib/redis/modules`, and rewrites the `loadmodule` paths in the
+generated config to point there. `DESTDIR=<path>` stages the files for
+packaging without changing the paths written to the config, and
+`PROG_SUFFIX=<suffix>` installs suffixed program names (`redis-server-alt`, …).
+
+> To install without building at all, use `SKIP_BUILD=1`:
+> `sudo make install SKIP_BUILD=1`
+
 ### Building Redis - flags and general notes
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.

@@ -396,8 +396,8 @@ tags "modules external:skip" {
     test "perkey-expire: active expire (cron) fires the per-key job without a read" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             r debug set-active-expire 1
-            r set ak v px 50
             r pkmeta.reset
+            r set ak v px 50
             # Never touch ak — let the active-expire cycle reap it. The poll loop
             # only issues pkmeta.empty_firecount, which does not access ak.
             wait_for_condition 50 20 {

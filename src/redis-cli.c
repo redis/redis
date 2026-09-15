@@ -9994,7 +9994,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
             totlen += keys->element[i]->len;
             sampled++;
 
-            if(type->biggest<sizes[i]) {
+            if(type->biggest<sizes[i] || (!type->biggest_key && type->sizecmd)) {
                 /* Keep track of biggest key name for this type */
                 if (type->biggest_key)
                     sdsfree(type->biggest_key);
@@ -10032,7 +10032,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                 dictInitIterator(&di, types_dict);
                 while ((de = dictNext(&di))) {
                     typeinfo *current_type = dictGetVal(de);
-                    if (current_type->biggest > 0) {
+                    if (current_type->biggest_key) {
                         line_count += cleanPrintfln("Biggest %-9s found so far %s with %llu %s",
                             current_type->name, current_type->biggest_key, current_type->biggest,
                             !memkeys? current_type->sizeunit: "bytes");
@@ -11085,7 +11085,7 @@ static void updateKeyType(redisReply *element, unsigned long long size, typeinfo
     type->totalsize += size;
     type->count++;
 
-    if (type->biggest<size) {
+    if (type->biggest<size || (!type->biggest_key && type->sizecmd)) {
         /* Keep track of biggest key name for this type */
         if (type->biggest_key)
             sdsfree(type->biggest_key);
