@@ -84,6 +84,12 @@ proc assert_range {value min max {detail ""}} {
     }
 }
 
+proc assert_range_exclude {value min max {detail ""}} {
+    if {!($value < $max && $value > $min)} {
+        assert_failed "Expected '$value' to be bigger than '$min' and smaller than '$max'" $detail
+    }
+}
+
 proc assert_error {pattern code {detail ""}} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error $detail
