@@ -316,5 +316,62 @@ start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list 
                 fail "NODE change reason was not reported when tls-cluster was enabled"
             }
         }
+
+        test "ClusterTopologyChange is not reported when a tls-cluster change is rolled back" {
+            # A CONFIG SET whose apply fails is rolled back by
+            # configSetCommand(), which restores the previous values and calls
+            # every apply callback of the command again. tls-cluster ends up
+            # where it started, so nothing may be reported: reporting it would
+            # also mean having rebuilt the SSL_CTX, discarding the session cache
+            # held on it. Here the failure comes from the unusable certificate,
+            # with cluster-bus-port-protected-mode not involved at all.
+            R 0 config set cluster-bus-port-protected-mode no
+
+            set before [dict get [topo_stats 0] node]
+            assert_error {*Unable to update TLS configuration*} {
+                R 0 config set tls-cluster no tls-cert-file /nonexistent
+            }
+            # A pending notification is fired on the next event loop iteration,
+            # which the round trip below has certainly gone through.
+            R 0 ping
+            assert_equal $before [dict get [topo_stats 0] node]
+            assert_equal {tls-cluster yes} [R 0 config get tls-cluster]
+
+            # The rollback must not leave the value this node last acted on out
+            # of step with tls-cluster, or the next real change would be
+            # swallowed. The certificate needs no such care: it is applied by
+            # its own callback, which the rollback runs too.
+            assert_error {*Unable to update TLS configuration*} {
+                R 0 config set tls-cert-file /nonexistent
+            }
+            set before [dict get [topo_stats 0] node]
+            R 0 config set tls-cluster no
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported after a rolled back change"
+            }
+            R 0 config set tls-cluster yes
+        }
+
+        test "ClusterTopologyChange is not reported when a tls-cluster change is refused" {
+            # cluster-bus-port-protected-mode refuses to leave the cluster bus
+            # port unauthenticated. A refused CONFIG SET must change nothing,
+            # which is not free: configSetCommand() restores the previous value
+            # and calls the apply callback a second time, which would both report
+            # this change to modules and rebuild the SSL_CTX, discarding the
+            # session cache. The suite waives protection, so enable it here.
+            R 0 config set cluster-bus-port-protected-mode yes
+
+            set before [dict get [topo_stats 0] node]
+            assert_error {*can't disable tls-cluster*} {R 0 config set tls-cluster no}
+            # A pending notification is fired on the next event loop iteration,
+            # which the round trip below has certainly gone through.
+            R 0 ping
+            assert_equal $before [dict get [topo_stats 0] node]
+            assert_equal {tls-cluster yes} [R 0 config get tls-cluster]
+
+            R 0 config set cluster-bus-port-protected-mode no
+        }
     }
 }
