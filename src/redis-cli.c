@@ -11533,8 +11533,7 @@ int main(int argc, char **argv) {
 
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
-        if (cliConnect(0) != REDIS_OK)
-            exit(1);
+        cliConnect(0);
         repl();
     }
 
@@ -11545,7 +11544,7 @@ int main(int argc, char **argv) {
         redisFree(context);
         return res;
     } else {
-        if (cliConnect(CC_QUIET) != REDIS_OK)
+        if (cliConnect(0) != REDIS_OK)
             exit(1);
         int res = noninteractive(argc,argv);
         redisFree(context);
