@@ -3860,6 +3860,14 @@ int processInputBuffer(client *c) {
                 serverPanic("Unknown request type");
             }
 
+            /* A command that hit a read error is fatal and has to be reported to
+             * the client, so it is no longer incomplete even if it was parsed
+             * across several reads. Clear the flag before we add it, otherwise
+             * addPendingCommand() does not count it as ready and we break out of
+             * the loop below without ever surfacing the error. */
+            if (unlikely(pcmd->read_error))
+                pcmd->flags &= ~PENDING_CMD_FLAG_INCOMPLETE;
+
             addPendingCommand(&c->pending_cmds, pcmd);
             if (unlikely(pcmd->read_error || (pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)))
                 break;
