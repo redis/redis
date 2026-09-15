@@ -938,7 +938,7 @@ start_server {tags {"cli external:skip"}} {
 start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "RESP3 upgrade persists across a forced reconnect" {
         run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
-        assert_match "*resp=3*" [run_command $fd "CLIENT INFO\x0D"]
+        run_command_until $fd "CLIENT INFO\x0D" {resp=3}
 
         # kill server and restart to force redis-cli's forced-reconnect path
         exec kill [s process_id]
@@ -957,7 +957,7 @@ start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
         run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
         run_command_until $fd "HELLO 2\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
-        assert_match "*resp=2*" [run_command $fd "CLIENT INFO\x0D"]
+        run_command_until $fd "CLIENT INFO\x0D" {resp=2}
 
         exec kill [s process_id]
         wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
