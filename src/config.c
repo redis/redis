@@ -430,6 +430,52 @@ static int updateClientOutputBufferLimit(sds *args, int arg_len, const char **er
  * abnormal aggregate `save T C` functionality. Remove in the future. */
 static int reading_config_file;
 
+/* Nesting depth of loadServerConfigFromString(): "include" re-enters it, and
+ * post-load advisories must run only when the outermost load finishes. */
+static int config_load_depth;
+
+/* Previous value of tls-cluster. This variable is used to detect if the
+ * value actually changed after a CONFIG SET. configSetCommand() calls every
+ * apply callback again on rollback even when nothing changed, so without it,
+ * things like TLS setup below would run again for no reason. */
+static int prev_tls_cluster;
+
+/* The cluster bus protocol has no authentication of its own: any host that can
+ * reach the port can speak it and threaten the whole cluster - a MEET from an
+ * unknown host is enough to have it added as a node, with its gossip trusted.
+ * Enabling tls-cluster is what authenticates the bus: a peer then has to present,
+ * in either direction, a certificate that verifies against the CA that
+ * tls-cluster makes mandatory. It does so regardless of tls-auth-clients, which
+ * governs the client port only - clusterAcceptHandler() always demands a peer
+ * certificate.
+ *
+ * cluster-bus-port-protected-mode therefore refuses an unauthenticated bus by
+ * default, and makes running one an explicit choice, exactly as protected-mode
+ * does for unauthenticated client access. Only cluster mode opens the bus port,
+ * so a standalone instance is never affected.
+ *
+ * Returns non-zero when the current configuration leaves the bus unprotected
+ * while protected mode asks for it. */
+static int clusterBusPortProtectionUnmet(void) {
+    return server.cluster_enabled && server.cluster_bus_port_protected_mode && !server.tls_cluster;
+}
+
+/* Counterpart of the check above: report a cluster node whose bus port is left
+ * unauthenticated once the operator has waived protected mode. Called when the
+ * outermost config load finishes and from the tls-cluster apply callback, which
+ * covers every way the bus can lose its authentication at runtime (leaving TLS
+ * always changes tls-cluster, whether alone or together with
+ * cluster_bus_port_protected_mode). */
+static void clusterBusWarnIfUnprotected(void) {
+    if (!server.cluster_enabled || server.tls_cluster || server.cluster_bus_port_protected_mode) return;
+
+    serverLog(LL_WARNING,
+        "WARNING: the cluster bus port is not authenticated: 'tls-cluster' is disabled and "
+        "protected mode was waived with 'cluster-bus-port-protected-mode no'. Any host able "
+        "to reach the cluster bus port can speak the cluster protocol, so make sure the port "
+        "is reachable by trusted hosts only.");
+}
+
 void loadServerConfigFromString(char *config) {
     deprecatedConfig deprecated_configs[] = {
         {"list-max-ziplist-entries", 2, 2},
@@ -446,6 +492,7 @@ void loadServerConfigFromString(char *config) {
     int argc;
 
     reading_config_file = 1;
+    config_load_depth++;
     lines = sdssplitlen(config,strlen(config),"\n",1,&totlines);
 
     for (i = 0; i < totlines; i++) {
@@ -617,6 +664,34 @@ void loadServerConfigFromString(char *config) {
     /* To ensure backward compatibility and work while hz is out of range */
     if (server.config_hz < CONFIG_MIN_HZ) server.config_hz = CONFIG_MIN_HZ;
     if (server.config_hz > CONFIG_MAX_HZ) server.config_hz = CONFIG_MAX_HZ;
+
+    /* Post-load checks that must observe the final configuration, run only
+     * when the outermost load finishes: a nested load ends before the
+     * directives that follow its "include" line have been parsed. */
+    config_load_depth--;
+    if (config_load_depth == 0) {
+        /* Refuse a cluster node whose bus port would be left unauthenticated,
+         * unless the operator waived protection. The CONFIG SET path reports the
+         * option it refuses to change instead. */
+        if (clusterBusPortProtectionUnmet()) {
+            err = "cluster-bus-port-protected-mode is enabled but tls-cluster is "
+                  "disabled, which leaves the cluster bus port of this node "
+                  "unauthenticated: any host able to reach the port can join the "
+                  "cluster and speak the cluster protocol, and threaten the whole "
+                  "cluster. Either set 'tls-cluster yes', which makes every cluster "
+                  "bus peer present a certificate verified against your CA, or set "
+                  "'cluster-bus-port-protected-mode no' to acknowledge that the "
+                  "cluster bus port is reachable by trusted hosts only, for instance "
+                  "because a firewall blocks it.";
+            goto loaderr;
+        }
+
+        /* The startup value is the one in force: initListeners() configures TLS
+         * from it, and the server exits if that fails. */
+        prev_tls_cluster = server.tls_cluster;
+
+        clusterBusWarnIfUnprotected();
+    }
 
     sdsfreesplitres(lines,totlines);
     reading_config_file = 0;
@@ -2714,6 +2789,46 @@ static int applyTlsCfg(const char **err) {
     return 1;
 }
 
+static int applyTlsCluster(const char **err) {
+    /* Checked before any side effect, so a rejected CONFIG SET leaves the TLS
+     * context untouched. The check reads cluster-bus-port-protected-mode as it
+     * is *after* the whole CONFIG SET was stored: configSetCommand() runs every
+     * setter before the first apply callback, so a single command disabling both
+     * options is accepted whatever the order of its arguments, while disabling
+     * tls-cluster alone is not. */
+    if (clusterBusPortProtectionUnmet()) {
+        *err = "can't disable tls-cluster while cluster-bus-port-protected-mode is enabled, "
+               "as that would leave the cluster bus port unauthenticated; disable "
+               "cluster-bus-port-protected-mode first, or in the same CONFIG SET command";
+        return 0;
+    }
+
+    /* Nothing below may run when the value did not effectively move, which is
+     * what configSetCommand() hands us after it has restored a refused set:
+     * reconfiguring TLS rebuilds the SSL_CTX, discarding the session cache held
+     * on it, so a refused set would otherwise not be the no-op it reports being. */
+    if (server.tls_cluster == prev_tls_cluster) return 1;
+
+    if (!applyTlsCfg(err)) return 0;
+
+    prev_tls_cluster = server.tls_cluster;
+    clusterBusWarnIfUnprotected();
+    return 1;
+}
+
+/* Apply callback for cluster-bus-port-protected-mode. The value drives no
+ * machinery of its own, it only has to stay consistent with tls-cluster; see
+ * applyTlsCluster() for why the check belongs here rather than in a set handler. */
+static int applyClusterBusPortProtectedMode(const char **err) {
+    if (clusterBusPortProtectionUnmet()) {
+        *err = "can't enable cluster-bus-port-protected-mode while tls-cluster is disabled, "
+               "as that leaves the cluster bus port unauthenticated; enable tls-cluster "
+               "first, or in the same CONFIG SET command";
+        return 0;
+    }
+    return 1;
+}
+
 static int applyTLSPort(const char **err) {
     /* Configure TLS in case it wasn't enabled */
     if (connTypeConfigure(connectionTypeTls(), &server.tls_ctx_config, 0) == C_ERR) {
@@ -3139,6 +3254,7 @@ standardConfig static_configs[] = {
     createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
+    createBoolConfig("cluster-bus-port-protected-mode", NULL, MODIFIABLE_CONFIG, server.cluster_bus_port_protected_mode, 0, NULL, applyClusterBusPortProtectedMode),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),
@@ -3299,7 +3415,7 @@ standardConfig static_configs[] = {
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, applyTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, applyTlsCfg),
     createIntConfig("tls-session-cache-timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_timeout, 300, INTEGER_CONFIG, NULL, applyTlsCfg),
-    createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, applyTlsCfg),
+    createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, applyTlsCluster),
     createBoolConfig("tls-replication", NULL, MODIFIABLE_CONFIG, server.tls_replication, 0, NULL, applyTlsCfg),
     createEnumConfig("tls-auth-clients", NULL, MODIFIABLE_CONFIG, tls_auth_clients_enum, server.tls_auth_clients, TLS_CLIENT_AUTH_YES, NULL, NULL),
     createBoolConfig("tls-prefer-server-ciphers", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.prefer_server_ciphers, 0, NULL, applyTlsCfg),
