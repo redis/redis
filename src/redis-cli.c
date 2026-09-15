@@ -11108,6 +11108,13 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     list *top_sizes;
     long long refresh_time = mstime();
 
+    /* Skip setup and scanning when the selected database is empty. */
+    total_keys = getDbSize();
+    if (total_keys == 0) {
+        printf("The database is empty.\n");
+        exit(0);
+    }
+
     if (cursor != 0) {
         it = cursor;
     }
@@ -11158,9 +11165,6 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     }
 
     signal(SIGINT, longStatLoopModeStop);
-
-    /* Total keys pre scanning */
-    total_keys = getDbSize();
 
     /* Status message */
     printf("\n# Scanning the entire keyspace to find the biggest keys and distribution information.\n");

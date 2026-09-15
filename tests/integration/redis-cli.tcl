@@ -888,16 +888,23 @@ start_server {tags {"cli external:skip"}} {
 }
 
 start_server {tags {"cli external:skip"}} {
-    test "keystats on empty database should not produce garbage stats" {
-        # On an empty DB the keystats histogram has total_count = 0. Verify hdr_mean(), hdr_stddev(),
-        # and the percentile calculation handle this gracefully.
-        set cmd [rediscli [srv host] [srv port] [list --keystats]]
-        catch {exec {*}$cmd 2>@1} result
-        assert_match "*Scanning the entire keyspace*" $result
+    test "keystats exits before scanning an empty database" {
+        assert_equal 0 [r dbsize]
+        r config resetstat
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal "The database is empty." [exec {*}$cmd]
+        assert_no_match "*cmdstat_scan:*" [r info commandstats]
+    }
 
-        # The "Note:" line with Mean/StdDeviation is only printed when displayKeyStatsSizeDist()
-        # compute stats. When keysize_histogram->total_count == 0, it should be skipped entirely.
+    test "keystats with no matching keys should not produce garbage stats" {
+        # A nonempty database can still produce an empty histogram when no keys match.
+        r set key value
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats --pattern missing:*]]
+        set result [exec {*}$cmd]
+        assert_match "*Scanning the entire keyspace*" $result
         assert_match "*No key size samples collected*" $result
+        assert_no_match "*StdDeviation:*" $result
+        r del key
     }
 }
 
