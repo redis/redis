@@ -979,8 +979,9 @@ start_server {tags {"cli external:skip"}} {
 
     test_interactive_nontty_cli "AUTH failure keeps the current connection" {
         r ACL SETUSER default on nopass
-        r ACL SETUSER uu2 reset on >secret ~allowed:* +get +select
+        r ACL SETUSER uu2 reset on >secret ~allowed:* +get +select +ping
         assert_match "*WRONGPASS*" [run_command $fd "AUTH uu2 wrong"]
+        assert_equal "OK" [run_command $fd "AUTH uu2 secret"]
         assert_equal "PONG" [run_command $fd "PING"]
         r ACL DELUSER uu2
     }

@@ -1770,8 +1770,6 @@ static int cliConnect(int flags) {
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
         if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK) {
-            redisFree(context);
-            context = NULL;
             return REDIS_ERR;
         }
         if (cliSelect() != REDIS_OK)
