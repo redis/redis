@@ -1769,8 +1769,11 @@ static int cliConnect(int flags) {
         config.current_resp3 = 0;
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
-        if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK)
+        if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK) {
+            redisFree(context);
+            context = NULL;
             return REDIS_ERR;
+        }
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
         if (cliSwitchProto() != REDIS_OK)
@@ -11530,7 +11533,8 @@ int main(int argc, char **argv) {
 
         /* Note that in repl mode we don't abort on connection error.
          * A new attempt will be performed for every command send. */
-        cliConnect(0);
+        if (cliConnect(0) != REDIS_OK)
+            exit(1);
         repl();
     }
 
@@ -11541,7 +11545,8 @@ int main(int argc, char **argv) {
         redisFree(context);
         return res;
     } else {
-        cliConnect(CC_QUIET);
+        if (cliConnect(CC_QUIET) != REDIS_OK)
+            exit(1);
         int res = noninteractive(argc,argv);
         redisFree(context);
         return res;

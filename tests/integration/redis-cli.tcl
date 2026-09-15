@@ -977,27 +977,50 @@ start_server {tags {"cli external:skip"}} {
         assert_match "*NOAUTH*" $e
     }
 
-    test "redis-cli --user authentication follows ACL password state" {
+    test_interactive_nontty_cli "AUTH failure keeps the current connection" {
         r ACL SETUSER default on nopass
         r ACL SETUSER uu2 reset on >secret ~allowed:* +get +select
-        r ACL SETUSER uu3 reset on nopass ~allowed:* +get +select
-        r SET foo:abc bar
-        r SET allowed:abc baz
+        assert_match "*WRONGPASS*" [run_command $fd "AUTH uu2 wrong"]
+        assert_equal "PONG" [run_command $fd "PING"]
+        r ACL DELUSER uu2
+    }
+
+    test "redis-cli start with --user with a wrong password should exit" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~* +@all
+        r SET foo:abc original
 
         set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
-            -h $host -p $port -n $::dbnum --user uu2 GET foo:abc]
-        catch {exec {*}$cmd 2>@1} result
+            -h $host -p $port -n $::dbnum --user uu2 -a wrong SET foo:abc changed]
+        assert_equal 1 [catch {exec {*}$cmd 2>@1} result options]
         assert_match "*WRONGPASS*" $result
 
-        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
-            -h $host -p $port -n $::dbnum --user uu2 -a secret GET allowed:abc]
-        assert_equal "baz" [exec {*}$cmd]
+        # exec waits for redis-cli and reports its process exit status.
+        set errorcode [dict get $options -errorcode]
+        assert_equal "CHILDSTATUS" [lindex $errorcode 0]
+        assert_equal 1 [lindex $errorcode 2]
+
+        assert_equal "original" [r GET foo:abc]
+        r ACL DELUSER uu2
+    }
+
+    test "redis-cli start with --user without password should exit" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~* +@all
+        r SET foo:abc original
 
         set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
-            -h $host -p $port -n $::dbnum --user uu3 GET allowed:abc]
-        assert_equal "baz" [exec {*}$cmd]
+            -h $host -p $port -n $::dbnum --user uu2 SET foo:abc changed]
+        assert_equal 1 [catch {exec {*}$cmd 2>@1} result options]
+        assert_match "*WRONGPASS*" $result
 
-        r ACL DELUSER uu2 uu3
+        # exec waits for redis-cli and reports its process exit status.
+        set errorcode [dict get $options -errorcode]
+        assert_equal "CHILDSTATUS" [lindex $errorcode 0]
+        assert_equal 1 [lindex $errorcode 2]
+
+        assert_equal "original" [r GET foo:abc]
+        r ACL DELUSER uu2
     }
 
     r config set requirepass ""
