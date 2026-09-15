@@ -4606,6 +4606,9 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
     {
+        /* Keep the kernel reading the file ahead of us. */
+        if (rioCheckType(r) == RIO_TYPE_FILE)
+            rioFileReadAhead(r, r->processed_bytes + len);
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
         loadingAbsProgress(r->processed_bytes);
