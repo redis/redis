@@ -227,6 +227,7 @@ int _dictInit(dict *d, dictType *type)
     _dictReset(d, 0);
     _dictReset(d, 1);
     d->type = type;
+    d->allocated_entries = 0;
     d->rehashidx = -1;
     d->pauserehash = 0;
     d->pauseAutoResize = 0;
@@ -356,13 +357,17 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
                 /* The destination bucket is empty, allowing the key to be stored 
                  * directly without allocating a dictEntry. If an old entry was 
                  * previously allocated, free its memory. */                
-                if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
+                if (!entryIsKey(de)) {
+                    zfree(decodeMaskedPtr(de));
+                    d->allocated_entries--;
+                }
                 
                 de = encodeEntryKey(d, storedKey);
                 
             } else if (entryIsKey(de)) {
                 /* We don't have an allocated entry but we need one. */
                 de = createEntryNoValue(storedKey, d->ht_table[1][h]);
+                d->allocated_entries++;
             } else {
                 dictSetNext(de, d->ht_table[1][h]);
             }
@@ -573,10 +578,99 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink li
         entry->key = key;
         entry->next = *bucket;
     }
+    if (!entryIsKey(entry)) d->allocated_entries++;
     *bucket = entry;
     d->ht_used[htidx]++;
 
     return entry;
+}
+
+/* Return the bucket a key with the given hash should be inserted into.
+ * Rehashing and expansion follow dictFindLinkForInsert(), but the bucket is
+ * not scanned for an existing key. The caller must guarantee the key is absent. */
+static dictEntryLink dictBucketForInsertByHash(dict *d, uint64_t hash) {
+    unsigned long idx, table;
+
+    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+
+    /* Rehash the hash table if needed */
+    _dictRehashStepIfNeeded(d, idx);
+
+    /* Expand the hash table if needed */
+    _dictExpandIfNeeded(d);
+
+    table = dictIsRehashing(d) ? 1 : 0;
+    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+    return &d->ht_table[table][idx];
+}
+
+/* Add a key that is known not to exist. Unlike dictAdd()/dictAddRaw() this
+ * does not search the bucket for a duplicate. Returns the inserted entry. */
+dictEntry *dictAddNonExisting(dict *d, void *key __stored_key) {
+    const void *lookup_key = dictStoredKey2Key(d, key);
+    uint64_t hash;
+    dictEntryLink bucket;
+
+    debugAssert(dictFind(d, lookup_key) == NULL);
+
+    hash = dictGetHash(d, lookup_key);
+    bucket = dictBucketForInsertByHash(d, hash);
+    /* Dup the key if necessary. */
+    if (d->type->keyDup) key = d->type->keyDup(d, key);
+    return dictInsertKeyAtLink(d, key, bucket);
+}
+
+/* Batch form of dictAddNonExisting() for an array of known-absent keys.
+ * Prefetches upcoming keys and destination buckets, and expands the table
+ * once so it does not resize mid-batch. */
+#define DICT_ADD_BATCH_PREFETCH 8 /* Power of two: ring index is a mask. */
+void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n) {
+    uint64_t hashes[DICT_ADD_BATCH_PREFETCH], hash;
+    size_t i, primed;
+    int htidx;
+    unsigned long idx;
+    void *key;
+
+    if (n == 0) return;
+
+    /* dictFind() may advance rehashing, so check before we pick the table. */
+#ifdef DEBUG_ASSERTIONS
+    for (i = 0; i < n; i++)
+        debugAssert(dictFind(d, dictStoredKey2Key(d, keys[i])) == NULL);
+#endif
+
+    /* Expand once. Mid-batch growth would reallocate the table and invalidate
+     * prefetched buckets. */
+    dictExpand(d, dictSize(d) + n);
+    htidx = dictIsRehashing(d) ? 1 : 0;
+
+    primed = n < DICT_ADD_BATCH_PREFETCH ? n : DICT_ADD_BATCH_PREFETCH;
+    for (i = 0; i < primed; i++) {
+        hashes[i] = dictGetHash(d, dictStoredKey2Key(d, keys[i]));
+        idx = hashes[i] & DICTHT_SIZE_MASK(d->ht_size_exp[htidx]);
+        redis_prefetch_write(&d->ht_table[htidx][idx]);
+    }
+
+    for (i = 0; i < n; i++) {
+        /* Prefetch the key two windows ahead so its bytes are warm when hashed. */
+        if (i + 2 * DICT_ADD_BATCH_PREFETCH < n)
+            redis_prefetch_read(keys[i + 2 * DICT_ADD_BATCH_PREFETCH]);
+
+        key = keys[i];
+        hash = hashes[i & (DICT_ADD_BATCH_PREFETCH - 1)];
+        idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx]);
+        /* Dup the key if necessary. */
+        if (d->type->keyDup) key = d->type->keyDup(d, key);
+        dictInsertKeyAtLink(d, key, &d->ht_table[htidx][idx]);
+
+        /* Hash the next window and prefetch its bucket. */
+        if (i + DICT_ADD_BATCH_PREFETCH < n) {
+            hash = dictGetHash(d, dictStoredKey2Key(d, keys[i + DICT_ADD_BATCH_PREFETCH]));
+            hashes[(i + DICT_ADD_BATCH_PREFETCH) & (DICT_ADD_BATCH_PREFETCH - 1)] = hash;
+            idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[htidx]);
+            redis_prefetch_write(&d->ht_table[htidx][idx]);
+        }
+    }
 }
 
 /* Add or Overwrite:
@@ -706,7 +800,10 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (he == NULL) return;
     dictFreeKey(d, he);
     dictFreeVal(d, he);
-    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+    if (!entryIsKey(he)) {
+        zfree(decodeMaskedPtr(he));
+        d->allocated_entries--;
+    }
 }
 
 /* Destroy an entire dictionary */
@@ -725,7 +822,10 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
             nextHe = dictGetNext(he);
             dictFreeKey(d, he);
             dictFreeVal(d, he);
-            if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+            if (!entryIsKey(he)) {
+                zfree(decodeMaskedPtr(he));
+                d->allocated_entries--;
+            }
             d->ht_used[htidx]--;
             he = nextHe;
         }
@@ -978,7 +1078,10 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink plink, int table_index) {
     *plink = dictGetNext(de);
     dictFreeKey(d, de);
     dictFreeVal(d, de);
-    if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
+    if (!entryIsKey(de)) {
+        zfree(decodeMaskedPtr(de));
+        d->allocated_entries--;
+    }
     _dictShrinkIfNeeded(d);
     dictResumeRehashing(d);
 }
@@ -1089,13 +1192,9 @@ static void dictSetNext(dictEntry *de, dictEntry *next) {
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    /* Account for the actual per-entry structure size: no_value=1 dicts (sets,
-     * the sorted-set element index, hashes) allocate a dictEntryNoValue (or
-     * store the key inline in the bucket), not a full dictEntry. Mirrors what
-     * kvstoreMemUsage() already does via dictEntryMemUsage(). This is a strict
-     * over-estimate still (inline-stored keys allocate nothing), but no longer
-     * charges the value slot that a no_value dict never has. */
-    return dictSize(d) * dictEntryMemUsage(d->type->no_value) +
+    /* Charge allocated entries only: a no_value dict stores some keys
+     * directly in empty buckets without a dictEntry. */
+    return d->allocated_entries * dictEntryMemUsage(d->type->no_value) +
         dictBuckets(d) * sizeof(dictEntry*);
 }
 
@@ -1709,7 +1808,27 @@ int dictShrinkIfNeeded(dict *d) {
     return DICT_ERR;
 }
 
-static void _dictShrinkIfNeeded(dict *d) 
+/* Shrink the hash table if needed and complete the rehash immediately.
+ * Unlike the keyspace dicts, which the cron steps through kvstore, a dict
+ * owned by a single object is only stepped by commands that touch it. A bulk
+ * deletion would otherwise leave the old table allocated until later. */
+void dictShrinkIfNeededAndComplete(dict *d) {
+    /* Incremental rehashing already in progress. Return. */
+    if (dictIsRehashing(d) || d->pauserehash != 0) return;
+    if (dictShrinkIfNeeded(d) != DICT_OK) return;
+
+    /* If resizing is not fully enabled (e.g. a child save is running)
+     * leave the rehash incremental. */
+    dictResizeEnable can_resize;
+    atomicGet(dict_can_resize, can_resize);
+    if (can_resize != DICT_RESIZE_ENABLE) return;
+
+    while (dictRehash(d, 1000)) {
+        /* Continue rehashing */
+    }
+}
+
+static void _dictShrinkIfNeeded(dict *d)
 {
     /* Automatic resizing is disallowed. Return */
     if (d->pauseAutoResize > 0) return;
@@ -2008,14 +2127,48 @@ dictType BenchmarkDictType = {
     NULL
 };
 
-/* Same as BenchmarkDictType, but a no_value=1 (set-style) dict -- used to verify
- * that dictMemUsage() sizes entries as dictEntryNoValue, not dictEntry. */
+/* Same as BenchmarkDictType, with no_value=1. */
 static dictType BenchmarkDictTypeNoValue = {
     .hashFunction = hashCallback,
     .keyCompare = compareCallback,
     .keyDestructor = freeCallback,
     .no_value = 1,
 };
+
+/* Count allocated entries (skip keys stored inline in a bucket). */
+static unsigned long dictWalkAllocatedEntries(const dict *d) {
+    unsigned long allocated = 0;
+    int htidx;
+
+    for (htidx = 0; htidx <= 1; htidx++) {
+        unsigned long i;
+        for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]); i++) {
+            dictEntry *he;
+
+            if ((he = d->ht_table[htidx][i]) == NULL) continue;
+            while(he) {
+                if (!entryIsKey(he)) allocated++;
+                he = dictGetNext(he);
+            }
+        }
+    }
+    return allocated;
+}
+
+/* Count occupied buckets across both hash tables. */
+static unsigned long dictWalkOccupiedBuckets(const dict *d) {
+    unsigned long occupied = 0;
+    int htidx;
+
+    for (htidx = 0; htidx <= 1; htidx++) {
+        unsigned long i;
+        for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]); i++) {
+            if (d->ht_table[htidx][i] == NULL) continue;
+            occupied++;
+        }
+    }
+    return occupied;
+}
 
 #define start_benchmark() start = timeInMilliseconds()
 #define end_benchmark(msg) do { \
@@ -2171,16 +2324,7 @@ int dictTest(int argc, char **argv, int flags) {
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
     }
 
-    TEST("dictMemUsage sizes no_value entries by dictEntryNoValue (not dictEntry)") {
-        /* Regression: MEMORY USAGE used to overcount no_value=1 dicts (sets,
-         * the sorted-set element index, hashes) by charging sizeof(dictEntry)
-         * per entry instead of sizeof(dictEntryNoValue).
-         *
-         * A dictEntry is {next, key, value-union}; a dictEntryNoValue is
-         * {next, key}. Dropping the value makes a no_value entry smaller by
-         * exactly the size of the value union, which is 8 bytes (it holds a
-         * uint64_t/double) on both 64-bit (dictEntry 24 -> dictEntryNoValue 16)
-         * and 32-bit (16 -> 8). dictMemUsage() must reflect that 8 B/entry. */
+    TEST("dictMemUsage charges only allocated entries") {
         const size_t value_union_bytes = 8;
         assert(sizeof(dictEntry) - sizeof(dictEntryNoValue) == value_union_bytes);
 
@@ -2191,16 +2335,49 @@ int dictTest(int argc, char **argv, int flags) {
             assert(dictAdd(dn, stringFromLongLong(i), (void *)i) == DICT_OK);
             assert(dictAdd(dv, stringFromLongLong(i), NULL) == DICT_OK);
         }
-
-        /* Identical keys and resize policy => identical bucket geometry, so the
-         * two dicts' reported memory differs only by the value union that each
-         * of the n no_value entries drops: n * 8 bytes. */
         assert(dictSize(dn) == (unsigned long)n && dictSize(dv) == (unsigned long)n);
-        assert(dictBuckets(dn) == dictBuckets(dv));
-        assert(dictMemUsage(dn) - dictMemUsage(dv) == (size_t)n * value_union_bytes);
+
+        /* A no_value dict allocates an entry for all but the inline key of
+         * each occupied bucket. */
+        assert(dn->allocated_entries == (unsigned long)n);
+        assert(dv->allocated_entries == dictWalkAllocatedEntries(dv));
+        assert(dv->allocated_entries == (unsigned long)n - dictWalkOccupiedBuckets(dv));
+        assert(dv->allocated_entries < (unsigned long)n);
+
+        assert(dictMemUsage(dn) == (size_t)n * sizeof(dictEntry) +
+                                   dictBuckets(dn) * sizeof(dictEntry *));
+        assert(dictMemUsage(dv) == dv->allocated_entries * sizeof(dictEntryNoValue) +
+                                   dictBuckets(dv) * sizeof(dictEntry *));
 
         dictRelease(dn);
         dictRelease(dv);
+    }
+
+    TEST("allocated_entries stays exact across rehashing and deletion") {
+        dict *dr = dictCreate(&BenchmarkDictTypeNoValue);
+        long n = 5000;
+
+        for (long i = 0; i < n; i++)
+            assert(dictAdd(dr, stringFromLongLong(i), NULL) == DICT_OK);
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        while (dictIsRehashing(dr)) dictRehashMicroseconds(dr, 1000);
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        for (long i = 0; i < n; i += 2) {
+            char *key = stringFromLongLong(i);
+            assert(dictDelete(dr, key) == DICT_OK);
+            zfree(key);
+        }
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        while (dictIsRehashing(dr)) dictRehashMicroseconds(dr, 1000);
+        assert(dr->allocated_entries == dictWalkAllocatedEntries(dr));
+
+        dictEmpty(dr, NULL);
+        assert(dr->allocated_entries == 0);
+
+        dictRelease(dr);
     }
 
     srand(12345);
@@ -2389,6 +2566,75 @@ int dictTest(int argc, char **argv, int flags) {
             zfree(nonExistingKey);
         }
 
+        dictRelease(d);
+    }
+
+    TEST("dictAddNonExisting() adds a known-absent key") {
+        dictType dt = BenchmarkDictType;
+        dt.no_value = 1;
+        dict *d = dictCreate(&dt);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+
+        long n = 1000;
+        for (long i = 0; i < n; i++) {
+            dictEntry *de = dictAddNonExisting(d, stringFromLongLong(i));
+            assert(de != NULL);
+        }
+        assert((long)dictSize(d) == n);
+        for (long i = 0; i < n; i++) {
+            char *probe = stringFromLongLong(i);
+            assert(dictFind(d, probe) != NULL);
+            zfree(probe);
+        }
+        dictRelease(d); /* freeCallback releases the stored keys */
+    }
+
+    TEST("dictAddNonExistingBatch() inserts a batch into a fresh dict") {
+        dictType dt = BenchmarkDictType;
+        dt.no_value = 1;
+        dict *d = dictCreate(&dt);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+
+        long n = 5000;
+        void **keys = zmalloc(sizeof(void *) * n);
+        for (long i = 0; i < n; i++) keys[i] = stringFromLongLong(i);
+
+        dictAddNonExistingBatch(d, keys, n);
+        assert((long)dictSize(d) == n);
+        for (long i = 0; i < n; i++) {
+            char *probe = stringFromLongLong(i);
+            assert(dictFind(d, probe) != NULL);
+            zfree(probe);
+        }
+        zfree(keys);
+        dictRelease(d);
+    }
+
+    TEST("dictAddNonExistingBatch() stays correct across a rehash") {
+        /* Leave rehashing unfinished so the batch runs against two tables. */
+        dictType dt = BenchmarkDictType;
+        dt.no_value = 1;
+        dict *d = dictCreate(&dt);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+
+        long seed = 1024;
+        for (long i = 0; i < seed; i++)
+            assert(dictAdd(d, stringFromLongLong(i), NULL) == DICT_OK);
+        assert(dictExpand(d, seed * 4) == DICT_OK);
+        assert(dictIsRehashing(d));
+
+        long n = 2000;
+        void **keys = zmalloc(sizeof(void *) * n);
+        for (long i = 0; i < n; i++) keys[i] = stringFromLongLong(seed + i);
+        dictAddNonExistingBatch(d, keys, n);
+        assert((long)dictSize(d) == seed + n);
+
+        for (long i = 0; i < seed + n; i++) {
+            char *probe = stringFromLongLong(i);
+            assert(dictFind(d, probe) != NULL);
+            zfree(probe);
+        }
+        zfree(keys);
         dictRelease(d);
     }
 

@@ -165,6 +165,8 @@ struct dict {
     dictEntry **ht_table[2];
     unsigned long ht_used[2];
 
+    unsigned long allocated_entries; /* allocated dictEntry structs (not inline keys) */
+
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
     /* Note: pauserehash is a full unsigned so iterator increments
@@ -257,6 +259,8 @@ int dictTryExpand(dict *d, unsigned long size);
 int dictShrink(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key __stored_key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key __stored_key, dictEntry **existing);
+dictEntry *dictAddNonExisting(dict *d, void *key __stored_key);
+void dictAddNonExistingBatch(dict *d, void **keys __stored_key, size_t n);
 dictEntry *dictAddOrFind(dict *d, void *key __stored_key);
 int dictReplace(dict *d, void *key __stored_key, void *val);
 int dictDelete(dict *d, const void *key);
@@ -268,6 +272,7 @@ void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 dictEntry *dictFindByHashAndPtr(dict *d, const void *oldptr, const uint64_t hash);
 int dictShrinkIfNeeded(dict *d);
+void dictShrinkIfNeededAndComplete(dict *d);
 int dictExpandIfNeeded(dict *d);
 void *dictGetKey(const dictEntry *de);
 int dictEntryIsKey(const dictEntry *de);

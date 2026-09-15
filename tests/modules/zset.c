@@ -1,6 +1,8 @@
 #include "redismodule.h"
 #include <math.h>
 #include <errno.h>
+#include <string.h>
+#include <strings.h>
 
 /* ZSET.REM key element
  *
@@ -67,6 +69,75 @@ int zset_incrby(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithDouble(ctx, newscore);
     else
         return RedisModule_ReplyWithError(ctx, "ERR ZsetIncrby failed");
+}
+
+/* ZSET.RANGEBYSCORE key min max <asc|desc>
+ *
+ * Walks the score range [min, max] using the module sorted-set iterator API,
+ * forward (asc: FirstInScoreRange + Next) or backward (desc: LastInScoreRange +
+ * Prev), replying with the members in walk order. Used to regression-test the
+ * O(1) persistent B+ tree iterators. */
+int zset_rangebyscore(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 5) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+
+    double min, max;
+    if (RedisModule_StringToDouble(argv[2], &min) != REDISMODULE_OK ||
+        RedisModule_StringToDouble(argv[3], &max) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx, "ERR invalid range");
+
+    size_t dlen;
+    const char *dir = RedisModule_StringPtrLen(argv[4], &dlen);
+    int asc = (dlen == 3 && !strncasecmp(dir, "asc", 3));
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    long count = 0;
+    int ok = asc ? RedisModule_ZsetFirstInScoreRange(key, min, max, 0, 0) :
+                   RedisModule_ZsetLastInScoreRange(key, min, max, 0, 0);
+    if (ok == REDISMODULE_OK) {
+        while (!RedisModule_ZsetRangeEndReached(key)) {
+            RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key, NULL);
+            RedisModule_ReplyWithString(ctx, ele);
+            count++;
+            if (asc) RedisModule_ZsetRangeNext(key);
+            else RedisModule_ZsetRangePrev(key);
+        }
+        RedisModule_ZsetRangeStop(key);
+    }
+    RedisModule_ReplySetArrayLength(ctx, count);
+    return REDISMODULE_OK;
+}
+
+/* ZSET.RANGEBYLEX key min max <asc|desc>
+ *
+ * Same as ZSET.RANGEBYSCORE but for a lexicographical range. 'min' and 'max'
+ * use the ZRANGEBYLEX syntax ("[a", "(a", "-", "+"). */
+int zset_rangebylex(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 5) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+
+    size_t dlen;
+    const char *dir = RedisModule_StringPtrLen(argv[4], &dlen);
+    int asc = (dlen == 3 && !strncasecmp(dir, "asc", 3));
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    long count = 0;
+    int ok = asc ? RedisModule_ZsetFirstInLexRange(key, argv[2], argv[3]) :
+                   RedisModule_ZsetLastInLexRange(key, argv[2], argv[3]);
+    if (ok == REDISMODULE_OK) {
+        while (!RedisModule_ZsetRangeEndReached(key)) {
+            RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key, NULL);
+            RedisModule_ReplyWithString(ctx, ele);
+            count++;
+            if (asc) RedisModule_ZsetRangeNext(key);
+            else RedisModule_ZsetRangePrev(key);
+        }
+        RedisModule_ZsetRangeStop(key);
+    }
+    RedisModule_ReplySetArrayLength(ctx, count);
+    return REDISMODULE_OK;
 }
 
 /* Structure to hold data for the delall scan callback */
@@ -174,6 +245,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "zset.delall", zset_delall, "write touches-arbitrary-keys",
                                   0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.rangebyscore", zset_rangebyscore, "readonly",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.rangebylex", zset_rangebylex, "readonly",
+                                  1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

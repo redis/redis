@@ -133,56 +133,81 @@ foreach command {SORT SORT_RO} {
         r sort mylist alpha
     } {1 10 2 3}
 
-    test "SORT sorted set" {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 5 b
-        r zadd zset 2 c
-        r zadd zset 10 d
-        r zadd zset 3 e
-        r sort zset alpha desc
-    } {e d c b a}
+    foreach zenc {listpack btree} {
+        test "SORT sorted set - $zenc" {
+            set original_max [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries [expr {$zenc eq "listpack" ? 128 : 0}]
+            r del zset
+            r zadd zset 1 a 5 b 2 c 10 d 3 e
+            assert_encoding $zenc zset
+            set res [r sort zset alpha desc]
+            r config set zset-max-listpack-entries $original_max
+            set res
+        } {e d c b a}
 
-    test "SORT sorted set BY nosort should retain ordering" {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 5 b
-        r zadd zset 2 c
-        r zadd zset 10 d
-        r zadd zset 3 e
-        r multi
-        r sort zset by nosort asc
-        r sort zset by nosort desc
-        r exec
-    } {{a c e b d} {d b e c a}}
+        test "SORT sorted set BY nosort should retain ordering - $zenc" {
+            set original_max [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries [expr {$zenc eq "listpack" ? 128 : 0}]
+            r del zset
+            r zadd zset 1 a 5 b 2 c 10 d 3 e
+            assert_encoding $zenc zset
+            r multi
+            r sort zset by nosort asc
+            r sort zset by nosort desc
+            set res [r exec]
+            r config set zset-max-listpack-entries $original_max
+            set res
+        } {{a c e b d} {d b e c a}}
 
-    test "SORT sorted set BY nosort + LIMIT" {
-        r del zset
-        r zadd zset 1 a
-        r zadd zset 5 b
-        r zadd zset 2 c
-        r zadd zset 10 d
-        r zadd zset 3 e
-        assert_equal [r sort zset by nosort asc limit 0 1] {a}
-        assert_equal [r sort zset by nosort desc limit 0 1] {d}
-        assert_equal [r sort zset by nosort asc limit 0 2] {a c}
-        assert_equal [r sort zset by nosort desc limit 0 2] {d b}
-        assert_equal [r sort zset by nosort limit 5 10] {}
-        assert_equal [r sort zset by nosort limit -10 100] {a c e b d}
+        test "SORT sorted set BY nosort + LIMIT - $zenc" {
+            set original_max [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries [expr {$zenc eq "listpack" ? 128 : 0}]
+            r del zset
+            r zadd zset 1 a 5 b 2 c 10 d 3 e
+            assert_encoding $zenc zset
+            assert_equal [r sort zset by nosort asc limit 0 1] {a}
+            assert_equal [r sort zset by nosort desc limit 0 1] {d}
+            assert_equal [r sort zset by nosort asc limit 0 2] {a c}
+            assert_equal [r sort zset by nosort desc limit 0 2] {d b}
+            assert_equal [r sort zset by nosort limit 5 10] {}
+            assert_equal [r sort zset by nosort limit -10 100] {a c e b d}
+            r config set zset-max-listpack-entries $original_max
+        }
+
+        test "SORT sorted set BY nosort works as expected from scripts - $zenc" {
+            set original_max [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries [expr {$zenc eq "listpack" ? 128 : 0}]
+            r del zset
+            r zadd zset 1 a 5 b 2 c 10 d 3 e
+            assert_encoding $zenc zset
+            set res [r eval {
+                return {redis.call('sort',KEYS[1],'by','nosort','asc'),
+                        redis.call('sort',KEYS[1],'by','nosort','desc')}
+            } 1 zset]
+            r config set zset-max-listpack-entries $original_max
+            set res
+        } {{a c e b d} {d b e c a}}
     }
 
-    test "SORT sorted set BY nosort works as expected from scripts" {
+    test "SORT and SORT_RO leave listpack zsets unconverted" {
         r del zset
-        r zadd zset 1 a
-        r zadd zset 5 b
-        r zadd zset 2 c
-        r zadd zset 10 d
-        r zadd zset 3 e
-        r eval {
-            return {redis.call('sort',KEYS[1],'by','nosort','asc'),
-                    redis.call('sort',KEYS[1],'by','nosort','desc')}
-        } 1 zset
-    } {{a c e b d} {d b e c a}}
+        r zadd zset 1 a 5 b 2 c 10 d 3 e
+        assert_encoding listpack zset
+        r sort zset alpha
+        assert_encoding listpack zset
+        r sort_ro zset alpha
+        assert_encoding listpack zset
+        r sort zset by nosort
+        assert_encoding listpack zset
+        r sort_ro zset by nosort desc limit 0 2
+        assert_encoding listpack zset
+        r del zint
+        r zadd zint 1 10 2 2 3 1
+        assert_encoding listpack zint
+        assert_equal {1 10 2} [r sort zint alpha]
+        assert_equal {10 2 1} [r sort zint by nosort]
+        assert_encoding listpack zint
+    }
 
     test "SORT sorted set: +inf and -inf handling" {
         r del zset

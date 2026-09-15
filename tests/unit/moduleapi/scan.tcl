@@ -98,7 +98,7 @@ start_server {tags {"modules external:skip"}} {
     test {Module scan zset skiplist} {
         r config set zset-max-ziplist-entries 2
         r zadd zz 3 f3
-        assert_encoding skiplist zz
+        assert_encoding btree zz
         lsort [r scan.scan_key zz]
     } {{f1 1} {f2 2} {f3 3}}
 

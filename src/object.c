@@ -500,9 +500,9 @@ robj *createZsetObject(void) {
     robj *o;
 
     zs->dict = dictCreate(&zsetDictType);
-    zs->zsl = zslCreate();
+    zs->tree = zbtCreate();
     o = createObject(OBJ_ZSET,zs);
-    o->encoding = OBJ_ENCODING_SKIPLIST;
+    o->encoding = OBJ_ENCODING_BTREE;
     return o;
 }
 
@@ -590,10 +590,10 @@ void freeSetObject(robj *o) {
 void freeZsetObject(robj *o) {
     zset *zs;
     switch (o->encoding) {
-    case OBJ_ENCODING_SKIPLIST:
+    case OBJ_ENCODING_BTREE:
         zs = o->ptr;
         dictRelease(zs->dict);
-        zslFree(zs->zsl);
+        zbtFree(zs->tree);
         zfree(zs);
         break;
     case OBJ_ENCODING_LISTPACK:
@@ -761,18 +761,18 @@ void dismissSetObject(robj *o, size_t size_hint) {
 
 /* See dismissObject() */
 void dismissZsetObject(robj *o, size_t size_hint) {
-    if (o->encoding == OBJ_ENCODING_SKIPLIST) {
+    if (o->encoding == OBJ_ENCODING_BTREE) {
         zset *zs = o->ptr;
-        zskiplist *zsl = zs->zsl;
-        serverAssert(zsl->length != 0);
-        /* We iterate all nodes only when average member size is bigger than a
+        zbtree *t = zs->tree;
+        serverAssert(t->length != 0);
+        /* We iterate all elements only when average member size is bigger than a
          * page size, and there's a high chance we'll actually dismiss something. */
-        if (size_hint / zsl->length >= server.page_size) {
-            zskiplistNode *zn = zsl->header->level[0].forward;
+        if (size_hint / t->length >= server.page_size) {
+            zbtIter it;
+            zbtElem *zn = zbtFirst(t, &it);
             while (zn != NULL) {
-                zskiplistNode *next = zn->level[0].forward;
                 dismissMemory(zn, 0);
-                zn = next;
+                zn = zbtIterNext(&it);
             }
         }
 
@@ -1314,7 +1314,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_LISTPACK: return "listpack";
     case OBJ_ENCODING_LISTPACK_EX: return "listpackex";
     case OBJ_ENCODING_INTSET: return "intset";
-    case OBJ_ENCODING_SKIPLIST: return "skiplist";
+    case OBJ_ENCODING_BTREE: return "btree";
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
