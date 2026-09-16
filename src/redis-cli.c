@@ -451,10 +451,46 @@ typedef struct {
 
     /* Only used for help on commands */
     struct commandDocs docs;
+    int docs_args_dynamic;  /* 1 if docs.args was heap-allocated from COMMAND DOCS */
 } helpEntry;
 
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
+
+static void cliFreeCommandDocArgs(cliCommandArg *args, int numargs) {
+    for (int i = 0; i < numargs; i++) {
+        sdsfree(args[i].name);
+        sdsfree(args[i].display_text);
+        sdsfree(args[i].token);
+        if (args[i].subargs) {
+            cliFreeCommandDocArgs(args[i].subargs, args[i].numsubargs);
+            zfree(args[i].subargs);
+        }
+    }
+}
+
+static void cliFreeHelpEntries(void) {
+    for (int i = 0; i < helpEntriesLen; i++) {
+        helpEntry *he = helpEntries + i;
+        for (int j = 0; j < he->argc; j++) sdsfree(he->argv[j]);
+        zfree(he->argv);
+        if (he->type == CLI_HELP_COMMAND) {
+            /* docs.name points to full; group entries have full == argv[0] */
+            sdsfree(he->full);
+            sdsfree(he->docs.params);
+            sdsfree(he->docs.summary);
+            sdsfree(he->docs.since);
+            sdsfree(he->docs.group);
+            if (he->docs_args_dynamic) {
+                cliFreeCommandDocArgs(he->docs.args, he->docs.numargs);
+                zfree(he->docs.args);
+            }
+        }
+    }
+    zfree(helpEntries);
+    helpEntries = NULL;
+    helpEntriesLen = 0;
+}
 
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
@@ -952,6 +988,12 @@ static void cliInitHelp(void) {
     };
     redisReply *commandTable;
     dict *groups;
+
+    /* Free previously loaded entries (e.g. the empty/legacy table built
+     * before authentication) before building a new one. */
+    if (helpEntries != NULL) {
+        cliFreeHelpEntries();
+    }
 
     if (cliConnect(CC_QUIET) == REDIS_ERR) {
         /* Can not connect to the server, but we still want to provide
@@ -2599,6 +2641,12 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
+		/* AUTH may unlock command metadata: the initial help load runs before
+     		 * authentication and fails with NOAUTH, leaving helpEntries empty.
+     		 * Reload so tab-completion and inline hints become available. */
+    	    	if (config.last_cmd_type != REDIS_REPLY_ERROR) {
+		    cliInitHelp();
+    	     	}
             } else if (!strcasecmp(command,"multi") && argc == 1 &&
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
