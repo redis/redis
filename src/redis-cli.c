@@ -2641,12 +2641,12 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
-		/* AUTH may unlock command metadata: the initial help load runs before
-     		 * authentication and fails with NOAUTH, leaving helpEntries empty.
-     		 * Reload so tab-completion and inline hints become available. */
-    	    	if (config.last_cmd_type != REDIS_REPLY_ERROR) {
-		    cliInitHelp();
-    	     	}
+                /* AUTH may unlock command metadata: the initial help load runs before
+                 * authentication and fails with NOAUTH, leaving helpEntries empty.
+                 * Reload so tab-completion and inline hints become available. */
+                if (config.last_cmd_type != REDIS_REPLY_ERROR) {
+                    cliInitHelp();
+                }
             } else if (!strcasecmp(command,"multi") && argc == 1 &&
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
