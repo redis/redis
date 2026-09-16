@@ -21,6 +21,20 @@ The release notes contain PRs from multiple repositories:
 
 
 ================================================================================
+Redis 8.8.3    Released Thu 17 Sep 2026 18:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+### Security fixes
+
+- #15673 Commands queued in a transaction could still access keys whose ACL permissions were revoked before the transaction was executed
+- #15722 The cluster bus protocol has no authentication of its own unless `tls-cluster` is enabled, so any host able to reach a node's bus port could join the cluster and threaten it. A cluster node now warns at startup when its bus port is left unauthenticated, and the new `cluster-bus-port-protected-mode` option (default `no`) makes refusing to run in that state an explicit choice: set it to `yes` and the node starts only when `tls-cluster` authenticates the bus
+- TimeSeries: Prevented Redis from crashing when adding samples to a compressed Time Series key restored from a malformed RDB payload
+- Vector Sets: Deeply nested JSON used in Vector Set queries could cause the server to crash
+
+
+================================================================================
 Redis 8.8.2    Released Mon 17 Aug 2026 10:00:00 IST
 ================================================================================
 
