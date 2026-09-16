@@ -41,21 +41,11 @@
  *   make REDIS_CFLAGS='-DREDIS_TEST -DEB_TEST_BENCHMARK=3' && ./src/redis-server test ebuckets
  */
 
-/*
- *  Keep just enough bytes of bucket-key, taking into consideration configured
- *  EB_BUCKET_KEY_PRECISION, and ignoring LSB bits that has no impact.
- *
- * The main motivation is that since the bucket-key size determines the maximum
- * depth of the rax tree, then we can prune the tree to be more shallow and thus
- * reduce the maintenance and traversal of each node in the B-tree.
- */
-#if EB_BUCKET_KEY_PRECISION < 8
+/* Bucket-key size in the rax tree. 6 bytes of unix-time in msec are sufficient
+ * until the date of 02 August, 10889, and bound the depth of the rax tree to 6
+ * levels. Note that the bucket-key size determines the maximum depth of the
+ * rax tree. */
 #define EB_KEY_SIZE 6
-#elif EB_BUCKET_KEY_PRECISION >= 8 && EB_BUCKET_KEY_PRECISION < 16
-#define EB_KEY_SIZE 5
-#else
-#define EB_KEY_SIZE 4
-#endif
 
 /*
  * EB_SEG_MAX_ITEMS - Maximum number of items in rax-segment before trying to
@@ -63,12 +53,6 @@
  */
 #define EB_SEG_MAX_ITEMS 16
 #define EB_LIST_MAX_ITEMS EB_SEG_MAX_ITEMS
-
-/* From expiration time to bucket-key */
-#define EB_BUCKET_KEY(exptime) ((exptime) >> EB_BUCKET_KEY_PRECISION)
-
- /* From bucket-key to expiration time */
-#define EB_BUCKET_EXP_TIME(bucketKey) ((uint64_t)(bucketKey) << EB_BUCKET_KEY_PRECISION)
 
 /*** structs ***/
 
@@ -101,7 +85,7 @@ typedef struct FirstSegHdr {
 /* NextSegHdr - Header of next segment in an extended-segment (bucket)
  *
  * Here is the layout of an extended-segment, after adding another item to a single,
- * full (EB_SEG_MAX_ITEMS=16), segment (all items must have same bucket-key value):
+ * full (EB_SEG_MAX_ITEMS=16), segment (all items must have same expiration time):
  *
  *            +-------------+     +------------+      +------------+     +------------+             +------------+
  *            | FirstSegHdr |     | eItem(17)  |      | NextSegHdr |     | eItem(1)   |             | eItem(16)  |
@@ -190,7 +174,7 @@ static inline uint64_t raxKey2BucketKey(unsigned char *raxKey) {
 }
 
 /* Add another item to a bucket that consists of extended-segments. In this
- * scenario, all items in the bucket share the same bucket-key value and the first
+ * scenario, all items in the bucket share the same expiration time and the first
  * segment is already full (if not, the function ebSegAddAvail() would have being
  * called). This requires the creation of another segment. The layout of the
  * segments before and after the addition of the new item is as follows:
@@ -284,7 +268,7 @@ static int ebSegAddAvail(EbucketsType *type, FirstSegHdr *seg, eItem item) {
 }
 
 /* Return 1 if split segment to two succeeded. Else, return 0. The only reason
- * the split can fail is that All the items in the segment have the same bucket-key */
+ * the split can fail is that All the items in the segment have the same expiration time */
 static int ebTrySegSplit(EbucketsType *type, FirstSegHdr *seg, EBucketNew *newBucket) {
     int minMidDist=(EB_SEG_MAX_ITEMS / 2), bestMiddleIndex = -1;
     uint64_t splitKey = -1;
@@ -302,11 +286,10 @@ static int ebTrySegSplit(EbucketsType *type, FirstSegHdr *seg, EBucketNew *newBu
      */
     for (int i = 0 ; i < EB_SEG_MAX_ITEMS-1 ; i++) {
         mNext = type->getExpireMeta(mIter->next);
-        if (EB_BUCKET_KEY(ebGetMetaExpTime(mNext)) > EB_BUCKET_KEY(
-                                                         ebGetMetaExpTime(mIter))) {
+        if (ebGetMetaExpTime(mNext) > ebGetMetaExpTime(mIter)) {
             /* If found better middle index before reaching halfway, save it */
             if (i < (EB_SEG_MAX_ITEMS/2)) {
-                splitKey = EB_BUCKET_KEY(ebGetMetaExpTime(mNext));
+                splitKey = ebGetMetaExpTime(mNext);
                 bestMiddleIndex = i;
                 mLastItemFirstPart = mIter;
                 mFirstItemSecondPart = mNext;
@@ -315,7 +298,7 @@ static int ebTrySegSplit(EbucketsType *type, FirstSegHdr *seg, EBucketNew *newBu
             } else {
                 /* after crossing the middle need only to look for the first diff */
                 if (minMidDist > (i + 1 - EB_SEG_MAX_ITEMS / 2)) {
-                    splitKey = EB_BUCKET_KEY(ebGetMetaExpTime(mNext));
+                    splitKey = ebGetMetaExpTime(mNext);
                     bestMiddleIndex = i;
                     mLastItemFirstPart = mIter;
                     mFirstItemSecondPart = mNext;
@@ -327,7 +310,7 @@ static int ebTrySegSplit(EbucketsType *type, FirstSegHdr *seg, EBucketNew *newBu
         mIter = mNext;
     }
 
-    /* If cannot find index to split because all with same EB_BUCKET_KEY(), then
+    /* If cannot find index to split because all with same expiration time, then
      * segment should be treated as extended segment */
     if (bestMiddleIndex == -1)
         return 0;
@@ -367,9 +350,11 @@ int ebSingleSegExpire(FirstSegHdr *firstSegHdr,
     while (info->itemsExpired < info->maxToExpire) {
         itemExpTime = ebGetMetaExpTime(mIter);
 
-        /* Items are arranged in ascending expire-time order in a segment. Stops
-         * active expiration when an item's expire time is greater than `now`. */
-        if (itemExpTime > info->now)
+        /* Items are arranged in ascending expire-time order in a segment. Stop
+         * active expiration on the first item that is not yet expired (an item
+         * is expired iff its expire time is strictly less than `now`, matching
+         * lazy-expiry semantics such as keyIsExpired()). */
+        if (itemExpTime >= info->now)
             break;
 
         /* keep aside next before deletion of iter */
@@ -434,9 +419,9 @@ static int ebSegExpire(FirstSegHdr *firstSegHdr,
     /*
      * In an extended-segment, there's no need to verify the expiration time of
      * each item. This is because all items in an extended-segment share the same
-     * bucket-key. Therefore, we can remove all items without checking their
+     * expiration time. Therefore, we can remove all items without checking their
      * individual expiration times. This is different from a single-segment
-     * scenario, where items can have different bucket-keys.
+     * scenario, where items can have different expiration times.
      */
     for (uint32_t seg=0 ; seg < numSegs ; seg++) {
         uint32_t i;
@@ -534,7 +519,7 @@ static rax *ebConvertListToRax(eItem listHead, EbucketsType *type) {
 
     /* update last item to point on the segment header */
     ExpireMeta *metaItem = type->getExpireMeta(listHead);
-    uint64_t bucketKey = EB_BUCKET_KEY(ebGetMetaExpTime(metaItem));
+    uint64_t bucketKey = ebGetMetaExpTime(metaItem);
     while (metaItem->lastItemBucket == 0)
         metaItem = type->getExpireMeta(metaItem->next);
     metaItem->next = firstSegHdr;
@@ -678,9 +663,11 @@ static int ebListExpire(ebuckets *eb,
         metaItem = type->getExpireMeta(item);
         uint64_t itemExpTime = ebGetMetaExpTime(metaItem);
 
-        /* Items are arranged in ascending expire-time order in a list. Stops list
-         * active expiration when an item's expiration time is greater than `now`. */
-        if (itemExpTime > info->now)
+        /* Items are arranged in ascending expire-time order in a list. Stop list
+         * active expiration on the first item that is not yet expired (an item
+         * is expired iff its expire time is strictly less than `now`, matching
+         * lazy-expiry semantics such as keyIsExpired()). */
+        if (itemExpTime >= info->now)
             break;
 
         if (info->itemsExpired == info->maxToExpire)
@@ -842,11 +829,11 @@ static int ebBucketPrint(uint64_t bucketKey, EbucketsType *type, FirstSegHdr *fi
  *
  * 1) If the bucket is based on a single, not full segment, then add the item to the segment.
  * 2) If a single, full segment, then try to split it and then add the item.
- * 3) If failed to split, then all items in the bucket have the same bucket-key.
- *    - If the new item has the same bucket-key, then extend the segment to
+ * 3) If failed to split, then all items in the bucket have the same expiration time.
+ *    - If the new item has the same expiration time, then extend the segment to
  *      be an extended-segment, if not already, and add the item to it.
- *    - If the new item has a different bucket-key, then allocate a new bucket
- *      for it.
+ *    - If the new item has a different expiration time, then allocate a new
+ *      bucket for it.
  */
 static int ebAddToBucket(EbucketsType *type,
                          FirstSegHdr *firstSegBkt,
@@ -863,15 +850,14 @@ static int ebAddToBucket(EbucketsType *type,
 
         /* If bucket is a single, full segment, and segment split succeeded */
         if (ebTrySegSplit(type, firstSegBkt, newBucket) == 1) {
-            /* The split got failed only because all items in the segment have the
-             * same bucket-key */
             ExpireMeta *mItem = type->getExpireMeta(item);
 
-            /* Check which of the two segments the new item should be added to. Note that
-             * after the split, bucket-key of `newBucket` is bigger than bucket-key of
-             * `firstSegBkt`. That is `firstSegBkt` preserves its bucket-key value
-             * (and its location in rax tree) before the split */
-            if (EB_BUCKET_KEY(ebGetMetaExpTime(type->getExpireMeta(item))) < newBucket->ebKey) {
+            /* Split succeeded. Check which of the two segments the new item should
+             * be added to. Note that after the split, bucket-key of `newBucket` is
+             * bigger than bucket-key of `firstSegBkt`. That is `firstSegBkt`
+             * preserves its bucket-key value (and its location in rax tree) before
+             * the split */
+            if (ebGetMetaExpTime(mItem) < newBucket->ebKey) {
                 return ebSegAddAvail(type, firstSegBkt, item);
             } else {
                 /* Add the `item` to the new bucket */
@@ -889,19 +875,19 @@ static int ebAddToBucket(EbucketsType *type,
      * (1) a bucket with multiple segments
      * (2) Or, a single, full segment which failed to split.
      *
-     * Either way, all items in the bucket have the same bucket-key value. Thus:
-     * (A) If 'item' has the same bucket-key as the ones in this bucket, then add it as well
+     * Either way, all items in the bucket have the same expiration time. Thus:
+     * (A) If 'item' has the same expiration time as the ones in this bucket, then add it as well
      * (B) Else, allocate a new bucket for it.
      */
 
     ExpireMeta *mHead = type->getExpireMeta(firstSegBkt->head);
     ExpireMeta *mItem = type->getExpireMeta(item);
 
-    uint64_t bucketKey = EB_BUCKET_KEY(ebGetMetaExpTime(mHead)); /* same for all items in the segment */
-    uint64_t itemKey = EB_BUCKET_KEY(ebGetMetaExpTime(mItem));
+    uint64_t bucketKey = ebGetMetaExpTime(mHead); /* same for all items in the segment */
+    uint64_t itemKey = ebGetMetaExpTime(mItem);
 
     if (bucketKey == itemKey) {
-        /* New item has the same bucket-key as the ones in this bucket, Add it as well */
+        /* New item has the same expiration time as the ones in this bucket, Add it as well */
         if (mHead->numItems < EB_SEG_MAX_ITEMS)
             return ebSegAddAvail(type, firstSegBkt, item); /* Add item to first segment */
         else  {
@@ -923,7 +909,7 @@ static int ebAddToBucket(EbucketsType *type,
         if (bucketKey > itemKey)
             *updateBucketKey = bucketKey;
 
-        ebNewBucket(type, newBucket, item, EB_BUCKET_KEY(ebGetMetaExpTime(mItem)));
+        ebNewBucket(type, newBucket, item, itemKey);
         return 0;
     }
 }
@@ -948,7 +934,7 @@ static int ebRemoveFromRax(ebuckets *eb, EbucketsType *type, eItem item) {
         raxIterator ri;
         raxStart(&ri, rax);
         unsigned char raxKey[EB_KEY_SIZE];
-        bucketKey2RaxKey(EB_BUCKET_KEY(ebGetMetaExpTime(mItem)), raxKey);
+        bucketKey2RaxKey(ebGetMetaExpTime(mItem), raxKey);
         raxSeek(&ri, "<=", raxKey, EB_KEY_SIZE);
 
         if (raxNext(&ri) == 0)
@@ -1204,13 +1190,22 @@ static void ebValidateRax(rax *rax, EbucketsType *type) {
         int extendedSeg = (firstSegHdr->numSegs > 1) ? 1 : 0;
         void *segHdr = firstSegHdr;
 
+        /* The rax key is a lower bound on the items' expiration time (removal
+         * of the first item doesn't re-key the bucket). For extended segments
+         * it is exactly the shared expiration time of all items. */
+        uint64_t raxKey = raxKey2BucketKey(raxIter.key);
+        if (extendedSeg)
+            assert(raxKey == ebGetMetaExpTime(mHead));
+        else
+            assert(raxKey <= ebGetMetaExpTime(mHead));
+
         mIter = type->getExpireMeta(iter);
         while (1) {
             uint64_t curBktKey, prevBktKey;
             for (int i = 0; i < mHead->numItems ; ++i) {
                 assert(iter != NULL);
                 mIter = type->getExpireMeta(iter);
-                curBktKey = EB_BUCKET_KEY(ebGetMetaExpTime(mIter));
+                curBktKey = ebGetMetaExpTime(mIter);
                 assert(mIter->trash == 0);
                 if (i == 0) {
                     assert(mIter->numItems > 0 && mIter->numItems <= EB_SEG_MAX_ITEMS);
@@ -1337,8 +1332,6 @@ static void _ebPrint(ebuckets eb, EbucketsType *type, int64_t usedMem, int print
                usedMem / numBuckets);
         printf("Average per item                   : %" PRIu64 " Bytes\n",
                usedMem / totalItems);
-        printf("EB_BUCKET_KEY_PRECISION            : %d\n",
-               EB_BUCKET_KEY_PRECISION);
         printf("EB_SEG_MAX_ITEMS                   : %d\n",
                EB_SEG_MAX_ITEMS);
     }
@@ -1442,11 +1435,11 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
         if ( (res = ebAddToList(eb, type, item)) == 1) {
             /* Failed to add since list reached maximum size. Convert to rax */
             *eb = ebConvertListToRax(ebGetListPtr(type, *eb), type);
-            res = ebAddToRax(eb, type, item, EB_BUCKET_KEY(expireTime));
+            res = ebAddToRax(eb, type, item, expireTime);
         }
     } else {
         /* Add item to rax */
-        res = ebAddToRax(eb, type, item, EB_BUCKET_KEY(expireTime));
+        res = ebAddToRax(eb, type, item, expireTime);
     }
 
     EB_VALIDATE_STRUCTURE(*eb, type);
@@ -1455,7 +1448,8 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime) {
 }
 
 /**
- * Performs expiration on the given ebucket, removing items that have expired.
+ * Performs expiration on the given ebucket, removing items that have expired,
+ * that is, items with expiration time strictly less than `info->now`.
  *
  * If all items in the data structure are expired, 'eb' will be set to NULL.
  *
@@ -1491,7 +1485,6 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
 
     raxStart(&iter, rax);
 
-    uint64_t nowKey = EB_BUCKET_KEY(info->now);
     uint64_t itemsExpiredBefore = info->itemsExpired;
 
     while (1) {
@@ -1502,12 +1495,11 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
 
         FirstSegHdr *firstSegHdr = iter.data;
 
-        /* We need to take into consideration EB_BUCKET_KEY_PRECISION. The value of
-         * "info->now" will be adjusted to lookup only for all buckets with assigned
-         * keys that are older than 1<<EB_BUCKET_KEY_PRECISION msec ago. That is, it
-         * is needed to visit only the buckets with keys that are "<" than:
-         * EB_BUCKET_KEY(info->now). */
-        if (bucketKey >= nowKey) {
+        /* Visit only buckets with keys that are strictly less than `info->now`.
+         * A bucket key is the expiration time of the first item in the bucket,
+         * so a bucket with key equal to `info->now` starts at a time that is
+         * not yet expired (expired iff expTime < now). */
+        if (bucketKey >= info->now) {
             /* Take care to update next expire time based on next segment to expire */
             info->nextExpireTime = ebGetMetaExpTime(
                     type->getExpireMeta(firstSegHdr->head));
@@ -1550,7 +1542,8 @@ END_ACTEXP:
     return;
 }
 
-/* Performs active expiration dry-run to evaluate number of expired items
+/* Performs active expiration dry-run to evaluate number of expired items,
+ * that is, items with expiration time strictly less than `now`.
  *
  * It is faster than actual active-expire because it iterates only over the
  * headers of the buckets until the first non-expired bucket, and no more than
@@ -1585,7 +1578,6 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
     rax *rax = ebGetRaxPtr(eb);
     raxIterator iter;
     raxStart(&iter, rax);
-    uint64_t nowKey = EB_BUCKET_KEY(now);
     raxSeek(&iter,"^",NULL,0);
     assert(raxNext(&iter)); /* must be at least one bucket */
     FirstSegHdr *currBucket = iter.data;
@@ -1596,7 +1588,7 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
         FirstSegHdr *nextBucket = iter.data;
 
         /* if 'nextBucket' is not less than now then break */
-        if (raxKey2BucketKey(iter.key) >= nowKey) break;
+        if (raxKey2BucketKey(iter.key) >= now) break;
 
         /* nextBucket less than now. For sure all items in currBucket are expired */
         numExpired += currBucket->totalItems;
@@ -1620,33 +1612,12 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
         }
     }
 
-    /* Bucket key exactly reflect expiration time of all items (currBucket->numSegs > 1) */
-    if (EB_BUCKET_KEY_PRECISION == 0) {
-        if (ebGetMetaExpTime(type->getExpireMeta(currBucket->head)) >= now)
-            return numExpired;
-        else
-            return numExpired + currBucket->totalItems;
-    }
-
-    /* Iterate extended-segment and count expired ones */
-
-    /* Unreachable code, provided for completeness. Following operation is not
-     * bound in time and this is the main reason why we set above
-     * EB_BUCKET_KEY_PRECISION to 0 and have early return on previous condition */
-
-    ExpireMeta *mIter = type->getExpireMeta(currBucket->head);
-    while(1) {
-        if (ebGetMetaExpTime(mIter) < now)
-            numExpired++;
-
-        if (mIter->lastItemBucket)
-            return numExpired;
-
-        if (mIter->lastInSegment)
-            mIter = type->getExpireMeta(((NextSegHdr *) mIter->next)->head);
-        else
-            mIter = type->getExpireMeta(mIter->next);
-    }
+    /* Extended-segment bucket (currBucket->numSegs > 1): all items share the
+     * same expiration time, which is also the bucket key */
+    if (ebGetMetaExpTime(type->getExpireMeta(currBucket->head)) >= now)
+        return numExpired;
+    else
+        return numExpired + currBucket->totalItems;
 }
 
 /**
@@ -1656,11 +1627,7 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
  * @param type - Pointer to the EbucketsType structure defining the type of ebucket.
  *
  * @return The expiration time of the item with the nearest expiration time in
- *         the ebucket. If empty, return EB_EXPIRE_TIME_INVALID. If ebuckets is
- *         of type rax and minimal bucket is extended-segment, then it might not
- *         return accurate result up-to 1<<EB_BUCKET_KEY_PRECISION-1 msec (we
- *         don't want to traverse the entire extended-segment since it might not
- *         bounded).
+ *         the ebucket. If empty, return EB_EXPIRE_TIME_INVALID.
  */
 uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type) {
     if (ebIsEmpty(eb))
@@ -1675,28 +1642,12 @@ uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type) {
     raxIterator iter;
     raxStart(&iter, rax);
     raxSeek(&iter, "^", NULL, 0);
-    raxNext(&iter); /* seek to the last bucket */
+    raxNext(&iter); /* seek to the first bucket */
     FirstSegHdr *firstSegHdr = iter.data;
-    if ((firstSegHdr->numSegs == 1) || (EB_BUCKET_KEY_PRECISION == 0)) {
-        /* Single segment, or extended-segments that all have same expiration time.
-         * return the first item with the nearest expiration time */
-        minExpire = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
-    } else {
 
-        /* If reached here, then it is because it is extended segment and buckets
-         * are with lower precision than 1msec. In that case it is better not to
-         * iterate extended-segments, which might be unbounded, and just return
-         * worst possible expiration time in this bucket.
-         *
-         * The reason we return blindly worst case expiration time value in this
-         * bucket is because the only usage of this function is to figure out
-         * when is the next time active expiration should be performed, and it
-         * is better to do it only after 1 or more items were expired and not the
-         * other way around.
-         */
-        uint64_t expTime = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
-        minExpire = expTime | ( (1<<EB_BUCKET_KEY_PRECISION)-1) ;
-    }
+    /* Single segment, or extended-segments that all have same expiration time.
+     * Either way, return the expiration time of the first item */
+    minExpire = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
     raxStop(&iter);
     return minExpire;
 }
@@ -1704,27 +1655,13 @@ uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type) {
 /**
  * Retrieves the expiration time of the item with the latest expiration
  *
- * However, precision loss (EB_BUCKET_KEY_PRECISION) in rax tree buckets
- * may result in slight inaccuracies, up to a variation of
- * 1<<EB_BUCKET_KEY_PRECISION msec.
- *
  * @param eb - The ebucket to be checked.
  * @param type - Pointer to the EbucketsType structure defining the type of ebucket.
- * @param accurate - If 1, then the function will return accurate result. Otherwise,
- *                   it might return the upper limit with slight inaccuracy of
- *                   1<<EB_BUCKET_KEY_PRECISION msec.
- *
- *                   This special case is relevant only when the last bucket
- *                   is of type extended-segment. In this case, we might don't
- *                   want to traverse the entire bucket to find the accurate
- *                   expiration time  since there might be unbounded number of
- *                   items in the extended-segment. If EB_BUCKET_KEY_PRECISION
- *                   is 0, then the function will return accurate result anyway.
  *
  * @return The expiration time of the item with the latest expiration time in
  *         the ebucket. If empty, return EB_EXPIRE_TIME_INVALID.
  */
-uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate) {
+uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type) {
     if (ebIsEmpty(eb))
         return EB_EXPIRE_TIME_INVALID;
 
@@ -1750,30 +1687,9 @@ uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate) {
         while (em->lastInSegment == 0)
             em = type->getExpireMeta(em->next);
         maxExpire = ebGetMetaExpTime(em);
-    } else if (EB_BUCKET_KEY_PRECISION == 0) {
+    } else {
         /* Extended-segments that all have same expiration time */
         maxExpire = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
-    } else {
-        if (accurate == 0) {
-            /* return upper limit of the last bucket */
-            int mask = (1<<EB_BUCKET_KEY_PRECISION)-1;
-            uint64_t expTime = ebGetMetaExpTime(type->getExpireMeta(firstSegHdr->head));
-            maxExpire = (expTime + (mask+1)) & (~mask);
-        } else {
-            maxExpire = 0;
-            ExpireMeta *mIter = type->getExpireMeta(firstSegHdr->head);
-            while(1) {
-                while(1) {
-                    if (maxExpire < ebGetMetaExpTime(mIter))
-                        maxExpire = ebGetMetaExpTime(mIter);
-                    if (mIter->lastInSegment == 1) break;
-                    mIter = type->getExpireMeta(mIter->next);
-                }
-
-                if (mIter->lastItemBucket) break;
-                mIter = type->getExpireMeta(((NextSegHdr *) mIter->next)->head);
-            }
-        }
     }
     raxStop(&iter);
     return maxExpire;
@@ -2116,7 +2032,6 @@ void ebStop(EbucketsIterator *iter) {
 #include "testhelp.h"
 
 #define TEST(name) printf("[TEST] >>> %s\n", name);
-#define TEST_COND(name, cond) printf("[%s] >>> %s\n", (cond) ? "TEST" : "BYPS", name);  if (cond)
 
 typedef struct MyItem {
     int index;
@@ -2191,8 +2106,7 @@ void addItems(ebuckets *eb, uint64_t startExpire, int step, uint64_t numItems, M
     }
 }
 
-/* expireRanges - is given as bucket-key to be agnostic to the different configuration
- *                of EB_BUCKET_KEY_PRECISION */
+/* expireRanges - upper bounds (msec) of consecutive expiration-time ranges */
 void distributeTest(int lowestTime,
                     uint64_t *expireRanges,
                     const int *ItemsPerRange,
@@ -2208,7 +2122,7 @@ void distributeTest(int lowestTime,
     expItemsHashValue = 0;
     void *listOfItems = NULL;
     for (int i = 0; i < numRanges; i++) {
-        uint64_t endRange = EB_BUCKET_EXP_TIME(expireRanges[i]);
+        uint64_t endRange = expireRanges[i];
         for (int j = 0; j < ItemsPerRange[i]; j++) {
             uint64_t randomExpirey = (rand() % (endRange - startRange)) + startRange;
             expItemsHashValue = expItemsHashValue ^ (uint32_t) randomExpirey;
@@ -2217,7 +2131,7 @@ void distributeTest(int lowestTime,
             listOfItems = item;
             ebSetMetaExpTime(getMyItemExpireMeta(item), randomExpirey);
         }
-        startRange = EB_BUCKET_EXP_TIME(expireRanges[i]); /* next start range */
+        startRange = expireRanges[i]; /* next start range */
     }
 
     /* Take to sample memory after all items allocated and before insertion to ebuckets */
@@ -2248,20 +2162,8 @@ void distributeTest(int lowestTime,
         /* Active expire according to the ranges */
         for (int i = 0 ; i < numRanges ; i++) {
 
-            /* When checking how many items are expired, we need to take into
-             * consideration EB_BUCKET_KEY_PRECISION. The value of "info->now"
-             * will be adjusted by ebActiveExpire() to lookup only for all buckets
-             * with assigned keys that are older than 1<<EB_BUCKET_KEY_PRECISION
-             * msec ago. That is, it is needed to visit only the buckets with keys
-             * that are "<" EB_BUCKET_KEY(info->now) and not "<=".
-             * But if there is a list behind ebuckets, then this limitation is not
-             * applied and the operator "<=" will be used instead.
-             *
-             * The '-1' in case of list brings makes both cases aligned to have
-             * same result */
-            uint64_t now = EB_BUCKET_EXP_TIME(expireRanges[i]) + (ebIsList(eb) ? -1 : 0);
-
-            TimeRange range = {EB_BUCKET_EXP_TIME(startRange), EB_BUCKET_EXP_TIME(expireRanges[i]) };
+            uint64_t now = expireRanges[i];
+            TimeRange range = {startRange, expireRanges[i]};
             ExpireInfo info = {
                     .maxToExpire = 0xFFFFFFFF,
                     .onExpireItem = expireItemCb,
@@ -2346,11 +2248,6 @@ int ebucketsTest(int argc, char **argv, int flags) {
         printf("\n------ TEST EBUCKETS: %s ------\n", testCases[tid].description);
         uint64_t expireRanges[] = { testCases[tid].minExpire, testCases[tid].maxExpire };
         int itemsPerRange[] = { 0, testCases[tid].items };
-
-        /* expireRanges[] is provided to distributeTest() as bucket-key values */
-        for (uint32_t j = 0; j < ARRAY_SIZE(expireRanges); ++j) {
-            expireRanges[j] = expireRanges[j] >> EB_BUCKET_KEY_PRECISION;
-        }
 
         distributeTest(0, expireRanges, itemsPerRange, ARRAY_SIZE(expireRanges), 1, 1);
         return 0;
@@ -2451,27 +2348,23 @@ int ebucketsTest(int argc, char **argv, int flags) {
         ebDestroy(&eb, &myEbucketsType, NULL);
     }
 
-    TEST_COND("ebuckets - Add items with increased/decreased expiration time and then expire",
-              EB_BUCKET_KEY_PRECISION > 0)
-    {
+    TEST("ebuckets - Add items with increased/decreased expiration time and then expire") {
         ebuckets eb = NULL;
 
         for (int isDecr = 0; isDecr < 2; ++isDecr) {
             for (uint32_t numItems = 1; numItems < 64; ++numItems) {
-                uint64_t step = 1 << EB_BUCKET_KEY_PRECISION;
-
                 if (isDecr == 0)
-                    addItems(&eb, 0, step, numItems, NULL);
+                    addItems(&eb, 0, 1, numItems, NULL);
                 else
-                    addItems(&eb, (numItems - 1) * step, -step, numItems, NULL);
+                    addItems(&eb, numItems - 1, -1, numItems, NULL);
 
                 for (uint32_t i = 1; i <= numItems; i++) {
-                    TimeRange range = {EB_BUCKET_EXP_TIME(i - 1), EB_BUCKET_EXP_TIME(i)};
+                    TimeRange range = {i - 1, i};
                     ExpireInfo info = {
                             .maxToExpire = 1,
                             .onExpireItem = expireItemCb,
                             .ctx = &range,
-                            .now = EB_BUCKET_EXP_TIME(i),
+                            .now = i,
                             .itemsExpired = 0};
 
                     ebExpire(&eb, &myEbucketsType, &info);
@@ -2480,21 +2373,19 @@ int ebucketsTest(int argc, char **argv, int flags) {
                         assert(eb == NULL);
                         assert(info.nextExpireTime == EB_EXPIRE_TIME_INVALID);
                     } else {
-                        assert(info.nextExpireTime == EB_BUCKET_EXP_TIME(i));
+                        assert(info.nextExpireTime == i);
                     }
                 }
             }
         }
     }
 
-    TEST_COND("ebuckets - Create items with same expiration time and then expire",
-              EB_BUCKET_KEY_PRECISION > 0)
-    {
+    TEST("ebuckets - Create items with same expiration time and then expire") {
         ebuckets eb = NULL;
         uint64_t expirePerIter = 2;
         for (uint32_t numIterations = 1; numIterations < 100; ++numIterations) {
             uint32_t numItems = numIterations * expirePerIter;
-            uint64_t expireTime = (1 << EB_BUCKET_KEY_PRECISION) + 1;
+            uint64_t expireTime = 1000;
             addItems(&eb, expireTime, 0, numItems, NULL);
 
             for (uint32_t i = 1; i <= numIterations; i++) {
@@ -2502,7 +2393,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                         .maxToExpire = expirePerIter,
                         .onExpireItem = expireItemCb,
                         .ctx = NULL,
-                        .now = (2 << EB_BUCKET_KEY_PRECISION),
+                        .now = expireTime + 1,
                         .itemsExpired = 0};
                 ebExpire(&eb, &myEbucketsType, &info);
                 assert(info.itemsExpired == expirePerIter);
@@ -2516,9 +2407,37 @@ int ebucketsTest(int argc, char **argv, int flags) {
         }
     }
 
+    TEST("ebuckets - active expire with `now` equal to expiration time") {
+        ebuckets eb = NULL;
+        /* Cover the list, rax single-segment and rax extended-segment paths */
+        struct { int numItems; int step; } tc[] = {
+                {EB_LIST_MAX_ITEMS, 1},     /* list */
+                {3 * EB_SEG_MAX_ITEMS, 1},  /* rax, single segments */
+                {3 * EB_SEG_MAX_ITEMS, 0},  /* rax, extended-segment */
+        };
+        for (uint32_t t = 0; t < ARRAY_SIZE(tc); t++) {
+            uint64_t startTime = 1000;
+            addItems(&eb, startTime, tc[t].step, tc[t].numItems, NULL);
+
+            /* An item is expired iff its expire-time is strictly less than
+             * `now`. With now == startTime nothing must be expired */
+            ExpireInfo info = {
+                    .maxToExpire = 0xFFFFFFFF,
+                    .onExpireItem = expireItemCb,
+                    .ctx = NULL,
+                    .now = startTime,
+                    .itemsExpired = 0};
+            ebExpire(&eb, &myEbucketsType, &info);
+            assert(info.itemsExpired == 0);
+            assert(info.nextExpireTime == startTime);
+            assert(ebGetTotalItems(eb, &myEbucketsType) == (uint64_t) tc[t].numItems);
+            ebDestroy(&eb, &myEbucketsType, NULL);
+        }
+    }
+
     TEST("list - Create few items on random times and then expire/delete ") {
         for (int isExpire = 0 ; isExpire <= 1 ; ++isExpire ) {
-            uint64_t expireRanges[] = {1000};   /* bucket-keys */
+            uint64_t expireRanges[] = {1000};   /* msec */
             int itemsPerRange[] = {EB_LIST_MAX_ITEMS};
             distributeTest(0, expireRanges, itemsPerRange,
                            ARRAY_SIZE(expireRanges), isExpire, 0);
@@ -2527,7 +2446,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
 
     TEST("list - Create few items (list) on same time and then active expire/delete ") {
         for (int isExpire = 0 ; isExpire <= 1 ; ++isExpire ) {
-            uint64_t expireRanges[] = {1, 2};  /* bucket-keys */
+            uint64_t expireRanges[] = {1, 2};  /* msec */
             int itemsPerRange[] = {0, EB_LIST_MAX_ITEMS};
 
             distributeTest(0, expireRanges, itemsPerRange,
@@ -2537,7 +2456,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
 
     TEST("ebuckets - Create many items on same time and then active expire/delete ") {
         for (int isExpire = 1 ; isExpire <= 1 ; ++isExpire ) {
-            uint64_t expireRanges[] = {1, 2}; /* bucket-keys */
+            uint64_t expireRanges[] = {1, 2}; /* msec */
             int itemsPerRange[] = {0, 20};
 
             distributeTest(0, expireRanges, itemsPerRange,
@@ -2548,7 +2467,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
     TEST("ebuckets - Create items on different times and then expire/delete ") {
         for (int isExpire = 0 ; isExpire <= 0 ; ++isExpire ) {
             for (int numItems = 1 ; numItems < 100 ; ++numItems ) {
-                uint64_t expireRanges[] = {1000000}; /* bucket-keys */
+                uint64_t expireRanges[] = {1000000}; /* msec */
                 int itemsPerRange[] = {numItems};
                 distributeTest(0, expireRanges, itemsPerRange,
                                ARRAY_SIZE(expireRanges), 1, 0);
@@ -2563,9 +2482,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
             for (int numItems = 1; numItems <= EB_SEG_MAX_ITEMS*3; ++numItems) {
                 for (int offset = 0; offset < numItems; offset++) {
                     MyItem *items[numItems];
-                    uint64_t startValue = 1000 << EB_BUCKET_KEY_PRECISION;
-                    int stepValue = step * (1 << EB_BUCKET_KEY_PRECISION);
-                    addItems(&eb, startValue, stepValue, numItems, items);
+                    addItems(&eb, 1000, step, numItems, items);
                     for (int i = 0; i < numItems; i++) {
                         int at = (i + offset) % numItems;
                         assert(ebRemove(&eb, &myEbucketsType, items[at]));
@@ -2589,31 +2506,38 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 if (expireTime > maxExpTime) maxExpTime = expireTime;
                 ebAdd(&eb, &myEbucketsType2, items + i, expireTime);
                 assert(ebGetNextTimeToExpire(eb, &myEbucketsType2) == minExpTime);
-                assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 0) == maxExpTime);
+                assert(ebGetMaxExpireTime(eb, &myEbucketsType2) == maxExpTime);
             }
             ebDestroy(&eb, &myEbucketsType2, NULL);
         }
     }
 
-    TEST_COND("ebuckets - test min/max expire time, with extended-segment",
-              (1<<EB_BUCKET_KEY_PRECISION) > 2*EB_SEG_MAX_ITEMS) {
+    TEST("ebuckets - test min/max expire time, with extended-segment") {
         ebuckets eb = NULL;
-        MyItem items[(2*EB_SEG_MAX_ITEMS)-1];
+        MyItem items[3*EB_SEG_MAX_ITEMS];
+        uint64_t sharedExpireTime = 1000;
         for (int numItems = EB_SEG_MAX_ITEMS+1 ; numItems < (int)ARRAY_SIZE(items) ; numItems++) {
-            /* First reach extended-segment (two chained segments in a bucket) */
-            for (int i = 0; i <= EB_SEG_MAX_ITEMS; i++) {
-                uint64_t itemExpireTime = (1<<EB_BUCKET_KEY_PRECISION) + i;
-                ebAdd(&eb, &myEbucketsType2, items + i, itemExpireTime);
+            /* An extended-segment can only hold items that all share the same
+             * expiration time. First fill a single segment beyond capacity to
+             * form an extended-segment (two chained segments in a bucket) */
+            for (int i = 0; i <= EB_SEG_MAX_ITEMS; i++)
+                ebAdd(&eb, &myEbucketsType2, items + i, sharedExpireTime);
+
+            /* Now keep adding items to the extended-segment and verify min/max */
+            for (int i = EB_SEG_MAX_ITEMS+1; i < numItems; i++) {
+                ebAdd(&eb, &myEbucketsType2, items + i, sharedExpireTime);
+                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2) == sharedExpireTime);
+                assert(ebGetMaxExpireTime(eb, &myEbucketsType2) == sharedExpireTime);
             }
 
-            /* Now start adding more items to extended-segment and verify min/max */
-            for (int i = EB_SEG_MAX_ITEMS+1; i < numItems; i++) {
-                uint64_t itemExpireTime = (1<<EB_BUCKET_KEY_PRECISION) + i;
-                ebAdd(&eb, &myEbucketsType2, items + i, itemExpireTime);
-                assert(ebGetNextTimeToExpire(eb, &myEbucketsType2) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
-                assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 0) == (uint64_t)(2<<EB_BUCKET_KEY_PRECISION));
-                assert(ebGetMaxExpireTime(eb, &myEbucketsType2, 1) == (uint64_t)((1<<EB_BUCKET_KEY_PRECISION) + i));
-            }
+            /* Add a single item before and after the extended-segment bucket
+             * and verify min/max reflect them */
+            MyItem before, after;
+            ebAdd(&eb, &myEbucketsType2, &before, sharedExpireTime - 1);
+            ebAdd(&eb, &myEbucketsType2, &after, sharedExpireTime + 1);
+            assert(ebGetNextTimeToExpire(eb, &myEbucketsType2) == sharedExpireTime - 1);
+            assert(ebGetMaxExpireTime(eb, &myEbucketsType2) == sharedExpireTime + 1);
+
             ebDestroy(&eb, &myEbucketsType2, NULL);
         }
     }
@@ -2627,12 +2551,12 @@ int ebucketsTest(int argc, char **argv, int flags) {
             /* Allocate numItems and add to ebuckets */
             for (int i = 0; i < numItems; i++) {
                 /* generate random expiration time */
-                uint64_t expireTime = (rand() % maxExpireKey) << EB_BUCKET_KEY_PRECISION;
+                uint64_t expireTime = rand() % maxExpireKey;
                 ebAdd(&eb, &myEbucketsType2, items + i, expireTime);
             }
 
             for (int i = 0 ; i <= maxExpireKey ; ++i) {
-                uint64_t now = i << EB_BUCKET_KEY_PRECISION;
+                uint64_t now = i;
 
                 /* Count how much items are expired */
                 uint64_t expectedNumExpired = 0;
@@ -2660,26 +2584,26 @@ int ebucketsTest(int argc, char **argv, int flags) {
 
         /* Allocate numItems and add to ebuckets */
         for (int i = 0; i < numItems; i++)
-            ebAdd(&eb, &myEbucketsType2, items + i, expiredAt << EB_BUCKET_KEY_PRECISION);
+            ebAdd(&eb, &myEbucketsType2, items + i, expiredAt);
 
         /* active-expire. Expected that all but one will be expired */
         ExpireInfo info = {
                 .maxToExpire = 0xFFFFFFFF,
                 .onExpireItem = expireUpdateThirdItemCb,
-                .ctx = (void *) (uintptr_t) (updateItemTo << EB_BUCKET_KEY_PRECISION),
-                .now = applyActiveExpireAt << EB_BUCKET_KEY_PRECISION,
+                .ctx = (void *) (uintptr_t) updateItemTo,
+                .now = applyActiveExpireAt,
                 .itemsExpired = 0};
         ebExpire(&eb, &myEbucketsType2, &info);
         assert(info.itemsExpired == (uint64_t) numItems);
-        assert(info.nextExpireTime == (uint64_t)updateItemTo << EB_BUCKET_KEY_PRECISION);
+        assert(info.nextExpireTime == (uint64_t) updateItemTo);
         assert(ebGetTotalItems(eb, &myEbucketsType2) == 1);
 
         /* active-expire. Expected that all will be expired */
         ExpireInfo info2 = {
                 .maxToExpire = 0xFFFFFFFF,
                 .onExpireItem = expireUpdateThirdItemCb,
-                .ctx = (void *) (uintptr_t) (updateItemTo << EB_BUCKET_KEY_PRECISION),
-                .now = expectedExpiredAt << EB_BUCKET_KEY_PRECISION,
+                .ctx = (void *) (uintptr_t) updateItemTo,
+                .now = expectedExpiredAt,
                 .itemsExpired = 0};
         ebExpire(&eb, &myEbucketsType2, &info2);
         assert(info2.itemsExpired == (uint64_t) 1);
@@ -2715,8 +2639,6 @@ int ebucketsTest(int argc, char **argv, int flags) {
         }
     }
 
-//    TEST("segment - Add smaller item to full segment that all share same ebucket-key")
-//    TEST("segment - Add item to full segment and make it extended-segment (all share same ebucket-key)")
 //    TEST("ebuckets - Create rax tree with extended-segment and add item before")
 
     return 0;
