@@ -141,17 +141,19 @@ proc node_owns_slots {node_id start_slot end_slot} {
 # across owners is left to the server, which rejects the import with "slots
 # belong to different source nodes".
 proc move_slots_to_node {node_id start_slot end_slot} {
-    if {[node_owns_slots $node_id $start_slot $end_slot]} {
-        return
+    if {![node_owns_slots $node_id $start_slot $end_slot]} {
+        set task_id [R $node_id CLUSTER MIGRATION IMPORT $start_slot $end_slot]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status $node_id $task_id state]]
+        } else {
+            fail "could not move slots $start_slot-$end_slot to node $node_id -
+                 ([migration_status $node_id $task_id state]
+                  [migration_status $node_id $task_id last_error])"
+        }
     }
-    set task_id [R $node_id CLUSTER MIGRATION IMPORT $start_slot $end_slot]
-    wait_for_condition 1000 10 {
-        [string match {*completed*} [migration_status $node_id $task_id state]]
-    } else {
-        fail "could not move slots $start_slot-$end_slot to node $node_id -
-             ([migration_status $node_id $task_id state]
-              [migration_status $node_id $task_id last_error])"
-    }
+    # $node_id reaching "completed" only reflects its own view; wait for the source to
+    # settle and the topology change to propagate cluster-wide before callers rely on it.
+    wait_for_asm_done
 }
 
 proc migration_status {node_id task_id field} {
