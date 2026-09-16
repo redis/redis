@@ -6,9 +6,6 @@
  *
  *   - Zbc scalar: 128-bit 4-way parallel folding + per-lane merge using
  *     clmul/clmulh (rv64gc_zbc). Single-digit speedup on spacemit X100.
- *   - Zvbc vector path is added in a follow-up change (PR-B) under
- *     #if defined(__riscv_zvbc): same fold constants and merge math, so
- *     results stay bit-identical. This TU alone is Zbc-only.
  *
  * Called only after baseline code has checked for Zbc support. Falls back to
  * the crcspeed slice-by-8 path on any other RISC-V or non-RISC-V build.
@@ -33,6 +30,14 @@ static uint64_t crc64_riscv_reflect(uint64_t data) {
 }
 
 #if defined(__riscv_xlen) && (__riscv_xlen == 64) && defined(__riscv_zbc) && (__riscv_zbc > 0)
+#define HAVE_RISCV_ZBC 1
+#else
+#define HAVE_RISCV_ZBC 0
+#endif
+
+const int crc64_riscv_compiled = HAVE_RISCV_ZBC;
+
+#if HAVE_RISCV_ZBC
 
 /* ---- slice-by-8 fallback for short inputs (crcspeed64little math) ---- */
 static uint64_t crc64_slice8_tab[8][256];
@@ -75,7 +80,6 @@ static uint64_t crc64_slice8(uint64_t crc, const void *buf, size_t len){
 static uint64_t crc64_riscv_tab[256];
 static uint64_t foldk1, foldk2;      /* main-loop fold constants (512-bit) */
 static uint64_t MC1[8], MC2[8];      /* per-lane merge constants */
-static unsigned lanes;               /* lanes in vector path (0 = n/a) */
 
 #define REV UINT64_C(0x95ac9329ac4bc9b5)
 
@@ -106,11 +110,6 @@ static int crc64_riscv_init_done = 0;
 static void crc64_riscv_init_tables(void){
     crc64_slice8_init();
     for(unsigned i=0;i<256;i++){ uint64_t c=i; for(int k=0;k<8;k++) c=(c>>1)^(REV&(uint64_t)(-(int64_t)(c&1))); crc64_riscv_tab[i]=c; }
-#if defined(__riscv_zvbc)
-    lanes = 4;
-#else
-    lanes = 0;
-#endif
     foldk1=rv_rev64(rv_xpow(63+512)); foldk2=rv_rev64(rv_xpow(511));
     for(unsigned j=0;j<4;j++){ long p=128*(long)(3-j); MC1[j]=p?rv_rev64(rv_xpow(63+p)):0; MC2[j]=p?rv_rev64(rv_xpow(p-1)):0; }
     crc64_riscv_init_done = 1;
@@ -154,14 +153,10 @@ static uint64_t crc64_riscv_zbc(uint64_t crc, const uint8_t *buf, size_t len){
 
 /* ---- public API (same contract as crcspeed64native) ---- */
 extern uint64_t crc64_riscv(uint64_t crc, const unsigned char *buf, uint64_t len) {
-#if defined(__riscv_xlen) && (__riscv_xlen == 64) && defined(__riscv_zbc) && (__riscv_zbc > 0)
+#if HAVE_RISCV_ZBC
     if (!crc64_riscv_init_done) crc64_riscv_init_tables();
     if (len < 128)
         return crc64_slice8(crc, buf, len);
-#if defined(__riscv_zvbc)
-    if (lanes >= 4)
-        return crc64_riscv_zvbc(crc, buf, len);
-#endif
     return crc64_riscv_zbc(crc, buf, len);
 #else
     /* _crc64 returns a reflected CRC, but consumes an unreflected state. */

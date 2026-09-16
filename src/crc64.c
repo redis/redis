@@ -141,12 +141,17 @@ uint64_t _crc64(uint_fast64_t crc, const void *in_data, const uint64_t len) {
 
 /* RISC-V accelerated crc64 (Zbc carry-less multiply, when available). */
 extern uint64_t crc64_riscv(uint64_t, const unsigned char *, uint64_t);
+extern const int crc64_riscv_compiled;
 
 /* This probe must stay in a translation unit compiled for the baseline ISA.
  * Otherwise the compiler may emit the instructions that are being probed. */
 static int crc64_riscv_available(void) {
 #if defined(__riscv_xlen) && (__riscv_xlen == 64)
     static int cached = -1;
+    if (!crc64_riscv_compiled) {
+        cached = 0;
+        return cached;
+    }
     if (cached >= 0) return cached;
 
     FILE *f = fopen("/proc/cpuinfo", "r");

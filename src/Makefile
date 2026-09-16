@@ -500,7 +500,7 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:
 
 # RISC-V Zbc accelerated CRC64. Keep the extension local to the implementation.
 ifneq (,$(findstring riscv64,$(compiler_M)))
-crc64_riscv.o: CFLAGS += -march=rv64gc_zbc -fno-lto
+crc64_riscv.o: override CFLAGS += -march=rv64gc_zbc -fno-lto
 endif
 
 # The following files are checked in and don't normally need to be rebuilt. They
