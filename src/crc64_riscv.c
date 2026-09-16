@@ -25,16 +25,17 @@
 
 extern uint64_t _crc64(uint_fast64_t crc, const void *in_data, uint64_t len);
 
-#if defined(__riscv_xlen) && (__riscv_xlen == 64) && defined(__riscv_zbc) && (__riscv_zbc > 0)
-
-/* ---- slice-by-8 fallback for short inputs (crcspeed64little math) ---- */
-static uint64_t crc64_slice8_tab[8][256];
-static uint64_t crc64_sreflect(uint64_t data){
+static uint64_t crc64_riscv_reflect(uint64_t data) {
     data=((data>>1)&0x5555555555555555ULL)|((data&0x5555555555555555ULL)<<1);
     data=((data>>2)&0x3333333333333333ULL)|((data&0x3333333333333333ULL)<<2);
     data=((data>>4)&0x0F0F0F0F0F0F0F0FULL)|((data&0x0F0F0F0F0F0F0F0FULL)<<4);
     return __builtin_bswap64(data);
 }
+
+#if defined(__riscv_xlen) && (__riscv_xlen == 64) && defined(__riscv_zbc) && (__riscv_zbc > 0)
+
+/* ---- slice-by-8 fallback for short inputs (crcspeed64little math) ---- */
+static uint64_t crc64_slice8_tab[8][256];
 static uint64_t crc64_sbitwise(uint64_t crc, const void *in_data, uint64_t len){
     const uint8_t *data=(const uint8_t*)in_data;
     for(uint64_t off=0;off<len;off++){
@@ -46,7 +47,7 @@ static uint64_t crc64_sbitwise(uint64_t crc, const void *in_data, uint64_t len){
         }
         crc&=0xffffffffffffffffULL;
     }
-    return crc64_sreflect(crc&0xffffffffffffffffULL);
+    return crc64_riscv_reflect(crc&0xffffffffffffffffULL);
 }
 static void crc64_slice8_init(void){
     for(int n=0;n<256;n++){ unsigned char v=n; crc64_slice8_tab[0][n]=crc64_sbitwise(0,&v,1); }
@@ -163,6 +164,7 @@ extern uint64_t crc64_riscv(uint64_t crc, const unsigned char *buf, uint64_t len
 #endif
     return crc64_riscv_zbc(crc, buf, len);
 #else
-    return _crc64(crc, buf, len);
+    /* _crc64 returns a reflected CRC, but consumes an unreflected state. */
+    return _crc64(crc64_riscv_reflect(crc), buf, len);
 #endif
 }
