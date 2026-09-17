@@ -300,7 +300,9 @@ start_server {tags {"modules external:skip"}} {
             }
         }
 
-        if {[lsearch $::denytags "resp3"] < 0} {
+        # Forced RESP3 rewrites HELLO 2 to HELLO 3, so this test cannot
+        # establish the mixed-protocol connections it needs in that mode.
+        if {!$::force_resp3 && [lsearch $::denytags "resp3"] < 0} {
             test "RESP$proto: reply buffer protocol compatibility preserves rejected source" {
                 set rd [redis_deferring_client]
                 $rd hello $proto
