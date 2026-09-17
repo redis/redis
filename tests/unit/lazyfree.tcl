@@ -207,3 +207,77 @@ start_server {tags {"lazyfree"}} {
         r slaveof no one
     } {OK} {external:skip}
 }
+
+start_server {tags {"lazyfree external:skip"}} {
+    start_server {} {
+        set slave [srv 0 client]
+        set slave_host [srv 0 host]
+        set slave_port [srv 0 port]
+        set slave_log [srv 0 stdout]
+
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set master_log [srv -1 stdout]
+
+        $slave slaveof $master_host $master_port
+        wait_for_condition 50 1000 {
+            [status $slave master_link_status] == "up"
+        } else {
+            fail "replication failed"ma
+        }
+        test "slave expire list will async free" {
+            r config set replica-read-only no
+            r flushall async
+            wait_lazyfree_done r
+            # Create 100 keys with expiration on replica
+            # These keys will be stored in two places:
+            # 1. Replica's main DB (as regular key-value pairs)
+            # 2. Replica's slaveExpireList (maintained for expiration tracking)
+            for {set j 0} {$j < 100} {incr j} {
+                set key "slave_$j"
+                set value $j
+                r set $key $value ex 100
+            }
+            set prev [status r lazyfreed_objects]
+            r flushall async
+
+            wait_lazyfree_done r
+            # Assert total lazyfreed objects increased by 200:
+            # - 100 from the main DB (the key-value pairs we created)
+            # - 100 from the slaveKeysWithExpire
+            assert_equal [expr $prev+200] [status r lazyfreed_objects]
+        }
+        
+        test "slave expire list async free after master-replica switch" {
+            $slave config set replica-read-only no
+            $slave flushall async
+            wait_lazyfree_done $slave
+
+            for {set j 0} {$j < 100} {incr j} {
+                set key "slave_switch_$j"
+                set value $j
+                $slave set $key $value ex 100
+            }
+
+            $slave slaveof no one
+
+            # Verify switch success: new master's role should be "master"
+            wait_for_condition 50 100 {
+                [status $slave role] eq "master"
+            } else {
+                fail "Master-replica switch failed: replica did not become master"
+            }
+
+            set prev_switch [status $slave lazyfreed_objects]
+
+            $slave flushall async
+            wait_lazyfree_done $slave
+
+            # Assert total lazyfreed objects increased by 200:
+            # - 100: key-value pairs from new master's DB
+            # - 100: expiration metadata from slaveKeysWithExpire
+            assert_equal [expr $prev_switch+200] [status $slave lazyfreed_objects]
+        }
+    }
+}
