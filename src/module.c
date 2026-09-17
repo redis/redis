@@ -3612,7 +3612,7 @@ int RM_ReplyWithBufferedReply(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
      * Only reset reply state: this context and its client remain reusable. */
     listEmpty(src->reply);
     src->bufpos = 0;
-    src->reply_bytes = src->reply_bytes_shared = src->reply_bytes_unshared = 0;
+    src->reply_bytes = 0;
     if (src->deferred_reply_errors) {
         listRelease(src->deferred_reply_errors);
         src->deferred_reply_errors = NULL;
