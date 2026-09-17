@@ -13,8 +13,11 @@ jobs:
         id: generate-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.DOCS_APP_ID }}
+          client-id: ${{ secrets.DOCS_APP_ID }}
           private-key: ${{ secrets.DOCS_APP_PRIVATE_KEY }}
+          owner: redis
+          repositories: docs
+          permission-actions: write
 
       - name: Invoke workflow on redis/docs
         env:
