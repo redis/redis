@@ -11,6 +11,7 @@
 #define __REDIS_UTIL_H
 
 #include <stdint.h>
+#include <sys/types.h>
 #include "sds.h"
 
 /* The maximum number of characters needed to represent a long double
@@ -75,6 +76,7 @@ int fileExist(char *filename);
 sds makePath(char *path, char *filename);
 int copyFile(char *source, char *destination);
 int fsyncFileDir(const char *filename);
+void fileReadAhead(int fd, off_t pos, off_t *read_ahead_pos);
 int reclaimFilePageCache(int fd, size_t offset, size_t length);
 char *fgets_async_signal_safe(char *dest, int buff_size, int fd);
 int vsnprintf_async_signal_safe(char *to, size_t size, const char *format, va_list ap);

@@ -4609,6 +4609,9 @@ void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
     {
+        /* Keep the kernel reading the file ahead of us. */
+        if (rioCheckType(r) == RIO_TYPE_FILE)
+            rioFileReadAhead(r, r->processed_bytes + len);
         if (server.masterhost && server.repl_state == REPL_STATE_TRANSFER)
             replicationSendNewlineToMaster();
         loadingAbsProgress(r->processed_bytes);
@@ -5168,6 +5171,11 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
         emptyDbFunc(); /* Flush existing db. */
     loadingFireEvent(rdbflags);
     rioInitWithFile(&rdb,fp);
+
+#ifdef HAVE_FADVISE
+    /* The file is read sequentially: let the kernel use a larger read-ahead window. */
+    posix_fadvise(fileno(fp), 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
 
