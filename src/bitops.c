@@ -69,7 +69,11 @@ long long redisPopcount(void *s, long count) {
     unsigned char *p = s;
     uint32_t *p4;
 #if defined(HAVE_POPCNT)
+    #if defined(__x86_64__)
     int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
+    #elif defined(__riscv)
+    int use_popcnt = 1; /* RISC-V Zbb cpop availability is known at compile time. */
+    #endif
 #else
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if
                          * __builtin_cpu_supports() is not available. */
