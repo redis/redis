@@ -215,6 +215,7 @@ client *createClient(connection *conn) {
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
+    c->last_unshared_refresh = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
@@ -2044,6 +2045,9 @@ void unlinkClient(client *c) {
  * contain any referenced robj. */
 void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
+        /* Withdraw this client's contribution before it leaves the list,
+         * since it won't be revisited by clientsCronRunClient() again. */
+        setClientUnsharedReplyBytes(c, 0);
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }
 }
@@ -2073,16 +2077,34 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
     return total;
 }
 
+/* Set the client's cached unshared reply bytes to an already-known value,
+ * keeping server.clients_unshared_mem in sync when the client is tracked in
+ * clients_with_pending_ref_reply. Every writer of reply_bytes_unshared - full
+ * recompute, forcing it to 0, or withdrawing it on unlink - goes through this
+ * so the running total never drifts from the field it mirrors. */
+void setClientUnsharedReplyBytes(client *c, unsigned long long new_unshared) {
+    if (new_unshared != c->reply_bytes_unshared && clientIsInPendingRefReplyList(c)) {
+        if (new_unshared >= c->reply_bytes_unshared)
+            server.clients_unshared_mem += new_unshared - c->reply_bytes_unshared;
+        else
+            server.clients_unshared_mem -= c->reply_bytes_unshared - new_unshared;
+    }
+    c->reply_bytes_unshared = new_unshared;
+}
+
 /* Update the client's unshared reply memory (solely owned). */
 void updateClientUnsharedReplyBytes(client *c) {
-    c->reply_bytes_unshared = 0;
+    unsigned long long new_unshared = 0;
 
     /* No shared memory means no unshared memory either. */
-    if (c->reply_bytes_shared == 0) return;
+    if (c->reply_bytes_shared == 0) {
+        setClientUnsharedReplyBytes(c, new_unshared);
+        return;
+    }
 
     /* Scan the static output buffer. */
     if (c->buf_encoded)
-        c->reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
+        new_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
 
     /* Scan each block in the reply list. */
     listIter reply_li;
@@ -2092,8 +2114,10 @@ void updateClientUnsharedReplyBytes(client *c) {
         clientReplyBlock *block = listNodeValue(reply_ln);
         if (block == NULL) continue; /* deferred-length placeholder */
         if (block->buf_encoded)
-            c->reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
+            new_unshared += computeUnsharedReplyBytes(block->buf, block->used);
     }
+
+    setClientUnsharedReplyBytes(c, new_unshared);
 }
 
 /* Compute shared reply memory: total shared reply bytes and the unshared subset where the key
@@ -2104,14 +2128,9 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
     listRewind(server.clients_with_pending_ref_reply, &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
-
-        /* Total shared reply bytes (logical size, shared with keyspace). */
         *shared_mem += c->reply_bytes_shared;
-
-        /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
-        updateClientUnsharedReplyBytes(c);
-        *unshared_mem += c->reply_bytes_unshared;
     }
+    *unshared_mem += server.clients_unshared_mem;
 }
 
 /* Drop all of the client's Pub/Sub state: unsubscribe every channel, shard
@@ -3028,7 +3047,7 @@ int writeToClient(client *c, int handler_installed) {
     /* Update client's memory usage after writing.
      * Since this isn't thread safe we do this conditionally. */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
-        updateClientMemUsageAndBucket(c);
+        updateClientMemUsageAndBucket(c, 0);
     }
     return C_OK;
 }
@@ -3648,7 +3667,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        if (c->conn) updateClientMemUsageAndBucket(c);
+        if (c->conn) updateClientMemUsageAndBucket(c, 0);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -3973,7 +3992,7 @@ int processInputBuffer(client *c) {
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
-        updateClientMemUsageAndBucket(c);
+        updateClientMemUsageAndBucket(c, 0);
 
     return C_OK;
 }
@@ -4597,7 +4616,7 @@ NULL
             addReply(c,shared.ok);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             c->flags &= ~CLIENT_NO_EVICT;
-            updateClientMemUsageAndBucket(c);
+            updateClientMemUsageAndBucket(c, 0);
             addReply(c,shared.ok);
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -5855,7 +5874,7 @@ void evictClients(void) {
                  * evicting clients, we update again before evicting, if the memory
                  * used by the client does not decrease or memory usage bucket is not
                  * changed, then we will evict it, otherwise, not evict it. */
-                updateClientMemUsageAndBucket(c);
+                updateClientMemUsageAndBucket(c, 0);
             }
             if (c->last_memory_usage >= last_memory ||
                 c->mem_usage_bucket == &server.client_mem_usage_buckets[curr_bucket])

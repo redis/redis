@@ -316,7 +316,7 @@ void sendTrackingMessage(client *c, char *keyname, size_t keylen, int proto) {
         addReplyArrayLen(c,1);
         addReplyBulkCBuffer(c,keyname,keylen);
     }
-    updateClientMemUsageAndBucket(c);
+    updateClientMemUsageAndBucket(c, 0);
     if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 
 done:
