@@ -194,6 +194,65 @@ start_server {tags {"incr"}} {
         assert_error "*value is not a valid float*" {r incrbyfloat mykeyincr v}
     }
 
+    test {INCRBY with max and min limits - within boundary} {
+        r del mykey
+        r incrby mykey 2 max 10
+        r incrby mykey 2 min 0
+        r incrby mykey 2 max 10 min 0
+    } {6}
+
+    test {INCRBY with max and min limits - exceeds boundary} {
+        r del mykey
+        r set mykey 5
+        assert_error {ERR *exceed limit*} {r incrby mykey 10 max 10 min 0}
+        assert_error {ERR *exceed limit*} {r incrby mykey -10 max 10 min 0}
+        r get mykey
+    } {5}
+
+    test {INCRBY with min greater than max - should fail} {
+        r del mykey
+        r set mykey 5
+        catch {r incrby mykey 1 max 5 min 10} err
+        set err
+    } {ERR *min value cannot be greater than max value*}
+
+    test {DECRBY with max and min limits - within boundary} {
+        r del mykey
+        r decrby mykey 1 min -10
+        r decrby mykey 1 max 0
+        r decrby mykey 1 max 0 min -10
+    } {-3}
+
+    test {DECRBY with max and min limits - exceeds boundary} {
+        r del mykey
+        r set mykey 5
+        assert_error {ERR *exceed limit*} {r decrby mykey 10 max 10 min 0}
+        assert_error {ERR *exceed limit*} {r decrby mykey -10 max 10 min 0} 
+        r get mykey
+    } {5}
+
+    test {DECRBY with min greater than max - should fail} {
+        r del mykey
+        r set mykey 5
+        catch {r decrby mykey 1 max 5 min 10} err
+        set err
+    } {ERR *min value cannot be greater than max value*}
+
+    test {INCRBY with invalid max or min parameter syntax} {
+        assert_error {ERR *syntax*} {r incrby mykey 1 max}
+        assert_error {ERR *syntax*} {r incrby mykey 1 min}
+        assert_error {ERR *syntax*} {r incrby mykey 1 unknown}
+
+        assert_error {ERR *not an integer*} {r decrby mykey 1 max xx}
+        assert_error {ERR *not an integer*} {r decrby mykey 1 min xx}
+    }
+
+    test {Test max or min limits out of range} {
+        r del mykey
+        assert_error {ERR *out of range*} {r incrby mykey 1 max 9223372036854775808 }
+        assert_error {ERR *out of range*} {r incrby mykey 1 min -9223372036854775809 }
+    }
+
     foreach cmd {"incr" "decr" "incrby" "decrby"} {
         test "$cmd operation should update encoding from raw to int" {
             set res {}
