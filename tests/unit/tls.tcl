@@ -379,6 +379,38 @@ start_server {tags {"tls"}} {
             assert_equal "tls-cert" [dict get $entry reason]
             assert_equal "admin\x00innocent" [dict get $entry username]
         }
+
+        test {TLS: a clean client disconnect is not reported as a read error} {
+            # redis-cli ends a TLS session with a close_notify alert, which
+            # SSL_read() reports as SSL_ERROR_ZERO_RETURN. That is an orderly
+            # shutdown rather than a failure, and OpenSSL leaves the error queue
+            # empty for it, so formatting the queue used to log the placeholder
+            # "Reading from client: error:00000000:lib(0)::reason(0)". Both
+            # messages are emitted at verbose level only.
+            start_server [list overrides [list loglevel verbose]] {
+                set tlsdir [file join [pwd] tests tls]
+                set res [exec src/redis-cli \
+                    -h [srv 0 host] \
+                    -p [srv 0 port] \
+                    --tls \
+                    --cert [file join $tlsdir client.crt] \
+                    --key [file join $tlsdir client.key] \
+                    --cacert [file join $tlsdir ca.crt] \
+                    PING]
+                assert_equal {PONG} $res
+
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Client closed connection"] > 0
+                } else {
+                    fail "the clean disconnect was never logged"
+                }
+                # Only the placeholder is checked. A peer that drops the socket
+                # without a close_notify still fails inside OpenSSL and is still
+                # reported as a read error, and the test suite's own clients
+                # disconnect that way.
+                assert_equal 0 [count_log_message 0 "error:00000000"]
+            }
+        }
     }
 }
 

@@ -4078,6 +4078,14 @@ void readQueryFromClient(connection *conn) {
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
             goto done;
+        } else if (connGetState(conn) == CONN_STATE_CLOSED) {
+            /* The peer closed the connection cleanly (for TLS this means a
+             * close_notify alert was received). Report it the same way as a
+             * plain TCP EOF, which arrives as a zero-length read below,
+             * instead of treating it as an error disconnect. */
+            c->read_error = CLIENT_READ_CONN_CLOSED;
+            freeClientAsync(c);
+            goto done;
         } else {
             c->read_error = CLIENT_READ_CONN_DISCONNECTED;
             freeClientAsync(c);
