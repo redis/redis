@@ -332,6 +332,7 @@ typedef struct PrefetchCommandsBatch {
     client **clients;               /* Array of clients in the current batch */
     pendingCommand **pending_cmds;  /* Array of pending commands in the current batch */
     dict **keys_dicts;              /* Main dict for each key */
+    pendingCommand **key_src;       /* Owning pending command for each key (hash reuse) */
     dictPrefetcher prefetcher;      /* Initialized once; reset and reused per batch. */
 } PrefetchCommandsBatch;
 
@@ -346,6 +347,7 @@ void freePrefetchCommandsBatch(void) {
     zfree(batch->pending_cmds);
     zfree(batch->keys);
     zfree(batch->keys_dicts);
+    zfree(batch->key_src);
     dictPrefetcherFree(&batch->prefetcher);
     zfree(batch);
     batch = NULL;
@@ -369,6 +371,7 @@ void prefetchCommandsBatchInit(void) {
     batch->pending_cmds = zcalloc(max_prefetch_size * sizeof(pendingCommand *));
     batch->keys = zcalloc(max_prefetch_size * sizeof(void *));
     batch->keys_dicts = zcalloc(max_prefetch_size * sizeof(dict *));
+    batch->key_src = zcalloc(max_prefetch_size * sizeof(pendingCommand *));
     dictPrefetcherInit(&batch->prefetcher, max_prefetch_size);
 }
 
@@ -466,6 +469,23 @@ void prefetchCommands(void) {
          * is driven by dbDictType->prefetchEntryValue. */
         dictPrefetcherReset(&batch->prefetcher, batch->keys_dicts, batch->keys, batch->key_count);
         dictPrefetcherRun(&batch->prefetcher);
+
+        /* Hash reuse: the prefetcher already computed SipHash for every key.
+         * Hand the hash to the owning command for single-key commands so the
+         * execution-time dict lookup can skip re-hashing. We only do this for
+         * single-key commands (numkeys == 1) so the pointer match in
+         * dbFindByLink() is unambiguous, and only when the key's dict was
+         * non-empty (otherwise the prefetcher left key_hash uninitialized). */
+        for (size_t i = 0; i < batch->key_count; i++) {
+            pendingCommand *pcmd = batch->key_src[i];
+            if (pcmd && pcmd->keys_result.numkeys == 1 &&
+                batch->keys_dicts[i] && dictSize(batch->keys_dicts[i]) > 0)
+            {
+                pcmd->key_hash = batch->prefetcher.lookups[i].key_hash;
+                pcmd->key_hash_obj = pcmd->argv[pcmd->keys_result.keys[0].pos]->ptr;
+                pcmd->flags |= PENDING_CMD_KEY_HASH_VALID;
+            }
+        }
     }
 }
 
@@ -513,6 +533,7 @@ int addCommandToBatch(client *c) {
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
             batch->keys[batch->key_count] = pcmd->argv[pcmd->keys_result.keys[i].pos];
             batch->keys_dicts[batch->key_count] = cmd_dict;
+            batch->key_src[batch->key_count] = pcmd;
             batch->key_count++;
             /* Mark the command as prefetched so the intra-command prefetch
              * path skips it. Even on a partial batch, running both paths
