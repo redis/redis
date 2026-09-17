@@ -336,12 +336,9 @@ Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff)
     if (needsNewAlloc(entry, &info, isUpdateVal, expiryAddRemove)) {
         Entry *oldEntry = entry;
         /* If not updating value */
-        if (value == NULL) {
+        if (!isUpdateVal) {
             /* Should not flag ownership of value if not updating value */
             debugServerAssert((info.flags & ENTRY_TAKE_VALUE) == 0);
-            
-            /* Try reuse the existing value */
-            value = entryGetValue(oldEntry);
             
             /* If value is a pointer, we can transfer it from old to new entry  */
             if (entryHasValuePtr(oldEntry)) {
