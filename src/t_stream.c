@@ -2819,8 +2819,8 @@ void xreadCommand(client *c) {
             }
         } else if (!strcasecmp(o,"BLOCK") && moreargs) {
             i++;
-            if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
-                UNIT_MILLISECONDS) != C_OK) return;
+            if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[i], &timeout,UNIT_MILLISECONDS) != C_OK)
+                return;
         } else if (!strcasecmp(o,"COUNT") && moreargs) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&count,NULL) != C_OK)
