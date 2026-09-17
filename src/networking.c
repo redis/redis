@@ -5071,10 +5071,13 @@ void helloCommand(client *c) {
     }
 
     if (username && password) {
+        size_t prev_bufpos = c->bufpos;
+        unsigned long long prev_reply_bytes = c->reply_bytes;
         robj *err = NULL;
         int auth_result = ACLAuthenticateUser(c, username, password, &err);
         if (auth_result == AUTH_ERR) {
-            addAuthErrReply(c, err);
+            if (c->bufpos == prev_bufpos && c->reply_bytes == prev_reply_bytes)
+                addAuthErrReply(c, err);
         }
         if (err) decrRefCount(err);
         /* In case of auth errors, return early since we already replied with an ERR.
