@@ -99,6 +99,13 @@
                 "since": "2.0.0"
             },
             {
+                "name": "withstatus",
+                "token": "WITHSTATUS",
+                "type": "pure-token",
+                "optional": true,
+                "since": "9.0.0"
+            },
+            {
                 "token": "LIMIT",
                 "name": "limit",
                 "type": "block",
