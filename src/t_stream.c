@@ -364,6 +364,189 @@ static inline int64_t lpGetIntegerIfValid(unsigned char *ele, int *valid) {
 
 #define lpGetInteger(ele) lpGetIntegerIfValid(ele, NULL)
 
+/* Compact a listpack by rebuilding it without tombstoned entries.
+ * Returns the new listpack, or NULL if all entries were deleted (caller
+ * should remove the rax node).  Updates *alloc_delta with the byte
+ * difference (new_size - old_size) so the caller can adjust
+ * stream->alloc_size. */
+static unsigned char *streamCompactListpack(unsigned char *lp, streamID *master_id __attribute__((unused)), ssize_t *alloc_delta) {
+    unsigned char *p = lpFirst(lp);
+    int64_t total_entries = lpGetInteger(p);
+    p = lpNext(lp, p); /* skip deleted count */
+    p = lpNext(lp, p); /* num-fields */
+    int64_t master_fields_count = lpGetInteger(p);
+    p = lpNext(lp, p); /* first master field */
+
+    /* Collect master field names so we can rebuild the master entry. */
+    unsigned char **master_fields = zmalloc(sizeof(unsigned char *) * master_fields_count);
+    int64_t *master_field_lens = zmalloc(sizeof(int64_t) * master_fields_count);
+    unsigned char *mf_ptr = p;
+    for (int64_t i = 0; i < master_fields_count; i++) {
+        unsigned char buf[LP_INTBUF_SIZE];
+        master_fields[i] = lpGet(mf_ptr, &master_field_lens[i], buf);
+        if (master_fields[i] == buf) {
+            /* Integer-encoded: make a persistent copy */
+            master_fields[i] = zmalloc(master_field_lens[i]);
+            memcpy(master_fields[i], buf, master_field_lens[i]);
+        } else {
+            /* Points into the listpack — safe as long as we don't modify lp.
+             * We'll duplicate just in case. */
+            unsigned char *copy = zmalloc(master_field_lens[i]);
+            memcpy(copy, master_fields[i], master_field_lens[i]);
+            master_fields[i] = copy;
+        }
+        mf_ptr = lpNext(lp, mf_ptr);
+    }
+    /* Skip zero terminator of master entry */
+    p = lpNext(lp, mf_ptr);
+
+    /* Count live entries first to know if the node is empty */
+    if (total_entries == 0) {
+        for (int64_t i = 0; i < master_fields_count; i++)
+            zfree(master_fields[i]);
+        zfree(master_fields);
+        zfree(master_field_lens);
+        *alloc_delta = -(ssize_t)lpBytes(lp);
+        return NULL;
+    }
+
+    /* Build the new listpack with master entry header */
+    unsigned char *newlp = lpNew(0);
+    newlp = lpAppendInteger(newlp, 0); /* entries count — updated below */
+    newlp = lpAppendInteger(newlp, 0); /* deleted count = 0 */
+    newlp = lpAppendInteger(newlp, master_fields_count);
+    for (int64_t i = 0; i < master_fields_count; i++) {
+        newlp = lpAppend(newlp, master_fields[i], master_field_lens[i]);
+    }
+    newlp = lpAppendInteger(newlp, 0); /* master entry zero terminator */
+
+    /* Walk the original entries and copy only live ones */
+    int64_t live_count = 0;
+    /* p currently points past the master zero-term, i.e. to first entry's flags */
+    while (p) {
+        int64_t flags = lpGetInteger(p);
+        p = lpNext(lp, p); /* ms delta */
+        int64_t ms_delta = lpGetInteger(p);
+        p = lpNext(lp, p); /* seq delta */
+        int64_t seq_delta = lpGetInteger(p);
+        p = lpNext(lp, p);
+
+        int64_t numfields;
+        int samefields = flags & STREAM_ITEM_FLAG_SAMEFIELDS;
+        if (samefields) {
+            numfields = master_fields_count;
+        } else {
+            numfields = lpGetInteger(p);
+            p = lpNext(lp, p);
+        }
+
+        if (flags & STREAM_ITEM_FLAG_DELETED) {
+            /* Skip this entry's field/value data and lp-count */
+            int64_t to_skip = samefields ? numfields : numfields * 2;
+            for (int64_t i = 0; i < to_skip; i++)
+                p = lpNext(lp, p);
+            p = lpNext(lp, p); /* lp-count */
+            continue;
+        }
+
+        /* Live entry — check if fields match master for SAMEFIELDS flag */
+        int new_samefields = samefields;
+        /* Collect field/value pairs */
+        unsigned char **field_ptrs = NULL;
+        int64_t *field_lens = NULL;
+        unsigned char **value_ptrs = zmalloc(sizeof(unsigned char *) * numfields);
+        int64_t *value_lens = zmalloc(sizeof(int64_t) * numfields);
+
+        if (!samefields) {
+            field_ptrs = zmalloc(sizeof(unsigned char *) * numfields);
+            field_lens = zmalloc(sizeof(int64_t) * numfields);
+
+            new_samefields = (numfields == master_fields_count);
+            for (int64_t i = 0; i < numfields; i++) {
+                unsigned char buf[LP_INTBUF_SIZE];
+                unsigned char *raw = lpGet(p, &field_lens[i], buf);
+                unsigned char *src = (raw == buf) ? buf : raw;
+                field_ptrs[i] = zmalloc(field_lens[i]);
+                memcpy(field_ptrs[i], src, field_lens[i]);
+                p = lpNext(lp, p);
+                raw = lpGet(p, &value_lens[i], buf);
+                src = (raw == buf) ? buf : raw;
+                value_ptrs[i] = zmalloc(value_lens[i]);
+                memcpy(value_ptrs[i], src, value_lens[i]);
+                p = lpNext(lp, p);
+                if (new_samefields &&
+                    (field_lens[i] != master_field_lens[i] ||
+                     memcmp(field_ptrs[i], master_fields[i], field_lens[i]) != 0))
+                {
+                    new_samefields = 0;
+                }
+            }
+        } else {
+            for (int64_t i = 0; i < numfields; i++) {
+                unsigned char buf[LP_INTBUF_SIZE];
+                unsigned char *raw = lpGet(p, &value_lens[i], buf);
+                unsigned char *src = (raw == buf) ? buf : raw;
+                value_ptrs[i] = zmalloc(value_lens[i]);
+                memcpy(value_ptrs[i], src, value_lens[i]);
+                p = lpNext(lp, p);
+            }
+        }
+        p = lpNext(lp, p); /* skip lp-count */
+
+        /* Append this entry to new listpack */
+        int new_flags = STREAM_ITEM_FLAG_NONE;
+        if (new_samefields) new_flags |= STREAM_ITEM_FLAG_SAMEFIELDS;
+        newlp = lpAppendInteger(newlp, new_flags);
+        newlp = lpAppendInteger(newlp, ms_delta);
+        newlp = lpAppendInteger(newlp, seq_delta);
+        if (!new_samefields)
+            newlp = lpAppendInteger(newlp, numfields);
+        for (int64_t i = 0; i < numfields; i++) {
+            if (!new_samefields)
+                newlp = lpAppend(newlp, field_ptrs[i], field_lens[i]);
+            newlp = lpAppend(newlp, value_ptrs[i], value_lens[i]);
+        }
+        /* lp-count */
+        int64_t lp_count = numfields + 3;
+        if (!new_samefields) lp_count += numfields + 1;
+        newlp = lpAppendInteger(newlp, lp_count);
+        live_count++;
+
+        /* Free temporary buffers for non-samefields entries */
+        if (!samefields) {
+            for (int64_t i = 0; i < numfields; i++) {
+                zfree(field_ptrs[i]);
+                zfree(value_ptrs[i]);
+            }
+            zfree(field_ptrs);
+            zfree(field_lens);
+        } else {
+            for (int64_t i = 0; i < numfields; i++)
+                zfree(value_ptrs[i]);
+        }
+        zfree(value_ptrs);
+        zfree(value_lens);
+    }
+
+    for (int64_t i = 0; i < master_fields_count; i++)
+        zfree(master_fields[i]);
+    zfree(master_fields);
+    zfree(master_field_lens);
+
+    if (live_count == 0) {
+        *alloc_delta = -(ssize_t)lpBytes(lp);
+        lpFree(newlp);
+        return NULL;
+    }
+
+    /* Patch the entries count in the new listpack header */
+    unsigned char *hp = lpFirst(newlp);
+    newlp = lpReplaceInteger(newlp, &hp, live_count);
+
+    *alloc_delta = (ssize_t)lpBytes(newlp) - (ssize_t)lpBytes(lp);
+    return newlp;
+}
+
 /* Get an edge streamID of a given listpack.
  * 'master_id' is an input param, used to build the 'edge_id' output param */
 int lpGetEdgeStreamID(unsigned char *lp, int first, streamID *master_id, streamID *edge_id)
@@ -1021,7 +1204,20 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         entries -= deleted_from_lp;
         marked_deleted += deleted_from_lp;
         if (entries + marked_deleted > 10 && marked_deleted > entries/2) {
-            /* TODO: perform a garbage collection. */
+            ssize_t alloc_delta;
+            streamID gc_master_id;
+            streamDecodeID(ri.key, &gc_master_id);
+            unsigned char *compacted = streamCompactListpack(lp, &gc_master_id, &alloc_delta);
+            s->alloc_size -= lpBytes(lp);
+            if (compacted == NULL) {
+                lpFree(lp);
+                raxRemove(s->rax, ri.key, ri.key_len, NULL);
+                raxSeek(&ri, ">=", ri.key, ri.key_len);
+                continue;
+            }
+            lpFree(lp);
+            lp = compacted;
+            s->alloc_size += lpBytes(lp);
         }
 
         /* Update the node with the new pointer. */
@@ -1600,16 +1796,61 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         raxRemove(s->rax,si->ri.key,si->ri.key_len,NULL);
     } else {
         /* In the base case we alter the counters of valid/deleted entries. */
-        lp = lpReplaceInteger(lp,&p,aux-1);
+        int64_t gc_valid = aux - 1;
+        lp = lpReplaceInteger(lp,&p,gc_valid);
         p = lpNext(lp,p); /* Seek deleted field. */
-        aux = lpGetInteger(p);
-        lp = lpReplaceInteger(lp,&p,aux+1);
+        int64_t gc_deleted = lpGetInteger(p) + 1;
+        lp = lpReplaceInteger(lp,&p,gc_deleted);
         s->alloc_size -= oldsize;
         s->alloc_size += lpBytes(lp);
 
         /* Update the listpack with the new pointer. */
         if (si->lp != lp)
             raxInsert(s->rax,si->ri.key,si->ri.key_len,lp,NULL);
+
+        /* Check if GC is warranted before we re-seek the iterator.
+         * Save the rax key so we can find the node again after re-seek. */
+        int need_gc = (gc_valid + gc_deleted > 10 && gc_deleted > gc_valid / 2);
+        unsigned char gc_rax_key[sizeof(streamID)];
+        if (need_gc) memcpy(gc_rax_key, si->ri.key, sizeof(streamID));
+
+        s->length--;
+
+        streamID start, end;
+        if (si->rev) {
+            streamDecodeID(si->start_key,&start);
+            end = *current;
+        } else {
+            start = *current;
+            streamDecodeID(si->end_key,&end);
+        }
+        streamIteratorStop(si);
+        streamIteratorStart(si,s,&start,&end,si->rev);
+
+        if (need_gc) {
+            void *gc_lp_ptr;
+            if (raxFind(s->rax, gc_rax_key, sizeof(streamID), &gc_lp_ptr)) {
+                unsigned char *gc_lp = gc_lp_ptr;
+                ssize_t alloc_delta;
+                streamID gc_master_id;
+                streamDecodeID(gc_rax_key, &gc_master_id);
+                unsigned char *compacted = streamCompactListpack(gc_lp, &gc_master_id, &alloc_delta);
+                if (compacted == NULL) {
+                    s->alloc_size -= lpBytes(gc_lp);
+                    lpFree(gc_lp);
+                    raxRemove(s->rax, gc_rax_key, sizeof(streamID), NULL);
+                } else {
+                    s->alloc_size -= lpBytes(gc_lp);
+                    lpFree(gc_lp);
+                    s->alloc_size += lpBytes(compacted);
+                    raxInsert(s->rax, gc_rax_key, sizeof(streamID), compacted, NULL);
+                }
+                /* Re-seek the stream iterator since we modified the rax tree. */
+                streamIteratorStop(si);
+                streamIteratorStart(si,s,&start,&end,si->rev);
+            }
+        }
+        return;
     }
 
     /* Update the number of entries counter. */
@@ -1626,9 +1867,6 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     }
     streamIteratorStop(si);
     streamIteratorStart(si,s,&start,&end,si->rev);
-
-    /* TODO: perform a garbage collection here if the ratio between
-     * deleted and valid goes over a certain limit. */
 }
 
 /* Stop the stream iterator. The only cleanup we need is to free the rax
