@@ -384,4 +384,10 @@ void setcpuaffinity(const char *cpulist);
 #endif
 #endif
 
+/* Check for RISC-V Vector Extension (RVV) optimizations.
+ * This typically requires compiling with -march=rv64gcv or similar. */
+#if defined(__riscv) && defined(__riscv_v_intrinsic)
+#define HAVE_RISCV_RVV
+#endif
+
 #endif
