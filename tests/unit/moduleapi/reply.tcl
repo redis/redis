@@ -169,13 +169,17 @@ start_server {tags {"modules external:skip"}} {
                 assert_equal [list $payload] [r rw.buffer invalid $payload]
                 assert_equal PONG [r ping]
             }
-            test "RESP$proto: reply buffer discard and detached destinations ($size bytes)" {
+            test "RESP$proto: reply buffer discard ($size bytes)" {
                 set errors [s total_error_replies]
-                foreach mode {discard detached abort} {
+                foreach mode {discard} {
                     assert_equal OK [r rw.buffer $mode $payload]
                     assert_equal PONG [r ping]
                 }
                 assert_equal $errors [s total_error_replies]
+            }
+            test "RESP$proto: rejected detached destination preserves content ($size bytes)" {
+                assert_equal [list $payload preserved OK] [r rw.buffer detached $payload]
+                assert_equal PONG [r ping]
             }
         }
 
@@ -186,19 +190,49 @@ start_server {tags {"modules external:skip"}} {
             assert_equal PONG [r ping]
         }
 
-        test "RESP$proto: discarded open reply buffer warns and is released" {
+        test "RESP$proto: discarding an incomplete buffer is valid" {
             set warnings [count_log_message 0 "API misuse detected in module replywith"]
+            set errors [s total_error_replies]
             assert_equal OK [r rw.buffer open unused]
-            wait_for_condition 50 10 {
-                [count_log_message 0 "API misuse detected in module replywith"] == $warnings + 1
-            } else { fail "Missing postponed collection warning" }
+            assert_equal $warnings [count_log_message 0 "API misuse detected in module replywith"]
+            assert_equal $errors [s total_error_replies]
         }
 
-        test "RESP$proto: reply buffer creation on a failed MULTI block" {
+        test "RESP$proto: foreground reply buffers work in MULTI and Lua" {
             r multi
-            r rw.buffer discard unused
-            assert_error {*Blocking module command called from transaction*} {r exec}
+            r rw.buffer reuse payload
+            assert_equal [list [list before [list payload [list key 42]] 1 after]] [r exec]
+            assert_equal OK [r eval {return redis.call('rw.buffer', 'discard', 'unused')} 0]
             assert_equal PONG [r ping]
+        }
+
+        test "RESP$proto: buffer outlives its source contexts and prevents unloading" {
+            assert_equal OK [r rw.buffer_saved save payload]
+            assert_error {*owned reply buffers*} {r module unload replywith}
+            assert_equal payload [r rw.buffer_saved take]
+            assert_equal PONG [r ping]
+        }
+
+        test "RESP$proto: buffer outlives a freed blocked-client handle" {
+            set rd [redis_deferring_client]
+            $rd hello $proto
+            $rd read
+            $rd client id
+            set id [$rd read]
+            set freed [lindex [r rw.buffer_status] 2]
+            set payload [string repeat k 65536]
+            $rd rw.buffer_start $payload keep
+            wait_for_condition 100 10 {
+                [lindex [r rw.buffer_status] 1] == 1
+            } else { fail "Worker did not publish its buffer" }
+            assert_equal 1 [r client kill id $id]
+            r rw.buffer_finish
+            wait_for_condition 100 10 {
+                [r rw.buffer_status] eq [list 0 0 [expr {$freed + 1}]]
+            } else { fail "Blocked client was not released" }
+            assert_error {*owned reply buffers*} {r module unload replywith}
+            assert_equal $payload [r rw.buffer_saved take]
+            $rd close
         }
 
         foreach completion {normal timeout disconnect} {
@@ -313,14 +347,9 @@ start_server {tags {"modules external:skip"}} {
                 } else { fail "Worker did not publish its buffer" }
                 set other [expr {5 - $proto}]
                 r hello $other
-                if {$proto == 3} {
-                    assert_error "ERR incompatible protocol" {r rw.buffer_take}
-                    r hello $proto
-                    assert_equal payload [r rw.buffer_take]
-                } else {
-                    assert_equal payload [r rw.buffer_take]
-                    r hello $proto
-                }
+                assert_error "ERR incompatible protocol" {r rw.buffer_take}
+                r hello $proto
+                assert_equal payload [r rw.buffer_take]
                 assert_equal OK [r rw.buffer_take]
                 r rw.buffer_finish
                 assert_equal done [$rd read]
@@ -335,7 +364,15 @@ start_server {tags {"modules external:skip"}} {
         r hello 2
     }
 
-    test "Unload the module - replywith" {
-        assert_equal {OK} [r module unload replywith]
+    test "Owned buffers created by OnUnload prevent unloading" {
+        assert_equal OK [r rw.buffer_onunload 1]
+        assert_error {*owned reply buffers*} {r module unload replywith}
+    }
+
+    test "OnUnload can free owned buffers and allow unloading" {
+        set errors [s total_error_replies]
+        assert_equal OK [r rw.buffer_onunload 2]
+        assert_equal OK [r module unload replywith]
+        assert_equal $errors [s total_error_replies]
     }
 }

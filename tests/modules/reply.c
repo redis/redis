@@ -189,21 +189,14 @@ int rw_verbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithVerbatimString(ctx, verbatim_str, verbatim_len);
 }
 
-/* Reply buffers are owned by the blocked handle, including buffers whose
- * contents are discarded. These commands deliberately exercise that lifetime. */
+/* Foreground construction does not need a blocked client. */
 static int rw_buffer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3) return RedisModule_WrongArity(ctx);
     const char *mode = RedisModule_StringPtrLen(argv[1], NULL);
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-    RedisModuleCtx *a = RedisModule_GetReplyBufferContext(bc);
-    RedisModuleCtx *b = RedisModule_GetReplyBufferContext(bc);
-    assert(RedisModule_GetReplyBufferContext(NULL) == NULL);
-    if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MULTI) {
-        RedisModule_ReplyWithString(a, argv[2]);
-        RedisModule_UnblockClient(bc, NULL);
-        return REDISMODULE_OK;
-    }
-
+    RedisModuleBlockedClient *bc = NULL;
+    RedisModuleCtx *a = RedisModule_CreateReplyBuffer(ctx);
+    RedisModuleCtx *b = RedisModule_CreateReplyBuffer(a);
+    assert(RedisModule_CreateReplyBuffer(NULL) == NULL);
     assert((RedisModule_GetContextFlags(a) & REDISMODULE_CTX_FLAGS_RESP3) ==
            (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_RESP3));
 
@@ -219,51 +212,58 @@ static int rw_buffer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_ReplySetSetLength(a, 1);
         RedisModule_ReplySetMapLength(a, 1);
         RedisModule_ReplySetArrayLength(a, 2);
-        assert(RedisModule_ReplyWithBufferedReply(b, a) == REDISMODULE_OK);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, b) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(b, a) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, b) == REDISMODULE_OK);
         /* Empty moves must not duplicate bytes or affect outer placeholders. */
-        assert(RedisModule_ReplyWithBufferedReply(ctx, a) == REDISMODULE_OK);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, b) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, a) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, b) == REDISMODULE_OK);
         RedisModule_ReplyWithBool(a, 1);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, a) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, a) == REDISMODULE_OK);
         RedisModule_ReplyWithSimpleString(b, "after");
-        assert(RedisModule_ReplyWithBufferedReply(ctx, b) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, b) == REDISMODULE_OK);
         RedisModule_ReplySetArrayLength(ctx, 4);
     } else if (!strcmp(mode, "invalid")) {
+        bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
         RedisModuleCtx *ts = RedisModule_GetThreadSafeContext(bc);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, ctx) == REDISMODULE_ERR);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, ts) == REDISMODULE_ERR);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, NULL) == REDISMODULE_ERR);
+        assert(RedisModule_ReplyWithBuffer(ctx, ctx) == REDISMODULE_ERR);
+        assert(RedisModule_ReplyWithBuffer(ctx, ts) == REDISMODULE_ERR);
+        assert(RedisModule_ReplyWithBuffer(ctx, NULL) == REDISMODULE_ERR);
         RedisModule_ReplyWithArray(a, REDISMODULE_POSTPONED_LEN);
         RedisModule_ReplyWithString(a, argv[2]);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, a) == REDISMODULE_ERR);
+        assert(RedisModule_ReplyWithBuffer(ctx, a) == REDISMODULE_ERR);
         RedisModule_ReplySetArrayLength(a, 1);
-        assert(RedisModule_ReplyWithBufferedReply(a, a) == REDISMODULE_ERR);
-        assert(RedisModule_ReplyWithBufferedReply(ts, a) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(a, a) == REDISMODULE_ERR);
+        assert(RedisModule_ReplyWithBuffer(ts, a) == REDISMODULE_OK);
         RedisModule_FreeThreadSafeContext(ts);
     } else if (!strcmp(mode, "errors")) {
         RedisModule_ReplyWithError(a, "BUFFERERR sent");
-        assert(RedisModule_ReplyWithBufferedReply(b, a) == REDISMODULE_OK);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, b) == REDISMODULE_OK);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, a) == REDISMODULE_OK);
-        assert(RedisModule_ReplyWithBufferedReply(ctx, b) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(b, a) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, b) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, a) == REDISMODULE_OK);
+        assert(RedisModule_ReplyWithBuffer(ctx, b) == REDISMODULE_OK);
     } else {
         if (!strcmp(mode, "open"))
             RedisModule_ReplyWithArray(a, REDISMODULE_POSTPONED_LEN);
         RedisModule_ReplyWithString(a, argv[2]);
-        RedisModule_ReplyWithError(a, "BUFFERDROP discarded");
+        if (!strcmp(mode, "detached"))
+            RedisModule_ReplyWithSimpleString(a, "preserved");
+        else
+            RedisModule_ReplyWithError(a, "BUFFERDROP discarded");
         if (!strcmp(mode, "detached")) {
             RedisModuleCtx *detached = RedisModule_GetDetachedThreadSafeContext(ctx);
-            assert(RedisModule_ReplyWithBufferedReply(detached, a) == REDISMODULE_OK);
-            assert(RedisModule_ReplyWithBufferedReply(ctx, a) == REDISMODULE_OK);
+            assert(RedisModule_CreateReplyBuffer(detached) == NULL);
+            assert(RedisModule_ReplyWithBuffer(detached, a) == REDISMODULE_ERR);
+            assert(RedisModule_ReplyWithBuffer(NULL, a) == REDISMODULE_ERR);
+            /* A rejected destination must not consume the buffered values. */
+            RedisModule_ReplyWithArray(ctx, 3);
+            assert(RedisModule_ReplyWithBuffer(ctx, a) == REDISMODULE_OK);
             RedisModule_FreeThreadSafeContext(detached);
         }
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
-    if (!strcmp(mode, "abort"))
-        RedisModule_AbortBlock(bc);
-    else
-        RedisModule_UnblockClient(bc, NULL);
+    RedisModule_FreeThreadSafeContext(a);
+    RedisModule_FreeThreadSafeContext(b);
+    if (bc) RedisModule_UnblockClient(bc, NULL);
     return REDISMODULE_OK;
 }
 
@@ -276,11 +276,14 @@ typedef struct BufferJob {
     int ready;
     int finish;
     int taken;
+    int keep;
 } BufferJob;
 
 /* Only one outstanding job is needed. The condition variable keeps the worker
  * alive after publication until the test explicitly permits cleanup. */
 static BufferJob *buffer_job;
+static RedisModuleCtx *saved_buffer;
+static long long unload_buffer_mode;
 static long long buffer_freed;
 static pthread_mutex_t buffer_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t buffer_cond = PTHREAD_COND_INITIALIZER;
@@ -289,7 +292,7 @@ static void *rw_buffer_worker(void *arg) {
     BufferJob *job = arg;
     RedisModuleCtx *ts = RedisModule_GetThreadSafeContext(job->bc);
     RedisModule_ThreadSafeContextLock(ts);
-    RedisModuleCtx *staging = RedisModule_GetReplyBufferContext(job->bc);
+    RedisModuleCtx *staging = RedisModule_CreateReplyBuffer(ts);
     RedisModule_ThreadSafeContextUnlock(ts);
 
     /* Serialize and move between independent accumulators without the GIL. */
@@ -297,7 +300,7 @@ static void *rw_buffer_worker(void *arg) {
         RedisModule_ReplyWithError(staging, "BUFFERERR worker");
     else
         RedisModule_ReplyWithStringBuffer(staging, job->payload, job->len);
-    assert(RedisModule_ReplyWithBufferedReply(job->buffer, staging) == REDISMODULE_OK);
+    assert(RedisModule_ReplyWithBuffer(job->buffer, staging) == REDISMODULE_OK);
 
     pthread_mutex_lock(&buffer_mutex);
     job->ready = 1;
@@ -307,9 +310,13 @@ static void *rw_buffer_worker(void *arg) {
     /* This can run after timeout or disconnect. Creation must not dereference
      * the original client, and unconsumed errors must remain unreported. */
     RedisModule_ThreadSafeContextLock(ts);
-    RedisModuleCtx *late = RedisModule_GetReplyBufferContext(job->bc);
+    RedisModuleCtx *late = RedisModule_CreateReplyBuffer(ts);
     RedisModule_ThreadSafeContextUnlock(ts);
     RedisModule_ReplyWithError(late, "BUFFERDROP late");
+    RedisModule_ThreadSafeContextLock(ts);
+    RedisModule_FreeThreadSafeContext(staging);
+    RedisModule_FreeThreadSafeContext(late);
+    RedisModule_ThreadSafeContextUnlock(ts);
     RedisModule_FreeThreadSafeContext(ts);
     RedisModule_UnblockClient(job->bc, job);
     return NULL;
@@ -323,7 +330,7 @@ static int rw_buffer_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int
     assert(job->ready);
     pthread_mutex_unlock(&buffer_mutex);
     RedisModule_ReplyWithArray(ctx, job->taken ? 1 : 2);
-    assert(RedisModule_ReplyWithBufferedReply(ctx, job->buffer) == REDISMODULE_OK);
+    assert(RedisModule_ReplyWithBuffer(ctx, job->buffer) == REDISMODULE_OK);
     RedisModule_ReplyWithSimpleString(ctx, "done");
     job->taken = 1;
     return REDISMODULE_OK;
@@ -332,8 +339,13 @@ static int rw_buffer_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int
 static void rw_buffer_free(RedisModuleCtx *ctx, void *data) {
     REDISMODULE_NOT_USED(ctx);
     BufferJob *job = data;
-    /* The borrowed buffer is still alive during free_privdata. */
-    RedisModule_ReplyWithError(job->buffer, "BUFFERDROP free");
+    if (job->keep) {
+        assert(!saved_buffer);
+        saved_buffer = job->buffer;
+    } else {
+        RedisModule_ReplyWithError(job->buffer, "BUFFERDROP free");
+        RedisModule_FreeThreadSafeContext(job->buffer);
+    }
     RedisModule_Free(job->payload);
     RedisModule_Free(job);
     buffer_job = NULL;
@@ -349,7 +361,8 @@ static int rw_buffer_start(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     memcpy(job->payload, payload, job->len);
     job->error = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "error");
     job->bc = RedisModule_BlockClient(ctx, rw_buffer_callback, rw_buffer_callback, rw_buffer_free, 0);
-    job->buffer = RedisModule_GetReplyBufferContext(job->bc);
+    job->buffer = RedisModule_CreateReplyBuffer(ctx);
+    job->keep = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "keep");
     buffer_job = job;
     pthread_t tid;
     assert(pthread_create(&tid, NULL, rw_buffer_worker, job) == 0);
@@ -370,7 +383,7 @@ static int rw_buffer_take(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
      * exercising AddReplyFromClient's early return with a nonempty source. */
     if (argc == 2 && !strcmp(RedisModule_StringPtrLen(argv[1], NULL), "close"))
         RedisModule_ReplyWithStringBuffer(ctx, job->payload, job->len);
-    if (RedisModule_ReplyWithBufferedReply(ctx, job->buffer) == REDISMODULE_ERR)
+    if (RedisModule_ReplyWithBuffer(ctx, job->buffer) == REDISMODULE_ERR)
         return RedisModule_ReplyWithError(ctx, "ERR incompatible protocol");
     if (job->taken) RedisModule_ReplyWithSimpleString(ctx, "OK");
     job->taken = 1;
@@ -400,10 +413,65 @@ static int rw_buffer_status(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     return REDISMODULE_OK;
 }
 
+/* Saved buffers exercise ownership beyond both command and blocked-client
+ * lifetimes, including the module-unload guard. */
+static int rw_buffer_saved(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 2) return RedisModule_WrongArity(ctx);
+    const char *mode = RedisModule_StringPtrLen(argv[1], NULL);
+    if (!strcmp(mode, "save")) {
+        assert(argc == 3 && !saved_buffer);
+        RedisModuleCtx *parent = RedisModule_CreateReplyBuffer(ctx);
+        saved_buffer = RedisModule_CreateReplyBuffer(parent);
+        RedisModule_FreeThreadSafeContext(parent);
+        RedisModule_ReplyWithString(saved_buffer, argv[2]);
+    } else if (!strcmp(mode, "take")) {
+        assert(saved_buffer);
+        assert(RedisModule_ReplyWithBuffer(ctx, saved_buffer) == REDISMODULE_OK);
+        RedisModule_FreeThreadSafeContext(saved_buffer);
+        saved_buffer = NULL;
+        return REDISMODULE_OK;
+    } else if (!strcmp(mode, "free")) {
+        assert(saved_buffer);
+        RedisModule_FreeThreadSafeContext(saved_buffer);
+        saved_buffer = NULL;
+    } else {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid saved buffer mode");
+    }
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+static int rw_buffer_onunload(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    if (RedisModule_StringToLongLong(argv[1], &unload_buffer_mode) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx, "ERR invalid unload mode");
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+    if (unload_buffer_mode == 1) {
+        assert(!saved_buffer);
+        saved_buffer = RedisModule_CreateReplyBuffer(ctx);
+        assert(saved_buffer);
+        RedisModule_ReplyWithError(saved_buffer, "BUFFERDROP unload");
+    } else if (unload_buffer_mode == 2) {
+        assert(saved_buffer);
+        RedisModule_FreeThreadSafeContext(saved_buffer);
+        saved_buffer = NULL;
+    }
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     if (RedisModule_Init(ctx, "replywith", 1, REDISMODULE_APIVER_1) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    assert(RedisModule_CreateReplyBuffer(ctx) == NULL);
+
+    if (RedisModule_CreateCommand(ctx,"rw.buffer_onunload",rw_buffer_onunload,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"rw.buffer_saved",rw_buffer_saved,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"rw.string",rw_string,"",0,0,0) != REDISMODULE_OK)

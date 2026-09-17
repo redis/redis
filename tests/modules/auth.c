@@ -139,6 +139,11 @@ void *AuthBlock_ThreadMain(void *arg) {
     }
     else if (!strcmp(user,"foo") && !strcmp(pwd,"block_abort")) {
         RedisModule_BlockedClientMeasureTimeEnd(bc);
+        RedisModuleCtx *ts = RedisModule_GetThreadSafeContext(bc);
+        RedisModule_ThreadSafeContextLock(ts);
+        RedisModule_FreeThreadSafeContext(targ[3]);
+        RedisModule_ThreadSafeContextUnlock(ts);
+        RedisModule_FreeThreadSafeContext(ts);
         RedisModule_AbortBlock(bc);
         goto cleanup;
     }
@@ -193,6 +198,7 @@ void AuthBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     if (RedisModule_BlockedClientDisconnected(ctx)) auth_disconnected_count++;
     void **targ = privdata;
     RedisModule_ReplyWithSimpleString(targ[1], "discarded auth free reply");
+    RedisModule_FreeThreadSafeContext(targ[1]);
     RedisModule_Free(privdata);
 }
 
@@ -222,7 +228,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
         pending_auth_client_id = RedisModule_GetClientId(ctx);
         pending_auth_reply = RedisModule_Alloc(sizeof(void*)*2);
         pending_auth_reply[0] = (void *)(uintptr_t)1;
-        RedisModuleCtx *buffer = RedisModule_GetReplyBufferContext(bc);
+        RedisModuleCtx *buffer = RedisModule_CreateReplyBuffer(ctx);
         pending_auth_reply[1] = buffer;
         char payload[32768];
         memset(payload, 'x', sizeof(payload));
@@ -242,7 +248,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     targ[0] = bc;
     targ[1] = RedisModule_CreateStringFromString(NULL, username);
     targ[2] = RedisModule_CreateStringFromString(NULL, password);
-    targ[3] = RedisModule_GetReplyBufferContext(bc);
+    targ[3] = RedisModule_CreateReplyBuffer(ctx);
 
     /* Create bg thread and pass the blockedclient, username and password to it. */
     if (pthread_create(&tid, NULL, AuthBlock_ThreadMain, targ) != 0) {
@@ -252,6 +258,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
          * the thread need to free them here. */
         RedisModule_FreeString(NULL, targ[1]);
         RedisModule_FreeString(NULL, targ[2]);
+        RedisModule_FreeThreadSafeContext(targ[3]);
         RedisModule_Free(targ);
     }
 

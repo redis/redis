@@ -173,7 +173,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
                                               context is destroyed */
 #define REDISMODULE_CTX_CHANNELS_POS_REQUEST (1<<8)
 #define REDISMODULE_CTX_COMMAND (1<<9) /* Context created to serve a command from call() or AOF (which calls cmd->proc directly) */
-#define REDISMODULE_CTX_REPLY_BUFFER (1<<10) /* Private reply accumulator owned by a blocked client. */
+#define REDISMODULE_CTX_REPLY_BUFFER (1<<10) /* Reply-only accumulator explicitly owned by the module. */
 
 
 /* This represents a Redis key opened with RM_OpenKey(). */
@@ -267,7 +267,6 @@ typedef struct RedisModuleBlockedClient {
                                        context so that no lock is required. */
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
-    list *reply_buffers;           /* Private reply contexts owned by this blocked client. */
     int dbid;           /* Database number selected by the original client. */
     int blocked_on_keys;    /* If blocked via RM_BlockClientOnKeys(). */
     int unblocked;          /* Already on the moduleUnblocked list. */
@@ -2366,6 +2365,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
 
     if (ctx->module != NULL) return;
     module = zmalloc(sizeof(*module));
+    module->reply_buffers = 0;
     module->name = sdsnew(name);
     module->ver = ver;
     module->apiver = apiver;
@@ -3574,7 +3574,7 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
 }
 
 /* Append the replies accumulated in a context created by
- * RedisModule_GetReplyBufferContext() to the reply target of `ctx`.
+ * RedisModule_CreateReplyBuffer() to the reply target of `ctx`.
  * This moves the content, leaving `buffer` empty and available for reuse.
  * Large replies are transferred by joining reply block lists, without copying
  * their payloads. The destination may have an open postponed collection.
@@ -3588,27 +3588,28 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
  * Returns REDISMODULE_ERR without modifying either accumulator if:
  * - `buffer` is not a reply-buffer context;
  * - `buffer` has an open REDISMODULE_POSTPONED_LEN collection;
+ * - the destination has no reply target;
  * - source and destination refer to the same accumulator; or
- * - the buffer uses RESP3 and the destination uses RESP2. The buffer's protocol
- *   is checked conservatively, without inspecting the serialized content.
+ * - source and destination use different RESP versions.
  *
  * On success returns REDISMODULE_OK and consumes the source even if the
- * destination drops replies (for example, a detached context or closing client).
+ * destination drops replies (for example, a closing client). The module still
+ * owns the empty source context and must free it explicitly.
  * Discarded errors are not added to the server's error statistics. */
-int RM_ReplyWithBufferedReply(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
-    if (!buffer || !(buffer->flags & REDISMODULE_CTX_REPLY_BUFFER) ||
+int RM_ReplyWithBuffer(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
+    if (!ctx || !buffer || !(buffer->flags & REDISMODULE_CTX_REPLY_BUFFER) ||
         buffer->postponed_arrays_count)
         return REDISMODULE_ERR;
 
     client *src = buffer->client;
     client *dst = moduleGetReplyClient(ctx);
-    if (src == dst || (dst && src->resp == 3 && dst->resp == 2))
+    if (!dst || src == dst || src->resp != dst->resp)
         return REDISMODULE_ERR;
 
-    if (dst) AddReplyFromClient(dst, src);
+    AddReplyFromClient(dst, src);
 
     /* AddReplyFromClient may return before consuming the source when the
-     * destination cannot accept replies. Also handle a detached destination.
+     * destination cannot accept replies.
      * Only reset reply state: this context and its client remain reusable. */
     listEmpty(src->reply);
     src->bufpos = 0;
@@ -8570,28 +8571,9 @@ void RM_RegisterAuthCallback(RedisModuleCtx *ctx, RedisModuleAuthCallback cb) {
     listAddNodeHead(moduleAuthCallbacks, auth_ctx);
 }
 
-/* Release private reply contexts only after the module's last callback. This
- * also covers authentication, whose callbacks run after the usual unblock
- * processing has already released the other temporary clients. */
-static void moduleFreeReplyBuffers(RedisModuleBlockedClient *bc) {
-    if (!bc->reply_buffers) return;
-    listIter li;
-    listNode *ln;
-    listRewind(bc->reply_buffers, &li);
-    while ((ln = listNext(&li))) {
-        RedisModuleCtx *ctx = listNodeValue(ln);
-        moduleFreeContext(ctx);
-        moduleReleaseTempClient(ctx->client);
-        zfree(ctx);
-    }
-    listRelease(bc->reply_buffers);
-    bc->reply_buffers = NULL;
-}
-
 /* Final release, after all callbacks and the ordinary temporary clients have
  * been handled. Keep every blocked-handle destruction path consistent. */
 static void moduleFreeBlockedClient(RedisModuleBlockedClient *bc) {
-    moduleFreeReplyBuffers(bc);
     bc->module->blocked_clients--;
     zfree(bc);
 }
@@ -9256,39 +9238,36 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     return ctx;
 }
 
-/* Create a private reply-buffer context owned by the blocked client `bc`.
- * Its accumulator is separate from the one used by
- * RedisModule_GetThreadSafeContext(bc). Multiple buffers may be created for
- * the same blocked client. The buffer uses the blocked client's RESP version,
- * also reflected by REDISMODULE_CTX_FLAGS_RESP3 in RedisModule_GetContextFlags().
+/* Create an empty, module-owned reply buffer using the reply protocol of `ctx`.
+ * The input can be a command or blocked-client callback context, a thread safe
+ * context bound to a blocked client, or another reply buffer. Returns NULL if
+ * the input has no module or reply target, or the module is still loading.
+ * No pending replies are copied.
  *
- * Must be called with the server lock held, for example in the command handler
- * after RedisModule_BlockClient(), or between RedisModule_ThreadSafeContextLock()
- * and RedisModule_ThreadSafeContextUnlock() on a regular thread safe context.
- * `bc` must be valid and RedisModule_UnblockClient() must not yet have been
- * called. Creation is allowed after a timeout or disconnection, while the
- * module still owns the responsibility to unblock the handle.
+ * The buffer can outlive the input context and any blocked client. The module
+ * must explicitly release it with RedisModule_FreeThreadSafeContext(). A live
+ * buffer prevents module unloading. Creation and freeing require the server
+ * lock, including when called from a worker using a regular thread safe context.
  *
- * All RedisModule_ReplyWith* and RedisModule_ReplySet*Length APIs work on this
- * context without the server lock. Use RedisModule_ReplyWithBufferedReply() to
- * move its accumulated replies to another context. The module must synchronize
- * access to each accumulator, including handoff to reply or timeout callbacks.
- * This is a reply-only context: do not use it for RedisModule_Call(), key access,
- * or other APIs requiring a regular thread safe context.
+ * RedisModule_ReplyWith* and RedisModule_ReplySet*Length APIs work on the buffer
+ * without the server lock. RedisModule_ReplyWithBuffer() moves its content to a
+ * destination and leaves the buffer empty for reuse. The module must exclude
+ * concurrent access during serialization, movement, handoff, and cleanup.
  *
- * Redis releases the context and any unmoved replies with `bc`, after the reply
- * (or timeout) callback and free-privdata callback. The module must not call
- * RedisModule_FreeThreadSafeContext() on it, or access it after unblocking
- * except from those callbacks. Returns NULL if `bc` is NULL. */
-RedisModuleCtx *RM_GetReplyBufferContext(RedisModuleBlockedClient *bc) {
-    if (!bc) return NULL;
-    RedisModuleCtx *ctx = zmalloc(sizeof(*ctx));
-    moduleCreateContext(ctx, bc->module, REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_REPLY_BUFFER);
-    ctx->client = moduleAllocTempClient();
-    ctx->client->resp = bc->reply_client->resp;
-    if (!bc->reply_buffers) bc->reply_buffers = listCreate();
-    listAddNodeTail(bc->reply_buffers, ctx);
-    return ctx;
+ * This is a reply-only context: do not use it for key access, RedisModule_Call(),
+ * or acquiring the server lock. */
+RedisModuleCtx *RM_CreateReplyBuffer(RedisModuleCtx *ctx) {
+    if (!ctx || !ctx->module || ctx->module->onload) return NULL;
+    client *source = moduleGetReplyClient(ctx);
+    if (!source) return NULL;
+
+    RedisModuleCtx *buffer = zmalloc(sizeof(*buffer));
+    moduleCreateContext(buffer, ctx->module,
+                        REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_REPLY_BUFFER|
+                        REDISMODULE_CTX_TEMP_CLIENT);
+    buffer->client->resp = source->resp;
+    buffer->module->reply_buffers++;
+    return buffer;
 }
 
 /* Return a detached thread safe context that is not associated with any
@@ -9305,9 +9284,20 @@ RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
     return new_ctx;
 }
 
-/* Release a thread safe context. */
+/* Release a thread safe context or an owned reply buffer.
+ * For reply buffers, the server lock must be held and the caller must exclude
+ * concurrent access. Unpublished content, including incomplete collections and
+ * deferred errors, is discarded. Ordinary thread safe contexts retain their
+ * existing cleanup and locking requirements. */
 void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
-    serverAssert(!(ctx->flags & REDISMODULE_CTX_REPLY_BUFFER));
+    if (ctx->flags & REDISMODULE_CTX_REPLY_BUFFER) {
+        serverAssert(ctx->module->reply_buffers > 0);
+        ctx->module->reply_buffers--;
+        /* Discarding an unfinished response is valid for an owned buffer. */
+        zfree(ctx->postponed_arrays);
+        ctx->postponed_arrays = NULL;
+        ctx->postponed_arrays_count = 0;
+    }
     moduleFreeContext(ctx);
     zfree(ctx);
 }
@@ -9325,7 +9315,7 @@ void moduleGILAfterLock(void) {
  * This is not needed for `RedisModule_Reply*` calls when there is
  * a blocked client connected to the thread safe context. */
 void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
-    UNUSED(ctx);
+    serverAssert(!ctx || !(ctx->flags & REDISMODULE_CTX_REPLY_BUFFER));
     moduleAcquireGIL();
     moduleGILAfterLock();
 }
@@ -9337,7 +9327,7 @@ void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
  * otherwise REDISMODULE_ERR is returned and errno is set
  * accordingly. */
 int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
-    UNUSED(ctx);
+    serverAssert(!ctx || !(ctx->flags & REDISMODULE_CTX_REPLY_BUFFER));
 
     int res = moduleTryAcquireGIL();
     if(res != 0) {
@@ -9362,7 +9352,7 @@ void moduleGILBeforeUnlock(void) {
 
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
-    UNUSED(ctx);
+    serverAssert(!ctx || !(ctx->flags & REDISMODULE_CTX_REPLY_BUFFER));
     moduleGILBeforeUnlock();
     moduleReleaseGIL();
 }
@@ -13946,6 +13936,13 @@ int moduleUnload(sds name, const char **errmsg, int forced_unload) {
         }
     }
 
+    /* OnUnload may free retained buffers, or create new ones. Check after it
+     * returns so no live accumulator can retain a dangling module pointer. */
+    if (module->reply_buffers) {
+        if (errmsg) *errmsg = "the module has owned reply buffers. Free them and try again";
+        return C_ERR;
+    }
+
     moduleUnregisterCleanup(module);
 
     /* Unload the dynamic library. */
@@ -15868,7 +15865,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
-    REGISTER_API(ReplyWithBufferedReply);
+    REGISTER_API(ReplyWithBuffer);
     REGISTER_API(ReplyWithDouble);
     REGISTER_API(ReplyWithBigNumber);
     REGISTER_API(ReplyWithLongDouble);
@@ -16034,7 +16031,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockedClientMeasureTimeStart);
     REGISTER_API(BlockedClientMeasureTimeEnd);
     REGISTER_API(GetThreadSafeContext);
-    REGISTER_API(GetReplyBufferContext);
+    REGISTER_API(CreateReplyBuffer);
     REGISTER_API(GetDetachedThreadSafeContext);
     REGISTER_API(FreeThreadSafeContext);
     REGISTER_API(ThreadSafeContextLock);
