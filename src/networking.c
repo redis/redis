@@ -4923,7 +4923,7 @@ NULL
 
         char *opt = c->argv[2]->ptr;
         if (!strcasecmp(opt,"yes")) {
-            if (c->flags & CLIENT_TRACKING_OPTIN) {
+            if (c->flags & CLIENT_TRACKING_OPTIN || c->flags & CLIENT_TRACKING_BCAST) {
                 c->flags |= CLIENT_TRACKING_CACHING;
             } else {
                 addReplyError(c,"CLIENT CACHING YES is only valid when tracking is enabled in OPTIN mode.");
