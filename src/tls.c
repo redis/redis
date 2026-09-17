@@ -1172,6 +1172,11 @@ static const char *connTLSGetLastError(connection *conn_) {
 
 static int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func, int barrier) {
     conn->write_handler = func;
+    /* If the write handler is cleared, drop any stale TLS_CONN_FLAG_WRITE_WANT_READ
+     * left by a prior SSL_write retry. Otherwise updateSSLEvent() below would keep
+     * AE_READABLE registered for a retry that no longer has an application callback
+     * to complete it, causing the event loop to wake up on that fd indefinitely. */
+    if (!func) ((tls_connection *) conn)->flags &= ~TLS_CONN_FLAG_WRITE_WANT_READ;
     if (barrier)
         conn->flags |= CONN_FLAG_WRITE_BARRIER;
     else
@@ -1182,6 +1187,10 @@ static int connTLSSetWriteHandler(connection *conn, ConnectionCallbackFunc func,
 
 static int connTLSSetReadHandler(connection *conn, ConnectionCallbackFunc func) {
     conn->read_handler = func;
+    /* Symmetric to connTLSSetWriteHandler: clear any stale
+     * TLS_CONN_FLAG_READ_WANT_WRITE so updateSSLEvent() does not leave AE_WRITABLE
+     * registered after the application has detached its read handler. */
+    if (!func) ((tls_connection *) conn)->flags &= ~TLS_CONN_FLAG_READ_WANT_WRITE;
     updateSSLEvent((tls_connection *) conn);
     return C_OK;
 }
@@ -1395,6 +1404,100 @@ static ConnectionType CT_TLS = {
 int RedisRegisterConnectionTypeTLS(void) {
     return connTypeRegister(&CT_TLS);
 }
+
+#ifdef REDIS_TEST
+#include "testhelp.h"
+
+static void tlsTestDummyHandler(connection *conn) { UNUSED(conn); }
+
+/* White-box unit test for issue #15080: clearing a read/write handler must
+ * also drop any stale TLS_CONN_FLAG_{READ_WANT_WRITE,WRITE_WANT_READ} so the
+ * event loop does not keep polling the fd after the application has detached.
+ *
+ * The test sets up a tls_connection with a handler installed and the matching
+ * WANT flag pre-populated, calls updateSSLEvent() to register AE events based
+ * on that state, then clears the handler via the public setter and verifies
+ * both the AE registration and the flag are cleared. A third scenario checks
+ * that setting a non-NULL handler preserves the flag (regression guard). */
+int tlsTest(int argc, char **argv, int flags) {
+    UNUSED(argc); UNUSED(argv); UNUSED(flags);
+
+    int fds[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+        test_cond("socketpair() succeeds", 0);
+        return 1;
+    }
+
+    aeEventLoop *el = aeCreateEventLoop(16);
+    if (!el) {
+        close(fds[0]); close(fds[1]);
+        test_cond("aeCreateEventLoop() succeeds", 0);
+        return 1;
+    }
+
+    /* Case 1: stale READ_WANT_WRITE after clearing read handler. */
+    tls_connection rc = {{0}};
+    rc.c.el = el;
+    rc.c.fd = fds[0];
+    rc.c.state = CONN_STATE_CONNECTED;
+    rc.c.read_handler = tlsTestDummyHandler;
+    rc.flags |= TLS_CONN_FLAG_READ_WANT_WRITE;
+    updateSSLEvent(&rc);
+    test_cond("READ_WANT_WRITE + read_handler registers AE_WRITABLE",
+              (aeGetFileEvents(el, fds[0]) & AE_WRITABLE) != 0);
+    connTLSSetReadHandler((connection *) &rc, NULL);
+    test_cond("clearing read handler drops stale AE_WRITABLE",
+              (aeGetFileEvents(el, fds[0]) & AE_WRITABLE) == 0);
+    test_cond("clearing read handler clears stale READ_WANT_WRITE",
+              (rc.flags & TLS_CONN_FLAG_READ_WANT_WRITE) == 0);
+    aeDeleteFileEvent(el, fds[0], AE_READABLE | AE_WRITABLE);
+
+    /* Case 2: stale WRITE_WANT_READ after clearing write handler. */
+    tls_connection wc = {{0}};
+    wc.c.el = el;
+    wc.c.fd = fds[1];
+    wc.c.state = CONN_STATE_CONNECTED;
+    wc.c.write_handler = tlsTestDummyHandler;
+    wc.flags |= TLS_CONN_FLAG_WRITE_WANT_READ;
+    updateSSLEvent(&wc);
+    test_cond("WRITE_WANT_READ + write_handler registers AE_READABLE",
+              (aeGetFileEvents(el, fds[1]) & AE_READABLE) != 0);
+    connTLSSetWriteHandler((connection *) &wc, NULL, 0);
+    test_cond("clearing write handler drops stale AE_READABLE",
+              (aeGetFileEvents(el, fds[1]) & AE_READABLE) == 0);
+    test_cond("clearing write handler clears stale WRITE_WANT_READ",
+              (wc.flags & TLS_CONN_FLAG_WRITE_WANT_READ) == 0);
+    aeDeleteFileEvent(el, fds[1], AE_READABLE | AE_WRITABLE);
+
+    /* Case 3 (regression): setting a non-NULL handler must NOT touch the
+     * corresponding WANT flag - it represents a genuine pending SSL retry. */
+    tls_connection rkeep = {{0}};
+    rkeep.c.el = el;
+    rkeep.c.fd = fds[0];
+    rkeep.c.state = CONN_STATE_CONNECTED;
+    rkeep.flags |= TLS_CONN_FLAG_READ_WANT_WRITE;
+    connTLSSetReadHandler((connection *) &rkeep, tlsTestDummyHandler);
+    test_cond("setting non-NULL read handler preserves READ_WANT_WRITE",
+              (rkeep.flags & TLS_CONN_FLAG_READ_WANT_WRITE) != 0);
+    aeDeleteFileEvent(el, fds[0], AE_READABLE | AE_WRITABLE);
+
+    tls_connection wkeep = {{0}};
+    wkeep.c.el = el;
+    wkeep.c.fd = fds[1];
+    wkeep.c.state = CONN_STATE_CONNECTED;
+    wkeep.flags |= TLS_CONN_FLAG_WRITE_WANT_READ;
+    connTLSSetWriteHandler((connection *) &wkeep, tlsTestDummyHandler, 0);
+    test_cond("setting non-NULL write handler preserves WRITE_WANT_READ",
+              (wkeep.flags & TLS_CONN_FLAG_WRITE_WANT_READ) != 0);
+    aeDeleteFileEvent(el, fds[1], AE_READABLE | AE_WRITABLE);
+
+    aeDeleteEventLoop(el);
+    close(fds[0]);
+    close(fds[1]);
+
+    return __failed_tests != 0;
+}
+#endif /* REDIS_TEST */
 
 #else   /* USE_OPENSSL */
 
