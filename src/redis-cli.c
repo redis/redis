@@ -2635,13 +2635,6 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                     config.current_resp3 = 1;
                 } else if (config.last_cmd_type == REDIS_REPLY_ARRAY) {
                     config.current_resp3 = 0;
-                    /* Undo the implicit RESP3 stickiness from a prior
-                     * redirect/reconnect promotion only. */
-                    if (config.resp3 == 2 &&
-                        config.output != OUTPUT_JSON &&
-                        config.output != OUTPUT_QUOTED_JSON) {
-                        config.resp3 = 0;
-                    }
                 }
             } else if ((is_subscribe || is_unsubscribe) && !config.pubsub_mode) {
                 /* We didn't enter pubsub mode. Restore push callback. */
@@ -3395,13 +3388,16 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
-            /* Carry the RESP3 upgrade across this reconnect */
-            if (config.current_resp3 && config.resp3 == 0) config.resp3 = 2;
+            /* Re-negotiate RESP3 on the new connection if the old one had it, just for this reconnect. */
+            int resend_resp3 = config.current_resp3 && config.resp3 == 0;
+            if (resend_resp3) config.resp3 = 2;
             if (cliConnect(CC_FORCE) != REDIS_OK) {
+                if (resend_resp3) config.resp3 = 0;
                 cliPrintContextError();
                 config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
+            if (resend_resp3) config.resp3 = 0;
             /* Reset dbnum after reconnecting so we can re-select the previous db in cliSelect(). */
             config.dbnum = 0;
             cliSelect();
