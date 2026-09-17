@@ -896,14 +896,24 @@ start_server {tags {"cli external:skip"}} {
         assert_no_match "*cmdstat_scan:*" [r info commandstats]
     }
 
-    test "keystats with no matching keys should not produce garbage stats" {
-        # A nonempty database can still produce an empty histogram when no keys match.
+    test "keystats reports when no keys match the pattern" {
         r set key value
+        r config resetstat
         set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats --pattern missing:*]]
         set result [exec {*}$cmd]
         assert_match "*Scanning the entire keyspace*" $result
-        assert_match "*No key size samples collected*" $result
-        assert_no_match "*StdDeviation:*" $result
+        assert_match "*No keys matched the specified pattern.*" $result
+        assert_no_match "*Keys size:*" $result
+        assert_match "*cmdstat_scan:*" [r info commandstats]
+        r del key
+    }
+
+    test "keystats reports when no keys match the pattern after a cursor" {
+        r set key value
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats --cursor 1 --pattern missing:*]]
+        set result [exec {*}$cmd]
+        assert_match "*No keys matched the specified pattern in the scanned portion of the keyspace.*" $result
+        assert_no_match "*Keys size:*" $result
         r del key
     }
 }

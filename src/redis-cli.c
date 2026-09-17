@@ -11245,17 +11245,27 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         freeReplyObject(reply);
     } while(force_cancel_loop == 0 && it != 0);
 
-    displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
-                    top_sizes_limit, 0);
+    if (config.pattern && sampled == 0) {
+        if (it != 0) {
+            cleanPrintfln("No keys matched the specified pattern before the scan was interrupted.");
+        } else if (cursor != 0) {
+            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
+        } else {
+            cleanPrintfln("No keys matched the specified pattern.");
+        }
+    } else {
+        displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
+                        top_sizes_limit, 0);
 
-    /* Additional data at the end of the SCAN loop.
-     * Using cleanPrintfln in case we want to print during the SCAN loop. */
-    cleanPrintfln("");
-    displayKeyStatsSizeDist(keysize_histogram);
-    cleanPrintfln("");
-    displayKeyStatsLengthDist(&key_length_dist);
-    cleanPrintfln("");
-    displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+        /* Additional data at the end of the SCAN loop.
+         * Using cleanPrintfln in case we want to print during the SCAN loop. */
+        cleanPrintfln("");
+        displayKeyStatsSizeDist(keysize_histogram);
+        cleanPrintfln("");
+        displayKeyStatsLengthDist(&key_length_dist);
+        cleanPrintfln("");
+        displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+    }
 
     if (it != 0) {
         printf("\n");
