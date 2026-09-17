@@ -117,9 +117,15 @@ int aofd_sleep(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     struct timespec ts = { delayusec / 1000000, (delayusec % 1000000) * 1000};
     RedisModuleBlockedClient *bc = RedisModule_GetBlockedClientHandle(ctx);
+    uint64_t sleep_start = RedisModule_MonotonicMicroseconds();
     if (bc) RedisModule_BlockedClientMeasureTimeStart(bc);
     nanosleep(&ts, NULL);
     if (bc) RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_Log(ctx, "notice",
+        "AOF_DURATION_DIAG sleep requested=%lld actual=%llu blocked=%d",
+        delayusec,
+        (unsigned long long)(RedisModule_MonotonicMicroseconds() - sleep_start),
+        bc != NULL);
 
     RedisModule_ReplyWithSimpleString(ctx,"OK");
     return REDISMODULE_OK;
@@ -259,12 +265,17 @@ void *aofd_bg_reply_worker(void *arg) {
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bg->bc);
     RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_BlockedClientMeasureTimeStart(bg->bc);
+    uint64_t sleep_start = RedisModule_MonotonicMicroseconds();
     struct timespec ts = {
         bg->delayusec / 1000000,
         (bg->delayusec % 1000000) * 1000
     };
     nanosleep(&ts, NULL);
     RedisModule_BlockedClientMeasureTimeEnd(bg->bc);
+    RedisModule_Log(ctx, "notice",
+        "AOF_DURATION_DIAG reply_sleep requested=%lld actual=%llu",
+        bg->delayusec,
+        (unsigned long long)(RedisModule_MonotonicMicroseconds() - sleep_start));
     RedisModule_ThreadSafeContextUnlock(ctx);
     RedisModule_FreeThreadSafeContext(ctx);
     /* Hand bg to the reply/free callbacks; do not free it here. */
