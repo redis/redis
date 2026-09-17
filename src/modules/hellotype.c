@@ -143,6 +143,9 @@ int HelloTypeRange_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
     struct HelloTypeNode *node = hto ? hto->head : NULL;
     RedisModule_ReplyWithArray(ctx,REDISMODULE_POSTPONED_LEN);
     long long arraylen = 0;
+    while(node && first--) {
+        node = node->next;
+    }
     while(node && count--) {
         RedisModule_ReplyWithLongLong(ctx,node->value);
         arraylen++;
