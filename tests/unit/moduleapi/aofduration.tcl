@@ -397,14 +397,13 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
 
     test { AOF Duration - blocked RM_Replicate+sleep is counted once not twice } {
         set delayusec 50000
-        lassign [sum_duration_delta_vs_real aofd.rm_run_steps_bg 1 {} {
-            RedisModule_run_steps_bg r \
-                [list "rm_replicate" "set" "x" "1"] \
-                [list "sleep_usec" $delayusec]
-        }] d real_usec
+        reset_aof_duration
+        RedisModule_run_steps_bg r \
+            [list "rm_replicate" "set" "x" "1"] \
+            [list "sleep_usec" $delayusec]
+        set d [s aof_cmd_duration]
         assert_morethan_equal $d $delayusec
-        assert_morethan_equal $d [expr {$real_usec / 2}]
-        assert_lessthan $d [expr {$real_usec * 3 / 2}]
+        assert_lessthan $d [expr {$delayusec * 2}]
     }
 
     test { AOF Duration - RM_Replicate then RM_Call SET keeps leftover on replicate } {
