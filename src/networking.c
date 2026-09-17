@@ -5098,10 +5098,13 @@ void helloCommand(client *c) {
 
     /* Let's switch to the specified RESP mode. */
     if (ver) c->resp = ver;
-    addReplyMapLen(c,6 + !server.sentinel_mode);
+    addReplyMapLen(c,7 + !server.sentinel_mode);
 
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"server");
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"redis");
+
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"run_id");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,server.runid);
 
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"version");
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,REDIS_VERSION);
