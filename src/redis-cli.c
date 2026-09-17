@@ -462,11 +462,36 @@ static void cliFreeCommandDocArgs(cliCommandArg *args, int numargs) {
         sdsfree(args[i].name);
         sdsfree(args[i].display_text);
         sdsfree(args[i].token);
+        sdsfree(args[i].since);
         if (args[i].subargs) {
             cliFreeCommandDocArgs(args[i].subargs, args[i].numsubargs);
             zfree(args[i].subargs);
         }
     }
+}
+
+/* Deep-copy a cliCommandArg array (used by legacy path to avoid mutating
+ * the static redisCommandTable). The caller owns the returned heap array. */
+static cliCommandArg *cliDupCommandDocArgs(const cliCommandArg *src, int numargs) {
+    cliCommandArg *dst = zmalloc(sizeof(cliCommandArg) * numargs);
+    for (int i = 0; i < numargs; i++) {
+        dst[i] = src[i];
+        dst[i].name = src[i].name ? sdsnew(src[i].name) : NULL;
+        dst[i].token = src[i].token ? sdsnew(src[i].token) : NULL;
+        dst[i].since = src[i].since ? sdsnew(src[i].since) : NULL;
+        dst[i].display_text = src[i].display_text ? sdsnew(src[i].display_text) : NULL;
+        if (src[i].subargs && src[i].numsubargs > 0) {
+            dst[i].subargs = cliDupCommandDocArgs(src[i].subargs, src[i].numsubargs);
+        } else {
+            dst[i].subargs = NULL;
+            dst[i].numsubargs = 0;
+        }
+        dst[i].matched = 0;
+        dst[i].matched_token = 0;
+        dst[i].matched_name = 0;
+        dst[i].matched_all = 0;
+    }
+    return dst;
 }
 
 static void cliFreeHelpEntries(void) {
@@ -849,6 +874,7 @@ static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds 
             i++;
             continue;
         }
+        cliFreeCommandDocArgs(&args[i], 1);
         for (j = i; j != *numargs - 1; j++) {
             args[j] = args[j + 1];
         }
@@ -871,8 +897,9 @@ static helpEntry *cliLegacyInitCommandHelpEntry(char *cmdname, char *subcommandn
     }
 
     if (command->args != NULL) {
-        help->docs.args = command->args;
+        help->docs.args = cliDupCommandDocArgs(command->args, command->numargs);
         help->docs.numargs = command->numargs;
+        help->docs_args_dynamic = 1;
         if (version)
             removeUnsupportedArgs(help->docs.args, &help->docs.numargs, version);
         help->docs.params = makeHint(NULL, 0, 0, help->docs);
