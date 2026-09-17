@@ -3486,9 +3486,8 @@ void handleLinkIOError(clusterLink *link) {
 void clusterWriteHandler(connection *conn) {
     clusterLink *link = connGetPrivateData(conn);
     ssize_t nwritten;
-    size_t totwritten = 0;
 
-    while (totwritten < NET_MAX_WRITES_PER_EVENT && listLength(link->send_msg_queue) > 0) {
+    while (listLength(link->send_msg_queue) > 0) {
         listNode *head = listFirst(link->send_msg_queue);
         clusterMsgSendBlock *msgblock = (clusterMsgSendBlock*)head->value;
         clusterMsg *msg = getMessageFromSendBlock(msgblock);
@@ -3516,8 +3515,6 @@ void clusterWriteHandler(connection *conn) {
         listDelNode(link->send_msg_queue, head);
         server.stat_cluster_links_memory -= sizeof(listNode);
         link->send_msg_queue_mem -= sizeof(listNode) + blocklen;
-
-        totwritten += nwritten;
     }
 
     if (listLength(link->send_msg_queue) == 0)
