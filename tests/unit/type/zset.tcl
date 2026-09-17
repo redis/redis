@@ -127,6 +127,14 @@ start_server {tags {"zset"}} {
             assert_equal {y x z} [r zrange ztmp 0 -1]
         }
 
+        test "ZSET element keeps the sign of -0 - $encoding" {
+            r del ztmp
+            r zadd ztmp -0 x
+            assert_encoding $encoding ztmp
+            assert_equal {-0} [r zscore ztmp x]
+            assert_equal {x -0} [r zrange ztmp 0 -1 withscores]
+        }
+
         test "ZSET element can't be set to NaN with ZADD - $encoding" {
             assert_error "*not*float*" {r zadd myzset nan abc}
         }
