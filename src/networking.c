@@ -3676,6 +3676,14 @@ int processPendingCommandAndInputBuffer(client *c) {
      * So whenever we change the code here we need to consider if we need this change on module
      * blocked client as well */
     if (c->flags & CLIENT_PENDING_COMMAND) {
+        /* A master command may have been parsed before another client entered
+         * a yielding script or module. Preserve it until that operation ends,
+         * instead of letting processCommand reject it with BUSY. */
+        if (c->flags & CLIENT_MASTER && isInsideYieldingLongCommand()) {
+            /* Keep the pending command across the handoff back to its IO
+             * thread, which can keep reading without parsing another command. */
+            return C_OK;
+        }
         c->flags &= ~CLIENT_PENDING_COMMAND;
         if (processCommandAndResetClient(c) == C_ERR) {
             return C_ERR;
@@ -3806,7 +3814,13 @@ int processInputBuffer(client *c) {
          * condition on the slave. We want just to accumulate the replication
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
-        if (c->flags & CLIENT_MASTER && isInsideYieldingLongCommand()) break;
+        if (c->flags & CLIENT_MASTER) {
+            if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+                if (isInsideYieldingLongCommandFromIOThread()) break;
+            } else if (isInsideYieldingLongCommand()) {
+                break;
+            }
+        }
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
