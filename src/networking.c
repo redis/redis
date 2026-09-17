@@ -5098,7 +5098,7 @@ void helloCommand(client *c) {
 
     /* Let's switch to the specified RESP mode. */
     if (ver) c->resp = ver;
-    addReplyMapLen(c,6 + !server.sentinel_mode);
+    addReplyMapLen(c,7 + !server.sentinel_mode);
 
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"server");
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"redis");
@@ -5112,6 +5112,9 @@ void helloCommand(client *c) {
 
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"id");
     addReplyLongLong(c,c->id);
+
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"run_id");
+    addReplyBulkCString(c,server.runid);
 
     ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"mode");
     if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
