@@ -451,10 +451,72 @@ typedef struct {
 
     /* Only used for help on commands */
     struct commandDocs docs;
+    int docs_args_dynamic;  /* 1 if docs.args was heap-allocated from COMMAND DOCS */
 } helpEntry;
 
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
+
+static void cliFreeCommandDocArgs(cliCommandArg *args, int numargs) {
+    for (int i = 0; i < numargs; i++) {
+        sdsfree(args[i].name);
+        sdsfree(args[i].display_text);
+        sdsfree(args[i].token);
+        sdsfree(args[i].since);
+        if (args[i].subargs) {
+            cliFreeCommandDocArgs(args[i].subargs, args[i].numsubargs);
+            zfree(args[i].subargs);
+        }
+    }
+}
+
+/* Deep-copy a cliCommandArg array (used by legacy path to avoid mutating
+ * the static redisCommandTable). The caller owns the returned heap array. */
+static cliCommandArg *cliDupCommandDocArgs(const cliCommandArg *src, int numargs) {
+    cliCommandArg *dst = zmalloc(sizeof(cliCommandArg) * numargs);
+    for (int i = 0; i < numargs; i++) {
+        dst[i] = src[i];
+        dst[i].name = src[i].name ? sdsnew(src[i].name) : NULL;
+        dst[i].token = src[i].token ? sdsnew(src[i].token) : NULL;
+        dst[i].since = src[i].since ? sdsnew(src[i].since) : NULL;
+        dst[i].display_text = src[i].display_text ? sdsnew(src[i].display_text) : NULL;
+        if (src[i].subargs && src[i].numsubargs > 0) {
+            dst[i].subargs = cliDupCommandDocArgs(src[i].subargs, src[i].numsubargs);
+        } else {
+            dst[i].subargs = NULL;
+            dst[i].numsubargs = 0;
+        }
+        dst[i].matched = 0;
+        dst[i].matched_token = 0;
+        dst[i].matched_name = 0;
+        dst[i].matched_all = 0;
+    }
+    return dst;
+}
+
+static void cliFreeHelpEntries(void) {
+    for (int i = 0; i < helpEntriesLen; i++) {
+        helpEntry *he = helpEntries + i;
+        for (int j = 0; j < he->argc; j++) sdsfree(he->argv[j]);
+        /* Group entries and some command entries alias full to argv[0]. */
+        if (he->full != he->argv[0]) sdsfree(he->full);
+        zfree(he->argv);
+        if (he->type == CLI_HELP_COMMAND) {
+            /* docs.name points to full; do not free it separately. */
+            sdsfree(he->docs.params);
+            sdsfree(he->docs.summary);
+            sdsfree(he->docs.since);
+            sdsfree(he->docs.group);
+            if (he->docs_args_dynamic) {
+                cliFreeCommandDocArgs(he->docs.args, he->docs.numargs);
+                zfree(he->docs.args);
+            }
+        }
+    }
+    zfree(helpEntries);
+    helpEntries = NULL;
+    helpEntriesLen = 0;
+}
 
 /* For backwards compatibility with pre-7.0 servers.
  * cliLegacyInitHelp() sets up the helpEntries array with the command and group
@@ -497,13 +559,14 @@ static void cliLegacyIntegrateHelp(void) {
         new->argc = 1;
         new->argv = zmalloc(sizeof(sds));
         new->argv[0] = sdsnew(cmdname);
-        new->full = new->argv[0];
         new->type = CLI_HELP_COMMAND;
         sdstoupper(new->argv[0]);
+        new->full = sdsdup(new->argv[0]);
 
-        new->docs.name = new->argv[0];
+        new->docs.name = new->full;
         new->docs.args = NULL;
         new->docs.numargs = 0;
+        new->docs_args_dynamic = 0;
         new->docs.params = sdsempty();
         int args = llabs(entry->element[1]->integer);
         args--; /* Remove the command name itself. */
@@ -514,9 +577,9 @@ static void cliLegacyIntegrateHelp(void) {
         while(args-- > 0) new->docs.params = sdscat(new->docs.params,"arg ");
         if (entry->element[1]->integer < 0)
             new->docs.params = sdscat(new->docs.params,"...options...");
-        new->docs.summary = "Help not available";
-        new->docs.since = "Not known";
-        new->docs.group = "generic";
+        new->docs.summary = sdsnew("Help not available");
+        new->docs.since = sdsnew("Not known");
+        new->docs.group = sdsnew("generic");
     }
     freeReplyObject(reply);
 }
@@ -629,7 +692,10 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
     help->docs.params = NULL;
     help->docs.args = NULL;
     help->docs.numargs = 0;
+    help->docs_args_dynamic = 0;
+    help->docs.summary = NULL;
     help->docs.since = NULL;
+    help->docs.group = NULL;
 }
 
 /* Initialize a command help entry for the command/subcommand described in 'specs'.
@@ -669,6 +735,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             assert(arguments->type == REDIS_REPLY_ARRAY);
             help->docs.args = zcalloc(arguments->elements * sizeof(cliCommandArg));
             help->docs.numargs = arguments->elements;
+            help->docs_args_dynamic = 1;
             cliMakeCommandDocArgs(arguments, help->docs.args);
             help->docs.params = makeHint(NULL, 0, 0, help->docs);
         } else if (!strcmp(key, "subcommands")) {
@@ -741,6 +808,7 @@ void cliInitGroupHelpEntries(dict *groups) {
         tmp.docs.params = NULL;
         tmp.docs.args = NULL;
         tmp.docs.numargs = 0;
+        tmp.docs_args_dynamic = 0;
         tmp.docs.summary = NULL;
         tmp.docs.since = NULL;
         tmp.docs.group = NULL;
@@ -806,6 +874,7 @@ static void removeUnsupportedArgs(struct cliCommandArg *args, int *numargs, sds 
             i++;
             continue;
         }
+        cliFreeCommandDocArgs(&args[i], 1);
         for (j = i; j != *numargs - 1; j++) {
             args[j] = args[j + 1];
         }
@@ -828,8 +897,9 @@ static helpEntry *cliLegacyInitCommandHelpEntry(char *cmdname, char *subcommandn
     }
 
     if (command->args != NULL) {
-        help->docs.args = command->args;
+        help->docs.args = cliDupCommandDocArgs(command->args, command->numargs);
         help->docs.numargs = command->numargs;
+        help->docs_args_dynamic = 1;
         if (version)
             removeUnsupportedArgs(help->docs.args, &help->docs.numargs, version);
         help->docs.params = makeHint(NULL, 0, 0, help->docs);
@@ -952,6 +1022,12 @@ static void cliInitHelp(void) {
     };
     redisReply *commandTable;
     dict *groups;
+
+    /* Free previously loaded entries (e.g. the empty/legacy table built
+     * before authentication) before building a new one. */
+    if (helpEntries != NULL) {
+        cliFreeHelpEntries();
+    }
 
     if (cliConnect(CC_QUIET) == REDIS_ERR) {
         /* Can not connect to the server, but we still want to provide
@@ -2599,6 +2675,13 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"auth") && (argc == 2 || argc == 3)) {
                 cliSelect();
+                /* AUTH may unlock command metadata: the initial help load runs before
+                 * authentication and fails with NOAUTH, leaving helpEntries empty.
+                 * Reload so tab-completion and inline hints become available.
+                 * Skip inside MULTI: COMMAND DOCS would be queued into the transaction. */
+                if (config.last_cmd_type != REDIS_REPLY_ERROR && !config.in_multi) {
+                    cliInitHelp();
+                }
             } else if (!strcasecmp(command,"multi") && argc == 1 &&
                 config.last_cmd_type != REDIS_REPLY_ERROR) 
             {
