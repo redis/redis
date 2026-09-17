@@ -228,7 +228,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
         pending_auth_client_id = RedisModule_GetClientId(ctx);
         pending_auth_reply = RedisModule_Alloc(sizeof(void*)*2);
         pending_auth_reply[0] = (void *)(uintptr_t)1;
-        RedisModuleCtx *buffer = RedisModule_CreateReplyBuffer(ctx);
+        RedisModuleCtx *buffer = RedisModule_CreateReplyBufferContext(ctx);
         pending_auth_reply[1] = buffer;
         char payload[32768];
         memset(payload, 'x', sizeof(payload));
@@ -248,7 +248,7 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     targ[0] = bc;
     targ[1] = RedisModule_CreateStringFromString(NULL, username);
     targ[2] = RedisModule_CreateStringFromString(NULL, password);
-    targ[3] = RedisModule_CreateReplyBuffer(ctx);
+    targ[3] = RedisModule_CreateReplyBufferContext(ctx);
 
     /* Create bg thread and pass the blockedclient, username and password to it. */
     if (pthread_create(&tid, NULL, AuthBlock_ThreadMain, targ) != 0) {

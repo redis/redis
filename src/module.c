@@ -3574,7 +3574,7 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
 }
 
 /* Append the replies accumulated in a context created by
- * RedisModule_CreateReplyBuffer() to the reply target of `ctx`.
+ * RedisModule_CreateReplyBufferContext() to the reply target of `ctx`.
  * This moves the content, leaving `buffer` empty and available for reuse.
  * Large replies are transferred by joining reply block lists, without copying
  * their payloads. The destination may have an open postponed collection.
@@ -3596,7 +3596,7 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
  * destination drops replies (for example, a closing client). The module still
  * owns the empty source context and must free it explicitly.
  * Discarded errors are not added to the server's error statistics. */
-int RM_ReplyWithBuffer(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
+int RM_ReplyWithBufferedReply(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
     if (!ctx || !buffer || !(buffer->flags & REDISMODULE_CTX_REPLY_BUFFER) ||
         buffer->postponed_arrays_count)
         return REDISMODULE_ERR;
@@ -9250,13 +9250,13 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
  * lock, including when called from a worker using a regular thread safe context.
  *
  * RedisModule_ReplyWith* and RedisModule_ReplySet*Length APIs work on the buffer
- * without the server lock. RedisModule_ReplyWithBuffer() moves its content to a
+ * without the server lock. RedisModule_ReplyWithBufferedReply() moves its content to a
  * destination and leaves the buffer empty for reuse. The module must exclude
  * concurrent access during serialization, movement, handoff, and cleanup.
  *
  * This is a reply-only context: do not use it for key access, RedisModule_Call(),
  * or acquiring the server lock. */
-RedisModuleCtx *RM_CreateReplyBuffer(RedisModuleCtx *ctx) {
+RedisModuleCtx *RM_CreateReplyBufferContext(RedisModuleCtx *ctx) {
     if (!ctx || !ctx->module || ctx->module->onload) return NULL;
     client *source = moduleGetReplyClient(ctx);
     if (!source) return NULL;
@@ -15865,7 +15865,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
-    REGISTER_API(ReplyWithBuffer);
+    REGISTER_API(ReplyWithBufferedReply);
     REGISTER_API(ReplyWithDouble);
     REGISTER_API(ReplyWithBigNumber);
     REGISTER_API(ReplyWithLongDouble);
@@ -16031,7 +16031,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockedClientMeasureTimeStart);
     REGISTER_API(BlockedClientMeasureTimeEnd);
     REGISTER_API(GetThreadSafeContext);
-    REGISTER_API(CreateReplyBuffer);
+    REGISTER_API(CreateReplyBufferContext);
     REGISTER_API(GetDetachedThreadSafeContext);
     REGISTER_API(FreeThreadSafeContext);
     REGISTER_API(ThreadSafeContextLock);
