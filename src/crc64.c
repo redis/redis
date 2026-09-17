@@ -29,7 +29,9 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE. */
 
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "crc64.h"
 #include "crcspeed.h"
 #include "redisassert.h"
@@ -137,6 +139,43 @@ uint64_t _crc64(uint_fast64_t crc, const void *in_data, const uint64_t len) {
 
 /******************** END GENERATED PYCRC FUNCTIONS ********************/
 
+/* RISC-V accelerated crc64 (Zbc carry-less multiply, when available). */
+extern uint64_t crc64_riscv(uint64_t, const unsigned char *, uint64_t);
+extern const int crc64_riscv_compiled;
+
+/* This probe must stay in a translation unit compiled for the baseline ISA.
+ * Otherwise the compiler may emit the instructions that are being probed. */
+static int crc64_riscv_available(void) {
+#if defined(__riscv_xlen) && (__riscv_xlen == 64)
+    static int cached = -1;
+    if (!crc64_riscv_compiled) {
+        cached = 0;
+        return cached;
+    }
+    if (cached >= 0) return cached;
+
+    FILE *f = fopen("/proc/cpuinfo", "r");
+    if (!f) {
+        cached = 0;
+        return cached;
+    }
+
+    char line[1024];
+    int has_zbc = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "isa", 3) == 0 && strstr(line, "zbc") != NULL) {
+            has_zbc = 1;
+            break;
+        }
+    }
+    fclose(f);
+    cached = has_zbc;
+    return cached;
+#else
+    return 0;
+#endif
+}
+
 /* Initializes the 16KB lookup tables. */
 void crc64_init(void) {
     crcspeed64native_init(_crc64, crc64_table);
@@ -144,8 +183,11 @@ void crc64_init(void) {
 
 /* Compute crc64 */
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
+    if (crc64_riscv_available())
+        return crc64_riscv(crc, s, l);
     return crcspeed64native(crc64_table, crc, (void *) s, l);
 }
+
 
 /* Test main */
 #ifdef REDIS_TEST
