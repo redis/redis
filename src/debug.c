@@ -2471,6 +2471,10 @@ void killThreads(void) {
 void doFastMemoryTest(void) {
 #if defined(HAVE_PROC_MAPS)
     if (server.memcheck_enabled) {
+        /* Skip the memory test for child processes to avoid killing threads
+         * that don't exist and causing a recursive crash. */
+        if (server.pid != getpid()) return;
+
         /* Test memory */
         serverLogRaw(LL_WARNING|LL_RAW, "\n------ FAST MEMORY TEST ------\n");
         killThreads();
