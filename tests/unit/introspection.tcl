@@ -589,6 +589,13 @@ start_server {tags {"introspection"}} {
         r client info
     } {*lib-name=redis.py lib-ver=1.2.3*}
 
+
+    test {RESET clears the internal client flag} {
+        r debug mark-internal-client
+        assert_match {*flags=I*} [r client info]
+        r reset
+        assert_no_match {*flags=I*} [r client info]
+    } {} {needs:reset needs:debug}
     test {RESET does NOT clean library name} {
         r reset
         r client info
