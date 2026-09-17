@@ -397,27 +397,29 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
 
     test { AOF Duration - blocked RM_Replicate+sleep is counted once not twice } {
         set delayusec 50000
-        reset_aof_duration
-        RedisModule_run_steps_bg r \
-            [list "rm_replicate" "set" "x" "1"] \
-            [list "sleep_usec" $delayusec]
-        set d [s aof_cmd_duration]
+        lassign [sum_duration_delta_vs_real aofd.rm_run_steps_bg 1 {} {
+            RedisModule_run_steps_bg r \
+                [list "rm_replicate" "set" "x" "1"] \
+                [list "sleep_usec" $delayusec]
+        }] d real_usec
         assert_morethan_equal $d $delayusec
-        assert_lessthan $d [expr {$delayusec * 2}]
+        assert_morethan_equal $d [expr {$real_usec / 2}]
+        assert_lessthan $d [expr {$real_usec * 3 / 2}]
     }
 
     test { AOF Duration - RM_Replicate then RM_Call SET keeps leftover on replicate } {
         # Outer RM_Replicate is UNKNOWN. Inner RM_Call SET must not stamp its
         # time onto that replicate (that would count SET twice and drop sleep).
         set delayusec 50000
-        reset_aof_duration
-        RedisModule_run_steps r \
-            [list "rm_replicate" "set" "x" "1"] \
-            [list "rm_call_flags" "!" "set" "y" "1"] \
-            [list "sleep_usec" $delayusec]
-        set d [s aof_cmd_duration]
+        lassign [sum_duration_delta_vs_real aofd.rm_run_steps 1 {} {
+            RedisModule_run_steps r \
+                [list "rm_replicate" "set" "x" "1"] \
+                [list "rm_call_flags" "!" "set" "y" "1"] \
+                [list "sleep_usec" $delayusec]
+        }] d real_usec
         assert_morethan_equal $d $delayusec
-        assert_lessthan $d [expr {$delayusec * 2}]
+        assert_morethan_equal $d [expr {$real_usec / 2}]
+        assert_lessthan $d [expr {$real_usec * 3 / 2}]
     }
 
     test { AOF Duration - RM_Call !A does not write HEXPIRE/HGETDEL to AOF } {
@@ -439,11 +441,12 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
 
     test { AOF Duration - blocked reply callback RM_Replicate counts sleep once } {
         set delayusec 50000
-        reset_aof_duration
-        r aofd.rm_bg_sleep_reply replicate $delayusec
-        set d [s aof_cmd_duration]
+        lassign [sum_duration_delta_vs_real aofd.rm_bg_sleep_reply 1 {} {
+            r aofd.rm_bg_sleep_reply replicate $delayusec
+        }] d real_usec
         assert_morethan_equal $d $delayusec
-        assert_lessthan $d [expr {$delayusec * 2}]
+        assert_morethan_equal $d [expr {$real_usec / 2}]
+        assert_lessthan $d [expr {$real_usec * 3 / 2}]
     }
 
     test { AOF Duration - blocked reply callback RM_Call does not count sleep } {
