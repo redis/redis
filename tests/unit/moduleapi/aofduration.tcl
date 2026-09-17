@@ -50,17 +50,6 @@ proc sum_duration_delta_vs_real {cmdname iterations setup cmd} {
     list $delta_sum $real_usec
 }
 
-proc print_aof_duration_diag {label cmdname wall_start duration} {
-    set real_usec 0
-    foreach line [split [r info commandstats] "\r\n"] {
-        if {[string match "cmdstat_$cmdname:*" $line]} {
-            regexp {usec=(\d+)} $line -> real_usec
-        }
-    }
-    set wall_usec [expr {[clock microseconds] - $wall_start}]
-    puts "AOF_DURATION_DIAG test=$label command=$cmdname wall_usec=$wall_usec aof_duration=$duration commandstats_usec=$real_usec"
-}
-
 start_server [list tags {"modules external:skip"} overrides [list loadmodule "$testmodule"]] {
 
     test { AOF Duration - duration of module command counted by aof_cmd_duration } {
@@ -409,12 +398,10 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
     test { AOF Duration - blocked RM_Replicate+sleep is counted once not twice } {
         set delayusec 50000
         reset_aof_duration
-        set wall_start [clock microseconds]
         RedisModule_run_steps_bg r \
             [list "rm_replicate" "set" "x" "1"] \
             [list "sleep_usec" $delayusec]
         set d [s aof_cmd_duration]
-        print_aof_duration_diag "blocked-replicate-sleep" aofd.rm_run_steps_bg $wall_start $d
         assert_morethan_equal $d $delayusec
         assert_lessthan $d [expr {$delayusec * 2}]
     }
@@ -424,13 +411,11 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
         # time onto that replicate (that would count SET twice and drop sleep).
         set delayusec 50000
         reset_aof_duration
-        set wall_start [clock microseconds]
         RedisModule_run_steps r \
             [list "rm_replicate" "set" "x" "1"] \
             [list "rm_call_flags" "!" "set" "y" "1"] \
             [list "sleep_usec" $delayusec]
         set d [s aof_cmd_duration]
-        print_aof_duration_diag "replicate-then-call" aofd.rm_run_steps $wall_start $d
         assert_morethan_equal $d $delayusec
         assert_lessthan $d [expr {$delayusec * 2}]
     }
@@ -455,10 +440,8 @@ start_server [list tags {"modules external:skip"} overrides [list loadmodule "$t
     test { AOF Duration - blocked reply callback RM_Replicate counts sleep once } {
         set delayusec 50000
         reset_aof_duration
-        set wall_start [clock microseconds]
         r aofd.rm_bg_sleep_reply replicate $delayusec
         set d [s aof_cmd_duration]
-        print_aof_duration_diag "blocked-reply-replicate" aofd.rm_bg_sleep_reply $wall_start $d
         assert_morethan_equal $d $delayusec
         assert_lessthan $d [expr {$delayusec * 2}]
     }
