@@ -144,9 +144,26 @@ ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
 endif
 
+# Redis forks (BGSAVE, AOF rewrite) from a multi-threaded process and allocates
+# in the child. That is only safe because jemalloc registers pthread_atfork
+# handlers. jemalloc's configure enables them after a link test of
+# pthread_atfork(); if that test silently fails on some toolchain, the allocator
+# is built without any fork protection and fork children can deadlock on a mutex
+# held by another thread at fork() time (see #15666). Fail the build instead.
+# FreeBSD (JEMALLOC_MUTEX_INIT_CB) and macOS (JEMALLOC_ZONE) protect fork through
+# other mechanisms and are exempt.
+JEMALLOC_DEFS=include/jemalloc/internal/jemalloc_internal_defs.h
+
 jemalloc: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
 	cd jemalloc && ./configure --disable-cxx --with-version=5.3.0-0-g0 --with-lg-quantum=3 --disable-cache-oblivious --with-jemalloc-prefix=je_ CFLAGS="$(JEMALLOC_CFLAGS)" LDFLAGS="$(JEMALLOC_LDFLAGS)" $(JEMALLOC_CONFIGURE_OPTS)
+	@cd jemalloc && \
+	if ! grep -Eq '^#define (JEMALLOC_MUTEX_INIT_CB|JEMALLOC_ZONE)' $(JEMALLOC_DEFS) && \
+	   ! grep -q '^#define JEMALLOC_HAVE_PTHREAD_ATFORK' $(JEMALLOC_DEFS); then \
+		echo "ERROR: jemalloc was configured without pthread_atfork() support; fork children would not be fork-safe." >&2; \
+		echo "       See the pthread_atfork(3) test in deps/jemalloc/config.log." >&2; \
+		exit 1; \
+	fi
 	cd jemalloc && $(MAKE) lib/libjemalloc.a
 
 .PHONY: jemalloc
