@@ -4,6 +4,7 @@
  * as explained at http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+#include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
@@ -684,6 +685,16 @@ static int64_t get_value_from_idx_up_to_count(const struct hdr_histogram* h, int
 }
 
 
+/* EQUIVALENCE CONTRACT (keep both functions in sync): hdr_value_at_percentile()
+ * and its batch form hdr_value_at_percentiles() (below) MUST return identical
+ * values for the same inputs. The shared invariants are:
+ *   - count-at-percentile rounding: (int64_t)((p/100)*total_count + 0.5), then
+ *     clamped to >= 1;
+ *   - cumulative-count crossing uses >= against a forward scan of counts[]
+ *     starting at index 0 (so the zero bucket, counts[0], is included);
+ *   - percentile 0.0 returns lowest_equivalent_value(), every other percentile
+ *     returns highest_equivalent_value().
+ * Editing one of the two functions requires updating the other. */
 int64_t hdr_value_at_percentile(const struct hdr_histogram* h, double percentile)
 {
     double requested_percentile = percentile < 100.0 ? percentile : 100.0;
@@ -697,6 +708,11 @@ int64_t hdr_value_at_percentile(const struct hdr_histogram* h, double percentile
     return highest_equivalent_value(h, value_from_idx);
 }
 
+/* Batch form of hdr_value_at_percentile(): resolves several percentiles in a
+ * single forward scan instead of one scan per percentile. MUST stay numerically
+ * equivalent to hdr_value_at_percentile() -- see the equivalence contract on
+ * that function above.
+ * Precondition: percentiles[] must be supplied in ascending order. */
 int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percentiles, int64_t *values, size_t length)
 {
     if (NULL == percentiles || NULL == values)
@@ -704,10 +720,17 @@ int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percen
         return EINVAL;
     }
 
-    struct hdr_iter iter;
+#ifndef NDEBUG
+    for (size_t i = 1; i < length; i++)
+    {
+        assert(percentiles[i] >= percentiles[i - 1]);
+    }
+#endif
+
     const int64_t total_count = h->total_count;
-    // to avoid allocations we use the values array for intermediate computation
-    // i.e. to store the expected cumulative count at each percentile
+    /* To avoid allocations we reuse the values array for intermediate
+     * computation, i.e. to store the expected cumulative count at each
+     * percentile. */
     for (size_t i = 0; i < length; i++)
     {
         const double requested_percentile = percentiles[i] < 100.0 ? percentiles[i] : 100.0;
@@ -716,17 +739,34 @@ int hdr_value_at_percentiles(const struct hdr_histogram *h, const double *percen
         values[i] = count_at_percentile > 1 ? count_at_percentile : 1;
     }
 
-    hdr_iter_init(&iter, h);
-    int64_t total = 0;
+    /* Single cumulative forward scan of counts[], like
+     * get_value_from_idx_up_to_count(). Scan from index 0: value 0 lives in
+     * counts[0] yet is excluded from h->min_value by update_min_max(), so
+     * starting at the min_value bucket would drop the zero bucket and skew
+     * every percentile. */
+    int64_t count_to_idx = 0;
     size_t at_pos = 0;
-    while (hdr_iter_next(&iter) && at_pos < length)
+    for (int32_t idx = 0; idx < h->counts_len && at_pos < length; idx++)
     {
-        total += iter.count;
-        while (at_pos < length && total >= values[at_pos])
+        count_to_idx += h->counts[idx];
+        if (count_to_idx < values[at_pos]) continue;
+        const int64_t v = hdr_value_at_index(h, idx);
+        while (at_pos < length && count_to_idx >= values[at_pos])
         {
-            values[at_pos] = highest_equivalent_value(h, iter.value);
+            /* The 0th percentile reports the lowest equivalent value; every
+             * other percentile reports the highest (matches the singular API). */
+            values[at_pos] = percentiles[at_pos] == 0.0 ?
+                lowest_equivalent_value(h, v) : highest_equivalent_value(h, v);
             at_pos++;
         }
+    }
+    /* Fill any percentiles not reached (only possible for an empty histogram),
+     * matching what hdr_value_at_percentile() returns for value 0 in that case. */
+    while (at_pos < length)
+    {
+        values[at_pos] = percentiles[at_pos] == 0.0 ?
+            lowest_equivalent_value(h, 0) : highest_equivalent_value(h, 0);
+        at_pos++;
     }
     return 0;
 }
