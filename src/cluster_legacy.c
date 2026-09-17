@@ -3873,8 +3873,8 @@ void clusterSendPing(clusterLink *link, int type) {
 
         /* In the gossip section don't include:
          * 1) Nodes in HANDSHAKE state.
-         * 3) Nodes with the NOADDR flag set.
-         * 4) Disconnected nodes if they don't have configured slots.
+         * 2) Nodes with the NOADDR flag set.
+         * 3) Disconnected nodes if they don't have configured slots.
          */
         if (this->flags & (CLUSTER_NODE_HANDSHAKE|CLUSTER_NODE_NOADDR) ||
             (this->link == NULL && this->numslots == 0))
