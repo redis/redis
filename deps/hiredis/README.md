@@ -157,7 +157,7 @@ int redisEnableKeepAliveWithInterval(redisContext *c, int interval);
 Enables TCP keepalive by setting the following socket options (with some variations depending on OS):
 
 * `SO_KEEPALIVE`;
-* `TCP_KEEPALIVE` or `TCP_KEEPIDLE`, value configurable using the `interval` parameter, default 15 seconds;
+* `TCP_KEEPALIVE` or `TCP_KEEPIDLE`, value configurable using the `interval` parameter, default 300 seconds;
 * `TCP_KEEPINTVL` set to 1/3 of `interval`;
 * `TCP_KEEPCNT` set to 3.
 
