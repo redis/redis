@@ -1567,7 +1567,10 @@ void asmSyncWithSource(connection *conn) {
 
     if (task->state == ASM_SEND_HANDSHAKE) {
         sds node_id = sdsnewlen(clusterNodeGetName(getMyClusterNode()), CLUSTER_NAMELEN);
-        err = sendCommand(conn, "CLUSTER", "SYNCSLOTS", "CONF", "NODE-ID", node_id, NULL);
+        sds compatibility = moduleReplicationCompatibility();
+        err = sendCommand(conn, "CLUSTER", "SYNCSLOTS", "CONF", "NODE-ID", node_id,
+                          sdslen(compatibility) ? "MODULE-COMPATIBILITY" : NULL, compatibility, NULL);
+        sdsfree(compatibility);
         sdsfree(node_id);
         if (err) goto write_error;
         task->state = ASM_HANDSHAKE_REPLY;
@@ -1921,6 +1924,8 @@ void clusterSyncSlotsCommand(client *c) {
     }
 
     if (!strcasecmp(c->argv[2]->ptr, "sync") && c->argc >= 6) {
+        /* Validate before creating an export task or transferring any data. */
+        if (moduleRequireReplicationCompatibility(c) != C_OK) return;
         /* CLUSTER SYNCSLOTS SYNC <ID> <start-slot> <end-slot> [<start-slot> <end-slot>] */
         if (c->argc % 2 == 1) {
             addReplyErrorArity(c);
@@ -2181,7 +2186,9 @@ void clusterSyncSlotsCommand(client *c) {
                 return;
             }
             /* Handle each option here */
-            if (!strcasecmp(c->argv[j]->ptr, "node-id")) {
+            if (!strcasecmp(c->argv[j]->ptr, "module-compatibility")) {
+                if (moduleCheckReplicationCompatibility(c, c->argv[j+1]->ptr) != C_OK) return;
+            } else if (!strcasecmp(c->argv[j]->ptr, "node-id")) {
                 /* node-id <node-id> */
                 sds node_id = c->argv[j + 1]->ptr;
                 int node_id_len = (int) sdslen(node_id);

@@ -45,6 +45,7 @@ TEST_MODULES = \
     commandfilter.so \
     basics.so \
     testrdb.so \
+    replicationcompat.so \
     fork.so \
     infotest.so \
     propagate.so \
