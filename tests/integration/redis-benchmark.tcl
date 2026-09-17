@@ -143,6 +143,25 @@ tags {"benchmark network external:skip logreqres:skip"} {
             }
         }
 
+        test {benchmark: --cluster against non-cluster server frees firstNode} {
+            # CLUSTER NODES on a non-cluster-enabled server replies with an error,
+            # taking fetchClusterConfiguration() through its early cleanup path.
+            # Previously firstNode was allocated before the CLUSTER NODES call but
+            # never freed on that path, which leaked under ASAN. The exit-code
+            # assertion documents the expected failure contract; the regex scan
+            # of stderr catches LSan leak reports on sanitizer builds (the leak
+            # itself is silently absent on non-sanitizer builds).
+            set cmd [redisbenchmark $master_host $master_port "--cluster -c 1 -n 1 -t set"]
+            set output ""
+            set rc [catch { exec {*}$cmd 2>@1 } output]
+            assert_equal 1 $rc
+            assert_match {*Failed to fetch cluster configuration*} $output
+            assert_match {*cluster support disabled*} $output
+            if {[regexp -nocase {sanitizer.*(leak|error)|detected memory leak} $output]} {
+                fail "redis-benchmark leaked memory on --cluster error path: $output"
+            }
+        }
+
         # tls specific tests
         if {$::tls} {
             test {benchmark: specific tls-ciphers} {
