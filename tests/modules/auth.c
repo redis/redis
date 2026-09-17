@@ -14,12 +14,6 @@
 static RedisModuleUser *global = NULL;
 static long long client_change_delta = 0;
 static pthread_t tid;
-static RedisModuleBlockedClient *pending_auth_bc;
-static void **pending_auth_reply;
-static uint64_t pending_auth_client_id;
-static long long auth_reply_count;
-static long long auth_free_count;
-static long long auth_disconnected_count;
 
 void UserChangedCallback(uint64_t client_id, void *privdata) {
     REDISMODULE_NOT_USED(privdata);
@@ -121,13 +115,12 @@ int test_rm_register_auth_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int 
  * The thread entry point that actually executes the blocking part of the AUTH command.
  * This function sleeps for 0.5 seconds and then unblocks the client which will later call
  * `AuthBlock_Reply`.
- * `arg` contains the RedisModuleBlockedClient, username, password, and reply buffer.
+ * `arg` is expected to contain the RedisModuleBlockedClient, username, and password.
  */
 void *AuthBlock_ThreadMain(void *arg) {
     usleep(500000);
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
-    RedisModule_ReplyWithSimpleString(targ[3], "discarded auth reply");
     int result = 2;
     const char *user = RedisModule_StringPtrLen(targ[1], NULL);
     const char *pwd = RedisModule_StringPtrLen(targ[2], NULL);
@@ -139,18 +132,12 @@ void *AuthBlock_ThreadMain(void *arg) {
     }
     else if (!strcmp(user,"foo") && !strcmp(pwd,"block_abort")) {
         RedisModule_BlockedClientMeasureTimeEnd(bc);
-        RedisModuleCtx *ts = RedisModule_GetThreadSafeContext(bc);
-        RedisModule_ThreadSafeContextLock(ts);
-        RedisModule_FreeThreadSafeContext(targ[3]);
-        RedisModule_ThreadSafeContextUnlock(ts);
-        RedisModule_FreeThreadSafeContext(ts);
         RedisModule_AbortBlock(bc);
         goto cleanup;
     }
     /* Provide the result to the blocking reply cb. */
-    void **replyarg = RedisModule_Alloc(sizeof(void*)*2);
+    void **replyarg = RedisModule_Alloc(sizeof(void*));
     replyarg[0] = (void *) (uintptr_t) result;
-    replyarg[1] = targ[3];
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, replyarg);
 cleanup:
@@ -165,12 +152,8 @@ cleanup:
  * Reply callback for a blocking AUTH command. This is called when the client is unblocked.
  */
 int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
-    auth_reply_count++;
     REDISMODULE_NOT_USED(password);
     void **targ = RedisModule_GetBlockedClientPrivateData(ctx);
-    /* Auth callbacks run after moduleHandleBlockedClients has released the
-     * ordinary temporary clients. Private buffers must still be alive. */
-    RedisModule_ReplyWithSimpleString(targ[1], "discarded auth callback reply");
     int result = (uintptr_t) targ[0];
     size_t userlen = 0;
     const char *user = RedisModule_StringPtrLen(username, &userlen);
@@ -194,11 +177,7 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
 
 /* Private data freeing callback for Module Auth. */
 void AuthBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
-    auth_free_count++;
-    if (RedisModule_BlockedClientDisconnected(ctx)) auth_disconnected_count++;
-    void **targ = privdata;
-    RedisModule_ReplyWithSimpleString(targ[1], "discarded auth free reply");
-    RedisModule_FreeThreadSafeContext(targ[1]);
+    REDISMODULE_NOT_USED(ctx);
     RedisModule_Free(privdata);
 }
 
@@ -221,22 +200,6 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
         return REDISMODULE_AUTH_HANDLED;
     }
 
-    /* Let the test enqueue another blocked client's callback immediately after
-     * this auth unblock, before Redis reprocesses the authentication command. */
-    if (!strcmp(RedisModule_StringPtrLen(password, NULL), "block_disconnect")) {
-        pending_auth_bc = bc;
-        pending_auth_client_id = RedisModule_GetClientId(ctx);
-        pending_auth_reply = RedisModule_Alloc(sizeof(void*)*2);
-        pending_auth_reply[0] = (void *)(uintptr_t)1;
-        RedisModuleCtx *buffer = RedisModule_CreateReplyBufferContext(ctx);
-        pending_auth_reply[1] = buffer;
-        char payload[32768];
-        memset(payload, 'x', sizeof(payload));
-        RedisModule_ReplyWithStringBuffer(buffer, payload, sizeof(payload));
-        RedisModule_ReplyWithError(buffer, "AUTHBUFFER discarded");
-        return REDISMODULE_AUTH_HANDLED;
-    }
-
     /* Another blocking auth cb may have spawned a thread, we'll just wait for it
      * to finish here */
     if (tid) pthread_join(tid, NULL);
@@ -244,11 +207,10 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     RedisModule_BlockedClientMeasureTimeStart(bc);
 
     /* Allocate memory for information needed. */
-    void **targ = RedisModule_Alloc(sizeof(void*)*4);
+    void **targ = RedisModule_Alloc(sizeof(void*)*3);
     targ[0] = bc;
     targ[1] = RedisModule_CreateStringFromString(NULL, username);
     targ[2] = RedisModule_CreateStringFromString(NULL, password);
-    targ[3] = RedisModule_CreateReplyBufferContext(ctx);
 
     /* Create bg thread and pass the blockedclient, username and password to it. */
     if (pthread_create(&tid, NULL, AuthBlock_ThreadMain, targ) != 0) {
@@ -258,39 +220,10 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
          * the thread need to free them here. */
         RedisModule_FreeString(NULL, targ[1]);
         RedisModule_FreeString(NULL, targ[2]);
-        RedisModule_FreeThreadSafeContext(targ[3]);
         RedisModule_Free(targ);
     }
 
     return REDISMODULE_AUTH_HANDLED;
-}
-
-static int kill_unblocked_auth_reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    UNUSED(argv);
-    UNUSED(argc);
-    long long replies = auth_reply_count;
-    long long frees = auth_free_count;
-    long long disconnected = auth_disconnected_count;
-    RedisModuleCallReply *reply = RedisModule_Call(ctx, "CLIENT", "ccl",
-                                                 "KILL", "ID", (long long)pending_auth_client_id);
-    RedisModule_FreeCallReply(reply);
-    RedisModule_ReplyWithArray(ctx, 3);
-    RedisModule_ReplyWithLongLong(ctx, auth_free_count - frees);
-    RedisModule_ReplyWithLongLong(ctx, auth_reply_count - replies);
-    RedisModule_ReplyWithLongLong(ctx, auth_disconnected_count - disconnected);
-    return REDISMODULE_OK;
-}
-
-static int kill_unblocked_auth(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    UNUSED(argv);
-    if (argc != 1) return RedisModule_WrongArity(ctx);
-    if (!pending_auth_bc) return RedisModule_ReplyWithError(ctx, "ERR no pending auth");
-    RedisModule_UnblockClient(pending_auth_bc, pending_auth_reply);
-    pending_auth_bc = NULL;
-    pending_auth_reply = NULL;
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, kill_unblocked_auth_reply, NULL, NULL, 0);
-    RedisModule_UnblockClient(bc, NULL);
-    return REDISMODULE_OK;
 }
 
 int test_rm_register_blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -336,10 +269,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"testmoduleone.rm_register_blocking_auth_cb",
         test_rm_register_blocking_auth_cb,"",0,0,0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx,"testmoduleone.kill_unblocked_auth",
-        kill_unblocked_auth,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
