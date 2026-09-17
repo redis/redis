@@ -4025,6 +4025,7 @@ void xnackCommand(client *c) {
     int ids_start = 0;
     int numids = 0;
     int force = 0;
+    int aof_restore = 0;
     long long retrycount = -1;
     for (int i = 4; i < c->argc; i++) {
         int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
@@ -4043,6 +4044,12 @@ void xnackCommand(client *c) {
             i = ids_start + numids - 1;
         } else if (!strcasecmp(opt,"FORCE")) {
             force = 1;
+        } else if (!strcasecmp(opt,"AOFRESTORE") &&
+                   server.loading && c->id == CLIENT_ID_AOF)
+        {
+            /* AOF rewrites use this internal option to restore PEL entries
+             * whose stream payload was already deleted. */
+            aof_restore = 1;
         } else if (!strcasecmp(opt,"RETRYCOUNT") && moreargs) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&retrycount,NULL) != C_OK)
@@ -4060,6 +4067,10 @@ void xnackCommand(client *c) {
 
     if (ids_start == 0) {
         addReplyError(c,"syntax error, expected IDS keyword");
+        return;
+    }
+    if (aof_restore && !force) {
+        addReplyError(c,"AOFRESTORE requires FORCE");
         return;
     }
 
@@ -4095,8 +4106,10 @@ void xnackCommand(client *c) {
             pelListInsertNacked(group, nack);
         } else if (force) {
             /* FORCE: create new unowned PEL entry only if the stream
-             * entry exists, otherwise skip silently (same as XCLAIM). */
-            if (!streamEntryExists(s, &ids[j]))
+             * entry exists, otherwise skip silently (same as XCLAIM).
+             * AOFRESTORE bypasses this check only while loading an AOF so
+             * rewritten ghost PEL entries can be reconstructed. */
+            if (!aof_restore && !streamEntryExists(s, &ids[j]))
                 continue;
             streamNACK *nack = streamCreateNACK(s, NULL, &ids[j]);
             
@@ -4520,6 +4533,7 @@ void xclaimCommand(client *c) {
     mstime_t deliverytime = -1;  /* -1 means IDLE/TIME options not given. */
     int force = 0;
     int justid = 0;
+    int aof_restore = 0;
 
     if (o) {
         if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
@@ -4567,6 +4581,12 @@ void xclaimCommand(client *c) {
             force = 1;
         } else if (!strcasecmp(opt,"JUSTID")) {
             justid = 1;
+        } else if (!strcasecmp(opt,"AOFRESTORE") &&
+                   server.loading && c->id == CLIENT_ID_AOF)
+        {
+            /* AOF rewrites use this internal option to restore PEL entries
+             * whose stream payload was already deleted. */
+            aof_restore = 1;
         } else if (!strcasecmp(opt,"IDLE") && moreargs) {
             j++;
             if (getLongLongFromObjectOrReply(c,c->argv[j],&deliverytime,
@@ -4590,6 +4610,11 @@ void xclaimCommand(client *c) {
             addReplyErrorFormat(c,"Unrecognized XCLAIM option '%s'",opt);
             goto cleanup;
         }
+    }
+
+    if (aof_restore && (!force || !justid)) {
+        addReplyError(c,"AOFRESTORE requires FORCE and JUSTID");
+        goto cleanup;
     }
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
@@ -4635,7 +4660,7 @@ void xclaimCommand(client *c) {
         streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(s,&id)) {
+        if (!aof_restore && !streamEntryExists(s,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
             if (nack != NULL) {
                 /* Propagate this change (we are going to delete the NACK). */
@@ -4662,7 +4687,8 @@ void xclaimCommand(client *c) {
          * exists in the Stream. In such case, we'll create a new
          * entry in the PEL from scratch, so that XCLAIM can also
          * be used to create entries in the PEL. Useful for AOF
-         * and replication of consumer groups. */
+         * and replication of consumer groups. AOFRESTORE is accepted only
+         * while loading an AOF and permits this for deleted entries too. */
         if (force && nack == NULL) {
             /* Create the NACK. */
             nack = streamCreateNACK(s, NULL, &id);
