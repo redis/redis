@@ -1321,7 +1321,11 @@ void bitopCommand(client *c) {
 
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
-        res = (unsigned char*) sdsnewlen(NULL,maxlen);
+        /* The destination is fully overwritten below before it is exposed, so
+         * there is no need to pay for zero-filling it here. Every op/path
+         * either writes res[j] for all j in [0,maxlen) or, on the paths that
+         * accumulate into res, zeroes the range it accumulates into first. */
+        res = (unsigned char*) sdsnewlen(SDS_NOINIT,maxlen);
         unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
         int useAVX = 0;
@@ -1369,9 +1373,14 @@ void bitopCommand(client *c) {
              * DIFF, DIFF1 and ANDOR all compute the disjunction of all the
              * source keys but the first one. We first store that disjunction
              * in `lres` and later compute the final operation using the first
-             * source key. */
+             * source key. Since `res` is allocated uninitialized, that
+             * disjunction has to start from an explicit zero here -- this is
+             * the only path that accumulates into `res` rather than writing
+             * it. */
             if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR)
                 memcpy(lres,src[0],minlen);
+            else
+                memset(lres,0,minlen);
 
             /* Different branches per different operations for speed (sorry). */
             if (op == BITOP_AND) {
