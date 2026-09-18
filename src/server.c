@@ -4607,6 +4607,7 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     pcmd->read_error = 0;
     pcmd->flags &= ~PENDING_CMD_KEYS_RESULT_VALID;
     pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
+    pcmd->key_hashes_valid = 0;
     getKeysFreeResult(&pcmd->keys_result);
     pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
 
