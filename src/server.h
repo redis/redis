@@ -2186,8 +2186,6 @@ struct redisServer {
     int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
-    pendingCommandPool cmd_pool; /* Shared pool for reusing pendingCommand,
-                                  * only when IO threads disabled */
     int prefetch_batch_max_size;/* Maximum number of keys to prefetch in a single batch */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
@@ -3336,6 +3334,7 @@ void addPendingCommand(pendingCommandList *queue, pendingCommand *cmd);
 pendingCommand *popPendingCommandFromHead(pendingCommandList *queue);
 pendingCommand *popPendingCommandFromTail(pendingCommandList *queue);
 void shrinkPendingCommandPool(void);
+void pendingCommandPoolCron(void);
 
 /* Utils */
 long long ustime(void);
