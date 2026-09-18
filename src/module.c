@@ -8589,12 +8589,6 @@ void RM_RegisterAuthCallback(RedisModuleCtx *ctx, RedisModuleAuthCallback cb) {
     listAddNodeHead(moduleAuthCallbacks, auth_ctx);
 }
 
-/* Release the handle after its callbacks and temporary clients are cleaned up. */
-static void moduleFreeBlockedClient(RedisModuleBlockedClient *bc) {
-    bc->module->blocked_clients--;
-    zfree(bc);
-}
-
 /* Helper function to invoke the free private data callback of a Module blocked client. */
 void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
     if (bc->privdata && bc->free_privdata) {
@@ -8676,7 +8670,8 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, r
     moduleInvokeFreePrivDataCallback(c, bc);
     c->module_blocked_client = NULL;
     c->lastcmd->microseconds += bc->background_duration;
-    moduleFreeBlockedClient(bc);
+    bc->module->blocked_clients--;
+    zfree(bc);
     return result;
 }
 
@@ -9091,7 +9086,8 @@ void moduleHandleBlockedClients(void) {
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
         if (!(c && clientHasModuleAuthInProgress(c))) {
-            moduleFreeBlockedClient(bc);
+            bc->module->blocked_clients--;
+            zfree(bc);
         }
 
         /* Lock again before to iterate the loop. */
