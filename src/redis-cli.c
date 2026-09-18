@@ -9682,22 +9682,6 @@ static void pipeMode(void) {
 static redisReply *sendScan(unsigned long long *it) {
     redisReply *reply;
 
-    /* The key size commands used by --bigkeys and --keystats normally update
-     * the LRU/LFU metadata of the keys they inspect. Try to enable no-touch
-     * before the first SCAN so all key inspection performed by the size
-     * analysis modes leaves eviction metadata unchanged. Ignore error replies
-     * for compatibility with servers that don't support CLIENT NO-TOUCH. */
-    static int no_touch_attempted = 0;
-    if (!no_touch_attempted && (config.bigkeys || config.memkeys || config.keystats)) {
-        reply = redisCommand(context, "CLIENT NO-TOUCH ON");
-        if (reply == NULL) {
-            fprintf(stderr, "\nI/O error\n");
-            exit(1);
-        }
-        freeReplyObject(reply);
-        no_touch_attempted = 1;
-    }
-
     if (config.pattern)
         reply = redisCommand(context, "SCAN %llu MATCH %b COUNT %d",
             *it, config.pattern, sdslen(config.pattern), config.count);
@@ -9938,6 +9922,17 @@ static void sendReadOnly(void) {
     freeReplyObject(read_reply);
 }
 
+/* Try to avoid updating LRU/LFU metadata while inspecting keys. Ignore error
+ * replies for compatibility with servers that don't support CLIENT NO-TOUCH. */
+static void sendNoTouch(void) {
+    redisReply *reply = redisCommand(context, "CLIENT NO-TOUCH ON");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    }
+    freeReplyObject(reply);
+}
+
 static int displayKeyStatsProgressbar(unsigned long long sampled,
                                       unsigned long long total_keys);
 
@@ -9970,6 +9965,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {
@@ -11187,6 +11183,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
 
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {
