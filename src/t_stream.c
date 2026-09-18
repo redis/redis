@@ -1001,9 +1001,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
-            if (node_eligible_for_remove)
-                continue; /* Later nodes may still need trim. */
-            break; /* Trim does not apply to later nodes. */
+            continue; /* Node gone; keep scanning later nodes. */
         }
 
         /* Now we update the entries/deleted counters. */
