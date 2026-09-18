@@ -11268,9 +11268,9 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     }
 
     if (it != 0) {
-        printf("\n");
-        printf("Scan interrupted:\n");
-        printf("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.\n", it);
+        cleanPrintfln("");
+        cleanPrintfln("Scan interrupted:");
+        cleanPrintfln("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.", it);
     }
 
     if (memkeys_types) zfree(memkeys_types);
