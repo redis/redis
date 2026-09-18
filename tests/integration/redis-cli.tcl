@@ -902,11 +902,11 @@ start_server {tags {"cli external:skip"}} {
         r del key
     }
 
-    test "key size analysis does not alter key LFU metadata" {
+    test "key analysis modes do not alter key LFU metadata" {
         r config set maxmemory-policy allkeys-lfu
         r config set lfu-log-factor 0
 
-        foreach mode {--bigkeys --memkeys --keystats} {
+        foreach mode {--bigkeys --memkeys --keystats --hotkeys} {
             r set key value
             set freq_before [r object freq key]
 
