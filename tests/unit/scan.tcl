@@ -425,6 +425,53 @@ proc test_scan {type} {
         assert {$first_score != 0}
     }
 
+    foreach enc {listpack skiplist} {
+        test "{$type} ZSCAN scores match ZSCORE with encoding $enc" {
+            r del mykey
+            # 9.8813129168249309e-323 is the denormal from the #2175 test above;
+            # -1.2345678901234567e23 is one of d2string()'s longest outputs (25 chars);
+            # 2^60 and 123456789.12345679 print in a different notation than
+            # "%.17Lg" would use.
+            r zadd mykey 3.3 a 1 b 1.25 c -0.1 d 1e100 e 9.8813129168249309e-323 f \
+                inf g -inf h -1.2345678901234567e23 i 1152921504606846976 j \
+                123456789.12345679 k
+            if {$enc eq {skiplist}} {
+                # Push the set past zset-max-listpack-entries (default 128).
+                set elements {}
+                for {set j 0} {$j < 200} {incr j} {
+                    lappend elements $j filler:$j
+                }
+                r zadd mykey {*}$elements
+            }
+            assert_encoding $enc mykey
+
+            set cur 0
+            set res {}
+            while 1 {
+                set reply [r zscan mykey $cur COUNT 50]
+                set cur [lindex $reply 0]
+                lappend res {*}[lindex $reply 1]
+                if {$cur == 0} break
+            }
+            # ZSCAN may return a member more than once; reading the list as a
+            # dict collapses duplicates.
+            assert_equal [r zcard mykey] [dict size $res]
+            foreach {member score} $res {
+                assert_equal [r zscore mykey $member] $score
+            }
+            # The shortest round-trip form, for both encodings.
+            assert_equal 3.3 [dict get $res a]
+            assert_equal 1 [dict get $res b]
+            assert_equal -0.1 [dict get $res d]
+            assert_equal 1e-322 [dict get $res f]
+            assert_equal inf [dict get $res g]
+            assert_equal -inf [dict get $res h]
+            assert_equal -123456789012345670000000 [dict get $res i]
+            assert_equal 1152921504606846976 [dict get $res j]
+            assert_equal 1.2345678912345679e+8 [dict get $res k]
+        }
+    }
+
     test "{$type} SCAN regression test for issue #4906" {
         for {set k 0} {$k < 100} {incr k} {
             r del set

@@ -1749,8 +1749,8 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
             return;
 
     } else if (o->type == OBJ_ZSET) {
-        char buf[MAX_LONG_DOUBLE_CHARS];
-        int len = ld2string(buf, sizeof(buf), znode->score, LD_STR_AUTO);
+        char buf[MAX_D2STRING_CHARS];
+        int len = d2string(buf, sizeof(buf), znode->score);
         key = sdsdup(keyStr);
         val = sdsnewlen(buf, len);
     } else {
