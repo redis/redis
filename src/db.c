@@ -3132,6 +3132,9 @@ static uint64_t prefetchedKeyHash(sds key) {
     client *c = server.current_client;
     if (!c) return DICT_HASH_NONE;
 
+    /* The hashes are indexed by position in keys_result, so they belong to the
+     * argv they were taken from. preprocessCommand() clears them when a module
+     * command filter changes argv and the key list is rebuilt. */
     pendingCommand *pcmd = c->current_pending_cmd;
     if (!pcmd || !pcmd->key_hashes_valid) return DICT_HASH_NONE;
     if (!(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)) return DICT_HASH_NONE;

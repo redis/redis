@@ -880,8 +880,8 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
 /* Finds a given key. Like dictFindLink(), yet takes the hash of 'key' from the
  * caller instead of computing it.
  *
- * Key comparison is unchanged, so a hash that belongs to another key can only
- * fail to find an entry that is present, never return the wrong one. */
+ * 'hash' must be the hash of 'key'. A wrong one still cannot return a wrong
+ * entry, yet the bucket it reports is then the wrong one to add at. */
 dictEntryLink dictFindLinkWithHash(dict *d, const void *key, dictEntryLink *bucket, uint64_t hash) {
     if (bucket) *bucket = NULL;
     if (unlikely(dictSize(d) == 0))
