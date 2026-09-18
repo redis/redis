@@ -279,18 +279,21 @@ void restoreCommand(client *c) {
     payload.flags |= RIO_FLAG_DUMP_PAYLOAD;
 
     /* Initialize metadata spec to collect metadata+expiry from payload. */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
+    kvSpec spec;
+    kvSpecInit(&spec);
 
     /* Compute TTL early so we can add it to metadata spec in correct order */
     if (ttl) {
-        if (!absttl) ttl+=commandTimeSnapshot();
-        keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
+        if (!absttl && add_overflow_ll(ttl, commandTimeSnapshot(), &ttl)) {
+            addReplyErrorExpireTime(c);
+            return;
+        }
+        kvSpecAddMeta(&spec, KEY_META_ID_EXPIRE, ttl);
     }
 
     /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
     type = rdbLoadType(&payload);
-    if (rdbResolveKeyType(&payload, &type, c->db->id, &keymeta) == -1) {
+    if (rdbResolveKeyType(&payload, &type, c->db->id, &spec) == -1) {
         addReplyError(c,"Bad data format");
         return;
     }
@@ -298,7 +301,7 @@ void restoreCommand(client *c) {
     /* Load the object */
     if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
     {
-        keyMetaSpecCleanup(&keymeta);
+        kvSpecCleanup(&spec);
         addReplyError(c,"Bad data format");
         return;
     }
@@ -308,6 +311,9 @@ void restoreCommand(client *c) {
     dictEntryLink link = NULL;
     kvobj *oldval = lookupKeyWriteWithLink(c->db, key, &link);
     int oldtype = oldval ? oldval->type : -1;
+
+    /* RESTORE REPLACE keeps the destination's NO-EVICT flag. */
+    spec.no_evict = replace && oldval && blessIsNoEvict(oldval);
 
     /* Call dbDelete() only when a key is actually present:
      *   oldval != NULL -> key exists.
@@ -329,14 +335,14 @@ void restoreCommand(client *c) {
         }
         /* Update the stats, see setGenericCommand for details. */
         server.stat_expiredkeys++;
-        keyMetaSpecCleanup(&keymeta);
+        kvSpecCleanup(&spec);
         decrRefCount(obj);
         addReply(c, shared.ok);
         return;
     }
 
     /* Create the key and set the TTL if any */
-    kvobj *kv = dbAddInternal(c->db, key, &obj, &link, &keymeta);
+    kvobj *kv = dbAddInternal(c->db, key, &obj, &link, &spec);
 
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;
@@ -1847,9 +1853,8 @@ int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err) {
         return C_ERR;
     }
 
-    /* Sort and merge adjacent slot ranges. */
-    slotRangeArraySortAndMerge(slots);
-
+    /* Validate each range before sorting and merging since merge itself relies
+     * on each range already being well-formed. */
     for (int i = 0; i < slots->num_ranges; i++) {
         if (slots->ranges[i].start >= CLUSTER_SLOTS ||
             slots->ranges[i].end >= CLUSTER_SLOTS)
@@ -1873,6 +1878,9 @@ int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err) {
             used_slots[j]++;
         }
     }
+
+    /* Sort and merge adjacent slot ranges. */
+    slotRangeArraySortAndMerge(slots);
     return C_OK;
 }
 

@@ -20,7 +20,7 @@
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
  * update the expiration time of the hash object in global HFE DS. */
-#define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
+#define HASH_NEW_EXPIRE_DIFF_THRESHOLD 4000
 
 /* Reserve 2 bits out of hash-field expiration time for possible future lightweight
  * indexing/categorizing of fields. It can be achieved by hacking HFE as follows:
@@ -1724,8 +1724,10 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
         serverAssert(ptr && lpGetIntegerValue(ptr, &val));
 
         /* Fields are ordered by expiry time. If we reached to a non-expired
-         * or a non-volatile field, we know rest is not yet expired. */
-        if (val == HASH_LP_NO_TTL || (uint64_t) val > info->now)
+         * or a non-volatile field, we know rest is not yet expired. A field is
+         * expired iff its expire-time is strictly less than `now`, matching
+         * lazy-expiry semantics (see hashTypeIsExpired()) and ebExpire(). */
+        if (val == HASH_LP_NO_TTL || (uint64_t) val >= info->now)
             break;
 
         /* Collect expired field for subkey notification. */
@@ -4587,7 +4589,8 @@ void himportSetCommand(client *c) {
      *
      * In the future this can be improved to send the fields only once instead of
      * on every SET, lowering the propagation cost further. */
-    if (shouldPropagate(PROPAGATE_AOF | PROPAGATE_REPL)) {
+    int prop_target = (PROPAGATE_AOF | PROPAGATE_REPL) & server.allowed_propagate_targets;
+    if (shouldPropagate(prop_target)) {
         /* Presize the payload: field-name footprint + value bytes (over-estimate ok). */
         sds payload = createRawDumpPayload(o, c->argv[2], c->db->id, 0,
                                            tmpl->mem_size + total_values_length);
@@ -4599,7 +4602,7 @@ void himportSetCommand(client *c) {
                 restore_pl,
                 shared.replace
         };
-        alsoPropagate(c->db->id, rargv, 5, PROPAGATE_AOF | PROPAGATE_REPL);
+        alsoPropagate(c->db->id, rargv, 5, prop_target);
         decrRefCount(restore_pl);
     }
     preventCommandPropagation(c);
@@ -6242,10 +6245,9 @@ static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t
     };
 
     enterExecutionUnit(1, 0);
-    int prev_replication_allowed = server.replication_allowed;
-    server.replication_allowed = 1;
-    alsoPropagate(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
-    server.replication_allowed = prev_replication_allowed;
+    /* Field expiration is decided by the server, so it must be propagated even
+     * if the command that triggered it asked not to propagate. */
+    alsoPropagateForced(db->id,argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
     exitExecutionUnit();
 
     /* Propagate the HDEL command */
@@ -6494,7 +6496,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
                 continue;
             }
 
-            if (expire <= commandTimeSnapshot()) {
+            if (expire < commandTimeSnapshot()) {
                 addReplyLongLong(c, HFE_GET_NO_FIELD);
                 continue;
             }

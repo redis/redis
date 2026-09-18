@@ -1353,6 +1353,7 @@ void databasesCron(void) {
             redisDb *db = &server.db[resize_db % server.dbnum];
             kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB, resizeShouldSkip);
             kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB, resizeShouldSkip);
+            kvstoreTryResizeDicts(db->blessed_keys, CRON_DICTS_PER_DB, resizeShouldSkip);
             resize_db++;
         }
 
@@ -1365,6 +1366,9 @@ void databasesCron(void) {
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                elapsed_us += kvstoreIncrementallyRehash(db->blessed_keys, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
                 rehash_db++;
@@ -3058,7 +3062,7 @@ void initServer(void) {
     /* clients_timeout_table key = 8 bytes BE mstime + 8 bytes client ID
      * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
     server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);
-    server.replication_allowed = 1;
+    server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
     server.ready_keys = listCreate();
@@ -3121,6 +3125,7 @@ void initServer(void) {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
         server.db[j].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
         server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
@@ -3196,6 +3201,7 @@ void initServer(void) {
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
+    server.aof_cmd_duration = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
     memset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
@@ -3607,7 +3613,7 @@ void resetErrorTableStats(void) {
 
 /* ========================== Redis OP Array API ============================ */
 
-int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target) {
+int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target, long long duration) {
     redisOp *op;
     int prev_capacity = oa->capacity;
 
@@ -3624,7 +3630,9 @@ int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int ta
     op->argv = argv;
     op->argc = argc;
     op->target = target;
+    op->duration = duration;
     oa->numops++;
+    oa->targets |= target;
     return oa->numops;
 }
 
@@ -3641,6 +3649,7 @@ void redisOpArrayFree(redisOpArray *oa) {
     }
     /* no need to free the actual op array, we reuse the memory for future commands */
     serverAssert(!oa->numops);
+    oa->targets = PROPAGATE_NONE;
 }
 
 /* ====================== Commands lookup and execution ===================== */
@@ -3743,8 +3752,18 @@ int mustObeyClient(client *c) {
     return c->id == CLIENT_ID_AOF || c->flags & CLIENT_MASTER;
 }
 
+/* Return true if any of the given targets can currently receive commands, that
+ * is, if the AOF is enabled or if there is a replica (or a slot migration) to
+ * feed.
+ *
+ * Note that this ignores server.allowed_propagate_targets on purpose: whether
+ * the command running now may reach a target is decided once, when the op is
+ * queued by alsoPropagate(), and the target stored with the op is final. Doing
+ * it here as well would also apply it while flushing ops queued earlier, where
+ * it could only drop an op that was legitimately queued. The callers that do
+ * need to account for it narrow 'target' themselves. */
 int shouldPropagate(int target) {
-    if (!server.replication_allowed || target == PROPAGATE_NONE || server.loading)
+    if (target == PROPAGATE_NONE || server.loading)
         return 0;
 
     if (target & PROPAGATE_AOF) {
@@ -3774,7 +3793,19 @@ int shouldPropagate(int target) {
  * dbid value of -1 is saved to indicate that the called do not want
  * to replicate SELECT for this command (used for database neutral commands).
  */
-static void propagateNow(int dbid, robj **argv, int argc, int target) {
+static void propagateNow(int dbid, robj **argv, int argc, int target, long long duration) {
+    /* Every PROP_DURATION_UNKNOWN op must have been resolved by
+     * assignLeftoverDurationToUnknownOps() before reaching here. Letting the
+     * reserved value through would decrement server.aof_cmd_duration. */
+    debugServerAssert(duration != PROP_DURATION_UNKNOWN);
+    if (duration < 0) duration = 0;
+
+    /* No need to intersect 'target' with server.allowed_propagate_targets: it is
+     * already the final one, either decided when the op was queued by
+     * alsoPropagate() (or deliberately left unrestricted by
+     * alsoPropagateForced()), or the MULTI / EXEC wrapping the ops. Restricting
+     * it again by what the command running now may reach could only drop an op
+     * that was legitimately queued. */
     if (!shouldPropagate(target))
         return;
 
@@ -3784,7 +3815,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
                    (!server.client_pause_in_transaction)));
 
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
-        feedAppendOnlyFile(dbid,argv,argc);
+        feedAppendOnlyFile(dbid,argv,argc,duration);
     if (target & PROPAGATE_REPL) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
         asmFeedMigrationClient(argv, argc);
@@ -3802,9 +3833,14 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
  * so it is up to the caller to release the passed argv (but it is usually
  * stack allocated).  The function automatically increments ref count of
  * passed objects, so the caller does not need to. */
-void alsoPropagate(int dbid, robj **argv, int argc, int target) {
+void alsoPropagateEx(int dbid, robj **argv, int argc, int target, long long duration) {
     robj **argvcopy;
     int j;
+
+    /* Drop the targets the command currently running is not allowed to reach,
+     * so that its effect commands don't end up in an AOF / replica excluded by
+     * Lua redis.set_repl() or by a selective RM_Call(). */
+    target &= server.allowed_propagate_targets;
 
     if (!shouldPropagate(target))
         return;
@@ -3814,7 +3850,23 @@ void alsoPropagate(int dbid, robj **argv, int argc, int target) {
         argvcopy[j] = argv[j];
         incrRefCount(argv[j]);
     }
-    redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target);
+    redisOpArrayAppend(&server.also_propagate,dbid,argvcopy,argc,target,duration);
+}
+
+void alsoPropagate(int dbid, robj **argv, int argc, int target) {
+    alsoPropagateEx(dbid, argv, argc, target, PROP_DURATION_UNKNOWN);
+}
+
+/* Like alsoPropagate(), but ignoring the targets that were excluded for the
+ * command currently running. To be used only for implicit changes the server
+ * decided to make by itself (expired or evicted keys, slots trimmed after a
+ * migration): those must always reach the AOF and the replicas, no matter what
+ * the command that happened to trigger them asked for. */
+void alsoPropagateForced(int dbid, robj **argv, int argc, int target) {
+    int prev_targets = server.allowed_propagate_targets;
+    server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
+    alsoPropagate(dbid,argv,argc,target);
+    server.allowed_propagate_targets = prev_targets;
 }
 
 /* It is possible to call the function forceCommandPropagation() inside a
@@ -3841,6 +3893,26 @@ void preventCommandAOF(client *c) {
 /* Replication specific version of preventCommandPropagation(). */
 void preventCommandReplication(client *c) {
     c->flags |= CLIENT_PREVENT_REPL_PROP;
+}
+
+/* Return the PROPAGATE_* targets that a call() of the given client with the
+ * given flags is allowed to reach: the ones the caller of call() asked for,
+ * minus the ones the module owning the client vetoed.
+ *
+ * The CLIENT_MODULE_PREVENT_*_PROP flags outlive the call() that set them, so
+ * that an RM_Call() that got blocked keeps its restrictions once the command is
+ * reprocessed by a brand new call() (see RM_Call()).
+ *
+ * Everything the command propagates is limited to these targets: the command
+ * itself, at the end of call(), and the effect commands its implementation
+ * queues via alsoPropagate() while it runs. */
+int getPropagateTargetsForCall(client *c, int flags) {
+    int targets = PROPAGATE_NONE;
+    if ((flags & CMD_CALL_PROPAGATE_AOF) && !(c->flags & CLIENT_MODULE_PREVENT_AOF_PROP))
+        targets |= PROPAGATE_AOF;
+    if ((flags & CMD_CALL_PROPAGATE_REPL) && !(c->flags & CLIENT_MODULE_PREVENT_REPL_PROP))
+        targets |= PROPAGATE_REPL;
+    return targets;
 }
 
 /* Log the last command a client executed into the slowlog. */
@@ -3878,10 +3950,47 @@ void updateCommandLatencyHistogram(struct hdr_histogram **latency_histogram, int
     hdr_record_value(*latency_histogram,duration_hist);
 }
 
+/* aof_cmd_duration: best-effort AOF replay-time estimate (INFO, usec).
+ * call() ops use their measured time. Synthetic ops (RM_Replicate, SPOP's
+ * SREMs, lazy HDELs) are PROP_DURATION_UNKNOWN and get leftover call() time.
+ * Leftover is resolved only when AOF is enabled (feedAppendOnlyFile is the
+ * sole consumer). After AOFRW the estimate restarts; AOF load rebuilds it
+ * from wall-clock, which is a different scale. */
+
+/* Give leftover call() time to UNKNOWN AOF ops in also_propagate[start..).
+ * Known AOF ops keep their own times; REPL-only UNKNOWN gets 0. */
+static void assignLeftoverDurationToUnknownOps(int start, long totalDuration) {
+    long leftover = totalDuration;
+    int j;
+    redisOp *rop;
+
+    for (j = start; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        if (rop->duration != PROP_DURATION_UNKNOWN &&
+            (rop->target & PROPAGATE_AOF))
+        {
+            leftover -= rop->duration;
+        }
+    }
+    if (leftover < 0) leftover = 0;
+
+    for (j = start; j < server.also_propagate.numops; j++) {
+        rop = &server.also_propagate.ops[j];
+        if (rop->duration == PROP_DURATION_UNKNOWN) {
+            if (rop->target & PROPAGATE_AOF) {
+                rop->duration = leftover;
+                leftover = 0;
+            } else {
+                rop->duration = 0;
+            }
+        }
+    }
+}
+
 /* Handle the alsoPropagate() API to handle commands that want to propagate
  * multiple separated commands. Note that alsoPropagate() is not affected
  * by CLIENT_PREVENT_PROP flag. */
-static void propagatePendingCommands(void) {
+static void propagatePendingCommands(long totalDuration) {
     if (server.also_propagate.numops == 0)
         return;
 
@@ -3889,9 +3998,12 @@ static void propagatePendingCommands(void) {
     redisOp *rop;
 
     /* If we got here it means we have finished an execution-unit.
-     * If that unit has caused propagation of multiple commands, they
-     * should be propagated as a transaction */
-    int transaction = server.also_propagate.numops > 1;
+     * If that unit has caused propagation of multiple commands, they should be
+     * propagated as a transaction, to the targets the ops reach: the ops may
+     * have been restricted to a subset of them (see alsoPropagate()), and the
+     * excluded target would just get an empty MULTI / EXEC pair. */
+    int transaction_target = server.also_propagate.numops > 1 ?
+                             server.also_propagate.targets : PROPAGATE_NONE;
 
     /* In case a command that may modify random keys was run *directly*
      * (i.e. not from within a script, MULTI/EXEC, RM_Call, etc.) we want
@@ -3900,24 +4012,32 @@ static void propagatePendingCommands(void) {
         server.current_client->cmd &&
         server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS)
     {
-        transaction = 0;
+        transaction_target = PROPAGATE_NONE;
     }
 
-    if (transaction) {
+    if (transaction_target) {
         /* We use dbid=-1 to indicate we do not want to replicate SELECT.
          * It'll be inserted together with the next command (inside the MULTI) */
-        propagateNow(-1,&shared.multi,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.multi,1,transaction_target,0);
     }
+
+    /* Leftover duration is only consumed by feedAppendOnlyFile. Skip the
+     * also_propagate walk when AOF is off (covers AOF_ON and WAIT_REWRITE). */
+    if (server.aof_state != AOF_OFF)
+        assignLeftoverDurationToUnknownOps(0, totalDuration);
 
     for (j = 0; j < server.also_propagate.numops; j++) {
         rop = &server.also_propagate.ops[j];
         serverAssert(rop->target);
-        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target);
+        /* Duration is unused when AOF is off; pass 0 so UNKNOWN does not
+         * trip propagateNow()'s debug assert. */
+        propagateNow(rop->dbid,rop->argv,rop->argc,rop->target,
+                     server.aof_state != AOF_OFF ? rop->duration : 0);
     }
 
-    if (transaction) {
+    if (transaction_target) {
         /* We use dbid=-1 to indicate we do not want to replicate select */
-        propagateNow(-1,&shared.exec,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        propagateNow(-1,&shared.exec,1,transaction_target,0);
     }
 
     redisOpArrayFree(&server.also_propagate);
@@ -3937,7 +4057,7 @@ static void propagatePendingCommands(void) {
  * currently with respect to replication and post jobs, but in the future there might
  * be other considerations. So we basically want the `postUnitOperations` to trigger
  * after the entire chain finished. */
-void postExecutionUnitOperations(void) {
+void postExecutionUnitOperationsEx(long duration) {
     if (server.execution_nesting)
         return;
 
@@ -3945,13 +4065,17 @@ void postExecutionUnitOperations(void) {
 
     /* If we are at the top-most call() and not inside a an active module
      * context (e.g. within a module timer) we can propagate what we accumulated. */
-    propagatePendingCommands();
+    propagatePendingCommands(duration);
 
     /* Feed replicas mid command-stream if enough has accumulated. */
     flushSlavesOutputBuffersIfNeeded();
 
     /* Module subsystem post-execution-unit logic */
     modulePostExecutionUnitOperations();
+}
+
+void postExecutionUnitOperations(void) {
+    postExecutionUnitOperationsEx(0);
 }
 
 /* Increment the command failure counters (either rejected_calls or failed_calls).
@@ -4022,6 +4146,8 @@ static bool commandVisibleForClient(client *c, struct redisCommand *cmd) {
  * preventCommandReplication(client *c);
  *
  */
+static void afterCommandEx(client *c, long duration, int ops_before);
+
 void call(client *c, int flags) {
     long long dirty;
     uint64_t client_old_flags = c->flags;
@@ -4088,7 +4214,27 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    int ops_before = server.also_propagate.numops;
+
+    /* We need to use a global flag with the propagation targets allowed for the
+     * command we are about to run, in order to prevent propagation of nested
+     * calls to a target that an outer call excluded. Example:
+     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
+     * 2. module2.bar internally calls RM_Call of INCR with '!'
+     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
+     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar
+     *
+     * Restricting the targets while the command runs, and not just when call()
+     * propagates it verbatim at the end, is what makes the effect commands
+     * queued via alsoPropagate() (SPOP propagated as SREM, RM_Replicate(), and
+     * so forth) honor Lua redis.set_repl() and selective RM_Call() too. */
+    int call_targets = getPropagateTargetsForCall(c, flags);
+    int prev_targets = server.allowed_propagate_targets;
+    server.allowed_propagate_targets = prev_targets & call_targets;
+
     c->cmd->proc(c);
+
+    server.allowed_propagate_targets = prev_targets;
 
     exitExecutionUnit();
 
@@ -4105,6 +4251,9 @@ void call(client *c, int flags) {
         duration = ustime() - call_timer;
 
     c->duration += duration;
+    /* Store for afterCommandEx before we reset c->duration. */
+    ustime_t total_duration = c->duration;
+
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -4212,21 +4361,16 @@ void call(client *c, int flags) {
         if (c->flags & CLIENT_FORCE_AOF) propagate_flags |= PROPAGATE_AOF;
 
         /* However prevent AOF / replication propagation if the command
-         * implementation called preventCommandPropagation() or similar,
-         * or if we don't have the call() flags to do so. */
-        if (c->flags & CLIENT_PREVENT_REPL_PROP        ||
-            c->flags & CLIENT_MODULE_PREVENT_REPL_PROP ||
-            !(flags & CMD_CALL_PROPAGATE_REPL))
-                propagate_flags &= ~PROPAGATE_REPL;
-        if (c->flags & CLIENT_PREVENT_AOF_PROP        ||
-            c->flags & CLIENT_MODULE_PREVENT_AOF_PROP ||
-            !(flags & CMD_CALL_PROPAGATE_AOF))
-                propagate_flags &= ~PROPAGATE_AOF;
+         * implementation called preventCommandPropagation() or similar, or if
+         * this call() is not allowed to reach the target at all. */
+        if (c->flags & CLIENT_PREVENT_REPL_PROP) propagate_flags &= ~PROPAGATE_REPL;
+        if (c->flags & CLIENT_PREVENT_AOF_PROP) propagate_flags &= ~PROPAGATE_AOF;
+        propagate_flags &= call_targets;
 
         /* Call alsoPropagate() only if at least one of AOF / replication
          * propagation is needed. */
         if (propagate_flags != PROPAGATE_NONE)
-            alsoPropagate(c->db->id,c->argv,c->argc,propagate_flags);
+            alsoPropagateEx(c->db->id,c->argv,c->argc,propagate_flags,duration);
     }
 
     /* Restore the old replication flags, since call() can be executed
@@ -4261,8 +4405,10 @@ void call(client *c, int flags) {
         server.stat_numcommands++;
     }
 
-    /* Do some maintenance job and cleanup */
-    afterCommand(c);
+    /* Do some maintenance job and cleanup.
+     * Use total_duration (not stack duration) so blocked-client reprocessing
+     * still credits accumulated time when pending UNKNOWN ops are drained. */
+    afterCommandEx(c, total_duration, ops_before);
 
     /* The afterCommand updates the replication network bytes. At this point we
      * are ready to update the ingress/egress net bytes and cleanup tracking
@@ -4345,9 +4491,23 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
+    afterCommandEx(c, c->duration, server.also_propagate.numops);
+}
+
+static void afterCommandEx(client *c, long duration, int ops_before) {
+    /* Nested call (script / RM_Call): stamp only UNKNOWN ops this call
+     * queued so leftover does not land on an outer command's UNKNOWN.
+     * Skip when AOF is off: leftover is only consumed by feedAppendOnlyFile. */
+    if (server.aof_state != AOF_OFF &&
+        server.execution_nesting &&
+        server.also_propagate.numops > ops_before)
+    {
+        assignLeftoverDurationToUnknownOps(ops_before, duration);
+    }
+
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
-    postExecutionUnitOperations();
+    postExecutionUnitOperationsEx(duration);
 
     /* Flush pending tracking invalidations. */
     trackingHandlePendingKeyInvalidations();
@@ -6693,7 +6853,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "aof_pending_rewrite:%d\r\n", server.aof_rewrite_scheduled,
                 "aof_buffer_length:%zu\r\n", sdslen(server.aof_buf),
                 "aof_pending_bio_fsync:%lu\r\n", bioPendingJobsOfType(BIO_AOF_FSYNC),
-                "aof_delayed_fsync:%lu\r\n", server.aof_delayed_fsync));
+                "aof_delayed_fsync:%lu\r\n", server.aof_delayed_fsync,
+                "aof_cmd_duration:%lld\r\n", server.aof_cmd_duration));
         }
 
         if (server.loading) {
@@ -6814,6 +6975,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
+            "blessed_keys:%llu\r\n", blessedKeysCount(),
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
             "evicted_scripts:%lld\r\n", server.stat_evictedscripts,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,

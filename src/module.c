@@ -272,6 +272,8 @@ typedef struct RedisModuleBlockedClient {
     monotime background_timer; /* Timer tracking the start of background work */
     uint64_t background_duration; /* Current command background time duration.
                                      Used for measuring latency of blocking cmds */
+    uint64_t background_duration_accounted; /* Slice of background_duration already
+                                     used as leftover at GIL unlock / context free. */
     int blocked_on_keys_explicit_unblock; /* Set to 1 only in the case of an explicit RM_Unblock on
                                            * a client that is blocked on keys. In this case we will
                                            * call the timeout call back from within
@@ -858,6 +860,21 @@ int RM_GetApi(const char *funcname, void **targetPtrPtr) {
     return REDISMODULE_OK;
 }
 
+/* Claim background time not yet used as leftover. Skip if still nested
+ * (postExecutionUnitOperationsEx would drop it) or if also_propagate is empty
+ * (GIL unlock after a sleep-only section would consume the slice with nowhere
+ * to put it, so a later reply-callback RM_Replicate would see 0). */
+static long moduleTakeUnaccountedBackgroundDuration(RedisModuleCtx *ctx) {
+    if (server.execution_nesting) return 0;
+    if (server.also_propagate.numops == 0) return 0;
+    if (!ctx || !ctx->blocked_client) return 0;
+    RedisModuleBlockedClient *bc = ctx->blocked_client;
+    if (bc->background_duration <= bc->background_duration_accounted) return 0;
+    long d = (long)(bc->background_duration - bc->background_duration_accounted);
+    bc->background_duration_accounted = bc->background_duration;
+    return d;
+}
+
 void modulePostExecutionUnitOperations(void) {
     if (server.execution_nesting)
         return;
@@ -876,7 +893,7 @@ void moduleFreeContext(RedisModuleCtx *ctx) {
     /* See comment in moduleCreateContext */
     if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
         exitExecutionUnit();
-        postExecutionUnitOperations();
+        postExecutionUnitOperationsEx(moduleTakeUnaccountedBackgroundDuration(ctx));
     }
     autoMemoryCollect(ctx);
     poolAllocRelease(ctx);
@@ -3679,7 +3696,7 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
     if (!(flags & REDISMODULE_ARGV_NO_AOF)) target |= PROPAGATE_AOF;
     if (!(flags & REDISMODULE_ARGV_NO_REPLICAS)) target |= PROPAGATE_REPL;
 
-    alsoPropagate(ctx->client->db->id,argv,argc,target);
+    alsoPropagateEx(ctx->client->db->id,argv,argc,target,PROP_DURATION_UNKNOWN);
 
     /* Release the argv. */
     for (j = 0; j < argc; j++) decrRefCount(argv[j]);
@@ -3703,9 +3720,9 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
-    alsoPropagate(ctx->client->db->id,
+    alsoPropagateEx(ctx->client->db->id,
         ctx->client->argv,ctx->client->argc,
-        PROPAGATE_AOF|PROPAGATE_REPL);
+        PROPAGATE_AOF|PROPAGATE_REPL,PROP_DURATION_UNKNOWN);
     server.dirty++;
     return REDISMODULE_OK;
 }
@@ -7162,16 +7179,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         goto cleanup;
     }
 
-    /* We need to use a global replication_allowed flag in order to prevent
-     * replication of nested RM_Calls. Example:
-     * 1. module1.foo does RM_Call of module2.bar without replication (i.e. no '!')
-     * 2. module2.bar internally calls RM_Call of INCR with '!'
-     * 3. at the end of module1.foo we call RM_ReplicateVerbatim
-     * We want the replica/AOF to see only module1.foo and not the INCR from module2.bar */
-    int prev_replication_allowed = server.replication_allowed;
-    server.replication_allowed = replicate && server.replication_allowed;
-
-    /* Run the command */
+    /* Run the command. call() takes care of restricting what the command may
+     * propagate (including nested RM_Calls) to the targets requested here, and
+     * of restoring the previous restrictions once it returns. */
     int call_flags = CMD_CALL_FROM_MODULE;
     if (replicate) {
         if (!(flags & REDISMODULE_ARGV_NO_AOF))
@@ -7180,7 +7190,6 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             call_flags |= CMD_CALL_PROPAGATE_REPL;
     }
     call(c,call_flags);
-    server.replication_allowed = prev_replication_allowed;
 
     if (c->flags & CLIENT_BLOCKED) {
         serverAssert(flags & REDISMODULE_ARGV_ALLOW_BLOCK);
@@ -7198,11 +7207,16 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         };
         reply = callReplyCreatePromise(promise);
         c->bstate.async_rm_call_handle = promise;
-        if (!(call_flags & CMD_CALL_PROPAGATE_AOF)) {
+        /* The unblocked command will be reprocessed by a brand new call(), and
+         * these client flags are the only state surviving until then: record in
+         * them every target it may not reach, the ones excluded by the outer
+         * call() included (call() restored its targets before returning). */
+        int targets = getPropagateTargetsForCall(c, call_flags) & server.allowed_propagate_targets;
+        if (!(targets & PROPAGATE_AOF)) {
             /* No need for AOF propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_AOF_PROP;
         }
-        if (!(call_flags & CMD_CALL_PROPAGATE_REPL)) {
+        if (!(targets & PROPAGATE_REPL)) {
             /* No need for replication propagation, set the relevant flags of the client */
             c->flags |= CLIENT_MODULE_PREVENT_REPL_PROP;
         }
@@ -8429,6 +8443,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->unblocked = 0;
     bc->background_timer = 0;
     bc->background_duration = 0;
+    bc->background_duration_accounted = 0;
 
     mstime_t timeout = 0;
     if (timeout_ms) {
@@ -9227,7 +9242,7 @@ int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-void moduleGILBeforeUnlock(void) {
+void moduleGILBeforeUnlock(RedisModuleCtx *ctx) {
     /* We should never get here if we already inside a module
      * code block which already opened a context, except
      * the bump-up from moduleGILAcquired. */
@@ -9236,13 +9251,12 @@ void moduleGILBeforeUnlock(void) {
      * (because it's unclear when thread safe contexts are
      * released we have to propagate here). */
     exitExecutionUnit();
-    postExecutionUnitOperations();
+    postExecutionUnitOperationsEx(moduleTakeUnaccountedBackgroundDuration(ctx));
 }
 
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
-    UNUSED(ctx);
-    moduleGILBeforeUnlock();
+    moduleGILBeforeUnlock(ctx);
     moduleReleaseGIL();
 }
 
