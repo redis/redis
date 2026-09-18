@@ -3121,6 +3121,31 @@ kvobj *dbFind(redisDb *db, sds key) {
     return dbFindGeneric(db->keys, key);
 }
 
+/* Return the hash the prefetcher computed for 'key' in db->keys, or
+ * DICT_HASH_NONE when it has none for it.
+ *
+ * We only look at the command being executed, so the argv compared here is
+ * still alive. Matching against the whole prefetch batch would not be safe: a
+ * command that already completed may have had its argv freed and the address
+ * reused by a later key in the same batch. */
+static uint64_t prefetchedKeyHash(sds key) {
+    client *c = server.current_client;
+    if (!c) return DICT_HASH_NONE;
+
+    pendingCommand *pcmd = c->current_pending_cmd;
+    if (!pcmd || !pcmd->key_hashes_valid) return DICT_HASH_NONE;
+    if (!(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)) return DICT_HASH_NONE;
+
+    int numkeys = pcmd->keys_result.numkeys;
+    if (numkeys > PENDING_CMD_MAX_CACHED_HASHES) numkeys = PENDING_CMD_MAX_CACHED_HASHES;
+    for (int i = 0; i < numkeys; i++) {
+        if (!(pcmd->key_hashes_valid & (1u << i))) continue;
+        if (pcmd->argv[pcmd->keys_result.keys[i].pos]->ptr == key)
+            return pcmd->key_hashes[i];
+    }
+    return DICT_HASH_NONE;
+}
+
 /* Find a KV in the main db. Return also link to it.
  *
  * plink - If found, set to the link of the key in the dict.
@@ -3130,8 +3155,14 @@ kvobj *dbFind(redisDb *db, sds key) {
 kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *plink) {
     int slot = getKeySlot(key);
     dictEntryLink link, bucket;
+    uint64_t hash = prefetchedKeyHash(key);
+    dict *d = (hash == DICT_HASH_NONE) ? NULL : kvstoreGetDict(db->keys, slot);
 
-    link = kvstoreDictFindLink(db->keys, slot, key, &bucket);
+    if (d) {
+        link = dictFindLinkWithHash(d, key, &bucket, hash);
+    } else {
+        link = kvstoreDictFindLink(db->keys, slot, key, &bucket);
+    }
     if (link == NULL) {
         if (plink) *plink = bucket;
         return NULL;
