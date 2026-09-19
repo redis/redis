@@ -888,12 +888,59 @@ start_server {tags {"cli external:skip"}} {
 }
 
 start_server {tags {"cli external:skip"}} {
+    # Capture terminal output without a shell redrawing its prompt. For interrupted
+    # scans, wait for a live refresh (TTY) or an actual SCAN (non-TTY) before SIGINT.
+    proc keystats_output {options {tty 0} {interrupt 0}} {
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats {*}$options]]
+        if {$tty} {
+            set cmd [linsert $cmd 0 env FAKETTY=1]
+        }
+        if {$interrupt} {
+            r config resetstat
+        }
+        set fd [open "|$cmd" r]
+        fconfigure $fd -blocking false -translation binary
+        set cli_pid [pid $fd]
+        set status [catch {
+            set result ""
+            if {$interrupt} {
+                if {$tty} {
+                    set result [read_cli_until $fd {\x1b\[[0-9]+A\r} 10000]
+                } else {
+                    wait_for_condition 1000 10 {
+                        [string match "*cmdstat_scan:*" [r info commandstats]]
+                    } else {
+                        fail "redis-cli did not start scanning"
+                    }
+                }
+                exec kill -SIGINT {*}$cli_pid
+            }
+            set deadline [expr {[clock milliseconds] + 10000}]
+            while {![eof $fd]} {
+                append result [read $fd]
+                if {[clock milliseconds] >= $deadline} {
+                    fail "redis-cli did not exit: $result"
+                }
+                after 10
+            }
+        } err opts]
+        if {$status} {
+            catch {exec kill -TERM {*}$cli_pid}
+        }
+        fconfigure $fd -blocking true
+        set close_status [catch {close $fd} close_err]
+        if {$status} {return -options $opts $err}
+        if {$close_status} {error $close_err}
+        return [string trimright $result "\n"]
+    }
+
     test "keystats exits before scanning an empty database" {
         assert_equal 0 [r dbsize]
-        r config resetstat
-        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
-        assert_equal "The database is empty." [exec {*}$cmd]
-        assert_no_match "*cmdstat_scan:*" [r info commandstats]
+        foreach options {{} {--pattern missing:*} {--cursor 1 --pattern missing:*}} {
+            r config resetstat
+            assert_equal "The database is empty." [keystats_output $options]
+            assert_no_match "*cmdstat_scan:*" [r info commandstats]
+        }
     }
 
     test "keystats reports when no keys match the pattern" {
@@ -904,17 +951,91 @@ start_server {tags {"cli external:skip"}} {
         assert_match "*Scanning the entire keyspace*" $result
         assert_match "*No keys matched the specified pattern.*" $result
         assert_no_match "*Keys size:*" $result
+        assert_equal -1 [string first "\x1b" $result]
         assert_match "*cmdstat_scan:*" [r info commandstats]
         r del key
     }
 
     test "keystats reports when no keys match the pattern after a cursor" {
-        r set key value
-        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats --cursor 1 --pattern missing:*]]
-        set result [exec {*}$cmd]
+        r debug populate 100
+        set cursor [lindex [r scan 0 count 1] 0]
+        assert {$cursor != 0}
+        set result [keystats_output [list --cursor $cursor --pattern missing:*]]
         assert_match "*No keys matched the specified pattern in the scanned portion of the keyspace.*" $result
         assert_no_match "*Keys size:*" $result
-        r del key
+        assert_equal -1 [string first "\x1b" $result]
+        r flushdb
+    }
+
+    test "keystats still reports statistics when a pattern matches" {
+        r set matching:key value
+        set result [keystats_output {--pattern matching:*}]
+        assert_match "*Keys sampled: 1*" $result
+        assert_match "*Keys size:*" $result
+        assert_match "*StdDeviation:*" $result
+        assert_no_match "*No keys matched*" $result
+        assert_equal -1 [string first "\x1b" $result]
+        r del matching:key
+    }
+
+    foreach interrupt {0 1} {
+        foreach resumed {0 1} {
+            test "keystats clears live no-match statistics (interrupted: $interrupt, resumed: $resumed)" {
+                # COUNT 1 and the interval ensure that a live refresh happens.
+                r debug populate 2000
+                set cursor 0
+                if {$resumed} {
+                    set cursor [lindex [r scan 0 count 1] 0]
+                    assert {$cursor != 0}
+                }
+                set result [keystats_output [list --cursor $cursor --pattern missing:* --count 1 -i 0.1] 1 $interrupt]
+
+                # The cursor must return above the live report, then the entire
+                # remaining report must be erased before the shorter final message.
+                assert {[regexp {Keys sampled: 0.*\x1b\[[0-9]+A\r.*\x1b\[0J\x1b\[2K\rNo keys matched} $result]}
+                set final [string range $result [string last "\x1b\[0J" $result] end]
+                assert_no_match "*Keys sampled:*" $final
+                assert_no_match "*Keys size:*" $final
+                assert_no_match "*--- Top*" $final
+                if {$interrupt} {
+                    assert_match "*No keys matched the specified pattern before the scan was interrupted.*" $final
+                    assert_match "*Scan interrupted:*" $final
+                    assert {[regexp {\x1b\[2K\rTo resume, rerun your original command with --cursor set to ([0-9]+)\.$} $final -> restart_cursor]}
+                    assert {$restart_cursor != 0}
+                } elseif {$resumed} {
+                    assert_match "*No keys matched the specified pattern in the scanned portion of the keyspace.*" $final
+                    assert_no_match "*Scan interrupted:*" $final
+                } else {
+                    assert_match "*No keys matched the specified pattern.*" $final
+                    assert_no_match "*Scan interrupted:*" $final
+                }
+                r flushdb
+            }
+        }
+    }
+
+    test "keystats reports interrupted no-match scans without terminal escapes" {
+        r debug populate 2000
+        set result [keystats_output {--pattern missing:* --count 1 -i 0.1} 0 1]
+        assert_match "*No keys matched the specified pattern before the scan was interrupted.*" $result
+        assert_match "*Scan interrupted:*" $result
+        assert_no_match "*Keys size:*" $result
+        assert_equal -1 [string first "\x1b" $result]
+        assert {[regexp {To resume, rerun your original command with --cursor set to ([0-9]+)\.$} $result -> cursor]}
+        assert {$cursor != 0}
+        r flushdb
+    }
+
+    test "keystats interruption without a pattern still reports statistics" {
+        r debug populate 2000
+        set result [keystats_output {--count 1 -i 0.1} 0 1]
+        assert_match "*Keys size:*" $result
+        assert_match "*Scan interrupted:*" $result
+        assert {[regexp {To resume, rerun your original command with --cursor set to ([0-9]+)\.$} $result -> cursor]}
+        assert {$cursor != 0}
+        assert_no_match "*No keys matched*" $result
+        assert_equal -1 [string first "\x1b" $result]
+        r flushdb
     }
 }
 

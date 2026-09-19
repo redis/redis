@@ -405,16 +405,27 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
+/* Erase the current terminal row and return the cursor to its beginning. */
+static void clearCurrentLine(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[2K\r");
+    }
+}
+
+/* Erase from the cursor to the end of the terminal screen without moving it. */
+static void clearToEndOfScreen(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[0J");
+    }
+}
+
 /* Erase the lines before printing, and returns the number of lines printed */
 int cleanPrintfln(char *fmt, ...) {
     va_list args;
     char buf[1024]; /* limitation */
     int char_count, line_count = 0;
 
-    /* Clear the line if in TTY */
-    if (IS_TTY_OR_FAKETTY()) {
-        printf("\033[2K\r");
-    }
+    clearCurrentLine();
 
     va_start(args, fmt);
     char_count = vsnprintf(buf, sizeof(buf), fmt, args);
@@ -11246,6 +11257,8 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     } while(force_cancel_loop == 0 && it != 0);
 
     if (config.pattern && sampled == 0) {
+        /* Clear leftover rows when replacing the live stats with a shorter message. */
+        clearToEndOfScreen();
         if (it != 0) {
             cleanPrintfln("No keys matched the specified pattern before the scan was interrupted.");
         } else if (cursor != 0) {
@@ -11270,7 +11283,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     if (it != 0) {
         cleanPrintfln("");
         cleanPrintfln("Scan interrupted:");
-        cleanPrintfln("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.", it);
+        cleanPrintfln("To resume, rerun your original command with --cursor set to %llu.", it);
     }
 
     if (memkeys_types) zfree(memkeys_types);
