@@ -2805,6 +2805,20 @@ start_server {
         assert_equal [r XRANGE mystream - +] {{1641544570597-0 {f v}} {1641544570597-1 {f v}}}
     }
 
+    test {XTRIM with MINID removes node with no live entries after XDEL} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XDEL mystream 2-0
+        r XTRIM mystream MINID = 2-0
+        assert_equal [r XLEN mystream] 0
+        # The node holding only tombstones must be removed from the rax.
+        assert_equal [dict get [r XINFO STREAM mystream] radix-tree-keys] 0
+        # The resulting state must survive an RDB save/load round-trip.
+        r DEBUG RELOAD
+        assert_equal [r XLEN mystream] 0
+    }
+
     proc insert_into_stream_key {key {count 10000}} {
         r multi
         for {set j 0} {$j < $count} {incr j} {
