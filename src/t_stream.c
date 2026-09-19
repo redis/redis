@@ -995,10 +995,16 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             }
         }
         deleted += deleted_from_lp;
-        /* If this node was originally eligible for removal but we couldn't remove it upfront
-         * due to delete strategy constraints, and now we've processed and deleted all entries
-         * in the node, we can finally remove the entire node. */
-        if (node_eligible_for_remove && deleted_from_lp == entries) {
+        /* If all the live entries in this node were deleted, remove the whole
+         * node. This happens either when the node was originally eligible for
+         * removal but we couldn't remove it upfront due to delete strategy
+         * constraints, or when the in-node trim just deleted the last live
+         * entries of a node that also holds tombstones with greater IDs (so
+         * its last ID was not < 'id'). Leaving a node with zero live entries
+         * in the rax would violate the invariant that every node holds at
+         * least one live entry, already maintained by
+         * streamIteratorRemoveEntry() for XDEL. */
+        if (deleted_from_lp == entries && (node_eligible_for_remove || deleted_from_lp > 0)) {
             s->alloc_size -= oldsize;
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
