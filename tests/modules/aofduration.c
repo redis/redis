@@ -192,13 +192,15 @@ void *run_steps_bg_worker(void *arg) {
 
     aofd_rm_run_steps(ctx, bg->argv, bg->argc );
 
+    /* Release held command arguments under the GIL, since they are shared
+     * with the client and may be accessed by the main thread. */
+    for (int i=0; i<bg->argc; i++)
+        RedisModule_FreeString(ctx, bg->argv[i]);
+
     RedisModule_ThreadSafeContextUnlock(ctx);
 
     RedisModule_UnblockClient(bg->bc, NULL);
 
-    /* Free the arguments */
-    for (int i=0; i<bg->argc; i++)
-        RedisModule_FreeString(ctx, bg->argv[i]);
     RedisModule_Free(bg->argv);
     RedisModule_Free(bg);
 
