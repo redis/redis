@@ -2813,14 +2813,6 @@ start_server {
         r XTRIM mystream MINID = 2-0
         assert {[r XLEN mystream] == 0}
         assert {[dict get [r xinfo stream mystream] radix-tree-keys] == 0}
-    }
-
-    test {XTRIM MINID that empties a node keeps the stream loadable} {
-        r DEL mystream
-        r XADD mystream 1-0 f v
-        r XADD mystream 2-0 f v
-        r XDEL mystream 2-0
-        r XTRIM mystream MINID = 2-0
         r DEBUG RELOAD
         assert {[r XLEN mystream] == 0}
         assert_equal 2-0 [dict get [r xinfo stream mystream] max-deleted-entry-id]
