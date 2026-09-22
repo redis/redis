@@ -2805,6 +2805,19 @@ start_server {
         assert_equal [r XRANGE mystream - +] {{1641544570597-0 {f v}} {1641544570597-1 {f v}}}
     }
 
+    test {XTRIM MINID frees a node left with no live entries} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XDEL mystream 2-0
+        r XTRIM mystream MINID = 2-0
+        assert {[r XLEN mystream] == 0}
+        assert {[dict get [r xinfo stream mystream] radix-tree-keys] == 0}
+        r DEBUG RELOAD
+        assert {[r XLEN mystream] == 0}
+        assert_equal 2-0 [dict get [r xinfo stream mystream] max-deleted-entry-id]
+    } {} {needs:debug}
+
     proc insert_into_stream_key {key {count 10000}} {
         r multi
         for {set j 0} {$j < $count} {incr j} {
