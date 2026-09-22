@@ -1,0 +1,52 @@
+name: Redis command compatibility (manual pilot)
+run-name: Command compatibility for redis/redis PR ${{ inputs.pr_number }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'redis/redis PR number to analyze'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  compare-command-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted checker
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - name: Validate checker
+        run: python3 -m unittest discover -s utils/command-compatibility -p 'test*redis_command_compatibility.py' -v
+
+      - name: Compare immutable command metadata
+        env:
+          OSS_PR_NUMBER: ${{ inputs.pr_number }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 utils/command-compatibility/scan_redis_command_compatibility.py
+
+      - name: Upload advisory report (including incomplete scans)
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: redis-command-compatibility-${{ github.run_id }}-${{ github.run_attempt }}
+          path: command-compatibility-report.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Make workflow failures visible
+        if: failure()
+        run: |
+          echo '## Compatibility workflow failed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Analysis or report delivery is incomplete. Check failed steps; a workflow failure is not a compatibility verdict.' >> "$GITHUB_STEP_SUMMARY"
