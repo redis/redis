@@ -428,36 +428,38 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * link - Optional link to bucket where the key should be added.
  *          On return, get updated, by need, to the inserted key.
  *          
- * keymeta - Defines metadata to be attached to the key. Including optional 
- *           expiration and modules metadata to be copied (REQUIRED).
+ * spec - Defines attributes and metadata of the new key, including NO-EVICT,
+ *           optional expiration and module metadata (REQUIRED).
  */
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, 
-                     const KeyMetaSpec *keymeta) 
+                     const kvSpec *spec)
 {
     int slot = getKeySlot(key->ptr);
     dictEntryLink tmp = NULL;
     if (link == NULL) link = &tmp;
     robj *val = *valref;
-    kvobj *kv = kvobjSet(key->ptr, val, keymeta->metabits);
+    kvobj *kv = kvobjSet(key->ptr, val, spec->metabits);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
     
     /* Handle metadata (expiration and modules metadata) */
-    if (keymeta->metabits) {
-        if (keymeta->metabits & KEY_META_MASK_EXPIRE) {
+    if (spec->metabits) {
+        if (spec->metabits & KEY_META_MASK_EXPIRE) {
             /* Expiry is always the first meta (from last) */
-            long long expire = keymeta->meta[KEY_META_ID_MAX - 1];
+            long long expire = spec->meta[KEY_META_ID_MAX - 1];
             kvobj *newkv = setExpireByLink(NULL, db, key->ptr, expire, *link);
             serverAssert(newkv == kv);
         }
         
         /* memcpy modules metadata to beginning of kvobj */
-        if (keymeta->metabits & KEY_META_MASK_MODULES)
+        if (spec->metabits & KEY_META_MASK_MODULES)
             /* Also trivial overwrite expire */
             memcpy(kvobjGetAllocPtr(kv), 
-                   keymeta->meta + KEY_META_ID_MAX - keymeta->numMeta, 
-                   keymeta->numMeta * sizeof(uint64_t));
+                   spec->meta + KEY_META_ID_MAX - spec->numMeta,
+                   spec->numMeta * sizeof(uint64_t));
     }
+
+    if (spec->no_evict) blessSetNoEvict(db, kv, 1);
 
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
@@ -470,15 +472,15 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 
 /* Read dbAddInternal() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    KeyMetaSpec keyMetaEmpty; /* No metadata added */
-    keyMetaSpecInit(&keyMetaEmpty);
-    return dbAddInternal(db, key, valref, NULL, &keyMetaEmpty);
+    kvSpec specEmpty; /* No metadata added */
+    kvSpecInit(&specEmpty);
+    return dbAddInternal(db, key, valref, NULL, &specEmpty);
 }
 
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
-    KeyMetaSpec keyMetaEmpty; /* No metadata added */
-    keyMetaSpecInit(&keyMetaEmpty);
-    return dbAddInternal(db, key, valref, link, &keyMetaEmpty);
+    kvSpec specEmpty; /* No metadata added */
+    kvSpecInit(&specEmpty);
+    return dbAddInternal(db, key, valref, link, &specEmpty);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -533,7 +535,7 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
  *
  * If added to db, returns pointer to the object, Otherwise NULL is returned.
  */
-kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec) {
+kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const kvSpec *spec) {
     /* Add new kvobj to the db. */
     int slot = getKeySlot(key);
 
@@ -544,27 +546,29 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
     if (link != NULL)
         return NULL;
 
-    /* Create kvobj with metadata bits from KeyMetaSpec */
+    /* Create kvobj with metadata bits from kvSpec */
     robj *val = *valref;
-    kvobj *kv = kvobjSet(key, val, keyMetaSpec->metabits);
+    kvobj *kv = kvobjSet(key, val, spec->metabits);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
     /* Handle metadata (expiration and modules metadata) */
-    if (keyMetaSpec->metabits) {
-        if (keyMetaSpec->metabits & KEY_META_MASK_EXPIRE) {
+    if (spec->metabits) {
+        if (spec->metabits & KEY_META_MASK_EXPIRE) {
             /* Expiry is always the first meta (from last) */
-            long long expire = keyMetaSpec->meta[KEY_META_ID_MAX - 1];
+            long long expire = spec->meta[KEY_META_ID_MAX - 1];
             kvobj *newkv = setExpireByLink(NULL, db, key, expire, bucket);
             serverAssert(newkv == kv);
         }
 
         /* memcpy modules metadata to beginning of kvobj */
-        if (keyMetaSpec->metabits & KEY_META_MASK_MODULES)
+        if (spec->metabits & KEY_META_MASK_MODULES)
             memcpy(kvobjGetAllocPtr(kv),
-                   keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
-                   keyMetaSpec->numMeta * sizeof(uint64_t));
+                   spec->meta + KEY_META_ID_MAX - spec->numMeta,
+                   spec->numMeta * sizeof(uint64_t));
     }
+
+    if (spec->no_evict) blessSetNoEvict(db, kv, 1);
 
     updateKeysizesHist(db, kv->type, -1, (int64_t) getObjectLength(kv));
     if (server.memory_tracking_enabled)
@@ -623,7 +627,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         newKeyMetaBits &= ~KEY_META_MASK_EXPIRE; 
 
     if (overwrite) {
-        /* On overwrite, discard module metadata excluding expire if set */
+        /* On overwrite, discard module metadata. */
         newKeyMetaBits &= KEY_META_MASK_EXPIRE;
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
@@ -672,6 +676,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         val->lru = old->lru;
         
         kvNew = kvobjSet(key->ptr, val, newKeyMetaBits);
+        kvobjBits(kvNew)->no_evict = kvobjBits(old)->no_evict;
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* if expiry replace the old value at its location in the expire space. */
@@ -892,6 +897,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
         incrRefCount(kv); /* refcnt=1->2 */
+        if (blessIsNoEvict(kv)) blessSetNoEvict(db, kv, 0);
         /* Metadata hook: notify unlink for key metadata cleanup. */
         if (getModuleMetaBits(kv->metabits)) keyMetaOnUnlink(db, key, kv);
         /* Tells the module that the key has been unlinked from the database. */
@@ -1021,6 +1027,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
     for (int j = startdb; j <= enddb; j++) {
         removed += kvstoreSize(dbarray[j].keys);
         if (async) {
+            /* emptyDbAsync also swaps blessed_keys and frees the old one on BIO. */
             emptyDbAsync(&dbarray[j]);
         } else {
             /* Destroy sub-expires before deleting the kv-objects since ebuckets
@@ -1029,6 +1036,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
             dictEmpty(dbarray[j].stream_idmp_keys, callback);
+            kvstoreEmpty(dbarray[j].blessed_keys, NULL);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -1122,6 +1130,7 @@ redisDb *initTempDb(void) {
                                        flags);
         tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                           slot_count_bits, flags);
+        tempDb[i].blessed_keys = blessedKvstoreCreate(slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         tempDb[i].stream_idmp_keys = dictCreate(&objectKeyNoValueDictType);
     }
@@ -1141,6 +1150,7 @@ void discardTempDb(redisDb *tempDb) {
         estoreRelease(tempDb[i].subexpires);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
+        kvstoreRelease(tempDb[i].blessed_keys);
         dictRelease(tempDb[i].stream_idmp_keys);
     }
 
@@ -2284,13 +2294,14 @@ void renameGenericCommand(client *c, int nx) {
         minHashExpireTime = estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
 
     /* Prepare metadata for the renamed key */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
-    if (o->metabits) keyMetaOnRename(c->db, o, c->argv[1], c->argv[2], &keymeta);
+    kvSpec spec;
+    kvSpecInit(&spec);
+    if (o->metabits) keyMetaOnRename(c->db, o, c->argv[1], c->argv[2], &spec);
 
+    spec.no_evict = blessIsNoEvict(o);
     dbDelete(c->db,c->argv[1]);
     
-    dbAddInternal(c->db, c->argv[2], &o, NULL, &keymeta);
+    dbAddInternal(c->db, c->argv[2], &o, NULL, &spec);
 
     /* If hash with HFEs, register in DB subexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
@@ -2379,14 +2390,15 @@ void moveCommand(client *c) {
         hashExpireTime = estoreRemove(src->subexpires, slot, kv);
 
     /* Move a side metadata before dbDelete() */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
-    keyMetaOnMove(kv, c->argv[1], srcid, dbid, &keymeta);
+    kvSpec spec;
+    kvSpecInit(&spec);
+    keyMetaOnMove(kv, c->argv[1], srcid, dbid, &spec);
 
+    spec.no_evict = blessIsNoEvict(kv);
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
-    dbAddInternal(dst, c->argv[1], &kv, &dstBucket, &keymeta);
+    dbAddInternal(dst, c->argv[1], &kv, &dstBucket, &spec);
 
     /* If object of type hash with expiration on fields. Taken care to add the
      * hash to subexpires of `dst` only after dbDelete(). */
@@ -2509,11 +2521,12 @@ void copyCommand(client *c) {
     }
 
     /* Prepare metadata for the new key */
-    KeyMetaSpec keymeta;
-    keyMetaSpecInit(&keymeta);
-    if (o->metabits) keyMetaOnCopy(o, key, newkey, c->db->id, dst->id, &keymeta);
+    kvSpec spec;
+    kvSpecInit(&spec);
+    if (o->metabits) keyMetaOnCopy(o, key, newkey, c->db->id, dst->id, &spec);
 
-    kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, &keymeta);
+    spec.no_evict = blessIsNoEvict(o);
+    kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, &spec);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
@@ -2623,6 +2636,7 @@ int dbSwapDatabases(int id1, int id2) {
      * remain in the same DB they were. */
     db1->keys = db2->keys;
     db1->expires = db2->expires;
+    db1->blessed_keys = db2->blessed_keys;
     db1->subexpires = db2->subexpires;
     db1->stream_idmp_keys = db2->stream_idmp_keys;
     db1->avg_ttl = db2->avg_ttl;
@@ -2630,6 +2644,7 @@ int dbSwapDatabases(int id1, int id2) {
 
     db2->keys = aux.keys;
     db2->expires = aux.expires;
+    db2->blessed_keys = aux.blessed_keys;
     db2->subexpires = aux.subexpires;
     db2->stream_idmp_keys = aux.stream_idmp_keys;
     db2->avg_ttl = aux.avg_ttl;
@@ -2669,6 +2684,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
+        activedb->blessed_keys = newdb->blessed_keys;
         activedb->subexpires = newdb->subexpires;
         activedb->stream_idmp_keys = newdb->stream_idmp_keys;
         activedb->avg_ttl = newdb->avg_ttl;
@@ -2676,6 +2692,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
+        newdb->blessed_keys = aux.blessed_keys;
         newdb->subexpires = aux.subexpires;
         newdb->stream_idmp_keys = aux.stream_idmp_keys;
         newdb->avg_ttl = aux.avg_ttl;

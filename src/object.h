@@ -121,13 +121,13 @@ typedef struct redisObject robj;
 typedef struct redisObject kvobj;
 
 /* Whenever an robj serves as a kvobj base (iskvobj=1), a single byte of extra
- * bits is allocated right after it, before the embedded key. Only 2 bits are
- * used for now, the remaining 6 are free for future use. */
+ * bits is allocated right after it, before the embedded key. */
 typedef struct __attribute__ ((__packed__)) kvBits {
     /* SDS header type of the embedded key: SDS_TYPE_5/8/16 or 32 (values 0..3). 
      * Keys are never longer than 4GB, so SDS_TYPE_64 is not needed. */
     unsigned key_sds_type : 2;
-    unsigned unused : 6;       /* Free bits. Available for future use. */
+    unsigned no_evict : 1;    /* Protected from maxmemory eviction. */
+    unsigned unused : 5;       /* Free bits. Available for future use. */
 } kvBits;
 
 /* Returns the kvBits that follow the robj. Valid only if kv->iskvobj is set.
