@@ -10274,7 +10274,9 @@ void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *sl
  * not used.
  * -------------------------------------------------------------------------- */
 
-static rax *Timers;     /* The radix tree of all the timers sorted by expire. */
+/* The radix tree of all timers, sorted by their monotonic expiration time in
+ * microseconds. The encoded expiration time is also returned as the timer ID. */
+static rax *Timers;
 long long aeTimer = -1; /* Main event loop (ae.c) timer identifier. */
 
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);

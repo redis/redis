@@ -319,9 +319,8 @@ This flag should not be used directly by the module.
 #define REDISMODULE_BLOCK_UNBLOCK_DELETED (1<<0)
 
 /* This type represents a timer handle, and is returned when a timer is
- * registered and used in order to invalidate a timer. It's just a 64 bit
- * number, because this is how each timer is represented inside the radix tree
- * of timers that are going to expire, sorted by expire time. */
+ * registered and used in order to invalidate a timer. It is a 64 bit number
+ * derived from the timer's expiration time on the monotonic clock. */
 typedef uint64_t RedisModuleTimerID;
 
 /* CommandFilter Flags */
