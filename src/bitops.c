@@ -861,8 +861,8 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
  * to, only when bitmap-default-roaring is enabled and never while obeying a
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state instead of being re-derived from node-local
- * configuration. BITCONVERT carries write transitions, including the explicit
- * conversion that follows BITOP when configuration selected a native result. */
+ * configuration. BITCONVERT carries in-place write transitions, while
+ * BITOP_ROARING carries BITOP's selection of a native result. */
 static int bitroarDefaultEnabled(client *c) {
     return server.bitmap_default_roaring && !mustObeyClient(c);
 }
@@ -1477,31 +1477,26 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
 }
 #endif /* HAVE_AVX512 */
 
-/* Queue the historical BITOP command followed by an explicit conversion of its
- * destination. The primary computes the native result directly, while replicas
- * and AOF replay first reproduce BITOP's logical string result and then convert
- * it without consulting their local bitmap-default-roaring setting.
- *
- * Queue the pair before local notifications, so alsoPropagate() applies the
- * same target restrictions to both commands and callback-propagated writes
- * follow them. Multiple pending operations are emitted transactionally by
- * propagatePendingCommands(). */
-static void bitroarPropagateBitopAndConvert(client *c) {
-    robj *argv[2];
+/* Replay the native store directly. BITOP followed by BITCONVERT would expose
+ * a transient string and emit different type-change and set notifications.
+ * Queue the operation before callbacks, with alsoPropagate() applying the
+ * caller's AOF/replication target restrictions. */
+static void bitroarPropagateBitopRoaring(client *c) {
+    robj **argv = zmalloc(sizeof(*argv) * c->argc);
+    memcpy(argv, c->argv, sizeof(*argv) * c->argc);
+    argv[0] = createStringObject("BITOP_ROARING", 13);
 
-    alsoPropagate(c->db->id, c->argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL);
-    argv[0] = createStringObject("BITCONVERT", 10);
-    argv[1] = c->argv[2];
-    alsoPropagate(c->db->id, argv, 2, PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(c->db->id, argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL);
     preventCommandPropagation(c);
     decrRefCount(argv[0]);
+    zfree(argv);
 }
 
 /* BITOP whose result is a Roaring bitmap. Sources come from
- * bitopCommand()'s lookup loop through objects[]. */
+ * bitopCommandGeneric()'s lookup loop through objects[]. */
 static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
                                robj **objects, unsigned long numkeys,
-                               uint64_t maxlen, int propagate_conversion)
+                               uint64_t maxlen, int propagate_forced)
 {
     robj *res_bitmap = NULL;
 
@@ -1527,18 +1522,15 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     /* Store the computed value into the target key. Queue propagation before
      * notifications on every native path. */
     if (maxlen) {
-        if (propagate_conversion)
-            bitroarPropagateBitopAndConvert(c);
+        if (propagate_forced)
+            bitroarPropagateBitopRoaring(c);
         else
             bitroarPropagateCurrentCommand(c);
         setKey(c, c->db, targetkey, &res_bitmap, 0);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_BITMAP,"set",targetkey,c->db->id);
     } else if (lookupKeyWrite(c->db, targetkey) != NULL) {
-        if (propagate_conversion)
-            bitroarPropagateBitopAndConvert(c);
-        else
-            bitroarPropagateCurrentCommand(c);
+        bitroarPropagateCurrentCommand(c);
         serverAssert(dbDelete(c->db,targetkey));
         keyModified(c,c->db,targetkey,NULL,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",targetkey,c->db->id);
@@ -1550,7 +1542,7 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
-void bitopCommand(client *c) {
+static void bitopCommandGeneric(client *c, int force_roaring) {
     char *opname = c->argv[1]->ptr;
     robj *targetkey = c->argv[2];
     bitroarOp op;
@@ -1643,12 +1635,14 @@ void bitopCommand(client *c) {
         if (j == 0 || len[j] < minlen) minlen = len[j];
     }
 
-    /* Roaring bitmap sources or a destination selected by
-     * bitmap-default-roaring take the dedicated path. A config-only decision
-     * is propagated as ordinary BITOP followed by BITCONVERT. */
-    int mode_forced = maxlen && !has_roaring_bitmap && bitroarDefaultEnabled(c);
+    /* Native sources determine the representation from replicated state.
+     * Config-selected results use BITOP_ROARING to preserve the native store
+     * and its callbacks regardless of the replaying node's configuration. */
+    int mode_forced = maxlen && !has_roaring_bitmap &&
+                      (force_roaring || bitroarDefaultEnabled(c));
     if (has_roaring_bitmap || mode_forced) {
-        bitopCommandBitmap(c, op, targetkey, objects, numkeys, maxlen, mode_forced);
+        bitopCommandBitmap(c, op, targetkey, objects, numkeys, maxlen,
+                           mode_forced && !force_roaring);
         for (j = 0; j < numkeys; j++) {
             /* Borrowed Roaring operands may be freed by now: storing the
              * result overwrites (or deletes) the target key, which can be
@@ -1975,6 +1969,14 @@ void bitopCommand(client *c) {
         server.dirty++;
     }
     addReplyLongLong(c,(long long)maxlen); /* Return the output string length in bytes. */
+}
+
+void bitopCommand(client *c) {
+    bitopCommandGeneric(c, 0);
+}
+
+void bitopRoaringCommand(client *c) {
+    bitopCommandGeneric(c, 1);
 }
 
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
