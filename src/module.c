@@ -8432,8 +8432,8 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
 
     mstime_t timeout = 0;
     if (timeout_ms) {
-        mstime_t now = getMonotonicUs() / 1000;
-        if (timeout_ms > LLONG_MAX - now) {
+        uint64_t now = getMonotonicUs() / 1000;
+        if (timeout_ms > LLONG_MAX - (long long) now) {
             c->bstate.module_blocked_handle = NULL;
             addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
             return bc;
