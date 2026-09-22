@@ -7,7 +7,9 @@
         "arity": -4,
         "container": "BLESS",
         "function": "blessCommand",
-        "command_flags": [],
+        "command_flags": [
+            "READONLY"
+        ],
         "command_tips": [
             "NONDETERMINISTIC_OUTPUT",
             "REQUEST_POLICY:SPECIAL",

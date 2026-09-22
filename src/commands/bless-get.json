@@ -8,6 +8,7 @@
         "container": "BLESS",
         "function": "blessCommand",
         "command_flags": [
+            "READONLY",
             "FAST"
         ],
         "acl_categories": [

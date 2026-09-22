@@ -18,6 +18,20 @@ start_server {tags {"bless"}} {
         assert_equal 1 [llength [lindex [r bless scan 0 no-evict] 1]]
     }
 
+    test {BLESS GET and SCAN are marked readonly; SET and CLEAR are not} {
+        foreach cmd {BLESS|GET BLESS|SCAN} {
+            set info [lindex [r command info $cmd] 0]
+            assert_match {*readonly*} [lindex $info 2]
+        }
+        foreach cmd {BLESS|SET BLESS|CLEAR} {
+            set info [lindex [r command info $cmd] 0]
+            assert_no_match {*readonly*} [lindex $info 2]
+        }
+        # readonly implies the @read ACL category, which these commands must be in
+        assert_match {*bless|get*} [r acl cat read]
+        assert_match {*bless|scan*} [r acl cat read]
+    }
+
     test {BLESS SET/GET/CLEAR on a missing key errors} {
         r flushall
         assert_error {*no such key*} {r bless set nope no-evict}
