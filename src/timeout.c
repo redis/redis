@@ -17,7 +17,7 @@
 /* Check if this blocked client timedout (does nothing if the client is
  * not blocked right now). If so send a reply, unblock it, and return 1.
  * Otherwise 0 is returned and no operation is performed. */
-int checkBlockedClientTimeout(client *c, mstime_t now) {
+int checkBlockedClientTimeout(client *c, uint64_t now) {
     if (c->flags & CLIENT_BLOCKED &&
         c->bstate.timeout != 0
         && c->bstate.timeout < now)
@@ -143,7 +143,7 @@ void handleBlockedClientsTimeout(void) {
  * Note that if the timeout is zero (usually from the point of view of
  * commands API this means no timeout) the value stored into 'timeout'
  * is zero. */
-static int getTimeoutFromObjectOrReplyInternal(client *c, robj *object, mstime_t *timeout, int unit, mstime_t now) {
+static int getTimeoutFromObjectOrReplyInternal(client *c, robj *object, long long *timeout, int unit, long long now) {
     long long tval;
     long double ftval;
 
@@ -185,6 +185,10 @@ int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int 
     return getTimeoutFromObjectOrReplyInternal(c, object, timeout, unit, commandTimeSnapshot());
 }
 
-int getMonotonicTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit) {
-    return getTimeoutFromObjectOrReplyInternal(c, object, timeout, unit, getMonotonicUs() / 1000);
+int getMonotonicTimeoutFromObjectOrReply(client *c, robj *object, uint64_t *timeout, int unit) {
+    long long monotonic_timeout;
+    int result = getTimeoutFromObjectOrReplyInternal(c, object, &monotonic_timeout,
+                                                     unit, getMonotonicUs() / 1000);
+    if (result == C_OK) *timeout = monotonic_timeout;
+    return result;
 }

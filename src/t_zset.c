@@ -4416,10 +4416,10 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
                                 int timeout_idx, long count, int use_nested_array, int reply_nil_when_empty) {
     robj *o;
     robj *key;
-    mstime_t timeout;
+    uint64_t timeout;
     int j;
 
-    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[timeout_idx], &timeout,UNIT_SECONDS) != C_OK)
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[timeout_idx], &timeout, UNIT_SECONDS) != C_OK)
         return;
 
     for (j = 0; j < numkeys; j++) {

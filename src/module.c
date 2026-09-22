@@ -8430,7 +8430,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->background_timer = 0;
     bc->background_duration = 0;
 
-    mstime_t timeout = 0;
+    uint64_t timeout = 0;
     if (timeout_ms) {
         uint64_t now = getMonotonicUs() / 1000;
         if (timeout_ms > LLONG_MAX - (long long) now) {

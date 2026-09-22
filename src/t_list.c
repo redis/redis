@@ -1306,10 +1306,10 @@ void rpoplpushCommand(client *c) {
 void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, int timeout_idx, long count) {
     robj *o;
     robj *key;
-    mstime_t timeout;
+    uint64_t timeout;
     int j;
 
-    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[timeout_idx], &timeout,UNIT_SECONDS) != C_OK)
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[timeout_idx], &timeout, UNIT_SECONDS) != C_OK)
         return;
 
     /* Traverse all input keys, we take action only based on one key. */
@@ -1381,7 +1381,7 @@ void brpopCommand(client *c) {
     blockingPopGenericCommand(c,c->argv+1,c->argc-2,LIST_TAIL,c->argc-1,-1);
 }
 
-void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout) {
+void blmoveGenericCommand(client *c, int wherefrom, int whereto, uint64_t timeout) {
     robj *key = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c,key,OBJ_LIST)) return;
 
@@ -1404,21 +1404,21 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
 
 /* BLMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) <timeout> */
 void blmoveCommand(client *c) {
-    mstime_t timeout;
+    uint64_t timeout;
     int wherefrom, whereto;
     if (getListPositionFromObjectOrReply(c,c->argv[3],&wherefrom)
         != C_OK) return;
     if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
         != C_OK) return;
-    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[5], &timeout,UNIT_SECONDS) != C_OK)
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[5], &timeout, UNIT_SECONDS) != C_OK)
         return;
     blmoveGenericCommand(c,wherefrom,whereto,timeout);
 }
 
 /* BRPOPLPUSH <source> <destination> <timeout> */
 void brpoplpushCommand(client *c) {
-    mstime_t timeout;
-    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[3], &timeout,UNIT_SECONDS) != C_OK)
+    uint64_t timeout;
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[3], &timeout, UNIT_SECONDS) != C_OK)
         return;
     blmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, timeout);
 }
@@ -1705,7 +1705,7 @@ void lmovemCommand(client *c) {
     lmovemGenericCommand(c, wherefrom, whereto, mode, count, ordering);
 }
 
-void blmovemGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeout,
+void blmovemGenericCommand(client *c, int wherefrom, int whereto, uint64_t timeout,
                            int mode, long count, int ordering)
 {
     kvobj *srcobj = lookupKeyWrite(c->db, c->argv[1]);
@@ -1745,7 +1745,7 @@ void blmovemGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeo
 void blmovemCommand(client *c) {
     int wherefrom, whereto, mode, ordering;
     long count;
-    mstime_t timeout;
+    uint64_t timeout;
     if (getListPositionFromObjectOrReply(c, c->argv[3], &wherefrom) != C_OK) return;
     if (getListPositionFromObjectOrReply(c, c->argv[4], &whereto) != C_OK) return;
     if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[5], &timeout, UNIT_SECONDS) != C_OK)
