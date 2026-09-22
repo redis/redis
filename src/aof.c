@@ -1819,7 +1819,6 @@ int loadSingleAppendOnlyFile(char *filename) {
     int old_aof_state = server.aof_state;
     long loops = 0;
     long long start = ustime();
-    off_t read_ahead_pos = 0;
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
@@ -1908,9 +1907,6 @@ int loadSingleAppendOnlyFile(char *filename) {
         char buf[AOF_ANNOTATION_LINE_MAX_LEN];
         sds argsds;
         struct redisCommand *cmd;
-
-        /* Keep the kernel reading the file ahead of us. */
-        if (!(loops % 64)) fileReadAhead(fileno(fp), ftello(fp), &read_ahead_pos);
 
         /* Serve the clients from time to time */
         if (!(loops++ % 1024)) {

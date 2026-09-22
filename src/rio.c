@@ -188,12 +188,6 @@ void rioInitWithFile(rio *r, FILE *fp) {
     r->io.file.buffered = 0;
     r->io.file.autosync = 0;
     r->io.file.reclaim_cache = 0;
-    r->io.file.read_ahead_pos = 0;
-}
-
-/* Ask the kernel to read the file ahead of 'pos', see fileReadAhead(). */
-void rioFileReadAhead(rio *r, off_t pos) {
-    fileReadAhead(fileno(r->io.file.fp), pos, &r->io.file.read_ahead_pos);
 }
 
 /* ------------------- Connection implementation -------------------

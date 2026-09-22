@@ -67,7 +67,6 @@ struct _rio {
             off_t buffered; /* Bytes written since last fsync. */
             off_t autosync; /* fsync after 'autosync' bytes written. */
             unsigned reclaim_cache:1; /* A flag to indicate reclaim cache after fsync */
-            off_t read_ahead_pos; /* Next offset to ask the kernel to read ahead, see fileReadAhead(). */
         } file;
         /* Connection object (used to read from socket) */
         struct {
@@ -166,7 +165,6 @@ static inline void rioClearErrors(rio *r) {
 }
 
 void rioInitWithFile(rio *r, FILE *fp);
-void rioFileReadAhead(rio *r, off_t pos);
 void rioInitWithBuffer(rio *r, sds s);
 void rioInitWithConn(rio *r, connection *conn, size_t read_limit);
 void rioInitWithFd(rio *r, int fd);

@@ -1326,32 +1326,6 @@ int fsyncFileDir(const char *filename) {
     return 0;
 }
 
-#define FILE_READ_AHEAD_DISTANCE (4*1024*1024)
-#define FILE_READ_AHEAD_CHUNK (256*1024)
-
-/* Ask the kernel to read the file a few MB ahead of our current position 'pos',
- * so that a sequential load from a disk with some latency is not bounded by
- * the kernel's read-ahead window. On Linux that window is a per-device setting
- * (/sys/block/<dev>/queue/read_ahead_kb, 128 KB by default) and
- * POSIX_FADV_SEQUENTIAL doubles it for the file, to 256 KB. The kernel
- * truncates a single request to the window but accepts any number of them, so
- * the range is requested in 256 KB pieces: this relies on the caller having set
- * POSIX_FADV_SEQUENTIAL on the file. 'read_ahead_pos' is the next offset to
- * request, start it at 0. */
-void fileReadAhead(int fd, off_t pos, off_t *read_ahead_pos) {
-#ifdef HAVE_FADVISE
-    if (*read_ahead_pos < pos) *read_ahead_pos = pos; /* Skip what has been read already. */
-    while (*read_ahead_pos < pos + FILE_READ_AHEAD_DISTANCE) {
-        posix_fadvise(fd, *read_ahead_pos, FILE_READ_AHEAD_CHUNK, POSIX_FADV_WILLNEED);
-        *read_ahead_pos += FILE_READ_AHEAD_CHUNK;
-    }
-#else
-    UNUSED(fd);
-    UNUSED(pos);
-    UNUSED(read_ahead_pos);
-#endif
-}
-
  /* free OS pages backed by file */
 int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 #ifdef HAVE_FADVISE
