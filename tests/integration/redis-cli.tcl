@@ -1038,22 +1038,22 @@ start_server {tags {"cli external:skip"}} {
 
                 # The cursor must return above the live report, then the entire
                 # remaining report must be erased before the shorter final message.
-                assert {[regexp {Keys sampled: 0.*\x1b\[[0-9]+A\r.*\x1b\[0J\x1b\[2K\rNo keys matched} $result]}
+                assert {[regexp {Keys sampled: 0.*\x1b\[[0-9]+A\r.*\x1b\[0J\x1b\[2K\r(No keys matched|Scan interrupted: no keys matched)} $result]}
                 set final [string range $result [string last "\x1b\[0J" $result] end]
                 assert_no_match "*Keys sampled:*" $final
                 assert_no_match "*Keys size:*" $final
                 assert_no_match "*--- Top*" $final
                 if {$interrupt} {
-                    assert_match "*No keys matched the specified pattern before the scan was interrupted.*" $final
-                    assert_match "*Scan interrupted:*" $final
+                    assert_match "*Scan interrupted: no keys matched the specified pattern in the scanned portion.*" $final
+                    assert_equal 1 [regexp -all {interrupted} $final]
                     assert {[regexp {\x1b\[2K\rTo resume, rerun your original command with --cursor set to ([0-9]+)\.$} $final -> restart_cursor]}
                     assert {$restart_cursor != 0}
                 } elseif {$resumed} {
                     assert_match "*No keys matched the specified pattern in the scanned portion of the keyspace.*" $final
-                    assert_no_match "*Scan interrupted:*" $final
+                    assert_no_match "*Scan interrupted*" $final
                 } else {
                     assert_match "*No keys matched the specified pattern.*" $final
-                    assert_no_match "*Scan interrupted:*" $final
+                    assert_no_match "*Scan interrupted*" $final
                 }
                 r flushdb
             }
@@ -1063,8 +1063,8 @@ start_server {tags {"cli external:skip"}} {
     test "keystats reports interrupted no-match scans without terminal escapes" {
         r debug populate 2000
         set result [keystats_output {--pattern missing:* --count 1 -i 0.1} 0 1]
-        assert_match "*No keys matched the specified pattern before the scan was interrupted.*" $result
-        assert_match "*Scan interrupted:*" $result
+        assert_match "*Scan interrupted: no keys matched the specified pattern in the scanned portion.\nTo resume,*" $result
+        assert_equal 1 [regexp -all {interrupted} $result]
         assert_no_match "*Keys size:*" $result
         assert_equal -1 [string first "\x1b" $result]
         assert {[regexp {To resume, rerun your original command with --cursor set to ([0-9]+)\.$} $result -> cursor]}
@@ -1072,16 +1072,20 @@ start_server {tags {"cli external:skip"}} {
         r flushdb
     }
 
-    test "keystats interruption without a pattern still reports statistics" {
-        r debug populate 2000
-        set result [keystats_output {--count 1 -i 0.1} 0 1]
-        assert_match "*Keys size:*" $result
-        assert_match "*Scan interrupted:*" $result
-        assert {[regexp {To resume, rerun your original command with --cursor set to ([0-9]+)\.$} $result -> cursor]}
-        assert {$cursor != 0}
-        assert_no_match "*No keys matched*" $result
-        assert_equal -1 [string first "\x1b" $result]
-        r flushdb
+    foreach options {{} {--pattern *}} {
+        test "keystats interruption with sampled keys still reports statistics (options: $options)" {
+            r debug populate 2000
+            set result [keystats_output [list {*}$options --count 1 -i 0.1] 0 1]
+            assert {[regexp {Keys sampled: [1-9][0-9]*} $result]}
+            assert_match "*Keys size:*" $result
+            assert_match "*Scan interrupted.\nTo resume,*" $result
+            assert_equal 1 [regexp -all {interrupted} $result]
+            assert {[regexp {To resume, rerun your original command with --cursor set to ([0-9]+)\.$} $result -> cursor]}
+            assert {$cursor != 0}
+            assert {![regexp -nocase {no keys matched} $result]}
+            assert_equal -1 [string first "\x1b" $result]
+            r flushdb
+        }
     }
 }
 

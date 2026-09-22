@@ -11269,22 +11269,22 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         freeReplyObject(reply);
     } while(force_cancel_loop == 0 && it != 0);
 
-    if (config.pattern && sampled == 0) {
+    /* With a pattern, an empty sample means nothing matched: replace the empty
+     * report with an explanation. Without a pattern, keep the report even when
+     * nothing was sampled (keys expired or deleted mid-scan, or an empty
+     * resumed portion of the keyspace). */
+    int no_match = config.pattern && sampled == 0;
+
+    if (no_match) {
         /* Clear leftover rows when replacing the live stats with a shorter message. */
         clearToEndOfScreen();
-        if (it != 0) {
-            cleanPrintfln("No keys matched the specified pattern before the scan was interrupted.");
-        } else if (cursor != 0) {
-            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
-        } else {
-            cleanPrintfln("No keys matched the specified pattern.");
-        }
     } else {
         displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
                         top_sizes_limit, 0);
 
-        /* Additional data at the end of the SCAN loop.
-         * Using cleanPrintfln in case we want to print during the SCAN loop. */
+        /* Additional data, only printed once the SCAN loop is done. It lands
+         * below the live report, so it needs no clearing; cleanPrintfln keeps
+         * it ready to be added to the live refresh. */
         cleanPrintfln("");
         displayKeyStatsSizeDist(keysize_histogram);
         cleanPrintfln("");
@@ -11293,9 +11293,21 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
     }
 
-    if (it != 0) {
+    /* Closing message: why the result is empty, or that the scan was interrupted. */
+    if (no_match) {
+        if (it != 0) {
+            cleanPrintfln("Scan interrupted: no keys matched the specified pattern in the scanned portion.");
+        } else if (cursor != 0) {
+            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
+        } else {
+            cleanPrintfln("No keys matched the specified pattern.");
+        }
+    } else if (it != 0) {
         cleanPrintfln("");
-        cleanPrintfln("Scan interrupted:");
+        cleanPrintfln("Scan interrupted.");
+    }
+
+    if (it != 0) {
         cleanPrintfln("To resume, rerun your original command with --cursor set to %llu.", it);
     }
 
