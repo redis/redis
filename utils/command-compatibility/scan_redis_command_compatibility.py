@@ -20,9 +20,15 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 # Run as `python3 utils/command-compatibility/scan_redis_command_compatibility.py` or import
 # from this directory (as unittest discovery does). This is not a package.
-from check_redis_command_compatibility import FindingLimitError, compare_commands, normalize_snapshot
+from check_redis_command_compatibility import (
+    DEFAULT_MAX_WORK,
+    FindingLimitError,
+    WorkLimitError,
+    compare_commands,
+    normalize_snapshot,
+)
 
-CHECKER_VERSION = "1.4.0-manual-pilot"
+CHECKER_VERSION = "1.5.0-manual-pilot"
 REPOSITORY = "redis/redis"
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_EXPANDED_BYTES = 256 * 1024 * 1024
@@ -30,10 +36,12 @@ MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_METADATA_BYTES = 32 * 1024 * 1024
 MAX_FILES = 4096
 MAX_FINDINGS = 1000
+MAX_WORK = DEFAULT_MAX_WORK
 MAX_REPORT_BYTES = 16 * 1024 * 1024
 # Reserve half the report budget for inventories and other report metadata.
 MAX_FINDING_BYTES = MAX_REPORT_BYTES // 2
 MAX_SUMMARY_BYTES = 900 * 1024  # Leave room below GitHub's 1 MiB step-summary limit.
+Snapshot = tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, str]]]
 
 
 class ScanError(Exception):
@@ -138,7 +146,7 @@ class GitHub:
             raise ScanError("api", "GitHub returned an unexpected response shape")
         return result
 
-    def snapshot(self, revision: str, repository: str = REPOSITORY) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    def snapshot(self, revision: str, repository: str = REPOSITORY) -> Snapshot:
         # Codeload is public: the GitHub token is sent only to api.github.com.
         repository = repository_name(repository)
         revision = sha(revision)
@@ -151,9 +159,7 @@ class GitHub:
         return read_snapshot(data, revision, repository)
 
 
-def read_snapshot(
-    data: bytes, revision: str, repository: str = REPOSITORY
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def read_snapshot(data: bytes, revision: str, repository: str = REPOSITORY) -> Snapshot:
     """Stream regular command JSON members. Never extract an archive to disk."""
     files: dict[str, Any] = {}
     manifest: list[dict[str, Any]] = []
@@ -206,12 +212,21 @@ def read_snapshot(
                 pass
         if not files:
             raise ValueError("Snapshot has no src/commands/*.json files")
-        commands = normalize_snapshot(files)
-        if not commands:
+        unanalyzable: list[dict[str, str]] = []
+        commands = normalize_snapshot(files, unanalyzable=unanalyzable)
+        if not commands and not unanalyzable:
             raise ValueError("Snapshot has no command definitions")
     except (OSError, EOFError, tarfile.TarError, ValueError, UnicodeError, RecursionError) as error:
         raise ScanError("scanner", f"Invalid command snapshot {repository} at {revision}: {error}") from error
-    return commands, sorted(manifest, key=lambda item: item["path"])
+    return commands, sorted(manifest, key=lambda item: item["path"]), unanalyzable
+
+
+def unavailable_revision(error: ScanError) -> ScanError:
+    # Only a confirmed missing resource is expected non-analysis. Rate limits,
+    # permission failures, timeouts and malformed responses remain failures.
+    if error.kind == "api" and error.http_status == 404:
+        return ScanError("unanalyzable", str(error), error.http_status)
+    return error
 
 
 def scan(pr_number: str, github: GitHub, report: dict[str, Any]) -> None:
@@ -242,6 +257,8 @@ def scan(pr_number: str, github: GitHub, report: dict[str, Any]) -> None:
         before = sha(comparison["merge_base_commit"]["sha"])
     except (KeyError, TypeError) as error:
         raise ScanError("api", "GitHub PR/comparison response is missing required revision metadata") from error
+    except ScanError as error:
+        raise unavailable_revision(error) from error
     report["revisions"].update({"before_sha": before, "after_sha": head, "method": "merge_base_to_pr_head"})
     # An already-integrated head cannot be attributed using the current base.
     # Do not turn a merged/unavailable comparison into a misleading clean scan.
@@ -249,28 +266,32 @@ def scan(pr_number: str, github: GitHub, report: dict[str, Any]) -> None:
         raise ScanError(
             "unanalyzable", "PR head is already in its base history; this comparison cannot isolate the PR changes"
         )
-    before_commands, before_files = github.snapshot(before, REPOSITORY)
+    try:
+        before_commands, before_files, before_unsupported = github.snapshot(before, REPOSITORY)
+    except ScanError as error:
+        raise unavailable_revision(error) from error
+    report["unanalyzable_commands"] = [{"side": "before", **item} for item in before_unsupported]
     report["snapshots"]["before"] = {
         "repository": REPOSITORY,
         "files": before_files,
-        "commands": sorted(before_commands),
+        "commands": sorted(set(before_commands) | {item["command"] for item in before_unsupported}),
     }
     after_repository = head_repository
     snapshot_source = "pr_head_repository"
     try:
-        after_commands, after_files = github.snapshot(head, after_repository)
+        after_commands, after_files, after_unsupported = github.snapshot(head, after_repository)
     except ScanError as error:
         if head_repository == REPOSITORY or error.kind != "api" or error.http_status != 404:
-            raise
+            raise unavailable_revision(error) from error
         # Best effort only: preserve the captured SHA, never follow a mutable
         # pull ref or assume GitHub retains every former PR head indefinitely.
         after_repository = REPOSITORY
         snapshot_source = "base_repository_fallback_after_fork_404"
         try:
-            after_commands, after_files = github.snapshot(head, after_repository)
+            after_commands, after_files, after_unsupported = github.snapshot(head, after_repository)
         except ScanError as fallback_error:
             raise ScanError(
-                fallback_error.kind,
+                unavailable_revision(fallback_error).kind,
                 f"Fork archive {head_repository} at {head} returned HTTP 404; "
                 f"fallback to {REPOSITORY} failed: {fallback_error}",
                 fallback_error.http_status,
@@ -279,10 +300,24 @@ def scan(pr_number: str, github: GitHub, report: dict[str, Any]) -> None:
         "repository": after_repository,
         "snapshot_source": snapshot_source,
         "files": after_files,
-        "commands": sorted(after_commands),
+        "commands": sorted(set(after_commands) | {item["command"] for item in after_unsupported}),
+    }
+    report["unanalyzable_commands"] += [{"side": "after", **item} for item in after_unsupported]
+    excluded = {item["command"] for item in report["unanalyzable_commands"]}
+    # An unsupported definition is not a deletion. Exclude its identity from
+    # BOTH sides, even when it moved between files or changed container form.
+    before_commands = {name: value for name, value in before_commands.items() if name not in excluded}
+    after_commands = {name: value for name, value in after_commands.items() if name not in excluded}
+    report["comparison_scope"] = {
+        "excluded_commands": sorted(excluded),
+        "compared_commands": sorted(before_commands.keys() | after_commands.keys()),
     }
     findings = compare_commands(
-        before_commands, after_commands, max_findings=MAX_FINDINGS, max_finding_bytes=MAX_FINDING_BYTES
+        before_commands,
+        after_commands,
+        max_findings=MAX_FINDINGS,
+        max_finding_bytes=MAX_FINDING_BYTES,
+        max_work=MAX_WORK,
     )
     finding_bytes = 2  # JSON array brackets; count attribution and commas too.
     encoder = json.JSONEncoder(ensure_ascii=True, allow_nan=False, separators=(",", ":"))
@@ -294,9 +329,10 @@ def scan(pr_number: str, github: GitHub, report: dict[str, Any]) -> None:
             if finding_bytes > MAX_FINDING_BYTES:
                 raise FindingLimitError(MAX_FINDINGS, max_finding_bytes=MAX_FINDING_BYTES)
     report["findings"] = findings
-    report["finding_counts"] = finding_counts(findings)
-    report["has_findings"] = bool(findings)
-    report["status"] = "completed"
+    report["finding_counts"] = None if excluded else finding_counts(findings)
+    report["partial_finding_counts"] = finding_counts(findings) if excluded else None
+    report["has_findings"] = None if excluded else bool(findings)
+    report["status"] = "partial" if excluded else "completed"
 
 
 def finding_counts(findings: list[dict[str, Any]]) -> dict[str, int]:
@@ -335,7 +371,14 @@ def render_summary(report: dict[str, Any]) -> str:
             lines.append(
                 "- Head archive source: redis/redis at the captured SHA after the fork archive returned HTTP 404."
             )
-    if report["status"] != "completed":
+    if report["status"] == "not_analyzed":
+        lines += [
+            "",
+            "**Not analyzed — the requested comparison is unavailable. This is not a clean compatibility result.**",
+        ]
+        for error in report["errors"]:
+            lines.append(f"- {text(error['message'])}")
+    elif report["status"] == "incomplete":
         lines += ["", "**Incomplete analysis — do not interpret this as no compatibility findings.**"]
         if report.get("truncated"):
             lines.append(
@@ -344,6 +387,24 @@ def render_summary(report: dict[str, Any]) -> str:
         for error in report["errors"]:
             lines.append(f"- {text(error['kind'])}: {text(error['message'])}")
     else:
+        if report["status"] == "partial":
+            lines += [
+                "",
+                "**Partial analysis — unsupported commands were excluded from both sides. This is not a clean compatibility result.**",
+            ]
+            exclusions = report["unanalyzable_commands"]
+            scope = report["comparison_scope"]
+            lines.append(
+                f"Compared {len(scope['compared_commands'])} command identities; "
+                f"excluded {len(scope['excluded_commands'])} identities."
+            )
+            lines.append(
+                f"Unsupported definitions: {len(exclusions)}. Full exclusions and comparison scope are in the JSON report."
+            )
+            for item in exclusions[:20]:
+                lines.append(
+                    f"- {text(item['side'])}: {text(item['command'], 200)} in {text(item['path'], 200)} — {text(item['reason'], 400)}"
+                )
         counts = finding_counts(report["findings"])
         lines += [
             "",
@@ -351,8 +412,8 @@ def render_summary(report: dict[str, Any]) -> str:
             f"{counts['review_required']} require review.",
         ]
         if report["findings"]:
-            lines.append("**Review needed.** Analysis completed successfully; the findings below are advisory.")
-        if not report["findings"]:
+            lines.append("**Review needed.** The findings below are advisory and apply only to analyzed commands.")
+        if not report["findings"] and report["status"] == "completed":
             lines.append(
                 "No command-contract changes detected by this metadata checker; runtime compatibility is untested."
             )
@@ -384,7 +445,11 @@ def render_summary(report: dict[str, Any]) -> str:
         (
             "The JSON artifact records omitted output in truncated_fields."
             if report.get("truncated")
-            else "The JSON artifact includes the checker version, analyzed revisions and complete file/command inventories."
+            else (
+                "The JSON artifact includes the checker version, analyzed revisions and complete file/command inventories."
+                if report["status"] == "completed"
+                else "The JSON artifact includes available revision/snapshot provenance and reasons for limited analysis."
+            )
         ),
         "",
     ]
@@ -421,6 +486,7 @@ def serialize_report(report: dict[str, Any]) -> str:
         return bounded_report_json(report)
     except ReportLimitError as error:
         report.update(status="incomplete", has_findings=None, finding_counts=None)
+        report["partial_finding_counts"] = None
         report["errors"].append({"kind": "reporting", "message": str(error)})
         # Drop findings first. File paths/hashes remain useful provenance and
         # usually fit comfortably once the larger finding evidence is omitted.
@@ -446,6 +512,10 @@ def serialize_report(report: dict[str, Any]) -> str:
                 if field in snapshot:
                     snapshot[count_field] = len(snapshot.pop(field))
                     record_omission(report, f"snapshots.{side}.{field}")
+        for field in ("unanalyzable_commands", "comparison_scope"):
+            if report.get(field):
+                report.pop(field)
+                record_omission(report, field)
         return bounded_report_json(report)
 
 
@@ -453,7 +523,7 @@ def emergency_report(error: Exception) -> dict[str, Any]:
     # A trusted, minimal JSON object independent of the data/encoder path that
     # failed. Never emit NaN or remote exception contents in last-resort output.
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "checker_version": CHECKER_VERSION,
         "repository": REPOSITORY,
         "status": "incomplete",
@@ -477,7 +547,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary", type=Path, default=os.environ.get("GITHUB_STEP_SUMMARY"))
     args = parser.parse_args(argv)
     report: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "checker_version": CHECKER_VERSION,
         "checker_revision": os.environ.get("GITHUB_SHA"),
         "repository": REPOSITORY,
@@ -488,6 +558,9 @@ def main(argv: list[str] | None = None) -> int:
         "findings": [],
         "has_findings": None,
         "finding_counts": None,
+        "partial_finding_counts": None,
+        "unanalyzable_commands": [],
+        "comparison_scope": {},
         "truncated": False,
         "truncated_fields": [],
         "errors": [],
@@ -498,8 +571,15 @@ def main(argv: list[str] | None = None) -> int:
         report.update(status="incomplete", has_findings=None, finding_counts=None, truncated=True)
         report["truncated_fields"] = ["findings"]
         report["errors"].append({"kind": "scanner", "message": str(error)})
-    except ScanError as error:
+    except WorkLimitError as error:
         report.update(status="incomplete", has_findings=None, finding_counts=None)
+        report["errors"].append({"kind": "work_limit", "message": str(error)})
+    except ScanError as error:
+        report.update(
+            status="not_analyzed" if error.kind == "unanalyzable" else "incomplete",
+            has_findings=None,
+            finding_counts=None,
+        )
         report["errors"].append({"kind": error.kind, "message": str(error)})
     except Exception as error:
         report.update(status="incomplete", has_findings=None, finding_counts=None)
@@ -513,6 +593,7 @@ def main(argv: list[str] | None = None) -> int:
         report["status"] = "incomplete"
         report["has_findings"] = None
         report["finding_counts"] = None
+        report["partial_finding_counts"] = None
         report["errors"].append({"kind": "reporting", "message": f"Unable to publish report: {type(error).__name__}"})
         # Construct each output independently: a broken encoder must not prevent
         # summary recovery, and a broken summary must not prevent JSON recovery.
@@ -540,7 +621,7 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
     )
-    return 0 if report["status"] == "completed" else 1
+    return {"completed": 0, "partial": 2, "not_analyzed": 2}.get(report["status"], 1)
 
 
 if __name__ == "__main__":

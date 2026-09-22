@@ -515,7 +515,7 @@ class CommandCompatibilityTests(unittest.TestCase):
         old = {"properties": {long_name: {"properties": {f"p{i:04}": {"type": "string"} for i in range(1000)}}}}
         new = {"properties": {long_name: {"properties": {f"p{i:04}": {"type": "integer"} for i in range(1000)}}}}
         before, after = normalize_snapshot(snapshot(reply_schema=old)), normalize_snapshot(snapshot(reply_schema=new))
-        first = next(compatibility._iter_command_findings(before, after))
+        first = next(compatibility._iter_command_findings(before, after, compatibility.WorkBudget(100_000)))
         first_bytes = len(json.dumps(first, ensure_ascii=True, separators=(",", ":")))
         with mock.patch.object(compatibility, "_finding", wraps=compatibility._finding) as generated:
             with self.assertRaises(FindingLimitError):
@@ -537,11 +537,82 @@ class CommandCompatibilityTests(unittest.TestCase):
 
     def test_finding_limits_validate_nonnegative_integer_budgets(self) -> None:
         invalid_values: list[Any] = [-1, True, 1.5]
-        for field in ["max_findings", "max_finding_bytes"]:
+        for field in ["max_findings", "max_finding_bytes", "max_work"]:
             for value in invalid_values:
                 with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                     compare_commands({}, {}, **{field: value})
         self.assertEqual(compare_commands({}, {}, max_findings=0, max_finding_bytes=0), [])
+
+    def test_work_budget_bounds_choice_matching_before_any_finding(self) -> None:
+        before = normalize_snapshot(snapshot([argument("oneof", arguments=[argument(tag=i) for i in range(128)])]))
+        after = normalize_snapshot(snapshot([argument("oneof", arguments=[argument(tag=i + 128) for i in range(128)])]))
+        with mock.patch.object(compatibility, "_finding", wraps=compatibility._finding) as findings:
+            with self.assertRaises(compatibility.WorkLimitError):
+                compare_commands(before, after, max_findings=0, max_work=1000)
+        self.assertEqual(findings.call_count, 0)
+
+    def test_work_budget_is_shared_with_recursive_containment_probes(self) -> None:
+        choice = argument("pure-token", token="ON")
+        for _ in range(8):
+            choice = argument("oneof", arguments=[argument("integer"), choice])
+        before = normalize_snapshot(snapshot([argument("pure-token", token="ON")]))
+        after = normalize_snapshot(snapshot([choice]))
+        self.assertEqual(compare_commands(before, after, max_findings=0), [])
+        with self.assertRaises(compatibility.WorkLimitError):
+            compare_commands(before, after, max_findings=0, max_work=10)
+
+    def test_work_budget_covers_sequence_alignment_and_metadata(self) -> None:
+        cases = [
+            (snapshot([argument(tag=i) for i in range(128)]), snapshot([argument(tag=i + 128) for i in range(128)])),
+            (
+                snapshot(reply_schema={"properties": {str(i): {"const": i} for i in range(100)}}),
+                snapshot(reply_schema={"properties": {str(i): {"const": i + 1} for i in range(100)}}),
+            ),
+        ]
+        for old, new in cases:
+            with self.subTest(old=old), self.assertRaises(compatibility.WorkLimitError):
+                compare_commands(normalize_snapshot(old), normalize_snapshot(new), max_work=100)
+
+    def test_work_budget_resets_between_comparisons(self) -> None:
+        normalized = normalize_snapshot(snapshot())
+        with self.assertRaises(compatibility.WorkLimitError):
+            compare_commands(normalized, normalized, max_work=0)
+        self.assertEqual(compare_commands(normalized, normalized), [])
+
+    def test_partial_normalization_collects_supported_identities_without_mutation(self) -> None:
+        for invalid in (
+            {"arity": 0},
+            {"arity": 1, "arguments": [{"type": "string", "optional": "false"}]},
+            {"arity": 1, "arguments": [{"type": "key", "key_spec_index": -1}]},
+            {"arity": 1, "arguments": [{"type": "future", "arguments": []}]},
+        ):
+            files = {"src/commands/test.json": {"GET": {"arity": 2}, "BAD": invalid}}
+            original = copy.deepcopy(files)
+            exclusions: list[dict[str, str]] = []
+            with self.subTest(invalid=invalid):
+                normalized = normalize_snapshot(files, unanalyzable=exclusions)
+                self.assertEqual(list(normalized), ["GET"])
+                self.assertEqual(exclusions[0]["command"], "BAD")
+                self.assertEqual(exclusions[0]["path"], "src/commands/test.json")
+                self.assertTrue(exclusions[0]["reason"])
+                self.assertEqual(files, original)
+
+    def test_partial_normalization_preserves_nested_command_identity(self) -> None:
+        files = {"commands.json": {"CLIENT": {"arity": -2, "subcommands": {"KILL": {"arity": 0}, "ID": {"arity": 2}}}}}
+        exclusions: list[dict[str, str]] = []
+        self.assertEqual(list(normalize_snapshot(files, unanalyzable=exclusions)), ["CLIENT", "CLIENT ID"])
+        self.assertEqual(exclusions[0]["command"], "CLIENT KILL")
+
+    def test_partial_normalization_does_not_hide_ambiguous_identities(self) -> None:
+        cases: list[dict[str, Any]] = [
+            {"a.json": {"GET": {"arity": 0}}, "b.json": {"get": {"arity": 2}}},
+            {"a.json": {"KILL": {"arity": 0, "container": []}}},
+            {"a.json": {"CLIENT": {"arity": 0, "subcommands": []}}},
+            {"a.json": {"GET": None}},
+        ]
+        for files in cases:
+            with self.subTest(files=files), self.assertRaises(ValueError):
+                normalize_snapshot(files, unanalyzable=[])
 
     def test_duplicate_normalized_command_id_is_invalid(self) -> None:
         cases: list[dict[str, Any]] = [

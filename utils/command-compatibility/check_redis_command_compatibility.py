@@ -30,6 +30,29 @@ ARGUMENT_SYNTAX = ARGUMENT_MODIFIERS | {"type", "token", "arguments"}
 STRUCTURAL_TYPES = {"block", "oneof"}
 DEFAULT_MAX_FINDINGS = 1000
 DEFAULT_MAX_FINDING_BYTES = 8 * 1024 * 1024
+DEFAULT_MAX_WORK = 100_000
+
+
+class WorkLimitError(ValueError):
+    """Comparison work was exhausted before a complete result was available."""
+
+
+class WorkBudget:
+    """Shared by emitted findings and speculative probes, including empty ones."""
+
+    def __init__(self, limit: int) -> None:
+        self.remaining = limit
+
+    def charge(self, units: int = 1) -> None:
+        self.remaining -= units
+        if self.remaining < 0:
+            raise WorkLimitError("Comparison work limit exceeded; analysis is incomplete.")
+
+    def encoded(self, value: Any) -> str:
+        self.charge()
+        result = _encoded(value)
+        self.charge(len(result) // 1024)
+        return result
 
 
 class FindingLimitError(ValueError):
@@ -138,16 +161,16 @@ def _arguments(value: Any, path: str, choices: bool = False) -> list[dict[str, A
             raise ValueError(f"{location}.name: expected a nonempty string")
         arg = {key: _canonical(item) for key, item in raw.items() if key not in DOCUMENTATION_FIELDS | {"name"}}
         for modifier in ARGUMENT_MODIFIERS:
-            value = raw.get(modifier, False)
+            modifier_value = raw.get(modifier, False)
             # Historical command JSON (e.g. BITFIELD in Redis 7.0) used the
             # string "true" for these flags. It was truthy in the generator.
             # Accept only this known encoding; "false" is also truthy in
             # Python, so interpreting it as False would invent semantics.
-            if value == "true":
-                value = True
-            if not isinstance(value, bool):
+            if modifier_value == "true":
+                modifier_value = True
+            if not isinstance(modifier_value, bool):
                 raise ValueError(f"{location}.{modifier}: expected a boolean")
-            arg[modifier] = value
+            arg[modifier] = modifier_value
         if "token" in raw:
             if not isinstance(raw["token"], str) or not raw["token"].strip():
                 raise ValueError(f"{location}.token: expected a nonempty string")
@@ -182,20 +205,24 @@ def _arguments(value: Any, path: str, choices: bool = False) -> list[dict[str, A
     return normalized
 
 
-def normalize_snapshot(files: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def normalize_snapshot(
+    files: dict[str, Any], *, unanalyzable: list[dict[str, str]] | None = None
+) -> dict[str, dict[str, Any]]:
     """Validate parsed JSON files and normalize command identities and syntax.
 
     File names are provenance only: moving a command between files has no
     contract effect. Flat ``container`` definitions and nested ``subcommands``
     objects share the same case-insensitive command identity.
+    With an ``unanalyzable`` collector, unsupported contracts are excluded, but
+    malformed JSON and ambiguous identities still raise. Without it, stay strict.
     """
     if not isinstance(files, dict):
         raise ValueError("snapshot: expected a map from source file paths to JSON objects")
     if any(not isinstance(path, str) for path in files):
         raise ValueError("snapshot: source file paths must be strings")
-    commands: dict[str, dict[str, Any]] = {}
+    definitions: dict[str, tuple[dict[str, Any], str, str]] = {}
 
-    def add(name: str, raw: Any, location: str, parent: str = "") -> None:
+    def identify(name: str, raw: Any, location: str, path: str, parent: str = "") -> None:
         if not isinstance(raw, dict):
             raise ValueError(f"{location}: expected a command object")
         container = _identifier(raw["container"], f"{location}.container") if "container" in raw else parent
@@ -204,8 +231,16 @@ def normalize_snapshot(files: dict[str, Any]) -> dict[str, dict[str, Any]]:
         command = _identifier(name, location)
         if container and not command.startswith(container + " "):
             command = f"{container} {command}"
-        if command in commands:
+        if command in definitions:
             raise ValueError(f"{location}: duplicate normalized command identity {command}")
+        definitions[command] = (raw, location, path)
+        if "subcommands" in raw:
+            if not isinstance(raw["subcommands"], dict):
+                raise ValueError(f"{location}.subcommands: expected an object")
+            for child, definition in raw["subcommands"].items():
+                identify(child, definition, f"{location}.subcommands.{child}", path, command)
+
+    def normalize(raw: dict[str, Any], location: str) -> dict[str, Any]:
         if type(raw.get("arity")) is not int or raw["arity"] == 0:
             raise ValueError(f"{location}.arity: expected a nonzero integer")
         result = {
@@ -234,20 +269,25 @@ def normalize_snapshot(files: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 raise ValueError(f"{location}.reply_schema: expected an object")
             result["reply_schema"] = _schema(raw["reply_schema"])
         result["arguments"] = _arguments(raw.get("arguments", []), f"{location}.arguments")
-        commands[command] = _canonical(result)
-        if "subcommands" in raw:
-            if not isinstance(raw["subcommands"], dict):
-                raise ValueError(f"{location}.subcommands: expected an object")
-            for child, definition in raw["subcommands"].items():
-                add(child, definition, f"{location}.subcommands.{child}", command)
+        return _canonical(result)
 
     for path, data in sorted(files.items()):
         _validate_json(data, path)
         if not isinstance(data, dict) or not data:
             raise ValueError(f"{path}: expected a nonempty command object map")
         for name, definition in sorted(data.items()):
-            add(name, definition, f"{path}:{name}")
-    return dict(sorted(commands.items()))
+            identify(name, definition, f"{path}:{name}", path)
+    # Resolve every identity before allowing per-command exclusions. Otherwise
+    # a malformed/duplicate identity could masquerade as a removed command.
+    commands: dict[str, dict[str, Any]] = {}
+    for command, (raw, location, path) in sorted(definitions.items()):
+        try:
+            commands[command] = normalize(raw, location)
+        except ValueError as error:
+            if unanalyzable is None:
+                raise
+            unanalyzable.append({"command": command, "path": path, "reason": str(error)})
+    return commands
 
 
 def _finding(
@@ -298,6 +338,7 @@ def _compare_sequence_gap(
     new_items: list[tuple[int, dict[str, Any]]],
     path: str,
     repeated_tokens: set[str],
+    budget: WorkBudget,
 ) -> Iterator[dict[str, Any]]:
     old_arguments = [arg for _, arg in old_items]
     new_arguments = [arg for _, arg in new_items]
@@ -308,7 +349,7 @@ def _compare_sequence_gap(
             # Only a single tokenless position supports a positional comparison.
             # Unrelated literal options are removals/additions, not renames.
             if not _tokens(old) and not _tokens(new):
-                yield from _compare_argument(command, old, new, f"{path}[{old_items[0][0]}]")
+                yield from _compare_argument(command, old, new, f"{path}[{old_items[0][0]}]", budget)
                 return
         independent_options = all(_tokens(arg) for arg in old_arguments + new_arguments) and not (
             {token for arg in old_arguments for token in _tokens(arg)}
@@ -318,7 +359,7 @@ def _compare_sequence_gap(
             # Pointwise widening proves sequence containment without asserting
             # node identity. Never use these offsets to report a fabricated edit.
             if len(old_arguments) == len(new_arguments) and all(
-                not _has_findings(_compare_argument(command, old, new, path))
+                not _has_findings(_compare_argument(command, old, new, path, budget))
                 for old, new in zip(old_arguments, new_arguments)
             ):
                 return
@@ -369,8 +410,16 @@ def _compare_sequence_gap(
 
 
 def _compare_arguments(
-    command: str, before: list[dict[str, Any]], after: list[dict[str, Any]], path: str, choices: bool = False
+    command: str,
+    before: list[dict[str, Any]],
+    after: list[dict[str, Any]],
+    path: str,
+    budget: WorkBudget,
+    choices: bool = False,
 ) -> Iterator[dict[str, Any]]:
+    # Charge candidate matching and SequenceMatcher's worst-case pair work
+    # before entering library code or loops that may produce no findings.
+    budget.charge(1 + len(before) + len(after) + len(before) * len(after))
     if choices:
         # Choice order is immaterial, but branch identity still needs evidence.
         # Reuse nested unique tokens rather than pairing the first same-type
@@ -379,19 +428,20 @@ def _compare_arguments(
         unmatched = dict(enumerate(after))
         remaining = []
         for index, old in enumerate(before):
-            unchanged = next((index for index, item in unmatched.items() if _encoded(item) == _encoded(old)), None)
+            old_encoded = budget.encoded(old)
+            unchanged = next((index for index, item in unmatched.items() if budget.encoded(item) == old_encoded), None)
             if unchanged is not None:
                 unmatched.pop(unchanged)
             elif index in identities and identities[index] in unmatched:
                 match = unmatched.pop(identities[index])
-                yield from (_compare_argument(command, old, match, f"{path}[{index}]"))
+                yield from (_compare_argument(command, old, match, f"{path}[{index}]", budget))
             else:
                 remaining.append((index, old))
         ambiguous = []
         after_tokens = {token for arg in after for token in _tokens(arg)}
         for index, old in remaining:
             # Containment can prove additive widening without inventing identity.
-            if any(not _has_findings(_compare_argument(command, old, candidate, path)) for candidate in after):
+            if any(not _has_findings(_compare_argument(command, old, candidate, path, budget)) for candidate in after):
                 continue
             if not unmatched or (_tokens(old) and not set(_tokens(old)).intersection(after_tokens)):
                 yield (_finding(command, f"{path}[{index}]", old, None, "A previously described choice was removed."))
@@ -413,13 +463,15 @@ def _compare_arguments(
 
     identities = _unique_token_matches(before, after)
     reverse = {new: old for old, new in identities.items()}
-    old_keys = [f"token:{index}" if index in identities else _encoded(arg) for index, arg in enumerate(before)]
-    new_keys = [f"token:{reverse[index]}" if index in reverse else _encoded(arg) for index, arg in enumerate(after)]
+    old_keys = [f"token:{index}" if index in identities else budget.encoded(arg) for index, arg in enumerate(before)]
+    new_keys = [
+        f"token:{reverse[index]}" if index in reverse else budget.encoded(arg) for index, arg in enumerate(after)
+    ]
     opcodes = SequenceMatcher(a=old_keys, b=new_keys, autojunk=False).get_opcodes()
     aligned = {index for tag, start, end, _, _ in opcodes if tag == "equal" for index in range(start, end)}
     aligned_new = {index for tag, _, _, start, end in opcodes if tag == "equal" for index in range(start, end)}
     moved = {old: new for old, new in identities.items() if old not in aligned}
-    old_exact, new_exact = [_encoded(arg) for arg in before], [_encoded(arg) for arg in after]
+    old_exact, new_exact = [budget.encoded(arg) for arg in before], [budget.encoded(arg) for arg in after]
     old_counts, new_counts = Counter(old_exact), Counter(new_exact)
     for old_index, encoded in enumerate(old_exact):
         if old_index not in aligned and old_index not in moved and old_counts[encoded] == new_counts[encoded] == 1:
@@ -447,13 +499,15 @@ def _compare_arguments(
                 "potential_breaking" if identifiable and not optional_move else "review_required",
             )
         )
-        yield from (_compare_argument(command, before[old_index], after[new_index], f"{path}[{old_index}]"))
+        yield from (_compare_argument(command, before[old_index], after[new_index], f"{path}[{old_index}]", budget))
     counts = [Counter(token for arg in arguments for token in _tokens(arg)) for arguments in (before, after)]
     repeated_tokens = {token for count in counts for token, occurrences in count.items() if occurrences > 1}
     for tag, old_start, old_end, new_start, new_end in opcodes:
         if tag == "equal":
             for old_index, new_index in zip(range(old_start, old_end), range(new_start, new_end)):
-                yield from (_compare_argument(command, before[old_index], after[new_index], f"{path}[{old_index}]"))
+                yield from (
+                    _compare_argument(command, before[old_index], after[new_index], f"{path}[{old_index}]", budget)
+                )
         else:
             yield from (
                 _compare_sequence_gap(
@@ -462,13 +516,16 @@ def _compare_arguments(
                     [(index, after[index]) for index in range(new_start, new_end) if index not in moved.values()],
                     path,
                     repeated_tokens,
+                    budget,
                 )
             )
     return
 
 
-def _compare_argument(command: str, old: dict[str, Any], new: dict[str, Any], path: str) -> Iterator[dict[str, Any]]:
-    if _encoded(old) == _encoded(new):
+def _compare_argument(
+    command: str, old: dict[str, Any], new: dict[str, Any], path: str, budget: WorkBudget
+) -> Iterator[dict[str, Any]]:
+    if budget.encoded(old) == budget.encoded(new):
         return
     if new["type"] == "oneof" and old["type"] != "oneof" and "token" not in new:
         # A choice can contain the complete old syntax, including a literal
@@ -480,7 +537,7 @@ def _compare_argument(command: str, old: dict[str, Any], new: dict[str, Any], pa
                 # Repeating a choice can repeat a branch's token, whereas
                 # repeating a value may consume that token only once. Keep
                 # repetition at its original node when proving containment.
-                if not _has_findings(_compare_argument(command, old, candidate, path)):
+                if not _has_findings(_compare_argument(command, old, candidate, path, budget)):
                     return
     for field in sorted(ARGUMENT_MODIFIERS):
         if old[field] == new[field]:
@@ -513,7 +570,9 @@ def _compare_argument(command: str, old: dict[str, Any], new: dict[str, Any], pa
         )
     if old["type"] == new["type"] and old["type"] in STRUCTURAL_TYPES:
         yield from (
-            _compare_arguments(command, old["arguments"], new["arguments"], f"{path}.arguments", old["type"] == "oneof")
+            _compare_arguments(
+                command, old["arguments"], new["arguments"], f"{path}.arguments", budget, old["type"] == "oneof"
+            )
         )
     elif old["type"] != new["type"]:
         yield (
@@ -527,7 +586,7 @@ def _compare_argument(command: str, old: dict[str, Any], new: dict[str, Any], pa
             )
         )
     for field in sorted((set(old) | set(new)) - ARGUMENT_SYNTAX):
-        if _encoded(old.get(field)) != _encoded(new.get(field)) or (field in old) != (field in new):
+        if budget.encoded(old.get(field)) != budget.encoded(new.get(field)) or (field in old) != (field in new):
             yield (
                 _finding(
                     command,
@@ -546,32 +605,37 @@ def _pointer(path: str, key: str | int) -> str:
 
 
 def _metadata_differences(
-    old: Any, new: Any, path: str, old_present: bool = True, new_present: bool = True
+    old: Any, new: Any, path: str, budget: WorkBudget, old_present: bool = True, new_present: bool = True
 ) -> Iterator[tuple[str, Any, Any, bool, bool]]:
     """Return changed JSON Pointer values without treating ordered arrays as sets."""
+    budget.charge()
     if old_present != new_present:
         yield path, old, new, old_present, new_present
         return
-    if _encoded(old) == _encoded(new):
+    if budget.encoded(old) == budget.encoded(new):
         return
     if isinstance(old, dict) and isinstance(new, dict):
         for key in sorted(old.keys() | new.keys()):
-            yield from _metadata_differences(old.get(key), new.get(key), _pointer(path, key), key in old, key in new)
+            yield from _metadata_differences(
+                old.get(key), new.get(key), _pointer(path, key), budget, key in old, key in new
+            )
         return
     if isinstance(old, list) and isinstance(new, list):
         if len(old) == len(new):
             for index, (old_item, new_item) in enumerate(zip(old, new)):
-                yield from _metadata_differences(old_item, new_item, _pointer(path, index))
+                yield from _metadata_differences(old_item, new_item, _pointer(path, index), budget)
             return
         prefix = 0
-        while prefix < min(len(old), len(new)) and _encoded(old[prefix]) == _encoded(new[prefix]):
+        while prefix < min(len(old), len(new)) and budget.encoded(old[prefix]) == budget.encoded(new[prefix]):
             prefix += 1
         if prefix == len(old):
             for index in range(prefix, len(new)):
+                budget.charge()
                 yield _pointer(path, index), None, new[index], False, True
             return
         if prefix == len(new):
             for index in range(prefix, len(old)):
+                budget.charge()
                 yield _pointer(path, index), old[index], None, True, False
             return
         # Middle insertions/removals shift existing indexes: the same child
@@ -581,10 +645,10 @@ def _metadata_differences(
 
 
 def _command_metadata_findings(
-    command: str, field: str, old: dict[str, Any], new: dict[str, Any]
+    command: str, field: str, old: dict[str, Any], new: dict[str, Any], budget: WorkBudget
 ) -> Iterator[dict[str, Any]]:
     old_present, new_present = field in old, field in new
-    if old_present == new_present and _encoded(old.get(field)) == _encoded(new.get(field)):
+    if old_present == new_present and budget.encoded(old.get(field)) == budget.encoded(new.get(field)):
         return
     explanations = {
         "key_specs": "Key discovery metadata changed; review key positions, access modes, and routing implications.",
@@ -599,7 +663,7 @@ def _command_metadata_findings(
         explanation += f" Removed: {_encoded(removed)}. Added: {_encoded(added)}."
     if field in {"key_specs", "reply_schema"}:
         differences = _metadata_differences(
-            old.get(field), new.get(field), _pointer("", field), old_present, new_present
+            old.get(field), new.get(field), _pointer("", field), budget, old_present, new_present
         )
     else:
         differences = iter([(field, old.get(field), new.get(field), old_present, new_present)])
@@ -614,10 +678,11 @@ def _command_metadata_findings(
 
 
 def _iter_command_findings(
-    before: dict[str, dict[str, Any]], after: dict[str, dict[str, Any]]
+    before: dict[str, dict[str, Any]], after: dict[str, dict[str, Any]], budget: WorkBudget
 ) -> Iterator[dict[str, Any]]:
     """Generate normalized contract findings without collecting recursive results."""
     for command, old in sorted(before.items()):
+        budget.charge()
         if command not in after:
             yield (_finding(command, "command", old, None, "A previously described command was removed."))
             continue
@@ -636,9 +701,9 @@ def _iter_command_findings(
                     "The declared arity no longer accepts every previously accepted argument count.",
                 )
             )
-        yield from (_compare_arguments(command, old["arguments"], new["arguments"], "arguments"))
+        yield from (_compare_arguments(command, old["arguments"], new["arguments"], "arguments", budget))
         for field in sorted((set(old) | set(new)) - {"arity", "arguments"}):
-            yield from (_command_metadata_findings(command, field, old, new))
+            yield from (_command_metadata_findings(command, field, old, new, budget))
     return
 
 
@@ -648,8 +713,9 @@ def compare_commands(
     *,
     max_findings: int = DEFAULT_MAX_FINDINGS,
     max_finding_bytes: int = DEFAULT_MAX_FINDING_BYTES,
+    max_work: int = DEFAULT_MAX_WORK,
 ) -> list[dict[str, Any]]:
-    """Compare normalized snapshots, or raise FindingLimitError if incomplete.
+    """Compare normalized snapshots, or raise a finding/work limit error.
 
     key_specs/reply_schema metadata fields use RFC 6901 JSON Pointer paths;
     argument fields retain dot/index paths. Metadata old_present/new_present
@@ -657,15 +723,20 @@ def compare_commands(
 
     Findings are generated lazily and checked before collection. The byte limit
     counts compact ASCII JSON objects, excluding array delimiters and downstream
-    report metadata. Neither limit returns or accepts a partial comparison.
+    report metadata. Work is shared with recursive probes and sequence matching.
+    No limit returns or accepts a partial comparison.
     """
-    for name, limit in [("max_findings", max_findings), ("max_finding_bytes", max_finding_bytes)]:
+    for name, limit in [
+        ("max_findings", max_findings),
+        ("max_finding_bytes", max_finding_bytes),
+        ("max_work", max_work),
+    ]:
         if type(limit) is not int or limit < 0:
             raise ValueError(f"{name} must be a nonnegative integer")
     findings: list[dict[str, Any]] = []
     finding_bytes = 0
     encoder = json.JSONEncoder(ensure_ascii=True, separators=(",", ":"))
-    for finding in _iter_command_findings(before, after):
+    for finding in _iter_command_findings(before, after, WorkBudget(max_work)):
         if len(findings) >= max_findings:
             raise FindingLimitError(max_findings)
         for chunk in encoder.iterencode(finding):

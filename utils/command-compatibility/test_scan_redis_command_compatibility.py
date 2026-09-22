@@ -6,8 +6,10 @@ import gzip
 import hashlib
 import io
 import json
+import subprocess
 import tarfile
 import tempfile
+import textwrap
 import unittest
 from email.message import Message
 from http.client import HTTPMessage
@@ -75,6 +77,7 @@ class FakeGitHub(scanner.GitHub):
         self.api_calls: list[str] = []
         self.snapshot_calls: list[tuple[str, str]] = []
         self.after = copy.deepcopy(COMMANDS if after is None else after)
+        self.before = copy.deepcopy(COMMANDS)
 
     def api(self, path: str) -> dict[str, Any]:
         self.api_calls.append(path)
@@ -84,12 +87,10 @@ class FakeGitHub(scanner.GitHub):
             return copy.deepcopy(self.comparison)
         raise AssertionError(f"Unexpected API request: {path}")
 
-    def snapshot(
-        self, revision: str, repository: str = scanner.REPOSITORY
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    def snapshot(self, revision: str, repository: str = scanner.REPOSITORY) -> scanner.Snapshot:
         self.snapshot_calls.append((revision, repository))
         if revision == BEFORE:
-            commands = COMMANDS
+            commands = self.before
         elif revision == HEAD:
             commands = self.after
         else:
@@ -165,7 +166,7 @@ class RevisionTests(unittest.TestCase):
         github.pr["head"]["repo"]["full_name"] = "contributor/redis-renamed"
         original = github.snapshot
 
-        def snapshot(revision: str, repository: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        def snapshot(revision: str, repository: str) -> scanner.Snapshot:
             if repository == "contributor/redis-renamed":
                 raise scanner.ScanError("api", "GitHub HTTP 404", 404)
             return original(revision, repository)
@@ -203,7 +204,10 @@ class RevisionTests(unittest.TestCase):
                 with patch.object(github, "snapshot", side_effect=[before, failure]) as calls:
                     with self.assertRaises(scanner.ScanError) as caught:
                         scanner.scan(str(PR_NUMBER), github, fresh_report())
-                self.assertIs(caught.exception, failure)
+                if kind == "api" and http_status == 404:
+                    self.assertEqual(caught.exception.kind, "unanalyzable")
+                else:
+                    self.assertIs(caught.exception, failure)
                 self.assertEqual(calls.call_count, 2)
 
     def test_failed_fallback_keeps_both_repository_attempts_in_error(self) -> None:
@@ -222,7 +226,7 @@ class RevisionTests(unittest.TestCase):
         ):
             with self.assertRaises(scanner.ScanError) as caught:
                 scanner.scan(str(PR_NUMBER), github, report)
-        self.assertEqual(caught.exception.kind, "api")
+        self.assertEqual(caught.exception.kind, "unanalyzable")
         self.assertEqual(caught.exception.http_status, 404)
         for expected in ("contributor/redis", "redis/redis", HEAD, "fallback"):
             self.assertIn(expected, str(caught.exception))
@@ -307,7 +311,8 @@ class SnapshotTests(unittest.TestCase):
             ]
         )
         with patch.object(tarfile.TarFile, "extractall", side_effect=AssertionError("Never extract OSS archives")):
-            commands, manifest = scanner.read_snapshot(data, BEFORE)
+            commands, manifest, unsupported = scanner.read_snapshot(data, BEFORE)
+            self.assertEqual(unsupported, [])
         self.assertEqual(set(commands), {"GET", "PING"})
         self.assertEqual(
             manifest,
@@ -373,7 +378,7 @@ class SnapshotTests(unittest.TestCase):
             return original(source, size)
 
         with patch.object(gzip.GzipFile, "read", read):
-            commands, _ = scanner.read_snapshot(archive_bytes(), BEFORE)
+            commands, _, _ = scanner.read_snapshot(archive_bytes(), BEFORE)
         self.assertEqual(set(commands), {"GET", "PING"})
         self.assertTrue(all(0 < size <= 64 * 1024 for size in read_sizes))
         data = archive_bytes()
@@ -401,7 +406,7 @@ class SnapshotTests(unittest.TestCase):
             return result
 
         with patch.object(tarfile.TarFile, "next", next_member):
-            commands, manifest = scanner.read_snapshot(data, BEFORE)
+            commands, manifest, _ = scanner.read_snapshot(data, BEFORE)
         self.assertEqual(set(commands), {"GET", "PING"})
         self.assertEqual(len(manifest), 1)
         self.assertGreater(len(cache_sizes), 200)
@@ -451,7 +456,7 @@ class GitHubTests(unittest.TestCase):
         with patch.object(scanner, "build_opener", return_value=opener):
             github = scanner.GitHub("test-secret-token")
             self.assertEqual(github.api("pulls/123"), {"number": 123})
-            commands, _ = github.snapshot(BEFORE, "contributor/redis-renamed")
+            commands, _, _ = github.snapshot(BEFORE, "contributor/redis-renamed")
         self.assertEqual(set(commands), {"GET", "PING"})
         self.assertEqual(observed[0].get_header("Authorization"), "Bearer test-secret-token")
         self.assertIsNone(observed[1].get_header("Authorization"))
@@ -536,6 +541,163 @@ class RunnerTests(unittest.TestCase):
                 self.assertIn("human review", summary)
                 self.assertIn("JSON artifact", summary)
 
+    def test_partial_scan_excludes_both_sides_and_retains_unrelated_findings(self) -> None:
+        for side in ("before", "after"):
+            github = FakeGitHub()
+            github.after["GET"]["arity"] = 3
+            getattr(github, side)["PING"]["arguments"][0]["optional"] = "false"
+            with self.subTest(side=side):
+                status, report, summary = self.run_main(github)
+                self.assertEqual(status, 2)
+                self.assertEqual(report["status"], "partial")
+                self.assertEqual(report["schema_version"], 2)
+                self.assertEqual(
+                    report["comparison_scope"], {"excluded_commands": ["PING"], "compared_commands": ["GET"]}
+                )
+                self.assertEqual([(f["command"], f["field"]) for f in report["findings"]], [("GET", "arity")])
+                self.assertEqual(report["partial_finding_counts"]["total"], 1)
+                self.assertIsNone(report["finding_counts"])
+                self.assertIsNone(report["has_findings"])
+                self.assertEqual(report["unanalyzable_commands"][0]["side"], side)
+                self.assertEqual(report["unanalyzable_commands"][0]["command"], "PING")
+                self.assertTrue(report["snapshots"][side]["files"][0]["sha256"])
+                self.assertEqual(report["errors"], [])
+                self.assertIn("Partial analysis", summary)
+                self.assertIn("potential_breaking", summary)
+                self.assertNotIn("No command-contract changes detected", summary)
+
+    def test_partial_scan_cannot_invent_removals_after_file_relocation(self) -> None:
+        github = FakeGitHub()
+        original = github.snapshot
+
+        def relocated(revision: str, repository: str) -> scanner.Snapshot:
+            if revision == BEFORE:
+                return original(revision, repository)
+            members = [
+                (f"redis-{HEAD}/src/commands/moved.json", command_bytes({"GET": {"arity": 0}}), tarfile.REGTYPE),
+                (f"redis-{HEAD}/src/commands/ping.json", command_bytes({"PING": COMMANDS["PING"]}), tarfile.REGTYPE),
+            ]
+            return scanner.read_snapshot(archive_bytes(HEAD, members), HEAD)
+
+        with patch.object(github, "snapshot", side_effect=relocated):
+            status, report, summary = self.run_main(github)
+        self.assertEqual(status, 2)
+        self.assertEqual(report["findings"], [])
+        self.assertEqual(report["unanalyzable_commands"][0]["path"], "src/commands/moved.json")
+        self.assertNotIn("No command-contract changes detected", summary)
+
+    def test_partial_scan_pairs_flat_and_nested_subcommand_exclusions(self) -> None:
+        github = FakeGitHub()
+        github.before = {"CLIENT": {"arity": -2}, "KILL": {"arity": -3, "container": "CLIENT"}}
+        github.after = {"CLIENT": {"arity": -2, "subcommands": {"KILL": {"arity": 0}}}}
+        status, report, _ = self.run_main(github)
+        self.assertEqual(status, 2)
+        self.assertEqual(report["comparison_scope"]["excluded_commands"], ["CLIENT KILL"])
+        self.assertEqual(report["findings"], [])
+
+    def test_all_unsupported_commands_never_produce_a_clean_scan(self) -> None:
+        github = FakeGitHub()
+        github.before = {"BAD": {"arity": 0}}
+        github.after = {"BAD": {"arity": 0}}
+        status, report, summary = self.run_main(github)
+        self.assertEqual(status, 2)
+        self.assertEqual(report["status"], "partial")
+        self.assertEqual(report["comparison_scope"]["compared_commands"], [])
+        self.assertEqual(len(report["unanalyzable_commands"]), 2)
+        self.assertIsNone(report["has_findings"])
+        self.assertNotIn("No command-contract changes detected", summary)
+
+    def test_identity_collisions_still_fail_even_with_an_unsupported_definition(self) -> None:
+        github = FakeGitHub({"get": {"arity": 0}, "GET": {"arity": 2}})
+        status, report, _ = self.run_main(github)
+        self.assertEqual(status, 1)
+        self.assertEqual(report["status"], "incomplete")
+        self.assertIn("duplicate normalized", report["errors"][0]["message"])
+
+    def test_expected_unavailable_comparisons_are_not_analyzed(self) -> None:
+        deleted = FakeGitHub()
+        deleted.pr["head"]["repo"] = None
+        integrated = FakeGitHub()
+        integrated.comparison["merge_base_commit"]["sha"] = HEAD
+        missing = FakeGitHub()
+        with patch.object(missing, "snapshot", side_effect=scanner.ScanError("api", "Missing revision", 404)):
+            for github in (deleted, integrated, missing):
+                with self.subTest(github=github):
+                    status, report, summary = self.run_main(github)
+                    self.assertEqual(status, 2)
+                    self.assertEqual(report["status"], "not_analyzed")
+                    self.assertIsNone(report["finding_counts"])
+                    self.assertIsNone(report["has_findings"])
+                    self.assertIn("Not analyzed", summary)
+                    self.assertNotIn("Incomplete analysis", summary)
+                    self.assertNotIn("No command-contract changes detected", summary)
+
+    def test_compare_404_is_not_analyzed_but_api_failures_remain_failures(self) -> None:
+        for http_status in (404, 403, 429, 500, None):
+            github = FakeGitHub()
+            with patch.object(
+                github, "api", side_effect=[github.pr, scanner.ScanError("api", "Unavailable comparison", http_status)]
+            ):
+                status, report, _ = self.run_main(github)
+            self.assertEqual(status, 2 if http_status == 404 else 1)
+            self.assertEqual(report["status"], "not_analyzed" if http_status == 404 else "incomplete")
+
+    def test_reporting_failure_overrides_expected_nonanalysis_and_partial_status(self) -> None:
+        unavailable = FakeGitHub()
+        unavailable.pr["head"]["repo"] = None
+        partial = FakeGitHub({"GET": {"arity": 0}})
+        for github in (unavailable, partial):
+            with patch.object(
+                scanner, "render_summary", side_effect=[OSError("Synthetic report failure"), "Recovered summary"]
+            ):
+                status, report, _ = self.run_main(github)
+            self.assertEqual(status, 1)
+            self.assertEqual(report["status"], "incomplete")
+            self.assertIsNone(report["partial_finding_counts"])
+            self.assertEqual(report["errors"][-1]["kind"], "reporting")
+
+    def test_work_exhaustion_writes_incomplete_report_and_summary(self) -> None:
+        with patch.object(scanner, "MAX_WORK", 0):
+            status, report, summary = self.run_main(FakeGitHub())
+        self.assertEqual(status, 1)
+        self.assertEqual(report["status"], "incomplete")
+        self.assertEqual(report["errors"][0]["kind"], "work_limit")
+        self.assertIsNone(report["finding_counts"])
+        self.assertIsNone(report["has_findings"])
+        self.assertIn("Incomplete analysis", summary)
+        self.assertTrue(report["snapshots"]["after"]["files"])
+
+    def test_partial_report_exclusions_remain_escaped_and_bounded(self) -> None:
+        github = FakeGitHub({"[x](https://untrusted.invalid)": {"arity": "<script>"}})
+        status, report, summary = self.run_main(github)
+        self.assertEqual(status, 2)
+        self.assertIn("unanalyzable_commands", report)
+        self.assertNotIn("<script>", summary)
+        self.assertNotIn("https://untrusted.invalid", summary.lower())
+        huge = {"arity": 1, "arguments": [{"type": "block", "arguments": [{"type": "string", "optional": "false"}]}]}
+        with patch.object(scanner, "MAX_REPORT_BYTES", 4096):
+            status, report, _ = self.run_main(FakeGitHub({"X" * 20000: huge}))
+        self.assertEqual(status, 1)
+        self.assertEqual(report["status"], "incomplete")
+        self.assertIn("unanalyzable_commands", report["truncated_fields"])
+        self.assertLessEqual(len(scanner.bounded_report_json(report)), 4096)
+
+    def test_workflow_only_handles_expected_exit_two_as_advisory(self) -> None:
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/redis-command-compatibility.yml"
+        step = (
+            workflow.read_text()
+            .split("      - name: Compare immutable command metadata\n", 1)[1]
+            .split("      - name:", 1)[0]
+        )
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        for code in (0, 1, 2, 3, 124):
+            with self.subTest(code=code):
+                result = subprocess.run(
+                    ["bash", "-e", "-c", f"python3() {{ return {code}; }}\n{script}"], capture_output=True, text=True
+                )
+                self.assertEqual(result.returncode, 0 if code == 2 else code)
+                self.assertEqual("::notice::" in result.stdout, code == 2)
+
     def test_review_only_findings_have_explicit_counts_and_summary(self) -> None:
         after = copy.deepcopy(COMMANDS)
         after["GET"]["acl_categories"] = ["READ"]
@@ -592,7 +754,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_report_limit_also_bounds_inventories_and_error_paths(self) -> None:
         github = FakeGitHub()
-        with patch.object(github, "snapshot", return_value=(COMMANDS, [{"path": "x" * 10000}])):
+        with patch.object(github, "snapshot", return_value=(COMMANDS, [{"path": "x" * 10000}], [])):
             with patch.object(scanner, "MAX_REPORT_BYTES", 4096):
                 status, report, _ = self.run_main(github)
                 self.assertLessEqual(len(scanner.bounded_report_json(report)), 4096)
@@ -604,6 +766,7 @@ class RunnerTests(unittest.TestCase):
                 "snapshots.before.commands",
                 "snapshots.after.files",
                 "snapshots.after.commands",
+                "comparison_scope",
             ],
         )
         self.assertNotIn("files", report["snapshots"]["before"])
@@ -681,7 +844,7 @@ class RunnerTests(unittest.TestCase):
                 self.assertNotIn("sensitive internals", json.dumps(report) + summary)
 
     def test_api_input_and_scanner_errors_fail_and_have_distinct_error_reports(self) -> None:
-        for kind in ("api", "input", "scanner", "unanalyzable"):
+        for kind in ("api", "input", "scanner"):
             with self.subTest(kind=kind):
                 github = Mock()
                 github.api.side_effect = scanner.ScanError(kind, "synthetic failure")
@@ -703,9 +866,7 @@ class RunnerTests(unittest.TestCase):
         github = FakeGitHub()
         original = github.snapshot
 
-        def snapshot(
-            revision: str, repository: str = scanner.REPOSITORY
-        ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        def snapshot(revision: str, repository: str = scanner.REPOSITORY) -> scanner.Snapshot:
             if revision == HEAD:
                 raise scanner.ScanError("api", "Synthetic archive failure")
             return original(revision, repository)

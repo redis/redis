@@ -50,12 +50,16 @@ state or outstanding bugs. A PR may have changed or merged since a report was ma
 | `potential_breaking` | Metadata describes a potentially narrower contract, such as a removed command, option, or accepted argument count. Check intent and runtime behavior. |
 | `review_required` | Flags, ACL categories, key specs, reply schemas, or ambiguous argument changes need interpretation. Additive reply fields can appear here; they are not confirmed bugs. |
 | `completed` without findings | No reportable metadata changes were found. Runtime compatibility remains untested. |
+| `partial` | Unsupported command definitions were excluded on both sides. Findings cover only the remaining commands; this is not a clean result. |
+| `not_analyzed` | The revisions cannot be compared, for example because the head is already in the base history or is unavailable. No compatibility verdict was produced. |
 | `incomplete` | Input, API, scanner, comparison, or reporting failed. This is not a clean compatibility result. |
 
-Both completed outcomes exit zero, even with findings. Incomplete analysis exits
-nonzero. This separate, manual workflow is not a required merge check and does not
-change existing CI jobs. An artifact-upload failure also fails the workflow even
-if the scanner completed; check the failed step before relying on report delivery.
+Both completed outcomes exit zero, even with findings. The CLI exits 2 for `partial`
+or `not_analyzed`; the manual workflow explicitly handles only that exit code as
+an advisory notice and still publishes the report. Actual failures exit 1 and make
+the workflow red. Report-delivery failures also fail the workflow, even after an
+expected non-analysis result. This separate workflow is not a required merge check.
+Always read the analysis status: a green workflow does not mean compatibility passed.
 
 Each finding shows the command, field, old/new normalized values, explanation,
 classification, PR link, and analyzed revisions. Metadata paths use JSON Pointer
@@ -64,9 +68,12 @@ notation (`~0` for `~`, `~1` for `/`); argument paths use dot/index notation.
 Review whether the change is compatible, intentional, or needs investigation.
 An intentional breaking fix is still reportable and needs no bypass label.
 
-Completed JSON reports have `has_findings` and `finding_counts` (total,
-potential_breaking, review_required). Those fields are `null` when incomplete;
-consumers must check `status` before interpreting findings. The summary displays
+Schema-version 2 JSON reports have `has_findings` and `finding_counts` (total,
+potential_breaking, review_required) only for completed comparisons. Those fields
+are `null` for every other status. Partial reports retain findings and provide
+`partial_finding_counts`, `unanalyzable_commands` (side, identity, file, reason),
+and `comparison_scope` (compared and excluded identities). Consumers must check
+`status` before interpreting findings. The summary displays
 at most 50 findings and shortens large values; completed JSON retains all findings.
 
 ## Revisions and historical PRs
@@ -81,7 +88,7 @@ checker's commit. Re-running a PR number may resolve different revisions.
 Fork head archives are fetched from the reported fork at the captured SHA. Only
 an HTTP 404 from a distinct fork triggers one fallback to `redis/redis` at that
 same SHA; the report records the source actually used. A missing head repository,
-unavailable revision, or head already contained in its base history is incomplete,
+unavailable revision, or head already contained in its base history is `not_analyzed`,
 not a zero-findings result. Some merged PRs remain comparable, but historical
 baseline reconstruction is not supported. For example, do not treat an old
 successful report as a guarantee that the same PR can still be scanned today.
@@ -89,8 +96,11 @@ successful report as a guarantee that the same PR can still be scanned today.
 Historical argument modifiers `optional`, `multiple`, and `multiple_token` may
 use the exact string `"true"`; the checker normalizes it to boolean `true`, matching
 its historical truthy interpretation by the command generator. Other non-boolean
-values are rejected, including `"false"` (a truthy string in the generator, not a
-safe representation of false). Original file hashes remain in the report.
+values are unsupported, including `"false"` (a truthy string in the generator, not
+a safe representation of false). The affected command is excluded from comparison
+on both sides, with an explicit partial result. Original file hashes remain in
+the report. An unsupported baseline command does not prevent unrelated commands
+from being compared. An excluded command is never treated as a removed command.
 
 ## Scope and safety
 
@@ -104,14 +114,23 @@ proof. Changes only in C code, performance, persistence formats, and module ABI 
 outside scope and require targeted tests.
 
 Only trusted checker code is executed. Archives are streamed without extraction;
-only bounded regular command JSON files are parsed. Duplicate JSON keys, non-finite
-numbers, duplicate commands, links and malformed input are rejected. Credentials
+only bounded regular command JSON files are parsed. Unsupported contract shapes
+are isolated only after all command identities have been resolved. Duplicate JSON
+keys, non-finite numbers, ambiguous/duplicate identities, malformed JSON, links and
+corrupt archives still fail the entire scan; partial analysis cannot safely infer
+the missing definitions. Credentials
 are sent only to the GitHub API, never to public archive downloads or redirects.
 Untrusted report text is escaped so it cannot inject summary links or markup.
 
 Resource limits are 64 MiB per compressed archive, 256 MiB expanded, 2 MiB per JSON
 file, 32 MiB of command JSON per snapshot, 4096 files, 1000 findings, 8 MiB of finding
-data, and 16 MiB per report. Exceeding a limit is incomplete analysis, not success.
+data, and 16 MiB per report. A shared 100,000-unit comparison-work budget charges
+candidate pairs, recursive probes, metadata traversal and encoded-data KiB. It
+also charges the sequence aligner's worst-case pair work before entering it.
+Probes consume work even when they produce no findings. Exhaustion writes an
+incomplete report instead of waiting for the job timeout. These are conservative
+work units, not a wall-clock guarantee. Exceeding a limit is incomplete analysis,
+not success.
 When output limits omit evidence, `truncated` and `truncated_fields` identify the
 loss. File/command inventories are retained when possible. Report and summary
 recovery are independent; failures must never masquerade as zero findings.
@@ -124,9 +143,24 @@ Run focused offline tests (no Redis build or network required):
 python3 -m unittest discover -s utils/command-compatibility -p 'test*redis_command_compatibility.py' -v
 ```
 
+The separate `Command compatibility checker validation` workflow runs these tests,
+Black and mypy on pushes/PRs that change this utility or its workflows. It does not
+perform live PR compatibility scans, use custom secrets, or change branch protection.
+Validation tools are pinned in `requirements-dev.txt`; scanner runtime remains
+standard-library-only. To run the same checks locally in a Python 3.12 virtual environment:
+
+```sh
+python3 -m pip install -r utils/command-compatibility/requirements-dev.txt
+python3 -m black --check --config utils/command-compatibility/pyproject.toml utils/command-compatibility
+python3 -m mypy --config-file utils/command-compatibility/pyproject.toml utils/command-compatibility
+```
+
 The fixtures cover compatible additions, contract narrowing, and ambiguous
 metadata changes. Tests also cover immutable revisions, fork retrieval, malformed
 archives/JSON, historical modifiers, resource limits, and failure reporting.
+Regression cases include partial baselines, exclusions across file moves and
+nested subcommands, exhausted comparison work, expected unavailable revisions,
+and workflow exit-code handling without swallowing real failures.
 For manual evaluation, inspect a compatible-addition PR, a known syntax-narrowing
 PR, and a PR without command metadata changes. Confirm exact revisions and expected
 findings rather than treating a green workflow as proof of compatibility.
