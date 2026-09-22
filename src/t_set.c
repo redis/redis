@@ -38,7 +38,7 @@
  * the single place that maps a set's encoding to its backend implementation;
  * every other function below dispatches through it instead of switching on
  * robj->encoding itself. */
-static ALWAYS_INLINE const setTypeOps *setTypeGetOps(int encoding) {
+ALWAYS_INLINE const setTypeOps *setTypeGetOps(int encoding) {
     switch (encoding) {
     case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
     case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
@@ -206,7 +206,7 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
 
 /* Check if an sds string is a member of the set. Returns 1 if the value is a
  * member of the set and 0 if it isn't. */
-ALWAYS_INLINE int setTypeIsMember(robj *subject, sds value) {
+int setTypeIsMember(robj *subject, sds value) {
     return setTypeIsMemberAux(subject, value, sdslen(value), 0, 1);
 }
 
