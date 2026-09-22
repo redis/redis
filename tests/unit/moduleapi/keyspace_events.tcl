@@ -590,12 +590,41 @@ tags "modules external:skip" {
             assert_equal 0 [r keyspace.bitmap_transition_unlink_count]
         }
 
+        test "Keyspace notifications: incremental AOF BITOP replay preserves callback contract" {
+            set key bitmap:transition:replay
+            set source bitmap:bitop-aof-source
+            r flushall
+            r config set bitmap-default-roaring yes
+            r setbit $key 0 1
+            r set $source [binary format H* f0]
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r keyspace.reset_bitmap_transition
+
+            assert_equal 1 [r bitop or $key $source]
+            set expected {{overwritten overwritten bitmap} {set bitmap bitmap}}
+            assert_equal $expected [r keyspace.get_bitmap_transition]
+
+            # The base RDB contains the original bitmap. Loading the incremental
+            # write with the opposite default must not expose a transient string.
+            r config set bitmap-default-roaring no
+            r config rewrite
+            restart_server 0 true false
+            wait_done_loading r
+
+            assert_equal bitmap [r type $key]
+            assert_equal [binary format H* f0] [r debug bitmap-raw $key]
+            assert_equal $expected [r keyspace.get_bitmap_transition]
+            assert_equal 0 [r keyspace.string_callback_count]
+            assert_equal 1 [r keyspace.bitmap_callback_count]
+        }
+
         test "Keyspace notifications: AOF replay preserves conversion callback ordering" {
             set type_setbit bitmap:transition:delete-type-zero:aof-setbit
             set type_bitfield bitmap:transition:delete-type-zero:aof-bitfield
             set bitmap_setbit bitmap:transition:delete-bitmap:aof-setbit
             set bitmap_bitfield bitmap:transition:delete-bitmap:aof-bitfield
-            set bitop_dest bitmap:transition:delete-type
+            set bitop_dest bitmap:transition:replace-replay-string:aof-bitop
             set bitop_source bitmap:transition:aof-bitop-source
             set replay_keys [list $type_setbit $type_bitfield \
                 $bitmap_setbit $bitmap_bitfield $bitop_dest $bitop_source]
@@ -688,6 +717,61 @@ tags "modules external:skip" {
             $replica replicaof $master_host $master_port
             wait_for_sync $replica
 
+            foreach replica_mode {no yes} {
+                foreach initial_type {bitmap string none} {
+                    test "Keyspace notifications: native BITOP replay matches primary ($initial_type destination, replica mode $replica_mode)" {
+                        set key bitmap:transition:replay
+                        set source bitmap:bitop-replay-source
+                        $master config set bitmap-default-roaring no
+                        $replica config set bitmap-default-roaring $replica_mode
+                        $master del $key $source
+                        $master set $source [binary format H* f0]
+                        if {$initial_type eq "string"} {
+                            $master set $key [binary format H* 00]
+                        } elseif {$initial_type eq "bitmap"} {
+                            $master config set bitmap-default-roaring yes
+                            $master setbit $key 0 1
+                        }
+                        wait_for_ofs_sync $master $replica
+
+                        set string_counts {}
+                        set bitmap_counts {}
+                        foreach client [list $master $replica] {
+                            $client keyspace.reset_bitmap_transition
+                            lappend string_counts [$client keyspace.string_callback_count]
+                            lappend bitmap_counts [$client keyspace.bitmap_callback_count]
+                        }
+
+                        # All sources are strings, so the primary's config is
+                        # the only reason the result is native. Replay must
+                        # store it directly without exposing a string result.
+                        $master config set bitmap-default-roaring yes
+                        assert_equal 1 [$master bitop or $key $source]
+                        wait_for_ofs_sync $master $replica
+
+                        if {$initial_type eq "none"} {
+                            set expected {{new new bitmap} {set bitmap bitmap}}
+                        } elseif {$initial_type eq "string"} {
+                            set expected {{overwritten overwritten bitmap} {type_changed type_changed bitmap} {set bitmap bitmap}}
+                        } else {
+                            set expected {{overwritten overwritten bitmap} {set bitmap bitmap}}
+                        }
+                        foreach client [list $master $replica] \
+                            string_count $string_counts bitmap_count $bitmap_counts {
+                            assert_equal bitmap [$client type $key]
+                            assert_equal [binary format H* f0] [$client debug bitmap-raw $key]
+                            assert_equal $expected [$client keyspace.get_bitmap_transition]
+                            assert_equal $string_count [$client keyspace.string_callback_count]
+                            assert_equal [expr {$bitmap_count + 1}] [$client keyspace.bitmap_callback_count]
+                        }
+                        $master config set bitmap-default-roaring no
+                        $replica config set bitmap-default-roaring no
+                        $master del $key $source
+                        wait_for_ofs_sync $master $replica
+                    }
+                }
+            }
+
             test "Keyspace notifications: conversion replay preserves callback contract" {
                 set key bitmap:transition:replay
 
@@ -745,7 +829,7 @@ tags "modules external:skip" {
                 set replay_string_bitfield bitmap:transition:replace-replay-string:repl-bitfield
                 set list_setbit bitmap:transition:replace-type-list:repl-setbit
                 set list_bitfield bitmap:transition:replace-type-list:repl-bitfield
-                set bitop_dest bitmap:transition:delete-type
+                set bitop_dest bitmap:transition:replace-replay-string:repl-bitop
                 set bitop_source bitmap:transition:repl-bitop-source
 
                 $master config set bitmap-default-roaring no
@@ -815,9 +899,9 @@ tags "modules external:skip" {
                 }
                 set replica_digest [$replica debug digest]
 
-                # Reload only the replica's local AOF. If the BITOP/BITCONVERT
-                # pair were appended after callback DELs, this state would
-                # change representation or resurrect a key here.
+                # Reload only the replica's local AOF. A transient BITOP
+                # type-change callback would replace its native result with
+                # a string, and misordered callback DELs could resurrect keys.
                 $replica replicaof no one
                 $replica debug loadaof
                 assert_equal $replica_digest [$replica debug digest]

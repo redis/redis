@@ -847,13 +847,11 @@ tags "modules aof external:skip" {
                     lappend bitmap_cases $key $in_aof
 
                     if {$on_replica} {
-                        lappend expected_stream {multi}
                         if {$command eq "bitop"} {
-                            lappend expected_stream $cmd [list bitconvert $key]
+                            lappend expected_stream [lreplace $cmd 0 0 bitop_roaring]
                         } else {
-                            lappend expected_stream [list bitconvert $key] $cmd
+                            lappend expected_stream {multi} [list bitconvert $key] $cmd {exec}
                         }
-                        lappend expected_stream {exec}
                     }
                 }
             }
