@@ -338,6 +338,55 @@ start_server {tags {"bitops"}} {
         }
     }
 
+    # The BITOP destination is allocated uninitialized, so every code path has
+    # to write every byte of it before the key is exposed. DIFF, DIFF1 and
+    # ANDOR are the only ops that *accumulate* into the destination instead of
+    # writing it, which makes them the ones that can return -- and store --
+    # uninitialized heap bytes if the accumulated range is not zeroed first.
+    #
+    # The inputs are chosen so that a single leaked bit changes the result: for
+    # DIFF a leaked bit clears a bit of the expected 0xff, and for DIFF1/ANDOR
+    # it sets a bit of the expected 0x00.
+    #
+    # Lengths >= 32 with fewer than 8 keys reach the word-at-a-time path, which
+    # is the one that needs the explicit zeroing; it is used by every build
+    # without AVX2, including all aarch64 builds. On an AVX2 x86 host these
+    # cases exercise the AVX2 path instead, and the last one (8 keys x 10000
+    # bytes) the AVX-512 path, where the same invariant must also hold.
+    foreach {op apat bpat wantpat} [list \
+        diff  "\xff" "\x00" "\xff" \
+        diff1 "\x00" "\x00" "\x00" \
+        andor "\xff" "\x00" "\x00" \
+    ] {
+        test "BITOP $op does not leak uninitialized destination bytes" {
+            foreach {len numkeys} {32 2 33 2 64 2 1000 2 10001 2 10000 8} {
+                r flushall
+                r set zeros{t} [string repeat "\x00" $len]
+                r set a{t} [string repeat $apat $len]
+                r set b{t} [string repeat $bpat $len]
+                set srckeys a{t}
+                for {set j 1} {$j < $numkeys} {incr j} {
+                    lappend srckeys b{t}
+                }
+
+                # Leave dirty 0xff buffers of exactly the destination's shape
+                # on the allocator's free list, so that a missing zero-fill
+                # cannot be masked by a freshly mmap'd -- and therefore already
+                # zeroed -- page. BITOP NOT allocates its destination through
+                # the same call the op under test does.
+                for {set j 0} {$j < 16} {incr j} {
+                    r bitop not filler_$j{t} zeros{t}
+                }
+                for {set j 0} {$j < 16} {incr j} {
+                    r del filler_$j{t}
+                }
+
+                r bitop $op dest{t} {*}$srckeys
+                assert_equal [string repeat $wantpat $len] [r get dest{t}]
+            }
+        }
+    }
+
     test {BITOP with integer encoded source objects} {
         r set a{t} 1
         r set b{t} 2
