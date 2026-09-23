@@ -438,7 +438,8 @@ int intsetTest(int argc, char **argv, int flags) {
         ok();
     }
 
-    if (flags & REDIS_TEST_LARGE_MEMORY) {
+    /* Needs a >4GB allocation, which a 32 bit size_t can't express. */
+    if ((flags & REDIS_TEST_LARGE_MEMORY) && sizeof(size_t) >= 8) {
         printf("Insert and remove at the head of a >4GB INT64 intset: "); {
             /* (length - from) * sizeof(int64_t) exceeds UINT32_MAX. */
             uint32_t len = (1U << 29) + 1;
