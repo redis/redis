@@ -1234,6 +1234,44 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - SRANDMEMBER with count keeps slot alloc tracking across rehash" {
+        # Every branch of srandmemberWithCountCommand() is exercised against a
+        # set that is mid-rehash. The branches picking random elements drive the
+        # incremental rehash forward, and the step that finishes it frees the
+        # old hash table and shrinks the set's allocation - which must be
+        # recorded via updateSlotAllocSize(). The per-slot assertion runs after
+        # every command, so any miscounting panics inside the loop below.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        # Keep the set hashtable encoded from its first member, so its dict
+        # grows (and rehashes) along with the SADDs below instead of being
+        # pre-sized once by the listpack conversion.
+        set origin_conf [lindex [r CONFIG GET set-max-listpack-entries] 1]
+        r CONFIG SET set-max-listpack-entries 0
+
+        # 4 picks unique elements out of a much bigger set, -4 samples with
+        # repetitions, 300 returns the whole set and 100 builds the reply by
+        # removing random elements from a copy of it.
+        foreach count {4 -4 300 100} {
+            # Recreate src{t} before each command, leaving it mid-rehash. We add
+            # one member per SADD on purpose: a single SADD with many members
+            # would pre-size the dict and skip rehashing. A set's dict is only
+            # rehashed by operations on it, so stopping shortly after an expand
+            # boundary (here 128) leaves the rehash unfinished.
+            r DEL "src{t}"
+            for {set i 0} {$i < 160} {incr i} { r SADD "src{t}" "s-$i" }
+
+            # Repeated until the picks have carried the rehash all the way to
+            # its end. Any other command reading the key would get there first.
+            for {set i 0} {$i < 20} {incr i} { r SRANDMEMBER "src{t}" $count }
+            assert_encoding hashtable "src{t}"
+        }
+
+        r CONFIG SET set-max-listpack-entries $origin_conf
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "KEY-MEMORY-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         r DEBUG KEYSIZES-HIST-ASSERT 1
         r FLUSHALL
