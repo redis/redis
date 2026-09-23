@@ -3378,7 +3378,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                 pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
-                goto err;
+                goto readerr;
             }
             return C_ERR;
         }
@@ -3394,10 +3394,10 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
             pcmd->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
-            goto err;
+            goto readerr;
         } else if (ll > 10 && authRequired(c)) {
             pcmd->read_error = CLIENT_READ_UNAUTH_MBUCK_COUNT;
-            goto err;
+            goto readerr;
         }
 
         c->qb_pos = (newline-c->querybuf)+2;
@@ -3458,7 +3458,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
             if (newline == NULL) {
                 if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                     pcmd->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
-                    goto err;
+                    goto readerr;
                 }
                 break;
             }
@@ -3469,7 +3469,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
 
             if (c->querybuf[c->qb_pos] != '$') {
                 pcmd->read_error = CLIENT_READ_EXPECTED_DOLLAR;
-                goto err;
+                goto readerr;
             }
 
             size_t bulklen_slen = newline - (c->querybuf + c->qb_pos + 1);
@@ -3477,10 +3477,10 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
                 pcmd->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
-                goto err;
+                goto readerr;
             } else if (ll > 16384 && authRequired(c)) {
                 pcmd->read_error = CLIENT_READ_UNAUTH_BUCK_LENGTH;
-                goto err;
+                goto readerr;
             }
 
             c->qb_pos = newline-c->querybuf+2;
@@ -3573,7 +3573,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
     pcmd->flags |= PENDING_CMD_FLAG_INCOMPLETE;
     return C_OK;
 
-err:
+readerr:
     /* A command that hit a read error is finished, however many reads it was
      * parsed across, so it must not stay flagged as incomplete: otherwise
      * addPendingCommand() will not count it as ready and the error is never
