@@ -10321,7 +10321,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
              * Check before subtracting to avoid unsigned underflow if the timer
              * expires while callbacks are running. */
             now = getMonotonicUs();
-            next_period = expiretime > now ? (expiretime - now) / 1000 : 0;
+            next_period = expiretime > now ? (expiretime - now) / 1000 : 0; /* Scale to milliseconds. */
             break;
         }
     }
