@@ -241,6 +241,18 @@ static int rw_buffer(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         assert(RedisModule_ReplyWithBufferedReply(ctx, b) == REDISMODULE_OK);
         assert(RedisModule_ReplyWithBufferedReply(ctx, a) == REDISMODULE_OK);
         assert(RedisModule_ReplyWithBufferedReply(ctx, b) == REDISMODULE_OK);
+    } else if (!strcmp(mode, "reset")) {
+        int resp3 = RedisModule_GetContextFlags(a) & REDISMODULE_CTX_FLAGS_RESP3;
+        RedisModule_ReplyWithArray(a, REDISMODULE_POSTPONED_LEN);
+        RedisModule_ReplyWithString(a, argv[2]);
+        RedisModule_ReplyWithError(a, "BUFFERDROP reset");
+        assert(RedisModule_ResetReplyBuffer(NULL) == REDISMODULE_ERR);
+        assert(RedisModule_ResetReplyBuffer(ctx) == REDISMODULE_ERR);
+        assert(RedisModule_ResetReplyBuffer(a) == REDISMODULE_OK);
+        assert(RedisModule_ResetReplyBuffer(a) == REDISMODULE_OK);
+        assert((RedisModule_GetContextFlags(a) & REDISMODULE_CTX_FLAGS_RESP3) == resp3);
+        RedisModule_ReplyWithString(a, argv[2]);
+        assert(RedisModule_ReplyWithBufferedReply(ctx, a) == REDISMODULE_OK);
     } else {
         if (!strcmp(mode, "open"))
             RedisModule_ReplyWithArray(a, REDISMODULE_POSTPONED_LEN);
@@ -273,6 +285,7 @@ typedef struct BufferJob {
     char *payload;
     size_t len;
     int error;
+    int reset;
     int ready;
     int finish;
     int taken;
@@ -296,7 +309,12 @@ static void *rw_buffer_worker(void *arg) {
     RedisModule_ThreadSafeContextUnlock(ts);
 
     /* Serialize and move between independent accumulators without the GIL. */
-    if (job->error)
+    if (job->reset) {
+        RedisModule_ReplyWithArray(staging, REDISMODULE_POSTPONED_LEN);
+        RedisModule_ReplyWithError(staging, "BUFFERDROP worker reset");
+        assert(RedisModule_ResetReplyBuffer(staging) == REDISMODULE_OK);
+        RedisModule_ReplyWithStringBuffer(staging, job->payload, job->len);
+    } else if (job->error)
         RedisModule_ReplyWithError(staging, "BUFFERERR worker");
     else
         RedisModule_ReplyWithStringBuffer(staging, job->payload, job->len);
@@ -360,6 +378,7 @@ static int rw_buffer_start(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     job->payload = RedisModule_Alloc(job->len);
     memcpy(job->payload, payload, job->len);
     job->error = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "error");
+    job->reset = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "reset");
     job->bc = RedisModule_BlockClient(ctx, rw_buffer_callback, rw_buffer_callback, rw_buffer_free, 0);
     job->buffer = RedisModule_CreateReplyBufferContext(ctx);
     job->keep = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "keep");
@@ -434,6 +453,10 @@ static int rw_buffer_saved(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         assert(saved_buffer);
         RedisModule_FreeThreadSafeContext(saved_buffer);
         saved_buffer = NULL;
+    } else if (!strcmp(mode, "reset")) {
+        assert(argc == 3 && saved_buffer);
+        assert(RedisModule_ResetReplyBuffer(saved_buffer) == REDISMODULE_OK);
+        RedisModule_ReplyWithString(saved_buffer, argv[2]);
     } else {
         return RedisModule_ReplyWithError(ctx, "ERR invalid saved buffer mode");
     }

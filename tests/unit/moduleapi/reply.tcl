@@ -177,6 +177,12 @@ start_server {tags {"modules external:skip"}} {
                 }
                 assert_equal $errors [s total_error_replies]
             }
+            test "RESP$proto: reset preserves protocol and permits reuse ($size bytes)" {
+                set errors [s total_error_replies]
+                assert_equal $payload [r rw.buffer reset $payload]
+                assert_equal $errors [s total_error_replies]
+                assert_equal PONG [r ping]
+            }
             test "RESP$proto: rejected detached destination preserves content ($size bytes)" {
                 assert_equal [list $payload preserved OK] [r rw.buffer detached $payload]
                 assert_equal PONG [r ping]
@@ -207,7 +213,8 @@ start_server {tags {"modules external:skip"}} {
         }
 
         test "RESP$proto: buffer outlives its source contexts and prevents unloading" {
-            assert_equal OK [r rw.buffer_saved save payload]
+            assert_equal OK [r rw.buffer_saved save discarded]
+            assert_equal OK [r rw.buffer_saved reset payload]
             assert_error {*owned reply buffers*} {r module unload replywith}
             assert_equal payload [r rw.buffer_saved take]
             assert_equal PONG [r ping]
@@ -292,6 +299,25 @@ start_server {tags {"modules external:skip"}} {
                 [lindex [r rw.buffer_status] 0] == 0
             } else { fail "Worker buffers were not released" }
             assert_equal [expr {$errors + 1}] [s total_error_replies]
+            $rd close
+        }
+
+        test "RESP$proto: worker can reset and reuse a reply buffer without the GIL" {
+            set rd [redis_deferring_client]
+            $rd hello $proto
+            $rd read
+            set errors [s total_error_replies]
+            set payload [string repeat r 65536]
+            $rd rw.buffer_start $payload reset
+            wait_for_condition 100 10 {
+                [lindex [r rw.buffer_status] 1] == 1
+            } else { fail "Worker did not reset and publish its buffer" }
+            r rw.buffer_finish
+            assert_equal [list $payload done] [$rd read]
+            assert_equal $errors [s total_error_replies]
+            wait_for_condition 100 10 {
+                [lindex [r rw.buffer_status] 0] == 0
+            } else { fail "Worker buffer was not released" }
             $rd close
         }
 

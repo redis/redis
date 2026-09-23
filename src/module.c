@@ -3590,6 +3590,33 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     return REDISMODULE_OK;
 }
 
+/* Discard all replies accumulated in a context created by
+ * RedisModule_CreateReplyBufferContext(), leaving it empty and reusable.
+ * The reply protocol, module association, and other context state are
+ * preserved. Incomplete postponed collections and deferred errors are
+ * discarded without warnings or error-stat accounting.
+ *
+ * The caller must have exclusive access to the buffer. This function does not
+ * acquire the server lock and may be called from a worker thread.
+ * Returns REDISMODULE_ERR if `buffer` is NULL or is not a reply buffer. */
+int RM_ResetReplyBuffer(RedisModuleCtx *buffer) {
+    if (!buffer || !(buffer->flags & REDISMODULE_CTX_REPLY_BUFFER))
+        return REDISMODULE_ERR;
+
+    client *c = buffer->client;
+    listEmpty(c->reply);
+    c->bufpos = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
+    if (c->deferred_reply_errors) {
+        listRelease(c->deferred_reply_errors);
+        c->deferred_reply_errors = NULL;
+    }
+    zfree(buffer->postponed_arrays);
+    buffer->postponed_arrays = NULL;
+    buffer->postponed_arrays_count = 0;
+    return REDISMODULE_OK;
+}
+
 /* Append the replies accumulated in a context created by
  * RedisModule_CreateReplyBufferContext() to the reply target of `ctx`.
  * This moves the content, leaving `buffer` empty and available for reuse.
@@ -3628,13 +3655,7 @@ int RM_ReplyWithBufferedReply(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
     /* AddReplyFromClient may return before consuming the source when the
      * destination cannot accept replies.
      * Only reset reply state: this context and its client remain reusable. */
-    listEmpty(src->reply);
-    src->bufpos = 0;
-    src->reply_bytes = 0;
-    if (src->deferred_reply_errors) {
-        listRelease(src->deferred_reply_errors);
-        src->deferred_reply_errors = NULL;
-    }
+    RM_ResetReplyBuffer(buffer);
     return REDISMODULE_OK;
 }
 
@@ -9292,10 +9313,7 @@ void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
     if (ctx->flags & REDISMODULE_CTX_REPLY_BUFFER) {
         serverAssert(ctx->module->reply_buffers > 0);
         ctx->module->reply_buffers--;
-        /* Discarding an unfinished response is valid for an owned buffer. */
-        zfree(ctx->postponed_arrays);
-        ctx->postponed_arrays = NULL;
-        ctx->postponed_arrays_count = 0;
+        RM_ResetReplyBuffer(ctx);
     }
     moduleFreeContext(ctx);
     zfree(ctx);
@@ -15864,6 +15882,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
+    REGISTER_API(ResetReplyBuffer);
     REGISTER_API(ReplyWithBufferedReply);
     REGISTER_API(ReplyWithDouble);
     REGISTER_API(ReplyWithBigNumber);
