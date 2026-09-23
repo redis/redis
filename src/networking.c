@@ -3378,6 +3378,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                 pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
+                goto err;
             }
             return C_ERR;
         }
@@ -3393,10 +3394,10 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
             pcmd->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
-            return C_ERR;
+            goto err;
         } else if (ll > 10 && authRequired(c)) {
             pcmd->read_error = CLIENT_READ_UNAUTH_MBUCK_COUNT;
-            return C_ERR;
+            goto err;
         }
 
         c->qb_pos = (newline-c->querybuf)+2;
