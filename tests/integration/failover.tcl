@@ -301,6 +301,116 @@ start_server {overrides {save {}}} {
         assert_equal [count_log_message 0 "Failover target rejected psync request"] 1
         assert_digests_match $node_0 $node_1 $node_2
     }
+
+    proc reset_to_node_0_as_master {} {
+        upvar node_0 node_0 node_1 node_1 node_2 node_2
+        upvar node_0_host node_0_host node_0_port node_0_port
+        $node_0 replicaof no one
+        $node_1 replicaof $node_0_host $node_0_port
+        $node_2 replicaof $node_0_host $node_0_port
+        wait_for_sync $node_1
+        wait_for_sync $node_2
+        wait_for_ofs_sync $node_0 $node_1
+        wait_for_ofs_sync $node_0 $node_2
+    }
+
+    test {failover is retried if the link drops after the target accepted PSYNC FAILOVER} {
+        reset_to_node_0_as_master
+        set rejected [count_log_message 0 "Failover target rejected psync request"]
+        set served [count_log_message -1 "serving it as a regular PSYNC"]
+
+        # Keep node 1 one write behind (a replica doesn't apply the replication
+        # stream during CLIENT PAUSE WRITE), so that after promoting itself it
+        # has to full sync node 0. Its +FULLRESYNC reply is then delayed by
+        # repl-diskless-sync-delay, which leaves a window where node 1 is
+        # already a master but node 0 didn't get the reply yet. The rdb channel
+        # is disabled since with it the reply (+RDBCHANNELSYNC) isn't delayed.
+        set rdbchannel [lindex [$node_1 config get repl-rdb-channel] 1]
+        $node_1 config set repl-rdb-channel no
+        $node_1 config set repl-diskless-sync yes
+        $node_1 config set repl-diskless-sync-delay 30
+        $node_1 client pause 60000 write
+        $node_0 set case 3
+        $node_0 failover to $node_1_host $node_1_port TIMEOUT 100 FORCE
+
+        wait_for_condition 50 100 {
+            [s -1 role] eq "master"
+        } else {
+            fail "Node 1 did not accept the failover request"
+        }
+
+        # Drop the link before node 0 got the reply.
+        assert_equal [s 0 master_failover_state] "failover-in-progress"
+        assert_equal 1 [$node_1 client kill type replica]
+        $node_1 config set repl-diskless-sync-delay 0
+
+        # Node 0 must not go back to being a master: it retries, and node 1
+        # serves the retried PSYNC FAILOVER as a regular PSYNC.
+        wait_for_condition 200 100 {
+            [s 0 master_failover_state] == "no-failover"
+        } else {
+            fail "Failover from node 0 to node 1 did not finish"
+        }
+        $node_1 client unpause
+        $node_1 config set repl-rdb-channel $rdbchannel
+
+        assert_match *slave* [$node_0 role]
+        assert_match *master* [$node_1 role]
+        assert_equal [count_log_message 0 "Failover target rejected psync request"] $rejected
+        assert_morethan [count_log_message 0 "will retry"] 0
+        assert_morethan [count_log_message -1 "serving it as a regular PSYNC"] $served
+
+        $node_2 replicaof $node_1_host $node_1_port
+        wait_for_sync $node_0
+        wait_for_sync $node_2
+        assert_digests_match $node_0 $node_1 $node_2
+    }
+
+    test {failover completes if the target was already promoted by the same failover} {
+        reset_to_node_0_as_master
+        set rejected [count_log_message 0 "Failover target rejected psync request"]
+        set served [count_log_message -1 "serving it as a regular PSYNC"]
+
+        # Stand in for an earlier PSYNC FAILOVER from node 0 that node 1
+        # accepted but whose reply never reached node 0: we send the same
+        # request to node 1 ourselves, right before node 0 sends its own.
+        # Node 1 must have acked the whole stream, so that the failover
+        # starts while it is paused.
+        wait_for_condition 50 100 {
+            [string match "*port=$node_1_port,state=online,offset=[s 0 master_repl_offset],*" [$node_0 info replication]]
+        } else {
+            fail "Node 1 didn't ack the master offset"
+        }
+        set rd [redis_deferring_client -1]
+        pause_process $node_1_pid
+        $node_0 failover to $node_1_host $node_1_port TIMEOUT 60000
+        wait_for_condition 50 100 {
+            [s 0 master_failover_state] == "failover-in-progress"
+        } else {
+            fail "Failover from node 0 to node 1 did not start"
+        }
+        set replid [s 0 master_replid]
+        set offset [expr {[s 0 master_repl_offset] + 1}]
+        $rd psync $replid $offset failover
+        resume_process $node_1_pid
+
+        wait_for_condition 50 100 {
+            [s 0 master_failover_state] == "no-failover"
+        } else {
+            fail "Failover from node 0 to node 1 did not finish"
+        }
+        $rd close
+
+        assert_match *slave* [$node_0 role]
+        assert_match *master* [$node_1 role]
+        assert_equal [count_log_message 0 "Failover target rejected psync request"] $rejected
+        assert_morethan [count_log_message -1 "serving it as a regular PSYNC"] $served
+
+        $node_2 replicaof $node_1_host $node_1_port
+        wait_for_sync $node_0
+        wait_for_sync $node_2
+        assert_digests_match $node_0 $node_1 $node_2
+    }
 }
 }
 }

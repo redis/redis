@@ -1217,11 +1217,22 @@ void syncCommand(client *c) {
         serverLog(LL_NOTICE, "Failover request received for replid %s.",
             (unsigned char *)c->argv[1]->ptr);
         if (!server.masterhost) {
-            addReplyError(c, "PSYNC FAILOVER can't be sent to a master.");
-            return;
-        }
-
-        if (!strcasecmp(c->argv[1]->ptr,server.replid)) {
+            /* We may have been promoted already by an earlier PSYNC FAILOVER
+             * from the same master, whose reply didn't reach it, so it's
+             * retrying (see syncWithMaster()). Its replid is then our
+             * secondary replid: serve it as a regular PSYNC, that is still
+             * subject to the offset checks in
+             * masterTryPartialResynchronization(). Rejecting it would make
+             * the old master abort the failover and become a master again,
+             * leaving us with two masters. */
+            if (strcasecmp(c->argv[1]->ptr,server.replid2)) {
+                addReplyError(c, "PSYNC FAILOVER can't be sent to a master.");
+                return;
+            }
+            serverLog(LL_NOTICE, "Already promoted by a failover request "
+                "for replid %s, serving it as a regular PSYNC.",
+                (char *)c->argv[1]->ptr);
+        } else if (!strcasecmp(c->argv[1]->ptr,server.replid)) {
             if (server.cluster_enabled) {
                 clusterPromoteSelfToMaster();
             } else {
@@ -3421,9 +3432,17 @@ void syncWithMaster(connection *conn) {
             psync_result == PSYNC_FULLRESYNC_RDBCHANNEL)
         {
             clearFailoverState();
-        } else {
+        } else if (psync_result != PSYNC_TRY_LATER) {
             abortFailover("Failover target rejected psync request");
             return;
+        } else {
+            /* No reply (e.g. the connection dropped) or a transient error.
+             * The target may have accepted the request and promoted itself
+             * already, so we can't go back to being a master: keep the
+             * failover in progress and retry, like on the other transient
+             * errors of the handshake. */
+            serverLog(LL_NOTICE, "Failover target didn't accept the PSYNC "
+                "FAILOVER request yet, will retry.");
         }
     }
 
