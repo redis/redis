@@ -1225,7 +1225,10 @@ void syncCommand(client *c) {
              * masterTryPartialResynchronization(). Rejecting it would make
              * the old master abort the failover and become a master again,
              * leaving us with two masters. */
-            if (strcasecmp(c->argv[1]->ptr,server.replid2)) {
+            if (strcasecmp(c->argv[1]->ptr,server.replid2) &&
+                (server.failover_replid[0] == '\0' ||
+                 strcasecmp(c->argv[1]->ptr,server.failover_replid)))
+            {
                 addReplyError(c, "PSYNC FAILOVER can't be sent to a master.");
                 return;
             }
@@ -1238,6 +1241,11 @@ void syncCommand(client *c) {
             } else {
                 replicationUnsetMaster();
             }
+            /* Remember who promoted us: replid2 is cleared when the backlog
+             * is freed (no replicas for repl-backlog-ttl), and a retried
+             * PSYNC FAILOVER must still be recognized after that. */
+            memcpy(server.failover_replid,c->argv[1]->ptr,sizeof(server.failover_replid)-1);
+            server.failover_replid[sizeof(server.failover_replid)-1] = '\0';
             sds client = catClientInfoString(sdsempty(),c);
             serverLog(LL_NOTICE,
                 "MASTER MODE enabled (failover request from '%s')",client);
@@ -3639,6 +3647,9 @@ int cancelReplicationHandshake(int reconnect) {
 /* Set replication to the specified master address and port. */
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
+
+    /* We are no longer the master that a PSYNC FAILOVER promoted. */
+    server.failover_replid[0] = '\0';
 
     sdsfree(server.masterhost);
     server.masterhost = NULL;

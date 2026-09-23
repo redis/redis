@@ -411,6 +411,65 @@ start_server {overrides {save {}}} {
         wait_for_sync $node_2
         assert_digests_match $node_0 $node_1 $node_2
     }
+
+    test {failover completes if the target was promoted and its replid2 was cleared since} {
+        reset_to_node_0_as_master
+        set rejected [count_log_message 0 "Failover target rejected psync request"]
+
+        wait_for_condition 50 100 {
+            [string match "*port=$node_1_port,state=online,offset=[s 0 master_repl_offset],*" [$node_0 info replication]]
+        } else {
+            fail "Node 1 didn't ack the master offset"
+        }
+        set rd [redis_deferring_client -1]
+
+        # Node 1 is paused, so node 0 starts the failover but can't get past
+        # the handshake, then node 0 is paused too before it sends its
+        # PSYNC FAILOVER.
+        pause_process $node_1_pid
+        $node_0 failover to $node_1_host $node_1_port TIMEOUT 60000
+        wait_for_condition 50 100 {
+            [s 0 master_failover_state] == "failover-in-progress"
+        } else {
+            fail "Failover from node 0 to node 1 did not start"
+        }
+        set replid [s 0 master_replid]
+        set offset [expr {[s 0 master_repl_offset] + 1}]
+        pause_process $node_0_pid
+
+        # Stand in for an earlier PSYNC FAILOVER from node 0 that promoted
+        # node 1 but whose reply was lost.
+        $rd psync $replid $offset failover
+        resume_process $node_1_pid
+        wait_for_condition 50 100 {
+            [string match *master* [$node_1 role]]
+        } else {
+            fail "Node 1 wasn't promoted"
+        }
+
+        # Node 1 drops replid2, as it does when its backlog is freed after
+        # repl-backlog-ttl without replicas.
+        $node_1 debug change-repl-id
+        assert_equal {0000000000000000000000000000000000000000} [s -1 master_replid2]
+
+        # The retried PSYNC FAILOVER of node 0 must still be accepted.
+        resume_process $node_0_pid
+        wait_for_condition 50 100 {
+            [s 0 master_failover_state] == "no-failover"
+        } else {
+            fail "Failover from node 0 to node 1 did not finish"
+        }
+        $rd close
+
+        assert_match *slave* [$node_0 role]
+        assert_match *master* [$node_1 role]
+        assert_equal [count_log_message 0 "Failover target rejected psync request"] $rejected
+
+        $node_2 replicaof $node_1_host $node_1_port
+        wait_for_sync $node_0
+        wait_for_sync $node_2
+        assert_digests_match $node_0 $node_1 $node_2
+    }
 }
 }
 }
