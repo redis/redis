@@ -1176,14 +1176,17 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
                 }
 
                 if (can_delete) {
-                    /* Mark the entry as deleted. */
-                    intptr_t delta = p ? (p - lp) : 0; /* p may be NULL if this was the last entry */
+                    /* lpReplaceInteger() may re-encode the flags element with
+                     * a different size and realloc the listpack, so we save
+                     * the distance of 'p' from the element following the flags
+                     * and restore it after the replacement. */
+                    intptr_t delta = p ? (p - lpNext(lp, pcopy)) : 0; /* p may be NULL if this was the last entry */
                     flags |= STREAM_ITEM_FLAG_DELETED;
                     lp = lpReplaceInteger(lp, &pcopy, flags);
                     if (max_deleted_id) *max_deleted_id = currid;
                     deleted_from_lp++;
                     s->length--;
-                    if (p) p = lp + delta;
+                    if (p) p = lpNext(lp, pcopy) + delta;
                 }
             }
         }
