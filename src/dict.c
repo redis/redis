@@ -1694,13 +1694,19 @@ int dictShrinkIfNeeded(dict *d) {
 
     /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
-     * we'll trigger a resize of the hash table. */
+     * we'll trigger a resize of the hash table.
+     * When avoiding, use the size of the new table rather than the number of
+     * elements, since it is at least DICT_HT_INITIAL_SIZE: dictRehash() only
+     * rehashes a shrink if the table sizes are at the 1:32 ratio, otherwise
+     * the dict would be left rehashing without making progress. An empty table
+     * is replaced without rehashing, so it can always shrink. */
     dictResizeEnable can_resize;
     atomicGet(dict_can_resize, can_resize);
+    unsigned long new_size = d->ht_used[0] ? DICTHT_SIZE(_dictNextExp(d->ht_used[0])) : 0;
     if ((can_resize == DICT_RESIZE_ENABLE &&
          d->ht_used[0] * HASHTABLE_MIN_FILL <= DICTHT_SIZE(d->ht_size_exp[0])) ||
         (can_resize != DICT_RESIZE_FORBID &&
-         d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
+         new_size * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0]))
             dictShrink(d, d->ht_used[0]);
@@ -2164,6 +2170,45 @@ int dictTest(int argc, char **argv, int flags) {
         assert(dictSize(d) == current_dict_used);
         assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_dict_size);
         assert(DICTHT_SIZE(d->ht_size_exp[1]) == 0);
+    }
+
+    TEST("DICT_RESIZE_AVOID does not start a shrink that can't be rehashed") {
+        /* With 1 or 2 elements left, the shrink target is DICT_HT_INITIAL_SIZE,
+         * so a 32 or 64 bucket table is not at the 1:32 ratio dictRehash()
+         * requires under DICT_RESIZE_AVOID. Starting that shrink used to leave
+         * the dict rehashing into a 4 bucket table that could neither finish
+         * nor expand until resizing was enabled again. */
+        unsigned long cases[][2] = {{1, 32}, {1, 64}, {2, 64}};
+        for (unsigned long c = 0; c < sizeof(cases)/sizeof(cases[0]); c++) {
+            unsigned long keep = cases[c][0], size = cases[c][1];
+            dictEmpty(d, NULL);
+            dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+            for (j = 0; j < (long)size/2 + 1; j++) {
+                retval = dictAdd(d, stringFromLongLong(j), (void*)j);
+                assert(retval == DICT_OK);
+            }
+            while (dictIsRehashing(d)) dictRehashMicroseconds(d,1000);
+            assert(dictBuckets(d) == size);
+
+            dictSetResizeEnabled(DICT_RESIZE_AVOID);
+            for (j = keep; j < (long)size/2 + 1; j++) {
+                char *key = stringFromLongLong(j);
+                retval = dictDelete(d, key);
+                zfree(key);
+                assert(retval == DICT_OK);
+            }
+            assert(dictSize(d) == keep);
+            assert(!dictIsRehashing(d));
+            assert(dictBuckets(d) == size);
+
+            /* Adding keys keeps working normally. */
+            for (j = size; j < (long)size + 100; j++) {
+                retval = dictAdd(d, stringFromLongLong(j), (void*)j);
+                assert(retval == DICT_OK);
+            }
+            assert(!dictIsRehashing(d) || DICTHT_SIZE(d->ht_size_exp[1]) > size);
+        }
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
     }
 
     TEST("Restore to original state") {
