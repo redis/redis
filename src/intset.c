@@ -189,7 +189,9 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
 
 static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
     void *src, *dst;
-    uint32_t bytes = intrev32ifbe(is->length)-from;
+    /* size_t: the byte count can exceed UINT32_MAX for INT64/INT32
+     * encodings even with the entry count capped at 1<<30. */
+    size_t bytes = (size_t)intrev32ifbe(is->length)-from;
     uint32_t encoding = intrev32ifbe(is->encoding);
 
     if (encoding == INTSET_ENC_INT64) {
@@ -351,6 +353,7 @@ int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
 #ifdef REDIS_TEST
 #include <sys/time.h>
 #include <time.h>
+#include "testhelp.h"
 
 #if 0
 static void intsetRepr(intset *is) {
@@ -418,7 +421,6 @@ int intsetTest(int argc, char **argv, int flags) {
 
     UNUSED(argc);
     UNUSED(argv);
-    UNUSED(flags);
 
     printf("Value encodings: "); {
         assert(_intsetValueEncoding(-32768) == INTSET_ENC_INT16);
@@ -434,6 +436,36 @@ int intsetTest(int argc, char **argv, int flags) {
         assert(_intsetValueEncoding(+9223372036854775807ull) ==
                     INTSET_ENC_INT64);
         ok();
+    }
+
+    if (flags & REDIS_TEST_LARGE_MEMORY) {
+        printf("Insert and remove at the head of a >4GB INT64 intset: "); {
+            /* (length - from) * sizeof(int64_t) exceeds UINT32_MAX. */
+            uint32_t len = (1U << 29) + 1;
+            is = zmalloc(sizeof(intset) + (size_t)len * sizeof(int64_t));
+            is->encoding = intrev32ifbe(INTSET_ENC_INT64);
+            is->length = intrev32ifbe(len);
+            for (uint32_t k = 0; k < len; k++)
+                _intsetSet(is, k, INT64_MAX - (int64_t)(len - k));
+
+            is = intsetAdd(is, INT64_MIN, &success);
+            assert(success);
+            assert(intsetLen(is) == len + 1);
+            assert(_intsetGet(is, 0) == INT64_MIN);
+            assert(_intsetGet(is, 1) == INT64_MAX - (int64_t)len);
+            assert(intsetFind(is, INT64_MAX - 1));
+            assert(intsetValidateIntegrity((unsigned char *)is, intsetBlobLen(is), 1));
+
+            int removed;
+            is = intsetRemove(is, INT64_MIN, &removed);
+            assert(removed);
+            assert(intsetLen(is) == len);
+            assert(_intsetGet(is, 0) == INT64_MAX - (int64_t)len);
+            assert(intsetFind(is, INT64_MAX - 1));
+            assert(intsetValidateIntegrity((unsigned char *)is, intsetBlobLen(is), 1));
+            zfree(is);
+            ok();
+        }
     }
 
     printf("Basic adding: "); {
