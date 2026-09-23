@@ -1610,6 +1610,88 @@ void smembersCommand(client *c) {
     serverAssert(length == 0); /* fail on corrupt data */
 }
 
+static void replySetMembers(client *c, robj *set) {
+    setTypeIterator si;
+    char *str;
+    size_t len = 0;
+    int64_t llval;
+
+    addReplySetLen(c, setTypeSize(set));
+    setTypeInitIterator(&si, set);
+    while (setTypeNext(&si, &str, &len, &llval) != -1) {
+        if (str)
+            addReplyBulkCBuffer(c, str, len);
+        else
+            addReplyBulkLongLong(c, llval);
+    }
+    setTypeResetIterator(&si);
+}
+
+/* Called after validating all input types. Return 1 if a non-STORE result is
+ * known without building a new set. */
+static int replyKnownSetOperationResult(client *c, setopsrc *sets, int setnum, int op, int sameset) {
+    int j;
+
+    if (op == SET_OP_UNION) {
+        robj *single_set = NULL;
+        for (j = 0; j < setnum; j++) {
+            if (!sets[j].set) continue;
+            if (!single_set)
+                single_set = sets[j].set;
+            else if (single_set != sets[j].set)
+                break;
+        }
+        if (j == setnum) {
+            if (single_set)
+                replySetMembers(c, single_set);
+            else
+                addReply(c, shared.emptyset[c->resp]);
+            return 1;
+        }
+    } else if (op == SET_OP_DIFF) {
+        if (!sets[0].set || sameset) {
+            addReply(c, shared.emptyset[c->resp]);
+            return 1;
+        }
+        for (j = 1; j < setnum; j++) {
+            if (sets[j].set) break;
+        }
+        if (j == setnum) {
+            replySetMembers(c, sets[0].set);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The caller ensures that the source exists and is not a subtractor. */
+static void sdiffReplyDirect(client *c, setopsrc *sets, int setnum) {
+    void *replylen = addReplyDeferredLen(c);
+    setTypeIterator si;
+    long cardinality = 0;
+    char *str;
+    size_t len = 0;
+    int64_t llval;
+    int encoding, j;
+
+    setTypeInitIterator(&si, sets[0].set);
+    while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
+        for (j = 1; j < setnum; j++) {
+            if (!sets[j].set) continue;
+            if (setTypeIsMemberAux(sets[j].set, str, len, llval, encoding == OBJ_ENCODING_HT)) break;
+        }
+        if (j == setnum) {
+            if (str)
+                addReplyBulkCBuffer(c, str, len);
+            else
+                addReplyBulkLongLong(c, llval);
+            cardinality++;
+        }
+    }
+    setTypeResetIterator(&si);
+    setDeferredSetLen(c, replylen, cardinality);
+}
+
 /* SINTERCARD numkeys key [key ...] [LIMIT limit] */
 void sinterCardCommand(client *c) {
     long j;
@@ -1667,6 +1749,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     int j, diff_algo = 1;
     long cardinality = 0;
     int sameset = 0;
+    int direct_reply = 0;
     /* Memory tracking is only needed for SET_OP_DIFF. UNION just iterates the
      * source sets; it never calls dictFind/dictAdd/dictDelete on a passed key,
      * so it can't advance a rehash and change a source set's allocation size. */
@@ -1708,6 +1791,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     }
 
+    /* Check every input type before returning a known result. */
+    if (!dstkey && !cardinality_only && replyKnownSetOperationResult(c, sets, setnum, op, sameset)) {
+        direct_reply = 1;
+        goto result_ready;
+    }
+
     /* Select what DIFF algorithm to use.
      *
      * Algorithm 1 is O(N*M) where N is the size of the element first set
@@ -1739,6 +1828,13 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             qsort(sets+1,setnum-1,sizeof(setopsrc),
                 qsortCompareSetsByRevCardinality);
         }
+    }
+
+    /* Algorithm 1 can emit members directly unless the result must be stored. */
+    if (!dstkey && !cardinality_only && op == SET_OP_DIFF && sets[0].set && !sameset && diff_algo == 1) {
+        sdiffReplyDirect(c, sets, setnum);
+        direct_reply = 1;
+        goto result_ready;
     }
 
     /* We need a temp set object to store our union/diff. If the dstkey
@@ -1886,6 +1982,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (cardinality == 0) break;
         }
     }
+result_ready:
     if (must_track_memory) {
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
@@ -1893,6 +1990,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), obj,
                                 sets[j].oldsize, kvobjAllocSize(obj));
         }
+    }
+
+    if (direct_reply) {
+        zfree(sets);
+        return;
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
@@ -1907,15 +2009,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
                                           decrRefCount(dstset);
     } else if (!dstkey) {
-        addReplySetLen(c,cardinality);
-        setTypeInitIterator(&si, dstset);
-        while (setTypeNext(&si, &str, &len, &llval) != -1) {
-            if (str)
-                addReplyBulkCBuffer(c, str, len);
-            else
-                addReplyBulkLongLong(c, llval);
-        }
-        setTypeResetIterator(&si);
+        replySetMembers(c, dstset);
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
                                           decrRefCount(dstset);
     } else {
