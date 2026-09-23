@@ -1233,12 +1233,15 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
     }
 
     test "HGETDEL memory tracking when no field is deleted" {
-        # Values longer than hash-max-listpack-value force hashtable encoding,
-        # and the insert that crosses the load factor starts a rehash.
+        # More fields than hash-max-listpack-entries and values longer than
+        # hash-max-listpack-value force hashtable encoding, and the insert that
+        # crosses the load factor starts a rehash.
         R 0 DEL myhash{t}
+        set args {}
         for {set i 0} {$i < 200} {incr i} {
-            R 0 HSET myhash{t} f[format %05d $i] [string repeat v 150]
+            lappend args f$i [string repeat v 150]
         }
+        R 0 HSET myhash{t} {*}$args
 
         assert_equal "hashtable" [R 0 OBJECT ENCODING myhash{t}]
 
