@@ -50,11 +50,20 @@ start_server {tags {"lazyfree"}} {
 
         r config resetstat
         r config set stream-node-max-entries 5
+        # Use explicit IDs one millisecond apart. What decides whether UNLINK
+        # frees the stream lazily is lazyfreeGetFreeEffort(), which for a stream
+        # is dominated by the number of nodes in its radix tree, and with
+        # server-generated IDs that is the number of distinct milliseconds these
+        # 1000 XADDs happen to span -- keys sharing a millisecond share a prefix
+        # and collapse into one compressed node. On a machine fast enough to run
+        # the loop in well under 64ms the whole stream fits in a handful of
+        # nodes, the effort falls below LAZYFREE_THRESHOLD, the stream is freed
+        # synchronously and lazyfreed_objects stays 0.
         for {set j 0} {$j < 1000} {incr j} {
             if {rand() < 0.9} {
-                r xadd stream * foo $j
+                r xadd stream $j-1 foo $j
             } else {
-                r xadd stream * bar $j
+                r xadd stream $j-1 bar $j
             }
         }
         r xgroup create stream mygroup 0

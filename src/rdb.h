@@ -18,7 +18,7 @@
 
 /* The current RDB version. When the format changes in a way that is no longer
  * backward compatible this number gets incremented. */
-#define RDB_VERSION 14
+#define RDB_VERSION 16
 
 /* Defines related to the dump file format. To store 32 bits lengths for short
  * keys requires a lot of space, so we check the most significant 2 bits of
@@ -81,19 +81,25 @@
 #define RDB_TYPE_STREAM_LISTPACKS_4 26        /* Stream with IDMP support */
 #define RDB_TYPE_STREAM_LISTPACKS_5 27        /* Stream with XNACK support (NACKed entries) */
 #define RDB_TYPE_ARRAY 28                     /* Array data type */
+#define RDB_TYPE_HASH_TMPL_LP 29              /* TMPL_LP, self-contained (DUMP): [count][f0]...[fN-1][lp_blob] */
+#define RDB_TYPE_HASH_TMPL_LP_REF 30          /* TMPL_LP, with template ref (RDB save): raw lp blob, first entry is tid */
+#define RDB_TYPE_HASH_TMPL_ARRAY 31           /* TMPL_ARRAY, self-contained (DUMP): [count][f0][v0]...[fN-1][vN-1] */
+#define RDB_TYPE_HASH_TMPL_ARRAY_REF 32       /* TMPL_ARRAY, with template ref (RDB save): [tid][v0]...[vN-1] */
 #ifdef ENABLE_GCRA
-#define RDB_TYPE_GCRA 29                      /* GCRA object */
+#define RDB_TYPE_GCRA 33                      /* GCRA object */
 #endif
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
 #ifdef ENABLE_GCRA
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 29))
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 33))
 #else
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 28))
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 32))
 #endif
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define RDB_OPCODE_KEY_NOEVICT 241  /* Per-key attribute: bless NO-EVICT. No payload; presence flags the key. */
+#define RDB_OPCODE_HASH_TEMPLATE 242 /* One hash template record. */
 #define RDB_OPCODE_KEY_META   243   /* Key metadata (module metadata classes). */
 #define RDB_OPCODE_SLOT_INFO  244   /* Individual slot info, such as slot id and size (cluster mode only). */
 #define RDB_OPCODE_FUNCTION2  245   /* function library data */
@@ -159,10 +165,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid);
 size_t rdbSavedObjectLen(robj *o, robj *key, int dbid);
 robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
-int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime,int dbid);
+int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, int dbid);
 ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt);
 robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename, int null_on_error);
-int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta);
+int rdbResolveKeyType(rio *rdb, int *type, int dbid, struct kvSpec *spec);
 robj *rdbLoadStringObject(rio *rdb);
 ssize_t rdbSaveStringObject(rio *rdb, robj *obj);
 ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len);
@@ -176,6 +182,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 int rdbFunctionLoad(rio *rdb, int ver, functionsLibCtx* lib_ctx, int rdbflags, sds *err);
 int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi);
 ssize_t rdbSaveFunctions(rio *rdb);
+ssize_t rdbSaveHashTemplates(rio *rdb);
+int rdbLoadHashTemplate(rio *rdb);
+void rdbClearHashTemplates(void);
 rdbSaveInfo *rdbPopulateSaveInfo(rdbSaveInfo *rsi);
 
 #endif

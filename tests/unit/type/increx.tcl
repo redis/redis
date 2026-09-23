@@ -26,13 +26,13 @@ start_server {tags {"increx"}} {
 
     test {INCREX - BYINT saturates to UBOUND} {
         r set mykey 50
-        assert_equal [r increx mykey BYINT 100 UBOUND 80 OVERFLOW SAT] {80 30}
+        assert_equal [r increx mykey BYINT 100 UBOUND 80 SATURATE] {80 30}
         assert_equal [r get mykey] 80
     }
 
     test {INCREX - BYINT saturates to LBOUND} {
         r set mykey 10
-        assert_equal [r increx mykey BYINT -100 LBOUND 0 OVERFLOW SAT] {0 -10}
+        assert_equal [r increx mykey BYINT -100 LBOUND 0 SATURATE] {0 -10}
         assert_equal [r get mykey] 0
     }
 
@@ -41,40 +41,40 @@ start_server {tags {"increx"}} {
         assert_equal [r increx mykey BYINT 1 LBOUND 0 UBOUND 10] {6 1}
     }
 
-    test {INCREX - BYINT positive overflow with OVERFLOW SAT saturates to LLONG_MAX} {
+    test {INCREX - BYINT positive overflow with SATURATE saturates to LLONG_MAX} {
         # LLONG_MAX = 9223372036854775807
         r set mykey 9223372036854775800
-        assert_equal [r increx mykey BYINT 9223372036854775800 OVERFLOW SAT] {9223372036854775807 7}
+        assert_equal [r increx mykey BYINT 9223372036854775800 SATURATE] {9223372036854775807 7}
         assert_equal [r get mykey] 9223372036854775807
     }
 
-    test {INCREX - BYINT positive overflow with OVERFLOW SAT and UBOUND saturates to UBOUND} {
+    test {INCREX - BYINT positive overflow with SATURATE and UBOUND saturates to UBOUND} {
         # LLONG_MAX = 9223372036854775807
         r set mykey 9223372036854775800
-        assert_equal [r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807 OVERFLOW SAT] {9223372036854775807 7}
+        assert_equal [r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807 SATURATE] {9223372036854775807 7}
         assert_equal [r get mykey] 9223372036854775807
     }
 
-    test {INCREX - BYINT negative overflow with OVERFLOW SAT saturates to LLONG_MIN} {
+    test {INCREX - BYINT negative overflow with SATURATE saturates to LLONG_MIN} {
         # LLONG_MIN = -9223372036854775808
         r set mykey -9223372036854775800
-        assert_equal [r increx mykey BYINT -9223372036854775800 OVERFLOW SAT] {-9223372036854775808 -8}
+        assert_equal [r increx mykey BYINT -9223372036854775800 SATURATE] {-9223372036854775808 -8}
         assert_equal [r get mykey] -9223372036854775808
     }
 
-    test {INCREX - BYINT negative overflow with OVERFLOW SAT and LBOUND saturates to LBOUND} {
+    test {INCREX - BYINT negative overflow with SATURATE and LBOUND saturates to LBOUND} {
         # LLONG_MIN = -9223372036854775808
         r set mykey -9223372036854775800
-        assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808 OVERFLOW SAT] {-9223372036854775808 -8}
+        assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808 SATURATE] {-9223372036854775808 -8}
         assert_equal [r get mykey] -9223372036854775808
     }
 
-    test {INCREX - BYINT SAT rejects when applied delta would overflow long long} {
+    test {INCREX - BYINT SATURATE rejects when applied delta would overflow long long} {
         # The saturated result lands at LLONG_MIN while the prior value is positive,
         # so the reported delta would not fit in a long long.
         r set mykey 9223372036854775800
         assert_error "*applied increment would overflow*" {
-            r increx mykey BYINT 1 OVERFLOW SAT UBOUND -9223372036854775808
+            r increx mykey BYINT 1 SATURATE UBOUND -9223372036854775808
         }
     }
 
@@ -102,9 +102,9 @@ start_server {tags {"increx"}} {
 
     test {INCREX - BYFLOAT saturates to UBOUND/LBOUND} {
         r set mykey 10
-        assert_equal [lmap v [r increx mykey BYFLOAT 100 UBOUND 42.5 OVERFLOW SAT] {roundFloat $v}] {42.5 32.5}
+        assert_equal [lmap v [r increx mykey BYFLOAT 100 UBOUND 42.5 SATURATE] {roundFloat $v}] {42.5 32.5}
         r set mykey 0
-        assert_equal [lmap v [r increx mykey BYFLOAT -100 LBOUND -5.5 OVERFLOW SAT] {roundFloat $v}] {-5.5 -5.5}
+        assert_equal [lmap v [r increx mykey BYFLOAT -100 LBOUND -5.5 SATURATE] {roundFloat $v}] {-5.5 -5.5}
     }
 
     # On some platforms strtold("+inf") with valgrind returns a non-inf result
@@ -127,34 +127,35 @@ start_server {tags {"increx"}} {
 
     # ---------------------------------------------------------------------
     # Non-existent key whose default 0 is already outside [LBOUND, UBOUND]
-    # and the increment cannot bring it back into range -> refuse to create.
+    # and the increment cannot bring it back into range -> default policy
+    # leaves the key absent and replies [0, 0].
     # ---------------------------------------------------------------------
 
     test {INCREX - BYINT/BYFLOAT on non-existent key refuses to create when result stays below LBOUND} {
         r del mykey
-        assert_error "*value is out of bounds*" {r increx mykey BYINT 5 LBOUND 10}
+        assert_equal [r increx mykey BYINT 5 LBOUND 10] {0 0}
         assert_equal [r exists mykey] 0
 
-        assert_error "*value is out of bounds*" {r increx mykey BYFLOAT -0.5 UBOUND -1.5}
+        assert_equal [lmap v [r increx mykey BYFLOAT -0.5 UBOUND -1.5] {roundFloat $v}] {0 0}
         assert_equal [r exists mykey] 0
     }
 
     # ---------------------------------------------------------------------
     # Existing key whose value is already outside [LBOUND, UBOUND] is treated
-    # the same as an in-range value pushed outside by the increment: OVERFLOW
-    # FAIL errors out and OVERFLOW SAT saturates the result.
+    # the same as an in-range value pushed outside by the increment: the
+    # default policy leaves the key alone and SATURATE saturates.
     # ---------------------------------------------------------------------
 
     test {INCREX - BYFLOAT existing value already outside bounds} {
-        # Above UBOUND, same-side increment: FAIL errors, SAT saturates to UBOUND.
+        # Above UBOUND, same-side increment: default leaves value unchanged, SATURATE saturates to UBOUND.
         r set mykey 50.5
-        assert_error "*out of bounds*" {r increx mykey BYFLOAT 5.5 UBOUND 30}
+        assert_equal [lmap v [r increx mykey BYFLOAT 5.5 UBOUND 30] {roundFloat $v}] {50.5 0}
         assert_equal [roundFloat [r get mykey]] 50.5
-        assert_equal [lmap v [r increx mykey BYFLOAT 5.5 UBOUND 30 OVERFLOW SAT] {roundFloat $v}] {30 -20.5}
+        assert_equal [lmap v [r increx mykey BYFLOAT 5.5 UBOUND 30 SATURATE] {roundFloat $v}] {30 -20.5}
 
-        # Below LBOUND, same-side decrement: SAT saturates to LBOUND.
+        # Below LBOUND, same-side decrement: SATURATE saturates to LBOUND.
         r set mykey -50.5
-        assert_equal [lmap v [r increx mykey BYFLOAT -5.5 LBOUND -30 OVERFLOW SAT] {roundFloat $v}] {-30 20.5}
+        assert_equal [lmap v [r increx mykey BYFLOAT -5.5 LBOUND -30 SATURATE] {roundFloat $v}] {-30 20.5}
 
         # Increment that brings the out-of-range value back inside is applied normally.
         r set mykey 50
@@ -162,15 +163,15 @@ start_server {tags {"increx"}} {
     }
 
     test {INCREX - BYINT existing value already outside bounds} {
-        # Above UBOUND, same-side increment: FAIL errors, SAT saturates to UBOUND.
+        # Above UBOUND, same-side increment: default leaves value unchanged, SATURATE saturates to UBOUND.
         r set mykey 50
-        assert_error "*out of bounds*" {r increx mykey BYINT 5 UBOUND 30}
+        assert_equal [r increx mykey BYINT 5 UBOUND 30] {50 0}
         assert_equal [r get mykey] 50
-        assert_equal [r increx mykey BYINT 5 UBOUND 30 OVERFLOW SAT] {30 -20}
+        assert_equal [r increx mykey BYINT 5 UBOUND 30 SATURATE] {30 -20}
 
-        # Below LBOUND, same-side decrement: SAT saturates to LBOUND.
+        # Below LBOUND, same-side decrement: SATURATE saturates to LBOUND.
         r set mykey -50
-        assert_equal [r increx mykey BYINT -5 LBOUND -30 OVERFLOW SAT] {-30 20}
+        assert_equal [r increx mykey BYINT -5 LBOUND -30 SATURATE] {-30 20}
 
         # Increment that brings the out-of-range value back inside is applied normally.
         r set mykey 50
@@ -178,37 +179,34 @@ start_server {tags {"increx"}} {
     }
 
     # ---------------------------------------------------------------------
-    # Out-of-range behavior: OVERFLOW FAIL (the default) errors out (like
-    # INCRBY); OVERFLOW SAT saturates the result silently.
+    # Out-of-range behavior: by default the operation is rejected
+    # (reply is [current_value, 0]); SATURATE saturates the result.
     # ---------------------------------------------------------------------
 
-    test {INCREX - BYINT OVERFLOW FAIL rejects increment exceeding UBOUND; OVERFLOW SAT saturates it} {
+    test {INCREX - BYINT default rejects increment exceeding UBOUND; SATURATE saturates it} {
         r set mykey 10
-        assert_error "*out of bounds*" {r increx mykey BYINT 10 UBOUND 15}
-        # Value is unchanged after the error
+        assert_equal [r increx mykey BYINT 10 UBOUND 15] {10 0}
+        # Value is unchanged
         assert_equal [r get mykey] 10
-        # OVERFLOW FAIL is the explicit form of the default
-        assert_error "*out of bounds*" {r increx mykey BYINT 10 UBOUND 15 OVERFLOW FAIL}
-        assert_equal [r get mykey] 10
-        # OVERFLOW SAT saturates the result at UBOUND
-        assert_equal [r increx mykey BYINT 10 UBOUND 15 OVERFLOW SAT] {15 5}
+        # SATURATE saturates the result at UBOUND
+        assert_equal [r increx mykey BYINT 10 UBOUND 15 SATURATE] {15 5}
         assert_equal [r get mykey] 15
     }
 
-    test {INCREX - BYINT OVERFLOW FAIL rejects decrement falling below LBOUND; OVERFLOW SAT floors it} {
+    test {INCREX - BYINT default rejects decrement falling below LBOUND; SATURATE floors it} {
         r set mykey 10
-        assert_error "*out of bounds*" {r increx mykey BYINT -10 LBOUND 5}
+        assert_equal [r increx mykey BYINT -10 LBOUND 5] {10 0}
         assert_equal [r get mykey] 10
-        # OVERFLOW SAT floors the result at LBOUND
-        assert_equal [r increx mykey BYINT -10 LBOUND 5 OVERFLOW SAT] {5 -5}
+        # SATURATE floors the result at LBOUND
+        assert_equal [r increx mykey BYINT -10 LBOUND 5 SATURATE] {5 -5}
         assert_equal [r get mykey] 5
     }
 
-    test {INCREX - BYINT within bounds is unaffected by OVERFLOW policy} {
+    test {INCREX - BYINT within bounds is unaffected by SATURATE} {
         r set mykey 10
         assert_equal [r increx mykey BYINT 3 UBOUND 20] {13 3}
-        assert_equal [r increx mykey BYINT -3 LBOUND 0 OVERFLOW SAT] {10 -3}
-        assert_equal [r increx mykey BYINT 1 UBOUND 20 OVERFLOW FAIL] {11 1}
+        assert_equal [r increx mykey BYINT -3 LBOUND 0 SATURATE] {10 -3}
+        assert_equal [r increx mykey BYINT 1 UBOUND 20] {11 1}
     }
 
     test {INCREX - BYINT with both LBOUND and UBOUND} {
@@ -216,13 +214,13 @@ start_server {tags {"increx"}} {
         # Within range -> allowed
         assert_equal [r increx mykey BYINT 2 LBOUND 0 UBOUND 10] {7 2}
         # Exceeds UBOUND -> rejected, value unchanged
-        assert_error "*out of bounds*" {r increx mykey BYINT 10 LBOUND 0 UBOUND 10}
+        assert_equal [r increx mykey BYINT 10 LBOUND 0 UBOUND 10] {7 0}
         # Falls below LBOUND -> rejected, value unchanged
-        assert_error "*out of bounds*" {r increx mykey BYINT -20 LBOUND 0 UBOUND 10}
+        assert_equal [r increx mykey BYINT -20 LBOUND 0 UBOUND 10] {7 0}
         assert_equal [r get mykey] 7
-        # OVERFLOW SAT saturates at the bounds
-        assert_equal [r increx mykey BYINT 10 LBOUND 0 UBOUND 10 OVERFLOW SAT] {10 3}
-        assert_equal [r increx mykey BYINT -20 LBOUND 0 UBOUND 10 OVERFLOW SAT] {0 -10}
+        # SATURATE saturates at the bounds
+        assert_equal [r increx mykey BYINT 10 LBOUND 0 UBOUND 10 SATURATE] {10 3}
+        assert_equal [r increx mykey BYINT -20 LBOUND 0 UBOUND 10 SATURATE] {0 -10}
     }
 
     test {INCREX - BYINT at exact bound value is accepted} {
@@ -233,26 +231,26 @@ start_server {tags {"increx"}} {
         assert_equal [r increx mykey BYINT -10 LBOUND 0] {0 -10}
     }
 
-    test {INCREX - BYFLOAT OVERFLOW FAIL rejects increment exceeding UBOUND; OVERFLOW SAT saturates it} {
+    test {INCREX - BYFLOAT default rejects increment exceeding UBOUND; SATURATE saturates it} {
         r set mykey 10.0
-        assert_error "ERR value is out of bounds*" {r increx mykey BYFLOAT 10.0 UBOUND 15.5}
+        assert_equal [lmap v [r increx mykey BYFLOAT 10.0 UBOUND 15.5] {roundFloat $v}] {10 0}
         assert_equal [roundFloat [r get mykey]] 10
-        # OVERFLOW SAT saturates the result at UBOUND
-        assert_equal [lmap v [r increx mykey BYFLOAT 10.0 UBOUND 15.5 OVERFLOW SAT] {roundFloat $v}] {15.5 5.5}
+        # SATURATE saturates the result at UBOUND
+        assert_equal [lmap v [r increx mykey BYFLOAT 10.0 UBOUND 15.5 SATURATE] {roundFloat $v}] {15.5 5.5}
     }
 
-    test {INCREX - BYFLOAT OVERFLOW FAIL rejects decrement falling below LBOUND; OVERFLOW SAT floors it} {
+    test {INCREX - BYFLOAT default rejects decrement falling below LBOUND; SATURATE floors it} {
         r set mykey 10.0
-        assert_error "ERR value is out of bounds*" {r increx mykey BYFLOAT -10.0 LBOUND 5.5}
+        assert_equal [lmap v [r increx mykey BYFLOAT -10.0 LBOUND 5.5] {roundFloat $v}] {10 0}
         assert_equal [roundFloat [r get mykey]] 10
-        # OVERFLOW SAT floors the result at LBOUND
-        assert_equal [lmap v [r increx mykey BYFLOAT -10.0 LBOUND 5.5 OVERFLOW SAT] {roundFloat $v}] {5.5 -4.5}
+        # SATURATE floors the result at LBOUND
+        assert_equal [lmap v [r increx mykey BYFLOAT -10.0 LBOUND 5.5 SATURATE] {roundFloat $v}] {5.5 -4.5}
     }
 
-    test {INCREX - BYFLOAT within bounds is unaffected by OVERFLOW policy} {
+    test {INCREX - BYFLOAT within bounds is unaffected by SATURATE policy} {
         r set mykey 1.5
         assert_equal [lmap v [r increx mykey BYFLOAT 0.25 UBOUND 10.0] {roundFloat $v}] {1.75 0.25}
-        assert_equal [lmap v [r increx mykey BYFLOAT 0.25 UBOUND 10.0 OVERFLOW SAT] {roundFloat $v}] {2 0.25}
+        assert_equal [lmap v [r increx mykey BYFLOAT 0.25 UBOUND 10.0 SATURATE] {roundFloat $v}] {2 0.25}
     }
 
     test {INCREX - BYFLOAT with both LBOUND and UBOUND} {
@@ -260,9 +258,9 @@ start_server {tags {"increx"}} {
         # Within range -> allowed
         assert_equal [lmap v [r increx mykey BYFLOAT 1.5 LBOUND 0 UBOUND 10] {roundFloat $v}] {6.5 1.5}
         # Exceeds UBOUND -> rejected
-        assert_error "ERR value is out of bounds*" {r increx mykey BYFLOAT 10 LBOUND 0 UBOUND 10}
+        assert_equal [lmap v [r increx mykey BYFLOAT 10 LBOUND 0 UBOUND 10] {roundFloat $v}] {6.5 0}
         # Falls below LBOUND -> rejected
-        assert_error "ERR value is out of bounds*" {r increx mykey BYFLOAT -20 LBOUND 0 UBOUND 10}
+        assert_equal [lmap v [r increx mykey BYFLOAT -20 LBOUND 0 UBOUND 10] {roundFloat $v}] {6.5 0}
         assert_equal [lmap v [r get mykey] {roundFloat $v}] {6.5}
     }
 
@@ -272,22 +270,22 @@ start_server {tags {"increx"}} {
         assert_equal [lmap v [r increx mykey BYFLOAT -10.0 LBOUND 0] {roundFloat $v}] {0 -10}
     }
 
-    test {INCREX - BYINT positive overflow: default errors, OVERFLOW SAT saturates} {
+    test {INCREX - BYINT positive overflow: default rejects, SATURATE saturates} {
         # LLONG_MAX = 9223372036854775807
         r set mykey 9223372036854775800
-        assert_error "*increment or decrement would overflow*" {r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807}
+        assert_equal [r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807] {9223372036854775800 0}
         assert_equal [r get mykey] 9223372036854775800
-        # OVERFLOW SAT: overflow saturates to LLONG_MAX, then saturates to UBOUND
-        assert_equal [r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807 OVERFLOW SAT] {9223372036854775807 7}
+        # SATURATE: overflow saturates to LLONG_MAX, then saturates to UBOUND
+        assert_equal [r increx mykey BYINT 9223372036854775800 UBOUND 9223372036854775807 SATURATE] {9223372036854775807 7}
     }
 
-    test {INCREX - BYINT negative overflow: default errors, OVERFLOW SAT saturates} {
+    test {INCREX - BYINT negative overflow: default rejects, SATURATE saturates} {
         # LLONG_MIN = -9223372036854775808
         r set mykey -9223372036854775800
-        assert_error "*increment or decrement would overflow*" {r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808}
+        assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808] {-9223372036854775800 0}
         assert_equal [r get mykey] -9223372036854775800
-        # OVERFLOW SAT: overflow saturates to LLONG_MIN, then saturates to LBOUND
-        assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808 OVERFLOW SAT] {-9223372036854775808 -8}
+        # SATURATE: overflow saturates to LLONG_MIN, then saturates to LBOUND
+        assert_equal [r increx mykey BYINT -9223372036854775800 LBOUND -9223372036854775808 SATURATE] {-9223372036854775808 -8}
     }
 
     test {INCREX - BYINT on new key (created from zero) with bound} {
@@ -296,7 +294,7 @@ start_server {tags {"increx"}} {
         assert_equal [r increx mykey BYINT 5 UBOUND 10] {5 5}
         r del mykey
         # Increment from 0 exceeds UBOUND -> rejected, key not created
-        assert_error "*out of bounds*" {r increx mykey BYINT 15 UBOUND 10}
+        assert_equal [r increx mykey BYINT 15 UBOUND 10] {0 0}
         assert_equal [r exists mykey] 0
     }
 
@@ -306,28 +304,28 @@ start_server {tags {"increx"}} {
         assert_equal [lmap v [r increx mykey BYFLOAT 5.5 UBOUND 10] {roundFloat $v}] {5.5 5.5}
         r del mykey
         # Increment from 0 exceeds UBOUND -> rejected, key not created
-        assert_error "ERR value is out of bounds*" {r increx mykey BYFLOAT 15.5 UBOUND 10}
+        assert_equal [lmap v [r increx mykey BYFLOAT 15.5 UBOUND 10] {roundFloat $v}] {0 0}
         assert_equal [r exists mykey] 0
     }
 
-    test {INCREX - default with no bound behaves like INCRBY/INCRBYFLOAT} {
+    test {INCREX - default with no bound saturates to type limits with SATURATE, rejects otherwise} {
         # In-range increments behave like INCRBY/INCRBYFLOAT.
         r set mykey 10
         assert_equal [r increx mykey BYINT 1] {11 1}
         assert_equal [lmap v [r increx mykey BYFLOAT 1.0] {roundFloat $v}] {12 1}
         assert_equal [r increx mykey] {13 1}
 
-        # BYINT overflow without an explicit bound -> error (like INCRBY).
+        # BYINT overflow without an explicit bound -> default rejects (reply [current, 0]).
         r set mykey 9223372036854775800
-        assert_error "*increment or decrement would overflow*" {r increx mykey BYINT 9223372036854775800}
+        assert_equal [r increx mykey BYINT 9223372036854775800] {9223372036854775800 0}
         assert_equal [r get mykey] 9223372036854775800
     }
 
-    test {INCREX - error aborts before side effects: neither value nor TTL is modified} {
+    test {INCREX - reject aborts before side effects: neither value nor TTL is modified} {
         r del mykey
         r set mykey 10
         # An out-of-range result aborts the command before any side effect.
-        assert_error "*out of bounds*" {r increx mykey BYINT 100 UBOUND 15 EX 100}
+        assert_equal [r increx mykey BYINT 100 UBOUND 15 EX 100] {10 0}
         assert_equal [r get mykey] 10
         assert_equal [r ttl mykey] -1
 
@@ -339,30 +337,9 @@ start_server {tags {"increx"}} {
 
         r del mykey
         r set mykey 10
-        # OVERFLOW SAT also updates the TTL when saturation kicks in.
-        assert_equal [r increx mykey BYINT 100 UBOUND 15 OVERFLOW SAT EX 200] {15 5}
+        # SATURATE also updates the TTL when saturation kicks in.
+        assert_equal [r increx mykey BYINT 100 UBOUND 15 SATURATE EX 200] {15 5}
         assert_morethan [r ttl mykey] 0
-    }
-
-    # ---------------------------------------------------------------------
-    # OVERFLOW REJECT: leave the key (and TTL) unchanged and reply
-    # [current_value, 0] when the result would be out of bounds, instead of
-    # producing an error.
-    # ---------------------------------------------------------------------
-
-    test {INCREX - BYINT REJECT on overflow leaves value unchanged, in-range applies normally} {
-        # llong overflow path
-        r set mykey 9223372036854775800
-        assert_equal [r increx mykey BYINT 9223372036854775800 OVERFLOW REJECT] {9223372036854775800 0}
-        assert_equal [r get mykey] 9223372036854775800
-        # UBOUND / LBOUND paths
-        r set mykey 10
-        assert_equal [r increx mykey BYINT 100 UBOUND 15 OVERFLOW REJECT] {10 0}
-        assert_equal [r increx mykey BYINT -100 LBOUND 5 OVERFLOW REJECT] {10 0}
-        assert_equal [r get mykey] 10
-        # In-range increment is applied normally
-        assert_equal [r increx mykey BYINT 3 UBOUND 20 OVERFLOW REJECT] {13 3}
-        assert_equal [r get mykey] 13
     }
 
     # ---------------------------------------------------------------------
@@ -401,10 +378,8 @@ start_server {tags {"increx"}} {
         assert_error "*syntax error*" {r increx mykey BYFLOAT 1.0 BYFLOAT 2.0}
         assert_error "*syntax error*" {r increx mykey LBOUND 0 LBOUND 1}
         assert_error "*syntax error*" {r increx mykey UBOUND 9 UBOUND 8}
-        assert_error "*syntax error*" {r increx mykey OVERFLOW FAIL OVERFLOW SAT LBOUND 0}
-        assert_error "*syntax error*" {r increx mykey OVERFLOW SAT OVERFLOW SAT LBOUND 0}
-        assert_error "*syntax error*" {r increx mykey OVERFLOW REJECT OVERFLOW SAT LBOUND 0}
-        assert_error "*syntax error*" {r increx mykey OVERFLOW REJECT OVERFLOW REJECT LBOUND 0}
+        assert_error "*syntax error*" {r increx mykey SATURATE SATURATE LBOUND 0}
+        assert_error "*syntax error*" {r increx mykey SAT LBOUND 0}
         assert_error "*syntax error*" {r increx mykey ENX ENX EX 10}
         assert_error "*syntax error*" {r increx mykey PERSIST PERSIST}
         assert_error "*syntax error*" {r increx mykey EX 10 EX 20}
@@ -585,7 +560,7 @@ start_server {tags {"increx"}} {
 
         # LBOUND/UBOUND interleaved with increment
         r set mykey 5
-        assert_equal [r increx mykey LBOUND 0 BYINT 100 UBOUND 10 OVERFLOW SAT] {10 5}
+        assert_equal [r increx mykey LBOUND 0 BYINT 100 UBOUND 10 SATURATE] {10 5}
     }
 
     # ---------------------------------------------------------------------
@@ -713,11 +688,11 @@ start_server {tags {"increx"}} {
         r flushall
         set repl [attach_to_replication_stream]
         r set mykey 50
-        # With UBOUND + OVERFLOW SAT the final value is saturated; the SET
+        # With UBOUND + SATURATE the final value is saturated; the SET
         # rewrite must carry the saturated value (80), not the unbounded 150.
-        r increx mykey BYINT 100 UBOUND 80 OVERFLOW SAT
+        r increx mykey BYINT 100 UBOUND 80 SATURATE
         r set myfloat 10
-        r increx myfloat BYFLOAT 100 UBOUND 42.5 OVERFLOW SAT
+        r increx myfloat BYFLOAT 100 UBOUND 42.5 SATURATE
         assert_replication_stream $repl {
             {select *}
             {set mykey 50*}

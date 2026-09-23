@@ -1,10 +1,19 @@
 # Primitive tests on cluster-enabled redis using redis-cli
 
 source tests/support/cli.tcl
+source tests/support/cluster_util.tcl
 
 # make sure the test infra won't use SELECT
 set old_singledb $::singledb
 set ::singledb 1
+
+proc write_keys_to_master0 {} {
+    # master0 has slots 0-5460 by default in a 3-node cluster
+    # {06S}->slot 0, {Qi}->slot 1, {5L5}->slot 2
+    foreach tag [list "{06S}" "{Qi}" "{5L5}"] {
+        populate 5 "${tag}key:" 3
+    }
+}
 
 # cluster creation is complicated with TLS, and the current tests don't really need that coverage
 tags {tls:skip external:skip cluster} {
@@ -324,6 +333,67 @@ test {Migrate the last slot away from a node using redis-cli} {
         } else {
             fail "Empty node didn't turn itself into a replica."
         }
+    }
+}
+
+# Test redis-cli --cluster rebalance without CROSSSLOT error
+# when --user is specified without -a (no password).
+
+# Test 1: rebalance without --user and without -a
+start_cluster 3 0 {} {
+    test {Rebalance without --user and without -a should succeed} {
+        write_keys_to_master0
+        
+        set master0_id [R 0 CLUSTER MYID]
+        catch {
+            exec src/redis-cli --cluster-yes --cluster rebalance \
+                               127.0.0.1:[srv 0 port] \
+                               --cluster-weight ${master0_id}=0 \
+                               --cluster-timeout 10000
+        } e
+        assert_no_match "*CROSSSLOT*" $e
+    }
+}
+
+# Test 2: rebalance with --user but no -a (the bug case)
+start_cluster 3 0 {} {
+    test {Rebalance with --user but no -a should not CROSSSLOT} {
+        for {set i 0} {$i < 3} {incr i} {
+            R $i ACL SETUSER testuser on nopass +@all ~*
+        }
+        write_keys_to_master0
+
+        set master0_id [R 0 CLUSTER MYID]
+        catch {
+            exec src/redis-cli --cluster-yes --cluster rebalance \
+                               127.0.0.1:[srv 0 port] \
+                               --user testuser \
+                               --cluster-weight ${master0_id}=0 \
+                               --cluster-timeout 10000
+        } e
+        assert_no_match "*CROSSSLOT*" $e
+    }
+}
+
+# Test 3: rebalance with --user and -a
+start_cluster 3 0 {} {
+    test {Rebalance with --user and -a should succeed} {
+        for {set i 0} {$i < 3} {incr i} {
+            R $i ACL SETUSER testuser2 on >testpass +@all ~*
+        }
+        write_keys_to_master0
+
+        set master0_id [R 0 CLUSTER MYID]
+        catch {
+            exec src/redis-cli --cluster-yes --cluster rebalance \
+                               127.0.0.1:[srv 0 port] \
+                               --user testuser2 \
+                               -a testpass \
+                               --no-auth-warning \
+                               --cluster-weight ${master0_id}=0 \
+                               --cluster-timeout 10000
+        } e
+        assert_no_match "*CROSSSLOT*" $e
     }
 }
 

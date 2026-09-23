@@ -155,7 +155,7 @@ typedef struct SubexpireCtx {
  * Active sub-expiration callback
  *
  * Called by activeSubexpires() for each key registered in the subexpires DB
- * with an expiration-time on its "elements"  that are less than or equal current
+ * with an expiration-time on its "elements" that is strictly less than current
  * time.
  *
  * This callback performs the following actions for each hash:
@@ -195,7 +195,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 /* DB active expire and update hashes with time-expiration on fields.
  *
  * The callback function activeSubexpiresCb() is invoked for each hash registered
- * in the subexpires DB with an expiration-time less than or equal to the
+ * in the subexpires DB with an expiration-time strictly less than the
  * current time. This callback performs the following actions for each hash:
  * - If the hash has one or more fields to expire, it will delete those fields.
  * - If there are more fields to expire, it will update the hash with the next
@@ -215,6 +215,14 @@ uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
             .itemsExpired = 0};
 
     estoreActiveExpire(db->subexpires, slot, &info);
+
+    /* Drain module post-notification jobs queued by the "hexpired"/"del" events.
+     * The per-field propagation in propagateHashFieldDeletion() runs before those
+     * notifications fire, so its own drain cannot pick them up and they would
+     * otherwise linger until the tail of the next command's call(). No execution
+     * unit is wrapped around the walk: that would suppress the per-field drains
+     * and batch the HDELs into a single MULTI/EXEC. */
+    postExecutionUnitOperations();
 
     /* Return number of fields active-expired */
     return maxFieldsToExpire - ctx.fieldsToExpireQuota;
@@ -321,7 +329,7 @@ void activeExpireCycle(int type) {
          * too high. Also never repeat a fast cycle for the same period
          * as the fast cycle total duration itself. */
         if (!timelimit_exit &&
-            server.stat_expired_stale_perc < config_cycle_acceptable_stale)
+            server.stat_expired_stale_perc * 100 < config_cycle_acceptable_stale)
             return;
 
         if (start < last_fast_cycle + (long long)config_cycle_fast_duration*2)

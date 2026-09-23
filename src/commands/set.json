@@ -119,13 +119,13 @@
                     },
                     {
                         "name": "ifdeq-digest",
-                        "type": "integer",
+                        "type": "string",
                         "token": "IFDEQ",
                         "since": "8.4.0"
                     },
                     {
                         "name": "ifdne-digest",
-                        "type": "integer",
+                        "type": "string",
                         "token": "IFDNE",
                         "since": "8.4.0"
                     }

@@ -12,6 +12,7 @@
             "SKIP_MONITOR",
             "MAY_REPLICATE",
             "NO_MANDATORY_KEYS",
+            "SCRIPT_RUNNER",
             "STALE"
         ],
         "acl_categories": [

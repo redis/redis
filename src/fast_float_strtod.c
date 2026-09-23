@@ -780,6 +780,11 @@ static int ff_eq(double a, double b) {
     return a == b;
 }
 
+static int is_parse_failed(const char *s, size_t len, const char *eptr, int err, double d) {
+    return ((size_t)(eptr - s) != len) || err == EINVAL ||
+           (err == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL || fpclassify(d) == FP_ZERO));
+}
+
 static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
     for (int i = 0; i < n; i++) {
         const char *s = cases[i].input;
@@ -788,8 +793,7 @@ static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
 
         errno = 0;
         double d = fast_float_strtod(s, len, &eptr);
-        int failed = ((size_t)(eptr - s) != len) || errno == EINVAL ||
-            (errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL || fpclassify(d) == FP_ZERO));
+        int failed = is_parse_failed(s, len, eptr, errno, d);
         int ok = (expect_failed == failed) && ff_eq(d, cases[i].expected);
         char descr[128];
         if (ok)
@@ -799,6 +803,28 @@ static void run_ff_tests(ff_testcase *cases, int n, int expect_failed) {
             snprintf(descr, sizeof(descr), "\"%s\" -> expect %s(%.20g) but got %s(%.20g)",
                      s, expect_failed ? "fail" : "ok", cases[i].expected, failed ? "fail" : "ok", d);
         test_cond(descr, ok);
+    }
+}
+
+static void run_ff_libc_compat_tests(const char **cases, int n) {
+    for (int i = 0; i < n; i++) {
+        const char *s = cases[i];
+        size_t len = strlen(s);
+        char *eptr, *libc_eptr;
+
+        errno = 0;
+        double d = fast_float_strtod(s, len, &eptr);
+        int err = errno;
+
+        errno = 0;
+        double libc_d = strtod(s, &libc_eptr);
+        int libc_err = errno;
+
+        int failed = is_parse_failed(s, len, eptr, err, d);
+        int libc_failed = is_parse_failed(s, len, libc_eptr, libc_err, libc_d);
+        char descr[128];
+        snprintf(descr, sizeof(descr), "ff matches libc strtod: \"%s\"", s);
+        test_cond(descr, failed == libc_failed && (eptr - s) == (libc_eptr - s) && ff_eq(d, libc_d));
     }
 }
 
@@ -1015,8 +1041,6 @@ int fastFloatTest(int argc, char **argv, int flags) {
         {"na", 0},
         {"nan(", NAN},         /* unclosed paren */
         {"nan(abc", NAN},      /* missing closing paren */
-        {"nan(ab!c)", NAN},    /* invalid char in paren */
-        {"nan(ab c)", NAN},    /* space in paren */
         {"nanx", NAN},         /* trailing garbage */
     };
     run_ff_tests(nan_invalid, COUNTOF(nan_invalid), 1);
@@ -1042,6 +1066,14 @@ int fastFloatTest(int argc, char **argv, int flags) {
         test_cond("invalid large input (>128 bytes) zmalloc fallback path",
                   eptr == big && ff_eq(d, 0.0));
     }
+
+    /* The accepted character set for nan(n-char-sequence) is libc-dependent.
+     * Preserve strtod-compatible behavior instead of asserting a fixed result. */
+    const char *nan_libc_compat[] = {
+        "nan(ab!c)",
+        "nan(ab c)",
+    };
+    run_ff_libc_compat_tests(nan_libc_compat, COUNTOF(nan_libc_compat));
 
     return 0;
 }

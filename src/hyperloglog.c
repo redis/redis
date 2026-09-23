@@ -15,6 +15,7 @@
  */
 
 #include "server.h"
+#include "hyperloglog.h"
 
 #include <stdint.h>
 #include <math.h>

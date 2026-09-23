@@ -767,6 +767,53 @@ tags "modules aof external:skip" {
     }
 }
 
+tags "modules aof external:skip" {
+    start_server [list overrides [list loadmodule "$miscmodule"]] {
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+        waitForBgrewriteaof r
+
+        # The counted form of SPOP replaces its own propagation with an SREM
+        # queued through alsoPropagate(): it must reach only the targets the
+        # RM_Call asked for, just like the propagation of the command itself.
+        set keys {spop-none spop-repl spop-aof spop-all spop-nested}
+        foreach key $keys {
+            r sadd $key a b c d e
+        }
+
+        test {RM_Call effect commands honor the selective propagation flags} {
+            set repl [attach_to_replication_stream]
+
+            assert_equal 2 [llength [r test.rm_call spop spop-none 2]]
+            assert_equal 2 [llength [r test.rm_call_flags !A spop spop-repl 2]]
+            assert_equal 2 [llength [r test.rm_call_flags !R spop spop-aof 2]]
+            assert_equal 2 [llength [r test.rm_call_flags ! spop spop-all 2]]
+
+            # An inner RM_Call with '!' must not resurrect the propagation
+            # suppressed by the outer one.
+            assert_equal 2 [llength [r test.rm_call test.rm_call_flags ! spop spop-nested 2]]
+
+            # The master applied all of them.
+            assert_equal {3 3 3 3 3} [lmap key $keys {r scard $key}]
+
+            assert_replication_stream $repl {
+                {select *}
+                {srem spop-repl * *}
+                {srem spop-all * *}
+            }
+            close_replication_stream $repl
+        }
+
+        test {RM_Call effect commands honor the selective propagation flags after AOF reload} {
+            r debug loadaof
+
+            # Only the sets whose SREM reached the AOF are trimmed, the others
+            # are back to the 5 members added by the SADD above.
+            assert_equal {5 5 3 3 5} [lmap key $keys {r scard $key}]
+        }
+    }
+}
+
 # This test does not really test module functionality, but rather uses a module
 # command to test Redis replication mechanisms.
 test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replication backlog from been trimmed} {

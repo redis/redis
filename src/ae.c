@@ -48,7 +48,7 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
-    monotonicInit();    /* just in case the calling app didn't initialize */
+    monotonicInit(NULL);    /* just in case the calling app didn't initialize */
 
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     eventLoop->nevents = setsize < INITIAL_EVENT ? setsize : INITIAL_EVENT;
@@ -270,6 +270,11 @@ static int64_t usUntilEarliestTimer(aeEventLoop *eventLoop) {
             earliest = te;
         te = te->next;
     }
+
+    /* The list may hold only events marked AE_DELETED_EVENT_ID, leaving no
+     * earliest timer. Mirror the empty-list case above and report "no timer"
+     * instead of dereferencing a NULL earliest. */
+    if (earliest == NULL) return -1;
 
     monotime now = getMonotonicUs();
     return (now >= earliest->when) ? 0 : earliest->when - now;

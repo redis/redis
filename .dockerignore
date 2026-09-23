@@ -1,0 +1,60 @@
+# Build context hygiene for docker/Dockerfile.noble.
+#
+# Keep `modules/modules.yaml` and `modules/docker-install-bundled-module-deps.sh`
+# in the context (do not ignore them): the Dockerfile COPYs the whole modules/
+# tree for bundled-module setup.
+#
+# We deliberately keep `modules/` in the context so each per-module
+# `install_script.sh` (run during image build) has its `dependencies.yaml`
+# and `.install/` tree to work from. Everything excluded below is either
+# build output, OS noise, or per-developer state that should never
+# influence the image.
+#
+# At runtime the user mounts the host repo on top of /workspace, so any
+# path excluded here that they do need locally will simply appear via
+# the volume mount.
+
+# VCS / IDE
+.git
+.gitignore
+.github
+.cursor
+.vscode
+.idea
+.code-workspace
+
+# Plan/docs scratch
+.cursor/plans
+
+# Top-level Redis build artefacts
+src/redis-server
+src/redis-cli
+src/redis-benchmark
+src/redis-check-aof
+src/redis-check-rdb
+src/redis-sentinel
+src/*.o
+src/*.d
+src/*.so
+src/*.dylib
+deps/*/lib*.a
+
+# Module build artefacts (any depth under modules/<name>/)
+modules/**/*.so
+modules/*/src/bin
+modules/*/src/build
+modules/*/src/target
+modules/*/src/venv
+modules/*/src/.venv
+modules/*/src/__pycache__
+modules/*/src/**/__pycache__
+modules/*/src/.pytest_cache
+modules/*/src/tests/**/logs
+modules/*/src/tests/**/*.rdb
+
+# Tarballs and OS clutter
+*.tar
+*.tar.gz
+*.tgz
+.DS_Store
+Thumbs.db

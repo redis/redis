@@ -749,7 +749,7 @@ unsigned char *ziplistResize(unsigned char *zl, size_t len) {
  * updated, i.e. consecutive fields MAY need an update. */
 unsigned char *__ziplistCascadeUpdate(unsigned char *zl, unsigned char *p) {
     zlentry cur;
-    size_t prevlen, prevlensize, prevoffset; /* Informat of the last changed entry. */
+    size_t prevlen, prevlensize, prevoffset; /* Info of the last changed entry. */
     size_t firstentrylen; /* Used to handle insert at head. */
     size_t rawlen, curlen = intrev32ifbe(ZIPLIST_BYTES(zl));
     size_t extra = 0, cnt = 0, offset;

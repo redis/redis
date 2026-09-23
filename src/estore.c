@@ -150,6 +150,8 @@ uint64_t estoreRemove(estore *es, int eidx, eItem item) {
     kvobj *kv = (kvobj *) item;
     if ( (kv->type != OBJ_HASH) ||
          (kv->encoding == OBJ_ENCODING_LISTPACK) ||
+         (kv->encoding == OBJ_ENCODING_TMPL_LP) ||
+         (kv->encoding == OBJ_ENCODING_TMPL_ARRAY) ||
          ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &entryHashDictTypeWithHFE)))
         return EB_EXPIRE_TIME_INVALID;
 

@@ -84,6 +84,12 @@ proc assert_range {value min max {detail ""}} {
     }
 }
 
+proc assert_range_exclude {value min max {detail ""}} {
+    if {!($value < $max && $value > $min)} {
+        assert_failed "Expected '$value' to be bigger than '$min' and smaller than '$max'" $detail
+    }
+}
+
 proc assert_error {pattern code {detail ""}} {
     if {[catch {uplevel 1 $code} error]} {
         assert_match $pattern $error $detail
@@ -126,6 +132,9 @@ proc assert_refcount_morethan {key ref} {
 # max retries and delay between retries. Otherwise the 'elsescript' is
 # executed.
 proc wait_for_condition {maxtries delay e _else_ elsescript} {
+    if {$::compression} {
+        set maxtries [expr $maxtries * 3]
+    }
     if {$_else_ ne "else"} {
         error "$_else_ must be equal to \"else\""
     }
@@ -142,6 +151,29 @@ proc wait_for_condition {maxtries delay e _else_ elsescript} {
     if {$maxtries == -1} {
         set errcode [catch {uplevel 1 $elsescript} result]
         return -code $errcode $result
+    }
+}
+
+# Run body until condition evaluates to true, up to max_iter attempts.
+proc assert_with_retry {max_iter iter_var body condition} {
+    if {$max_iter < 1} {
+        error "max_iter must be greater than 0"
+    }
+
+    upvar 1 $iter_var iter
+    set iter 1
+    while 1 {
+        uplevel 1 $body
+        if {[uplevel 1 [list expr $condition]]} {
+            return
+        }
+
+        if {$iter >= $max_iter} {
+            set context "(context: [info frame -1])"
+            error "assertion:Expected [uplevel 1 [list subst -nocommands $condition]] $context (gave up after ${iter} attempts)"
+        }
+        puts "Retrying assertion in $::cur_test (attempt ${iter}/${max_iter})"
+        incr iter
     }
 }
 

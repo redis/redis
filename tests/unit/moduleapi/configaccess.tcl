@@ -121,6 +121,8 @@ start_server {tags {"modules external:skip"}} {
         # Test setting a non-existent config
         catch {r configaccess.setbool nonexistent_config yes} err
         assert_match "*ERR*" $err
+        catch {r configaccess.setnumeric nonexistent_config 1} err
+        assert_match "*ERR*" $err
 
         # Test setting a read-only config
         catch {r configaccess.setbool moduleconfigs.immutable_bool yes} err

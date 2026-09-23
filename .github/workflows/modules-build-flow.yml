@@ -1,0 +1,173 @@
+name: Modules Build Flow
+
+# Verifies the from-source modules flow documented in modules/README.md on
+# every OS the bundled modules support (the same list the modules' own
+# nightlies build against), each inside a clean stock container image — no
+# prebuilt/docker-file images. The steps mirror the manual verbatim:
+#
+#   make modules-update            clone every module pinned in modules.yaml
+#   make bootstrap                 install per-module build/test prereqs
+#   make all BUILD_TLS=yes         build Redis + all modules
+#   ./src/redis-server redis-full.conf   then `redis-cli MODULE LIST`
+#
+# The "install manual prerequisites" step deliberately installs only what a
+# user needs before the manual's first command can run at all (git, make,
+# CA certs — plus awk/find on minimal images and bash on alpine, where the
+# module orchestration scripts need it). Compilers and per-module toolchains
+# must come from `make bootstrap`; if they don't, the manual is broken on
+# that OS and this workflow exists to catch exactly that.
+
+on:
+  # Only when the module pin manifest changes — a bump to any module's ref is
+  # exactly what can break the from-source build/load on some OS — or manually.
+  pull_request:
+    paths:
+      - 'modules/modules.yaml'
+  workflow_dispatch:
+    inputs:
+      use_repo:
+        description: 'repo owner and name'
+        default: 'redis/redis'
+      use_git_ref:
+        description: 'git branch or sha to use'
+        default: 'unstable'
+
+jobs:
+
+  test-modules:
+    name: test-modules-${{ matrix.arch }}-${{ matrix.osnick }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 300
+    # Mapping form with an explicit PATH: a module bootstrap can append to
+    # $GITHUB_PATH (redisearch's uv installer does), and when the runner
+    # rebuilds the container exec PATH from an image with no PATH in its
+    # Config.Env, later steps lose /usr/bin and die with 'exec: "sh":
+    # executable file not found' (seen on rocky10). Pinning PATH here keeps
+    # step exec sane regardless of what bootstrap appends.
+    container:
+      image: ${{ matrix.image }}
+      env:
+        PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    env:
+      # GCC 12 (bookworm) has false positives inside its own avx512fintrin.h
+      # (_mm256_undefined_pd self-init, GCC PR105593, fixed in GCC 13) which
+      # VectorSimilarity's unconditional -Werror turns fatal on x86_64. The
+      # headers trip BOTH the -Wuninitialized and -Wmaybe-uninitialized
+      # variants depending on the intrinsic, so both must be non-fatal.
+      # -Wmaybe-uninitialized is GCC-only, and clang (the LTO=1 compiler)
+      # + -Werror turns the unknown option itself into an error, so
+      # -Wno-unknown-warning-option keeps the trio clang-safe; GCC treats
+      # that one as an ignorable note. Verified on both compilers.
+      # Job-level (not build-step-level) because redisearch's `make test`
+      # re-drives its cmake build with BUILD_TESTS=1 (GCC, no LTO), so the
+      # flags must reach that rebuild too. Redis core is pure C and ignores
+      # CXXFLAGS.
+      CXXFLAGS: -Wno-error=uninitialized -Wno-error=maybe-uninitialized -Wno-unknown-warning-option
+    strategy:
+      fail-fast: false
+      # Both architectures the bundled modules support, mirroring their own
+      # nightlies. The OS list is the intersection the pinned module versions
+      # actually support: redisearch v8.9.82 dropped amazonlinux2, bullseye
+      # and mariner2 (upstream #9015 "Remove unsupported platforms"), so they
+      # are deliberately absent. The include entries augment each generated
+      # arch×osnick combo with its image and package family; every listed
+      # image publishes a multi-arch manifest.
+      matrix:
+        arch: [x64, arm64]
+        osnick: [focal, jammy, noble, resolute, bookworm, trixie,
+                 alma8, alma9, alma10, rocky8, rocky9, rocky10,
+                 amazonlinux2023, azurelinux3, alpine]
+        include:
+          - { osnick: focal,           image: 'ubuntu:20.04',                                family: apt  }
+          - { osnick: jammy,           image: 'ubuntu:22.04',                                family: apt  }
+          - { osnick: noble,           image: 'ubuntu:24.04',                                family: apt  }
+          - { osnick: resolute,        image: 'ubuntu:26.04',                                family: apt  }
+          - { osnick: bookworm,        image: 'debian:bookworm',                             family: apt  }
+          - { osnick: trixie,          image: 'debian:trixie',                               family: apt  }
+          - { osnick: alma8,           image: 'almalinux:8',                                 family: dnf  }
+          - { osnick: alma9,           image: 'almalinux:9',                                 family: dnf  }
+          - { osnick: alma10,          image: 'almalinux:10',                                family: dnf  }
+          - { osnick: rocky8,          image: 'rockylinux:8',                                family: dnf  }
+          - { osnick: rocky9,          image: 'rockylinux:9',                                family: dnf  }
+          - { osnick: rocky10,         image: 'quay.io/rockylinux/rockylinux:10',            family: dnf  }
+          - { osnick: amazonlinux2023, image: 'amazonlinux:2023',                            family: dnf  }
+          - { osnick: azurelinux3,     image: 'mcr.microsoft.com/azurelinux/base/core:3.0',  family: tdnf }
+          - { osnick: alpine,          image: 'alpine:3.23',                                 family: apk  }
+    steps:
+    - name: install manual prerequisites
+      run: |
+        # openssl dev headers (libssl-dev / openssl-devel / openssl-dev) +
+        # the openssl CLI: the bundle builds redis-server with BUILD_TLS=yes
+        # so redisearch's TLS tests (test_with_tls) can start a TLS server;
+        # the CLI is used to generate the test certificates at test time.
+        case '${{ matrix.family }}' in
+          apt)  apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git make ca-certificates libssl-dev openssl ;;
+          dnf)  dnf install -y git make gawk findutils ca-certificates openssl-devel openssl ;;
+          tdnf)
+            # packages.microsoft.com mirrors intermittently fail the
+            # repogpgcheck plugin's metadata-signature fetch (404); retry,
+            # falling back to package-level GPG verification only. Track
+            # success explicitly so an all-retries-failed loop (last command
+            # is `sleep`) doesn't leave the step passing with packages missing.
+            ok=
+            for _ in 1 2 3; do
+              tdnf install -y git make gawk findutils ca-certificates tar openssl-devel openssl && { ok=1; break; }
+              tdnf --disableplugin=tdnfrepogpgcheck install -y git make gawk findutils ca-certificates tar openssl-devel openssl && { ok=1; break; }
+              sleep 10
+            done
+            [ -n "$ok" ] || { echo "ERROR: tdnf prerequisite install failed after retries" >&2; exit 1; } ;;
+          # tar: alpine's default is busybox tar; `make tarball` needs GNU tar.
+          apk)  apk add git make bash ca-certificates openssl-dev openssl tar ;;
+        esac
+        # The modules' bootstrap tooling (redistimeseries .install/lib/
+        # setup-python.sh) skips its uv/venv/pip setup when /.dockerenv
+        # exists, assuming the module repo's own Dockerfile flow that
+        # prebuilds /opt/.venv. Container jobs always have /.dockerenv and
+        # we don't use those Dockerfiles, so drop the marker or the test
+        # harness (RLTest) never gets installed.
+        rm -f /.dockerenv
+    # Plain `git clone` instead of actions/checkout: keeps the jobs free of
+    # node-based actions (which need a new-enough glibc inside the container),
+    # and a real git checkout is what the manual assumes anyway.
+    - name: checkout
+      run: |
+        git config --global --add safe.directory "$(pwd)"
+        git init .
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Build the PR's code — the modules.yaml change that triggered this
+          # run — not unstable. github.event.inputs is empty on pull_request,
+          # so the dispatch fallback below would otherwise check out unstable
+          # and never exercise the bumped pins. GitHub publishes the merge ref
+          # on the base repo, so this also works for fork PRs.
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth 1 origin "+refs/pull/${{ github.event.pull_request.number }}/merge"
+        else
+          git remote add origin "https://github.com/${{ github.event.inputs.use_repo || 'redis/redis' }}.git"
+          git fetch --depth 1 origin "${{ github.event.inputs.use_git_ref || 'unstable' }}"
+        fi
+        git checkout FETCH_HEAD
+    - name: make modules-update
+      run: make modules-update
+    - name: make bootstrap
+      run: make bootstrap
+    # Default build (LTO=1 for redisearch via its build_env): the pinned
+    # redisearch branch carries the bootstrap fixes that provision the
+    # matched clang/lld toolchain, so no LTO=0 escape hatch is needed.
+    # BUILD_TLS=yes builds redis-server with TLS (README's documented full
+    # build) so redisearch's TLS test suite can start a TLS server. Same
+    # parallel form the README documents for tarball builds.
+    - name: make -j "$(nproc)" all BUILD_TLS=yes
+      run: make -j "$(nproc)" all BUILD_TLS=yes
+    - name: run server with redis-full.conf, verify MODULE LIST
+      run: |
+        ./src/redis-server redis-full.conf --daemonize no &
+        i=0
+        until ./src/redis-cli ping 2>/dev/null | grep -q PONG; do
+          i=$((i+1)); [ "$i" -gt 60 ] && echo 'redis-server did not come up' && exit 1
+          sleep 1
+        done
+        ./src/redis-cli MODULE LIST | tee module-list.txt
+        for m in bf search ReJSON timeseries; do
+          grep -qx "$m" module-list.txt || { echo "MISSING MODULE: $m"; exit 1; }
+        done
+        ./src/redis-cli shutdown nosave || true

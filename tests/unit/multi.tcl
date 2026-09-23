@@ -553,7 +553,7 @@ start_server {tags {"multi"}} {
         catch { $r2 exec; } e
         assert_match {EXECABORT*previous errors*} $e
         set xx [r get xx]
-        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        # make sure that either the whole transaction passed or none of it (we actually expect none)
         assert { $xx == 1 || $xx == 3}
         # check that the connection is no longer in multi state
         set pong [$r2 ping asdf]
@@ -578,7 +578,7 @@ start_server {tags {"multi"}} {
         r script kill
         after 200 ; # Give some time to Lua to call the hook again...
         set xx [r get xx]
-        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        # make sure that either the whole transaction passed or none of it (we actually expect none)
         assert { $xx == 1 || $xx == 3}
         # check that the connection is no longer in multi state
         set pong [$r2 ping asdf]
@@ -603,7 +603,7 @@ start_server {tags {"multi"}} {
         catch { $r2 exec; } e
         assert_match {EXECABORT*previous errors*} $e
         set xx [r get xx]
-        # make sure that either the whole transcation passed or none of it (we actually expect none)
+        # make sure that either the whole transaction passed or none of it (we actually expect none)
         assert { $xx == 1 || $xx == 3}
         # check that the connection is no longer in multi state
         set pong [$r2 ping asdf]

@@ -1,0 +1,34 @@
+{
+    "PREPARE": {
+        "summary": "Defines a session-local fieldset that maps a name to a sorted set of field names.",
+        "complexity": "O(N*log(N)) where N is the number of fields.",
+        "group": "hash",
+        "since": "8.10.0",
+        "arity": -4,
+        "container": "HIMPORT",
+        "function": "himportPrepareCommand",
+        "command_flags": [
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS"
+        ],
+        "arguments": [
+            {
+                "name": "fieldset-name",
+                "type": "string"
+            },
+            {
+                "name": "field",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

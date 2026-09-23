@@ -476,6 +476,10 @@ static void redisSSLFree(void *privctx){
 
     if (!rsc) return;
     if (rsc->ssl) {
+        /* Should not be called if a previous fatal error has occurred on a connection;
+         * i.e., if SSL_get_error(3) has returned SSL_ERROR_SYSCALL or SSL_ERROR_SSL.
+         * (https://docs.openssl.org/3.3/man3/SSL_shutdown/#description). */
+        SSL_shutdown(rsc->ssl);
         SSL_free(rsc->ssl);
         rsc->ssl = NULL;
     }

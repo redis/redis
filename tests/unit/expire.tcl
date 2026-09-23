@@ -574,7 +574,7 @@ start_server {tags {"expire"}} {
             }
         }
 
-        test {expired key which is created in writeable replicas should be deleted by active expiry} {
+        test {expired key which is created in writable replicas should be deleted by active expiry} {
             $primary flushall
             $replica config set replica-read-only no
             foreach {yes_or_no} {yes no} {

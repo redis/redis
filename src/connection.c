@@ -62,11 +62,12 @@ int connTypeInitialize(void) {
     /* currently socket connection type is necessary  */
     serverAssert(RedisRegisterConnectionTypeSocket() == C_OK);
 
-    /* currently unix socket connection type is necessary  */
-    serverAssert(RedisRegisterConnectionTypeUnix() == C_OK);
-
     /* may fail if without BUILD_TLS=yes */
     RedisRegisterConnectionTypeTLS();
+
+    /* Register the Unix connection type last so its listener is initialized
+     * only after the TCP and TLS listeners. */
+    serverAssert(RedisRegisterConnectionTypeUnix() == C_OK);
 
     return C_OK;
 }

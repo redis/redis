@@ -170,6 +170,25 @@ start_server {tags {"modules external:skip"}} {
         run_cmd_verify_hist {after 5} {} 50
     }
 
+    test {Module hash - RM_HashSet auto-converts to template} {
+        r config set hash-min-template-entries 1
+        r del htmpl
+        r hash.set htmpl "a" f1 v1 f2 v2 f3 v3
+        assert_equal [r object encoding htmpl] "template-listpack"
+        assert_equal [r hgetall htmpl] {f1 v1 f2 v2 f3 v3}
+        # Delete a field of a template hash through RM_HashSet.
+        assert_equal 1 [r hash.set htmpl "" f2 :delete:]
+        assert_equal [r hgetall htmpl] {f1 v1 f3 v3}
+        assert_equal [r object encoding htmpl] "template-listpack"
+        # Same delete on a template-array hash (large value converts it).
+        r hash.set htmpl "" f3 [string repeat x 100]
+        assert_equal [r object encoding htmpl] "template-array"
+        assert_equal 1 [r hash.set htmpl "" f3 :delete:]
+        assert_equal [r hgetall htmpl] {f1 v1}
+        assert_equal [r object encoding htmpl] "template-array"
+        r config set hash-min-template-entries 0
+    }
+
     test "Unload the module - hash" {
         assert_equal {OK} [r module unload hash]
     }

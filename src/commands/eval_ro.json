@@ -12,6 +12,7 @@
             "SKIP_MONITOR",
             "NO_MANDATORY_KEYS",
             "STALE",
+            "SCRIPT_RUNNER",
             "READONLY"
         ],
         "acl_categories": [

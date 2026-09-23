@@ -31,7 +31,8 @@ static size_t dels = 0;
 
 /* Subkey notification log */
 #define SUBKEY_LOG_MAX 256
-static char subkey_log[SUBKEY_LOG_MAX][512];
+#define SUBKEY_LOG_LINE 2048  /* wide enough to log a large subkey count */
+static char subkey_log[SUBKEY_LOG_MAX][SUBKEY_LOG_LINE];
 static int subkey_log_count = 0;
 
 static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
@@ -121,7 +122,18 @@ static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, con
 
 static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
+    const char *key_str = RedisModule_StringPtrLen(key, NULL);
+
+    /* Delete the key from within the notification callback, to verify the
+     * keyspace bookkeeping (e.g. keysizes histogram) was already updated by
+     * the time subscribers run. Returns early, intentionally skipping the
+     * StringDMA check below, which expects the key to still exist. */
+    if (strcmp(event, "setbit") == 0 && strncmp(key_str, "stringdel_", 10) == 0) {
+        RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s!", key);
+        if (rep) RedisModule_FreeCallReply(rep);
+        return REDISMODULE_OK;
+    }
+
     RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
 
     size_t len = 0;
@@ -314,7 +326,7 @@ static void KeySpace_NotificationSubkeys(RedisModuleCtx *ctx, int type, const ch
     const char *key_str = RedisModule_StringPtrLen(key, NULL);
 
     /* Format: "<event> <key> <count> <subkey1> <subkey2> ..." or "<event> <key> 0" */
-    char buf[512];
+    char buf[SUBKEY_LOG_LINE];
     int off = snprintf(buf, sizeof(buf), "%s %s %d", event, key_str, count);
     for (int i = 0; i < count && (size_t)off < sizeof(buf) - 1; i++) {
         const char *sk = RedisModule_StringPtrLen(subkeys[i], NULL);

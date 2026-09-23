@@ -425,7 +425,7 @@ Attributes are accessed using dot notation:
 
 Expressions can work with:
 
-- Numbers (dobule precision floats)
+- Numbers (double precision floats)
 - Strings (enclosed in single or double quotes)
 - Booleans (no native type: they are represented as 1 for true, 0 for false)
 - Arrays (for use with the `in` operator: `value in [1, 2, 3]`)
@@ -512,7 +512,7 @@ The optimal `FILTER-EF` value depends on:
 
 A good practice is to start with the default and increase if needed when you observe fewer results than expected.
 
-### Testing a larg-ish data set
+### Testing a large-ish data set
 
 To really see how things work at scale, you can [download](https://antirez.com/word2vec_with_attribs.rdb) the following dataset:
 
@@ -647,7 +647,7 @@ Sometimes learned vectors are not as information dense as we could guess, that
 is there are components having similar meanings in the space, and components
 having values that don't really represent features that matter in our use case.
 
-At the same time, certain vectors are very big, 1024 components or more. In this cases, it is possible to use the random projection feature of Redis Vector Sets in order to reduce both space (less RAM used) and space (more operstions per second). The feature is accessible via the `REDUCE` option of the `VADD` command. However, keep in mind that you need to test how much reduction impacts the performances of your vectors in term of recall and quality of the results you get back.
+At the same time, certain vectors are very big, 1024 components or more. In this cases, it is possible to use the random projection feature of Redis Vector Sets in order to reduce both space (less RAM used) and space (more operations per second). The feature is accessible via the `REDUCE` option of the `VADD` command. However, keep in mind that you need to test how much reduction impacts the performances of your vectors in term of recall and quality of the results you get back.
 
 ## What is a random projection?
 

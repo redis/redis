@@ -299,8 +299,12 @@ start_server {tags {"repl external:skip debug_defrag:skip"}} {
             assert_lessthan [expr $peak_master_used_mem - $prev_used - $backlog_size] 1000000
             assert_lessthan $peak_master_rpl_buf [expr {$backlog_size + 1000000}]
             assert_lessthan $peak_master_slave_buf_size 1000000
-            # buffers in the replica are more than 5mb
-            assert_morethan $peak_replica_buf_size 5000000
+            # buffers in the replica are more than 5mb. Skip when testing
+            # compression as replica buf contains compressed data in that case
+            # which is a lot smaller
+            if {$::compression == 0} {
+                assert_morethan $peak_replica_buf_size 5000000
+            }
 
             stop_write_load $load_handle
         }
@@ -343,11 +347,17 @@ start_server {tags {"repl external:skip"}} {
                 fail "replica didn't start sync"
             }
 
-            # Create some traffic on replication stream
-            populate 100 master 100000
+            # Create some traffic on replication stream.
+            # In case of compression generate a command stream that is not well
+            # compressed so we can reach the buffer limits easier.
+            if {$::compression} {
+                populate 1000 master 500000 0 false 0 true
+            } else {
+                populate 100 master 100000
+            }
 
             # Wait for replica's buffer limit reached
-            wait_for_log_messages -1 {"*Replication buffer limit has been reached*"} 0 1000 10
+            wait_for_log_messages -1 {"*Replication buffer limit has been reached*"} 0 100 10
 
             # Speed up loading
             $replica config set key-load-delay 0
@@ -361,7 +371,12 @@ start_server {tags {"repl external:skip"}} {
             }
 
             # Verify sync was not interrupted.
-            assert_equal [s 0 sync_full] [expr $prev_sync_full + 1]
+            # In the compression case the master's output buffer limits could be
+            # reached when replica stops accumulating command stream since we
+            # are sending a lot more data in this case.
+            if {$::compression == 0} {
+                assert_equal [s 0 sync_full] [expr $prev_sync_full + 1]
+            }
 
             # Verify db's are identical
             assert_morethan [$master dbsize] 0
@@ -434,7 +449,11 @@ start_server {tags {"repl external:skip debug_defrag:skip"}} {
             }
 
             # Generate replication traffic of ~20mb to disconnect the slave on obuf limit
-            populate 20 master 1000000 -1
+            if {$::compression} {
+                populate 200 master 1000000 -1 false 0 true
+            } else {
+                populate 20 master 1000000 -1
+            }
 
             wait_for_log_messages -1 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10
             $replica config set key-load-delay 0
