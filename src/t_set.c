@@ -355,7 +355,7 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
     }
 
     /* 'cap' is an element count; the listpack builder wants a byte size
-     * hint instead (see setTypeOps.buildFromIterator in t_set_encoding.h). */
+     * hint instead (see setTypeOps.convertFrom in t_set_encoding.h). */
     unsigned long buildCap = cap;
     if (enc == OBJ_ENCODING_LISTPACK) {
         /* Preallocate the minimum two bytes per element (enc/value + backlen) */
@@ -368,10 +368,7 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         }
     }
 
-    setTypeIterator si;
-    setTypeInitIterator(&si, setobj);
-    void *newptr = setTypeGetOps(enc)->buildFromIterator(&si, buildCap, panic);
-    setTypeResetIterator(&si);
+    void *newptr = setTypeGetOps(enc)->convertFrom(setobj, buildCap, panic);
     if (newptr == NULL) {
         serverAssert(!panic);
         return C_ERR;

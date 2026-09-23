@@ -119,7 +119,7 @@ static void htFree(robj *set) {
     dictRelease((dict *)set->ptr);
 }
 
-static void *htBuildFromIterator(setTypeIterator *si, unsigned long cap, int panic) {
+static void *htConvertFrom(robj *set, unsigned long cap, int panic) {
     dict *d = dictCreate(&setDictType);
     if (panic) {
         dictExpand(d, cap);
@@ -130,11 +130,14 @@ static void *htBuildFromIterator(setTypeIterator *si, unsigned long cap, int pan
 
     /* To add the elements we extract integers and create redis objects */
     size_t *alloc_size = htGetMetadataSize(d);
+    setTypeIterator si;
+    setTypeInitIterator(&si, set);
     sds element;
-    while ((element = setTypeNextObject(si)) != NULL) {
+    while ((element = setTypeNextObject(&si)) != NULL) {
         serverAssert(dictAdd(d, element, NULL) == DICT_OK);
         *alloc_size += sdsAllocSize(element);
     }
+    setTypeResetIterator(&si);
     return d;
 }
 
@@ -150,6 +153,6 @@ const setTypeOps setTypeOpsHT = {
     .size = htSize,
     .allocSize = htAllocSize,
     .free = htFree,
-    .buildFromIterator = htBuildFromIterator,
+    .convertFrom = htConvertFrom,
     .dup = htDup,
 };
