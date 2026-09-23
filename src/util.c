@@ -562,6 +562,7 @@ int string2ull(const char *s, unsigned long long *value) {
         *value = ll;
         return 1;
     }
+    if (strchr(s,'-') != NULL) return 0; /* strtoull() wraps negatives instead of failing. */
     errno = 0;
     char *endptr = NULL;
     *value = strtoull(s,&endptr,10);
