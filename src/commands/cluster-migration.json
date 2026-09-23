@@ -131,6 +131,29 @@
                             },
                             "write_pause_ms": {
                                 "type": "integer"
+                            },
+                            "phase": {
+                                "description": "Current or last transfer phase of this attempt. Terminal outcome is reported by state.",
+                                "oneOf": [
+                                    {
+                                        "const": "snapshot"
+                                    },
+                                    {
+                                        "const": "incremental"
+                                    }
+                                ]
+                            },
+                            "snapshot_progress_perc": {
+                                "description": "Snapshot progress percentage from 0 to 100.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
+                            },
+                            "incremental_progress_perc": {
+                                "description": "Incremental progress percentage from 0 to 100.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
                             }
                         }
                     }
