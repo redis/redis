@@ -1734,7 +1734,12 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
         /* Provided LRU idle time is in seconds. Scale
          * according to the LRU clock resolution this Redis
          * instance was compiled with (normally 1000 ms, so the
-         * below statement will expand to lru_idle*1000/1000. */
+         * below statement will expand to lru_idle*1000/1000.
+         * The LRU clock can't represent an idle time of LRU_CLOCK_MAX or more,
+         * it would wrap around and the object would look recently used, so
+         * clamp it. This also keeps the multiplication from overflowing. */
+        long long max_idle = (long long)(LRU_CLOCK_MAX-1)*LRU_CLOCK_RESOLUTION/lru_multiplier;
+        if (lru_idle > max_idle) lru_idle = max_idle;
         lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
         /* If the LRU field underflows (since lru_clock is a wrapping clock),

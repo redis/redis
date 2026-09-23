@@ -96,6 +96,21 @@ start_server {tags {"dump"}} {
         }
     }
 
+    test {RESTORE IDLETIME beyond the LRU clock range is clamped} {
+        set old_policy [config_get_set maxmemory-policy allkeys-lru]
+        r set foo bar
+        set encoded [r dump foo]
+        # 16777215 seconds (LRU_CLOCK_MAX) and more used to wrap around the
+        # LRU clock and make the key look recently used.
+        foreach idle {16777214 16777215 16777216 100000000 9223372036854775807} {
+            r del foo
+            r restore foo 0 $encoded IDLETIME $idle
+            assert_range [r object idletime foo] 16777213 16777214
+        }
+        r del foo
+        r config set maxmemory-policy $old_policy
+    }
+
     test {RESTORE can set LFU} {
         r set foo bar
         set encoded [r dump foo]
