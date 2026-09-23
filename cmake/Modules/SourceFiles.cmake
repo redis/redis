@@ -123,6 +123,8 @@ set(REDIS_SERVER_SRCS
     ${REDIS_ROOT}/src/fast_float_strtod.c
     ${REDIS_ROOT}/src/t_array.c
     ${REDIS_ROOT}/src/sparsearray.c
+    ${REDIS_ROOT}/src/bless.c
+    ${REDIS_ROOT}/src/client_comp.c
 )
 
 

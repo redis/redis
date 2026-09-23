@@ -2,6 +2,10 @@ set(CPACK_PACKAGE_NAME "redis")
 
 redis_parse_version(CPACK_PACKAGE_VERSION_MAJOR CPACK_PACKAGE_VERSION_MINOR CPACK_PACKAGE_VERSION_PATCH)
 
+# WIX strictly requires x.x.x.x version format (integers only).
+# Strip any pre-release suffix (like -rc1) from the patch version for CPack.
+string(REGEX REPLACE "-.*$" "" CPACK_PACKAGE_VERSION_PATCH "${CPACK_PACKAGE_VERSION_PATCH}")
+
 set(CPACK_PACKAGE_CONTACT "maintainers@lists.redis.io")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Redis is an open source (BSD) high-performance key/value datastore")
 set(CPACK_RESOURCE_FILE_LICENSE "${REDIS_ROOT}/LICENSE.txt")

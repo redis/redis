@@ -46,6 +46,7 @@ redis.code-workspace
 # MSVC build
 build_msvc2026/
 msvc2026-build/
+build_msvc_wine/
 Testing/
 *.exe
 *.pdb

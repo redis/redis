@@ -340,7 +340,7 @@ if (PYTHON_EXE)
         OUTPUT ${CMAKE_BINARY_DIR}/commands_def_generated
         DEPENDS ${COMMAND_FILES_JSON}
         COMMAND ${PYTHON_EXE} ${REDIS_ROOT}/utils/generate-command-code.py
-        COMMAND touch ${CMAKE_BINARY_DIR}/commands_def_generated
+        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/commands_def_generated
         WORKING_DIRECTORY "${REDIS_ROOT}/src")
     add_custom_target(generate_commands_def DEPENDS ${CMAKE_BINARY_DIR}/commands_def_generated)
 
@@ -348,11 +348,9 @@ if (PYTHON_EXE)
     message(STATUS "Adding target generate_fmtargs_h")
     add_custom_command(
         OUTPUT ${CMAKE_BINARY_DIR}/fmtargs_generated
-        DEPENDS ${REDIS_ROOT}/utils/generate-fmtargs.py
-        COMMAND sed '/Everything/,$$d' fmtargs.h > fmtargs.h.tmp
-        COMMAND ${PYTHON_EXE} ${REDIS_ROOT}/utils/generate-fmtargs.py >> fmtargs.h.tmp
-        COMMAND mv fmtargs.h.tmp fmtargs.h
-        COMMAND touch ${CMAKE_BINARY_DIR}/fmtargs_generated
+        DEPENDS ${REDIS_ROOT}/utils/generate-fmtargs.py ${REDIS_ROOT}/cmake/Modules/generate_fmtargs.py
+        COMMAND ${PYTHON_EXE} ${REDIS_ROOT}/cmake/Modules/generate_fmtargs.py ${REDIS_ROOT}/utils/generate-fmtargs.py ${REDIS_ROOT}/src/fmtargs.h
+        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/fmtargs_generated
         WORKING_DIRECTORY "${REDIS_ROOT}/src")
     add_custom_target(generate_fmtargs_h DEPENDS ${CMAKE_BINARY_DIR}/fmtargs_generated)
 else ()

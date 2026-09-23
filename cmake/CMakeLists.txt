@@ -1,9 +1,9 @@
 set(REDIS_ROOT "${CMAKE_SOURCE_DIR}/..")
-cmake_minimum_required(VERSION 3.10)
-cmake_policy(SET CMP0135 OLD)
+cmake_minimum_required(VERSION 3.24)
+cmake_policy(SET CMP0135 NEW)
 
 # Must be done first
-if (APPLE)
+if (APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
     # Force clang compiler on macOS
     find_program(CLANGPP "clang++")
     find_program(CLANG "clang")
@@ -41,6 +41,7 @@ else()
         auto_win_msvc
         GIT_REPOSITORY https://github.com/SamuelMarks/auto-win-msvc.git
         GIT_TAG        master
+        GIT_SUBMODULES ""
     )
 endif()
 FetchContent_MakeAvailable(auto_win_msvc)
@@ -189,7 +190,8 @@ else()
     file(WRITE "${POSIX_STUBS_DIR}/libgen.h" "#include <posix-libgen.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/sys/file.h" "#include <bsd-sys-file.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/regex.h" "#include <posix-regex.h>\n")
-        file(WRITE "${POSIX_STUBS_DIR}/sys/mman.h" "#include <posix-mman.h>\n")
+    file(WRITE "${POSIX_STUBS_DIR}/sys/mman.h" "#include <posix-mman.h>\n")
+    file(WRITE "${POSIX_STUBS_DIR}/sys/epoll.h" "#include <linux-epoll.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/glob.h" "#include <posix-glob.h>\n")
     file(WRITE "${POSIX_STUBS_DIR}/sys/ioctl.h" "
 #include <posix-sys-ioctl.h>
@@ -263,7 +265,7 @@ static inline int unsetenv(const char *name) {
     
     # Extract include directories from auto-win-msvc
     get_target_property(MEGA_INCLUDES auto-win-msvc INTERFACE_INCLUDE_DIRECTORIES)
-    get_filename_component(AUTO_WIN_MSVC_DIR "${REDIS_ROOT}/../auto-win-msvc" ABSOLUTE)
+    get_filename_component(AUTO_WIN_MSVC_DIR "${auto_win_msvc_SOURCE_DIR}" ABSOLUTE)
     file(GLOB POSIX_EXTRA_DIRS "${AUTO_WIN_MSVC_DIR}/posix-*/include" "${AUTO_WIN_MSVC_DIR}/bsd-*/include" "${AUTO_WIN_MSVC_DIR}/linux-*/include")
     list(FILTER POSIX_EXTRA_DIRS EXCLUDE REGEX "posix-stdatomic")
     message(WARNING "POSIX_EXTRA_DIRS = ${POSIX_EXTRA_DIRS}")
@@ -546,6 +548,23 @@ if(EXISTS "${REDIS_ROOT}/src/crc64.c")
     list(APPEND PATCHED_FILES "src/crc64.c")
 endif()
 
+if(EXISTS "${REDIS_ROOT}/src/crccombine.c")
+    file(READ "${REDIS_ROOT}/src/crccombine.c" CRC_COMBINE_CONTENT)
+    string(REPLACE "#if !((defined(__i386__) || defined(__X86_64__) || defined(__x86_64__)))"
+                   "#if defined(_MSC_VER) || !((defined(__i386__) || defined(__X86_64__) || defined(__x86_64__)))"
+                   CRC_COMBINE_CONTENT "${CRC_COMBINE_CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/crccombine.c" "${CRC_COMBINE_CONTENT}")
+    list(APPEND PATCHED_FILES "src/crccombine.c")
+endif()
+
+if(EXISTS "${REDIS_ROOT}/src/crccombine.h")
+    file(READ "${REDIS_ROOT}/src/crccombine.h" CRC_COMBINE_H_CONTENT)
+    string(REPLACE "typedef unsigned long long v2uq __attribute__ ((vector_size (16)));"
+                   "#ifdef _MSC_VER\ntypedef unsigned long long v2uq;\n#else\ntypedef unsigned long long v2uq __attribute__ ((vector_size (16)));\n#endif"
+                   CRC_COMBINE_H_CONTENT "${CRC_COMBINE_H_CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/crccombine.h" "${CRC_COMBINE_H_CONTENT}")
+endif()
+
 if(EXISTS "${REDIS_ROOT}/src/cluster_legacy.c")
     file(READ "${REDIS_ROOT}/src/cluster_asm.c" CONTENT)
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/cluster_asm.c" "${CONTENT}")
@@ -701,6 +720,23 @@ if(EXISTS "${CMAKE_BINARY_DIR}/patched/src/server.h")
     string(REPLACE "typedef struct __attribute__((__packed__)) bulkStrRef {" "#pragma pack(push, 1)\ntypedef struct bulkStrRef {" CONTENT "${CONTENT}")
     string(REPLACE "} bulkStrRef;\n" "} bulkStrRef;\n#pragma pack(pop)\n" CONTENT "${CONTENT}")
     file(WRITE "${CMAKE_BINARY_DIR}/patched/src/server.h" "${CONTENT}")
+endif()
+
+if(EXISTS "${REDIS_ROOT}/src/object.h")
+    file(READ "${REDIS_ROOT}/src/object.h" OBJECT_H_CONTENT)
+    string(REGEX REPLACE "typedef struct __attribute__ \\(\\(packed\\)\\) kvBits \\{[^}]*\\} kvBits;"
+        "#pragma pack(push, 1)\ntypedef struct kvBits {\n    unsigned char key_sds_type : 2;\n    unsigned char no_evict : 1;\n    unsigned char unused : 5;\n} kvBits;\n#pragma pack(pop)"
+        OBJECT_H_CONTENT "${OBJECT_H_CONTENT}")
+    string(REGEX REPLACE "typedef struct __attribute__ \\(\\(packed\\)\\) \\{[^}]*\\} kvBits;"
+        "#pragma pack(push, 1)\ntypedef struct kvBits {\n    unsigned char key_sds_type : 2;\n    unsigned char no_evict : 1;\n    unsigned char unused : 5;\n} kvBits;\n#pragma pack(pop)"
+        OBJECT_H_CONTENT "${OBJECT_H_CONTENT}")
+    string(REPLACE "typedef struct __attribute__ ((__packed__)) kvBits {"
+        "#pragma pack(push, 1)\ntypedef struct kvBits {\n    unsigned char key_sds_type : 2;\n    unsigned char no_evict : 1;\n    unsigned char unused : 5;\n} kvBits;\n#pragma pack(pop)\n#if 0\ntypedef struct kvBits_dummy {"
+        OBJECT_H_CONTENT "${OBJECT_H_CONTENT}")
+    string(REPLACE "} kvBits;\n\n/* Returns the kvBits"
+        "} kvBits_dummy;\n#endif\n\n/* Returns the kvBits"
+        OBJECT_H_CONTENT "${OBJECT_H_CONTENT}")
+    file(WRITE "${CMAKE_BINARY_DIR}/patched/src/object.h" "${OBJECT_H_CONTENT}")
 endif()
 
 
@@ -1233,7 +1269,7 @@ if(MSVC)
     set(INTERNAL_TESTS ziplist quicklist intset zipmap sha1test util endianconv crc64 mstr dict kvstore fwtree estore ebuckets bitmap rax zset topk listpack zmalloc sds)
     foreach(testname ${INTERNAL_TESTS})
         if (NOT "internal-${testname}" IN_LIST FAILING_TESTS)
-            add_test(NAME "internal-${testname}" COMMAND $<TARGET_FILE:redis-server> test ${testname})
+            add_test(NAME "internal-${testname}" COMMAND redis-server test ${testname})
         endif()
     endforeach()
 
