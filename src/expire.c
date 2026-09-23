@@ -891,7 +891,9 @@ void ttlGenericCommand(client *c, int output_ms, int output_abs) {
     if (ttl == -1) {
         addReplyLongLong(c,-1);
     } else {
-        addReplyLongLong(c,output_ms ? ttl : ((ttl+500)/1000));
+        /* Round to the nearest second, without overflowing when ttl is
+         * close to LLONG_MAX (ttl is not negative here). */
+        addReplyLongLong(c,output_ms ? ttl : (ttl/1000 + (ttl%1000 >= 500)));
     }
 }
 
