@@ -3404,8 +3404,14 @@ int clusterProcessPacket(clusterLink *link) {
         if (!sender) return 1;  /* We don't know that node. */
         /* We consider this vote only if the sender is a master serving
          * a non zero number of slots, and its currentEpoch is greater or
-         * equal to epoch where this node started the election. */
+         * equal to epoch where this node started the election.
+         * The vote must also be for an election that is in progress: after
+         * an election times out, a retry resets the vote count but keeps the
+         * old failover_auth_epoch until the new request is sent, so late votes
+         * for the expired election would otherwise be counted toward the next
+         * one, which could then be won without a majority in its epoch. */
         if (clusterNodeIsMaster(sender) && sender->numslots > 0 &&
+            server.cluster->failover_auth_sent &&
             senderCurrentEpoch >= server.cluster->failover_auth_epoch)
         {
             server.cluster->failover_auth_count++;
