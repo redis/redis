@@ -10428,7 +10428,7 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     if (remaining) {
         uint64_t expiretime = ntohu64(id);
         uint64_t now = getMonotonicUs();
-        *remaining = expiretime > now ? (expiretime - now) / 1000 : 0;
+        *remaining = expiretime > now ? (expiretime - now) / 1000 : 0;  /* Scale to milliseconds. */
     }
     if (data) *data = timer->data;
     return REDISMODULE_OK;
