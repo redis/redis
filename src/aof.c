@@ -1262,7 +1262,7 @@ void killAppendOnlyChild(void) {
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
-    /* AOF maybe AOF_WAIT_REWRITE with no file opened yet when another
+    /* AOF may be in AOF_WAIT_REWRITE with no file opened yet when another
      * background operation has postponed the initial rewrite. */
     if (server.aof_fd != -1) {
         flushAppendOnlyFile(1);
