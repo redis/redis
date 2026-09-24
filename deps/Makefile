@@ -140,7 +140,13 @@ lua: .make-prerequisites
 JEMALLOC_CFLAGS=$(ENABLE_LTO) $(CFLAGS)
 JEMALLOC_LDFLAGS=$(ENABLE_LTO) $(LDFLAGS)
 
-ifneq ($(DEB_HOST_GNU_TYPE),)
+# Pass a host triplet to jemalloc's configure when cross-compiling, so that its
+# configure script does not try to run target binaries on the build machine.
+# DEB_HOST_GNU_TYPE is set automatically in Debian packaging environments; HOST
+# is a generic override for other cross-compilation setups (e.g. Yocto/Poky).
+ifneq ($(HOST),)
+JEMALLOC_CONFIGURE_OPTS += --host=$(HOST)
+else ifneq ($(DEB_HOST_GNU_TYPE),)
 JEMALLOC_CONFIGURE_OPTS += --host=$(DEB_HOST_GNU_TYPE)
 endif
 
