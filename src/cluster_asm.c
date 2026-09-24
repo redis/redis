@@ -3093,15 +3093,15 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         if (!keysizes_row) continue; /* untracked type, e.g. OBJ_MODULE */
 
         size_t len = getObjectLength(kv);
-        int size_bin = (len == 0) ? 0 : log2ceil(len) + 1; /* Only strings can be empty */
-        debugServerAssert(size_bin < MAX_KEYSIZES_BINS);
+        /* Strings, streams and bitmaps can be empty. */
+        int size_bin = (len == 0) ? 0 : min(log2ceil(len) + 1, MAX_KEYSIZES_BINS - 1);
         keysizes_row[size_bin]++;
 
         if (server.memory_tracking_enabled) {
             int64_t *allocsizes_row = keysizesHistRow(trim_job->bg->delta_allocsizes_hist, kv->type);
             size_t alloc_size = kvobjAllocSize(kv);
-            int alloc_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(alloc_bin < MAX_KEYSIZES_BINS);
+            int alloc_bin = (alloc_size == 0) ? 0 :
+                            min(log2ceil(alloc_size) + 1, MAX_KEYSIZES_BINS - 1);
             allocsizes_row[alloc_bin]++;
         }
     }
