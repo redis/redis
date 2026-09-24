@@ -57,6 +57,11 @@
 #define EXPR_OP_AND    16 /* and */
 #define EXPR_OP_OR     17 /* or */
 
+/* Auxiliary token state (extra semantics for selectors resolution). */
+#define EXPR_SELECTOR_STATUS_NORMAL   0   /* regular parsed value */
+#define EXPR_SELECTOR_STATUS_MISSING  1   /* selector missing in JSON */
+#define EXPR_SELECTOR_STATUS_TYPEERR  2   /* selector present but unsupported type */
+
 /* This structure represents a token in our expression. It's either
  * literals like 4, "foo", or operators like "+", "-", "and", or
  * json selectors, that start with a dot: ".age", ".properties.somearray[1]" */
@@ -64,6 +69,7 @@ typedef struct exprtoken {
     int refcount;           // Reference counting for memory reclaiming.
     int token_type;         // Token type of the just parsed token.
     int offset;             // Chars offset in expression.
+    int selector_status;    // Status of runtime selector values.
     union {
         double num;         // Value for EXPR_TOKEN_NUM.
         struct {
@@ -146,6 +152,7 @@ exprtoken *exprNewToken(int type) {
     memset(t,0,sizeof(*t));
     t->token_type = type;
     t->refcount = 1;
+    t->selector_status = EXPR_SELECTOR_STATUS_NORMAL;
     return t;
 }
 
@@ -700,6 +707,9 @@ double exprTokenToNum(exprtoken *t) {
 
 /* Convert object to true/false (0 or 1) */
 double exprTokenToBool(exprtoken *t) {
+    /* Type error treated as false. */
+    if (t->selector_status == EXPR_SELECTOR_STATUS_TYPEERR) return 0;
+
     if (t->token_type == EXPR_TOKEN_NUM) {
         return t->num != 0;
     } else if (t->token_type == EXPR_TOKEN_STR && t->str.len == 0) {
@@ -760,12 +770,20 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
         // Handle selectors by calling the callback.
         if (t->token_type == EXPR_TOKEN_SELECTOR) {
             exprtoken *obj = NULL;
+            int st = JSON_FIELD_STATUS_MISSING;
             if (t->str.len > 0)
-                obj = jsonExtractField(json,json_len,t->str.start,t->str.len);
+                st = jsonExtractField(json,json_len,t->str.start,t->str.len,&obj);
 
-            // Selector not found or JSON object not convertible to
-            // expression tokens. Evaluate the expression to false.
-            if (obj == NULL) return 0;
+            /* Differentiate two cases:
+             * 1) Field not found: NULL token with selector_status=MISSING.
+             * 2) Field found but value type unsupported: NULL token with selector_status=TYPEERR. */
+            if (st == JSON_FIELD_STATUS_MISSING) {
+                obj = exprNewToken(EXPR_TOKEN_NULL);
+                obj->selector_status = EXPR_SELECTOR_STATUS_MISSING;
+            } else if (st == JSON_FIELD_STATUS_UNSUPPORTED) {
+                obj = exprNewToken(EXPR_TOKEN_NULL);
+                obj->selector_status = EXPR_SELECTOR_STATUS_TYPEERR;
+            }
             exprStackPush(&es->values_stack, obj);
             continue;
         }
@@ -787,57 +805,64 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             a = exprStackPop(&es->values_stack);
         }
 
+        int typeerr = ((a && a->selector_status==EXPR_SELECTOR_STATUS_TYPEERR) ||
+                       (b && b->selector_status==EXPR_SELECTOR_STATUS_TYPEERR));
+
         switch(t->opcode) {
         case EXPR_OP_NOT:
             result->num = exprTokenToBool(b) == 0 ? 1 : 0;
             break;
-        case EXPR_OP_POW: {
-            double base = exprTokenToNum(a);
-            double exp = exprTokenToNum(b);
-            result->num = pow(base, exp);
-            break;
-        }
-        case EXPR_OP_MULT:
-            result->num = exprTokenToNum(a) * exprTokenToNum(b);
-            break;
-        case EXPR_OP_DIV:
-            result->num = exprTokenToNum(a) / exprTokenToNum(b);
-            break;
-        case EXPR_OP_MOD: {
-            double va = exprTokenToNum(a);
-            double vb = exprTokenToNum(b);
-            result->num = fmod(va, vb);
-            break;
-        }
-        case EXPR_OP_SUM:
-            result->num = exprTokenToNum(a) + exprTokenToNum(b);
-            break;
-        case EXPR_OP_DIFF:
-            result->num = exprTokenToNum(a) - exprTokenToNum(b);
-            break;
-        case EXPR_OP_GT:
-            result->num = exprTokenToNum(a) > exprTokenToNum(b) ? 1 : 0;
-            break;
-        case EXPR_OP_GTE:
-            result->num = exprTokenToNum(a) >= exprTokenToNum(b) ? 1 : 0;
-            break;
-        case EXPR_OP_LT:
-            result->num = exprTokenToNum(a) < exprTokenToNum(b) ? 1 : 0;
-            break;
+        case EXPR_OP_POW: case EXPR_OP_MULT: case EXPR_OP_DIV:
+        case EXPR_OP_MOD: case EXPR_OP_SUM: case EXPR_OP_DIFF:
+        case EXPR_OP_GT: case EXPR_OP_GTE: case EXPR_OP_LT:
         case EXPR_OP_LTE:
-            result->num = exprTokenToNum(a) <= exprTokenToNum(b) ? 1 : 0;
+            if (typeerr) { result->num = 0; break; }
+            /* Relational operators with NULL (missing or explicit) always false. */
+            if ((t->opcode == EXPR_OP_GT || t->opcode == EXPR_OP_GTE ||
+                 t->opcode == EXPR_OP_LT || t->opcode == EXPR_OP_LTE) &&
+                ((a && a->token_type == EXPR_TOKEN_NULL) ||
+                 (b && b->token_type == EXPR_TOKEN_NULL))) {
+                result->num = 0;
+                break;
+            }
+            // Arithmetic operators
+            if (t->opcode == EXPR_OP_POW)
+                result->num = pow(exprTokenToNum(a), exprTokenToNum(b));
+            else if (t->opcode == EXPR_OP_MULT)
+                result->num = exprTokenToNum(a) * exprTokenToNum(b);
+            else if (t->opcode == EXPR_OP_DIV)
+                result->num = exprTokenToNum(a) / exprTokenToNum(b);
+            else if (t->opcode == EXPR_OP_MOD)
+                result->num = fmod(exprTokenToNum(a), exprTokenToNum(b));
+            else if (t->opcode == EXPR_OP_SUM)
+                result->num = exprTokenToNum(a) + exprTokenToNum(b);
+            else if (t->opcode == EXPR_OP_DIFF)
+                result->num = exprTokenToNum(a) - exprTokenToNum(b);
+            else if (t->opcode == EXPR_OP_GT)
+                result->num = exprTokenToNum(a) > exprTokenToNum(b);
+            else if (t->opcode == EXPR_OP_GTE)
+                result->num = exprTokenToNum(a) >= exprTokenToNum(b);
+            else if (t->opcode == EXPR_OP_LT)
+                result->num = exprTokenToNum(a) < exprTokenToNum(b);
+            else if (t->opcode == EXPR_OP_LTE)
+                result->num = exprTokenToNum(a) <= exprTokenToNum(b);
             break;
-        case EXPR_OP_EQ:
-            result->num = exprTokensEqual(a, b) ? 1 : 0;
+        case EXPR_OP_EQ: {
+            /* Equality: if any operand has a type error -> false. */
+            result->num = typeerr ? 0 : exprTokensEqual(a, b);
             break;
-        case EXPR_OP_NEQ:
-            result->num = !exprTokensEqual(a, b) ? 1 : 0;
+        }
+        case EXPR_OP_NEQ: {
+            /* Inequality: type error also yields false (comparison failed). */
+            result->num = typeerr ? 0 : !exprTokensEqual(a, b);
             break;
+        }
         case EXPR_OP_IN: {
             /* For 'in' operator, b must be a tuple, and we check for
              * membership. Otherwise both a and b must be strings, and
              * in this case we check if a is a substring of b. */
             result->num = 0;  // Default to false.
+            if (typeerr)    break; // Type error: result is false.
             if (b->token_type == EXPR_TOKEN_TUPLE) {
                 for (size_t j = 0; j < b->tuple.len; j++) {
                     if (exprTokensEqual(a, b->tuple.ele[j])) {
@@ -853,12 +878,10 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             break;
         }
         case EXPR_OP_AND:
-            result->num =
-                exprTokenToBool(a) != 0 && exprTokenToBool(b) != 0 ? 1 : 0;
+            result->num = (exprTokenToBool(a) != 0 && exprTokenToBool(b) != 0);
             break;
         case EXPR_OP_OR:
-            result->num =
-                exprTokenToBool(a) != 0 || exprTokenToBool(b) != 0 ? 1 : 0;
+            result->num = (exprTokenToBool(a) != 0 || exprTokenToBool(b) != 0);
             break;
         default:
             // Do nothing: we don't want runtime errors.
@@ -954,6 +977,26 @@ int main(int argc, char **argv) {
     printf("Result2: %s\n", result ? "True" : "False");
 
     exprFree(es);
+
+    // Test missing fields in json.
+    testexpr = ".year >= 1984 || .name == \"The Matrix\"";
+    testjson = "{\"name\": \"The Matrix\"}";
+    printf("Compiling expression: %s\n", testexpr);
+    errpos = 0;
+    es = exprCompile(testexpr,&errpos);
+    if (es == NULL) {
+        printf("Compilation failed near \"...%s\"\n", testexpr+errpos);
+        return 1;
+    }
+    exprPrintStack(&es->tokens, "Tokens");
+    exprPrintStack(&es->program, "Program");
+    printf("Running against object: %s\n", testjson);
+    result = exprRun(es,testjson,strlen(testjson));
+    printf("Result1: %s\n", result ? "True" : "False");
+    result = exprRun(es,testjson,strlen(testjson));
+    printf("Result2: %s\n", result ? "True" : "False");
+    exprFree(es);
+
     return 0;
 }
 #endif
