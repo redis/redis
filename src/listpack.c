@@ -763,7 +763,7 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
 
 /* Return the listpack element pointed by 'p'.
  *
- * The function has the same behaviour as lpGetWithSize when 'entry_size' is NULL,
+ * The function has the same behavior as lpGetWithSize when 'entry_size' is NULL,
  * but avoids a lot of unecesarry branching performance penalties. */
 static inline unsigned char *lpGetWithBuf(unsigned char *p, int64_t *count, unsigned char *intbuf) {
     int64_t val;
