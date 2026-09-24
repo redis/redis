@@ -89,6 +89,29 @@ ifneq (,$(filter aarch64 armv%,$(uname_M)))
         CFLAGS+=-funwind-tables
 endif
 
+# RISC-V siphash: three build modes follow the toolchain -march by default
+# (zbb march emits roli directly; otherwise fully portable — zero runtime tax).
+#   REDIS_SIPHASH_RUNTIME=1 : opt-in universal single-binary mode (both cores,
+#                             one-time /proc/cpuinfo probe + function pointer)
+#   REDIS_SIPHASH_ZBB_ONLY=1 : direct Zbb core only (assume zbb hardware)
+#   REDIS_SIPHASH_PORTABLE_ONLY=1 : portable core even on zbb march
+HAS_RISCV_ZBB := $(shell printf 'typedef int t;' | $(CC) -march=rv64gc_zba_zbb -fsyntax-only -x c - 2>/dev/null && echo yes || echo no)
+ifneq (,$(findstring riscv,$(uname_M)))
+ifeq ($(HAS_RISCV_ZBB),yes)
+ifdef REDIS_SIPHASH_RUNTIME
+        siphash.o: FINAL_CFLAGS += -DSIPHASH_RISCV_DISPATCH
+        siphash_zbb.o: siphash_zbb.c siphash.c Makefile.dep
+	$(REDIS_CC) -march=rv64gc_zba_zbb -fno-lto -fno-fat-lto-objects -MMD -o $@ -c siphash_zbb.c
+endif
+ifdef REDIS_SIPHASH_ZBB_ONLY
+        siphash.o: FINAL_CFLAGS += -march=rv64gc_zba_zbb -fno-lto -fno-fat-lto-objects
+endif
+ifdef REDIS_SIPHASH_PORTABLE_ONLY
+        siphash.o: FINAL_CFLAGS += -march=rv64gc -mabi=lp64d
+endif
+endif
+endif
+
 # Backwards compatibility for selecting an allocator
 ifeq ($(USE_TCMALLOC),yes)
 	MALLOC=tcmalloc
@@ -408,6 +431,15 @@ REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redisassert.o release.o crcspeed.o crccombine.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o strl.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
+ifneq (,$(findstring riscv,$(uname_M)))
+ifeq ($(HAS_RISCV_ZBB),yes)
+ifdef REDIS_SIPHASH_RUNTIME
+        REDIS_SERVER_OBJ+=siphash_zbb.o
+        REDIS_CLI_OBJ+=siphash_zbb.o
+        REDIS_BENCHMARK_OBJ+=siphash_zbb.o
+endif
+endif
+endif
 ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) $(TLS_MODULE) module_tests
