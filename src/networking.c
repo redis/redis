@@ -1547,7 +1547,16 @@ void addReplySubcommandSyntaxError(client *c) {
 }
 
 /* Append 'src' client output buffers into 'dst' client output buffers.
- * This function clears the output buffers of 'src' */
+ * This function clears the output buffers of 'src'.
+ *
+ * Module reply buffers also use this from worker threads without the GIL.
+ * That requires exclusive access to both clients, both to be connectionless
+ * CLIENT_MODULE clients, and src not to have CLIENT_CLOSE_ASAP set. In this
+ * case _prepareClientToWrite bypasses write scheduling, output-limit handling
+ * returns before accessing server state, and errors remain client-local and
+ * deferred. Preserve these properties in this function and its callees.
+ * Other clients require their normal synchronization; in particular, moving
+ * to a real module command client requires the GIL. */
 void AddReplyFromClient(client *dst, client *src) {
     /* If the source client contains a partial response due to client output
      * buffer limits, propagate that to the dest rather than copy a partial
