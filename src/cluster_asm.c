@@ -1829,6 +1829,7 @@ void clusterSyncSlotsSnapshotEOF(client *c) {
      * just update the state here, and do it in beforeSleep(). */
     task->state = ASM_READY_TO_STREAM;
     connSetReadHandler(task->main_channel_conn, NULL);
+    task->phase = ASM_PHASE_INCREMENTAL;
 }
 
 /* CLUSTER SYNCSLOTS STREAM-EOF
@@ -2664,7 +2665,6 @@ static int asmSyncBufferStreamShouldContinue(void *ctx) {
 /* Stream the sync buffer to the database. */
 void asmSyncBufferStreamToDb(asmTask *task) {
     task->state = ASM_STREAMING_BUF;
-    task->phase = ASM_PHASE_INCREMENTAL;
     serverLog(LL_NOTICE, "Starting to stream accumulated buffer for the import task (%zu bytes)",
                          task->sync_buffer.used);
 
