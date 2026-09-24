@@ -37,12 +37,17 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
 static pendingCommand *acquirePendingCommand(void);
 static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd);
+void poolOrFreePendingCommand(client *c, pendingCommand *pcmd);
 static size_t getClientOutputBufferLogicalSize(client *c);
 
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
 __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
                                          * buffer due to nested command execution. */
+static __thread pendingCommandPool cmd_pool; /* Pool of pendingCommand to reuse.
+                                         * Thread local since a client is parsed
+                                         * and freed by the IO thread owning it,
+                                         * so we don't need a lock. */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -1800,7 +1805,7 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
 
 static void freeDeferredObject(client *c, int type, void *ptr) {
     if (type == DEFERRED_OBJECT_TYPE_PENDING_COMMAND) {
-        freePendingCommand(c, ptr);
+        poolOrFreePendingCommand(c, ptr);
     } else if (type == DEFERRED_OBJECT_TYPE_ROBJ) {
         decrRefCount(ptr);
     } else {
@@ -5892,24 +5897,18 @@ void evictClients(void) {
     }
 }
 
-/* Acquire a pending command from the shared pool or allocate a new one.
- * Uses the shared pool when available (only when IO threads are inactive),
- * otherwise allocates a new pending command structure. */
+/* Acquire a pending command from this thread's pool, or allocate a new one when
+ * the pool is empty. */
 static pendingCommand *acquirePendingCommand(void) {
-    /* Ensure pool is empty when IO threads are active to avoid race conditions */
-    serverAssert(server.io_threads_active == 0 || server.cmd_pool.size == 0);
-
     pendingCommand *pcmd = NULL;
-    if (server.cmd_pool.size > 0) {
-        /* Shared pool is available. */
-        pcmd = server.cmd_pool.pool[--server.cmd_pool.size];
-        server.cmd_pool.pool[server.cmd_pool.size] = NULL;
+    if (cmd_pool.size > 0) {
+        pcmd = cmd_pool.pool[--cmd_pool.size];
+        cmd_pool.pool[cmd_pool.size] = NULL;
 
         /* Track minimum pool size for utilization calculation */
-        if (server.cmd_pool.size < server.cmd_pool.min_size)
-            server.cmd_pool.min_size = server.cmd_pool.size;
+        if (cmd_pool.size < cmd_pool.min_size)
+            cmd_pool.min_size = cmd_pool.size;
     } else {
-        /* Shared pool is empty, allocate new pending command. */
         pcmd = zmalloc(sizeof(pendingCommand));
         initPendingCommand(pcmd);
     }
@@ -5919,89 +5918,102 @@ static pendingCommand *acquirePendingCommand(void) {
 /* Try to expand the pending command pool capacity.
  * Returns 1 if expansion succeeded or wasn't needed, 0 if expansion failed. */
 static int tryExpandPendingCommandPool(void) {
+    /* First use on this thread. */
+    if (cmd_pool.pool == NULL) {
+        cmd_pool.capacity = PENDING_COMMAND_POOL_SIZE;
+        cmd_pool.pool = zmalloc(sizeof(pendingCommand*) * cmd_pool.capacity);
+        return 1;
+    }
+
     /* Check if expansion is needed */
-    if (server.cmd_pool.size < server.cmd_pool.capacity) {
+    if (cmd_pool.size < cmd_pool.capacity) {
         return 1; /* No expansion needed */
     }
-    
+
     /* Check if we can expand further */
-    if (server.cmd_pool.capacity >= PENDING_COMMAND_POOL_MAX_SIZE) {
+    if (cmd_pool.capacity >= PENDING_COMMAND_POOL_MAX_SIZE) {
         return 0; /* Already at maximum capacity */
     }
-    
+
     /* Expand the pending command pool capacity by doubling it, up to the maximum size */
-    int new_capacity = server.cmd_pool.capacity * 2;
+    int new_capacity = cmd_pool.capacity * 2;
     if (new_capacity > PENDING_COMMAND_POOL_MAX_SIZE)
         new_capacity = PENDING_COMMAND_POOL_MAX_SIZE;
 
-    server.cmd_pool.pool = zrealloc(server.cmd_pool.pool, sizeof(pendingCommand*) * new_capacity);
-    server.cmd_pool.capacity = new_capacity;
+    cmd_pool.pool = zrealloc(cmd_pool.pool, sizeof(pendingCommand*) * new_capacity);
+    cmd_pool.capacity = new_capacity;
     return 1; /* Expansion succeeded */
 }
 
-/* Reclaim a pending command by adding it to the shared pool for reuse or freeing it.
- * The shared pool is only used when IO threads are inactive to avoid race conditions
- * between multiple clients. Additionally, pool reuse provides minimal benefit in
- * multi-threaded scenarios, so we only use it in single-threaded mode. */
-static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
-    if (!server.io_threads_active) {
-        /* Try to add to shared pool for reuse if argv isn't too large */
-        if (likely(pcmd->argv_len < 64)) {
-            /* Check if pool needs expansion before attempting to add */
-            if (!tryExpandPendingCommandPool()) {
-                /* Pool is at maximum capacity, can't expand further */
-                goto free_command;
-            }
-
-            /* Clean up command resources before adding to pool */
-            for (int j = 0; j < pcmd->argc; j++)
-                decrRefCount(pcmd->argv[j]);
-
-            getKeysFreeResult(&pcmd->keys_result);
-
-            if (c) {
-                serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
-                c->all_argv_len_sum -= pcmd->argv_len_sum;
-                pcmd->argv_len_sum = 0;
-            }
-
-            /* Reset the pending command while preserving the argv array for shared pool reuse */
-            robj **argv = pcmd->argv;
-            int argv_len = pcmd->argv_len;
-            memset(pcmd, 0, sizeof(pendingCommand));
-            pcmd->argv = argv;
-            pcmd->argv_len = argv_len;
-            pcmd->slot = INVALID_CLUSTER_SLOT;
-
-            server.cmd_pool.pool[server.cmd_pool.size++] = pcmd;
-            return; /* Successfully added to shared pool for reuse */
+/* Add a pending command to this thread's pool for reuse, or free it if the pool
+ * is full or its argv array is too large to be worth keeping around. */
+void poolOrFreePendingCommand(client *c, pendingCommand *pcmd) {
+    /* Try to add to this thread's pool for reuse if argv isn't too large */
+    if (likely(pcmd->argv_len < 64)) {
+        /* Check if pool needs expansion before attempting to add */
+        if (!tryExpandPendingCommandPool()) {
+            /* Pool is at maximum capacity, can't expand further */
+            goto free_command;
         }
-    } else {
-        /* IO threads are active, handle thread-specific cleanup */
-        if (c && c->tid != IOTHREAD_MAIN_THREAD_ID) {
-            /* Partial cleanup for IO thread commands to avoid race issues.
-             * To avoid robj that may already be referenced elsewhere, we should
-             * decrease the reference count to release our reference to it. */
-            for (int j = 0; j < pcmd->argc; j++) {
-                robj *o = pcmd->argv[j];
-                if (o && o->refcount > 1) {
-                    decrRefCount(o);
-                    pcmd->argv[j] = NULL;
-                }
-            }
 
+        /* Clean up command resources before adding to pool. argv entries may
+         * already be NULL when the owning IO thread deferred this command. */
+        for (int j = 0; j < pcmd->argc; j++) {
+            robj *o = pcmd->argv[j];
+            if (o) decrRefCount(o);
+        }
+
+        getKeysFreeResult(&pcmd->keys_result);
+
+        if (c) {
             serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
             c->all_argv_len_sum -= pcmd->argv_len_sum;
             pcmd->argv_len_sum = 0;
-
-            tryDeferFreeClientObject(c, DEFERRED_OBJECT_TYPE_PENDING_COMMAND, pcmd);
-            return;
         }
+
+        /* Reset the pending command while preserving the argv array for pool reuse */
+        robj **argv = pcmd->argv;
+        int argv_len = pcmd->argv_len;
+        memset(pcmd, 0, sizeof(pendingCommand));
+        pcmd->argv = argv;
+        pcmd->argv_len = argv_len;
+        pcmd->slot = INVALID_CLUSTER_SLOT;
+
+        cmd_pool.pool[cmd_pool.size++] = pcmd;
+        return; /* Successfully added to the pool for reuse */
     }
 
 free_command:
-    /* Shared pool is full or command argv is too large, free this pending command */
+    /* Pool is full or command argv is too large, free this pending command */
     freePendingCommand(c, pcmd);
+}
+
+/* Reclaim a pending command once the client is done with it. A command owned by
+ * an IO thread is only cleaned up partially here and handed to that thread,
+ * which pools it when it drains its deferred objects. */
+static inline void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
+    if (server.io_threads_active && c && c->tid != IOTHREAD_MAIN_THREAD_ID) {
+        /* Partial cleanup for IO thread commands to avoid race issues.
+         * To avoid robj that may already be referenced elsewhere, we should
+         * decrease the reference count to release our reference to it. */
+        for (int j = 0; j < pcmd->argc; j++) {
+            robj *o = pcmd->argv[j];
+            if (o && o->refcount > 1) {
+                decrRefCount(o);
+                pcmd->argv[j] = NULL;
+            }
+        }
+
+        serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
+        c->all_argv_len_sum -= pcmd->argv_len_sum;
+        pcmd->argv_len_sum = 0;
+
+        /* The owning IO thread pools it when it drains its deferred objects. */
+        tryDeferFreeClientObject(c, DEFERRED_OBJECT_TYPE_PENDING_COMMAND, pcmd);
+        return;
+    }
+
+    poolOrFreePendingCommand(c, pcmd);
 }
 
 void initPendingCommand(pendingCommand *pcmd) {
@@ -6111,21 +6123,36 @@ getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd) {
 
 void shrinkPendingCommandPool(void) {
     /* Don't shrink if pool is too small. */
-    if (server.cmd_pool.capacity <= PENDING_COMMAND_POOL_SIZE) return;
+    if (cmd_pool.capacity <= PENDING_COMMAND_POOL_SIZE) return;
 
     /* Free commands until we have half the current size, but not below minimum. */
-    int target_size = max(server.cmd_pool.size / 2, PENDING_COMMAND_POOL_SIZE);
+    int target_size = max(cmd_pool.size / 2, PENDING_COMMAND_POOL_SIZE);
 
-    while (server.cmd_pool.size > target_size) {
-        pendingCommand *cmd = server.cmd_pool.pool[--server.cmd_pool.size];
+    while (cmd_pool.size > target_size) {
+        pendingCommand *cmd = cmd_pool.pool[--cmd_pool.size];
         if (cmd) {
             freePendingCommand(NULL, cmd);
-            server.cmd_pool.pool[server.cmd_pool.size] = NULL;
+            cmd_pool.pool[cmd_pool.size] = NULL;
         }
     }
 
-    int old_capacity = server.cmd_pool.capacity;
-    server.cmd_pool.capacity = target_size;
-    server.cmd_pool.pool = zrealloc(server.cmd_pool.pool, sizeof(pendingCommand*) * target_size);
-    serverLog(LL_DEBUG, "Shrunk pending command pool: capacity %d->%d", old_capacity, server.cmd_pool.capacity);
+    int old_capacity = cmd_pool.capacity;
+    cmd_pool.capacity = target_size;
+    cmd_pool.pool = zrealloc(cmd_pool.pool, sizeof(pendingCommand*) * target_size);
+    serverLog(LL_DEBUG, "Shrunk pending command pool: capacity %d->%d", old_capacity, cmd_pool.capacity);
+}
+
+/* Periodic maintenance for the pending command pool, called by the thread that
+ * owns it: serverCron for the main thread, IOThreadBeforeSleep for the others.
+ * min_size is a low water mark, so callers must keep to a slow cadence or it
+ * never gets to see the pool drain. */
+void pendingCommandPoolCron(void) {
+    if (cmd_pool.capacity > PENDING_COMMAND_POOL_SIZE) {
+        double utilization_ratio = 1.0 - (double)cmd_pool.min_size / cmd_pool.capacity;
+        if (utilization_ratio < 0.5)
+            shrinkPendingCommandPool();
+    }
+
+    /* Reset tracking for next interval */
+    cmd_pool.min_size = cmd_pool.size;
 }
