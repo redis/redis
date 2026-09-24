@@ -1061,10 +1061,13 @@ static void freeClusterNode(clusterNode *node) {
         for (i = 0; i < node->importing_count; i++) sdsfree(node->importing[i]);
         zfree(node->importing);
     }
-    /* If the node is not the reference node, that uses the address from
-     * config.conn_info.hostip and config.conn_info.hostport, then the node ip has been
-     * allocated by fetchClusterConfiguration, so it must be freed. */
-    if (node->ip && strcmp(node->ip, config.conn_info.hostip) != 0) sdsfree(node->ip);
+    /* Only firstNode borrows config.conn_info.hostip directly (see
+     * fetchClusterConfiguration); every other node->ip is a fresh sds
+     * allocation. Compare the pointer, not the string contents — a
+     * value comparison would skip the sdsfree whenever a peer master
+     * happens to share the hostip string (common in same-host
+     * multi-port deployments such as 127.0.0.1 cluster fixtures). */
+    if (node->ip && node->ip != config.conn_info.hostip) sdsfree(node->ip);
     if (node->redis_config != NULL) freeRedisConfig(node->redis_config);
     zfree(node->slots);
     zfree(node);
@@ -1242,6 +1245,9 @@ static int fetchClusterConfiguration(void) {
             fprintf(stderr,
                     "WARNING: Master node %s:%d has no slots, skipping...\n",
                     node->ip, node->port);
+            /* Non-myself entries are fresh allocations not yet transferred
+             * to config.cluster_nodes; firstNode is owned by the caller. */
+            if (node != firstNode) freeClusterNode(node);
             continue;
         }
         if (!addClusterNode(node)) {
