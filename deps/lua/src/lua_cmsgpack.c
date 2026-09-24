@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <limits.h>
 #include <string.h>
 #include <assert.h>
 
@@ -18,11 +19,17 @@
     #define LUACMSGPACK_MAX_NESTING  16 /* Max tables nesting. */
 #endif
 
-/* Check if float or double can be an integer without loss of precision */
-#define IS_INT_TYPE_EQUIVALENT(x, T) (!isinf(x) && (T)(x) == (x))
+/* Check if float or double can be an integer without loss of precision.
+ * The range check must come first: casting a value outside the range of T
+ * is undefined behaviour, and CPUs disagree on the result (x86 returns
+ * the "integer indefinite" value, ARM saturates), which made cmsgpack.pack()
+ * emit different bytes for the same number on different platforms.
+ * -(double)T_MIN is a power of two and exact in double; (double)T_MAX is not. */
+#define IS_INT_TYPE_EQUIVALENT(x, T, T_MIN) \
+    ((x) >= (double)(T_MIN) && (x) < -(double)(T_MIN) && (T)(x) == (x))
 
-#define IS_INT64_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int64_t)
-#define IS_INT_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int)
+#define IS_INT64_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int64_t, INT64_MIN)
+#define IS_INT_EQUIVALENT(x) IS_INT_TYPE_EQUIVALENT(x, int, INT_MIN)
 
 /* If size of pointer is equal to a 4 byte integer, we're on 32 bits. */
 #if UINTPTR_MAX == UINT_MAX
