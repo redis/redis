@@ -324,6 +324,32 @@ start_server {tags {external:skip "hotkeys"}} {
         assert_equal {OK} [r hotkeys reset]
     }
 
+    test {HOTKEYS GET - sampled per-key metrics are scaled to full stream} {
+        assert_equal {OK} [r hotkeys start METRICS 1 NET SAMPLE 10]
+        r set key1 value1
+        for {set i 0} {$i < 10000} {incr i} {
+            r get key1
+        }
+        assert_equal {OK} [r hotkeys stop]
+
+        set result [lindex [r hotkeys get] 0]
+        if {[llength $result] > 0 && [lindex $result 0] ne "tracking-active"} {
+            set result [hotkeys_array_to_dict $result]
+        }
+
+        set net_array [dict get $result "by-net-bytes"]
+        set estimated_net [lindex $net_array 1]
+        set reported_total_net [dict get $result "total-net-bytes"]
+        set all_net [dict get $result "net-bytes-all-commands-all-slots"]
+        assert {$estimated_net > 0}
+        assert {$reported_total_net > 0}
+        assert {$all_net > 0}
+        assert_range [expr {$estimated_net / double($all_net)}] 0.8 1.2
+        assert_range [expr {$reported_total_net / double($all_net)}] 0.8 1.2
+
+        assert_equal {OK} [r hotkeys reset]
+    }
+
     foreach sample_ratio {1 100 500} {
         test "HOTKEYS detection with biased key access, sample ratio = $sample_ratio" {
             # Generate 100 random keys
