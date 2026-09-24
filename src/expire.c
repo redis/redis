@@ -650,9 +650,13 @@ size_t getSlaveKeyWithExpireCount(void) {
  * but it is not worth it since anyway race conditions using the same set
  * of key names in a writable slave and in its master will lead to
  * inconsistencies. This is just a best-effort thing we do. */
-void flushSlaveKeysWithExpireList(void) {
+void flushSlaveKeysWithExpireList(int async) {
     if (slaveKeysWithExpire) {
-        dictRelease(slaveKeysWithExpire);
+        if (async) {
+            freeSlaveKeysWithExpireAsync(slaveKeysWithExpire);
+        } else {
+            dictRelease(slaveKeysWithExpire);
+        }
         slaveKeysWithExpire = NULL;
     }
 }
