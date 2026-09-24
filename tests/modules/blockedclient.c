@@ -667,6 +667,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                                   "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    /* Inspect replication buffers and IO ownership while a script/module yields. */
+    if (RedisModule_CreateCommand(ctx, "do_rm_call_allow_busy", do_rm_call,
+                                 "allow-busy", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx, "do_rm_call_async", do_rm_call_async,
                                   "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
