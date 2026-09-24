@@ -3388,7 +3388,8 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
-            /* Re-negotiate RESP3 on the new connection if the old one had it, just for this reconnect. */
+            /* The previous connection used RESP3 via HELLO 3; temporarily promote resp3
+            * so cliConnect() re-sends HELLO 3 for this reconnect only. */
             int resend_resp3 = config.current_resp3 && config.resp3 == 0;
             if (resend_resp3) config.resp3 = 2;
             if (cliConnect(CC_FORCE) != REDIS_OK) {
