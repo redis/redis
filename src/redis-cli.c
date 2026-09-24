@@ -456,6 +456,7 @@ typedef struct {
 
 static helpEntry *helpEntries = NULL;
 static int helpEntriesLen = 0;
+static int helpEntriesLoaded = 0;  /* 1 once helpEntries has been built successfully for this server */
 
 static void cliFreeCommandDocArgs(cliCommandArg *args, int numargs) {
     for (int i = 0; i < numargs; i++) {
@@ -1023,6 +1024,10 @@ static void cliInitHelp(void) {
     redisReply *commandTable;
     dict *groups;
 
+    /* Already built successfully for this server: don't rebuild, so the
+     * entries are initialized only once. */
+    if (helpEntriesLoaded) return;
+
     /* Free previously loaded entries (e.g. the empty/legacy table built
      * before authentication) before building a new one. */
     if (helpEntries != NULL) {
@@ -1034,6 +1039,7 @@ static void cliInitHelp(void) {
          * help, generate it only from the static cli_commands.c data instead. */
         groups = dictCreate(&groupsdt);
         cliLegacyInitHelp(groups);
+        helpEntriesLoaded = 1;
         return;
     }
     commandTable = redisCommand(context, "COMMAND DOCS");
@@ -1045,6 +1051,9 @@ static void cliInitHelp(void) {
         groups = dictCreate(&groupsdt);
         cliLegacyInitHelp(groups);
         cliLegacyIntegrateHelp();
+        /* Non-empty means we got the real server version and filtered the
+         * static table. The NOAUTH shell stays empty (len==0) so AUTH retries. */
+        if (helpEntriesLen > 0) helpEntriesLoaded = 1;
         return;
     };
     if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) {
@@ -1063,6 +1072,7 @@ static void cliInitHelp(void) {
     qsort(helpEntries, helpEntriesLen, sizeof(helpEntry), helpEntryCompare);
     freeReplyObject(commandTable);
     dictRelease(groups);
+    helpEntriesLoaded = 1;
 }
 
 /* Output command help to stdout. */
