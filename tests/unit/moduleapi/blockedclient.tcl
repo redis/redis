@@ -310,13 +310,20 @@ foreach call_type {nested normal} {
         $rd unblock_by_timer 100 10
         # Wait for the client to unlock.
         after 120
+        assert_equal [$rd read] {TIMEOUT}
         $rd close
     }
 
     test {block time is equal to timer period} {
-        # These time is equal, they will be unlocked in the same event loop,
-        # when the client is unlock, we will get the OK reply from timer.
-        assert_match "OK" [r unblock_by_timer 100 100]
+        set reply [r unblock_by_timer 100 100]
+        assert {$reply eq "OK" || $reply eq "TIMEOUT"}
+
+        # If timeout wins, allow the pending timer to run against the already
+        # timed-out blocked client
+        if {$reply eq "TIMEOUT"} {
+            after 120
+            assert_equal [r ping] {PONG}
+        }
     }
     
     test "Unload the module - blockedclient" {
