@@ -1251,7 +1251,8 @@ static unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds el
     char scorebuf[MAX_D2STRING_CHARS];
     int scorelen = 0;
     long long lscore;
-    int score_is_long = double2ll(score, &lscore);
+    /* double2ll() maps -0 to 0 and drops the sign, so keep it as a string. */
+    int score_is_long = double2ll(score, &lscore) && !(lscore == 0 && signbit(score));
     if (!score_is_long)
         scorelen = d2string(scorebuf,sizeof(scorebuf),score);
 
