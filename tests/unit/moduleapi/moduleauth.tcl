@@ -403,3 +403,25 @@ start_server {tags {"modules external:skip"}} {
         assert_match {*calls=5,*,rejected_calls=0,failed_calls=3*} [cmdstat auth]
     }
 }
+
+start_server {tags {"modules external:skip"}} {
+    r module load $testmodule
+    r testmoduleone.rm_register_blocking_auth_cb
+
+    test {Disconnect after auth unblock frees private data without an auth reply} {
+        set rd [redis_deferring_client]
+        $rd AUTH foo block_disconnect
+        wait_for_blocked_clients_count 1
+        # Kill after unblock processing, but before AUTH command reprocessing.
+        set callbacks [r testmoduleone.kill_unblocked_auth]
+        assert_error {*I/O error reading reply*} {$rd read}
+        $rd close
+        wait_for_blocked_clients_count 0
+        # One free callback marked disconnected, and no auth reply callback.
+        assert_equal {1 0 1} $callbacks
+    }
+
+    test {Module can unload after an unblocked auth client disconnects} {
+        assert_equal OK [r module unload testacl]
+    }
+}
