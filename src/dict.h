@@ -250,6 +250,8 @@ typedef enum {
 } dictResizeEnable;
 
 /* API */
+void dictInit(dict *d, dictType *type);
+void dictDestroy(dict *d);
 dict *dictCreate(dictType *type);
 void dictTypeAddMeta(dict **d, dictType *typeWithMeta);
 int dictExpand(dict *d, unsigned long size);
