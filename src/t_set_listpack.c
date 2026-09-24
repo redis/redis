@@ -15,6 +15,7 @@
 /* Listpack backend for the set type. See t_set_encoding.h. */
 
 #include "server.h"
+#include "intset.h" /* Compact integer set structure, for the conversion size estimate below. */
 #include "t_set_encoding.h"
 
 static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
@@ -130,7 +131,17 @@ void setTypeListpackShrinkToFit(robj *set) {
 
 static void *lpConvertFrom(robj *set, unsigned long cap, int panic) {
     UNUSED(panic); /* lpNew() always panics on OOM, regardless of 'panic'. */
-    unsigned char *lp = lpNew(cap);
+
+    /* Preallocate the minimum two bytes per element (enc/value + backlen) */
+    size_t byteCap = cap * 2;
+    if (set->encoding == OBJ_ENCODING_INTSET && intsetLen(set->ptr) > 0) {
+        /* If we're converting from intset, we have a better estimate. */
+        size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(set->ptr), cap);
+        size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(set->ptr), cap);
+        byteCap = max(s1, s2);
+    }
+
+    unsigned char *lp = lpNew(byteCap);
     char *str;
     size_t len = 0;
     int64_t llele = 0;

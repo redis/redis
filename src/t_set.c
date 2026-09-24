@@ -354,21 +354,7 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         serverPanic("Unsupported set conversion");
     }
 
-    /* 'cap' is an element count; the listpack builder wants a byte size
-     * hint instead (see setTypeOps.convertFrom in t_set_encoding.h). */
-    unsigned long buildCap = cap;
-    if (enc == OBJ_ENCODING_LISTPACK) {
-        /* Preallocate the minimum two bytes per element (enc/value + backlen) */
-        buildCap = cap * 2;
-        if (setobj->encoding == OBJ_ENCODING_INTSET && setTypeSize(setobj) > 0) {
-            /* If we're converting from intset, we have a better estimate. */
-            size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(setobj->ptr), cap);
-            size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(setobj->ptr), cap);
-            buildCap = max(s1, s2);
-        }
-    }
-
-    void *newptr = setTypeGetOps(enc)->convertFrom(setobj, buildCap, panic);
+    void *newptr = setTypeGetOps(enc)->convertFrom(setobj, cap, panic);
     if (newptr == NULL) {
         serverAssert(!panic);
         return C_ERR;

@@ -58,13 +58,14 @@ typedef struct {
     /* Builds a fresh instance of this encoding from the contents of an
      * existing set, to be assigned to the converted object's ptr by the
      * caller (see setTypeConvertAndExpand() in t_set.c). Iterates 'set'
-     * internally (initializing and resetting its own iterator). 'cap' is a
-     * capacity hint whose unit is up to the encoding (an element count for
-     * the hash table, a byte estimate for the listpack). Returns NULL if
-     * 'panic' is false and allocation failed; the encodings that always
-     * panic on OOM (i.e. everything but the hash table) ignore 'panic'.
-     * NULL for encodings that setTypeConvertAndExpand() never targets
-     * (currently intset - see maybeConvertToIntset() in t_set.c instead). */
+     * internally (initializing and resetting its own iterator). 'cap' is
+     * the number of elements to presize for; encodings that need a
+     * different unit internally (e.g. the listpack's byte size estimate)
+     * convert it themselves. Returns NULL if 'panic' is false and
+     * allocation failed; the encodings that always panic on OOM (i.e.
+     * everything but the hash table) ignore 'panic'. NULL for encodings
+     * that setTypeConvertAndExpand() never targets (currently intset - see
+     * maybeConvertToIntset() in t_set.c instead). */
     void *(*convertFrom)(robj *set, unsigned long cap, int panic);
 } setTypeOps;
 
