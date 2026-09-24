@@ -458,7 +458,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                 # Verify field order
                 set expected_fields {id slots source dest operation state
                                     last_error retries create_time start_time
-                                    end_time write_pause_ms}
+                                    end_time write_pause_ms phase snapshot_progress_perc
+                                    incremental_progress_perc}
                 for {set j 0} {$j < [llength $expected_fields]} {incr j} {
                     set expected_field [lindex $expected_fields $j]
                     set actual_field [lindex $task [expr $j * 2]]
@@ -3711,5 +3712,166 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         } else {
             fail "former owner still lists [llength [lindex [R 0 bless scan 0 no-evict] 1]] blessed key(s) after migration+trim"
         }
+    }
+}
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    test "ASM reports snapshot progress" {
+        # Keys in slot 1 should stay on the source and not count toward snapshot progress.
+        populate_slot 4 -idx 0 -slot 1
+
+        # Use enough keys for multiple child-info reports, with at least one second per 1024 keys.
+        # With a total of 4096, key-count percentages are exactly representable in binary floating point.
+        set total_keys 4096
+        R 0 debug asm-failpoint migrate-main-channel handoff-prep
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 $total_keys 1000]
+
+        # Wait until the source reports processed keys and the destination starts importing them.
+        wait_for_condition 1000 10 {
+            [S 0 current_save_keys_processed] > 0 &&
+            [migration_status 0 $task_id snapshot_progress_perc] > 0 &&
+            [migration_status 1 $task_id snapshot_progress_perc] > 0 &&
+            [migration_status 0 $task_id incremental_progress_perc] == 0 &&
+            [migration_status 1 $task_id incremental_progress_perc] == 0
+        } else {
+            fail "ASM did not report partial snapshot progress"
+        }
+        assert_equal $total_keys [S 0 current_save_keys_total]
+
+        # Source side:
+        # Bound source progress by the processed key counts read before and after STATUS.
+        # This allows a child-info update between commands without requiring identical samples.
+        set processed_before [S 0 current_save_keys_processed]
+        set progress [migration_status 0 $task_id snapshot_progress_perc]
+        set processed_after [S 0 current_save_keys_processed]
+        set expected_min [expr {100.0 * $processed_before / $total_keys}]
+        set expected_max [expr {100.0 * $processed_after / $total_keys}]
+        assert {$progress >= $expected_min && $progress <= $expected_max}
+
+        # Destination side:
+        # INFO includes importing keys, sample the destination key count and progress atomically.
+        R 1 multi
+        R 1 cluster migration status id $task_id
+        R 1 info keyspace
+        lassign [R 1 exec] tasks info
+        scan [getInfoProperty $info db0] "keys=%d" keys
+        assert {[dict get [lindex $tasks 0] snapshot_progress_perc] == 100.0 * $keys / $total_keys}
+
+        # Snapshot progress should stay at 100% after entering the incremental phase.
+        wait_for_condition 1000 10 {
+            [migration_status 0 $task_id phase] eq "incremental" &&
+            [migration_status 1 $task_id phase] eq "incremental"
+        } else {
+            fail "ASM did not finish the snapshot phase"
+        }
+        foreach node {0 1} {
+            assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+        }
+
+        # Finish the migration and verify that all progresses are 100%.
+        R 0 config set rdb-key-save-delay 0
+        R 0 debug asm-failpoint "" ""
+        wait_for_asm_done
+        foreach node {0 1} {
+            assert_equal completed [migration_status $node $task_id state]
+            assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+            assert_equal 100 [migration_status $node $task_id incremental_progress_perc]
+        }
+
+        # Clearup
+        R 0 flushall
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
+
+    test "ASM canceled import retains snapshot progress after trimming" {
+        # Cancel while only part of the snapshot has reached the destination.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 8 500000]
+        wait_for_condition 1000 10 {
+            [migration_status 1 $task_id snapshot_progress_perc] > 0 &&
+            [migration_status 1 $task_id snapshot_progress_perc] < 100
+        } else {
+            fail "ASM did not report partial snapshot progress"
+        }
+        R 1 cluster migration cancel id $task_id
+        R 0 cluster migration cancel id $task_id
+
+        # The archived task must retain its progress after imported keys are removed.
+        set progress [migration_status 1 $task_id snapshot_progress_perc]
+        assert {$progress > 0 && $progress < 100}
+        wait_for_asm_done
+        assert_equal 0 [R 1 dbsize]
+        assert_equal canceled [migration_status 1 $task_id state]
+        assert_equal snapshot [migration_status 1 $task_id phase]
+        assert_equal $progress [migration_status 1 $task_id snapshot_progress_perc]
+        assert_equal 0 [migration_status 1 $task_id incremental_progress_perc]
+
+        # cleanup.
+        R 0 config set rdb-key-save-delay 0
+        R 0 flushall
+    }
+
+    test "ASM reports incremental progress while streaming buffer" {
+        # Slow buffer replay and yield frequently so STATUS can observe intermediate progress.
+        set event_interval [lindex [R 1 config get loading-process-events-interval-bytes] 1]
+        R 1 config set loading-process-events-interval-bytes 16384
+        R 1 config set key-load-delay 20000
+        R 0 debug asm-failpoint migrate-main-channel handoff-prep
+
+        # Accumulate about 2 MB of incremental writes while the snapshot is being sent.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0]
+        populate_slot 128 -idx 0 -slot 0 -size 16384
+
+        # Both sides should report partial progress during buffer replay.
+        # Stay below 50% here to leave time for another progress sample.
+        wait_for_condition 1000 10 {
+            [migration_status 1 $task_id state] eq "streaming-buffer" &&
+            [migration_status 1 $task_id incremental_progress_perc] > 0 &&
+            [migration_status 1 $task_id incremental_progress_perc] < 50 &&
+            [migration_status 0 $task_id incremental_progress_perc] > 0 &&
+            [migration_status 0 $task_id incremental_progress_perc] < 50
+        } else {
+            fail "ASM did not report intermediate progress while streaming buffer"
+        }
+        foreach node {0 1} {
+            assert_equal incremental [migration_status $node $task_id phase]
+            assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+        }
+
+        # With no more writes, replay should advance before reaching the live stream.
+        set progress [migration_status 1 $task_id incremental_progress_perc]
+        wait_for_condition 1000 10 {
+            [migration_status 1 $task_id state] eq "streaming-buffer" &&
+            [migration_status 1 $task_id incremental_progress_perc] > $progress &&
+            [migration_status 1 $task_id incremental_progress_perc] < 99.99 &&
+            [migration_status 0 $task_id incremental_progress_perc] > $progress &&
+            [migration_status 0 $task_id incremental_progress_perc] < 99.99
+        } else {
+            fail "ASM incremental progress did not advance during buffer replay"
+        }
+
+        # Draining the buffer reports 99.99%; only a completed migration reports 100%.
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "wait-stream-eof" &&
+            [migration_status 0 $task_id incremental_progress_perc] == 99.99 &&
+            [migration_status 1 $task_id incremental_progress_perc] == 99.99
+        } else {
+            fail "ASM did not catch up after streaming buffer"
+        }
+        # Let ASM task complete
+        R 0 config set rdb-key-save-delay 0
+        R 1 config set key-load-delay 0
+        R 1 config set loading-process-events-interval-bytes $event_interval
+        R 0 debug asm-failpoint "" ""
+        wait_for_asm_done
+        foreach node {0 1} {
+            assert_equal 100 [migration_status $node $task_id incremental_progress_perc]
+        }
+
+        # cleanup
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
     }
 }

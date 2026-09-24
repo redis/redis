@@ -4099,6 +4099,10 @@ void readQueryFromClient(connection *conn) {
     }
 
     sdsIncrLen(c->querybuf,nread);
+
+    /* Track bytes received during live streaming for ASM incremental progress. */
+    if (c->flags & CLIENT_ASM_IMPORTING) asmImportIncrReceivedBytes(c->task, nread);
+
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 

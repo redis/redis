@@ -5307,6 +5307,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     int pipefds[2], rdb_pipe_write = 0, safe_to_exit_pipe = 0;
     int rdb_channel = server.repl_rdb_channel && (req & SLAVE_REQ_RDB_CHANNEL);
     int slots_req = req & SLAVE_REQ_SLOTS_SNAPSHOT;
+    unsigned long long slots_keys = 0;
 
     if (hasActiveChildProcess()) return C_ERR;
 
@@ -5346,6 +5347,9 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             if (slave->slave_req != req)
                 continue;
             replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
+            /* In replicationSetupSlaveForFullResync, we would update the total keys
+             * of the current task. */
+            if (slots_req) slots_keys = asmGetTaskTotalKeys(slave->task);
             conns[numconns++] = slave->conn;
             if (rdb_channel) {
                 /* Put the socket in blocking mode to simplify RDB transfer. */
@@ -5452,6 +5456,8 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                     serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
                 }
             }
+            /* redisFork() defaults to all server keys. ASM saves only its slots. */
+            if (slots_req) server.stat_current_save_keys_total = slots_keys;
         }
         if (rdb_channel)
             zfree(conns);
