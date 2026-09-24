@@ -1,12 +1,12 @@
 # Test for SetKeyMeta during keyspace notification (KSN) callbacks.
 #
-# On key space notification, the module shouldn't modify the key. This focused 
+# On key space notification, the module shouldn't modify the key. This focused
 # regression tests makes an exception for RediSearch which uses SetKeyMeta
-# as part of its KSN callback (Currently only for hash keys without hash field 
-# expiration). The test module mutates key metadata during selected notifications,
-# which may reallocate the underlying kvobj and invalidates any local pointer to 
-# it. Each test uses fresh keys when possible so the first metadata write forces
-# the reallocation-sensitive path, then verifies the command still completes.
+# as part of its KSN callback. The test module mutates key metadata during
+# selected notifications, which may reallocate the underlying kvobj and
+# invalidates any local pointer to it. Each test uses fresh keys when possible
+# so the first metadata write forces the reallocation-sensitive path, then
+# verifies the command still completes.
 
 set testmodule [file normalize tests/modules/keymeta_notify.so]
 
@@ -134,6 +134,52 @@ start_server {tags {"modules" "external:skip"} overrides {enable-debug-command y
         # HDEL multiple fields (in-place metadata update)
         r HDEL hdel_key f2 f3
         assert_equal [r HLEN hdel_key] 0
+    }
+
+    # --- HASH field expiration notification tests ---
+    # Each test creates a key without the module loaded, then loads the module
+    # so the first SetKeyMeta call during the HFE command triggers kvobj
+    # reallocation.
+
+    test {HGETEX with SetKeyMeta in notification does not crash} {
+        r module unload keymetanotify
+        r HSET hgetex_key f1 v1 f2 v2 f3 v3
+        r module load $testmodule
+
+        set before [r keymetanotify.setcount]
+        set result [r HGETEX hgetex_key EX 1000 FIELDS 2 f1 f2]
+        assert_equal [lindex $result 0] "v1"
+        assert_equal [lindex $result 1] "v2"
+        assert {[r keymetanotify.setcount] > $before}
+        assert_equal [r keymetanotify.get hgetex_key] "notified"
+        assert_equal [r HLEN hgetex_key] 3
+    }
+
+    test {HEXPIRE with SetKeyMeta in notification does not crash} {
+        r module unload keymetanotify
+        r HSET hexpire_key f1 v1 f2 v2
+        r module load $testmodule
+
+        set before [r keymetanotify.setcount]
+        r HEXPIRE hexpire_key 1000 FIELDS 1 f1
+        assert {[r keymetanotify.setcount] > $before}
+        assert_equal [r keymetanotify.get hexpire_key] "notified"
+        assert {[r HTTL hexpire_key FIELDS 1 f1] > 0}
+        assert_equal [r HLEN hexpire_key] 2
+    }
+
+    test {HPERSIST with SetKeyMeta in notification does not crash} {
+        r module unload keymetanotify
+        r HSET hpersist_key f1 v1 f2 v2
+        r HEXPIRE hpersist_key 1000 FIELDS 1 f1
+        r module load $testmodule
+
+        set before [r keymetanotify.setcount]
+        r HPERSIST hpersist_key FIELDS 1 f1
+        assert {[r keymetanotify.setcount] > $before}
+        assert_equal [r keymetanotify.get hpersist_key] "notified"
+        assert_equal [r HTTL hpersist_key FIELDS 1 f1] -1
+        assert_equal [r HLEN hpersist_key] 2
     }
 
     # --- GENERIC notification tests ---
