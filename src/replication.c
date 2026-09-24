@@ -240,8 +240,28 @@ char *replicationGetSlaveName(client *c) {
 int bg_unlink(const char *filename) {
     int fd = open(filename,O_RDONLY|O_NONBLOCK);
     if (fd == -1) {
-        /* Can't open the file? Fall back to unlinking in the main thread. */
-        return unlink(filename);
+        /* Can't open the file (e.g. EMFILE under fd pressure). Without an fd
+         * we can't use the deferred-close trick, but we still want the unlink
+         * off the main thread: for a multi-GB RDB the block-free work inside
+         * unlink() can stall the event loop for hundreds of ms.
+         *
+         * Rename the file to a unique name first (O(1) directory-metadata op,
+         * no block work). This removes the original name synchronously so no
+         * concurrent rename(newfile, filename) can collide with the pending
+         * unlink, then hand the renamed path to BIO. */
+        static redisAtomic unsigned long bg_unlink_seq = 0;
+        unsigned long seq;
+        atomicIncrGet(bg_unlink_seq, seq, 1);
+        char tmp[1024];
+        int n = snprintf(tmp, sizeof(tmp), "%s.bgunlink.%d.%lu",
+                         filename, (int)getpid(), seq);
+        if (n <= 0 || n >= (int)sizeof(tmp) || rename(filename, tmp) == -1) {
+            /* Path too long or rename failed (readonly fs, cross-device, etc.).
+             * Last-ditch: synchronous unlink on the main thread. */
+            return unlink(filename);
+        }
+        bioCreateUnlinkJob(tmp);
+        return 0;
     } else {
         /* The following unlink() removes the name but doesn't free the
          * file contents because a process still has it open. */
