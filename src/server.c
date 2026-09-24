@@ -2610,7 +2610,16 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) {
+    int maxfd = (int)server.maxclients + 1024;
+    struct rlimit limit;
+    if (getrlimit(RLIMIT_NOFILE,&limit) != -1 &&
+        limit.rlim_cur != RLIM_INFINITY &&
+        limit.rlim_cur > (rlim_t)maxfd &&
+        limit.rlim_cur <= INT_MAX)
+    {
+        maxfd = (int)limit.rlim_cur;
+    }
+    for (j = 3; j < maxfd; j++) {
         /* Test the descriptor validity before closing it, otherwise
          * Valgrind issues a warning on close(). */
         if (fcntl(j,F_GETFD) != -1) close(j);
