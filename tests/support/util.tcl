@@ -117,7 +117,12 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        if {[status $r aof_rewrite_in_progress] eq 1} {
+        set rewrite_in_progress [status $r aof_rewrite_in_progress]
+        set rewrite_scheduled [status $r aof_rewrite_scheduled]
+
+        # A rewrite can be scheduled but paused while another background task is running,
+        # so we need to check two conditions
+        if {$rewrite_in_progress eq 1 || $rewrite_scheduled eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
