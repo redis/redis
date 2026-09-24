@@ -453,6 +453,35 @@ start_server {tags {"other external:skip"}} {
     }
 }
 
+start_server {tags {"other external:skip"}} {
+    test {DEBUG RESTART closes inherited fds above maxclients + 1024} {
+        # Test only on Linux where it's easy to inspect the fds of a process.
+        set os [exec uname]
+        if {$os == "Linux" && !$::valgrind && !$::tls && [exec bash -c {ulimit -n}] > 1500} {
+            set port [find_available_port $::baseport $::portcount]
+            set pid [exec bash -c "exec 1500</dev/null; exec src/redis-server --port $port --maxclients 100 --save '' --enable-debug-command yes" > /dev/null 2>@1 &]
+            wait_for_condition 50 100 {
+                [catch {set rd [redis 127.0.0.1 $port]; $rd ping}] == 0
+            } else {
+                fail "server did not start"
+            }
+            assert_equal 1 [file exists /proc/$pid/fd/1500]
+
+            catch {$rd debug restart 0}
+            $rd close
+            wait_for_condition 50 100 {
+                [catch {set rd [redis 127.0.0.1 $port]; $rd ping}] == 0
+            } else {
+                fail "server did not restart"
+            }
+            set still_open [file exists /proc/$pid/fd/1500]
+            $rd close
+            exec kill -9 $pid
+            assert_equal 0 $still_open
+        }
+    }
+}
+
 start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
     r config set dynamic-hz no hz 500
     test "Redis can trigger resizing" {
