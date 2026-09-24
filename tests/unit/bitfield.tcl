@@ -113,6 +113,26 @@ start_server {tags {"bitops"}} {
         lappend results [r bitfield bits get i8 #0]
     } {127 127 -128 -128}
 
+    test {BITFIELD overflow sat SET clamps out of range values} {
+        r del bits
+        set results {}
+        # Values far below the signed range must clamp to the minimum.
+        lappend results [r bitfield bits overflow sat set i8 #0 -200 get i8 #0]
+        lappend results [r bitfield bits overflow sat set i8 #0 -9223372036854775680 get i8 #0]
+        lappend results [r bitfield bits overflow sat set i8 #0 -9223372036854775681 get i8 #0]
+        lappend results [r bitfield bits overflow sat set i8 #0 -9223372036854775808 get i8 #0]
+        lappend results [r bitfield bits overflow sat set i32 #0 -9223372036854775808 get i32 #0]
+        lappend results [r bitfield bits overflow sat set i8 #0 9223372036854775807 get i8 #0]
+        # Negative values underflow unsigned fields and must clamp to 0.
+        lappend results [r bitfield bits overflow sat set u8 #0 -1 get u8 #0]
+        lappend results [r bitfield bits overflow sat set u8 #0 -9223372036854775808 get u8 #0]
+        lappend results [r bitfield bits overflow sat set u8 #0 300 get u8 #0]
+        # WRAP and FAIL are unchanged.
+        lappend results [r bitfield bits overflow wrap set u8 #0 -1 get u8 #0]
+        lappend results [r bitfield bits overflow fail set u8 #0 -1 get u8 #0]
+        lappend results [r bitfield bits overflow wrap set i8 #0 -9223372036854775681 get i8 #0]
+    } {{0 -128} {-128 -128} {-128 -128} {-128 -128} {-2147483648 -2147483648} {-128 127} {127 0} {0 0} {0 255} {255 255} {{} 255} {-1 127}}
+
     test {BITFIELD overflow detection fuzzing} {
         for {set j 0} {$j < 1000} {incr j} {
             set bits [expr {[randomInt 64]+1}]
