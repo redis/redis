@@ -3625,9 +3625,14 @@ int RM_ResetReplyBuffer(RedisModuleCtx *buffer) {
  *
  * The destination may be a command, blocked-client reply or timeout callback,
  * a thread safe context bound to a blocked client, or another reply buffer.
- * The usual RedisModule_ReplyWith* threading rules apply to the destination.
- * The caller must exclude concurrent writes and moves involving either
- * accumulator. This function does not acquire the server lock.
+ * This function may be called from a worker thread without holding the server
+ * lock when the destination is another reply buffer or a thread safe context
+ * bound to a blocked client. Command and blocked-client callback contexts must
+ * only be used in their normal execution context, with the server lock held.
+ * The caller must ensure exclusive access to both reply accumulators for the
+ * duration of the call, including exclusion of concurrent replies, moves,
+ * resets and freeing. The contexts and blocked-client handle, if any, must
+ * remain valid throughout the call.
  *
  * Returns REDISMODULE_ERR without modifying either accumulator if:
  * - `buffer` is not a reply-buffer context;

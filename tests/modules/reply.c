@@ -286,6 +286,7 @@ typedef struct BufferJob {
     size_t len;
     int error;
     int reset;
+    int direct;
     int ready;
     int finish;
     int taken;
@@ -309,7 +310,11 @@ static void *rw_buffer_worker(void *arg) {
     RedisModule_ThreadSafeContextUnlock(ts);
 
     /* Serialize and move between independent accumulators without the GIL. */
-    if (job->reset) {
+    if (job->direct) {
+        RedisModule_ReplyWithArray(staging, 2);
+        RedisModule_ReplyWithStringBuffer(staging, job->payload, job->len);
+        RedisModule_ReplyWithError(staging, "BUFFERERR direct");
+    } else if (job->reset) {
         RedisModule_ReplyWithArray(staging, REDISMODULE_POSTPONED_LEN);
         RedisModule_ReplyWithError(staging, "BUFFERDROP worker reset");
         assert(RedisModule_ResetReplyBuffer(staging) == REDISMODULE_OK);
@@ -318,7 +323,7 @@ static void *rw_buffer_worker(void *arg) {
         RedisModule_ReplyWithError(staging, "BUFFERERR worker");
     else
         RedisModule_ReplyWithStringBuffer(staging, job->payload, job->len);
-    assert(RedisModule_ReplyWithBufferedReply(job->buffer, staging) == REDISMODULE_OK);
+    assert(RedisModule_ReplyWithBufferedReply(job->direct ? ts : job->buffer, staging) == REDISMODULE_OK);
 
     pthread_mutex_lock(&buffer_mutex);
     job->ready = 1;
@@ -347,6 +352,7 @@ static int rw_buffer_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int
     pthread_mutex_lock(&buffer_mutex);
     assert(job->ready);
     pthread_mutex_unlock(&buffer_mutex);
+    if (job->direct) return REDISMODULE_OK;
     RedisModule_ReplyWithArray(ctx, job->taken ? 1 : 2);
     assert(RedisModule_ReplyWithBufferedReply(ctx, job->buffer) == REDISMODULE_OK);
     RedisModule_ReplyWithSimpleString(ctx, "done");
@@ -378,6 +384,7 @@ static int rw_buffer_start(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     job->payload = RedisModule_Alloc(job->len);
     memcpy(job->payload, payload, job->len);
     job->error = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "error");
+    job->direct = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "direct");
     job->reset = !strcmp(RedisModule_StringPtrLen(argv[2], NULL), "reset");
     job->bc = RedisModule_BlockClient(ctx, rw_buffer_callback, rw_buffer_callback, rw_buffer_free, 0);
     job->buffer = RedisModule_CreateReplyBufferContext(ctx);

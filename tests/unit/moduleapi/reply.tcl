@@ -302,6 +302,32 @@ start_server {tags {"modules external:skip"}} {
             $rd close
         }
 
+        foreach size {32 65536} {
+            test "RESP$proto: worker moves a buffer to a blocked client without the GIL ($size bytes)" {
+                set rd [redis_deferring_client]
+                $rd hello $proto
+                $rd read
+                set errors [s total_error_replies]
+                set payload [string repeat d $size]
+                $rd rw.buffer_start $payload direct
+                wait_for_condition 100 10 {
+                    [lindex [r rw.buffer_status] 1] == 1
+                } else { fail "Worker did not publish to the blocked client" }
+                assert_equal $errors [s total_error_replies]
+                r rw.buffer_finish
+                $rd readraw 1
+                assert_equal {*2} [$rd read]
+                $rd readraw 0
+                assert_equal $payload [$rd read]
+                assert_error "BUFFERERR direct" {$rd read}
+                wait_for_condition 100 10 {
+                    [lindex [r rw.buffer_status] 0] == 0
+                } else { fail "Worker buffers were not released" }
+                assert_equal [expr {$errors + 1}] [s total_error_replies]
+                $rd close
+            }
+        }
+
         test "RESP$proto: worker can reset and reuse a reply buffer without the GIL" {
             set rd [redis_deferring_client]
             $rd hello $proto
