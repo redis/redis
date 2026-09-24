@@ -1,0 +1,40 @@
+name: Command compatibility checker validation
+
+on:
+  push:
+    paths:
+      - 'utils/command-compatibility/**'
+      - '.github/workflows/command-compatibility-checks.yml'
+      - '.github/workflows/redis-command-compatibility.yml'
+  pull_request:
+    paths:
+      - 'utils/command-compatibility/**'
+      - '.github/workflows/command-compatibility-checks.yml'
+      - '.github/workflows/redis-command-compatibility.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-checker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install validation tools
+        run: python3 -m pip install -r utils/command-compatibility/requirements-dev.txt
+      - name: Check formatting
+        run: python3 -m black --check --config utils/command-compatibility/pyproject.toml utils/command-compatibility
+      - name: Check types
+        run: python3 -m mypy --config-file utils/command-compatibility/pyproject.toml utils/command-compatibility
+      - name: Run offline tests
+        run: python3 -m unittest discover -s utils/command-compatibility -p 'test*redis_command_compatibility.py' -v
