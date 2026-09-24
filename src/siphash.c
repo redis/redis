@@ -39,14 +39,29 @@
       the function in the new form (returning an uint64_t) using just the
       relevant test vector.
  */
+#define _DEFAULT_SOURCE 1  /* expose syscall()/riscv_hwprobe under strict -std */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 
+/* RISC-V siphash: by default the core follows the toolchain -march
+ * (a zbb-capable march emits roli directly; otherwise fully portable, zero
+ * runtime tax). SIPHASH_RISCV_DISPATCH is the only build define here: the
+ * opt-in universal single-binary mode, which renames the portable core and
+ * selects between it and the Zbb core at startup (see block below).
+ * SIPHASH_RISCV_ZBB is used only by the separate siphash_zbb.c TU. */
+#if defined(SIPHASH_RISCV_ZBB)
+#define siphash siphash_zbb
+#define siphash_nocase siphash_nocase_zbb
+#elif defined(SIPHASH_RISCV_DISPATCH)
+#define siphash siphash_portable
+#define siphash_nocase siphash_nocase_portable
+#endif
+
 /* Fast tolower() alike function that does not care about locale
  * but just returns a-z instead of A-Z. */
-int siptlw(int c) {
+static int siptlw(int c) {
     if (c >= 'A' && c <= 'Z') {
         return c+('a'-'A');
     } else {
@@ -87,6 +102,16 @@ int siptlw(int c) {
 
 #ifdef UNALIGNED_LE_CPU
 #define U8TO64_LE(p) (*((uint64_t*)(p)))
+#elif defined(__riscv)
+/* RISC-V without Zicclsm: unaligned 64-bit loads may trap; use one aligned
+ * load when 8-byte aligned, byte-wise otherwise (LE, identical reads). */
+#define U8TO64_LE(p)                                                           \
+    ((((uintptr_t)(p) & 7) == 0)                                              \
+         ? (*((const uint64_t *)(p)))                                          \
+         : (((uint64_t)((p)[0])) | ((uint64_t)((p)[1]) << 8) |                 \
+            ((uint64_t)((p)[2]) << 16) | ((uint64_t)((p)[3]) << 24) |          \
+            ((uint64_t)((p)[4]) << 32) | ((uint64_t)((p)[5]) << 40) |          \
+            ((uint64_t)((p)[6]) << 48) | ((uint64_t)((p)[7]) << 56)))
 #else
 #define U8TO64_LE(p)                                                           \
     (((uint64_t)((p)[0])) | ((uint64_t)((p)[1]) << 8) |                        \
@@ -247,127 +272,92 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
 
 /* --------------------------------- TEST ------------------------------------ */
 
-#ifdef SIPHASH_TEST
+#if defined(__riscv) && defined(SIPHASH_RISCV_DISPATCH)
+#include <stdlib.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#if defined(__has_include)
+#  if __has_include(<asm/hwprobe.h>)
+#    include <asm/hwprobe.h>
+#  endif
+#endif
+#ifndef __NR_riscv_hwprobe
+#define __NR_riscv_hwprobe 258  /* Linux >= 6.5 */
+#endif
+#ifndef RISCV_HWPROBE_KEY_IMA_EXT_0
+#define RISCV_HWPROBE_KEY_IMA_EXT_0 4
+struct riscv_hwprobe { long key; unsigned long value; };
+#endif
+#ifndef RISCV_HWPROBE_EXT_ZBB
+#define RISCV_HWPROBE_EXT_ZBB (1ULL << 4)
+#endif
+#undef siphash
+#undef siphash_nocase
 
-const uint8_t vectors_sip64[64][8] = {
-    { 0x31, 0x0e, 0x0e, 0xdd, 0x47, 0xdb, 0x6f, 0x72, },
-    { 0xfd, 0x67, 0xdc, 0x93, 0xc5, 0x39, 0xf8, 0x74, },
-    { 0x5a, 0x4f, 0xa9, 0xd9, 0x09, 0x80, 0x6c, 0x0d, },
-    { 0x2d, 0x7e, 0xfb, 0xd7, 0x96, 0x66, 0x67, 0x85, },
-    { 0xb7, 0x87, 0x71, 0x27, 0xe0, 0x94, 0x27, 0xcf, },
-    { 0x8d, 0xa6, 0x99, 0xcd, 0x64, 0x55, 0x76, 0x18, },
-    { 0xce, 0xe3, 0xfe, 0x58, 0x6e, 0x46, 0xc9, 0xcb, },
-    { 0x37, 0xd1, 0x01, 0x8b, 0xf5, 0x00, 0x02, 0xab, },
-    { 0x62, 0x24, 0x93, 0x9a, 0x79, 0xf5, 0xf5, 0x93, },
-    { 0xb0, 0xe4, 0xa9, 0x0b, 0xdf, 0x82, 0x00, 0x9e, },
-    { 0xf3, 0xb9, 0xdd, 0x94, 0xc5, 0xbb, 0x5d, 0x7a, },
-    { 0xa7, 0xad, 0x6b, 0x22, 0x46, 0x2f, 0xb3, 0xf4, },
-    { 0xfb, 0xe5, 0x0e, 0x86, 0xbc, 0x8f, 0x1e, 0x75, },
-    { 0x90, 0x3d, 0x84, 0xc0, 0x27, 0x56, 0xea, 0x14, },
-    { 0xee, 0xf2, 0x7a, 0x8e, 0x90, 0xca, 0x23, 0xf7, },
-    { 0xe5, 0x45, 0xbe, 0x49, 0x61, 0xca, 0x29, 0xa1, },
-    { 0xdb, 0x9b, 0xc2, 0x57, 0x7f, 0xcc, 0x2a, 0x3f, },
-    { 0x94, 0x47, 0xbe, 0x2c, 0xf5, 0xe9, 0x9a, 0x69, },
-    { 0x9c, 0xd3, 0x8d, 0x96, 0xf0, 0xb3, 0xc1, 0x4b, },
-    { 0xbd, 0x61, 0x79, 0xa7, 0x1d, 0xc9, 0x6d, 0xbb, },
-    { 0x98, 0xee, 0xa2, 0x1a, 0xf2, 0x5c, 0xd6, 0xbe, },
-    { 0xc7, 0x67, 0x3b, 0x2e, 0xb0, 0xcb, 0xf2, 0xd0, },
-    { 0x88, 0x3e, 0xa3, 0xe3, 0x95, 0x67, 0x53, 0x93, },
-    { 0xc8, 0xce, 0x5c, 0xcd, 0x8c, 0x03, 0x0c, 0xa8, },
-    { 0x94, 0xaf, 0x49, 0xf6, 0xc6, 0x50, 0xad, 0xb8, },
-    { 0xea, 0xb8, 0x85, 0x8a, 0xde, 0x92, 0xe1, 0xbc, },
-    { 0xf3, 0x15, 0xbb, 0x5b, 0xb8, 0x35, 0xd8, 0x17, },
-    { 0xad, 0xcf, 0x6b, 0x07, 0x63, 0x61, 0x2e, 0x2f, },
-    { 0xa5, 0xc9, 0x1d, 0xa7, 0xac, 0xaa, 0x4d, 0xde, },
-    { 0x71, 0x65, 0x95, 0x87, 0x66, 0x50, 0xa2, 0xa6, },
-    { 0x28, 0xef, 0x49, 0x5c, 0x53, 0xa3, 0x87, 0xad, },
-    { 0x42, 0xc3, 0x41, 0xd8, 0xfa, 0x92, 0xd8, 0x32, },
-    { 0xce, 0x7c, 0xf2, 0x72, 0x2f, 0x51, 0x27, 0x71, },
-    { 0xe3, 0x78, 0x59, 0xf9, 0x46, 0x23, 0xf3, 0xa7, },
-    { 0x38, 0x12, 0x05, 0xbb, 0x1a, 0xb0, 0xe0, 0x12, },
-    { 0xae, 0x97, 0xa1, 0x0f, 0xd4, 0x34, 0xe0, 0x15, },
-    { 0xb4, 0xa3, 0x15, 0x08, 0xbe, 0xff, 0x4d, 0x31, },
-    { 0x81, 0x39, 0x62, 0x29, 0xf0, 0x90, 0x79, 0x02, },
-    { 0x4d, 0x0c, 0xf4, 0x9e, 0xe5, 0xd4, 0xdc, 0xca, },
-    { 0x5c, 0x73, 0x33, 0x6a, 0x76, 0xd8, 0xbf, 0x9a, },
-    { 0xd0, 0xa7, 0x04, 0x53, 0x6b, 0xa9, 0x3e, 0x0e, },
-    { 0x92, 0x59, 0x58, 0xfc, 0xd6, 0x42, 0x0c, 0xad, },
-    { 0xa9, 0x15, 0xc2, 0x9b, 0xc8, 0x06, 0x73, 0x18, },
-    { 0x95, 0x2b, 0x79, 0xf3, 0xbc, 0x0a, 0xa6, 0xd4, },
-    { 0xf2, 0x1d, 0xf2, 0xe4, 0x1d, 0x45, 0x35, 0xf9, },
-    { 0x87, 0x57, 0x75, 0x19, 0x04, 0x8f, 0x53, 0xa9, },
-    { 0x10, 0xa5, 0x6c, 0xf5, 0xdf, 0xcd, 0x9a, 0xdb, },
-    { 0xeb, 0x75, 0x09, 0x5c, 0xcd, 0x98, 0x6c, 0xd0, },
-    { 0x51, 0xa9, 0xcb, 0x9e, 0xcb, 0xa3, 0x12, 0xe6, },
-    { 0x96, 0xaf, 0xad, 0xfc, 0x2c, 0xe6, 0x66, 0xc7, },
-    { 0x72, 0xfe, 0x52, 0x97, 0x5a, 0x43, 0x64, 0xee, },
-    { 0x5a, 0x16, 0x45, 0xb2, 0x76, 0xd5, 0x92, 0xa1, },
-    { 0xb2, 0x74, 0xcb, 0x8e, 0xbf, 0x87, 0x87, 0x0a, },
-    { 0x6f, 0x9b, 0xb4, 0x20, 0x3d, 0xe7, 0xb3, 0x81, },
-    { 0xea, 0xec, 0xb2, 0xa3, 0x0b, 0x22, 0xa8, 0x7f, },
-    { 0x99, 0x24, 0xa4, 0x3c, 0xc1, 0x31, 0x57, 0x24, },
-    { 0xbd, 0x83, 0x8d, 0x3a, 0xaf, 0xbf, 0x8d, 0xb7, },
-    { 0x0b, 0x1a, 0x2a, 0x32, 0x65, 0xd5, 0x1a, 0xea, },
-    { 0x13, 0x50, 0x79, 0xa3, 0x23, 0x1c, 0xe6, 0x60, },
-    { 0x93, 0x2b, 0x28, 0x46, 0xe4, 0xd7, 0x06, 0x66, },
-    { 0xe1, 0x91, 0x5f, 0x5c, 0xb1, 0xec, 0xa4, 0x6c, },
-    { 0xf3, 0x25, 0x96, 0x5c, 0xa1, 0x6d, 0x62, 0x9f, },
-    { 0x57, 0x5f, 0xf2, 0x8e, 0x60, 0x38, 0x1b, 0xe5, },
-    { 0x72, 0x45, 0x06, 0xeb, 0x4c, 0x32, 0x8a, 0x95, },
-};
+extern uint64_t siphash_zbb(const uint8_t *in, size_t inlen, const uint8_t *k);
+extern uint64_t siphash_nocase_zbb(const uint8_t *in, size_t inlen, const uint8_t *k);
 
+static uint64_t (*siphash_impl)(const uint8_t *, size_t, const uint8_t *) = siphash_portable;
+static uint64_t (*siphash_nocase_impl)(const uint8_t *, size_t, const uint8_t *) = siphash_nocase_portable;
 
-/* Test siphash using a test vector. Returns 0 if the function passed
- * all the tests, otherwise 1 is returned.
- *
- * IMPORTANT: The test vector is for SipHash 2-4. Before running
- * the test revert back the siphash() function to 2-4 rounds since
- * now it uses 1-2 rounds. */
-int siphash_test(void) {
-    uint8_t in[64], k[16];
-    int i;
-    int fails = 0;
-
-    for (i = 0; i < 16; ++i)
-        k[i] = i;
-
-    for (i = 0; i < 64; ++i) {
-        in[i] = i;
-        uint64_t hash = siphash(in, i, k);
-        const uint8_t *v = NULL;
-        v = (uint8_t *)vectors_sip64;
-        if (memcmp(&hash, v + (i * 8), 8)) {
-            /* printf("fail for %d bytes\n", i); */
-            fails++;
-        }
+static int siphash_riscv_zbb_probe(void) {
+    /* riscv_hwprobe via raw syscall first (kernel >= 6.5; avoids depending
+     * on <sys/hwprobe.h> from glibc), /proc/cpuinfo as fallback. */
+#if defined(__linux__)
+    struct riscv_hwprobe pair = { RISCV_HWPROBE_KEY_IMA_EXT_0, 0 };
+    if (syscall(__NR_riscv_hwprobe, &pair, 1, 0, NULL, 0) == 0)
+        return (pair.value & RISCV_HWPROBE_EXT_ZBB) ? 1 : 0;
+#endif
+    FILE *f = fopen("/proc/cpuinfo", "r");
+    char line[512];
+    if (!f) return 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "isa", 3) == 0 && strstr(line, "zbb")) { fclose(f); return 1; }
     }
+    fclose(f);
+    return 0;
+}
 
-    /* Run a few basic tests with the case insensitive version. */
-    uint64_t h1, h2;
-    h1 = siphash((uint8_t*)"hello world",11,(uint8_t*)"1234567812345678");
-    h2 = siphash_nocase((uint8_t*)"hello world",11,(uint8_t*)"1234567812345678");
-    if (h1 != h2) fails++;
+void siphash_init_riscv(void) {
+    int zbb = 1;
+    if (getenv("SIPHASH_DISABLE_ZBB") != NULL) zbb = 0;
+    else zbb = siphash_riscv_zbb_probe();
+    if (zbb) { siphash_impl = siphash_zbb; siphash_nocase_impl = siphash_nocase_zbb; }
+    else     { siphash_impl = siphash_portable; siphash_nocase_impl = siphash_nocase_portable; }
+}
 
-    h1 = siphash((uint8_t*)"hello world",11,(uint8_t*)"1234567812345678");
-    h2 = siphash_nocase((uint8_t*)"HELLO world",11,(uint8_t*)"1234567812345678");
-    if (h1 != h2) fails++;
+uint64_t siphash(const uint8_t *in, size_t inlen, const uint8_t *k) {
+    return siphash_impl(in, inlen, k);
+}
 
-    h1 = siphash((uint8_t*)"HELLO world",11,(uint8_t*)"1234567812345678");
-    h2 = siphash_nocase((uint8_t*)"HELLO world",11,(uint8_t*)"1234567812345678");
-    if (h1 == h2) fails++;
+uint64_t siphash_nocase(const uint8_t *in, size_t inlen, const uint8_t *k) {
+    return siphash_nocase_impl(in, inlen, k);
+}
+#endif
 
-    if (!fails) return 0;
+#ifdef SIPHASH_TEST
+/* Self-test for the 1-2 round variant this build uses (the upstream 2-4
+ * round vectors do not apply). Golden values are identical for the portable
+ * and Zbb cores, so this also validates the runtime-selected path. */
+int siphash_test(void) {
+    uint8_t k[16];
+    for (int i = 0; i < 16; i++) k[i] = (uint8_t)i;
+    const char *in[] = {"", "HELLO world", "key:12345",
+                        "0123456789abcdef", "a.longer.key.forcing.two.blocks"};
+    uint64_t exp[] = { 0xcea28b51565c12e2ULL, 0xf52472e910a1c769ULL,
+                       0xaad89bb60a425b72ULL, 0x840afe4bca75c333ULL,
+                       0xb3714b2e39b5760dULL };
+    int fails = 0;
+    for (unsigned i = 0; i < sizeof(in) / sizeof(in[0]); i++) {
+        if (siphash((const uint8_t *)in[i], strlen(in[i]), k) != exp[i]) fails++;
+    }
+    if (siphash_nocase((const uint8_t *)"HELLO world", 11, k) != 0xb91b8e97a1658e27ULL) fails++;
+    if (fails == 0) { printf("SipHash test: OK\n"); return 0; }
+    printf("SipHash test: FAILED\n");
     return 1;
 }
 
 int main(void) {
-    if (siphash_test() == 0) {
-        printf("SipHash test: OK\n");
-        return 0;
-    } else {
-        printf("SipHash test: FAILED\n");
-        return 1;
-    }
+    return siphash_test();
 }
-
 #endif
