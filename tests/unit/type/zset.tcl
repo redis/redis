@@ -216,6 +216,19 @@ start_server {tags {"zset"}} {
             set err
         } {ERR*}
 
+        test "ZADD XX and INCR with existing elements - $encoding" {
+            r del ztmp
+            r zadd ztmp 10 x
+            assert {[r zadd ztmp xx incr 10 x] == 20}
+        }
+
+        test "ZADD XX and INCR with non-existing elements - $encoding" {
+            r del ztmp
+            r readraw 1
+            assert {[r zadd ztmp xx incr 10 x] == {$-1}}
+            r readraw 0
+        }
+
         test "ZADD NX with non existing key - $encoding" {
             r del ztmp
             r zadd ztmp nx 10 x 20 y 30 z
