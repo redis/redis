@@ -2913,7 +2913,11 @@ int listenToPort(connListener *sfd) {
             closeListener(sfd);
             return C_ERR;
         }
-        if (server.socket_mark_id > 0) anetSetSockMarkId(NULL, sfd->fd[sfd->count], server.socket_mark_id);
+        if (server.socket_mark_id > 0 &&
+            anetSetSockMarkId(server.neterr, sfd->fd[sfd->count], server.socket_mark_id) == ANET_ERR)
+            serverLog(LL_WARNING,
+                "Warning: Could not set socket-mark-id %u on TCP listening socket %s:%d: %s",
+                server.socket_mark_id, addr, port, server.neterr);
         anetNonBlock(NULL,sfd->fd[sfd->count]);
         anetCloexec(sfd->fd[sfd->count]);
         sfd->count++;
