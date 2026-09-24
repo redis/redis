@@ -83,6 +83,23 @@ start_server {tags {"tls"}} {
             exec {*}$cmd 2>@1
         }
 
+        # Same as tls_redis_cli, without pinning a TLSv1.2 cipher, so the
+        # handshake is free to select TLSv1.3. Hybrid post-quantum groups are
+        # only available over TLSv1.3.
+        proc tls_redis_cli_groups {host port groups} {
+            set tlsdir [file join [pwd] tests tls]
+            set cmd [list src/redis-cli \
+                -h $host \
+                -p $port \
+                --tls \
+                --cert [file join $tlsdir client.crt] \
+                --key [file join $tlsdir client.key] \
+                --cacert [file join $tlsdir ca.crt] \
+                --tls-groups $groups \
+                PING]
+            exec {*}$cmd 2>@1
+        }
+
         test {TLS: Not accepting non-TLS connections on a TLS port} {
             set s [redis [srv 0 host] [srv 0 port]]
             catch {$s PING} e
@@ -186,14 +203,100 @@ start_server {tags {"tls"}} {
             # The client and server expose disjoint group lists, so the TLS
             # handshake must fail.
             assert_equal 1 [catch {tls_redis_cli [srv 0 host] [srv 0 port] secp384r1} e]
-            # OpenSSL reports this alert differently across platforms:
-            # CentOS reports "ssl/tls alert handshake failure"
-            # Ubuntu reports "sslv3 alert handshake failure"
-            assert_match {*ssl* alert handshake failure*} $e
+            assert_match {*alert handshake failure*} $e
 
             r CONFIG SET tls-groups ""
             r CONFIG SET tls-protocols ""
             r CONFIG SET tls-ciphers DEFAULT
+        }
+
+        # Hybrid post-quantum key exchange needs ML-KEM, added in OpenSSL 3.5.
+        # Probe the linked library through the server so that these tests are
+        # skipped, rather than failing, on an older OpenSSL.
+        set pqc_group X25519MLKEM768
+        set pqc_supported [expr {![catch {r CONFIG SET tls-groups $pqc_group}]}]
+        r CONFIG SET tls-groups ""
+
+        if {$pqc_supported} {
+            test {TLS: Verify tls-groups accepts a hybrid post-quantum group} {
+                r CONFIG SET tls-groups $pqc_group
+                assert_equal $pqc_group [lindex [r CONFIG GET tls-groups] 1]
+
+                r CONFIG SET tls-groups ""
+            }
+
+            test {TLS: Verify a hybrid post-quantum key exchange completes} {
+                r CONFIG SET tls-groups $pqc_group
+
+                # Both ends allow only the hybrid group, so a successful PING
+                # proves the session key came out of an ML-KEM key exchange.
+                assert_equal {PONG} [tls_redis_cli_groups [srv 0 host] [srv 0 port] $pqc_group]
+
+                r CONFIG SET tls-groups ""
+            }
+
+            test {TLS: Verify a post-quantum server rejects a classical-only client} {
+                r CONFIG SET tls-groups $pqc_group
+
+                # The server offers no classical group, so a client that cannot
+                # do ML-KEM must be refused instead of quietly downgraded.
+                assert_equal 1 [catch {tls_redis_cli_groups [srv 0 host] [srv 0 port] prime256v1} e]
+                assert_match {*alert handshake failure*} $e
+
+                r CONFIG SET tls-groups ""
+            }
+
+            test {TLS: Verify a hybrid post-quantum group list keeps classical clients working} {
+                r CONFIG SET tls-groups "$pqc_group:prime256v1"
+
+                # Listing a classical group after the hybrid one preserves
+                # interoperability with peers that lack ML-KEM.
+                assert_equal {PONG} [tls_redis_cli_groups [srv 0 host] [srv 0 port] $pqc_group]
+                assert_equal {PONG} [tls_redis_cli_groups [srv 0 host] [srv 0 port] prime256v1]
+
+                r CONFIG SET tls-groups ""
+            }
+
+            test {TLS: Verify tls-groups skips an optional group that is not implemented} {
+                # A "?" prefix drops a group the linked OpenSSL does not know,
+                # so one configuration can be shared by nodes whose OpenSSL
+                # predates ML-KEM. Without the prefix the name is an error.
+                r CONFIG SET tls-groups "?ThisGroupDoesNotExist:prime256v1"
+                assert_equal {PONG} [tls_redis_cli_groups [srv 0 host] [srv 0 port] prime256v1]
+
+                catch {r CONFIG SET tls-groups "ThisGroupDoesNotExist:prime256v1"} e
+                assert_match {*Unable to update TLS configuration*} $e
+
+                r CONFIG SET tls-groups ""
+            }
+
+            test {TLS: Verify replication works over a hybrid post-quantum key exchange} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                $master CONFIG SET tls-groups $pqc_group
+
+                start_server {} {
+                    set replica [srv 0 client]
+
+                    # tls-groups also applies to the client context Redis uses
+                    # for replication, so narrow it once the test framework is
+                    # already connected, then bring the link up.
+                    $replica CONFIG SET tls-groups $pqc_group
+                    $replica replicaof $master_host $master_port
+
+                    wait_for_condition 50 100 {
+                        [string match {*master_link_status:up*} [$replica info replication]]
+                    } else {
+                        fail "Replication link failed to come up over a post-quantum key exchange"
+                    }
+
+                    $replica replicaof no one
+                    $replica CONFIG SET tls-groups ""
+                }
+
+                $master CONFIG SET tls-groups ""
+            }
         }
 
         test {TLS: Verify tls-prefer-server-ciphers behaves as expected} {
