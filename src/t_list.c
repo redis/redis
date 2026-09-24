@@ -1438,7 +1438,12 @@ void lmpopGenericCommand(client *c, int numkeys_idx, int is_block) {
                                       &numkeys, "numkeys should be greater than 0") != C_OK)
         return;
 
-    /* Parse the where. where_idx: the index of where in the c->argv. */
+    /* Parse the where. where_idx: the index of where in the c->argv.
+     * Check numkeys first so that computing where_idx can't overflow. */
+    if (numkeys >= c->argc - numkeys_idx - 1) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
     long where_idx = numkeys_idx + numkeys + 1;
     if (where_idx >= c->argc) {
         addReplyErrorObject(c, shared.syntaxerr);

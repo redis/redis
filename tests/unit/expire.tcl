@@ -174,6 +174,14 @@ start_server {tags {"expire"}} {
         assert_equal [r expiretime x] $abs_expire
     }
 
+    test {EXPIRETIME rounds the maximum expire time without overflow} {
+        r del x
+        r set x somevalue
+        r pexpireat x 9223372036854775807
+        assert_equal 9223372036854776 [r expiretime x]
+        assert_equal 9223372036854775807 [r pexpiretime x]
+    }
+
     test {PEXPIRETIME returns absolute expiration time in milliseconds} {
         r del x
         set abs_expire [expr [clock milliseconds] + 100000]
