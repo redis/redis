@@ -13,6 +13,9 @@
         "acl_categories": [
             "HYPERLOGLOG"
         ],
+        "command_tips": [
+            "CACHEABLE_REPLY"
+        ],
         "key_specs": [
             {
                 "notes": "RW because it may change the internal representation of the key, and propagate to replicas",
