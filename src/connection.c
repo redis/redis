@@ -197,7 +197,7 @@ sds getListensInfoString(sds info) {
 
         info = sdscatfmt(info, "listener%i:name=%s", j, listener->ct->get_type(NULL));
         for (int i = 0; i < listener->count; i++) {
-            info = sdscatfmt(info, ",bind=%s", listener->bindaddr[i]);
+            info = sdscatfmt(info, ",bind=%s", listener->bindaddr_actual[i]);
         }
 
         if (listener->port)
