@@ -53,6 +53,7 @@
 #include <math.h>
 #include <sys/utsname.h>
 #include <locale.h>
+#include <dirent.h>
 #include <sys/socket.h>
 
 #ifdef __linux__
@@ -2610,10 +2611,34 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) {
-        /* Test the descriptor validity before closing it, otherwise
-         * Valgrind issues a warning on close(). */
-        if (fcntl(j,F_GETFD) != -1) close(j);
+    DIR *dir = NULL;
+#ifdef __linux__
+    dir = opendir("/proc/self/fd");
+#endif
+    if (dir) {
+        struct dirent *de;
+        while ((de = readdir(dir)) != NULL) {
+            if (de->d_name[0] == '.') continue;
+            j = atoi(de->d_name);
+            /* Test the descriptor validity before closing it, otherwise
+             * Valgrind issues a warning on close(). */
+            if (j > 2 && j != dirfd(dir) && fcntl(j,F_GETFD) != -1) close(j);
+        }
+        closedir(dir);
+    } else {
+        int maxfd = (int)server.maxclients + 1024;
+        struct rlimit limit;
+        if (getrlimit(RLIMIT_NOFILE,&limit) != -1 &&
+            limit.rlim_cur > (rlim_t)maxfd &&
+            limit.rlim_cur <= INT_MAX)
+        {
+            maxfd = (int)limit.rlim_cur;
+        }
+        for (j = 3; j < maxfd; j++) {
+            /* Test the descriptor validity before closing it, otherwise
+             * Valgrind issues a warning on close(). */
+            if (fcntl(j,F_GETFD) != -1) close(j);
+        }
     }
 
     /* Execute the server with the original command line. */
