@@ -316,6 +316,98 @@ start_server {tags {"string"}} {
         assert_morethan [r pttl pxat:key1{t}] 0
     }
 
+    test {MSETEX with past EXAT/PXAT does not store keys} {
+        r flushall
+
+        assert_equal 1 [r msetex 1 key1{t} val1 exat [expr [clock seconds] - 100]]
+        assert_equal 1 [r msetex 1 key2{t} val2 pxat [expr [clock milliseconds] - 100000]]
+
+        assert_equal 0 [r dbsize]
+        assert_equal 0 [r exists key1{t} key2{t}]
+    }
+
+    test {MSETEX with past PXAT deletes existing keys and propagates DEL/UNLINK} {
+        r flushall
+        r set key1{t} pre_existing_val1
+        r set key2{t} pre_existing_val2
+        set repl [attach_to_replication_stream]
+
+        set now [clock milliseconds]
+        r config set lazyfree-lazy-server-del no
+        assert_equal 1 [r msetex 1 key1{t} val1 pxat [expr $now - 1000]]
+        r config set lazyfree-lazy-server-del yes
+        assert_equal 1 [r msetex 1 key2{t} val2 pxat [expr $now - 1000]]
+
+        assert_equal 0 [r exists key1{t} key2{t}]
+
+        assert_replication_stream $repl {
+            {select *}
+            {del key1{t}}
+            {unlink key2{t}}
+        }
+        close_replication_stream $repl
+        r config set lazyfree-lazy-server-del no
+    } {OK} {needs:repl}
+
+    test {MSETEX with past PXAT and no existing keys does not propagate} {
+        r flushall
+        r config set lazyfree-lazy-server-del yes
+        set repl [attach_to_replication_stream]
+
+        assert_equal 1 [r msetex 2 nokey1{t} v1 nokey2{t} v2 pxat [expr [clock milliseconds] - 1000]]
+        r set sentinel{t} ok
+
+        assert_replication_stream $repl {
+            {select *}
+            {set sentinel{t} ok}
+        }
+        close_replication_stream $repl
+        r config set lazyfree-lazy-server-del no
+    } {OK} {needs:repl}
+
+    test {MSETEX with past PXAT consolidates multi-key delete into a single DEL} {
+        r flushall
+        r set k1{t} v1_old
+        r set k2{t} v2_old
+        r set k3{t} v3_old
+        r config set lazyfree-lazy-server-del no
+        set repl [attach_to_replication_stream]
+
+        # Multi-key MSETEX with past PXAT must propagate as ONE consolidated
+        # DEL (or UNLINK) of all deleted keys, not as N separate DEL commands.
+        # This is the core reason the patch builds a shared newargv.
+        assert_equal 1 [r msetex 3 k1{t} v1 k2{t} v2 k3{t} v3 \
+                        pxat [expr [clock milliseconds] - 1000]]
+
+        assert_equal 0 [r exists k1{t} k2{t} k3{t}]
+
+        assert_replication_stream $repl {
+            {select *}
+            {del k1{t} k2{t} k3{t}}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {MSETEX with past PXAT consolidates multi-key delete into a single UNLINK} {
+        r flushall
+        r set k1{t} v1_old
+        r set k2{t} v2_old
+        r config set lazyfree-lazy-server-del yes
+        set repl [attach_to_replication_stream]
+
+        assert_equal 1 [r msetex 2 k1{t} v1 k2{t} v2 \
+                        pxat [expr [clock milliseconds] - 1000]]
+
+        assert_equal 0 [r exists k1{t} k2{t}]
+
+        assert_replication_stream $repl {
+            {select *}
+            {unlink k1{t} k2{t}}
+        }
+        close_replication_stream $repl
+        r config set lazyfree-lazy-server-del no
+    } {OK} {needs:repl}
+
     test {MSETEX - KEEPTTL preserves existing TTL} {
         r setex keepttl:key{t} 100 oldval
         set old_ttl [r ttl keepttl:key{t}]
