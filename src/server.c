@@ -1134,13 +1134,9 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * of whether the eviction is enabled or not, so the memory usage we get from these
  * types of clients via the INFO command may be out of date.
  *
- * 'unshared_reply_bytes_fresh' should be non-zero when the caller has just
- * recomputed c->reply_bytes_unshared itself (currently only
- * clientsCronRunClient()), so this function can skip redoing that scan.
- *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
-int updateClientMemUsageAndBucket(client *c, int unshared_reply_bytes_fresh) {
+int updateClientMemUsageAndBucket(client *c) {
     /* The unlikely case this function was called from a thread different
      * than the main one is a module call from a spawned thread. This is safe
      * since this call must have been made after calling
@@ -1158,22 +1154,10 @@ int updateClientMemUsageAndBucket(client *c, int unshared_reply_bytes_fresh) {
         return 0;
     }
 
-    /* Include unshared reply bytes in the client's memory usage for eviction.
-     * Walking the reply buffer is costly, so skip the scan when its outcome
-     * cannot affect bucket placement: since 0 <= unshared <= shared, if both
-     * endpoints map to the same bucket the cached value is reused. Skip it
-     * altogether when the caller already refreshed it for us. */
-    if (!unshared_reply_bytes_fresh) {
-        if (c->reply_bytes_shared > 0) {
-            size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
-            size_t upper_bound = lower_bound + c->reply_bytes_shared;
-            if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
-                updateClientUnsharedReplyBytes(c);
-        } else {
-            /* No shared bytes: clear any stale cached unshared. */
-            setClientUnsharedReplyBytes(c, 0);
-        }
-    }
+    /* The expensive reply scan is owned by clientsCronRunClient(). Other
+     * memory updates use its cached value. */
+    if (c->reply_bytes_shared == 0)
+        setClientUnsharedReplyBytes(c, 0);
 
     /* Update client memory usage. */
     updateClientMemoryUsage(c);
@@ -1217,18 +1201,23 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
-    /* Recomputing c->reply_bytes_unshared requires rescanning the client's whole
-     * pending reply buffer, so throttle it to once per 1000/server.hz ms: this
-     * function can run as often as every tick when there are few clients (see
-     * CLIENTS_CRON_MIN_ITERATIONS below), and we don't want to pay for a full
-     * buffer rescan on every one of those visits. It's safe to call regardless
-     * of which thread owns the client, since this is invoked either from
-     * clientsCron() for main-thread clients or from runClientCronFromIOThread()
-     * for IO-thread-owned ones, i.e. always on the thread that owns c. */
-    int unshared_reply_bytes_fresh = c->last_unshared_refresh + 1000/server.hz <= now;
-    if (unshared_reply_bytes_fresh) {
-        c->last_unshared_refresh = now;
-        updateClientUnsharedReplyBytes(c);
+    /* A refcount transition from two to one is the only external event that
+     * can make a referenced reply object solely owned by a client. Once the
+     * reply holds the sole reference, no other path can acquire it again. The
+     * global epoch lets stable clients skip the buffer scan. Releasing a
+     * solely owned local reply invalidates the client's saved epoch. False
+     * positives in the global epoch are harmless and scans remain capped at
+     * once per second. */
+    if (c->reply_bytes_shared == 0) {
+        setClientUnsharedReplyBytes(c, 0);
+    } else {
+        uint64_t refcount_epoch;
+        atomicGet(server.reply_refcount_epoch, refcount_epoch);
+        if (c->last_unshared_refcount_epoch != refcount_epoch && c->last_unshared_refresh + 1000 <= now) {
+            c->last_unshared_refresh = now;
+            updateClientUnsharedReplyBytes(c);
+            c->last_unshared_refcount_epoch = refcount_epoch;
+        }
     }
 
     /* Iterating all the clients in getMemoryOverheadData() is too slow and
@@ -1237,7 +1226,7 @@ int clientsCronRunClient(client *c) {
      * to the second) total memory used by clients using clientsCron() in
      * a more incremental way (depending on server.hz).
      * If client eviction is enabled, update the bucket as well. */
-    if (!updateClientMemUsageAndBucket(c, unshared_reply_bytes_fresh))
+    if (!updateClientMemUsageAndBucket(c))
         updateClientMemoryUsage(c);
 
     if (closeClientOnOutputBufferLimitReached(c, 0)) return 1;
@@ -3076,6 +3065,8 @@ void initServer(void) {
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
     server.clients_with_pending_ref_reply = listCreate();
+    atomicSet(server.clients_with_pending_ref_reply_count, 0);
+    atomicSet(server.reply_refcount_epoch, 0);
     /* clients_timeout_table key = 8 bytes BE mstime + 8 bytes client ID
      * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
     server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);

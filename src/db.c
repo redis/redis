@@ -1339,7 +1339,7 @@ void unblockClientForAsyncFlush(uint64_t client_id, struct slotRangeArray *slots
     }
 
     /* On flush completion, update the client's memory */
-    updateClientMemUsageAndBucket(c, 0);
+    updateClientMemUsageAndBucket(c);
 
     /* restore current_client */
     server.current_client = old_client;

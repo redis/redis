@@ -843,7 +843,7 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
             continue;
         }
         addReply(monitor,cmdobj);
-        updateClientMemUsageAndBucket(monitor, 0);
+        updateClientMemUsageAndBucket(monitor);
     }
     decrRefCount(cmdobj);
 }

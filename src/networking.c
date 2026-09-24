@@ -216,6 +216,7 @@ client *createClient(connection *conn) {
     c->deferred_reply_errors = NULL;
     c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
     c->last_unshared_refresh = 0;
+    c->last_unshared_refcount_epoch = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
@@ -607,6 +608,11 @@ unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref) {
 static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
+    /* A newly added reference is shared by definition. With no older
+     * referenced replies, the current cache of zero is already exact. */
+    if (c->reply_bytes_shared == 0)
+        atomicGet(server.reply_refcount_epoch, c->last_unshared_refcount_epoch);
+
     bulkStrRef str_ref;
     str_ref.obj = obj;
     incrRefCount(obj); /* Refcount will be decremented in write handler */
@@ -628,6 +634,7 @@ static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     /* Track clients with pending referenced reply objects for async flushdb protection. */
     if (!clientIsInPendingRefReplyList(c)) {
         listLinkNodeTail(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
+        atomicIncr(server.clients_with_pending_ref_reply_count, 1);
     }
 }
 
@@ -2049,7 +2056,13 @@ void tryUnlinkClientFromPendingRefReply(client *c, int force) {
          * since it won't be revisited by clientsCronRunClient() again. */
         setClientUnsharedReplyBytes(c, 0);
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
+        atomicDecr(server.clients_with_pending_ref_reply_count, 1);
+        if (c->reply_bytes_shared == 0) c->last_unshared_refcount_epoch = 0;
     }
+}
+
+void markClientUnsharedReplyDirty(client *c) {
+    c->last_unshared_refcount_epoch = UINT64_MAX;
 }
 
 /* Count bytes in an encoded buffer where the client holds the last remaining
@@ -2260,6 +2273,8 @@ static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
             bulkStrRef *str_ref = (bulkStrRef *)ptr;
             /* Only release if not already released. */
             if (str_ref->obj != NULL) {
+                if (str_ref->obj->refcount == 1)
+                    markClientUnsharedReplyDirty(c);
                 c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
                 if (in_io_thread)
                     ioDeferFreeRobj(c, str_ref->obj);
@@ -2682,6 +2697,8 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
                 return head;
             }
             *remaining -= (written_len - *sentlen);
+            if (str_ref->obj->refcount == 1)
+                markClientUnsharedReplyDirty(c);
             c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
@@ -3047,7 +3064,7 @@ int writeToClient(client *c, int handler_installed) {
     /* Update client's memory usage after writing.
      * Since this isn't thread safe we do this conditionally. */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
-        updateClientMemUsageAndBucket(c, 0);
+        updateClientMemUsageAndBucket(c);
     }
     return C_OK;
 }
@@ -3667,7 +3684,7 @@ int processCommandAndResetClient(client *c) {
         commandProcessed(c);
         /* Update the client's memory to include output buffer growth following the
          * processed command. */
-        if (c->conn) updateClientMemUsageAndBucket(c, 0);
+        if (c->conn) updateClientMemUsageAndBucket(c);
     }
 
     if (server.current_client == NULL) deadclient = 1;
@@ -3992,7 +4009,7 @@ int processInputBuffer(client *c) {
      * important in case the query buffer is big and wasn't drained during
      * the above loop (because of partially sent big commands). */
     if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
-        updateClientMemUsageAndBucket(c, 0);
+        updateClientMemUsageAndBucket(c);
 
     return C_OK;
 }
@@ -4277,9 +4294,6 @@ sds catClientInfoString(sds s, client *client) {
         if (connHasWriteHandler(client->conn)) *p++ = 'w';
     }
     *p = '\0';
-
-    /* Refresh the cached unshared reply bytes before computing memory stats below. */
-    updateClientUnsharedReplyBytes(client);
 
     /* Compute the total memory consumed by this client. */
     size_t obufmem = getClientOutputBufferLogicalSize(client);
@@ -4616,7 +4630,7 @@ NULL
             addReply(c,shared.ok);
         } else if (!strcasecmp(c->argv[2]->ptr,"off")) {
             c->flags &= ~CLIENT_NO_EVICT;
-            updateClientMemUsageAndBucket(c, 0);
+            updateClientMemUsageAndBucket(c);
             addReply(c,shared.ok);
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -5867,7 +5881,7 @@ void evictClients(void) {
                  * evicting clients, we update again before evicting, if the memory
                  * used by the client does not decrease or memory usage bucket is not
                  * changed, then we will evict it, otherwise, not evict it. */
-                updateClientMemUsageAndBucket(c, 0);
+                updateClientMemUsageAndBucket(c);
             }
             if (c->last_memory_usage >= last_memory ||
                 c->mem_usage_bucket == &server.client_mem_usage_buckets[curr_bucket])
