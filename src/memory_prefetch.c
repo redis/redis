@@ -53,9 +53,11 @@ typedef struct dictPrefetchLookup {
  * callbacks of each key's dict. The same prefetcher is used by both the
  * cross-command batch path and the intra-command dictPrefetchKeys() API. */
 typedef struct dictPrefetcher {
-    size_t cur_idx;              /* Cursor; advances on each prefetch issue */
+    size_t cur_idx;              /* Key index of the lookup being advanced */
+    size_t cur;                  /* Cursor into active[]; advances on each prefetch issue */
+    size_t *active;              /* Key indices not yet PREFETCH_DONE, unordered */
+    size_t nactive;              /* Entries in active[] */
     size_t nkeys;                /* Total key lookups in this batch */
-    size_t remaining;            /* Number of in-flight key lookups (not yet PREFETCH_DONE) */
     void **keys;                 /* Array of key pointers (sds) */
     dict **dicts;                /* Per-key dictionary pointers */
     dictPrefetchLookup *lookups; /* Per-key lookup state, capacity == max_keys */
@@ -94,21 +96,21 @@ typedef struct dictPrefetcher {
  * advancing the cursor. */
 static inline void dictPrefetchAdvance(dictPrefetcher *p, void *addr) {
     redis_prefetch_read(addr);
-    if (++p->cur_idx >= p->nkeys) p->cur_idx = 0;
+    if (++p->cur >= p->nactive) p->cur = 0;
 }
 
 static inline void dictPrefetchMarkDone(dictPrefetcher *p, dictPrefetchLookup *lk) {
     lk->state = PREFETCH_DONE;
-    p->remaining--;
+    /* Swap-remove: the cursor now holds the moved-in lookup. */
+    p->active[p->cur] = p->active[--p->nactive];
+    if (p->cur >= p->nactive) p->cur = 0;
     server.stat_total_prefetch_entries++;
 }
 
 /* Return the next in-flight lookup that still needs work, or NULL if all done. */
 static inline dictPrefetchLookup *dictPrefetchNextInFlight(dictPrefetcher *p) {
-    if (p->remaining == 0) return NULL;
-    while (p->lookups[p->cur_idx].state == PREFETCH_DONE) {
-        if (++p->cur_idx >= p->nkeys) p->cur_idx = 0;
-    }
+    if (p->nactive == 0) return NULL;
+    p->cur_idx = p->active[p->cur];
     return &p->lookups[p->cur_idx];
 }
 
@@ -192,11 +194,10 @@ static void dictPrefetchEntryValue(dictPrefetcher *p, dictPrefetchLookup *lk) {
     if ((!dictGetNext(lk->current_entry) && !dictIsRehashing(d)) ||
         dictCompareKeys(d, p->keys[i], cmp_key))
     {
-        if (type->prefetchEntryValue) {
-            void *addr = type->prefetchEntryValue(lk->current_entry);
-            if (addr) dictPrefetchAdvance(p, addr);
-        }
+        /* Removal moves the cursor, so retire before prefetching. */
+        void *addr = type->prefetchEntryValue ? type->prefetchEntryValue(lk->current_entry) : NULL;
         dictPrefetchMarkDone(p, lk);
+        if (addr) redis_prefetch_read(addr);
     } else {
         /* Not found in the current entry, move to the next entry */
         lk->state = PREFETCH_ENTRY;
@@ -207,12 +208,15 @@ static void dictPrefetchEntryValue(dictPrefetcher *p, dictPrefetchLookup *lk) {
  * many batches by repeated dictPrefetcherReset / dictPrefetcherRun calls. */
 static void dictPrefetcherInit(dictPrefetcher *p, size_t max_keys) {
     p->lookups = zcalloc(max_keys * sizeof(dictPrefetchLookup));
+    p->active = zmalloc(max_keys * sizeof(size_t));
     p->max_keys = max_keys;
 }
 
 static void dictPrefetcherFree(dictPrefetcher *p) {
     zfree(p->lookups);
+    zfree(p->active);
     p->lookups = NULL;
+    p->active = NULL;
     p->max_keys = 0;
 }
 
@@ -225,8 +229,9 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
     p->keys = keys;
     p->nkeys = nkeys;
     p->cur_idx = 0;
+    p->cur = 0;
 
-    size_t remaining = 0;
+    size_t nactive = 0;
     for (size_t i = 0; i < nkeys; i++) {
         dictPrefetchLookup *lk = &p->lookups[i];
         if (!dicts[i] || dictSize(dicts[i]) == 0) {
@@ -242,9 +247,9 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
         lk->current_entry = NULL;
         lk->state = PREFETCH_BUCKET;
         lk->key_hash = dictGetHash(dicts[i], keys[i]);
-        remaining++;
+        p->active[nactive++] = i;
     }
-    p->remaining = remaining;
+    p->nactive = nactive;
 }
 
 /* Drive the prefetch state machine across all dict lookups until every lookup
@@ -313,7 +318,8 @@ void dictPrefetchKeys(dict **dicts, void **keys, size_t nkeys) {
     server.stat_total_prefetch_batches++;
 
     dictPrefetchLookup lookups[DICT_PREFETCH_MAX_SIZE];
-    dictPrefetcher p = { .lookups = lookups, .max_keys = nkeys };
+    size_t active[DICT_PREFETCH_MAX_SIZE];
+    dictPrefetcher p = { .lookups = lookups, .active = active, .max_keys = nkeys };
     dictPrefetcherReset(&p, dicts, keys, nkeys);
     dictPrefetcherRun(&p);
 }
