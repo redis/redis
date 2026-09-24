@@ -89,6 +89,35 @@ start_server {tags {"tls"}} {
             set e
         } {*I/O error*}
 
+        test {TLS: a graceful client shutdown is not logged as a connection error} {
+            # Regression test for #15745. Since #14721 redis-cli performs a
+            # graceful SSL_shutdown (sends close_notify) on exit. On the server
+            # that surfaces as SSL_ERROR_ZERO_RETURN with an empty OpenSSL error
+            # queue, which used to be formatted into a meaningless
+            # "Reading from client: error:00000000:lib(0)::reason(0)" log line.
+            # A peer close_notify is a clean EOF and must be logged as such,
+            # exactly like a plain socket read() returning 0.
+            set tlsdir [file join [pwd] tests tls]
+            set stdout [srv 0 stdout]
+            set loglines [count_log_lines 0]
+
+            assert_match {*PONG*} [exec src/redis-cli \
+                -h [srv 0 host] -p [srv 0 port] --tls \
+                --cert [file join $tlsdir client.crt] \
+                --key [file join $tlsdir client.key] \
+                --cacert [file join $tlsdir ca.crt] \
+                PING 2>@1]
+
+            # The disconnect must be handled through the clean-close path...
+            wait_for_log_messages 0 {"*Client closed connection*"} $loglines 50 100
+
+            # ...and never through the error path that formatted the empty
+            # OpenSSL error queue.
+            set newlog [exec tail -n +[expr {$loglines + 1}] < $stdout]
+            assert_no_match {*error:00000000*} $newlog
+            assert_no_match {*Reading from client*} $newlog
+        }
+
         test {TLS: Verify tls-auth-clients behaves as expected} {
             set s [redis [srv 0 host] [srv 0 port]]
             ::tls::import [$s channel]
