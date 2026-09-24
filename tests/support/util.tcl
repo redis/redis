@@ -203,9 +203,17 @@ proc wait_lazyfree_done r {
     }
 }
 
+# count lines in a log file, by path. Unlike count_log_lines this doesn't need
+# a running server, so it can also be used to snapshot a log file before
+# starting the server that will write to it.
+proc count_file_lines {file} {
+    if {![file exists $file]} { return 0 }
+    return [string trim [exec wc -l < $file]]
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
-    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+    count_file_lines [srv $srv_idx stdout]
 }
 
 # returns the number of times a line with that pattern appears in a file
