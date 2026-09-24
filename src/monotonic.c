@@ -300,6 +300,9 @@ static void monotonicInit_aarch64(void) {
 
 #if defined(USE_PROCESSOR_CLOCK) && defined(__riscv) && defined(__linux__)
 static long mono_ticksPerMicrosecond = 0;
+/* Reciprocal multiplier for the mtime -> microseconds conversion, computed
+ * once in monotonicInit_riscv(). */
+static uint64_t mono_ticksPerMicrosecond_recip = 0;
 
 static inline uint64_t read_mtime(void) {
     uint64_t val;
@@ -338,7 +341,7 @@ static uint64_t get_timebase_frequency(void) {
 }
 
 static monotime getMonotonicUs_riscv(void) {
-    return read_mtime() / mono_ticksPerMicrosecond;
+    return (monotime)(((__uint128_t)read_mtime() * mono_ticksPerMicrosecond_recip) >> 64);
 }
 
 static void monotonicInit_riscv(void) {
@@ -347,6 +350,10 @@ static void monotonicInit_riscv(void) {
         monotonicLog("riscv, unable to determine clock rate");
         return;
     }
+    /* One mulhu replaces the per-call divide (iterative on many RISC-V
+     * cores). ceil(2^64 / ticks-per-us) keeps the conversion strictly
+     * non-decreasing in raw mtime; jitter vs exact division <= 1us. */
+    mono_ticksPerMicrosecond_recip = (~0ULL / (uint64_t)mono_ticksPerMicrosecond) + 1;
     snprintf(monotonic_info_string, sizeof(monotonic_info_string),
             "RISC-V mtime @ %ld ticks/us", mono_ticksPerMicrosecond);
     getMonotonicUs = getMonotonicUs_riscv;
