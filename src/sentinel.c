@@ -57,6 +57,7 @@ typedef struct sentinelAddr {
 #define SRI_FORCE_FAILOVER (1<<11)  /* Force failover with master up. */
 #define SRI_SCRIPT_KILL_SENT (1<<12) /* SCRIPT KILL already sent on -BUSY */
 #define SRI_MASTER_REBOOT  (1<<13)   /* Master was detected as rebooting */
+#define SRI_SAFE_FAILOVER (1<<14)  /* Force failover in a more safe way. */
 /* Note: when adding new flags, please check the flags section in addReplySentinelRedisInstance. */
 
 /* Note: times are in milliseconds. */
@@ -75,6 +76,7 @@ static mstime_t sentinel_election_timeout = 10000;
 static mstime_t sentinel_script_max_runtime = 60000;  /* 60 seconds max exec time. */
 static mstime_t sentinel_script_retry_delay = 30000;  /* 30 seconds between retries. */
 static mstime_t sentinel_default_failover_timeout = 60*3*1000;
+static mstime_t sentinel_default_safe_failover_timeout = 60000; /* default 1 minute safe failover time. */
 
 #define SENTINEL_HELLO_CHANNEL "__sentinel__:hello"
 #define SENTINEL_DEFAULT_SLAVE_PRIORITY 100
@@ -91,9 +93,10 @@ static mstime_t sentinel_default_failover_timeout = 60*3*1000;
 #define SENTINEL_FAILOVER_STATE_WAIT_START 1  /* Wait for failover_start_time*/
 #define SENTINEL_FAILOVER_STATE_SELECT_SLAVE 2 /* Select slave to promote */
 #define SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE 3 /* Slave -> Master */
-#define SENTINEL_FAILOVER_STATE_WAIT_PROMOTION 4 /* Wait slave to change role */
-#define SENTINEL_FAILOVER_STATE_RECONF_SLAVES 5 /* SLAVEOF newmaster */
-#define SENTINEL_FAILOVER_STATE_UPDATE_CONFIG 6 /* Monitor promoted slave. */
+#define SENTINEL_FAILOVER_STATE_SEND_FAILOVER 4 /* Send FAILOVER command to master */
+#define SENTINEL_FAILOVER_STATE_WAIT_PROMOTION 5 /* Wait slave to change role */
+#define SENTINEL_FAILOVER_STATE_RECONF_SLAVES 6 /* SLAVEOF newmaster */
+#define SENTINEL_FAILOVER_STATE_UPDATE_CONFIG 7 /* Monitor promoted slave. */
 
 #define SENTINEL_MASTER_LINK_STATUS_UP 0
 #define SENTINEL_MASTER_LINK_STATUS_DOWN 1
@@ -223,6 +226,7 @@ typedef struct sentinelRedisInstance {
     mstime_t failover_timeout;      /* Max time to refresh failover state. */
     mstime_t failover_delay_logged; /* For what failover_start_time value we
                                        logged the failover delay. */
+    mstime_t safe_failover_timeout; /* Max time to safe failover. */
     struct sentinelRedisInstance *promoted_slave; /* Promoted slave instance. */
     /* Scripts executed to notify admin or reconfigure clients: when they
      * are set to NULL no script is executed. */
@@ -1360,6 +1364,7 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->failover_state_change_time = 0;
     ri->failover_start_time = 0;
     ri->failover_timeout = sentinel_default_failover_timeout;
+    ri->safe_failover_timeout = sentinel_default_safe_failover_timeout;
     ri->failover_delay_logged = 0;
     ri->promoted_slave = NULL;
     ri->notification_script = NULL;
@@ -1551,6 +1556,7 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     ri->failover_state_change_time = 0;
     ri->failover_start_time = 0; /* We can failover again ASAP. */
     ri->promoted_slave = NULL;
+    ri->safe_failover_timeout = sentinel_default_safe_failover_timeout;
     sdsfree(ri->runid);
     sdsfree(ri->slave_master_host);
     ri->runid = NULL;
@@ -3402,6 +3408,7 @@ const char *sentinelFailoverStateStr(int state) {
     case SENTINEL_FAILOVER_STATE_WAIT_START: return "wait_start";
     case SENTINEL_FAILOVER_STATE_SELECT_SLAVE: return "select_slave";
     case SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE: return "send_slaveof_noone";
+    case SENTINEL_FAILOVER_STATE_SEND_FAILOVER: return "send_failover";
     case SENTINEL_FAILOVER_STATE_WAIT_PROMOTION: return "wait_promotion";
     case SENTINEL_FAILOVER_STATE_RECONF_SLAVES: return "reconf_slaves";
     case SENTINEL_FAILOVER_STATE_UPDATE_CONFIG: return "update_config";
@@ -4034,12 +4041,26 @@ NULL
             addReplyBulkLongLong(c,addr->port);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"failover")) {
-        /* SENTINEL FAILOVER <master-name> */
+        /* SENTINEL FAILOVER <master-name> [SAFE [timeout]]*/
         sentinelRedisInstance *ri;
+        int safeMode = 0;
+        long long safeFailOverTimeout = sentinel_default_safe_failover_timeout;
 
-        if (c->argc != 3) goto numargserr;
+        if (c->argc < 3 || c->argc > 5) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
+        if (c->argc > 3) {
+            if (strcasecmp(c->argv[3]->ptr, "safe") != 0) {
+                addReplyError(c, "Unknown failover option specified");
+                return;
+            }
+            safeMode = 1;
+            if (c->argc == 5 && (getLongLongFromObject(c->argv[4],&safeFailOverTimeout) == C_ERR
+                                 || safeFailOverTimeout < 0)) {
+                addReplyError(c,"Invalid failover timeout specified");
+                return;
+            }
+        }
         if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
             addReplyError(c,"-INPROG Failover already in progress");
             return;
@@ -4052,6 +4073,10 @@ NULL
             ri->name);
         sentinelStartFailover(ri);
         ri->flags |= SRI_FORCE_FAILOVER;
+        if (safeMode) {
+            ri->flags |= SRI_SAFE_FAILOVER;
+            ri->safe_failover_timeout = safeFailOverTimeout;
+        }
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"pending-scripts")) {
         /* SENTINEL PENDING-SCRIPTS */
@@ -4987,6 +5012,26 @@ int sentinelSendSlaveOf(sentinelRedisInstance *ri, const sentinelAddr *addr) {
     return C_OK;
 }
 
+/* Send FAILOVER to the specified instance using the specified timeout.
+ * The command returns C_OK if the FAILOVER command was accepted for
+ * (later) delivery otherwise C_ERR. */
+int sentinelSendFailover(sentinelRedisInstance *master, const sentinelAddr *addr, mstime_t timeout) {
+    char portstr[32];
+    const char *host;
+    int retval;
+
+    host = announceSentinelAddr(addr);
+    ll2string(portstr,sizeof(portstr),addr->port);
+
+    retval = redisAsyncCommand(master->link->cc, sentinelDiscardReplyCallback, master,
+                               "%s TO %s %s FORCE TIMEOUT %d", sentinelInstanceMapCommand(master, "FAILOVER"),
+                               host, portstr, timeout);
+    if (retval == C_ERR) return retval;
+    master->link->pending_commands++;
+
+    return C_OK;
+}
+
 /* Setup the master state to start a failover. */
 void sentinelStartFailover(sentinelRedisInstance *master) {
     serverAssert(master->flags & SRI_MASTER);
@@ -5193,10 +5238,15 @@ void sentinelFailoverSelectSlave(sentinelRedisInstance *ri) {
         sentinelEvent(LL_WARNING,"+selected-slave",slave,"%@");
         slave->flags |= SRI_PROMOTED;
         ri->promoted_slave = slave;
-        ri->failover_state = SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE;
         ri->failover_state_change_time = mstime();
-        sentinelEvent(LL_NOTICE,"+failover-state-send-slaveof-noone",
-            slave, "%@");
+        if (ri->flags & SRI_SAFE_FAILOVER) {
+            ri->failover_state = SENTINEL_FAILOVER_STATE_SEND_FAILOVER;
+            sentinelEvent(LL_WARNING,"+failover-state-send-failover", ri,"%@");
+        } else {
+            ri->failover_state = SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE;
+            sentinelEvent(LL_NOTICE,"+failover-state-send-slaveof-noone",
+                          slave, "%@");
+        }
     }
 }
 
@@ -5222,6 +5272,32 @@ void sentinelFailoverSendSlaveOfNoOne(sentinelRedisInstance *ri) {
     if (retval != C_OK) return;
     sentinelEvent(LL_NOTICE, "+failover-state-wait-promotion",
         ri->promoted_slave,"%@");
+    ri->failover_state = SENTINEL_FAILOVER_STATE_WAIT_PROMOTION;
+    ri->failover_state_change_time = mstime();
+}
+
+void sentinelFailoverSendFailover(sentinelRedisInstance *ri) {
+    int retval;
+
+    /* We can't send the command to the promoted slave if it is now
+     * disconnected. Retry again and again with this state until the timeout
+     * is reached, then abort the failover. */
+    if (ri->promoted_slave->link->disconnected) {
+        if (mstime() - ri->failover_state_change_time > ri->failover_timeout) {
+            sentinelEvent(LL_WARNING,"-failover-abort-slave-timeout",ri,"%@");
+            sentinelAbortFailover(ri);
+        }
+        return;
+    }
+
+    /* Send FAILOVER command to turn the master into a slave.
+     * We actually register a generic callback for this command as we don't
+     * really care about the reply. We check if it worked indirectly observing
+     * if INFO returns a different role (master instead of slave). */
+    retval = sentinelSendFailover(ri, ri->promoted_slave->addr, ri->safe_failover_timeout);
+    if (retval != C_OK) return;
+    sentinelEvent(LL_NOTICE, "+failover-state-wait-promotion",
+                  ri->promoted_slave,"%@");
     ri->failover_state = SENTINEL_FAILOVER_STATE_WAIT_PROMOTION;
     ri->failover_state_change_time = mstime();
 }
@@ -5386,6 +5462,9 @@ void sentinelFailoverStateMachine(sentinelRedisInstance *ri) {
         case SENTINEL_FAILOVER_STATE_SEND_SLAVEOF_NOONE:
             sentinelFailoverSendSlaveOfNoOne(ri);
             break;
+        case SENTINEL_FAILOVER_STATE_SEND_FAILOVER:
+            sentinelFailoverSendFailover(ri);
+            break;
         case SENTINEL_FAILOVER_STATE_WAIT_PROMOTION:
             sentinelFailoverWaitPromotion(ri);
             break;
@@ -5404,7 +5483,7 @@ void sentinelAbortFailover(sentinelRedisInstance *ri) {
     serverAssert(ri->flags & SRI_FAILOVER_IN_PROGRESS);
     serverAssert(ri->failover_state <= SENTINEL_FAILOVER_STATE_WAIT_PROMOTION);
 
-    ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_FORCE_FAILOVER);
+    ri->flags &= ~(SRI_FAILOVER_IN_PROGRESS|SRI_FORCE_FAILOVER|SRI_SAFE_FAILOVER);
     ri->failover_state = SENTINEL_FAILOVER_STATE_NONE;
     ri->failover_state_change_time = mstime();
     if (ri->promoted_slave) {

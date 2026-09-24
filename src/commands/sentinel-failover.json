@@ -3,9 +3,15 @@
         "summary": "Forces a Redis Sentinel failover.",
         "group": "sentinel",
         "since": "2.8.4",
-        "arity": 3,
+        "arity": -3,
         "container": "SENTINEL",
         "function": "sentinelCommand",
+        "history": [
+            [
+                "8.0.0",
+                "Add safe failover option."
+            ]
+        ],
         "command_flags": [
             "ADMIN",
             "SENTINEL",
@@ -13,12 +19,19 @@
         ],
         "reply_schema": {
             "const": "OK",
-            "description": "Force a fail over as if the master was not reachable, and without asking for agreement to other Sentinels."
+            "description": "Force a fail over as if the master was not reachable, and without asking for agreement to other Sentinels. The SAFE option will attempt to perform a fail over in a more safe manner, avoiding a full resynchronization."
         },
         "arguments": [
             {
                 "name": "master-name",
                 "type": "string"
+            },
+            {
+                "token": "SAFE",
+                "name": "safe",
+                "type": "pure-token",
+                "optional": true,
+                "since": "8.0.0"
             }
         ]
     }
