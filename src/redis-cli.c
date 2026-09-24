@@ -1609,7 +1609,8 @@ static void cliPressAnyKeyTTY(void) {
 /* Send AUTH command to the server */
 static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
-    if (auth == NULL) return REDIS_OK;
+    if (auth == NULL && user == NULL) return REDIS_OK;
+    if (auth == NULL) auth = "";
 
     if (user == NULL)
         reply = redisCommand(ctx,"AUTH %s",auth);
@@ -1768,8 +1769,9 @@ static int cliConnect(int flags) {
         config.current_resp3 = 0;
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
-        if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK)
+        if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK) {
             return REDIS_ERR;
+        }
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
         if (cliSwitchProto() != REDIS_OK)
@@ -11553,7 +11555,8 @@ int main(int argc, char **argv) {
         redisFree(context);
         return res;
     } else {
-        cliConnect(CC_QUIET);
+        if (cliConnect(0) != REDIS_OK)
+            exit(1);
         int res = noninteractive(argc,argv);
         redisFree(context);
         return res;
