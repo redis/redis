@@ -264,6 +264,10 @@ typedef struct RedisModuleBlockedClient {
                            RedisModule_UnblockClient() API. */
     client *thread_safe_ctx_client; /* Fake client to be used for thread safe
                                        context so that no lock is required. */
+    int client_dirty;    /* Blocked client had CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC
+                            when blocked. Snapshot for RM_GetContextFlags. */
+    int client_is_local; /* connIsLocal() of the blocked client when blocked.
+                            Snapshot for RM_GetContextFlags. */
     client *reply_client;           /* Fake client used to accumulate replies
                                        in thread safe contexts. */
     int dbid;           /* Database number selected by the original client. */
@@ -4025,13 +4029,21 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
             }
         }
 
-        /* For DIRTY flags, we need the blocked client if used */
-        client *c = ctx->blocked_client ? ctx->blocked_client->client : ctx->client;
-        if (c && (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))) {
-            flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
-        }
-        if (c && allowProtectedAction(server.enable_debug_cmd, c)) {
-            flags |= REDISMODULE_CTX_FLAGS_DEBUG_ENABLED;
+        /* The DIRTY and DEBUG flags describe the original client. With a
+         * blocked client this may run on a module thread (thread safe context),
+         * while the main thread keeps mutating that client's flags and clears
+         * bc->client on disconnect, so read the snapshot taken at block time
+         * instead of the client itself. */
+        if (ctx->blocked_client) {
+            if (ctx->blocked_client->client_dirty)
+                flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
+            if (allowProtectedActionIsLocal(server.enable_debug_cmd, ctx->blocked_client->client_is_local))
+                flags |= REDISMODULE_CTX_FLAGS_DEBUG_ENABLED;
+        } else if (ctx->client) {
+            if (ctx->client->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))
+                flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
+            if (allowProtectedAction(server.enable_debug_cmd, ctx->client))
+                flags |= REDISMODULE_CTX_FLAGS_DEBUG_ENABLED;
         }
     }
 
@@ -8436,8 +8448,17 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->privdata = privdata;
     bc->reply_client = moduleAllocTempClient();
     bc->thread_safe_ctx_client = moduleAllocTempClient();
-    if (bc->client)
+    if (bc->client) {
         bc->reply_client->resp = bc->client->resp;
+        /* Everything a thread safe context may later need from the blocked
+         * client is captured here, on the main thread. Worker threads must not
+         * dereference bc->client: the main thread keeps mutating it and clears
+         * the pointer on disconnect. */
+        bc->thread_safe_ctx_client->id = bc->client->id;
+        bc->thread_safe_ctx_client->resp = bc->client->resp;
+    }
+    bc->client_dirty = (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC)) != 0;
+    bc->client_is_local = connIsLocal(c->conn);
     bc->dbid = c->db->id;
     bc->blocked_on_keys = keys != NULL;
     bc->unblocked = 0;
@@ -9176,12 +9197,10 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
      * things. */
     if (bc) {
         ctx->blocked_client = bc;
+        /* The fake client already carries the blocked client's id and RESP
+         * version, copied when the client was blocked (see moduleBlockClient). */
         ctx->client = bc->thread_safe_ctx_client;
         selectDb(ctx->client,bc->dbid);
-        if (bc->client) {
-            ctx->client->id = bc->client->id;
-            ctx->client->resp = bc->client->resp;
-        }
     }
     return ctx;
 }
