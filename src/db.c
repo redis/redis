@@ -2190,6 +2190,7 @@ void typeCommand(client *c) {
     addReplyStatus(c, getObjectTypeName(kv));
 }
 
+/* SHUTDOWN [[NOSAVE | SAVE] [NOW] [FORCE] | ABORT] */
 void shutdownCommand(client *c) {
     int flags = SHUTDOWN_NOFLAGS;
     int abort = 0;
