@@ -17,6 +17,15 @@ proc test_scan {type} {
         assert_equal 1000 [llength $keys]
     }
 
+    test "{$type} SCAN rejects cursors that underflow long long" {
+        # A negative number whose magnitude exceeds LLONG_MIN used to reach the
+        # strtoull() fallback in string2ull(), which silently wrapped it into a
+        # huge positive cursor instead of failing.
+        assert_error {*invalid cursor*} {r scan -9223372036854775809}
+        assert_error {*invalid cursor*} {r scan { -1}}
+        assert_error {*invalid cursor*} {r scan -1}
+    }
+
    test "{$type} SCAN COUNT" {
         r flushdb
         populate 1000
