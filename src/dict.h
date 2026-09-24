@@ -287,6 +287,7 @@ dictEntry *dictGetFairRandomKey(dict *d);
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d, int full);
 uint64_t dictGenHashFunction(const void *key, size_t len);
+void dictGenHashFunctionBatch(const void **keys, const size_t *lens, uint64_t *out, unsigned int n);
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len);
 void dictEmpty(dict *d, void(callback)(dict*));
 void dictSetResizeEnabled(dictResizeEnable enable);
