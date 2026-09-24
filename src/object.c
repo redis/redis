@@ -635,6 +635,14 @@ void freeArrayObject(robj *o) {
     arFree(o->ptr);
 }
 
+static inline void signalReplyRefcountMayBecomeUnshared(robj *o) {
+    if (o->type != OBJ_STRING || o->encoding != OBJ_ENCODING_RAW) return;
+
+    size_t pending_reply_clients;
+    atomicGet(server.clients_with_pending_ref_reply_count, pending_reply_clients);
+    if (pending_reply_clients) atomicIncr(server.reply_refcount_epoch, 1);
+}
+
 void incrRefCount(robj *o) {
     if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
         o->refcount++;
@@ -656,6 +664,10 @@ void decrRefCount(robj *o) {
     if (unlikely(o->refcount <= 0)) {
         serverPanic("illegal decrRefCount for object with: type %u, encoding %u, refcount %d",
             o->type, o->encoding, o->refcount);
+    }
+
+    if (o->refcount == 2) {
+        signalReplyRefcountMayBecomeUnshared(o);
     }
 
     if (--(o->refcount) == 0) {
