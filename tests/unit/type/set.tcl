@@ -168,6 +168,159 @@ foreach type {single multiple single_multiple} {
     }
 }
 
+    test {SINTERSTORE listpack (intset heritage) with duplicate source key} {
+        set s "{set}s"
+        set d "{set}d"
+        r del $s $d
+        r sadd $s 1 2 3 4 5
+        r sadd $s marker
+        assert_encoding listpack $s
+
+        assert_equal 6 [r scard $s]
+        assert_equal 6 [r sinterstore $d $s $s]
+        assert_encoding listpack $d
+        assert_equal 6 [r scard $d]
+        assert_equal [lsort [r smembers $s]] [lsort [r smembers $d]]
+    }
+
+    test {SADD integer deduplication in listpack} {
+        set oi [lindex [r config get set-max-intset-entries] 1]
+        set err [catch {
+            r config set set-max-intset-entries 0
+            r del s
+            r sadd s 1 2 3 marker
+            assert_encoding listpack s
+            assert_equal 0 [r sadd s 2]
+            assert_equal 4 [r scard s]
+        } e]
+        r config set set-max-intset-entries $oi
+        if {$err} {error $e}
+    }
+
+    test {SINTERSTORE listpack sets overlap on compact integer members} {
+        set oi [lindex [r config get set-max-intset-entries] 1]
+        set err [catch {
+            set a "{set}a"
+            set b "{set}b"
+            set i "{set}i"
+            r config set set-max-intset-entries 0
+            r del $a $b $i
+            r sadd $a 10 20 30 40
+            r sadd $a ax
+            r sadd $b 30 40 50 60
+            r sadd $b bx
+            assert_encoding listpack $a
+            assert_encoding listpack $b
+
+            assert_equal 2 [r sinterstore $i $a $b]
+            assert_encoding listpack $i
+
+            # Only the overlapping integers should be present
+            assert_equal 1 [r sismember $i 30]
+            assert_equal 1 [r sismember $i 40]
+
+            # Non-overlapping integers must be absent
+            assert_equal 0 [r sismember $i 10]
+            assert_equal 0 [r sismember $i 50]
+
+            # String members are never in the intersection
+            assert_equal 0 [r sismember $i ax]
+            assert_equal 0 [r sismember $i bx]
+        } e]
+        r config set set-max-intset-entries $oi
+        if {$err} {error $e}
+    }
+
+    test {SINTERSTORE listpack three-way intersection with integers} {
+        set oi [lindex [r config get set-max-intset-entries] 1]
+        set err [catch {
+            set x "{set}x"
+            set y "{set}y"
+            set z "{set}z"
+            set out "{set}out"
+            r config set set-max-intset-entries 0
+            r del $x $y $z $out
+            r sadd $x 1 2 3 4
+            r sadd $x sx
+            r sadd $y 2 3 4 5
+            r sadd $y sy
+            r sadd $z 3 4 5 6
+            r sadd $z sz
+            assert_encoding listpack $x
+            assert_encoding listpack $y
+            assert_encoding listpack $z
+
+            assert_equal 2 [r sinterstore $out $x $y $z]
+            assert_encoding listpack $out
+
+            # Only integers present in all three sets
+            assert_equal 1 [r sismember $out 3]
+            assert_equal 1 [r sismember $out 4]
+            assert_equal 2 [r scard $out]
+
+            # String members must not bleed into result
+            assert_equal 0 [r sismember $out sx]
+            assert_equal 0 [r sismember $out sy]
+            assert_equal 0 [r sismember $out sz]
+        } e]
+        r config set set-max-intset-entries $oi
+        if {$err} {error $e}
+    }
+
+    test {SPOP listpack rebuild union of popped and remainder} {
+        r del s
+        r sadd s 1 2 3 4 5 6 7 8 9
+        r sadd s z
+        assert_encoding listpack s
+        assert_equal 10 [r scard s]
+
+        set popped [r spop s 9]
+        # No -unique: duplicates in popped would be a bug
+        assert_equal 9 [llength $popped]
+        assert_equal 1 [r scard s]
+        assert_encoding listpack s
+
+        set all [lsort [concat $popped [r smembers s]]]
+        assert_equal [lsort {1 2 3 4 5 6 7 8 9 z}] $all
+    }
+
+    test {SUNIONSTORE listpack sources union deduplicates shared members} {
+        set a "{set}a"
+        set b "{set}b"
+        set u "{set}u"
+        r del $a $b $u
+        r sadd $a 1 2 3
+        r sadd $a sa
+        r sadd $b 3 4 5
+        r sadd $b sb
+        assert_encoding listpack $a
+        assert_encoding listpack $b
+
+        # 3 is shared; union must count it once → 7 distinct members
+        assert_equal 7 [r sunionstore $u $a $b]
+        assert_encoding listpack $u
+        assert_equal 7 [r scard $u]
+
+        foreach e {1 2 3 4 5 sa sb} {
+            assert_equal 1 [r sismember $u $e]
+        }
+    }
+
+    test {listpack numeric string is stored as integer encoding} {
+        set oi [lindex [r config get set-max-intset-entries] 1]
+        set err [catch {
+            r config set set-max-intset-entries 0
+            r del s
+            r sadd s "100"
+            assert_encoding listpack s
+            # "100" must be stored as integer-encoded entry, not string
+            assert_equal 1 [r sismember s 100]
+            assert_equal 0 [r sismember s "101"]
+        } e]
+        r config set set-max-intset-entries $oi
+        if {$err} {error $e}
+    }
+
     test {Variadic SADD} {
         r del myset
         assert_equal 3 [r sadd myset a b c]
