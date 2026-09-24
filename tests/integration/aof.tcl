@@ -900,6 +900,13 @@ tags {"aof external:skip"} {
     file rename -force $last_aof_file $mid_aof_file
     file rename -force $tmp_file $last_aof_file
 
+    # The server above truncated the corruption off the mid file in place
+    # before failing, so re-create it, now in the last file.
+    create_aof $aof_dirpath $last_aof_file {
+        append_to_aof [formatCommand set fo mid]
+        append_to_aof "CORRUPTION"
+    }
+
     # Should now start successfully since corruption is in last AOF file
     start_server_aof [list dir $server_path aof-load-corrupt-tail-max-size 4096] {
         test "Corrupted last AOF file: Server should still start and recover" {
