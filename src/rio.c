@@ -430,7 +430,6 @@ static size_t rioConnsetWrite(rio *r, const void *buf, size_t len) {
     const size_t pre_flush_size = 256 * 1024;
     unsigned char *p = (unsigned char*) buf;
     size_t buflen = len;
-    size_t failed = 0; /* number of connections that write() returned error. */
 
     /* For small writes, we rather keep the data in user-space buffer, and flush
      * it only when it grows. however for larger writes, we prefer to flush
@@ -455,6 +454,7 @@ static size_t rioConnsetWrite(rio *r, const void *buf, size_t len) {
          * TCP socket. */
         size_t limit = PROTO_IOBUF_LEN * 2;
         size_t count = buflen < limit ? buflen : limit;
+        size_t failed = 0;
 
         for (size_t i = 0; i < r->io.connset.n_dst; i++) {
             size_t n_written = 0;
