@@ -1287,16 +1287,28 @@ static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
                                   tmplNewField *new_fields, int num_new_fields)
 {
     unsigned long long old_field_count = tmpl->field_count;
+    unsigned long long total_field_count = old_field_count + num_new_fields;
+
+    /* hash-max-template-entries is also enforced when a template hash grows.
+     * Convert off the shared template so wide hashes do not stay registered. */
+    if (server.hash_max_template_entries > 0 &&
+        total_field_count > server.hash_max_template_entries)
+    {
+        hashTypeConvert(db, o, OBJ_ENCODING_LISTPACK);
+        for (int i = 0; i < num_new_fields; i++) {
+            hashTypeSet(db, o, new_fields[i].field, new_fields[i].value, 0);
+        }
+        return;
+    }
 
     /* Check if the listpack needs to be converted to array */
     if (o->encoding == OBJ_ENCODING_TMPL_LP &&
-        old_field_count + num_new_fields > server.hash_max_listpack_entries)
+        total_field_count > server.hash_max_listpack_entries)
     {
         hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
     }
 
     /* Merge old and new names into the new template's field array. */
-    unsigned long long total_field_count = old_field_count + num_new_fields;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
     sds *fields_arr = (total_field_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
                                                                      zmalloc(sizeof(sds) * total_field_count);
