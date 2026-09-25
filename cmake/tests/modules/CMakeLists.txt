@@ -46,7 +46,7 @@ list(APPEND MODULES_LIST "keymeta_notify")
 
 foreach (MODULE_NAME ${MODULES_LIST})
     message(STATUS "Building test module: ${MODULE_NAME}")
-    add_library(${MODULE_NAME} SHARED "../tests/modules/${MODULE_NAME}.c")
+    add_library(${MODULE_NAME} SHARED "${REDIS_ROOT}/tests/modules/${MODULE_NAME}.c")
     target_include_directories(${MODULE_NAME} PRIVATE "${REDIS_ROOT}/src")
     if (LINUX AND NOT APPLE)
         # set the std to gnu11 here, to allow crash.c to get compiled

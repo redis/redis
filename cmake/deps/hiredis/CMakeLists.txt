@@ -28,13 +28,19 @@ INCLUDE(GNUInstallDirs)
 SET(CMAKE_C_STANDARD 99)
 SET(CMAKE_DEBUG_POSTFIX d)
 
+if(MSVC)
+    set(HIREDIS_SDS "${CMAKE_BINARY_DIR}/patched/deps/hiredis/sds.c")
+else()
+    set(HIREDIS_SDS "${REDIS_ROOT}/deps/hiredis/sds.c")
+endif()
+
 SET(hiredis_sources
     ${REDIS_ROOT}/deps/hiredis/alloc.c
     ${REDIS_ROOT}/deps/hiredis/async.c
     ${REDIS_ROOT}/deps/hiredis/hiredis.c
     ${REDIS_ROOT}/deps/hiredis/net.c
     ${REDIS_ROOT}/deps/hiredis/read.c
-    "${CMAKE_BINARY_DIR}/patched/deps/hiredis/sds.c"
+    ${HIREDIS_SDS}
     ${REDIS_ROOT}/deps/hiredis/sockcompat.c)
 
 SET(hiredis_sources ${hiredis_sources})
