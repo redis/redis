@@ -1141,12 +1141,14 @@ int updateClientMemUsageAndBucket(client *c) {
      * than the main one is a module call from a spawned thread. This is safe
      * since this call must have been made after calling
      * RedisModule_ThreadSafeContextLock i.e the module is holding the GIL. In
-     * that special case we assert that at least the updated client's
-     * running_tid is the main thread. The true main thread is allowed to call
+     * that special case we assert that the updated client's running_tid is
+     * the main thread, or that its IO-thread is paused, f.e see
+     * applyClientMaxMemoryUsage(). The true main thread is allowed to call
      * this function on clients handled by IO-threads as it makes sure the
      * IO-threads are paused, f.e see clientsCron() and evictClients(). */
     serverAssert((pthread_equal(pthread_self(), server.main_thread_id) ||
-                  c->running_tid == IOTHREAD_MAIN_THREAD_ID) && c->conn);
+                  c->running_tid == IOTHREAD_MAIN_THREAD_ID ||
+                  isIOThreadPaused(c->running_tid)) && c->conn);
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 

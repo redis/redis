@@ -851,3 +851,36 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
         }
     }
 }
+
+# Regression test for the crash where sendTrackingMessage() (src/tracking.c) calls
+# pauseIOThread() for a REDIRECT target living on an IO thread while itself running on
+# a module thread (not the main thread): pauseIOThreadsRange() then asserts
+# pthread_equal(pthread_self(), server.main_thread_id) and the server aborts.
+test {CLIENT TRACKING REDIRECT to a client on an IO thread survives invalidation from a module thread} {
+    start_server [list overrides [list loadmodule "$testmodule" io-threads 4] tags {"external:skip"}] {
+        # R is the redirect target: a plain RESP3 client, pinned to one of the IO threads.
+        set R [redis_deferring_client]
+        $R HELLO 3
+        $R read
+        $R CLIENT ID
+        set rid [$R read]
+
+        # A enables tracking redirected to R, then registers "thread-call" for tracking.
+        r CLIENT TRACKING on REDIRECT $rid
+        r SELECT 9
+        r GET thread-call
+
+        # propagate-test.thread spawns a module thread that takes the GIL and INCRs
+        # thread-call in db 9 (tests/modules/propagate.c: threadMain/propagateTestThreadCommand).
+        r propagate-test.thread
+
+        # Expect a RESP3 push: >2 "invalidate" *1 "thread-call" -- on unstable this
+        # never arrives because the server crashes first.
+        set res [$R read]
+        assert_equal invalidate [lindex $res 0]
+        assert_equal {thread-call} [lindex $res 1]
+
+        # The server must still be alive and serving other clients.
+        assert_equal {PONG} [r PING]
+    }
+}
