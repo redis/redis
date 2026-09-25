@@ -332,6 +332,30 @@ start_server {tags {"protocol network"}} {
         assert_equal [r exec] 2
     }
 
+    test "Pipelined replies overflowing the reply buffer keep every byte in place" {
+        # Enough replies to fill the static buffer and several blocks of the
+        # reply list, mixing small elements with a deferred length (KEYS) and
+        # a value large enough to be referenced instead of copied (GET).
+        r flushdb
+        set elements {}
+        for {set j 0} {$j < 300} {incr j} {lappend elements "element:$j"}
+        r rpush biglist {*}$elements
+        set big [string repeat x 20000]
+        r set bigval $big
+        set rd [redis_deferring_client]
+        for {set j 0} {$j < 20} {incr j} {
+            $rd lrange biglist 0 -1
+            $rd keys biglis*
+            $rd get bigval
+        }
+        for {set j 0} {$j < 20} {incr j} {
+            assert_equal $elements [$rd read]
+            assert_equal {biglist} [$rd read]
+            assert_equal $big [$rd read]
+        }
+        $rd close
+    }
+
 }
 
 start_server {tags {"regression"}} {
