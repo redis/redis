@@ -235,7 +235,10 @@ static redisContext *getRedisContext(const char *ip, int port,
     }
     if (config.tls==1) {
         const char *err = NULL;
-        if (cliSecureConnection(ctx, config.sslconfig, &err) == REDIS_ERR && err) {
+        if (cliSecureConnection(ctx, config.sslconfig, &err) == REDIS_ERR) {
+            /* A handshake failure (e.g. certificate verification) is reported
+             * on the context rather than through err. */
+            if (err == NULL) err = ctx->errstr;
             fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
             goto cleanup;
         }
@@ -583,6 +586,14 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
              * is actually writable. At worst we get EAGAIN. */
             const ssize_t nwritten = cliWriteConn(c->context,ptr,writeLen);
             if (nwritten != writeLen) {
+                if (nwritten == -1 && c->context->err) {
+                    /* Fatal connection error, e.g. a failed TLS handshake
+                     * (certificate verification happens during the first
+                     * writes on a non-blocking context). cliWriteConn reports
+                     * it as EAGAIN, which would otherwise spin forever here. */
+                    fprintf(stderr,"Error: %s\n",c->context->errstr);
+                    exit(1);
+                }
                 if (nwritten == -1 && errno != EAGAIN) {
                     if (errno != EPIPE)
                         fprintf(stderr, "Error writing to the server: %s\n", strerror(errno));
@@ -660,7 +671,11 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     }
     if (config.tls==1) {
         const char *err = NULL;
-        if (cliSecureConnection(c->context, config.sslconfig, &err) == REDIS_ERR && err) {
+        if (cliSecureConnection(c->context, config.sslconfig, &err) == REDIS_ERR) {
+            /* A handshake failure is reported on the context rather than
+             * through err (on this non-blocking context the handshake only
+             * begins here; a later failure surfaces in writeHandler). */
+            if (err == NULL) err = c->context->errstr;
             fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
             exit(1);
         }
@@ -1524,6 +1539,11 @@ int parseOptions(int argc, char **argv) {
             config.sslconfig.cacert = strdup(argv[++i]);
         } else if (!strcmp(argv[i],"--insecure")) {
             config.sslconfig.skip_cert_verify = 1;
+        } else if (!strcmp(argv[i],"--no-verify-hostname")) {
+            config.sslconfig.skip_hostname_verify = 1;
+        } else if (!strcmp(argv[i],"--tls-expected-peer-name")) {
+            if (lastarg) goto invalid;
+            config.sslconfig.expected_peer_name = strdup(argv[++i]);
         } else if (!strcmp(argv[i],"--cert")) {
             if (lastarg) goto invalid;
             config.sslconfig.cert = strdup(argv[++i]);
@@ -1561,13 +1581,24 @@ invalid:
 usage:
     tls_usage =
 #ifdef USE_OPENSSL
-" --tls              Establish a secure TLS connection.\n"
-" --sni <host>       Server name indication for TLS.\n"
+" --tls              Establish a secure TLS connection. The server certificate\n"
+"                    must chain to the trusted CA and carry the expected\n"
+"                    identity: the name given to --sni, or else the host that\n"
+"                    was dialed (as an IP or DNS SAN).\n"
+" --sni <host>       Server name indication for TLS. Also the identity the\n"
+"                    server certificate is verified against.\n"
 " --cacert <file>    CA Certificate file to verify with.\n"
 " --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                    If neither cacert nor cacertdir are specified, the default\n"
 "                    system-wide trusted root certs configuration will apply.\n"
 " --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+" --no-verify-hostname\n"
+"                    Verify only that the server certificate chains to the\n"
+"                    trusted CA, not that it carries the expected identity.\n"
+" --tls-expected-peer-name <names>\n"
+"                    Verify the server certificate against these identities\n"
+"                    instead of the dialed host or SNI: a space-separated list\n"
+"                    of DNS names (any match succeeds) or a single IP address.\n"
 " --cert <file>      Client certificate to authenticate with.\n"
 " --key <file>       Private key file to authenticate with.\n"
 " --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
@@ -1772,6 +1803,35 @@ int main(int argc, char **argv) {
     tag = "";
 
 #ifdef USE_OPENSSL
+    /* Identity verification options. --no-verify-hostname drops to chain-only
+     * validation, so it contradicts an explicit expected identity; --insecure
+     * verifies nothing at all, so an expected identity could never be checked. */
+    if (config.sslconfig.expected_peer_name) {
+        if (config.sslconfig.skip_hostname_verify) {
+            fprintf(stderr, "Options --tls-expected-peer-name and --no-verify-hostname "
+                            "are mutually exclusive.\n");
+            exit(1);
+        }
+        if (config.sslconfig.skip_cert_verify) {
+            fprintf(stderr, "Option --insecure cannot be combined with "
+                            "--tls-expected-peer-name.\n");
+            exit(1);
+        }
+        int parent_domains = 0;
+        const char *name_err = cliValidateExpectedPeerNames(config.sslconfig.expected_peer_name,
+                                                            &parent_domains);
+        if (name_err) {
+            fprintf(stderr, "Invalid --tls-expected-peer-name: %s.\n", name_err);
+            exit(1);
+        }
+        if (parent_domains) {
+            fprintf(stderr, "Warning: --tls-expected-peer-name has %d entr%s beginning "
+                            "with a dot; such an entry is a parent-domain pattern that "
+                            "matches any subdomain at any depth, not a single host.\n",
+                            parent_domains, parent_domains == 1 ? "y" : "ies");
+        }
+    }
+
     if (config.tls) {
         cliSecureInit();
     }

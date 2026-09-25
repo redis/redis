@@ -5,7 +5,14 @@
 #   tests/tls/ca.{crt,key}          Self signed CA certificate.
 #   tests/tls/redis.{crt,key}       A certificate with no key usage/policy restrictions.
 #   tests/tls/client.{crt,key}      A certificate restricted for SSL client usage.
-#   tests/tls/server.{crt,key}      A certificate restricted for SSL server usage.
+#   tests/tls/server.{crt,key}      A certificate restricted for SSL server usage. Its
+#                                   SAN carries the loopback identities (IP 127.0.0.1,
+#                                   IP ::1, DNS localhost), so clients that verify the
+#                                   server's identity by default (redis-cli,
+#                                   redis-benchmark, Sentinel) accept the test servers.
+#                                   redis.{crt,key} above deliberately has no SAN and
+#                                   doubles as the "certificate without an identity"
+#                                   fixture for the negative tests.
 #   tests/tls/san.{crt,key}         A certificate carrying subjectAltName DNS entries
 #                                   (redis.local, cluster.local), used to exercise
 #                                   tls-expected-peer-name verification.
@@ -48,6 +55,7 @@ cat > tests/tls/openssl.cnf <<_END_
 [ server_cert ]
 keyUsage = digitalSignature, keyEncipherment
 nsCertType = server
+subjectAltName = IP:127.0.0.1, IP:::1, DNS:localhost
 
 [ client_cert ]
 keyUsage = digitalSignature, keyEncipherment
