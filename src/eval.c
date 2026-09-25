@@ -318,6 +318,47 @@ static void evalCalcFunctionName(int evalsha, sds script, char *out_funcname) {
     }
 }
 
+/* EVAL finds its script by the SHA1 of the body, and hashing the whole body on
+ * every call costs more than running a short script. So we remember the SHA1
+ * of the last body hashed for each length (modulo the table size): when the
+ * cached script stored under that SHA1 has the same body, the SHA1 is the one
+ * sha1hex() would return, whatever happened to the scripts cache meanwhile. */
+#define EVAL_SHA_CACHE_SIZE 16
+typedef struct evalShaCacheEntry {
+    size_t len;
+    char sha[41];
+} evalShaCacheEntry;
+static evalShaCacheEntry evalShaCache[EVAL_SHA_CACHE_SIZE];
+
+/* Like evalCalcFunctionName() followed by a lookup in the scripts cache, but
+ * for EVAL the body is hashed only if it's not the one of the script stored
+ * under the remembered SHA1. Returns the script's entry, or NULL if the script
+ * is not cached. */
+static dictEntry *evalFindScript(int evalsha, sds script, char *out_funcname) {
+    if (!evalsha) {
+        size_t len = sdslen(script);
+        evalShaCacheEntry *slot = &evalShaCache[len % EVAL_SHA_CACHE_SIZE];
+        if (slot->sha[0] && slot->len == len) {
+            dictEntry *de = dictFind(lctx.lua_scripts, slot->sha);
+            if (de) {
+                sds body = ((luaScript *)dictGetVal(de))->body->ptr;
+                if (sdslen(body) == len && !memcmp(body, script, len)) {
+                    out_funcname[0] = 'f';
+                    out_funcname[1] = '_';
+                    memcpy(out_funcname+2, slot->sha, 41);
+                    return de;
+                }
+            }
+        }
+        evalCalcFunctionName(evalsha, script, out_funcname);
+        slot->len = len;
+        memcpy(slot->sha, out_funcname+2, 41);
+    } else {
+        evalCalcFunctionName(evalsha, script, out_funcname);
+    }
+    return dictFind(lctx.lua_scripts, out_funcname+2);
+}
+
 /* Helper function to try and extract shebang flags from the script body.
  * If no shebang is found, return with success and COMPAT mode flag.
  * The err arg is optional, can be used to get a detailed error string.
@@ -396,9 +437,7 @@ uint64_t evalGetCommandFlags(client *c, uint64_t cmd_flags) {
     if (evalsha && sdslen(c->argv[1]->ptr) != 40)
         return cmd_flags;
     uint64_t script_flags;
-    evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
-    char *lua_cur_script = funcname + 2;
-    c->cur_script = dictFind(lctx.lua_scripts, lua_cur_script);
+    c->cur_script = evalFindScript(evalsha, c->argv[1]->ptr, funcname);
     if (!c->cur_script) {
         if (evalsha)
             return cmd_flags;
@@ -565,12 +604,13 @@ void evalGenericCommand(client *c, int evalsha) {
         return;
     }
 
-    if (c->cur_script) {
+    dictEntry *de = c->cur_script;
+    if (de) {
         funcname[0] = 'f', funcname[1] = '_';
-        memcpy(funcname+2, dictGetKey(c->cur_script), 40);
+        memcpy(funcname+2, dictGetKey(de), 40);
         funcname[42] = '\0';
     } else
-        evalCalcFunctionName(evalsha, c->argv[1]->ptr, funcname);
+        de = evalFindScript(evalsha, c->argv[1]->ptr, funcname);
 
     /* Push the pcall error handler function on the stack. */
     lua_getglobal(lua, "__redis__err__handler");
@@ -599,7 +639,6 @@ void evalGenericCommand(client *c, int evalsha) {
     }
 
     char *lua_cur_script = funcname + 2;
-    dictEntry *de = c->cur_script;
     if (!de)
         de = dictFind(lctx.lua_scripts, lua_cur_script);
     luaScript *l = dictGetVal(de);
