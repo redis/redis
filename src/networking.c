@@ -2472,14 +2472,16 @@ void freeClient(client *c) {
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(client *c) {
     if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-        int main_thread = pthread_equal(pthread_self(), server.main_thread_id);
-        /* Make sure the main thread can access IO thread data safely. */
-        if (main_thread) pauseIOThread(c->tid);
+        int can_pause = pthread_equal(pthread_self(), server.main_thread_id) ||
+                        moduleThreadHoldsGIL();
+        /* Make sure the main thread, or a module thread holding the GIL, can
+         * access IO thread data safely. */
+        if (can_pause) pauseIOThread(c->tid);
         if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP)) {
             c->io_flags |= CLIENT_IO_CLOSE_ASAP;
             enqueuePendingClientsToMainThread(c, 1);
         }
-        if (main_thread) resumeIOThread(c->tid);
+        if (can_pause) resumeIOThread(c->tid);
         return;
     }
 
@@ -4220,7 +4222,7 @@ sds catClientInfoString(sds s, client *client) {
     /* Pause IO thread to access data of the client safely. */
     int paused = 0;
     if (client->running_tid != IOTHREAD_MAIN_THREAD_ID &&
-        pthread_equal(server.main_thread_id, pthread_self()) &&
+        (pthread_equal(server.main_thread_id, pthread_self()) || moduleThreadHoldsGIL()) &&
         !isCrashing())
     {
         paused = 1;
@@ -4339,7 +4341,7 @@ sds getAllClientsInfoString(int type) {
      * specific IO thread will not repeatedly execute in catClientInfoString. */
     int allpaused = 0;
     if (server.io_threads_num > 1 && !isCrashing() &&
-        pthread_equal(server.main_thread_id, pthread_self()))
+        (pthread_equal(server.main_thread_id, pthread_self()) || moduleThreadHoldsGIL()))
     {
         allpaused = 1;
         pauseAllIOThreads();

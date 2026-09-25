@@ -3489,6 +3489,7 @@ getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd);
 /* iothread.c - the threaded io implementation */
 void initThreadedIO(void);
 void killIOThreads(void);
+int isIOThreadPaused(int id);
 void pauseIOThread(int id);
 void resumeIOThread(int id);
 void pauseAllIOThreads(void);
