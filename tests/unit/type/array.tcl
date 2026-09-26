@@ -488,7 +488,7 @@ start_server {
         r arset myarray 2000000 b
 
         assert_error {*count exceeds maximum of 1000000 items*} {r arlastitems myarray 1000001}
-        assert_equal 2 [llength [r arlastitems myarray 2]]
+        assert_equal {{} b} [r arlastitems myarray 2]
     }
 
     # AROP tests
