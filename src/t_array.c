@@ -43,6 +43,7 @@ robj *arrayTypeDup(robj *o) {
  * -------------------------------------------------------------------------- */
 
 #define ARGETRANGE_MAX_ITEMS 1000000
+#define ARLASTITEMS_MAX_ITEMS 1000000
 
 /* Lookup array object for write, create it if missing, or reply with
  * WRONGTYPE and return NULL if the key holds a different type. */
@@ -1835,7 +1836,18 @@ void arlastitemsCommand(client *c) {
     redisArray *ar = o->ptr;
     uint64_t ar_len = arLen(ar);
     uint64_t effective_count =
-        (uint64_t)count > ar->count ? ar->count : (uint64_t)count;
+        (uint64_t)count > ar_len ? ar_len : (uint64_t)count;
+
+    /* We walk positions, not existing items, so on a sparse array the reply
+     * can be made of a huge amount of NULLs. Hard limit like the ARGETRANGE
+     * one, see the comment there, applied only when the reply would be longer
+     * than the number of existing items, so dense arrays are not affected. */
+    if (effective_count > ar->count &&
+        effective_count > ARLASTITEMS_MAX_ITEMS) {
+        addReplyErrorFormat(c, "count exceeds maximum of %u items",
+            ARLASTITEMS_MAX_ITEMS);
+        return;
+    }
 
     /* Should never happen in practice, because we checked the COUNT before
      * and the array should not be empty to be still a Redis key, so this
