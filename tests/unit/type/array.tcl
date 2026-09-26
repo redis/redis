@@ -473,6 +473,24 @@ start_server {
         assert_equal {40 30 20} [r arlastitems myarray 3 REV]
     }
 
+    test {ARLASTITEMS does not drop elements past a hole} {
+        r del myarray
+        r arinsert myarray a b c d e
+        r ardel myarray 1
+
+        assert_equal {a {} c d e} [r arlastitems myarray 10]
+        assert_equal {e d c {} a} [r arlastitems myarray 10 REV]
+    }
+
+    test {ARLASTITEMS errors when the walked positions exceed the hard limit} {
+        r del myarray
+        r arset myarray 0 a
+        r arset myarray 2000000 b
+
+        assert_error {*count exceeds maximum of 1000000 items*} {r arlastitems myarray 1000001}
+        assert_equal 2 [llength [r arlastitems myarray 2]]
+    }
+
     # AROP tests
     test {AROP SUM} {
         r del myarray
