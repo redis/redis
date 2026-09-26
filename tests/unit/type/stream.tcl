@@ -745,40 +745,48 @@ start_server {
 
     test {XIDMPRECORD AOF rewrite restores IDMP} {
         r DEL mystream
+        # Force a plain command AOF so the rewrite emits XIDMPRECORD records
+        # instead of an RDB preamble carrying the IDMP state.
+        r config set aof-use-rdb-preamble no
         r config set appendonly yes
         waitForBgrewriteaof r
 
         set id1 [r XADD mystream IDMP p1 "aof-xidmp-1" * field "value1"]
-        r XADD mystream IDMP p1 "aof-xidmp-2" * field "value2"
+        set id2 [r XADD mystream IDMP p1 "aof-xidmp-2" * field "value2"]
         set id1_dup [r XADD mystream IDMP p1 "aof-xidmp-1" * field "dup"]
         assert_equal $id1 $id1_dup
 
         r BGREWRITEAOF
         waitForBgrewriteaof r
-        r DEBUG RELOAD
+        r DEBUG LOADAOF
 
         assert_equal 2 [r XLEN mystream]
         set id1_dup2 [r XADD mystream IDMP p1 "aof-xidmp-1" * field "new"]
         assert_equal $id1 $id1_dup2
+        set id2_dup [r XADD mystream IDMP p1 "aof-xidmp-2" * field "new"]
+        assert_equal $id2 $id2_dup
+        assert_equal 2 [r XLEN mystream]
     } {} {external:skip needs:debug}
 
     test {XIDMPRECORD AOF rewrite emits XIDMPRECORD for stream with IDMP from XIDMPRECORD only} {
         r DEL mystream
+        # Force a plain command AOF so the rewrite emits XIDMPRECORD records
+        # instead of an RDB preamble carrying the IDMP state.
+        r config set aof-use-rdb-preamble no
         r config set appendonly yes
         waitForBgrewriteaof r
 
         set id [r XADD mystream * f v]
         assert_equal "OK" [r XIDMPRECORD mystream p1 rec-1 $id]
-        set id_dup [r XADD mystream IDMP p1 rec-1 * f v2]
-        assert_equal $id $id_dup
 
         r BGREWRITEAOF
         waitForBgrewriteaof r
-        r DEBUG RELOAD
+        r DEBUG LOADAOF
 
         assert_equal 1 [r XLEN mystream]
-        set id_dup2 [r XADD mystream IDMP p1 rec-1 * f v3]
-        assert_equal $id $id_dup2
+        set id_dup [r XADD mystream IDMP p1 rec-1 * f v2]
+        assert_equal $id $id_dup
+        assert_equal 1 [r XLEN mystream]
     } {} {external:skip needs:debug}
 
     test {XADD IDMP multiple producers have isolated namespaces} {
