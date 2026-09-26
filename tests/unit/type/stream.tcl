@@ -608,6 +608,9 @@ start_server {
 
     test {XADD IDMP set in AOF} {
         r DEL mystream
+        # Keep the AOF in plain command format so recovery goes through
+        # AOF command replay rather than an RDB preamble load.
+        r config set aof-use-rdb-preamble no
         r config set appendonly yes
 
         # Wait for the automatic AOF rewrite triggered by enabling AOF
@@ -622,7 +625,7 @@ start_server {
         assert_equal $id1 $id1_dup
 
         # Restart with AOF
-        r DEBUG RELOAD
+        r DEBUG LOADAOF
 
         # Verify stream exists
         assert_equal 2 [r XLEN mystream]
