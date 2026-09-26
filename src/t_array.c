@@ -43,6 +43,7 @@ robj *arrayTypeDup(robj *o) {
  * -------------------------------------------------------------------------- */
 
 #define ARGETRANGE_MAX_ITEMS 1000000
+#define ARLASTITEMS_MAX_ITEMS 1000000
 
 /* Lookup array object for write, create it if missing, or reply with
  * WRONGTYPE and return NULL if the key holds a different type. */
@@ -1838,13 +1839,13 @@ void arlastitemsCommand(client *c) {
         (uint64_t)count > ar_len ? ar_len : (uint64_t)count;
 
     /* We walk positions, not existing items, so on a sparse array the reply
-     * can be made of a huge amount of NULLs. Same hard limit as ARGETRANGE,
-     * see the comment there, applied only when the reply would be longer
+     * can be made of a huge amount of NULLs. Hard limit like the ARGETRANGE
+     * one, see the comment there, applied only when the reply would be longer
      * than the number of existing items, so dense arrays are not affected. */
     if (effective_count > ar->count &&
-        effective_count > ARGETRANGE_MAX_ITEMS) {
+        effective_count > ARLASTITEMS_MAX_ITEMS) {
         addReplyErrorFormat(c, "count exceeds maximum of %u items",
-            ARGETRANGE_MAX_ITEMS);
+            ARLASTITEMS_MAX_ITEMS);
         return;
     }
 
