@@ -1296,7 +1296,21 @@ static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
     {
         hashTypeConvert(db, o, OBJ_ENCODING_LISTPACK);
         for (int i = 0; i < num_new_fields; i++) {
-            hashTypeSet(db, o, new_fields[i].field, new_fields[i].value, 0);
+            /* Size checks ran while still templated, so re-check listpack limits
+             * for the new fields before writing them as plain encoding. */
+            if (o->encoding == OBJ_ENCODING_LISTPACK) {
+                size_t flen = sdslen(new_fields[i].field);
+                size_t vlen = sdslen(new_fields[i].value);
+                if (flen > server.hash_max_listpack_value ||
+                    vlen > server.hash_max_listpack_value ||
+                    !lpSafeToAdd(o->ptr, flen + vlen))
+                {
+                    hashTypeConvert(db, o, OBJ_ENCODING_HT);
+                }
+            }
+            /* Stay off templates while we finish the batch of new fields.
+             * (HASH_SET_NO_TEMPLATE_CONVERT; macro is defined later with hashTypeSet.) */
+            hashTypeSet(db, o, new_fields[i].field, new_fields[i].value, (1<<3));
         }
         return;
     }
