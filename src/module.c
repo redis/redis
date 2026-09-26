@@ -4912,7 +4912,8 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     if (!(key->mode & REDISMODULE_WRITE)) return REDISMODULE_ERR;
     if (key->kv && key->kv->type != OBJ_LIST) return REDISMODULE_ERR;
     if (key->iter) moduleFreeKeyIterator(key);
-    if (key->kv == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
+    int existed = (key->kv != NULL);
+    if (!existed) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_LIST);
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(key->kv);
     listTypeTryConversionAppend(key->kv, &ele, 0, 0, moduleFreeListIterator, key);
@@ -4922,6 +4923,10 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     updateKeysizesHist(key->db, OBJ_LIST, l-1, l);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
+    /* dbAdd() already signals a freshly created key; a push to a pre-existing
+     * list must signal too (e.g. BLMOVEM EXACTLY waiting for more elements). */
+    if (existed)
+        signalKeyAsReadyNonEmptyList(key->db, key->key);
     return REDISMODULE_OK;
 }
 
@@ -5090,6 +5095,8 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
             updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         /* A note in quicklist.c forbids use of iterator after insert. */
         moduleFreeKeyIterator(key);
+        /* The list already existed and grew: wake BLMOVEM EXACTLY waiters. */
+        signalKeyAsReadyNonEmptyList(key->db, key->key);
         return REDISMODULE_OK;
     } else {
         if (server.memory_tracking_enabled)
