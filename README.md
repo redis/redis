@@ -227,8 +227,8 @@ Either works — the release tarball already bundles the module sources; a git c
 ```sh
 # A) Release tarball (recommended for building/running a release).
 #    Replace <version>, e.g. 8.10.0 — extracts into redis-<version>/:
-wget -O redis-<version>.tar.gz https://github.com/redis/redis/releases/download/<version>/redis-full.tar.gz
-tar xvf redis-<version>.tar.gz && cd redis-<version>
+wget https://github.com/redis/redis/releases/download/<version>/redis-full-<version>.tar.gz
+tar xvf redis-full-<version>.tar.gz && cd redis-<version>
 
 # B) git checkout — clone the bundled modules once:
 git clone https://github.com/redis/redis.git && cd redis
