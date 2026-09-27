@@ -75,6 +75,7 @@ set ::force_failure 0
 set ::timeout 1200; # 20 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
 array set ::client_pid {};         # os pid of each test client, from its ready packet
+array set ::client_sigusr1_trace {}; # clients that answer SIGUSR1 with a Tcl stack trace (need Tclx)
 set ::in_timeout_report 0;         # true while reporting a timeout (we re-enter the event loop)
 array set ::client_trace_received {}; # clients that answered a timeout report with a Tcl stack trace
 set ::active_servers {} ; # Pids of active Redis instances.
@@ -386,6 +387,10 @@ proc request_client_stack_traces {} {
             continue
         }
         set pid $::client_pid($fd)
+        if {![info exists ::client_sigusr1_trace($fd)]} {
+            puts "(test client $fd (pid $pid) has no Tclx, so it can't be asked for a Tcl stack trace)"
+            continue
+        }
         if {![is_running $pid]} {
             puts "(test client $fd (pid $pid) already exited without reporting a Tcl stack trace)"
             continue
@@ -427,16 +432,18 @@ proc accept_test_clients {fd addr port} {
 # exception: there was a runtime exception while executing the test.
 # done: all the specified test file was processed, this test client is
 #       ready to accept a new task.
+# sigusr1-trace: the client answers SIGUSR1 with a Tcl stack trace (see
+#       test_client_main), so a timeout report may ask it for one.
 proc read_from_test_client fd {
-    set bytes [gets $fd]
-    if {![string is integer -strict $bytes]} {
-        # The client is gone -- it exited right after reporting, which happens
-        # when a timeout report asks it for a stack trace. Stop listening,
-        # otherwise the dead socket stays readable and spins this handler.
+    if {[catch {set bytes [gets $fd]}] || ![string is integer -strict $bytes] ||
+        [catch {set payload [encoding convertfrom utf-8 [read $fd $bytes]]}]} {
+        # The client is gone -- it exited (or reset the connection) right after
+        # reporting, which happens when a timeout report asks it for a stack
+        # trace. Stop listening, otherwise the dead socket stays readable and
+        # spins this handler.
         fileevent $fd readable {}
         return
     }
-    set payload [encoding convertfrom utf-8 [read $fd $bytes]]
     foreach {status data elapsed} $payload break
     set ::last_progress [clock seconds]
 
@@ -517,6 +524,8 @@ proc read_from_test_client fd {
     } elseif {$status eq {server-killed}} {
         set ::active_servers [lsearch -all -inline -not -exact $::active_servers $data]
         set ::active_clients_task($fd) "(KILLED SERVER) pid:$data"
+    } elseif {$status eq {sigusr1-trace}} {
+        set ::client_sigusr1_trace($fd) 1
     } elseif {$status eq {run_solo}} {
         lappend ::run_solo_tests $data
     } else {
@@ -732,9 +741,10 @@ proc test_client_main server_port {
     # "after" and a polling loop alike; a plain "signal trap" only covers the
     # first. It also keeps the signal from simply killing us. Tclx is optional:
     # without it a timeout just reports no client stack trace.
-    catch {
-        package require Tclx
-        signal error SIGUSR1
+    if {![catch {package require Tclx; signal error SIGUSR1}]} {
+        # Only now may the test server signal us: without the handler,
+        # SIGUSR1 just kills a client that could still be about to report.
+        send_data_packet $::test_server_fd sigusr1-trace 1
     }
 
     send_data_packet $::test_server_fd ready [pid]
