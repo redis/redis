@@ -455,6 +455,14 @@ proc read_from_test_client fd {
         set completed_tests_count [expr {$::next_test-$running_tests_count}]
         puts "\[$completed_tests_count/$all_tests_count [colorstr yellow $status]\]: $data ($elapsed seconds)"
         lappend ::clients_time_history $elapsed $data
+        if {$::in_timeout_report} {
+            # A client can finish its unit once its servers are crash-reported
+            # (e.g. under --durable). It has nothing left to report, and
+            # signal_idle_client would hand it a new unit or call the_end, which
+            # exits before the timeout report is done.
+            set ::client_trace_received($fd) 1
+            return
+        }
         signal_idle_client $fd
         set ::active_clients_task($fd) "(DONE) $data"
     } elseif {$status eq {ok}} {
@@ -549,7 +557,7 @@ proc server_log_files_of_pid {pid} {
 # many servers alive across all clients, so we don't want whole logs. A log with
 # no crash report (the server died before writing one, or this is its stderr)
 # gets its tail instead, which is then the only evidence there is.
-proc dump_server_log {f pid {context_lines 10} {tail_bytes 262144}} {
+proc dump_crash_report {f pid {context_lines 10} {tail_bytes 262144}} {
     if {[catch {set fh [open $f r]} e]} {
         puts "(can't open $f: $e)"
         return
@@ -607,7 +615,7 @@ proc dump_stuck_servers {} {
     }
 
     dict for {p files} $targets {
-        foreach f $files {dump_server_log $f $p}
+        foreach f $files {dump_crash_report $f $p}
     }
 }
 
