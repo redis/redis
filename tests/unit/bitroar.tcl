@@ -169,6 +169,54 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         }
     }
 
+    test {Internal bitmap propagation primitives are unreachable from scripts and MULTI} {
+        r config set bitmap-default-roaring no
+        r del bitmap_gate bitmap_gate_out
+        r set bitmap_gate [binary format H* f0]
+        r function load replace {#!lua name=bitmap_gate
+            redis.register_function('call_bitconvert', function(KEYS, ARGV)
+                return redis.call('bitconvert', KEYS[1])
+            end)
+            redis.register_function('call_bitop_roaring', function(KEYS, ARGV)
+                return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])
+            end)
+        }
+
+        # Scripts only honor NOSCRIPT, not the internal-client check, so both
+        # primitives must stay NOSCRIPT to be rejected, even for internal clients.
+        foreach internal {0 1} {
+            if {$internal} {r debug mark-internal-client}
+            assert_error {*not allowed from script*} {
+                r eval {return redis.call('bitconvert', KEYS[1])} 1 bitmap_gate
+            }
+            assert_error {*not allowed from script*} {
+                r eval {return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])} \
+                    2 bitmap_gate_out bitmap_gate
+            }
+            assert_error {*not allowed from script*} {
+                r fcall call_bitconvert 1 bitmap_gate
+            }
+            assert_error {*not allowed from script*} {
+                r fcall call_bitop_roaring 2 bitmap_gate_out bitmap_gate
+            }
+        }
+        r debug mark-internal-client unmark
+
+        # Ordinary clients cannot queue them either, which aborts the transaction.
+        r multi
+        assert_error {ERR unknown command 'bitconvert'*} {r bitconvert bitmap_gate}
+        assert_error {ERR unknown command 'bitop_roaring'*} {
+            r bitop_roaring or bitmap_gate_out bitmap_gate
+        }
+        assert_error {EXECABORT*} {r exec}
+
+        # No path changed the representation or created the destination.
+        assert_equal string [r type bitmap_gate]
+        assert_equal [binary format H* f0] [r get bitmap_gate]
+        assert_equal 0 [r exists bitmap_gate_out]
+        r function delete bitmap_gate
+    }
+
     test {Internal bitmap propagation primitives cannot be renamed} {
         foreach command {bitconvert bitop_roaring} {
             catch {exec src/redis-server --rename-command $command renamed} err
