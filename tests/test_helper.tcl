@@ -551,9 +551,11 @@ proc server_log_files_of_pid {pid} {
     set res {}
     foreach f [glob -nocomplain "tests/tmp/*/stdout"] {
         if {[catch {set fh [open $f r]}]} continue
-        set head [read $fh 65536]
+        # The whole file: a server restarted without rotating its log appends
+        # to the same one, so its pid may first appear anywhere.
+        set data [read $fh]
         close $fh
-        if {![regexp -line "^$pid:" $head]} continue
+        if {![regexp -line "^$pid:" $data]} continue
         lappend res $f
         set errfile [file join [file dirname $f] stderr]
         if {[file exists $errfile]} {lappend res $errfile}
@@ -603,27 +605,31 @@ proc dump_crash_report {f pid {context_lines 10} {tail_bytes 262144}} {
 # kill_server already resorts to SIGSEGV for the same reason when a server
 # won't exit, but the timeout path never reaches it.
 proc dump_stuck_servers {} {
-    set targets {}
-    foreach p $::active_servers {
+    set pids $::active_servers
+    if {[llength $pids] == 0} return
+
+    # Signal every server, even one whose log we can't find: the crash report
+    # also unblocks a client waiting on it.
+    puts "Requesting crash reports (SIGSEGV) from [llength $pids] still running server(s)..."
+    foreach p $pids {
+        # A stopped server (pause_process, SIGSTOP) only runs the handler once
+        # continued -- kill_server does the same for the same reason.
+        catch {exec kill -SIGCONT $p}
+        catch {exec kill -SEGV $p}
+    }
+
+    # The handler writes the whole report before letting the process die, so the
+    # log is complete once the process is gone.
+    foreach p $pids {
+        for {set i 0} {$i < 300 && [is_running $p]} {incr i} {after 100}
+    }
+
+    foreach p $pids {
         set files [server_log_files_of_pid $p]
         if {[llength $files] == 0} {
             puts "(no log file found for server pid $p)"
             continue
         }
-        dict set targets $p $files
-    }
-    if {[dict size $targets] == 0} return
-
-    puts "Requesting crash reports (SIGSEGV) from [dict size $targets] still running server(s)..."
-    dict for {p files} $targets {catch {exec kill -SEGV $p}}
-
-    # The handler writes the whole report before letting the process die, so the
-    # log is complete once the process is gone.
-    dict for {p files} $targets {
-        for {set i 0} {$i < 300 && [is_running $p]} {incr i} {after 100}
-    }
-
-    dict for {p files} $targets {
         foreach f $files {dump_crash_report $f $p}
     }
 }
