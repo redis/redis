@@ -157,14 +157,12 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     }
 
     const setTypeOps *ops = setTypeGetOps(set->encoding);
-    int added = ops->rawAdd(set, str, len, llval, str_is_sds, 0);
+    int target_enc, added = ops->rawAdd(set, str, len, llval, str_is_sds, 0, &target_enc);
     if (added == -1) {
-        /* Doesn't fit under the current encoding: figure out the encoding
-         * to convert to, convert, and retry there. */
+        /* Doesn't fit under the current encoding: convert encoding and retry there. */
         unsigned long cap = ops->size(set) + 1;
-        int target = ops->resolveEncodingForAdd(set, str, len, llval, str_is_sds);
-        setTypeConvertAndExpand(set, target, cap, 1);
-        added = setTypeGetOps(target)->rawAdd(set, str, len, llval, str_is_sds, 1);
+        setTypeConvertAndExpand(set, target_enc, cap, 1);
+        added = setTypeGetOps(target_enc)->rawAdd(set, str, len, llval, str_is_sds, 1, &target_enc);
         serverAssert(added == 1);
         return added;
     }

@@ -18,10 +18,11 @@
 #include "intset.h" /* Compact integer set structure, for the conversion size estimate below. */
 #include "t_set_encoding.h"
 
-static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert) {
+static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc) {
     UNUSED(llval);
     UNUSED(str_is_sds);
     unsigned char *lp = set->ptr;
+    *target_enc = OBJ_ENCODING_LISTPACK;
     if (!after_convert) {
         /* If this is a normal add (not after a conversion), check if the value
          * is already a member. */
@@ -47,18 +48,8 @@ static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_
     }
     /* Size limit reached: the caller must convert to a bigger encoding
      * (see resolveEncodingForAdd) and retry there. */
+    *target_enc = OBJ_ENCODING_HT;
     return -1;
-}
-
-static int lpResolveEncodingForAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
-    UNUSED(set);
-    UNUSED(str);
-    UNUSED(len);
-    UNUSED(llval);
-    UNUSED(str_is_sds);
-    /* A listpack that's full (or that hit a per-value size limit) always
-     * grows into a hash table. */
-    return OBJ_ENCODING_HT;
 }
 
 static int lpRawRemove(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
@@ -171,7 +162,6 @@ static void *lpConvertFrom(robj *set, unsigned long cap, int panic) {
 
 const setTypeOps setTypeOpsListpack = {
     .rawAdd = lpRawAdd,
-    .resolveEncodingForAdd = lpResolveEncodingForAdd,
     .rawRemove = lpRawRemove,
     .isMember = lpIsMember,
     .iterInit = lpIterInit,

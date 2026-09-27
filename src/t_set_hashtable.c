@@ -17,19 +17,10 @@
 #include "server.h"
 #include "t_set_encoding.h"
 
-static int htResolveEncodingForAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
-    UNUSED(str);
-    UNUSED(len);
-    UNUSED(llval);
-    UNUSED(str_is_sds);
-    /* The hash table encoding is the final one: it never needs to grow into
-     * a different encoding. */
-    return set->encoding;
-}
-
-static int htRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert) {
+static int htRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc) {
     UNUSED(llval);
     UNUSED(after_convert);
+    *target_enc = OBJ_ENCODING_HT; /* Hash table is the final encoding: no further conversion is possible. */
     /* Avoid duping the string if it is an sds string. */
     sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
     dict *ht = set->ptr;
@@ -146,7 +137,6 @@ static void *htConvertFrom(robj *set, unsigned long cap, int panic) {
 }
 
 const setTypeOps setTypeOpsHT = {
-    .resolveEncodingForAdd = htResolveEncodingForAdd,
     .rawAdd = htRawAdd,
     .rawRemove = htRawRemove,
     .isMember = htIsMember,

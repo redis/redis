@@ -32,19 +32,10 @@
  * and therefore there is no need to search for it. Also, for listpack, the
  * listpack may be shrink after adding the new item if too much space was
  * allocated for it during conversion.
- *
- * resolveEncodingForAdd() is only called after rawAdd() returns -1. It
- * decides which bigger encoding (an OBJ_ENCODING_* value) the object must
- * be converted to before rawAdd() can be retried. It never mutates the
- * object - the caller (t_set.c) is responsible for calling
- * setTypeConvertAndExpand() and then re-dispatching rawAdd() to the new
- * encoding's ops. This keeps the "does this operation require a
- * conversion, and to what" decision and the actual conversion in the
- * caller, rather than having each encoding's rawAdd call back into
- * shared/core code. */
+ * target_enc is set to the encoding that the caller should convert to if rawAdd returns -1.
+ */
 typedef struct {
-    int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert);
-    int (*resolveEncodingForAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
+    int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc);
     int (*rawRemove)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     int (*isMember)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 

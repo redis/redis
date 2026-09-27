@@ -18,32 +18,9 @@
 #include "intset.h"
 #include "t_set_encoding.h"
 
-/* A NULL str means the caller already has the value as an integer (llval)
- * and there's nothing to parse. This is intset's only encoding-selection
- * fast path: it's the sole encoding that can consume a bare integer
- * without ever looking at a string form of it. */
-static int isRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert) {
-    UNUSED(str_is_sds);
-    UNUSED(after_convert);
-    long long value;
-    if (str == NULL) {
-        value = llval;
-    } else if (!string2ll(str, len, &value)) {
-        /* Not representable as an integer: intset can't hold it at all. */
-        return -1;
-    }
-    uint8_t success = 0;
-    set->ptr = intsetAdd(set->ptr, value, &success);
-    return success ? 1 : 0;
-}
-
-/* Only called after rawAdd() returns -1, i.e. the value isn't an integer.
- * Decides whether the resulting set is still small enough to become a
+/* Decides whether the set is still small enough to become a
  * listpack, or must go straight to a hash table. */
-static int isResolveEncodingForAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
-    UNUSED(str);
-    UNUSED(llval);
-    UNUSED(str_is_sds);
+static int isResolveEncodingForAdd(robj *set, size_t len) {
     size_t maxelelen = 0, totsize = 0;
     unsigned long n = intsetLen(set->ptr);
     if (n != 0) {
@@ -61,6 +38,27 @@ static int isResolveEncodingForAdd(robj *set, char *str, size_t len, int64_t llv
         return OBJ_ENCODING_LISTPACK;
     }
     return OBJ_ENCODING_HT;
+}
+
+/* A NULL str means the caller already has the value as an integer (llval)
+ * and there's nothing to parse. This is intset's only encoding-selection
+ * fast path: it's the sole encoding that can consume a bare integer
+ * without ever looking at a string form of it. */
+static int isRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc) {
+    UNUSED(str_is_sds);
+    UNUSED(after_convert);
+    long long value;
+    if (str == NULL) {
+        value = llval;
+    } else if (!string2ll(str, len, &value)) {
+        /* Not representable as an integer: intset can't hold it at all. */
+        *target_enc = isResolveEncodingForAdd(set, len);
+        return -1;
+    }
+    *target_enc = OBJ_ENCODING_INTSET;
+    uint8_t success = 0;
+    set->ptr = intsetAdd(set->ptr, value, &success);
+    return success ? 1 : 0;
 }
 
 static int isRawRemove(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
@@ -133,7 +131,6 @@ static void isFree(robj *set) {
 
 const setTypeOps setTypeOpsIntset = {
     .rawAdd = isRawAdd,
-    .resolveEncodingForAdd = isResolveEncodingForAdd,
     .rawRemove = isRawRemove,
     .isMember = isIsMember,
     .iterInit = isIterInit,
