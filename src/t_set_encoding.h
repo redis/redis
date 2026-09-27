@@ -27,6 +27,11 @@
  * if the value cannot be added as-is (a configured limit would be
  * exceeded, or the encoding structurally can't represent the value) - in
  * which case it does not mutate the object at all.
+ * Note that after_convert is set to 1 when rawAdd is called after a conversion,
+ * so it is guaranteed that the item to add doesn't already exist in the set,
+ * and therefore there is no need to search for it. Also, for listpack, the
+ * listpack may be shrink after adding the new item if too much space was
+ * allocated for it during conversion.
  *
  * resolveEncodingForAdd() is only called after rawAdd() returns -1. It
  * decides which bigger encoding (an OBJ_ENCODING_* value) the object must
@@ -38,7 +43,7 @@
  * caller, rather than having each encoding's rawAdd call back into
  * shared/core code. */
 typedef struct {
-    int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
+    int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert);
     int (*resolveEncodingForAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     int (*rawRemove)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     int (*isMember)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);

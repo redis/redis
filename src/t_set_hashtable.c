@@ -27,11 +27,15 @@ static int htResolveEncodingForAdd(robj *set, char *str, size_t len, int64_t llv
     return set->encoding;
 }
 
-static int htRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
+static int htRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert) {
     UNUSED(llval);
+    UNUSED(after_convert);
     /* Avoid duping the string if it is an sds string. */
     sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
     dict *ht = set->ptr;
+    /* not skipping the search even if after_convert is true, since the bucket retrieved from the search
+     * is used later at insert. Skipping it would only call the same search from within insert, and would
+     * complicate the code here unnecessarily */
     dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
     if (link == NULL) {
         /* Key doesn't already exist in the set. Add it but dup the key. */

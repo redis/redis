@@ -157,21 +157,15 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     }
 
     const setTypeOps *ops = setTypeGetOps(set->encoding);
-    int added = ops->rawAdd(set, str, len, llval, str_is_sds);
+    int added = ops->rawAdd(set, str, len, llval, str_is_sds, 0);
     if (added == -1) {
         /* Doesn't fit under the current encoding: figure out the encoding
          * to convert to, convert, and retry there. */
         unsigned long cap = ops->size(set) + 1;
         int target = ops->resolveEncodingForAdd(set, str, len, llval, str_is_sds);
         setTypeConvertAndExpand(set, target, cap, 1);
-        added = setTypeGetOps(target)->rawAdd(set, str, len, llval, str_is_sds);
+        added = setTypeGetOps(target)->rawAdd(set, str, len, llval, str_is_sds, 1);
         serverAssert(added == 1);
-        if (target == OBJ_ENCODING_LISTPACK) {
-            /* Only reachable when converting from intset, whose capacity
-             * estimate for the listpack it builds is an upper bound; shrink
-             * it down to its actual content now that we're done growing it. */
-            setTypeListpackShrinkToFit(set);
-        }
         return added;
     }
 

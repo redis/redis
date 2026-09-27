@@ -18,19 +18,31 @@
 #include "intset.h" /* Compact integer set structure, for the conversion size estimate below. */
 #include "t_set_encoding.h"
 
-static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
+static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert) {
     UNUSED(llval);
     UNUSED(str_is_sds);
     unsigned char *lp = set->ptr;
-    unsigned char *p = lpFirst(lp);
-    if (p != NULL) p = lpFind(lp, p, (unsigned char *)str, len, 0);
-    if (p != NULL) {
-        /* Already a member. */
-        return 0;
+    if (!after_convert) {
+        /* If this is a normal add (not after a conversion), check if the value
+         * is already a member. */
+        unsigned char *p = lpFirst(lp);
+        if (p != NULL) p = lpFind(lp, p, (unsigned char *)str, len, 0);
+        if (p != NULL) {
+            /* Already a member. */
+            return 0;
+        }
     }
     if (lpLength(lp) < server.set_max_listpack_entries && len <= server.set_max_listpack_value &&
         lpSafeToAdd(lp, len)) {
         set->ptr = lpAppend(lp, (unsigned char *)str, len);
+
+        if (after_convert) {
+            /* Only reachable when converting from intset, whose capacity
+             * estimate for the listpack it builds is an upper bound; shrink
+             * it down to its actual content now that we're done growing it. */
+            setTypeListpackShrinkToFit(set);
+        }
+
         return 1;
     }
     /* Size limit reached: the caller must convert to a bigger encoding
