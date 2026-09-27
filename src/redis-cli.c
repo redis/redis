@@ -405,16 +405,27 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
+/* Erase the current terminal row and return the cursor to its beginning. */
+static void clearCurrentLine(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[2K\r");
+    }
+}
+
+/* Erase from the cursor to the end of the terminal screen without moving it. */
+static void clearToEndOfScreen(void) {
+    if (IS_TTY_OR_FAKETTY()) {
+        printf("\033[0J");
+    }
+}
+
 /* Erase the lines before printing, and returns the number of lines printed */
 int cleanPrintfln(char *fmt, ...) {
     va_list args;
     char buf[1024]; /* limitation */
     int char_count, line_count = 0;
 
-    /* Clear the line if in TTY */
-    if (IS_TTY_OR_FAKETTY()) {
-        printf("\033[2K\r");
-    }
+    clearCurrentLine();
 
     va_start(args, fmt);
     char_count = vsnprintf(buf, sizeof(buf), fmt, args);
@@ -11120,6 +11131,13 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     list *top_sizes;
     long long refresh_time = mstime();
 
+    /* Skip setup and scanning when the selected database is empty. */
+    total_keys = getDbSize();
+    if (total_keys == 0) {
+        printf("The database is empty.\n");
+        exit(0);
+    }
+
     if (cursor != 0) {
         it = cursor;
     }
@@ -11170,9 +11188,6 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     }
 
     signal(SIGINT, longStatLoopModeStop);
-
-    /* Total keys pre scanning */
-    total_keys = getDbSize();
 
     /* Status message */
     printf("\n# Scanning the entire keyspace to find the biggest keys and distribution information.\n");
@@ -11254,22 +11269,46 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         freeReplyObject(reply);
     } while(force_cancel_loop == 0 && it != 0);
 
-    displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
-                    top_sizes_limit, 0);
+    /* With a pattern, an empty sample means nothing matched: replace the empty
+     * report with an explanation. Without a pattern, keep the report even when
+     * nothing was sampled (keys expired or deleted mid-scan, or an empty
+     * resumed portion of the keyspace). */
+    int no_match = config.pattern && sampled == 0;
 
-    /* Additional data at the end of the SCAN loop.
-     * Using cleanPrintfln in case we want to print during the SCAN loop. */
-    cleanPrintfln("");
-    displayKeyStatsSizeDist(keysize_histogram);
-    cleanPrintfln("");
-    displayKeyStatsLengthDist(&key_length_dist);
-    cleanPrintfln("");
-    displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+    if (no_match) {
+        /* Clear leftover rows when replacing the live stats with a shorter message. */
+        clearToEndOfScreen();
+    } else {
+        displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
+                        top_sizes_limit, 0);
+
+        /* Additional data, only printed once the SCAN loop is done. It lands
+         * below the live report, so it needs no clearing; cleanPrintfln keeps
+         * it ready to be added to the live refresh. */
+        cleanPrintfln("");
+        displayKeyStatsSizeDist(keysize_histogram);
+        cleanPrintfln("");
+        displayKeyStatsLengthDist(&key_length_dist);
+        cleanPrintfln("");
+        displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
+    }
+
+    /* Closing message: why the result is empty, or that the scan was interrupted. */
+    if (no_match) {
+        if (it != 0) {
+            cleanPrintfln("Scan interrupted: no keys matched the specified pattern in the scanned portion.");
+        } else if (cursor != 0) {
+            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
+        } else {
+            cleanPrintfln("No keys matched the specified pattern.");
+        }
+    } else if (it != 0) {
+        cleanPrintfln("");
+        cleanPrintfln("Scan interrupted.");
+    }
 
     if (it != 0) {
-        printf("\n");
-        printf("Scan interrupted:\n");
-        printf("Use 'redis-cli --keystats --cursor %llu' to restart from the last cursor.\n", it);
+        cleanPrintfln("To resume, rerun your original command with --cursor set to %llu.", it);
     }
 
     if (memkeys_types) zfree(memkeys_types);
