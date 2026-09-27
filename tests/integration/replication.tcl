@@ -736,139 +736,154 @@ foreach testType {Successful Aborted} {
     }
 }
 
-test {diskless loading short read} {
-    start_server {tags {"repl"} overrides {save ""}} {
-        set replica [srv 0 client]
-        set replica_host [srv 0 host]
-        set replica_port [srv 0 port]
-        start_server {overrides {save ""}} {
-            set master [srv 0 client]
-            set master_host [srv 0 host]
-            set master_port [srv 0 port]
+# With rdbchannel, the replica usually notices the dropped main channel first
+# and aborts the load at its next read, so a string or bitmap payload that is
+# being read is still completed. Without it, the load stops wherever the stream
+# ends, which is often in the middle of such a payload.
+foreach rdbchannel {yes no} {
+    test "diskless loading short read rdbchannel=$rdbchannel" {
+        start_server {tags {"repl"} overrides {save ""}} {
+            set replica [srv 0 client]
+            set replica_host [srv 0 host]
+            set replica_port [srv 0 port]
+            start_server {overrides {save ""}} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
 
-            # Set master and replica to use diskless replication
-            $master config set repl-diskless-sync yes
-            $master config set rdbcompression no
-            $replica config set repl-diskless-load swapdb
-            $master config set hz 500
-            $replica config set hz 500
-            $master config set dynamic-hz no
-            $replica config set dynamic-hz no
-            # Try to fill the master with all types of data types / encodings
-            set start [clock clicks -milliseconds]
-
-            # Set a function value to check short read handling on functions
-            r function load {#!lua name=test
-                redis.register_function('test', function() return 'hello1' end)
-            }
-
-            r himport prepare fieldset1 f0 f1 f2 f3 f4 f5 f6 f7 f8 f9
-            r himport prepare fieldset2 g0 g1 g2 g3 g4 g5 g6 g7 g8 [string repeat z 250]
-
-            set has_vector_sets [server_has_command vadd]
-
-            for {set k 0} {$k < 3} {incr k} {
-                for {set i 0} {$i < 10} {incr i} {
-                    r set "$k int_$i" [expr {int(rand()*10000)}]
-                    r expire "$k int_$i" [expr {int(rand()*10000)}]
-                    r set "$k string_$i" [string repeat A [expr {int(rand()*1000000)}]]
-                    r hset "$k hash_small" [string repeat A [expr {int(rand()*10)}]]  0[string repeat A [expr {int(rand()*10)}]]
-                    r hset "$k hash_large" [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
-                    r hsetex "$k hfe_small" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10)}]] 0[string repeat A [expr {int(rand()*10)}]]
-                    r hsetex "$k hfe_large" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
-                    r sadd "$k set_small" [string repeat A [expr {int(rand()*10)}]]
-                    r sadd "$k set_large" [string repeat A [expr {int(rand()*1000000)}]]
-                    r zadd "$k zset_small" [expr {rand()}] [string repeat A [expr {int(rand()*10)}]]
-                    r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
-                    r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
-                    r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
-
-                    if {$has_vector_sets} {
-                        r vadd "$k vector_set" VALUES 3 [expr {rand()}] [expr {rand()}] [expr {rand()}] [string repeat A [expr {int(rand()*1000)}]]
-                    }
-
-                    for {set j 0} {$j < 10} {incr j} {
-                        r xadd "$k stream" * foo "asdf" bar "1234"
-                    }
-                    r xgroup create "$k stream" "mygroup_$i" 0
-                    r xreadgroup GROUP "mygroup_$i" Alice COUNT 1 STREAMS "$k stream" >
-                }
-
-                set tmpl_small_vals {}
-                set tmpl_large_vals {}
-                for {set i 0} {$i < 10} {incr i} {
-                    lappend tmpl_small_vals [string repeat A [expr {int(rand()*10)}]]
-                    lappend tmpl_large_vals [string repeat A [expr {int(rand()*100000)}]]
-                }
-                r himport set "$k tmpl_small" fieldset1 {*}$tmpl_small_vals
-                r himport set "$k tmpl_large" fieldset1 {*}$tmpl_large_vals
-                r himport set "$k tmpl_long_field_small" fieldset2 {*}$tmpl_small_vals
-                r himport set "$k tmpl_long_field_large" fieldset2 {*}$tmpl_large_vals
-            }
-
-            if {$::verbose} {
-                set end [clock clicks -milliseconds]
-                set duration [expr $end - $start]
-                puts "filling took $duration ms (TODO: use pipeline)"
+                # Set master and replica to use diskless replication
+                $master config set repl-diskless-sync yes
+                $master config set rdbcompression no
+                $replica config set repl-diskless-load swapdb
+                $master config set repl-rdb-channel $rdbchannel
+                $replica config set repl-rdb-channel $rdbchannel
+                $master config set hz 500
+                $replica config set hz 500
+                $master config set dynamic-hz no
+                $replica config set dynamic-hz no
+                # Try to fill the master with all types of data types / encodings
                 set start [clock clicks -milliseconds]
-            }
 
-            # Start the replication process...
-            set loglines [count_log_lines -1]
-            $master config set repl-diskless-sync-delay 0
-            $replica replicaof $master_host $master_port
+                # Set a function value to check short read handling on functions
+                r function load {#!lua name=test
+                    redis.register_function('test', function() return 'hello1' end)
+                }
 
-            # kill the replication at various points
-            set attempts 100
-            if {$::accurate} { set attempts 500 }
-            for {set i 0} {$i < $attempts} {incr i} {
-                # wait for the replica to start reading the rdb
-                # using the log file since the replica only responds to INFO once in 2mb
-                set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 10000 1]
-                set loglines [lindex $res 1]
+                r himport prepare fieldset1 f0 f1 f2 f3 f4 f5 f6 f7 f8 f9
+                r himport prepare fieldset2 g0 g1 g2 g3 g4 g5 g6 g7 g8 [string repeat z 250]
 
-                # add some additional random sleep so that we kill the master on a different place each time
-                after [expr {int(rand()*50)}]
+                set has_vector_sets [server_has_command vadd]
 
-                # kill the replica connection on the master
-                set killed [$master client kill type replica]
+                # Make SETBIT create native Roaring bitmaps, and convert the
+                # dense string bitmaps below into them
+                r config set bitmap-default-roaring yes
 
-                set res [wait_for_log_messages -1 {"*Internal error in RDB*" "*Finished with success*" "*Successful partial resynchronization*"} $loglines 500 10]
-                if {$::verbose} { puts $res }
-                set log_text [lindex $res 0]
-                set loglines [lindex $res 1]
-                if {![string match "*Internal error in RDB*" $log_text]} {
-                    # force the replica to try another full sync
-                    $master multi
-                    $master client kill type replica
-                    $master set asdf asdf
-                    # fill replication backlog with new content
-                    $master config set repl-backlog-size 16384
-                    for {set keyid 0} {$keyid < 10} {incr keyid} {
-                        $master set "$keyid string_$keyid" [string repeat A 16384]
+                for {set k 0} {$k < 3} {incr k} {
+                    for {set i 0} {$i < 10} {incr i} {
+                        r set "$k int_$i" [expr {int(rand()*10000)}]
+                        r expire "$k int_$i" [expr {int(rand()*10000)}]
+                        r set "$k string_$i" [string repeat A [expr {int(rand()*1000000)}]]
+                        r hset "$k hash_small" [string repeat A [expr {int(rand()*10)}]]  0[string repeat A [expr {int(rand()*10)}]]
+                        r hset "$k hash_large" [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
+                        r hsetex "$k hfe_small" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10)}]] 0[string repeat A [expr {int(rand()*10)}]]
+                        r hsetex "$k hfe_large" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
+                        r sadd "$k set_small" [string repeat A [expr {int(rand()*10)}]]
+                        r sadd "$k set_large" [string repeat A [expr {int(rand()*1000000)}]]
+                        r zadd "$k zset_small" [expr {rand()}] [string repeat A [expr {int(rand()*10)}]]
+                        r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
+                        r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
+                        r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+                        r setbit "$k bitmap_sparse" [expr {int(rand()*100000000)}] 1
+                        r set "$k bitmap_large_$i" [string repeat A [expr {int(rand()*1000000)}]]
+                        r setbit "$k bitmap_large_$i" 0 1
+
+                        if {$has_vector_sets} {
+                            r vadd "$k vector_set" VALUES 3 [expr {rand()}] [expr {rand()}] [expr {rand()}] [string repeat A [expr {int(rand()*1000)}]]
+                        }
+
+                        for {set j 0} {$j < 10} {incr j} {
+                            r xadd "$k stream" * foo "asdf" bar "1234"
+                        }
+                        r xgroup create "$k stream" "mygroup_$i" 0
+                        r xreadgroup GROUP "mygroup_$i" Alice COUNT 1 STREAMS "$k stream" >
                     }
-                    $master exec
+
+                    set tmpl_small_vals {}
+                    set tmpl_large_vals {}
+                    for {set i 0} {$i < 10} {incr i} {
+                        lappend tmpl_small_vals [string repeat A [expr {int(rand()*10)}]]
+                        lappend tmpl_large_vals [string repeat A [expr {int(rand()*100000)}]]
+                    }
+                    r himport set "$k tmpl_small" fieldset1 {*}$tmpl_small_vals
+                    r himport set "$k tmpl_large" fieldset1 {*}$tmpl_large_vals
+                    r himport set "$k tmpl_long_field_small" fieldset2 {*}$tmpl_small_vals
+                    r himport set "$k tmpl_long_field_large" fieldset2 {*}$tmpl_large_vals
                 }
 
-                # wait for loading to stop (fail)
-                # After a loading successfully, next loop will enter `async_loading`
-                wait_for_condition 1000 1 {
-                    [s -1 async_loading] eq 0 &&
-                    [s -1 loading] eq 0
-                } else {
-                    fail "Replica didn't disconnect"
+                if {$::verbose} {
+                    set end [clock clicks -milliseconds]
+                    set duration [expr $end - $start]
+                    puts "filling took $duration ms (TODO: use pipeline)"
+                    set start [clock clicks -milliseconds]
                 }
+
+                # Start the replication process...
+                set loglines [count_log_lines -1]
+                $master config set repl-diskless-sync-delay 0
+                $replica replicaof $master_host $master_port
+
+                # kill the replication at various points
+                set attempts 100
+                if {$::accurate} { set attempts 500 }
+                for {set i 0} {$i < $attempts} {incr i} {
+                    # wait for the replica to start reading the rdb
+                    # using the log file since the replica only responds to INFO once in 2mb
+                    set res [wait_for_log_messages -1 {"*Loading DB in memory*"} $loglines 10000 1]
+                    set loglines [lindex $res 1]
+
+                    # add some additional random sleep so that we kill the master on a different place each time
+                    after [expr {int(rand()*50)}]
+
+                    # kill the replica connection on the master
+                    set killed [$master client kill type replica]
+
+                    set res [wait_for_log_messages -1 {"*Internal error in RDB*" "*Finished with success*" "*Successful partial resynchronization*"} $loglines 500 10]
+                    if {$::verbose} { puts $res }
+                    set log_text [lindex $res 0]
+                    set loglines [lindex $res 1]
+                    if {![string match "*Internal error in RDB*" $log_text]} {
+                        # force the replica to try another full sync
+                        $master multi
+                        $master client kill type replica
+                        $master set asdf asdf
+                        # fill replication backlog with new content
+                        $master config set repl-backlog-size 16384
+                        for {set keyid 0} {$keyid < 10} {incr keyid} {
+                            $master set "$keyid string_$keyid" [string repeat A 16384]
+                        }
+                        $master exec
+                    }
+
+                    # wait for loading to stop (fail)
+                    # After a loading successfully, next loop will enter `async_loading`
+                    wait_for_condition 1000 1 {
+                        [s -1 async_loading] eq 0 &&
+                        [s -1 loading] eq 0
+                    } else {
+                        fail "Replica didn't disconnect"
+                    }
+                }
+                if {$::verbose} {
+                    set end [clock clicks -milliseconds]
+                    set duration [expr $end - $start]
+                    puts "test took $duration ms"
+                }
+                # enable fast shutdown
+                $master config set rdb-key-save-delay 0
             }
-            if {$::verbose} {
-                set end [clock clicks -milliseconds]
-                set duration [expr $end - $start]
-                puts "test took $duration ms"
-            }
-            # enable fast shutdown
-            $master config set rdb-key-save-delay 0
         }
-    }
-} {} {external:skip}
+    } {} {external:skip}
+}
 
 # get current stime and utime metrics for a thread (since it's creation)
 proc get_cpu_metrics { statfile } {
