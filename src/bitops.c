@@ -1492,6 +1492,16 @@ static void bitroarPropagateBitopRoaring(client *c) {
     zfree(argv);
 }
 
+/* BITOP allocates its result-sized buffers with a try-variant so a normal
+ * client gets an out of memory error instead of aborting the server. A master
+ * or the AOF, also when running a nested command, must apply every write the
+ * primary performed: an error there is only logged and the dataset silently
+ * diverges, so fail-stop through the regular allocation instead. */
+static int bitopUseTryAlloc(client *c) {
+    return !mustObeyClient(c) &&
+           !(server.current_client && mustObeyClient(server.current_client));
+}
+
 /* BITOP whose result is a Roaring bitmap. Sources come from
  * bitopCommandGeneric()'s lookup loop through objects[]. */
 static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
@@ -1513,7 +1523,8 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     }
 
     if (maxlen)
-        res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen);
+        res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen,
+                                    bitopUseTryAlloc(c));
     if (maxlen && res_bitmap == NULL) {
         addReplyError(c, "BITOP failed allocating the result, out of memory");
         return;
@@ -1663,8 +1674,11 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
          * proto-max-bulk-len when a source was created under a larger limit
          * (or loaded from RDB/replication). Allocate it with a try-variant so
          * an oversized BITOP fails with an OOM error instead of aborting,
-         * rather than being rejected outright. */
-        res = (unsigned char*) sdstrynewlen(NULL,maxlen);
+         * rather than being rejected outright (see bitopUseTryAlloc()). */
+        if (bitopUseTryAlloc(c))
+            res = (unsigned char*) sdstrynewlen(NULL,maxlen);
+        else
+            res = (unsigned char*) sdsnewlen(NULL,maxlen);
         if (res == NULL) {
             addReplyError(c, "BITOP failed allocating the result, out of memory");
             for (j = 0; j < numkeys; j++)

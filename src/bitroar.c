@@ -1336,7 +1336,8 @@ static uint64_t bitroarRawOpWord(bitroarOp op,
 }
 
 static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
-                                                  size_t numkeys, size_t maxlen)
+                                                  size_t numkeys, size_t maxlen,
+                                                  int try_alloc)
 {
     bitroarRawOpSource *sources = zcalloc(sizeof(*sources) * numkeys);
     unsigned char **raw_sources = zmalloc(sizeof(*raw_sources) * numkeys);
@@ -1355,7 +1356,7 @@ static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
             /* The mixed-path cap, rather than proto-max-bulk-len, bounds this
              * internal temporary so lowering the protocol limit cannot change
              * whether an otherwise valid Roaring BITOP succeeds. */
-            sources[i].owned = bitroarMaterializeRaw(o, 0, 1);
+            sources[i].owned = bitroarMaterializeRaw(o, 0, try_alloc);
             if (sources[i].owned == NULL) {
                 for (size_t j = 0; j < i; j++) sdsfree(sources[j].owned);
                 zfree(raw_sources);
@@ -1372,7 +1373,8 @@ static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
         if (sources[i].len < minlen) minlen = sources[i].len;
     }
 
-    sds raw_result = sdstrynewlen(SDS_NOINIT, maxlen);
+    sds raw_result = try_alloc ? sdstrynewlen(SDS_NOINIT, maxlen) :
+                                 sdsnewlen(SDS_NOINIT, maxlen);
     if (raw_result == NULL) {
         for (size_t i = 0; i < numkeys; i++) sdsfree(sources[i].owned);
         zfree(raw_sources);
@@ -1653,8 +1655,12 @@ static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources, 
  * as a new Roaring bitmap object whose logical length is 'maxlen', matching the
  * string semantics where the destination length equals the longest source.
  * Sparse, large and Roaring-only operations stay entirely in Roaring space;
- * bounded dense mixed operands use the raw-word path above. */
-robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen) {
+ * bounded dense mixed operands use the raw-word path above. With 'try_alloc'
+ * set, failing to allocate that path's raw temporaries returns NULL instead
+ * of aborting; otherwise this never returns NULL. */
+robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen,
+                     int try_alloc)
+{
     bitroarOpSource *sources;
     roaring64_bitmap_t *result = NULL;
     int optimize_result = 1;
@@ -1666,7 +1672,7 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxl
     serverAssert(maxlen <= BITROAR_MAX_BYTES);
 
     if (bitroarUseMixedRawOp(objects, numkeys, maxlen)) {
-        result = bitroarApplyMixedRawOp(op, objects, numkeys, (size_t)maxlen);
+        result = bitroarApplyMixedRawOp(op, objects, numkeys, (size_t)maxlen, try_alloc);
         if (result == NULL) return NULL;
         optimize_result = 0;
         shrink_result = 0;
