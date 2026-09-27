@@ -74,6 +74,9 @@ set ::accurate 0; # If true runs fuzz tests with more iterations
 set ::force_failure 0
 set ::timeout 1200; # 20 minutes without progresses will quit the test.
 set ::last_progress [clock seconds]
+array set ::client_pid {};         # os pid of each test client, from its ready packet
+set ::in_timeout_report 0;         # true while reporting a timeout (we re-enter the event loop)
+array set ::client_trace_received {}; # clients that answered a timeout report with a Tcl stack trace
 set ::active_servers {} ; # Pids of active Redis instances.
 set ::dont_clean 0
 set ::dont_pre_clean 0
@@ -318,19 +321,90 @@ proc test_server_main {} {
 
 # This function gets called 10 times per second.
 proc test_server_cron {} {
+    # request_client_stack_traces pumps the event loop, which would otherwise
+    # let this fire again in the middle of a report.
+    if {$::in_timeout_report} return
+
     set elapsed [expr {[clock seconds]-$::last_progress}]
 
     if {$elapsed > $::timeout} {
+        set ::in_timeout_report 1
         set err "\[[colorstr red TIMEOUT]\]: clients state report follows."
         puts $err
         lappend ::failed_tests $err
         show_clients_state
+
+        # Order matters: collect the servers first. Poking a client makes it
+        # unwind, and on the way out start_server kills the very servers we
+        # want a crash report from (and tells us they are gone, emptying
+        # ::active_servers).
+        dump_stuck_servers
+        request_client_stack_traces
+
         kill_clients
         force_kill_all_servers
         the_end
     }
 
     after 100 test_server_cron
+}
+
+# Let the event loop run until every client in $fds has reported a Tcl stack
+# trace, or we give up. A report arrives as an ordinary exception/err packet,
+# which read_from_test_client prints and records.
+proc pump_for_client_traces {fds ticks} {
+    for {set i 0} {$i < $ticks} {incr i} {
+        set pending 0
+        foreach fd $fds {
+            if {![info exists ::client_trace_received($fd)]} {incr pending}
+        }
+        if {!$pending} return
+        after 100
+        update
+    }
+}
+
+# Get a Tcl stack trace out of every active test client, so we learn where in
+# the test each one hung and not just which test it was running. No client has
+# reported progress for --timeout seconds, so all of them are stuck.
+#
+# There are two ways one reaches us. Crash-reporting the servers above usually
+# unblocks a client by itself: its connection dies, the error unwinds, and the
+# client's existing top-level handler reports $::errorInfo. So collect that
+# first. Only a client stuck on something else -- a still-live server, an exec,
+# a sleep -- has to be poked, and for that we use SIGUSR1, which the client turns
+# into a Tcl error (see test_client_main): the same unwind, on demand.
+proc request_client_stack_traces {} {
+    set fds $::active_clients
+    pump_for_client_traces $fds 30
+
+    set poked {}
+    foreach fd $fds {
+        if {[info exists ::client_trace_received($fd)]} continue
+        if {![info exists ::client_pid($fd)]} {
+            puts "(no pid known for test client $fd, skipping its Tcl stack trace)"
+            continue
+        }
+        set pid $::client_pid($fd)
+        if {![is_running $pid]} {
+            puts "(test client $fd (pid $pid) already exited without reporting a Tcl stack trace)"
+            continue
+        }
+        puts "Requesting a Tcl stack trace from test client $fd (pid $pid)..."
+        if {[catch {exec kill -USR1 $pid} e]} {
+            puts "(couldn't signal the test client: $e)"
+            continue
+        }
+        lappend poked $fd
+    }
+    if {![llength $poked]} return
+
+    pump_for_client_traces $poked 100
+    foreach fd $poked {
+        if {![info exists ::client_trace_received($fd)]} {
+            puts "(no Tcl stack trace came back from test client $fd; it may be running without Tclx)"
+        }
+    }
 }
 
 proc accept_test_clients {fd addr port} {
@@ -355,6 +429,13 @@ proc accept_test_clients {fd addr port} {
 #       ready to accept a new task.
 proc read_from_test_client fd {
     set bytes [gets $fd]
+    if {![string is integer -strict $bytes]} {
+        # The client is gone -- it exited right after reporting, which happens
+        # when a timeout report asks it for a stack trace. Stop listening,
+        # otherwise the dead socket stays readable and spins this handler.
+        fileevent $fd readable {}
+        return
+    }
     set payload [encoding convertfrom utf-8 [read $fd $bytes]]
     foreach {status data elapsed} $payload break
     set ::last_progress [clock seconds]
@@ -363,6 +444,9 @@ proc read_from_test_client fd {
         if {!$::quiet} {
             puts "\[$status\]: $data"
         }
+        # The payload is the client's os pid; remember it so a timeout can ask
+        # this client for a Tcl stack trace.
+        set ::client_pid($fd) $data
         signal_idle_client $fd
     } elseif {$status eq {done}} {
         set elapsed [expr {[clock seconds]-$::clients_start_time($fd)}]
@@ -389,6 +473,12 @@ proc read_from_test_client fd {
     } elseif {$status eq {err}} {
         set err "\[[colorstr red $status]\]: $data"
         puts $err
+        if {$::in_timeout_report} {
+            # Same as below, for a --durable run where the client reports the
+            # interrupted test as a failure rather than re-raising.
+            set ::client_trace_received($fd) 1
+            return
+        }
         lappend ::failed_tests $err
         set ::active_clients_task($fd) "(ERR) $data"
         if {$::stop_on_failure} {
@@ -398,6 +488,12 @@ proc read_from_test_client fd {
         }
     } elseif {$status eq {exception}} {
         puts "\[[colorstr red $status]\]: $data"
+        if {$::in_timeout_report} {
+            # This is the Tcl stack trace a timeout report is waiting for;
+            # carry on with the report instead of tearing down here.
+            set ::client_trace_received($fd) 1
+            return
+        }
         kill_clients
         force_kill_all_servers
         exit 1
@@ -419,6 +515,99 @@ proc read_from_test_client fd {
         if {!$::quiet} {
             puts "\[$status\]: $data"
         }
+    }
+}
+
+# Like is_alive, but a zombie counts as gone. We are not the parent of the
+# servers (the stuck test client is, and it is not reaping them) nor do we reap
+# the test clients until our next exec, so after dying they linger as zombies,
+# which kill -0 still reports as alive.
+proc is_running pid {
+    if {[catch {exec ps -o stat= -p $pid} st]} {return 0}
+    expr {![string match Z* [string trim $st]]}
+}
+
+# Map a server pid to its log files. The test server only ever learns pids (from
+# the server-spawned packet), not paths, so find the tests/tmp directory whose
+# log carries that pid as a line prefix ("<pid>:M ...").
+proc server_log_files_of_pid {pid} {
+    set res {}
+    foreach f [glob -nocomplain "tests/tmp/*/stdout"] {
+        if {[catch {set fh [open $f r]}]} continue
+        set head [read $fh 65536]
+        close $fh
+        if {![regexp -line "^$pid:" $head]} continue
+        lappend res $f
+        set errfile [file join [file dirname $f] stderr]
+        if {[file exists $errfile]} {lappend res $errfile}
+    }
+    return $res
+}
+
+# Print the end of a server log: the crash report we just asked for, plus a few
+# lines of context above it for what the server was doing. A timeout can leave
+# many servers alive across all clients, so we don't want whole logs. A log with
+# no crash report (the server died before writing one, or this is its stderr)
+# gets its tail instead, which is then the only evidence there is.
+proc dump_server_log {f pid {context_lines 10} {tail_bytes 262144}} {
+    if {[catch {set fh [open $f r]} e]} {
+        puts "(can't open $f: $e)"
+        return
+    }
+    set data [read $fh]
+    close $fh
+    set size [string length $data]
+
+    set pos [string last "REDIS BUG REPORT START" $data]
+    if {$pos >= 0} {
+        # Back up to the start of the marker line, then context_lines more.
+        for {set i 0} {$i <= $context_lines && $pos >= 0} {incr i} {
+            set pos [string last "\n" $data [expr {$pos-1}]]
+        }
+        set start [expr {$pos+1}]
+    } else {
+        set start [expr {max(0, $size-$tail_bytes)}]
+    }
+
+    puts "\n===== Start of $f (pid $pid, last [expr {$size-$start}] of $size bytes) =====\n"
+    if {$start} {puts "\[...$start earlier bytes skipped...\]"}
+    puts [string range $data $start end]
+    puts "===== End of $f (pid $pid) =====\n"
+}
+
+# A timeout SIGKILLs every server, throwing away the only evidence we could
+# have had -- and --dump-logs only fires for a failed or excepted test, never
+# for a timeout. So ask the servers to talk first.
+#
+# SIGSEGV makes redis log a stack trace of every one of its threads plus INFO,
+# the client list and the config (printCrashReport) and then die. The handler
+# runs on whichever thread takes the signal, so it works on a server whose
+# event loop is wedged -- exactly the case we cannot diagnose from outside.
+# kill_server already resorts to SIGSEGV for the same reason when a server
+# won't exit, but the timeout path never reaches it.
+proc dump_stuck_servers {} {
+    set targets {}
+    foreach p $::active_servers {
+        set files [server_log_files_of_pid $p]
+        if {[llength $files] == 0} {
+            puts "(no log file found for server pid $p)"
+            continue
+        }
+        dict set targets $p $files
+    }
+    if {[dict size $targets] == 0} return
+
+    puts "Requesting crash reports (SIGSEGV) from [dict size $targets] still running server(s)..."
+    dict for {p files} $targets {catch {exec kill -SEGV $p}}
+
+    # The handler writes the whole report before letting the process die, so the
+    # log is complete once the process is gone.
+    dict for {p files} $targets {
+        for {set i 0} {$i < 300 && [is_running $p]} {incr i} {after 100}
+    }
+
+    dict for {p files} $targets {
+        foreach f $files {dump_server_log $f $p}
     }
 }
 
@@ -526,6 +715,20 @@ proc the_end {} {
 proc test_client_main server_port {
     set ::test_server_fd [socket localhost $server_port]
     fconfigure $::test_server_fd -translation binary
+
+    # A SIGUSR1 from the test server means "you look stuck -- say where".
+    # "signal error" raises a Tcl error at the next point Tcl checks for
+    # signals, which unwinds through the handler at the bottom of this file and
+    # reports $::errorInfo, a Tcl stack trace of wherever we hung. That covers a
+    # blocking read (the syscall is interrupted rather than retried), a long
+    # "after" and a polling loop alike; a plain "signal trap" only covers the
+    # first. It also keeps the signal from simply killing us. Tclx is optional:
+    # without it a timeout just reports no client stack trace.
+    catch {
+        package require Tclx
+        signal error SIGUSR1
+    }
+
     send_data_packet $::test_server_fd ready [pid]
     while 1 {
         set bytes [gets $::test_server_fd]
