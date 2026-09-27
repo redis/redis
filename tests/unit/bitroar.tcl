@@ -378,16 +378,71 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # across CRoaring's 16-bit container boundary.
         foreach {key bits expected_digest} {
             bitmap:digest:ranges:singleton {3}
-            {0fdbe68d29365ad0882498117659e397bf5050ba}
+            {4af788cd0cac52dc5f1a0c491c5afd79ef086b73}
             bitmap:digest:ranges:multi {1 2 3 4}
-            {bfafd3f1520764ed3706f6448ee778884e151323}
+            {4f213d509203fc746181634c30a9de6b8adba6d0}
             bitmap:digest:ranges:cross-container {65534 65535 65536 65537}
-            {92210d5971fd016b830e89475c07b04104263d7d}
+            {252834eaf1e8586068d6bb75c1b6764718fd0a34}
         } {
             assert_equal OK [create_roaring_bitmap_from_bits r $key $bits]
             assert_equal bitmap-roaring [r object encoding $key]
             assert_equal $expected_digest [r debug digest-value $key]
         }
+    }
+
+    test {DEBUG DIGEST for fragmented Roaring bitmaps is linear and history independent} {
+        # Alternating bits give one set-bit run per two bits, so 1MB holds 4M
+        # runs. All of them must be hashed in one linear SHA1 pass rather than
+        # with a SHA1 finalization per run.
+        set bytes 1048576
+        set raw [string repeat [binary format H* 55] $bytes]
+        r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
+            bitmap:digest:frag:cleared bitmap:digest:frag:converted:restored \
+            bitmap:digest:frag:cleared:restored
+
+        assert_equal OK [create_roaring_bitmap_from_raw r bitmap:digest:frag:converted $raw]
+        assert_equal [expr {$bytes * 4}] [r bitcount bitmap:digest:frag:converted]
+        set start [clock milliseconds]
+        set digest [r debug digest-value bitmap:digest:frag:converted]
+        set elapsed [expr {[clock milliseconds] - $start}]
+        if {!$::valgrind} {
+            assert_lessthan $elapsed 2000
+        }
+
+        # Build the same bits through other container histories: BITFIELD
+        # writes into an empty bitmap grow array containers into bitsets, and
+        # clearing every other bit of an all-ones bitmap fragments its run
+        # containers. DUMP/RESTORE then round-trips both representations.
+        # The BITFIELD writes loop in Lua to keep them server-side.
+        set fill {
+            for i = 0, tonumber(ARGV[1]) - 1 do
+                redis.call('BITFIELD', KEYS[1], 'SET', 'i64', '#' .. i, ARGV[2])
+            end
+        }
+        set pattern 6148914691236517205 ;# 0x5555555555555555
+        r config set bitmap-default-roaring yes
+        r eval $fill 1 bitmap:digest:frag:bitfield [expr {$bytes / 8}] $pattern
+        r config set bitmap-default-roaring no
+        assert_equal OK [create_roaring_bitmap_from_raw r bitmap:digest:frag:cleared \
+            [string repeat [binary format H* ff] $bytes]]
+        r eval $fill 1 bitmap:digest:frag:cleared [expr {$bytes / 8}] $pattern
+        foreach key {bitmap:digest:frag:converted bitmap:digest:frag:cleared} {
+            r restore $key:restored 0 [r dump $key]
+        }
+
+        foreach key {
+            bitmap:digest:frag:bitfield
+            bitmap:digest:frag:cleared
+            bitmap:digest:frag:converted:restored
+            bitmap:digest:frag:cleared:restored
+        } {
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal $raw [r debug bitmap-raw $key]
+            assert_equal $digest [r debug digest-value $key]
+        }
+        r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
+            bitmap:digest:frag:cleared bitmap:digest:frag:converted:restored \
+            bitmap:digest:frag:cleared:restored
     }
 
     test {Roaring bitmap writes keep the proto-max-bulk-len offset limit} {

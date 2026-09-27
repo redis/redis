@@ -124,24 +124,31 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
     decrRefCount(o);
 }
 
+/* Stream one [start, end) set-bit run into the bitmap SHA1 as two fixed-width
+ * little-endian integers. */
 static void mixBitmapObjectRangeDigest(uint64_t start, uint64_t end, void *privdata) {
-    unsigned char *digest = privdata;
-    char buf[LONG_STR_SIZE];
+    SHA1_CTX *ctx = privdata;
+    uint64_t range[2] = {intrev64ifbe(start), intrev64ifbe(end)};
 
-    int len = ull2string(buf, sizeof(buf), start);
-    mixDigest(digest, buf, len);
-    len = ull2string(buf, sizeof(buf), end);
-    mixDigest(digest, buf, len);
+    SHA1Update(ctx, (unsigned char *)range, sizeof(range));
 }
 
 void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
     /* Digest Roaring bitmaps by logical length plus canonical set-bit ranges.
      * This avoids materializing sparse high-offset bitmaps and keeps the
-     * digest independent from CRoaring's history-dependent container choices. */
-    char buf[LONG_STR_SIZE];
-    int len = ull2string(buf, sizeof(buf), bitroarLen(o));
-    mixDigest(digest, buf, len);
-    bitroarVisitSetBitRanges(o, mixBitmapObjectRangeDigest, digest);
+     * digest independent from CRoaring's history-dependent container choices.
+     * All the ranges are streamed into a single SHA1 that is mixed into the
+     * digest once, so the cost is a linear pass rather than one SHA1
+     * finalization per run. */
+    SHA1_CTX ctx;
+    unsigned char hash[20];
+    uint64_t len = intrev64ifbe(bitroarLen(o));
+
+    SHA1Init(&ctx);
+    SHA1Update(&ctx, (unsigned char *)&len, sizeof(len));
+    bitroarVisitSetBitRanges(o, mixBitmapObjectRangeDigest, &ctx);
+    SHA1Final(hash, &ctx);
+    mixDigest(digest, hash, sizeof(hash));
 }
 
 #ifdef ENABLE_GCRA
