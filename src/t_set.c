@@ -728,8 +728,12 @@ void smoveCommand(client *c) {
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
+        if (server.memory_tracking_enabled)
+            oldSrcAllocSize = kvobjAllocSize(srcset);
         addReply(c,setTypeIsMember(srcset,ele->ptr) ?
             shared.cone : shared.czero);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), srcset, oldSrcAllocSize, kvobjAllocSize(srcset));
         return;
     }
 
