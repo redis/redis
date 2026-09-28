@@ -444,12 +444,20 @@ proc accept_test_clients {fd addr port} {
 proc read_from_test_client fd {
     if {[catch {set bytes [gets $fd]}] || ![string is integer -strict $bytes] ||
         [catch {set payload [encoding convertfrom utf-8 [read $fd $bytes]]}]} {
-        # The client is gone -- it exited (or reset the connection) right after
-        # reporting, which happens when a timeout report asks it for a stack
-        # trace. Stop listening, otherwise the dead socket stays readable and
-        # spins this handler.
+        # The client is gone. Stop listening, otherwise the dead socket stays
+        # readable and spins this handler.
         fileevent $fd readable {}
-        return
+        # During a timeout report that is expected: a client exits right after
+        # reporting the stack trace we asked for.
+        if {$::in_timeout_report} return
+        # Otherwise it died without reporting an exception (crashed, OOM,
+        # killed), which is just as fatal -- don't wait for --timeout.
+        set task "no state reported"
+        if {[info exists ::active_clients_task($fd)]} {set task $::active_clients_task($fd)}
+        puts "\[[colorstr red exception]\]: Test client $fd exited unexpectedly -- last client state: $task"
+        kill_clients
+        force_kill_all_servers
+        exit 1
     }
     foreach {status data elapsed} $payload break
     set ::last_progress [clock seconds]
@@ -547,7 +555,7 @@ proc read_from_test_client fd {
 # the test clients until our next exec, so after dying they linger as zombies,
 # which kill -0 still reports as alive.
 proc is_running pid {
-    if {[catch {exec ps -o stat= -p $pid} st]} {return 0}
+    if {[catch {get_proc_state $pid} st]} {return 0}
     expr {![string match Z* [string trim $st]]}
 }
 
