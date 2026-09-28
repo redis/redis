@@ -41,7 +41,6 @@ extern dictType idmpDictType;
  * streamCGroupSample() and streamDistribMetricName(). */
 typedef enum {
     STREAM_DISTRIB_CGROUPS_PEL = 0,      /* stream_distrib_cgroups_pel */
-    STREAM_DISTRIB_CGROUPS_ENTRIES_READ, /* stream_distrib_cgroups_entries_read */
     STREAM_DISTRIB_MAX
 } streamDistribMetric;
 
