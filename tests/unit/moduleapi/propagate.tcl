@@ -819,12 +819,17 @@ tags "modules aof external:skip" {
             set expected_stream [list {select *} [list set bitmap:rmcall:source [binary format H* 80]]]
             set bitmap_cases {}
 
-            foreach {mode flags on_replica in_aof} {
-                none {} 0 0
-                nested {} 0 0
-                replica !A 1 0
-                aof !R 0 1
-                all ! 1 1
+            # The configuration only applies when the BITCONVERT / BITOP_ROARING
+            # companion reaches both the AOF and the replicas: a target missing
+            # it would replay the write, or whatever the module replicates in
+            # its place, against a string. Otherwise the write keeps the string
+            # representation and propagates as a plain command.
+            foreach {mode flags on_replica in_aof type} {
+                none {} 0 0 string
+                nested {} 0 0 string
+                replica !A 1 0 string
+                aof !R 0 1 string
+                all ! 1 1 bitmap
             } {
                 foreach command {setbit bitfield bitop} {
                     set key bitmap:rmcall:$mode:$command
@@ -835,19 +840,21 @@ tags "modules aof external:skip" {
                     }
                     if {$mode eq "nested"} {
                         # An inner call must not restore targets excluded by
-                        # the outer call, even for the BITCONVERT companion.
+                        # the outer call, so it must not convert either.
                         r test.rm_call test.rm_call_flags ! {*}$cmd
                     } elseif {$flags eq {}} {
                         r test.rm_call {*}$cmd
                     } else {
                         r test.rm_call_flags $flags {*}$cmd
                     }
-                    assert_equal bitmap [r type $key]
+                    assert_equal $type [r type $key]
                     assert_equal 1 [r bitcount $key]
-                    lappend bitmap_cases $key $in_aof
+                    lappend bitmap_cases $key $in_aof $type
 
                     if {$on_replica} {
-                        if {$command eq "bitop"} {
+                        if {$type eq "string"} {
+                            lappend expected_stream $cmd
+                        } elseif {$command eq "bitop"} {
                             lappend expected_stream [lreplace $cmd 0 0 bitop_roaring]
                         } else {
                             lappend expected_stream {multi} [list bitconvert $key] $cmd {exec}
@@ -861,11 +868,78 @@ tags "modules aof external:skip" {
 
         test {RM_Call bitmap transitions honor the selective propagation flags after AOF reload} {
             r debug loadaof
-            foreach {key in_aof} $bitmap_cases {
+            foreach {key in_aof type} $bitmap_cases {
                 assert_equal $in_aof [r exists $key]
                 if {$in_aof} {
-                    assert_equal bitmap [r type $key]
+                    assert_equal $type [r type $key]
                     assert_equal 1 [r bitcount $key]
+                }
+            }
+        }
+    }
+}
+
+tags "modules aof external:skip" {
+    start_server [list overrides [list loadmodule "$miscmodule"]] {
+        set replica [srv 0 client]
+        start_server [list overrides [list loadmodule "$miscmodule" appendonly yes auto-aof-rewrite-percentage 0]] {
+            set master [srv 0 client]
+            $replica replicaof [srv 0 host] [srv 0 port]
+            wait_for_sync $replica
+
+            # RM_Call without '!' can't propagate the bitmap transition, and
+            # the replica and the AOF replay the module command replicated
+            # verbatim, so neither node may pick the representation from its
+            # own bitmap-default-roaring.
+            foreach {master_default replica_default} {yes no no yes} {
+                test "RM_Call bitmap writes replicated verbatim keep the same type on the replica (master $master_default, replica $replica_default)" {
+                    $master config set bitmap-default-roaring $master_default
+                    $replica config set bitmap-default-roaring $replica_default
+                    set prefix bitmap:verbatim:$master_default
+                    $master set $prefix:source [binary format H* 80]
+                    $master set $prefix:convert [binary format H* 80]
+
+                    $master test.rm_call_replicate setbit $prefix:setbit 7 1
+                    $master test.rm_call_replicate setbit $prefix:convert 7 1
+                    $master test.rm_call_replicate bitfield $prefix:bitfield SET u8 0 255
+                    $master test.rm_call_replicate bitop or $prefix:bitop $prefix:source
+                    # A plain SETBIT still follows the master's configuration.
+                    $master setbit $prefix:plain 7 1
+                    wait_for_ofs_sync $master $replica
+
+                    foreach suffix {setbit convert bitfield bitop} {
+                        set key $prefix:$suffix
+                        assert_equal string [$master type $key]
+                        assert_equal string [$replica type $key]
+                        assert_equal [$master debug digest-value $key] [$replica debug digest-value $key]
+                    }
+                    set plain_type [expr {$master_default eq "yes" ? "bitmap" : "string"}]
+                    assert_equal $plain_type [$master type $prefix:plain]
+                    assert_equal $plain_type [$replica type $prefix:plain]
+
+                    # Later string writes apply on both nodes.
+                    assert_equal 4 [$master append $prefix:setbit xyz]
+                    wait_for_ofs_sync $master $replica
+                    assert_equal [$master debug digest] [$replica debug digest]
+                }
+            }
+
+            test {RM_Call bitmap writes replicated verbatim keep their type after AOF reload} {
+                # Detach before replacing the master's dataset from its AOF.
+                $replica replicaof no one
+                set digest [$master debug digest]
+                set types {}
+                foreach key [lsort [$master keys bitmap:verbatim:*]] {
+                    lappend types $key [$master type $key]
+                }
+
+                foreach default {yes no} {
+                    $master config set bitmap-default-roaring $default
+                    $master debug loadaof
+                    foreach {key type} $types {
+                        assert_equal $type [$master type $key]
+                    }
+                    assert_equal $digest [$master debug digest]
                 }
             }
         }
