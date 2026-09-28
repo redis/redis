@@ -277,9 +277,37 @@ start_server {tags {"aofrw external:skip debug_defrag:skip"} overrides {aof-use-
         assert_equal [s aof_rewrite_scheduled] 1
         r config set rdb-key-save-delay 0
         catch {exec kill -9 [get_child_pid 0]}
-        while {[s aof_rewrite_scheduled] eq 1} {
+        while {[s aof_rewrite_scheduled] eq 1 || [s aof_rewrite_in_progress] eq 1} {
             after 100
         }
+    }
+
+    test {Turning off AOF before postponed initial rewrite does not close an unopened fd} {
+        # Keep a BGSAVE child running so enabling AOF postpones its initial
+        # rewrite before an AOF file descriptor has been opened.
+        r config set appendonly no
+        r set k v
+        r config set rdb-key-save-delay 10000000
+        r bgsave
+        assert_equal 1 [s rdb_bgsave_in_progress]
+
+        r config set appendonly yes
+        assert_equal 1 [s aof_rewrite_scheduled]
+        assert_equal 0 [s aof_rewrite_in_progress]
+
+        # This calls stopAppendOnly() while aof_fd is still -1.
+        r config set appendonly no
+        assert_equal 0 [s aof_enabled]
+        assert_equal PONG [r ping]
+
+        # Restore the delay and clean up the BGSAVE child created by this test.
+        r config set rdb-key-save-delay 0
+        catch {exec kill -9 [get_child_pid 0]}
+
+        # Restore the AOF state expected by the following tests and wait for
+        # its initial rewrite to finish before starting another child process.
+        r config set appendonly yes
+        waitForBgrewriteaof r
     }
 
     test {BGREWRITEAOF is refused if already in progress} {

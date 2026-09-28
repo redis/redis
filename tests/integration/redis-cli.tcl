@@ -933,7 +933,45 @@ start_server {tags {"cli external:skip"}} {
         r del key
         r acl deluser keystats-user
     }
+}
 
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "RESP3 upgrade persists across a forced reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=3}
+
+        # kill server and restart to force redis-cli's forced-reconnect path
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # without retyping HELLO, the reconnect should have re-negotiated RESP3
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=3}
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "HELLO 2\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=2}
+
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # must stay on RESP2 -- the explicit downgrade must not be re-promoted
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=2}
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
     test "keystats on empty database should not produce garbage stats" {
         # On an empty DB the keystats histogram has total_count = 0. Verify hdr_mean(), hdr_stddev(),
         # and the percentile calculation handle this gracefully.
