@@ -148,6 +148,7 @@ int setTypeAdd(robj *subject, sds value) {
  * Returns 1 if the value was added and 0 if it was already a member. */
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
+    int llval_valid = (str == NULL);
     if (!str && set->encoding != OBJ_ENCODING_INTSET) {
         /* Only intset can consume a bare integer directly; other encodings
          * need it stringified first. */
@@ -157,12 +158,12 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     }
 
     const setTypeOps *ops = setTypeGetOps(set->encoding);
-    int target_enc, added = ops->rawAdd(set, str, len, llval, str_is_sds, 0, &target_enc);
+    int target_enc, added = ops->rawAdd(set, str, len, llval, llval_valid, str_is_sds, 0, &target_enc);
     if (added == -1) {
         /* Doesn't fit under the current encoding: convert encoding and retry there. */
         unsigned long cap = ops->size(set) + 1;
         setTypeConvertAndExpand(set, target_enc, cap, 1);
-        added = setTypeGetOps(target_enc)->rawAdd(set, str, len, llval, str_is_sds, 1, &target_enc);
+        added = setTypeGetOps(target_enc)->rawAdd(set, str, len, llval, llval_valid, str_is_sds, 1, &target_enc);
         serverAssert(added == 1);
         return added;
     }

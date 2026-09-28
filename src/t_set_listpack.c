@@ -18,7 +18,7 @@
 #include "intset.h" /* Compact integer set structure, for the conversion size estimate below. */
 #include "t_set_encoding.h"
 
-static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc) {
+static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int llval_valid, int str_is_sds, int after_convert, int *target_enc) {
     UNUSED(llval);
     UNUSED(str_is_sds);
     unsigned char *lp = set->ptr;
@@ -34,8 +34,16 @@ static int lpRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_
         }
     }
     if (lpLength(lp) < server.set_max_listpack_entries && len <= server.set_max_listpack_value &&
-        lpSafeToAdd(lp, len)) {
-        set->ptr = lpAppend(lp, (unsigned char *)str, len);
+        lpSafeToAdd(lp, len))
+    {
+        if (llval_valid) {
+            /* If the value is a valid integer, we can add it as an integer
+             * to save space. */
+            set->ptr = lpAppendInteger(lp, llval);
+        } else {
+            /* Otherwise, add it as a string. */
+            set->ptr = lpAppend(lp, (unsigned char *)str, len);
+        }
 
         if (after_convert) {
             /* Only reachable when converting from intset, whose capacity

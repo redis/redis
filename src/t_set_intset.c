@@ -44,9 +44,10 @@ static int isResolveEncodingForAdd(robj *set, size_t len) {
  * and there's nothing to parse. This is intset's only encoding-selection
  * fast path: it's the sole encoding that can consume a bare integer
  * without ever looking at a string form of it. */
-static int isRawAdd(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc) {
+static int isRawAdd(robj *set, char *str, size_t len, int64_t llval, int llval_valid, int str_is_sds, int after_convert, int *target_enc) {
     UNUSED(str_is_sds);
     UNUSED(after_convert);
+    UNUSED(llval_valid);
     long long value;
     if (str == NULL) {
         value = llval;

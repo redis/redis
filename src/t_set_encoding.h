@@ -36,7 +36,7 @@
  */
 typedef struct {
     /* return 0 if the member already exists, 1 if added, -1 if it cannot be added (due to encoding mismatch or size limits)*/
-    int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc);
+    int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int llval_valid, int str_is_sds, int after_convert, int *target_enc);
     /* return 0 if the member doesn't exist, 1 if removed */
     int (*rawRemove)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     /* return 1 if the member exists, 0 if not */
