@@ -370,6 +370,18 @@ tags "modules external:skip" {
                 }
             }
             r del bitmap:bitop:dest bitmap:bitop:check bitmap:bitop:victim
+
+            # A wrong-type source fails BITOP before the sources after it are
+            # looked up, so the trigger's callback cannot replace the invalid
+            # source and let the command succeed.
+            r rpush bitmap:bitop:victim x
+            assert_error {WRONGTYPE*} {
+                r bitop or bitmap:bitop:dest bitmap:bitop:victim bitmap:bitop:trigger
+            }
+            assert_equal list [r type bitmap:bitop:victim]
+            assert_equal 0 [r exists bitmap:bitop:dest]
+            r del bitmap:bitop:victim
+
             r config set bitmap-default-roaring no
             r debug set-active-expire 1
         } {OK} {needs:debug}
