@@ -40,7 +40,8 @@ extern dictType idmpDictType;
  * enumerator here plus one case in each of streamDistribHistRowMeta(),
  * streamCGroupSample() and streamDistribMetricName(). */
 typedef enum {
-    STREAM_DISTRIB_CGROUPS_PEL = 0,      /* stream_distrib_cgroups_pel */
+    STREAM_DISTRIB_CGROUPS_PEL = 0,   /* stream_distrib_cgroups_pel */
+    STREAM_DISTRIB_CGROUPS_CONSUMERS, /* stream_distrib_cgroups_consumers */
     STREAM_DISTRIB_MAX
 } streamDistribMetric;
 

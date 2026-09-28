@@ -5,6 +5,7 @@
 # properties, identical in form to the "INFO keysizes" section. One sample per
 # consumer group per metric:
 #   - stream_distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
+#   - stream_distrib_cgroups_consumers: the group's consumer count.
 # Collection is gated on the stream-stats directive and reconstructed exactly
 # from RDB / replication.
 ################################################################################
@@ -117,6 +118,12 @@ proc verify_stream_metric {cmd exp field placeholder xinfo_field waitCond} {
 # stream_distrib_cgroups_pel: placeholder "PEL", cross-checked against XINFO 'pending'.
 proc verify_pel {cmd exp {waitCond 0}} {
     uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_cgroups_pel PEL pending $waitCond]
+}
+
+# stream_distrib_cgroups_consumers: placeholder "CONS", cross-checked against
+# XINFO 'consumers'.
+proc verify_consumers {cmd exp {waitCond 0}} {
+    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_cgroups_consumers CONS consumers $waitCond]
 }
 
 # Seed a stream with 'n' entries 1-1..n-1.
@@ -252,6 +259,78 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_pel {$server xtrim st DELREF maxlen 4} {db0_PEL:4=2}
     }
 
+    test "STREAM-STATS - consumers bin boundaries 1,2,4,8,... $suffix" {
+        # XGROUP CREATECONSUMER adds exactly one consumer per call, so n calls
+        # put the group in the bin for the largest power of two <= n.
+        foreach n {1 2 3 4 7 8 15 16} {
+            verify_consumers {$server FLUSHALL} {}
+            $server xgroup create st g 0 mkstream
+            for {set i 1} {$i < $n} {incr i} { $server xgroup createconsumer st g c$i }
+            verify_consumers {$server xgroup createconsumer st g c$n} "db0_CONS:[hist_label $n]=1"
+        }
+    }
+
+    test "STREAM-STATS - a new group has no consumers (bin 0) $suffix" {
+        verify_consumers {$server FLUSHALL} {}
+        verify_consumers {$server xgroup create st g 0 mkstream} {db0_CONS:0=1}
+    }
+
+    test "STREAM-STATS - XREADGROUP creates a consumer only on first sight $suffix" {
+        verify_consumers {$server FLUSHALL} {}
+        seed_stream $server st 4
+        verify_consumers {$server xgroup create st g 0} {db0_CONS:0=1}
+        # A first read under a new name creates the consumer: 0 -> 1.
+        verify_consumers {$server xreadgroup group g alice count 1 streams st >} {db0_CONS:1=1}
+        # The same name again does not; the count stays at 1.
+        verify_consumers {$server xreadgroup group g alice count 1 streams st >} {db0_CONS:1=1}
+        # A different name does: 1 -> 2.
+        verify_consumers {$server xreadgroup group g bob count 1 streams st >} {db0_CONS:2=1}
+    }
+
+    test "STREAM-STATS - XGROUP CREATECONSUMER / DELCONSUMER move the sample $suffix" {
+        verify_consumers {$server FLUSHALL} {}
+        $server xgroup create st g 0 mkstream
+        verify_consumers {$server xgroup createconsumer st g c1} {db0_CONS:1=1}
+        verify_consumers {$server xgroup createconsumer st g c2} {db0_CONS:2=1}
+        # Re-creating an existing consumer is a no-op (replies 0) and must not move it.
+        verify_consumers {$server xgroup createconsumer st g c2} {db0_CONS:2=1}
+        verify_consumers {$server xgroup delconsumer st g c1} {db0_CONS:1=1}
+        verify_consumers {$server xgroup delconsumer st g c2} {db0_CONS:0=1}
+    }
+
+    test "STREAM-STATS - XCLAIM and XAUTOCLAIM create the claiming consumer $suffix" {
+        verify_consumers {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g 0
+        $server xreadgroup group g alice count 4 streams st >
+        verify_consumers {} {db0_CONS:1=1}
+        # A previously unseen claimer is created: 1 -> 2 crosses into "2".
+        verify_consumers {$server xclaim st g bob 0 1-1} {db0_CONS:2=1}
+        # Claiming under an existing name creates nothing.
+        verify_consumers {$server xclaim st g bob 0 2-1} {db0_CONS:2=1}
+        # Park a third consumer so the next creation crosses a bin boundary (3 -> 4).
+        $server xgroup createconsumer st g carol
+        verify_consumers {$server xautoclaim st g dave 0 0 count 1} {db0_CONS:4=1}
+    }
+
+    test "STREAM-STATS - XGROUP DESTROY removes the consumers sample $suffix" {
+        verify_consumers {$server FLUSHALL} {}
+        $server xgroup create st g1 0 mkstream
+        $server xgroup create st g2 0
+        verify_consumers {$server xgroup createconsumer st g1 c1} {db0_CONS:0=1,1=1}
+        verify_consumers {$server xgroup destroy st g1} {db0_CONS:0=1}
+        verify_consumers {$server xgroup destroy st g2} {}
+    }
+
+    test "STREAM-STATS - XACK does not touch the consumer count $suffix" {
+        verify_consumers {$server FLUSHALL} {}
+        seed_stream $server st 4
+        $server xgroup create st g 0
+        verify_consumers {$server xreadgroup group g c count 4 streams st >} {db0_CONS:1=1}
+        verify_pel {$server xack st g 1-1 2-1} {db0_PEL:2=1}
+        verify_consumers {} {db0_CONS:1=1}
+    }
+
     test "STREAM-STATS - multiple streams and databases $suffix" {
         verify_pel {$server FLUSHALL} {}
         seed_stream $server sa 2
@@ -266,6 +345,7 @@ proc test_all_stream_stats { {replMode 0} } {
         $server xgroup create sc g 0
         $server xreadgroup group g c count 8 streams sc >
         verify_pel {} {db0_PEL:2=1,4=1 db5_PEL:8=1}
+        verify_consumers {} {db0_CONS:1=2 db5_CONS:1=1}
         $server select 0
     }
 
@@ -283,9 +363,10 @@ proc test_all_stream_stats { {replMode 0} } {
             catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
             catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
         }
-        # PEL must match an independent reconstruction from XINFO GROUPS
-        # (pending) -- across trims/deletes/reads/acks.
+        # Both metrics must match an independent reconstruction from XINFO
+        # GROUPS (pending / consumers) -- across trims/deletes/reads/acks.
         verify_pel {} {__EVAL__ 0}
+        verify_consumers {} {__EVAL__ 0}
     }
 }
 
@@ -307,15 +388,19 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000
         verify_pel {} {__EVAL__ 0}
+        verify_consumers {} {__EVAL__ 0}
 
-        # A reload must reconstruct the metric for a random dataset too.
+        # A reload must reconstruct both metrics for a random dataset too.
         set before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
+        set before_cons [get_info_stream_field r stream_distrib_cgroups_consumers]
         r DEBUG RELOAD
         assert_equal $before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal $before_cons [get_info_stream_field r stream_distrib_cgroups_consumers]
 
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000 {useexpire}
         verify_pel {} {__EVAL__ 0}
+        verify_consumers {} {__EVAL__ 0}
     } {} {cluster:skip}
 
     test "STREAM-STATS - DEBUG RELOAD reconstructs the histogram from RDB" {
@@ -329,8 +414,10 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         set before [get_info_stream_stripped r]
         r DEBUG RELOAD
         assert_equal $before [get_info_stream_stripped r]
-        # The metric matches an independent reconstruction from XINFO GROUPS.
+        # Both metrics match an independent reconstruction from XINFO GROUPS.
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] \
+            [get_info_stream_field r stream_distrib_cgroups_consumers]
     }
 
     test "STREAM-STATS - section is empty after the streams are removed" {
@@ -340,6 +427,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         r xgroup create st g 0
         r xreadgroup group g c count 4 streams st >
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         r del st
         assert_equal "" [get_info_stream_stripped r]
     }
@@ -391,9 +479,10 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         # pre-existing group isn't counted until its next change.
         r config set stream-stats yes
         assert_equal "" [get_info_stream_stripped r]
-        # A reload rebuilds the gauge exactly from the keyspace.
+        # A reload rebuilds the gauges exactly from the keyspace.
         r DEBUG RELOAD
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         # Disabling zeroes the histogram so no stale samples linger.
         r config set stream-stats no
         assert_equal "" [get_info_stream_stripped r]

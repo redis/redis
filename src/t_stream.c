@@ -128,10 +128,11 @@ unsigned long streamLength(const robj *subject) {
  *
  * Per-database base-2 logarithmic histograms of stream properties, reported by
  * the INFO `Streams` section: one sample per consumer group for its PEL size
- * (stream_distrib_cgroups_pel). They are maintained directly from the stream
- * commands and module APIs that change the tracked property, from the stream key
- * lifecycle hooks (streamKeyLoaded / streamKeyRemoved), and from the async
- * slot-trim delta path (cluster_asm.c).
+ * (stream_distrib_cgroups_pel) and for its consumer count
+ * (stream_distrib_cgroups_consumers). They are maintained directly from the
+ * stream commands and module APIs that change the tracked property, from the
+ * stream key lifecycle hooks (streamKeyLoaded / streamKeyRemoved), and from the
+ * async slot-trim delta path (cluster_asm.c).
  *
  * Every metric tracked here is a value materialized on the consumer group, so a
  * write only has to update the group it touches. That is a deliberate
@@ -166,6 +167,7 @@ int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric met
     if (!meta) return NULL;
     switch (metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return meta->distrib_cgroups_pel;
+    case STREAM_DISTRIB_CGROUPS_CONSUMERS: return meta->distrib_cgroups_consumers;
     case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
     return NULL; /* unreachable: every metric has a case above */
@@ -176,6 +178,7 @@ int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric met
 const char *streamDistribMetricName(streamDistribMetric metric) {
     switch (metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return "stream_distrib_cgroups_pel";
+    case STREAM_DISTRIB_CGROUPS_CONSUMERS: return "stream_distrib_cgroups_consumers";
     case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
     return "stream_distrib_unknown"; /* unreachable: every metric has a case above */
@@ -200,13 +203,13 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
 
 /* Map a stream property value to its histogram bin, matching the keysizes
  * histogram: 0 -> bin 0, otherwise floor(log2(value)) + 1. A negative value means
- * "no sample" and maps to -1, which callers skip. For the metric collected today
- * that is only a consumer group entering or leaving the histogram: a PEL size is
- * never negative.
+ * "no sample" and maps to -1, which callers skip. For the metrics collected today
+ * that is only a consumer group entering or leaving the histogram: neither a PEL
+ * size nor a consumer count is ever negative.
  *
  * The top-bin clamp and the 64-bit binning below are deliberately stricter than
- * that one metric needs. A PEL size is bounded by addressable memory, exactly like
- * a key size, so neither can trigger for it. They are here because this is the
+ * those metrics need. Both are bounded by addressable memory, exactly like a key
+ * size, so neither guard can trigger for them. They are here because this is the
  * single place every stream metric is binned, and a metric need not be
  * memory-bounded: a counter the stream keeps in a 64-bit field can reach ~2^63 --
  * entries_added, which XSETID ... ENTRIESADDED sets independently of how much the
@@ -1950,15 +1953,16 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     }
 }
 
-/* The histogram sample for one consumer group under 'metric': currently its PEL
- * size. A single accessor so the live path, the key lifecycle hooks, the async
- * slot-trim delta (cluster_asm.c) and the debug assertion all bin the same
- * value. Returns -1 for "no sample" (a group entering or leaving the histogram),
- * which streamDistribBin() also maps to -1. */
+/* The histogram sample for one consumer group under 'metric': its PEL size or
+ * its consumer count. A single accessor so the live path, the key lifecycle
+ * hooks, the async slot-trim delta (cluster_asm.c) and the debug assertion all
+ * bin the same value. Returns -1 for "no sample" (a group entering or leaving the
+ * histogram), which streamDistribBin() also maps to -1. */
 int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) {
     UNUSED(s);
     switch (metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return (int64_t) raxSize(cg->pel);
+    case STREAM_DISTRIB_CGROUPS_CONSUMERS: return (int64_t) raxSize(cg->consumers);
     case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
     return -1; /* unreachable: every metric has a case above */
@@ -3230,9 +3234,15 @@ void xreadCommand(client *c) {
             if (consumer == NULL) {
                 if (server.memory_tracking_enabled)
                     old_alloc = kvobjAllocSize(o);
+                /* A first read under a new name creates the consumer, growing
+                 * this group's consumer count. Sample it here: the PEL snapshot
+                 * below is taken after this point and would miss it. */
+                int64_t old_consumers = (int64_t) raxSize(groups[i]->consumers);
                 consumer = streamCreateConsumer(s,groups[i],consumername->ptr,
                                                 c->argv[streams_arg+i],
                                                 c->db->id,SCC_DEFAULT);
+                streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers,
+                                 (int64_t) raxSize(groups[i]->consumers));
                 if (server.memory_tracking_enabled)
                     updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
                 consumer_created = 1;
@@ -3856,6 +3866,7 @@ NULL
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, -1, 0); /* new group, empty PEL */
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1, 0); /* new group, no consumers */
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
@@ -3887,6 +3898,7 @@ NULL
             if (server.memory_tracking_enabled)
                 old_alloc = kvobjAllocSize(o);
             streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, (int64_t) raxSize(cg->pel), -1); /* group gone */
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, (int64_t) raxSize(cg->consumers), -1); /* group gone */
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
             if (server.memory_tracking_enabled)
@@ -3904,8 +3916,10 @@ NULL
     } else if (!strcasecmp(opt,"CREATECONSUMER") && c->argc == 5) {
         if (server.memory_tracking_enabled)
             old_alloc = kvobjAllocSize(o);
+        int64_t old_consumers = (int64_t) raxSize(cg->consumers);
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
+        streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* no-op if it already existed */
         keyModified(c,c->db,c->argv[2],o,0);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -3920,8 +3934,10 @@ NULL
                 old_alloc = kvobjAllocSize(o);
             pending = raxSize(consumer->pel);
             int64_t old_pel = raxSize(cg->pel);
+            int64_t old_consumers = (int64_t) raxSize(cg->consumers);
             streamDelConsumer(s,cg,consumer);
             streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(cg->pel)); /* consumer's PEL entries removed */
+            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* consumer removed */
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             server.dirty++;
@@ -4806,6 +4822,7 @@ void xclaimCommand(client *c) {
     stream *s = o->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     int64_t old_pel = raxSize(group->pel);
+    int64_t old_consumers = raxSize(group->consumers); /* the claimer may be created below */
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
@@ -4919,6 +4936,7 @@ void xclaimCommand(client *c) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
     streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE adds / deleted entries removed */
+    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
     if (propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
@@ -5067,6 +5085,7 @@ void xautoclaimCommand(client *c) {
     stream *s = o->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     int64_t old_pel = raxSize(group->pel);
+    int64_t old_consumers = raxSize(group->consumers); /* the claimer may be created below */
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
@@ -5204,6 +5223,7 @@ void xautoclaimCommand(client *c) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
     streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* deleted entries removed from PEL */
+    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
 
     streamID endid;
     if (raxEOF(&ri)) {
@@ -6447,10 +6467,10 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
 
 /* --- DEBUG STREAM-STATS-ASSERT -------------------------------------------
  * The INFO `Streams` histograms are gauges maintained incrementally, so every
- * path that changes a group's PEL size has to update them. Rebuilding them from
- * the keyspace after each command turns any existing stream test into coverage
- * for that: a missed update site, or an update computed against mismatched
- * state, shows up as a bin that disagrees with the scan. */
+ * path that changes a group's PEL size or consumer count has to update them.
+ * Rebuilding them from the keyspace after each command turns any existing stream
+ * test into coverage for that: a missed update site, or an update computed
+ * against mismatched state, shows up as a bin that disagrees with the scan. */
 
 /* Rebuild every db's INFO `Streams` histograms from the keyspace. Primes the
  * assertion: enabling stream-stats at runtime deliberately does not rescan (see
