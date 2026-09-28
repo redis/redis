@@ -339,34 +339,38 @@ tags "modules external:skip" {
 
         test "Keyspace notifications: BITOP reads sources after lookup callbacks change them" {
             r debug set-active-expire 0
-            r config set bitmap-default-roaring yes
-            foreach {trigger kind expected_bits} {
-                bitmap:bitop:trigger missing {5000}
-                bitmap:bitop:trigger expired {5000}
-                bitmap:bitop:trigger-grow missing {100 200000}
-                bitmap:bitop:trigger-grow expired {100 200000}
-            } {
-                r del bitmap:bitop:dest bitmap:bitop:check bitmap:bitop:victim $trigger
-                r setbit bitmap:bitop:victim 100 1
-                assert_equal bitmap [r type bitmap:bitop:victim]
-                if {$kind eq "expired"} {
-                    r set $trigger x PX 1
-                    after 10
-                }
+            # Roaring sources were read after being freed; string sources were
+            # held by reference and read as they were before the callback.
+            foreach {roaring type} {yes bitmap no string} {
+                r config set bitmap-default-roaring $roaring
+                foreach {trigger kind expected_bits} {
+                    bitmap:bitop:trigger missing {5000}
+                    bitmap:bitop:trigger expired {5000}
+                    bitmap:bitop:trigger-grow missing {100 200000}
+                    bitmap:bitop:trigger-grow expired {100 200000}
+                } {
+                    r del bitmap:bitop:dest bitmap:bitop:check bitmap:bitop:victim $trigger
+                    r setbit bitmap:bitop:victim 100 1
+                    assert_equal $type [r type bitmap:bitop:victim]
+                    if {$kind eq "expired"} {
+                        r set $trigger x PX 1
+                        after 10
+                    }
 
-                # Looking up the trigger runs a keymiss (and expired) callback
-                # that replaces the victim, or grows it in place and sets a TTL
-                # on it. Those writes are propagated before BITOP, so BITOP must
-                # compute from the victim as the callback left it, as a replica
-                # or an AOF replay does, not from the value it looked up first.
-                set reply [r bitop or bitmap:bitop:dest bitmap:bitop:victim $trigger]
-                assert_equal 0 [r exists $trigger]
-                assert_equal $reply [r bitop or bitmap:bitop:check bitmap:bitop:victim]
-                assert_equal [r debug digest-value bitmap:bitop:check] \
-                    [r debug digest-value bitmap:bitop:dest]
-                assert_equal [llength $expected_bits] [r bitcount bitmap:bitop:dest]
-                foreach bit $expected_bits {
-                    assert_equal 1 [r getbit bitmap:bitop:dest $bit]
+                    # Looking up the trigger runs a keymiss (and expired) callback
+                    # that replaces the victim, or grows it in place and sets a TTL
+                    # on it. Those writes are propagated before BITOP, so BITOP must
+                    # compute from the victim as the callback left it, as a replica
+                    # or an AOF replay does, not from the value it looked up first.
+                    set reply [r bitop or bitmap:bitop:dest bitmap:bitop:victim $trigger]
+                    assert_equal 0 [r exists $trigger]
+                    assert_equal $reply [r bitop or bitmap:bitop:check bitmap:bitop:victim]
+                    assert_equal [r debug digest-value bitmap:bitop:check] \
+                        [r debug digest-value bitmap:bitop:dest]
+                    assert_equal [llength $expected_bits] [r bitcount bitmap:bitop:dest]
+                    foreach bit $expected_bits {
+                        assert_equal 1 [r getbit bitmap:bitop:dest $bit]
+                    }
                 }
             }
             r del bitmap:bitop:dest bitmap:bitop:check bitmap:bitop:victim

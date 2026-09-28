@@ -1596,8 +1596,9 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
      * those lookups may delete, replace or modify sources that were already
      * looked up, and their writes are propagated before BITOP itself. Collect
      * the source values only afterwards, without further effects, so BITOP
-     * never keeps a value a callback freed and computes from the same keyspace
-     * state that replicas and the AOF replay it against. A source of the wrong
+     * never keeps a value a callback freed and computes from the sources as
+     * the callbacks left them, which replicas and the AOF normally see too,
+     * since they replay BITOP after the callbacks' writes. A source of the wrong
      * type fails the command right away, before any later source is looked up,
      * so a failing BITOP has no further lookup side effects. */
     numkeys = c->argc - 3;
