@@ -3655,7 +3655,10 @@ int RM_ReplyWithBufferedReply(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
     if (!dst || src == dst || src->resp != dst->resp)
         return REDISMODULE_ERR;
 
-    AddReplyFromClient(dst, src);
+    if (dst->flags & CLIENT_MODULE)
+        AddReplyFromModuleClient(dst, src);
+    else
+        AddReplyFromClient(dst, src);
 
     /* AddReplyFromClient may return before consuming the source when the
      * destination cannot accept replies.

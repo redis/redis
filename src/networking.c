@@ -1546,17 +1546,27 @@ void addReplySubcommandSyntaxError(client *c) {
     sdsfree(cmd);
 }
 
+/* Move the reply blocks and deferred errors after the static buffer has been
+ * appended and the destination has been checked by the caller. Module-only
+ * callers may run without the GIL: keep their errors client-local and deferred. */
+static void appendReplyBuffersFromClient(client *dst, client *src) {
+    /* Concatenate the reply list into the dest */
+    if (listLength(src->reply))
+        listJoin(dst->reply,src->reply);
+    serverAssert(src->reply_bytes_shared == 0); /* It is non-normal client, never has references. */
+    dst->reply_bytes += src->reply_bytes;
+    src->reply_bytes = 0;
+    src->bufpos = 0;
+
+    if (src->deferred_reply_errors) {
+        deferredAfterErrorReply(dst, src->deferred_reply_errors);
+        listRelease(src->deferred_reply_errors);
+        src->deferred_reply_errors = NULL;
+    }
+}
+
 /* Append 'src' client output buffers into 'dst' client output buffers.
- * This function clears the output buffers of 'src'.
- *
- * Module reply buffers also use this from worker threads without the GIL.
- * That requires exclusive access to both clients, both to be connectionless
- * CLIENT_MODULE clients, and src not to have CLIENT_CLOSE_ASAP set. In this
- * case _prepareClientToWrite bypasses write scheduling, output-limit handling
- * returns before accessing server state, and errors remain client-local and
- * deferred. Preserve these properties in this function and its callees.
- * Other clients require their normal synchronization; in particular, moving
- * to a real module command client requires the GIL. */
+ * This function clears the output buffers of 'src'. */
 void AddReplyFromClient(client *dst, client *src) {
     /* If the source client contains a partial response due to client output
      * buffer limits, propagate that to the dest rather than copy a partial
@@ -1583,22 +1593,26 @@ void AddReplyFromClient(client *dst, client *src) {
      * checks in it. */
     if (dst->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
-    /* Concatenate the reply list into the dest */
-    if (listLength(src->reply))
-        listJoin(dst->reply,src->reply);
-    serverAssert(src->reply_bytes_shared == 0); /* It is non-normal client, never has references. */
-    dst->reply_bytes += src->reply_bytes;
-    src->reply_bytes = 0;
-    src->bufpos = 0;
-
-    if (src->deferred_reply_errors) {
-        deferredAfterErrorReply(dst, src->deferred_reply_errors);
-        listRelease(src->deferred_reply_errors);
-        src->deferred_reply_errors = NULL;
-    }
+    appendReplyBuffersFromClient(dst, src);
 
     /* Check output buffer limits */
     closeClientOnOutputBufferLimitReached(dst, 1);
+}
+
+/* Move replies between connectionless module clients with exclusive access to
+ * both. This path may run without the GIL: addReplyProto must bypass write
+ * scheduling and output-limit handling for these clients, and the shared
+ * transfer helper must keep errors deferred. Real clients use AddReplyFromClient
+ * with their normal synchronization instead. */
+void AddReplyFromModuleClient(client *dst, client *src) {
+    serverAssert(src != dst);
+    serverAssert((src->flags & CLIENT_MODULE) && (dst->flags & CLIENT_MODULE));
+    serverAssert(!src->conn && !dst->conn);
+    serverAssert(!((src->flags | dst->flags) &
+                   (CLIENT_CLOSE_ASAP | CLIENT_CLOSE_AFTER_REPLY | CLIENT_SLAVE | CLIENT_PUSHING)));
+
+    addReplyProto(dst, src->buf, src->bufpos);
+    appendReplyBuffersFromClient(dst, src);
 }
 
 /* Append the listed errors to the server error statistics. the input
