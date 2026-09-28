@@ -160,6 +160,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     const setTypeOps *ops = setTypeGetOps(set->encoding);
     int target_enc, added = ops->rawAdd(set, str, len, llval, llval_valid, str_is_sds, 0, &target_enc);
     if (added == -1) {
+        serverAssert(str); /* make sure a string value is valid before conversion */
         /* Doesn't fit under the current encoding: convert encoding and retry there. */
         unsigned long cap = ops->size(set) + 1;
         setTypeConvertAndExpand(set, target_enc, cap, 1);
