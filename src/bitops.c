@@ -1502,14 +1502,20 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 
     /* Only borrowed Roaring sources can encode many missing logical chunks in
      * little resident memory. Bound that allocation amplification without
-     * rejecting dense sources solely because their byte length is large. */
+     * rejecting dense sources solely because their byte length is large. The
+     * budget follows proto-max-bulk-len, so like the offset limit it is not
+     * applied to the replication stream or AOF, which replay accepted
+     * commands. */
     if (op == BITOP_NOT && objects[0]->type == OBJ_BITMAP &&
-        !bitroarBitopNotWithinMissingChunkLimit(objects[0]))
+        !mustObeyClient(c))
     {
-        addReplyErrorFormat(c,
-            "BITOP NOT would materialize more than %llu missing Roaring chunks",
-            (unsigned long long)BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS);
-        return;
+        uint64_t max_missing = bitroarBitopNotMissingChunkLimit();
+        if (!bitroarBitopNotWithinMissingChunkLimit(objects[0], max_missing)) {
+            addReplyErrorFormat(c,
+                "BITOP NOT would materialize more than %llu missing Roaring chunks",
+                (unsigned long long)max_missing);
+            return;
+        }
     }
 
     if (maxlen)
