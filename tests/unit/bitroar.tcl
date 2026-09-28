@@ -3153,9 +3153,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
                 [bitmap_logical_raw bitop:dup:roaring:dest]
         }
 
-        # The same string key twice alongside a roaring source: updating the
-        # accumulator seeded from the first slot must not affect the second
-        # operand.
+        # The same string key twice alongside a roaring source. These small
+        # sources take the mixed raw-word path; the next test covers repeated
+        # string sources on the Roaring path.
         foreach op {and or xor diff diff1 andor one} {
             r del bitop:dup2:string:dest bitop:dup2:roaring:dest
             r del bitop:dup2:string:s bitop:dup2:roaring:s
@@ -3248,7 +3248,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 # used_memory_peak is never reset, not even by CONFIG RESETSTAT, so the peak
 # is measured on a server of its own.
 start_server {tags {"bitmap" "bitmap-roaring" "external:skip" "cluster:skip"}} {
-    test {Roaring BITOP peak memory does not grow with repeated string sources} {
+    test {Roaring BITOP peak memory does not grow with the number of string sources} {
         # Longer than the mixed raw-word path's 1 MiB result cap, so a native
         # source takes the Roaring path too. The dense all-ones string is
         # built in the server to keep the query buffer small.
@@ -3259,6 +3259,13 @@ start_server {tags {"bitmap" "bitmap-roaring" "external:skip" "cluster:skip"}} {
         r bitop not bitop:peak:s bitop:peak:zeros
         r del bitop:peak:zeros
         seed_roaring_bitmap bitop:peak:native {0}
+        # Distinct keys with the same bytes are separate objects, so each one
+        # is converted after the previous conversion is freed.
+        set distinct {}
+        for {set i 0} {$i < 8} {incr i} {
+            r copy bitop:peak:s bitop:peak:s$i
+            lappend distinct bitop:peak:s$i
+        }
 
         # At most the accumulator (the union for DIFF1/ANDOR) and one string
         # conversion are alive at once; ONE also keeps the bits seen more than
@@ -3267,16 +3274,19 @@ start_server {tags {"bitmap" "bitmap-roaring" "external:skip" "cluster:skip"}} {
         # higher peak is not charged to the other operations.
         foreach {op bound} {and 3 or 3 xor 3 diff 3 diff1 3 andor 3 one 6} {
             # Config-selected Roaring over strings only, then a native source
-            # with the config off.
+            # with the config off, each with one key repeated and with
+            # distinct keys.
             foreach {roaring_default native} {yes {} no bitop:peak:native} {
-                r config set bitmap-default-roaring $roaring_default
-                r del bitop:peak:dest
-                set before [s used_memory]
-                assert_equal $len [r bitop $op bitop:peak:dest {*}$native {*}$strings]
-                set growth [expr {[s used_memory_peak] - $before}]
-                assert_equal bitmap [r type bitop:peak:dest]
-                assert_lessthan $growth [expr {$bound * $len}] \
-                    "BITOP $op with bitmap-default-roaring $roaring_default"
+                foreach {kind sources} [list repeated $strings distinct $distinct] {
+                    r config set bitmap-default-roaring $roaring_default
+                    r del bitop:peak:dest
+                    set before [s used_memory]
+                    assert_equal $len [r bitop $op bitop:peak:dest {*}$native {*}$sources]
+                    set growth [expr {[s used_memory_peak] - $before}]
+                    assert_equal bitmap [r type bitop:peak:dest]
+                    assert_lessthan $growth [expr {$bound * $len}] \
+                        "BITOP $op over $kind sources with bitmap-default-roaring $roaring_default"
+                }
             }
         }
         r config set bitmap-default-roaring no
