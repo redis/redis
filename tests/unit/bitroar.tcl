@@ -2085,6 +2085,26 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:roaring:memory bitmap:roaring:memory:same-container
     }
 
+    if {[string match {*jemalloc*} [s mem_allocator]]} {
+        test {Roaring BITSET container words stay in jemalloc's 8 KiB size class} {
+            # Alternating bits make every chunk a BITSET container with 8 KiB of
+            # aligned words. Over-allocating them for the alignment would move
+            # each buffer into jemalloc's 10 KiB size class, so a container
+            # would cost about 10 KiB instead of a little over 8 KiB.
+            set containers 100
+            set key bitmap:roaring:memory:bitsets
+            r del $key
+            r set $key [string repeat [binary format H* aa] \
+                [expr {$containers * 8192}]]
+            convert_string_bitmap_to_roaring r $key
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal [expr {$containers * 32768}] [r bitcount $key]
+            set usage [r memory usage $key]
+            assert_lessthan [expr {$usage / $containers}] 9216
+            r del $key
+        }
+    }
+
     test {Roaring bitmap whole-object operations keep lazy memory accounting accurate} {
         r config set bitmap-default-roaring yes
         set source bitmap:roaring:lazy:a
