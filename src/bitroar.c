@@ -742,9 +742,10 @@ void bitroarDefrag(robj *o) {
  * mid-walk; 0 also relocates the top-level allocations). The key-space cursor
  * survives concurrent writes: containers added or removed between steps only
  * make the walk skip or revisit a few containers, which is harmless for
- * defrag. On builds where unsigned long is 32 bits the cursor truncates,
- * which can only cause the same harmless skip/revisit. Returns the new
- * cursor, 0 when done. */
+ * defrag. The cursor also fits where unsigned long is 32 bits: size_t is 32
+ * bits there too, and bitroarCanRepresentBit() and the loaders keep
+ * byte_len <= SIZE_MAX, so every set bit is below 2^35 and every high48 key
+ * below 2^19. Returns the new cursor, 0 when done. */
 unsigned long bitroarDefragIncremental(robj *o, unsigned long cursor) {
     bitroar *bitmap;
     roaring64_bitmap_t *r;
@@ -948,8 +949,18 @@ long long bitroarBitpos(const robj *o, int bit, uint64_t start,
                  bitroarFirstClearBit(bitmap, start, end, end_given);
 }
 
+/* Whether 'bitoffset' lies inside the logical range a bitmap may hold. Writes
+ * from master and AOF clients skip the proto-max-bulk-len offset check, so
+ * this is the only bound they meet. Where size_t is narrower than 64 bits it
+ * also keeps byte_len (the byte index plus one) within SIZE_MAX: the RDB
+ * loader and bitroarCreateFromPortable() reject larger lengths, so the same
+ * build could not load such a bitmap back. */
 int bitroarCanRepresentBit(uint64_t bitoffset) {
-    return bitoffset <= BITROAR_MAX_BITOFFSET;
+    if (bitoffset > BITROAR_MAX_BITOFFSET) return 0;
+#if SIZE_MAX < UINT64_MAX
+    if ((bitoffset >> 3) >= (uint64_t)SIZE_MAX) return 0;
+#endif
+    return 1;
 }
 
 int bitroarGetBit(const robj *o, uint64_t bitoffset) {

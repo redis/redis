@@ -1474,6 +1474,38 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal [binary format H* ff] [r debug bitmap-raw bitmap:aof-incr:bitop:out]
         assert_equal 0 [r exists bitmap:aof-incr:bitop:empty]
     }
+
+    test {AOF replay cannot create Roaring bitmaps the RDB loader rejects} {
+        # AOF clients skip the proto-max-bulk-len offset check. Byte 2^32+1 is
+        # valid on 64-bit builds, but 32-bit builds must reject it: their RDB
+        # loader refuses byte lengths above SIZE_MAX.
+        set bit [expr {(1 << 35) + 8}]
+        set aof [get_last_incr_aof_path r]
+        set fp [open $aof a]
+        fconfigure $fp -translation binary
+        # the client uses db 9 by default, db 0 under --singledb
+        puts -nonewline $fp [formatCommand select [expr {$::singledb ? 0 : 9}]]
+        puts -nonewline $fp [formatCommand bitconvert bitmap:aof-wide:setbit]
+        puts -nonewline $fp [formatCommand setbit bitmap:aof-wide:setbit $bit 1]
+        puts -nonewline $fp [formatCommand bitconvert bitmap:aof-wide:bitfield]
+        puts -nonewline $fp [formatCommand bitfield bitmap:aof-wide:bitfield SET u8 $bit 255]
+        close $fp
+
+        # 32-bit replay rejects both writes: log those errors, don't panic.
+        set old_behavior [config_get_set propagation-error-behavior ignore]
+        r debug loadaof
+        r config set propagation-error-behavior $old_behavior
+
+        set wide [expr {[s arch_bits] == 64}]
+        foreach reload {0 1} {
+            if {$reload} {r debug reload}
+            assert_equal bitmap [r type bitmap:aof-wide:setbit]
+            assert_equal bitmap [r type bitmap:aof-wide:bitfield]
+            assert_equal [expr {$wide ? 1 : 0}] [r bitcount bitmap:aof-wide:setbit]
+            assert_equal [expr {$wide ? 8 : 0}] [r bitcount bitmap:aof-wide:bitfield]
+        }
+        r del bitmap:aof-wide:setbit bitmap:aof-wide:bitfield
+    }
 }
 
 start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:skip"}} {
@@ -2805,6 +2837,34 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set proto-max-bulk-len $oldval
         r del bitop:limit:roaring bitop:limit:string \
             bitop:limit:roaring:out bitop:limit:string:out
+    }
+
+    if {[s arch_bits] == 64} {
+        test {Roaring BITOP keeps source lengths above 4 GiB} {
+            # Byte 2^32+1 gives a length that a 32-bit size_t would wrap to 2.
+            set bit [expr {(1 << 35) + 8}]
+            set byte_len [expr {($bit >> 3) + 1}]
+            set oldval [config_get_set proto-max-bulk-len $byte_len]
+
+            create_roaring_bitmap_from_bits r bitop:wide:roaring [list $bit]
+            create_roaring_bitmap_from_bits r bitop:wide:small {0}
+            r set bitop:wide:string [binary format H* 80]
+            foreach op {and or xor diff diff1 andor one} {
+                assert_equal $byte_len [r bitop $op bitop:wide:out \
+                    bitop:wide:string bitop:wide:roaring bitop:wide:small]
+                assert_equal bitmap [r type bitop:wide:out]
+            }
+
+            assert_equal $byte_len [r bitop or bitop:wide:out bitop:wide:roaring]
+            assert_equal 1 [r bitcount bitop:wide:out]
+            assert_equal $bit [r bitpos bitop:wide:out 1]
+            assert_equal [expr {$byte_len * 8 - 1}] \
+                [r bitpos bitop:wide:out 0 -1 -1 bit]
+
+            r config set proto-max-bulk-len $oldval
+            r del bitop:wide:roaring bitop:wide:small bitop:wide:string \
+                bitop:wide:out
+        }
     }
 
     test {BITOP Roaring bitmap sources match string bitmap results for all operations} {
