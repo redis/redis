@@ -3124,8 +3124,8 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
                     /* Bin through streamDistribBin() so this path matches the
                      * live histogram exactly -- it clamps out-of-range values and
                      * maps "no sample" to -1, which we skip. A PEL size is never
-                     * negative, but an entries_read counter is -1 while the
-                     * group's read position is unknown. */
+                     * negative, so that skip is defensive here; it keeps this path
+                     * correct for a metric that can report "no sample". */
                     for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
                         int bin = streamDistribBin(streamCGroupSample(s, cg, (streamDistribMetric) m));
                         if (bin >= 0) trim_job->bg->delta_distrib[m][bin]++;

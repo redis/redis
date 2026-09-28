@@ -128,26 +128,23 @@ unsigned long streamLength(const robj *subject) {
  *
  * Per-database base-2 logarithmic histograms of stream properties, reported by
  * the INFO `Streams` section: one sample per consumer group for its PEL size
- * (stream_distrib_cgroups_pel) and for its entries_read counter
- * (stream_distrib_cgroups_entries_read). They are maintained directly from the
- * stream commands and module APIs that change the tracked property, from the
- * stream key lifecycle hooks (streamKeyLoaded / streamKeyRemoved), and from the
- * async slot-trim delta path (cluster_asm.c).
+ * (stream_distrib_cgroups_pel). They are maintained directly from the stream
+ * commands and module APIs that change the tracked property, from the stream key
+ * lifecycle hooks (streamKeyLoaded / streamKeyRemoved), and from the async
+ * slot-trim delta path (cluster_asm.c).
  *
  * Every metric tracked here is a value materialized on the consumer group, so a
  * write only has to update the group it touches. That is a deliberate
  * constraint: a metric derived from stream-wide state -- a group's lag, which is
  * entries_added minus entries_read -- would move for every group on every XADD,
- * making each write O(groups). See streamCGroupSample() for why entries_read is
- * therefore taken as stored rather than estimated.
+ * making each write O(groups).
  *
  * An update moves one sample from the bin for the property's old value to the
  * bin for its new value; the caller passes both (either may be -1, meaning "no
- * sample" -- e.g. a consumer group being created or destroyed, or an
- * entries_read counter whose value is unknown). A single function serves every
- * metric: the streamDistribMetric selector resolves the per-db histogram row,
- * so adding a metric is one enumerator (see stream.h) plus one case in each of
- * the three switches below.
+ * sample" -- e.g. a consumer group being created or destroyed). A single
+ * function serves every metric: the streamDistribMetric selector resolves the
+ * per-db histogram row, so adding a metric is one enumerator (see stream.h)
+ * plus one case in each of the three switches below.
  *
  * Collection is lazy: it only runs while the `stream-stats` directive is
  * enabled. The gauges are accurate when the directive is set at startup or
@@ -169,7 +166,6 @@ int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric met
     if (!meta) return NULL;
     switch (metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return meta->distrib_cgroups_pel;
-    case STREAM_DISTRIB_CGROUPS_ENTRIES_READ: return meta->distrib_cgroups_entries_read;
     case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
     return NULL; /* unreachable: every metric has a case above */
@@ -180,7 +176,6 @@ int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric met
 const char *streamDistribMetricName(streamDistribMetric metric) {
     switch (metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return "stream_distrib_cgroups_pel";
-    case STREAM_DISTRIB_CGROUPS_ENTRIES_READ: return "stream_distrib_cgroups_entries_read";
     case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
     return "stream_distrib_unknown"; /* unreachable: every metric has a case above */
@@ -205,21 +200,25 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
 
 /* Map a stream property value to its histogram bin, matching the keysizes
  * histogram: 0 -> bin 0, otherwise floor(log2(value)) + 1. A negative value means
- * "no sample" and maps to -1, which callers skip: a sample entering or leaving
- * the histogram, or an entries_read counter of SCG_INVALID_ENTRIES_READ, whose
- * value is unknown and is excluded just as XINFO GROUPS reports it as NULL. A
- * PEL size is never negative.
+ * "no sample" and maps to -1, which callers skip. For the metric collected today
+ * that is only a consumer group entering or leaving the histogram: a PEL size is
+ * never negative.
  *
- * Unlike key sizes, not every sample here is bounded by addressable memory:
- * XSETID ... ENTRIESADDED lets a stream's entries_added reach ~2^63, and a
- * group's entries_read is only ever clamped to that. Two consequences:
+ * The top-bin clamp and the 64-bit binning below are deliberately stricter than
+ * that one metric needs. A PEL size is bounded by addressable memory, exactly like
+ * a key size, so neither can trigger for it. They are here because this is the
+ * single place every stream metric is binned, and a metric need not be
+ * memory-bounded: a counter the stream keeps in a 64-bit field can reach ~2^63 --
+ * entries_added, which XSETID ... ENTRIESADDED sets independently of how much the
+ * stream actually holds. Paying for both here once means the next metric cannot
+ * silently corrupt the histogram:
  *
  * - Clamping to the last bin keeps it a "this large or larger" bucket and
  *   prevents an out-of-bounds write past the end of the row.
  * - log2ceil64() is used rather than log2ceil(), whose argument is a size_t: on a
  *   32-bit build that narrows the value before its magnitude is known, so a ~2^63
- *   entries_read would be binned by its low 32 bits (landing in "2G") and the
- *   clamp above would never see it.
+ *   sample would be binned by its low 32 bits (landing in "2G") and the clamp
+ *   above would never see it.
  *
  * Non-static so the async slot-trim delta (cluster_asm.c) bins through the exact
  * same logic instead of duplicating it. */
@@ -1951,27 +1950,15 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     }
 }
 
-/* The histogram sample for one consumer group under 'metric': its PEL size or
- * its entries_read counter. A single accessor so the live path, the key lifecycle
- * hooks, the async slot-trim delta (cluster_asm.c) and the debug assertion all
- * bin the same value. Returns -1 for "no sample" (a group entering or leaving the
- * histogram), which streamDistribBin() also maps to -1.
- *
- * entries_read is reported as stored, which is SCG_INVALID_ENTRIES_READ (-1)
- * while the group's logical read position is unknown -- a group created at an
- * arbitrary ID, or one that has not read yet. Such a group is simply left out of
- * the histogram, matching the NULL that XINFO GROUPS reports for its
- * entries-read. We deliberately do not fall back to
- * streamEstimateDistanceFromFirstEverEntry() the way the lag reply does: samples
- * here are taken when the value changes, and that estimate is derived from
- * entries_added and length, which move on every XADD and trim. A bin recorded
- * from it would silently go stale, and keeping it honest would mean re-sampling
- * every group on each write -- the O(groups) cost this section avoids. */
+/* The histogram sample for one consumer group under 'metric': currently its PEL
+ * size. A single accessor so the live path, the key lifecycle hooks, the async
+ * slot-trim delta (cluster_asm.c) and the debug assertion all bin the same
+ * value. Returns -1 for "no sample" (a group entering or leaving the histogram),
+ * which streamDistribBin() also maps to -1. */
 int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) {
     UNUSED(s);
     switch (metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return (int64_t) raxSize(cg->pel);
-    case STREAM_DISTRIB_CGROUPS_ENTRIES_READ: return (int64_t) cg->entries_read;
     case STREAM_DISTRIB_MAX: break; /* not a real metric */
     }
     return -1; /* unreachable: every metric has a case above */
@@ -3312,20 +3299,11 @@ void xreadCommand(client *c) {
                 .maxsize = maxsize_threshold, .emitted_before = total_entries,
             };
             /* New deliveries (XREADGROUP without NOACK) add entries to this
-             * group's PEL, and advancing the group also moves its entries_read
-             * counter; snapshot both around the read to update INFO `Streams`.
-             * Sampled once per command rather than inside streamReplyWithRange(),
-             * which bumps entries_read for every entry it serves: a COUNT 1000
-             * read crosses at most one base-2 bin boundary, so there is no reason
-             * to pay for a histogram update per entry on the read path. */
+             * group's PEL; snapshot it around the read to update INFO `Streams`. */
             int64_t old_pel = groups ? (int64_t) raxSize(groups[i]->pel) : -1;
-            int64_t old_entries_read = groups ? (int64_t) groups[i]->entries_read : -1;
             total_entries += streamReplyWithRange(c,s,&args);
-            if (groups) {
+            if (groups)
                 streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(groups[i]->pel));
-                streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_ENTRIES_READ, old_entries_read,
-                                 (int64_t) groups[i]->entries_read);
-            }
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
             if (propCount) {
@@ -3878,9 +3856,6 @@ NULL
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, -1, 0); /* new group, empty PEL */
-            /* entries_read stays SCG_INVALID_ENTRIES_READ unless ENTRIESREAD was
-             * given; only then does the group enter that histogram right away. */
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_ENTRIES_READ, -1, (int64_t) cg->entries_read);
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
@@ -3902,12 +3877,7 @@ NULL
         }
 
         streamUpdateCGroupLastId(s, cg, &id);
-        /* SETID without ENTRIESREAD resets the counter to unknown, which drops the
-         * group out of the entries_read histogram until it reads again. */
-        int64_t old_entries_read = cg->entries_read;
         cg->entries_read = entries_read;
-        streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_ENTRIES_READ, old_entries_read,
-                         (int64_t) cg->entries_read);
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -3917,7 +3887,6 @@ NULL
             if (server.memory_tracking_enabled)
                 old_alloc = kvobjAllocSize(o);
             streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, (int64_t) raxSize(cg->pel), -1); /* group gone */
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_ENTRIES_READ, (int64_t) cg->entries_read, -1); /* group gone */
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
             if (server.memory_tracking_enabled)
@@ -4043,9 +4012,7 @@ void xsetidCommand(client *c) {
          * like XGROUP CREATE/SETID does when entries_read is set too high.
          * Only needed when entries_added is actually lowered; otherwise the
          * entries_read <= entries_added invariant already holds and the loop
-         * would be a no-op. The INFO `Streams` entries_read histogram is updated
-         * from inside this loop: it already walks every group and only runs when
-         * entries_added is lowered, so tracking adds no traversal of its own. */
+         * would be a no-op. */
         if (s->entries_added < prev_entries_added && s->cgroups) {
             raxIterator ri;
             raxStart(&ri, s->cgroups);
@@ -4055,10 +4022,7 @@ void xsetidCommand(client *c) {
                 if (cg->entries_read != SCG_INVALID_ENTRIES_READ &&
                     (uint64_t)cg->entries_read > s->entries_added)
                 {
-                    int64_t old_entries_read = cg->entries_read;
                     cg->entries_read = s->entries_added;
-                    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_ENTRIES_READ,
-                                     old_entries_read, (int64_t) cg->entries_read);
                 }
             }
             raxStop(&ri);
@@ -6483,11 +6447,10 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
 
 /* --- DEBUG STREAM-STATS-ASSERT -------------------------------------------
  * The INFO `Streams` histograms are gauges maintained incrementally, so every
- * path that changes a group's PEL size or entries_read counter has to update
- * them. Rebuilding them from the keyspace after each command turns any existing
- * stream test into coverage for that: a missed update site, or an update
- * computed against mismatched state, shows up as a bin that disagrees with the
- * scan. */
+ * path that changes a group's PEL size has to update them. Rebuilding them from
+ * the keyspace after each command turns any existing stream test into coverage
+ * for that: a missed update site, or an update computed against mismatched
+ * state, shows up as a bin that disagrees with the scan. */
 
 /* Rebuild every db's INFO `Streams` histograms from the keyspace. Primes the
  * assertion: enabling stream-stats at runtime deliberately does not rescan (see
