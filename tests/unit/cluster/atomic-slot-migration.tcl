@@ -422,7 +422,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                 set expected_fields {id slots source dest operation state
                                     last_error retries create_time start_time
                                     end_time write_pause_ms phase snapshot_progress_perc
-                                    incremental_progress_perc}
+                                    incremental_progress_perc snapshot_total_keys
+                                    snapshot_processed_keys incremental_lag_bytes}
                 for {set j 0} {$j < [llength $expected_fields]} {incr j} {
                     set expected_field [lindex $expected_fields $j]
                     set actual_field [lindex $task [expr $j * 2]]
@@ -3686,11 +3687,15 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Bound source progress by the processed key counts read before and after STATUS.
         # This allows a child-info update between commands without requiring identical samples.
         set processed_before [S 0 current_save_keys_processed]
-        set progress [migration_status 0 $task_id snapshot_progress_perc]
+        set task [lindex [R 0 cluster migration status id $task_id] 0]
+        set progress [dict get $task snapshot_progress_perc]
         set processed_after [S 0 current_save_keys_processed]
         set expected_min [expr {100.0 * $processed_before / $total_keys}]
         set expected_max [expr {100.0 * $processed_after / $total_keys}]
         assert {$progress >= $expected_min && $progress <= $expected_max}
+        assert_equal $total_keys [dict get $task snapshot_total_keys]
+        assert {[dict get $task snapshot_processed_keys] >= $processed_before &&
+                [dict get $task snapshot_processed_keys] <= $processed_after}
 
         # Destination side:
         # INFO includes importing keys, sample the destination key count and progress atomically.
@@ -3700,6 +3705,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         lassign [R 1 exec] tasks info
         scan [getInfoProperty $info db0] "keys=%d" keys
         assert {[dict get [lindex $tasks 0] snapshot_progress_perc] == 100.0 * $keys / $total_keys}
+        assert_equal $total_keys [dict get [lindex $tasks 0] snapshot_total_keys]
+        assert_equal $keys [dict get [lindex $tasks 0] snapshot_processed_keys]
 
         # Snapshot progress should stay at 100% after entering the incremental phase.
         wait_for_condition 1000 10 {
@@ -3710,6 +3717,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
         foreach node {0 1} {
             assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+            assert_equal $total_keys [migration_status $node $task_id snapshot_processed_keys]
         }
 
         # Finish the migration and verify that all progresses are 100%.
@@ -3743,13 +3751,16 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # The archived task must retain its progress after imported keys are removed.
         set progress [migration_status 1 $task_id snapshot_progress_perc]
+        set processed [migration_status 1 $task_id snapshot_processed_keys]
         assert {$progress > 0 && $progress < 100}
+        assert {$processed > 0 && $processed < 8}
         wait_for_asm_done
         assert_equal 0 [R 1 dbsize]
         assert_equal canceled [migration_status 1 $task_id state]
         assert_equal snapshot [migration_status 1 $task_id phase]
         assert_equal $progress [migration_status 1 $task_id snapshot_progress_perc]
         assert_equal 0 [migration_status 1 $task_id incremental_progress_perc]
+        assert_equal $processed [migration_status 1 $task_id snapshot_processed_keys]
 
         # cleanup.
         R 0 config set rdb-key-save-delay 0
@@ -3781,6 +3792,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         foreach node {0 1} {
             assert_equal incremental [migration_status $node $task_id phase]
             assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+            # Incremental writes must not inflate the completed snapshot counters.
+            assert_equal 2 [migration_status $node $task_id snapshot_total_keys]
+            assert_equal 2 [migration_status $node $task_id snapshot_processed_keys]
+            assert {[migration_status $node $task_id incremental_lag_bytes] > 0}
         }
 
         # With no more writes, replay should advance before reaching the live stream.
@@ -3799,7 +3814,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_condition 2000 10 {
             [migration_status 1 $task_id state] eq "wait-stream-eof" &&
             [migration_status 0 $task_id incremental_progress_perc] == 99.99 &&
-            [migration_status 1 $task_id incremental_progress_perc] == 99.99
+            [migration_status 1 $task_id incremental_progress_perc] == 99.99 &&
+            [migration_status 0 $task_id incremental_lag_bytes] == 0 &&
+            [migration_status 1 $task_id incremental_lag_bytes] == 0
         } else {
             fail "ASM did not catch up after streaming buffer"
         }

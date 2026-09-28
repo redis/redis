@@ -154,6 +154,21 @@
                                 "type": "number",
                                 "minimum": 0,
                                 "maximum": 100
+                            },
+                            "snapshot_total_keys": {
+                                "description": "Total keys in the migrating slots at fork time, or 0 if the snapshot total is not yet known.",
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "snapshot_processed_keys": {
+                                "description": "Estimated snapshot keys processed: the latest child-info count on the source, or the current importing-slot key count on the destination.",
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "incremental_lag_bytes": {
+                                "description": "Nonnegative incremental byte lag: generated minus acknowledged bytes on the source, or received minus applied bytes on the destination.",
+                                "type": "integer",
+                                "minimum": 0
                             }
                         }
                     }

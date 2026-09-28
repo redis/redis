@@ -978,7 +978,7 @@ static void clusterMigrationCommandCancel(client *c) {
 static void replyTaskStatus(client *c, asmTask *task) {
     mstime_t p = 0;
 
-    addReplyMapLen(c, 15);
+    addReplyMapLen(c, 18);
     addReplyBulkCString(c, "id");
     addReplyBulkCString(c, task->id);
     addReplyBulkCString(c, "slots");
@@ -1036,6 +1036,20 @@ static void replyTaskStatus(client *c, asmTask *task) {
         }
         addReplyDouble(c, task->state == ASM_COMPLETED ? 100 : min(progress, 99.99));
     }
+
+    addReplyBulkCString(c, "snapshot_total_keys");
+    addReplyUnsignedLongLong(c, task->total_keys);
+    addReplyBulkCString(c, "snapshot_processed_keys");
+    addReplyUnsignedLongLong(c, task->phase == ASM_PHASE_INCREMENTAL ?
+                                task->total_keys : migrated);
+
+    /* Source: generated but not acknowledged. Destination: received but not applied.
+     * Completed tasks have no lag, even if the final offsets were not sampled. */
+    unsigned long long lag = 0;
+    if (task->state != ASM_COMPLETED && task->source_offset > task->dest_offset)
+        lag = task->source_offset - task->dest_offset;
+    addReplyBulkCString(c, "incremental_lag_bytes");
+    addReplyUnsignedLongLong(c, lag);
 }
 
 /* CLUSTER MIGRATION STATUS [ID <task-id> | ALL]
