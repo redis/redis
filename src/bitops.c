@@ -1597,10 +1597,14 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
      * looked up, and their writes are propagated before BITOP itself. Collect
      * the source values only afterwards, without further effects, so BITOP
      * never keeps a value a callback freed and computes from the same keyspace
-     * state that replicas and the AOF replay it against. */
+     * state that replicas and the AOF replay it against. A source of the wrong
+     * type fails the command right away, before any later source is looked up,
+     * so a failing BITOP has no further lookup side effects. */
     numkeys = c->argc - 3;
-    for (j = 0; j < numkeys; j++)
-        lookupKeyRead(c->db, c->argv[j + 3]);
+    for (j = 0; j < numkeys; j++) {
+        kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
+        if (checkStringOrBitmapType(c, kv)) return;
+    }
 
     /* Store pointers to the string objects into an array. */
     src = zmalloc(sizeof(unsigned char*) * numkeys);
