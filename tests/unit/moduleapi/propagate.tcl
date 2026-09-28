@@ -946,6 +946,30 @@ tags "modules aof external:skip" {
     }
 }
 
+tags {"modules" "aof" "external:skip" "logreqres:skip"} {
+    # A module command replayed from the AOF makes its RM_Call on the module's
+    # own client, which does not obey the AOF, and with '!' the call may
+    # propagate to every target. Only the check on the client whose command is
+    # being processed keeps the local configuration out of the decision.
+    set server_path [tmpdir server.bitmap-aof-module]
+    set aof_dirpath "$server_path/appendonlydir"
+    create_aof $aof_dirpath "$aof_dirpath/appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix" {
+        append_to_aof [formatCommand select 0]
+        append_to_aof [formatCommand test.rm_call_flags ! setbit bitmap:aof-module 1 1]
+    }
+    create_aof_manifest $aof_dirpath "$aof_dirpath/appendonly.aof$::manifest_suffix" {
+        append_to_manifest "file appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix seq 1 type i\n"
+    }
+
+    start_server [list overrides [list dir $server_path appendonly yes bitmap-default-roaring yes loadmodule $miscmodule] keep_persistence true] {
+        test {bitmap-default-roaring yes: module RM_Call writes replayed from the AOF keep strings} {
+            r select 0
+            assert_equal string [r type bitmap:aof-module]
+            assert_equal [binary format H* 40] [r get bitmap:aof-module]
+        }
+    }
+}
+
 # This test does not really test module functionality, but rather uses a module
 # command to test Redis replication mechanisms.
 test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replication backlog from been trimmed} {
