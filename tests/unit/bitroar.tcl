@@ -3512,6 +3512,32 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
 
         r del bitmap:checkrdb:sparse bitmap:checkrdb:dense
     }
+
+    test {redis-check-rdb reports a truncated Roaring bitmap as an unexpected EOF} {
+        r flushall
+        create_roaring_bitmap_from_bits r bitmap:checkrdb:truncated \
+            {3 70000 140000 210000 280000 1000000}
+        r save
+        set dir [lindex [r config get dir] 1]
+        set fd [open [file join $dir dump.rdb] rb]
+        set rdb [read $fd]
+        close $fd
+
+        # The bitmap is the only key, so it is the last value before the EOF
+        # opcode and the 8-byte checksum. Cutting the file inside its portable
+        # blob is a short read, which must not be reported as corruption: a
+        # replica loading from a socket resumes after read errors but exits on
+        # corruption errors.
+        set truncated_path [file join $dir truncated.rdb]
+        set fd [open $truncated_path wb]
+        puts -nonewline $fd [string range $rdb 0 end-14]
+        close $fd
+        catch {exec src/redis-check-rdb $truncated_path} res
+        file delete $truncated_path
+        assert_match "*Unexpected EOF reading RDB file*" $res
+        assert_no_match "*Invalid bitmap RDB payload*" $res
+        r del bitmap:checkrdb:truncated
+    }
 }
 
 run_solo {bitroar-large-memory} {
