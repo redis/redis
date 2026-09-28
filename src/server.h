@@ -1288,6 +1288,7 @@ typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 typedef struct {
     keysizesHist keysizes_hist;
     keysizesHist allocsizes_hist;
+    int64_t distrib_streams_cgroups[MAX_KEYSIZES_BINS]; /* INFO `Streams`: per-stream consumer-group count */
     int64_t distrib_cgroups_pel[MAX_KEYSIZES_BINS]; /* INFO `Streams`: per-cgroup PEL size */
     int64_t distrib_cgroups_consumers[MAX_KEYSIZES_BINS]; /* INFO `Streams`: per-cgroup consumer count */
 } kvstoreMetadata;

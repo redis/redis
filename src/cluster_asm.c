@@ -3099,41 +3099,24 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
 
-        /* Update the INFO `Streams` per-consumer-group deltas: one sample per
-         * consumer group, per metric. Bg slot trim
-         * frees stream keys without going through streamKeyRemoved, so record each
-         * group's samples here. Done before the keysizes row lookup below, so it
-         * stays reachable regardless of whether streams are a tracked keysizes
-         * type.
+        /* Update the INFO `Streams` deltas: every histogram sample the stream
+         * holds, per metric -- its own per-stream sample and one per consumer
+         * group. Bg slot trim frees stream keys without going through
+         * streamKeyRemoved, so record the samples here. Done before the
+         * keysizes row lookup below, so it stays reachable regardless of
+         * whether streams are a tracked keysizes type.
          *
          * Gated on the stream-stats state captured when the job was scheduled
          * (bg->track_stream_stats), not the live config, since this runs on the
-         * BIO thread; completion re-validates the epoch. Reading the group state
-         * here is safe without locking: bg slot trim moved the freed slots into a
-         * detached kvstore before this job started, so this thread solely owns
-         * these streams (streamCGroupSample only reads them). */
+         * BIO thread; completion re-validates the epoch. Reading the stream
+         * here is safe without locking: bg slot trim moved the freed slots into
+         * a detached kvstore before this job started, so this thread solely
+         * owns these streams, and streamTallyStreamSamples() only reads them.
+         * It bins through the same code as the live path and the debug
+         * assertion, so this delta cannot disagree with either about which
+         * samples exist. */
         if (trim_job->bg->track_stream_stats && kv->type == OBJ_STREAM) {
-            stream *s = kv->ptr;
-            if (s->cgroups && raxSize(s->cgroups)) {
-                raxIterator ri;
-                raxStart(&ri, s->cgroups);
-                raxSeek(&ri, "^", NULL, 0);
-                while (raxNext(&ri)) {
-                    streamCG *cg = ri.data;
-
-                    /* Bin through streamDistribBin() so this path matches the
-                     * live histogram exactly -- it clamps out-of-range values and
-                     * maps "no sample" to -1, which we skip. Neither a PEL size nor a
-                     * consumer count is ever negative, so that skip is defensive here;
-                     * it keeps this path correct for a metric that can report "no
-                     * sample". */
-                    for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
-                        int bin = streamDistribBin(streamCGroupSample(s, cg, (streamDistribMetric) m));
-                        if (bin >= 0) trim_job->bg->delta_distrib[m][bin]++;
-                    }
-                }
-                raxStop(&ri);
-            }
+            streamTallyStreamSamples(kv->ptr, trim_job->bg->delta_distrib);
         }
 
         int64_t *keysizes_row = keysizesHistRow(trim_job->bg->delta_keysizes_hist, kv->type);

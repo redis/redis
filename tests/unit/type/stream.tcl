@@ -54,7 +54,8 @@ start_server {
 } {
     # Verify the INFO `Streams` histograms against a keyspace rebuild after every
     # command; this suite drives XADD/XTRIM/XDEL/XSETID hardest, i.e. the
-    # cross-group PEL purges (DELREF).
+    # cross-group PEL purges (DELREF) and stream creation by XADD, which enters
+    # a stream in the groups-per-stream row.
     # Deliberately not tagged needs:debug: that would skip the entire suite where
     # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
     # the arming there.
