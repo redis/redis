@@ -580,6 +580,41 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Function already exists in the library*}
 
+    test {LIBRARIES - reject function names differing only by case in same library} {
+        assert_error {*Function already exists in the library*} {
+            r function load {#!lua name=lib_case
+                redis.register_function('foo', function() return 1 end)
+                redis.register_function('FoO', function() return 2 end)
+            }
+        }
+        assert_equal {} [r function list libraryname lib_case]
+        assert_error {*Function not found*} {r fcall foo 0}
+    }
+
+    test {LIBRARIES - case insensitive duplicate registration preserves replaced library} {
+        r function load [get_function_code lua lib_case foo {return 'original'}]
+        set original [r function list libraryname lib_case withcode]
+        assert_error {*Function already exists in the library*} {
+            r function load replace {#!lua name=lib_case
+                redis.register_function('foo', function() return 1 end)
+                redis.register_function('FoO', function() return 2 end)
+            }
+        }
+        assert_equal $original [r function list libraryname lib_case withcode]
+        assert_equal original [r fcall FOO 0]
+        r function delete lib_case
+    }
+
+    test {LIBRARIES - reject function names differing only by case across libraries} {
+        r function load [get_function_code lua lib_case foo {return 'original'}]
+        assert_error {*Function FoO already exists*} {
+            r function load [get_function_code lua lib_case_other FoO {return 'new'}]
+        }
+        assert_equal {} [r function list libraryname lib_case_other]
+        assert_equal original [r fcall FoO 0]
+        r function delete lib_case
+    }
+
     test {LIBRARIES - test registration with no argument} {
         catch {
             r function load replace {#!lua name=lib2

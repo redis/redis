@@ -77,10 +77,10 @@ dictType engineStatsDictType = {
 };
 
 dictType libraryFunctionDictType = {
-        dictSdsHash,          /* hash function */
+        dictSdsCaseHash,      /* hash function */
         dictSdsDup,           /* key dup */
         NULL,                 /* val dup */
-        dictSdsKeyCompare,    /* key compare */
+        dictSdsKeyCaseCompare,/* key compare */
         dictSdsDestructor,    /* key destructor */
         engineFunctionDispose,/* val destructor */
         NULL                  /* allow to expand */
@@ -307,7 +307,9 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     dictInitIterator(&iter, li->functions);
     while ((entry = dictNext(&iter))) {
         functionInfo *fi = dictGetVal(entry);
-        dictAdd(lib_ctx->functions, fi->name, fi);
+        if (dictAdd(lib_ctx->functions, fi->name, fi) != DICT_OK) {
+            serverLog(LL_WARNING, "Function %s already exists when linking library %s", fi->name, li->name);
+        }
         lib_ctx->cache_memory += functionMallocSize(fi);
     }
     dictResetIterator(&iter);
