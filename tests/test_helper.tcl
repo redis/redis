@@ -339,8 +339,15 @@ proc test_server_cron {} {
         # unwind, and on the way out start_server kills the very servers we
         # want a crash report from (and tells us they are gone, emptying
         # ::active_servers).
-        dump_stuck_servers
-        request_client_stack_traces
+        # Nothing here may throw: this runs from an "after" handler, so an
+        # error would be swallowed as a background error and, with the cron no
+        # longer rescheduled, leave the run hanging instead of tearing it down.
+        if {[catch dump_stuck_servers e]} {
+            puts "(collecting server crash reports failed: $e)"
+        }
+        if {[catch request_client_stack_traces e]} {
+            puts "(collecting the clients' Tcl stack traces failed: $e)"
+        }
 
         kill_clients
         force_kill_all_servers
@@ -551,6 +558,7 @@ proc server_log_files_of_pid {pid} {
     set res {}
     foreach f [glob -nocomplain "tests/tmp/*/stdout"] {
         if {[catch {set fh [open $f r]}]} continue
+        fconfigure $fh -translation binary; # see dump_crash_report
         # The whole file: a server restarted without rotating its log appends
         # to the same one, so its pid may first appear anywhere.
         set data [read $fh]
@@ -573,6 +581,9 @@ proc dump_crash_report {f pid {context_lines 10} {tail_bytes 262144}} {
         puts "(can't open $f: $e)"
         return
     }
+    # Read raw bytes: a log can hold anything (binary keys in the client list),
+    # and a strict decode (Tcl 9's default) would throw mid-report.
+    fconfigure $fh -translation binary
     set data [read $fh]
     close $fh
     set size [string length $data]
@@ -590,7 +601,9 @@ proc dump_crash_report {f pid {context_lines 10} {tail_bytes 262144}} {
 
     puts "\n===== Start of $f (pid $pid, last [expr {$size-$start}] of $size bytes) =====\n"
     if {$start} {puts "\[...$start earlier bytes skipped...\]"}
-    puts [string range $data $start end]
+    set out [string range $data $start end]
+    catch {set out [encoding convertfrom utf-8 $out]}; # else print it raw
+    puts $out
     puts "===== End of $f (pid $pid) =====\n"
 }
 
