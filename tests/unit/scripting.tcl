@@ -2374,6 +2374,41 @@ start_server {tags {"scripting"}} {
         assert_match {*Unexpected flag in script shebang*} $e
     }
 
+    foreach command {eval eval_ro {script load}} {
+        foreach {field shebang} {
+            engine {#!"lua%s" flags=no-writes}
+            option {#!lua flags=no-writes "bad=%s"}
+            flags {#!lua flags="no-writes,bad%s,allow-oom"}
+        } {
+            test "Reject CR and LF in shebang $field - $command" {
+                # Quoted shebang arguments decode escapes, including hex escapes.
+                # Check the entire token, even after an embedded NUL byte.
+                foreach symbols [list {\r} {\n} {\r\n+INJECTED\r\n} \
+                                      {\x0d} {\x0a} {\x0d\x0a+INJECTED\x0d\x0a} \
+                                      {\x00\r} {\x00\n} "\r"] {
+                    set script "[format $shebang $symbols]\nreturn 1"
+                    set args [list $script]
+                    if {$command ne "script load"} {lappend args 0}
+                    assert_error {ERR Invalid symbols in script shebang} {
+                        r {*}$command {*}$args
+                    }
+                    # An injected reply must not be left on the connection.
+                    assert_equal PONG [r ping]
+                }
+            }
+        }
+
+        test "Quoted shebang tokens with CRLF line endings - $command" {
+            set script "#!\"lua\" flags=\"no-writes,allow-oom\"\r\nreturn 1 -- $command"
+            if {$command eq "script load"} {
+                set sha [r script load $script]
+                assert_equal 1 [r evalsha_ro $sha 0]
+            } else {
+                assert_equal 1 [r $command $script 0]
+            }
+        }
+    }
+
     test "allow-oom shebang flag" {
         r set x 123
     
