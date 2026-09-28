@@ -6288,6 +6288,8 @@ void handleExpiredIdmpEntries(void) {
                 continue;
             }
 
+            size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+
             /* Iterate through all producers and remove expired entries */
             int modified = 0;
             raxIterator ri;
@@ -6329,9 +6331,16 @@ void handleExpiredIdmpEntries(void) {
                 keyModified(NULL, db, key, kv, 0);
 
             /* If no producers remain, free the entire rax tree */
-            if (raxSize(s->idmp_producers) == 0) {
+            int producers_empty = raxSize(s->idmp_producers) == 0;
+            if (producers_empty) {
                 raxFree(s->idmp_producers);
                 s->idmp_producers = NULL;
+            }
+
+            if (server.memory_tracking_enabled && (modified || producers_empty))
+                updateSlotAllocSize(db, getKeySlot(key->ptr), kv, old_alloc, kvobjAllocSize(kv));
+
+            if (producers_empty) {
                 dictDelete(db->stream_idmp_keys, key);
                 continue;
             }
