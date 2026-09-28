@@ -1347,8 +1347,9 @@ run_solo {defrag} {
                 discard_replies_every $rd $count 1000 1000
             }
 
-            # A second dense container becomes a compact RUN container when
-            # DUMP/RESTORE performs the same optimization used by RDB loading.
+            # SETBIT keeps these consecutive bits in a second BITSET container.
+            # The DUMP/RESTORE below goes through RDB loading, which turns it
+            # into a compact RUN container.
             for {set b 0} {$b < 4100} {incr b} {
                 $rd setbit bitmap:template [expr {51 * 65536 + $b}] 1
                 incr count
@@ -1362,10 +1363,18 @@ run_solo {defrag} {
             r config set bitmap-default-roaring no
             assert_equal bitmap [r type bitmap:template]
             assert_equal 11400 [r bitcount bitmap:template]
+            set template_usage [r memory usage bitmap:template]
 
             set template_payload [r dump bitmap:template]
             r restore bitmap:template 0 $template_payload replace
             assert_equal 11400 [r bitcount bitmap:template]
+            # Replacing the 8 KiB BITSET with a RUN container is the only
+            # load-time change that frees more than 8 KiB here (trimming the
+            # container index frees less), so the copies below hold all three
+            # container types.
+            set restored_usage [r memory usage bitmap:template]
+            assert_lessthan $restored_usage [expr {$template_usage - 8192}] \
+                "restored_usage=$restored_usage template_usage=$template_usage"
             # GET returns WRONGTYPE on a native bitmap, so snapshot the baseline
             # bytes with DEBUG BITMAP-RAW for the post-defrag content checks.
             set template_raw [r debug bitmap-raw bitmap:template]

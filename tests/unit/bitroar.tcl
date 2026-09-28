@@ -990,6 +990,46 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:rdb-run:a bitmap:rdb-run:b
     }
 
+    test {Roaring bitmap RESTORE and RDB load compact SETBIT-built runs} {
+        set key bitmap:rdb-compact:setbit
+        set restored bitmap:rdb-compact:restored
+        r del $key $restored
+
+        # SETBIT never compacts containers, so 70000 consecutive bits stay in
+        # two BITSET containers: one full chunk and one above the ARRAY limit.
+        r config set bitmap-default-roaring yes
+        r eval {
+            for i = 0, tonumber(ARGV[1]) - 1 do
+                redis.call('setbit', KEYS[1], i, 1)
+            end
+        } 1 $key 70000
+        r config set bitmap-default-roaring no
+        assert_equal bitmap [r type $key]
+        assert_equal 70000 [r bitcount $key]
+        set digest [r debug digest-value $key]
+        set setbit_usage [r memory usage $key]
+        assert_morethan $setbit_usage 16384
+
+        # Loading the portable payload rewrites both chunks as RUN containers.
+        r restore $restored 0 [r dump $key]
+        set restored_usage [r memory usage $restored]
+        assert_lessthan $restored_usage 1024 \
+            "restored_usage=$restored_usage setbit_usage=$setbit_usage"
+        assert_equal 70000 [r bitcount $restored]
+        assert_equal $digest [r debug digest-value $restored]
+
+        r debug reload
+        foreach k [list $key $restored] {
+            set reloaded_usage [r memory usage $k]
+            assert_lessthan $reloaded_usage 1024 \
+                "key=$k reloaded_usage=$reloaded_usage setbit_usage=$setbit_usage"
+            assert_equal bitmap-roaring [r object encoding $k]
+            assert_equal 70000 [r bitcount $k]
+            assert_equal $digest [r debug digest-value $k]
+        }
+        r del $key $restored
+    }
+
     test {Roaring bitmap RDB uses compact payload for fragmented bitmaps} {
         set raw [string repeat [binary format H* 55] 8192]
 
