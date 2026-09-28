@@ -84,38 +84,6 @@ test "Active defrag handles equal fragmentation thresholds" {
     }
 } {} {defrag external:skip tsan:skip standalone}
 
-# Enable active defrag until it has walked some keys, then raise
-# active-defrag-threshold-lower above any fragmentation so the running cycle
-# is the last one. Returns how many cycles ran, counted from the verbose
-# "Active defrag done" line each cycle ends with, or 0 if this build cannot
-# enable active defrag. Every counted cycle ran to completion, so per-cycle
-# defrag stats are exact multiples of the returned count.
-proc run_complete_defrag_cycles {} {
-    set old_loglevel [config_get_set loglevel verbose]
-    set old_threshold [lindex [r config get active-defrag-threshold-lower] 1]
-    set done_lines [count_log_message 0 "Active defrag done"]
-    set cycles 0
-    catch {r config set activedefrag yes}
-    if {[r config get activedefrag] eq "activedefrag yes"} {
-        wait_for_condition 500 100 {
-            [s active_defrag_key_hits] + [s active_defrag_key_misses] > 0
-        } else {
-            fail "defrag did not start"
-        }
-        r config set active-defrag-threshold-lower 1000
-        wait_for_condition 500 100 {
-            [s active_defrag_running] eq 0
-        } else {
-            fail "defrag did not finish its last cycle"
-        }
-        set cycles [expr {[count_log_message 0 "Active defrag done"] - $done_lines}]
-        r config set activedefrag no
-    }
-    r config set active-defrag-threshold-lower $old_threshold
-    r config set loglevel $old_loglevel
-    return $cycles
-}
-
 if {$::debug_defrag} {
     start_server {tags {"defrag bitmap bitmap-roaring needs:debug external:skip cluster:skip"} overrides {save ""}} {
         test {forced active defrag relocates Roaring BITSET storage with known and unknown allocation sizes} {
