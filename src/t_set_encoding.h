@@ -35,12 +35,16 @@
  * target_enc is set to the encoding that the caller should convert to if rawAdd returns -1.
  */
 typedef struct {
+    /* return 0 if the member already exists, 1 if added, -1 if it cannot be added (due to encoding mismatch or size limits)*/
     int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, int after_convert, int *target_enc);
+    /* return 0 if the member doesn't exist, 1 if removed */
     int (*rawRemove)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
+    /* return 1 if the member exists, 0 if not */
     int (*isMember)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 
     void (*iterInit)(setTypeIterator *si);
     void (*iterReset)(setTypeIterator *si);
+    /* return 0 if there is a next element, -1 if not */
     int (*iterNext)(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 
     void (*randomElement)(robj *set, char **str, size_t *len, int64_t *llele);
