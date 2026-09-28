@@ -1,11 +1,11 @@
 {
-    "BITOP_ROARING": {
+    "BITROAROP": {
         "summary": "Performs a bitwise operation and stores a native bitmap result for replication and AOF replay.",
         "complexity": "O(N)",
         "group": "bitmap",
         "since": "8.12.0",
         "arity": -4,
-        "function": "bitopRoaringCommand",
+        "function": "bitroaropCommand",
         "command_flags": [
             "WRITE",
             "DENYOOM",
