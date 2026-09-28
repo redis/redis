@@ -1591,13 +1591,23 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
         return;
     }
 
-    /* Lookup keys, and store pointers to the string objects into an array. */
+    /* Look up every source first for the lookup side effects (lazy expiration,
+     * key-miss notifications, access statistics). Module callbacks fired by
+     * those lookups may delete, replace or modify sources that were already
+     * looked up, and their writes are propagated before BITOP itself. Collect
+     * the source values only afterwards, without further effects, so BITOP
+     * never keeps a value a callback freed and computes from the same keyspace
+     * state that replicas and the AOF replay it against. */
     numkeys = c->argc - 3;
+    for (j = 0; j < numkeys; j++)
+        lookupKeyRead(c->db, c->argv[j + 3]);
+
+    /* Store pointers to the string objects into an array. */
     src = zmalloc(sizeof(unsigned char*) * numkeys);
     len = zmalloc(sizeof(size_t) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
-        kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
+        kvobj *kv = lookupKeyReadWithFlags(c->db, c->argv[j + 3], LOOKUP_NOEFFECTS);
         /* Handle non-existing keys as empty strings. */
         if (kv == NULL) {
             objects[j] = NULL;

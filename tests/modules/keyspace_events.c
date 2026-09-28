@@ -222,13 +222,42 @@ static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const cha
     return REDISMODULE_OK;
 }
 
+/* A keymiss or expired event on "bitmap:bitop:trigger" deletes and recreates
+ * "bitmap:bitop:victim", so a multi-key command that looks up the trigger
+ * after the victim loses the value it already looked up. Recreating the
+ * victim likely reuses the freed memory, so a dangling source is unlikely to
+ * still read as the original value. An event on "bitmap:bitop:trigger-grow"
+ * instead grows the victim in place and gives it a TTL. */
+static void ReplaceBitopVictimOnTrigger(RedisModuleCtx *ctx, RedisModuleString *key) {
+    const char *name = RedisModule_StringPtrLen(key, NULL);
+    RedisModuleCallReply *reply;
+
+    if (!IsLiveMasterContext(ctx)) return;
+
+    if (!strcmp(name, "bitmap:bitop:trigger")) {
+        reply = RedisModule_Call(ctx, "DEL", "c!", "bitmap:bitop:victim");
+        RedisModule_Assert(reply != NULL);
+        RedisModule_FreeCallReply(reply);
+        reply = RedisModule_Call(ctx, "SETBIT", "ccc!", "bitmap:bitop:victim", "5000", "1");
+        RedisModule_Assert(reply != NULL);
+        RedisModule_FreeCallReply(reply);
+    } else if (!strcmp(name, "bitmap:bitop:trigger-grow")) {
+        reply = RedisModule_Call(ctx, "SETBIT", "ccc!", "bitmap:bitop:victim", "200000", "1");
+        RedisModule_Assert(reply != NULL);
+        RedisModule_FreeCallReply(reply);
+        reply = RedisModule_Call(ctx, "PEXPIRE", "cc!", "bitmap:bitop:victim", "100000");
+        RedisModule_Assert(reply != NULL);
+        RedisModule_FreeCallReply(reply);
+    }
+}
+
 static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
-    REDISMODULE_NOT_USED(key);
 
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c!", "testkeyspace:expired");
     RedisModule_FreeCallReply(rep);
+    ReplaceBitopVictimOnTrigger(ctx, key);
 
     return REDISMODULE_OK;
 }
@@ -240,7 +269,6 @@ static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const cha
 static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
-    REDISMODULE_NOT_USED(key);
 
     int flags = RedisModule_GetContextFlags(ctx);
     if (!(flags & REDISMODULE_CTX_FLAGS_MASTER)) {
@@ -249,6 +277,7 @@ static int KeySpace_NotificationModuleKeyMiss(RedisModuleCtx *ctx, int type, con
 
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "incr", "!c", "missed");
     RedisModule_FreeCallReply(rep);
+    ReplaceBitopVictimOnTrigger(ctx, key);
 
     return REDISMODULE_OK;
 }
