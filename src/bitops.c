@@ -1522,6 +1522,11 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     /* Store the computed value into the target key. Queue propagation before
      * notifications on every native path. */
     if (maxlen) {
+        /* setKey() would lazily expire a logically expired target and queue
+         * its DEL after BITOP, so replicas and the AOF would delete the
+         * result. Expire it first so the DEL goes before BITOP. The sources
+         * are no longer read, so callbacks this runs cannot affect them. */
+        lookupKeyWrite(c->db, targetkey);
         if (propagate_forced)
             bitroarPropagateBitopRoaring(c);
         else
