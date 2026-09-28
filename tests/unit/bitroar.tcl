@@ -1485,8 +1485,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         after 10
 
         # A Roaring source, and a string source with a config-selected result.
-        # Storing the result expires the old destination, whose DEL must be
-        # replayed before BITOP rather than after it.
+        # BITOP expires the old destination, whose DEL must be replayed before
+        # BITOP rather than after it.
         assert_equal 13 [r bitop or bitmap:aof-expired:dest1 bitmap:aof-expired:roaring]
         assert_equal 1 [r bitop or bitmap:aof-expired:dest2 bitmap:aof-expired:string]
         r config set bitmap-default-roaring no
