@@ -3,7 +3,9 @@
 #
 # The section reports per-database, base-2 logarithmic histograms of stream
 # properties, identical in form to the "INFO keysizes" section. One sample per
-# consumer group per metric:
+# stream, or per consumer group, per metric:
+#   - stream_distrib_streams_cgroups: one sample per STREAM, its consumer-group
+#     count. A stream is a sample from birth: with no groups it counts in bin 0.
 #   - stream_distrib_cgroups_pel: the group's pending-entry-list (PEL) size.
 #   - stream_distrib_cgroups_consumers: the group's consumer count.
 # Collection is gated on the stream-stats directive and reconstructed exactly
@@ -53,6 +55,11 @@ proc eval_stream_histogram {server dbid metric xinfo_field} {
     array set bin_counts {}
     foreach key [$server keys *] {
         if {[$server type $key] ne "stream"} continue
+        if {$xinfo_field eq "groups"} {
+            # A per-stream metric: one sample per stream, from XINFO STREAM.
+            incr bin_counts([hist_label [dict get [$server xinfo stream $key] groups]])
+            continue
+        }
         foreach g [$server xinfo groups $key] {
             array set gi $g
             set v $gi($xinfo_field)
@@ -124,6 +131,28 @@ proc verify_pel {cmd exp {waitCond 0}} {
 # XINFO 'consumers'.
 proc verify_consumers {cmd exp {waitCond 0}} {
     uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_cgroups_consumers CONS consumers $waitCond]
+}
+
+# stream_distrib_streams_cgroups: placeholder "SC"; one sample per stream,
+# cross-checked against the 'groups' field of XINFO STREAM.
+proc verify_streams_cgroups {cmd exp {waitCond 0}} {
+    uplevel 1 [list verify_stream_metric $cmd $exp stream_distrib_streams_cgroups SC groups $waitCond]
+}
+
+# Sum of all bin counts on one INFO histogram line ("" -> 0).
+proc hist_total {line} {
+    set total 0
+    foreach part [split [lindex [split $line ":"] 1] ","] {
+        if {$part ne ""} { incr total [lindex [split $part "="] 1] }
+    }
+    return $total
+}
+
+# Number of stream keys in the selected db.
+proc count_stream_keys {server} {
+    set n 0
+    foreach key [$server keys *] { if {[$server type $key] eq "stream"} { incr n } }
+    return $n
 }
 
 # Seed a stream with 'n' entries 1-1..n-1.
@@ -331,6 +360,62 @@ proc test_all_stream_stats { {replMode 0} } {
         verify_consumers {} {db0_CONS:1=1}
     }
 
+    test "STREAM-STATS - streams_cgroups bin boundaries 1,2,4,8,... $suffix" {
+        foreach n {1 2 3 4 7 8 15 16} {
+            verify_streams_cgroups {$server FLUSHALL} {}
+            seed_stream $server st 1
+            for {set i 1} {$i < $n} {incr i} { $server xgroup create st g$i 0 }
+            verify_streams_cgroups {$server xgroup create st g$n 0} "db0_SC:[hist_label $n]=1"
+        }
+    }
+
+    test "STREAM-STATS - a stream is a sample from birth; no groups is bin 0 $suffix" {
+        verify_streams_cgroups {$server FLUSHALL} {}
+        # The XADD that creates the key enters the stream with 0 groups...
+        verify_streams_cgroups {$server xadd st 1-1 f v} {db0_SC:0=1}
+        # ...further XADDs change nothing...
+        verify_streams_cgroups {$server xadd st 2-1 f v} {db0_SC:0=1}
+        # ...groups move it up...
+        verify_streams_cgroups {$server xgroup create st g1 0} {db0_SC:1=1}
+        verify_streams_cgroups {$server xgroup create st g2 0} {db0_SC:2=1}
+        # ...destroying them walks it back down to bin 0, not out of the row...
+        verify_streams_cgroups {$server xgroup destroy st g1} {db0_SC:1=1}
+        verify_streams_cgroups {$server xgroup destroy st g2} {db0_SC:0=1}
+        # ...and only deleting the key removes the sample.
+        verify_streams_cgroups {$server del st} {}
+    }
+
+    test "STREAM-STATS - XGROUP CREATE MKSTREAM births the stream with one group $suffix" {
+        verify_streams_cgroups {$server FLUSHALL} {}
+        verify_streams_cgroups {$server xgroup create st g 0 mkstream} {db0_SC:1=1}
+        # A duplicate group is rejected (BUSYGROUP) and must not move the sample.
+        catch {$server xgroup create st g 0}
+        verify_streams_cgroups {} {db0_SC:1=1}
+    }
+
+    test "STREAM-STATS - streams with and without groups side by side $suffix" {
+        verify_streams_cgroups {$server FLUSHALL} {}
+        seed_stream $server a 1
+        seed_stream $server b 1
+        seed_stream $server c 1
+        $server xgroup create c g1 0
+        $server xgroup create c g2 0
+        verify_streams_cgroups {$server xgroup create c g3 0} {db0_SC:0=2,2=1}
+        # Every stream is exactly one sample, so the row totals the stream keys.
+        assert_equal 3 [hist_total [get_info_stream_field $server stream_distrib_streams_cgroups]]
+    }
+
+    test "STREAM-STATS - group-level traffic leaves the stream sample alone $suffix" {
+        verify_streams_cgroups {$server FLUSHALL} {}
+        seed_stream $server st 4
+        verify_streams_cgroups {$server xgroup create st g 0} {db0_SC:1=1}
+        $server xreadgroup group g c count 4 streams st >
+        $server xack st g 1-1
+        $server xgroup createconsumer st g c2
+        $server xclaim st g c3 0 2-1
+        verify_streams_cgroups {$server xgroup delconsumer st g c2} {db0_SC:1=1}
+    }
+
     test "STREAM-STATS - multiple streams and databases $suffix" {
         verify_pel {$server FLUSHALL} {}
         seed_stream $server sa 2
@@ -346,6 +431,7 @@ proc test_all_stream_stats { {replMode 0} } {
         $server xreadgroup group g c count 8 streams sc >
         verify_pel {} {db0_PEL:2=1,4=1 db5_PEL:8=1}
         verify_consumers {} {db0_CONS:1=2 db5_CONS:1=1}
+        verify_streams_cgroups {} {db0_SC:1=2 db5_SC:1=1}
         $server select 0
     }
 
@@ -363,10 +449,12 @@ proc test_all_stream_stats { {replMode 0} } {
             catch {$server xtrim strm$s maxlen [expr {int(rand()*10)}]}
             catch {$server xdel strm$s [expr {int(rand()*15)+1}]-1}
         }
-        # Both metrics must match an independent reconstruction from XINFO
-        # GROUPS (pending / consumers) -- across trims/deletes/reads/acks.
+        # All three metrics must match an independent reconstruction from XINFO
+        # (GROUPS pending / consumers, STREAM groups) -- across
+        # trims/deletes/reads/acks.
         verify_pel {} {__EVAL__ 0}
         verify_consumers {} {__EVAL__ 0}
+        verify_streams_cgroups {} {__EVAL__ 0}
     }
 }
 
@@ -389,18 +477,24 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         createComplexDataset r 1000
         verify_pel {} {__EVAL__ 0}
         verify_consumers {} {__EVAL__ 0}
+        verify_streams_cgroups {} {__EVAL__ 0}
+        # Every stream is exactly one sample of the groups-per-stream row.
+        assert_equal [count_stream_keys r] [hist_total [get_info_stream_field r stream_distrib_streams_cgroups]]
 
-        # A reload must reconstruct both metrics for a random dataset too.
+        # A reload must reconstruct all three metrics for a random dataset too.
         set before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
         set before_cons [get_info_stream_field r stream_distrib_cgroups_consumers]
+        set before_sc [get_info_stream_field r stream_distrib_streams_cgroups]
         r DEBUG RELOAD
         assert_equal $before_pel [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal $before_cons [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal $before_sc [get_info_stream_field r stream_distrib_streams_cgroups]
 
         verify_pel {r FLUSHALL} {}
         createComplexDataset r 1000 {useexpire}
         verify_pel {} {__EVAL__ 0}
         verify_consumers {} {__EVAL__ 0}
+        verify_streams_cgroups {} {__EVAL__ 0}
     } {} {cluster:skip}
 
     test "STREAM-STATS - DEBUG RELOAD reconstructs the histogram from RDB" {
@@ -414,10 +508,12 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         set before [get_info_stream_stripped r]
         r DEBUG RELOAD
         assert_equal $before [get_info_stream_stripped r]
-        # Both metrics match an independent reconstruction from XINFO GROUPS.
+        # All three metrics match an independent reconstruction from XINFO.
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] \
             [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_cgroups groups] \
+            [get_info_stream_field r stream_distrib_streams_cgroups]
     }
 
     test "STREAM-STATS - section is empty after the streams are removed" {
@@ -428,6 +524,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
         r xreadgroup group g c count 4 streams st >
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         r del st
         assert_equal "" [get_info_stream_stripped r]
     }
@@ -483,6 +580,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         r DEBUG RELOAD
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
         # Disabling zeroes the histogram so no stale samples linger.
         r config set stream-stats no
         assert_equal "" [get_info_stream_stripped r]
