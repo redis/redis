@@ -644,6 +644,8 @@ static bitroar *bitroarActiveDefragSelf(bitroar *bitmap) {
 }
 
 #if defined(USE_JEMALLOC)
+/* With 4 or 8 KiB pages each 8 KiB slab holds a single region, so the defrag
+ * hint never moves these words; larger pages or forced defrag can. */
 static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset) {
     uint64_t *words;
 
