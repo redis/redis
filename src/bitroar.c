@@ -239,6 +239,25 @@ static int bitroarNormalizeAlignment(size_t *alignment) {
     return C_OK;
 }
 
+/* CRoaring only uses its aligned allocator for bitset container words (see
+ * BITROAR_BITSET_WORDS_ALIGNMENT). bitroarAlignedAllocBase() maps the pointer
+ * it returns back to the zmalloc allocation that holds it. */
+#if defined(USE_JEMALLOC)
+/* jemalloc honors the alignment itself, so the words get an exact-size
+ * allocation: 8 KiB of words stay in the 8 KiB size class instead of spilling
+ * into the next one, and the pointer is its own zmalloc allocation. */
+static void *bitroarAlignedMalloc(size_t alignment, size_t size) {
+    if (bitroarNormalizeAlignment(&alignment) != C_OK) return NULL;
+    /* Unlike malloc(), mallocx() leaves a zero size undefined. */
+    return zmalloc_with_flags(size ? size : 1, MALLOCX_ALIGN(alignment));
+}
+
+static void *bitroarAlignedAllocBase(void *ptr) {
+    return ptr;
+}
+#else
+/* Other allocators have no aligned zmalloc variant, so over-allocate and keep
+ * a pointer to the zmalloc base just below the aligned address. */
 static void *bitroarAlignedMalloc(size_t alignment, size_t size) {
     void *base;
     uintptr_t raw, aligned;
@@ -260,6 +279,7 @@ static void *bitroarAlignedAllocBase(void *ptr) {
     if (ptr == NULL) return NULL;
     return ((void **)ptr)[-1];
 }
+#endif
 
 static void bitroarAlignedFree(void *ptr) {
     if (ptr == NULL) return;
@@ -598,9 +618,11 @@ void bitroarDismiss(robj *o, size_t size_hint) {
 /* CRoaring requests this alignment for bitset container word buffers in the
  * portable build Redis uses (see align_size in CRoaring's
  * bitset_container_create(); the SIMD-gated 64-byte case is compiled out by
- * ROARING_DISABLE_X64). bitroarAlignedMalloc() over-allocates by
- * alignment - 1 + sizeof(void *), so re-deriving an aligned offset inside a
- * relocated block always fits. */
+ * ROARING_DISABLE_X64). With jemalloc the words are an exact-size block in the
+ * 8 KiB size class, whose regions are at least 4 KiB aligned, so relocating
+ * it within that class keeps the alignment. Otherwise bitroarAlignedMalloc()
+ * over-allocates by alignment - 1 + sizeof(void *), so re-deriving an aligned
+ * offset inside a relocated block always fits. */
 #define BITROAR_BITSET_WORDS_ALIGNMENT 32
 
 static void *bitroarActiveDefragAlloc(bitroar *bitmap, void *ptr) {
@@ -621,6 +643,20 @@ static bitroar *bitroarActiveDefragSelf(bitroar *bitmap) {
     return newbitmap;
 }
 
+#if defined(USE_JEMALLOC)
+static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset) {
+    uint64_t *words;
+
+    if (bitset->words == NULL) return;
+    words = bitroarActiveDefragAlloc(bitmap, bitset->words);
+    if (words == NULL) return;
+
+    /* activeDefragAlloc() drops the alignment flag but keeps the usable size,
+     * and with it the size class, so the words must still be aligned. */
+    serverAssert(((uintptr_t)words & (BITROAR_BITSET_WORDS_ALIGNMENT - 1)) == 0);
+    bitset->words = words;
+}
+#else
 static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset) {
     void *base, *newbase;
     uintptr_t aligned;
@@ -647,6 +683,7 @@ static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset
     ((void **)aligned)[-1] = newbase;
     bitset->words = (uint64_t *)aligned;
 }
+#endif
 
 /* Defrag one container; returns the moved container pointer, or NULL if the
  * container struct itself did not move (its payload may still have moved). */
