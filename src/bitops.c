@@ -862,9 +862,21 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state instead of being re-derived from node-local
  * configuration. BITCONVERT carries in-place write transitions, while
- * BITOP_ROARING carries BITOP's selection of a native result. */
+ * BITOP_ROARING carries BITOP's selection of a native result.
+ *
+ * 'c' is a fake client when the write comes from RM_Call() or a script, so
+ * the client whose command is being processed is checked as well: a module
+ * command or a legacy EVAL replayed from the master or the AOF must not take
+ * the decision either. It is also not taken unless the transition can reach
+ * both the AOF and the replicas, which RM_Call() without '!', a selective
+ * RM_Call() or Lua redis.set_repl() prevent: a target missing it would apply
+ * the write (or whatever the caller replicates in its place) and any later
+ * command to a string, diverging from this node. */
 static int bitroarDefaultEnabled(client *c) {
-    return server.bitmap_default_roaring && !mustObeyClient(c);
+    if (!server.bitmap_default_roaring || mustObeyClient(c)) return 0;
+    if (server.current_client && mustObeyClient(server.current_client)) return 0;
+    return (server.allowed_propagate_targets & (PROPAGATE_AOF|PROPAGATE_REPL)) ==
+           (PROPAGATE_AOF|PROPAGATE_REPL);
 }
 
 /* Convert a string value of any encoding into a Roaring bitmap object holding
