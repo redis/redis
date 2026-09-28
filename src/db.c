@@ -1920,10 +1920,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     vec keys;
     void *keys_stack[256];
     vecInit(&keys, keys_stack, 256);
-    /* Hashtable scans borrow pointers from the collection, including skiplist
-     * nodes for sorted sets. */
-    if (o && !ht)
-        vecSetFreeMethod(&keys, sdsfreegeneric);
+    /* All entries are borrowed from the collection (or the keyspace) and
+     * copied into the reply; nothing is owned by the vector. */
 
     /* For main dictionary scan or data structure using hashtable. */
     if (!o || ht) {
