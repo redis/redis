@@ -48,6 +48,9 @@
 #include <sys/resource.h>
 #include <sys/uio.h>
 #include <sys/un.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 #include <limits.h>
 #include <float.h>
 #include <math.h>
@@ -2564,6 +2567,76 @@ void initServerConfig(void) {
 
 extern char **environ;
 
+/* Close every file descriptor above stderr, which is the state a process is
+ * supposed to hand over to execve().
+ *
+ * Descriptor numbers are not bounded by server.maxclients: a process can
+ * inherit a descriptor at any number below its RLIMIT_NOFILE soft limit, and
+ * it will do so unless the descriptor was created with FD_CLOEXEC.  So the
+ * only sound way to clean up before execve() is to ask the kernel to close
+ * the whole range, rather than to guess an upper bound.  Guessing one leaks
+ * every inherited descriptor that happens to sit above it.
+ *
+ * CLOSEFROM_MAX_FD caps the fallback loop, because a soft limit of
+ * "unlimited" or a multi-million one would otherwise turn the restart into a
+ * multi-second stall.  Reaching the cap means an inherited descriptor above
+ * it may survive, which we log rather than hide. */
+#define CLOSEFROM_MAX_FD 1048576
+
+/* Try close_range(), available on Linux 5.9+.  It is a single syscall that
+ * closes a range without walking it, so the cost does not depend on how
+ * many descriptors are open.
+ *
+ * Returns 1 if the range was closed, and 0 if the caller should fall back.
+ * Used through syscall() so that we keep building against glibc versions
+ * that do not declare the wrapper yet; an older kernel answers ENOSYS and
+ * that is handled by the same fallback. */
+static int tryCloseRange(void) {
+#ifdef __linux__
+#ifdef SYS_close_range
+    if (syscall(SYS_close_range, 3, ~0U, 0) == 0) return 1;
+    /* ENOSYS: kernel predates close_range().  EPERM: seccomp refused it.
+     * EBADF would mean the range is entirely closed already, which is not
+     * an error for our purposes, but Linux does not report it that way. */
+    if (errno != ENOSYS && errno != EPERM)
+        serverLog(LL_WARNING, "close_range() failed with %s, closing descriptors one by one", strerror(errno));
+#endif
+#endif
+    return 0;
+}
+
+void closeInheritedFDs(void) {
+    long j, maxfd = CLOSEFROM_MAX_FD;
+    struct rlimit limit;
+
+    if (tryCloseRange()) return;
+
+#ifdef HAVE_CLOSEFROM
+    closefrom(3);
+    return;
+#else
+    /* No bulk close available: walk the range.  The soft limit is the
+     * highest descriptor the process could possibly hold, so unlike an
+     * arbitrary bound it cannot leave an inherited descriptor behind
+     * within reach of the process. */
+    if (getrlimit(RLIMIT_NOFILE,&limit) != -1 && limit.rlim_cur != RLIM_INFINITY) {
+        if ((rlim_t)maxfd > limit.rlim_cur) maxfd = (long)limit.rlim_cur;
+    }
+
+    for (j = 3; j < maxfd; j++) {
+        /* Test the descriptor validity before closing it, otherwise
+         * Valgrind issues a warning on close(). */
+        if (fcntl(j,F_GETFD) != -1) close(j);
+    }
+
+    if (getrlimit(RLIMIT_NOFILE,&limit) != -1 && limit.rlim_cur == RLIM_INFINITY)
+        serverLog(LL_WARNING,
+            "Closed file descriptors up to %ld. A descriptor inherited above that "
+            "number, if any, survived the restart: the open file limit is unlimited, "
+            "so there is no safe upper bound to walk to.", (long)CLOSEFROM_MAX_FD);
+#endif
+}
+
 /* Restart the server, executing the same executable that started this
  * instance, with the same arguments and configuration file.
  *
@@ -2580,8 +2653,6 @@ extern char **environ;
  * On success the function does not return, because the process turns into
  * a different process. On error C_ERR is returned. */
 int restartServer(int flags, mstime_t delay) {
-    int j;
-
     /* Check if we still have accesses to the executable that started this
      * server instance. */
     if (access(server.executable,X_OK) == -1) {
@@ -2610,11 +2681,7 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) {
-        /* Test the descriptor validity before closing it, otherwise
-         * Valgrind issues a warning on close(). */
-        if (fcntl(j,F_GETFD) != -1) close(j);
-    }
+    closeInheritedFDs();
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);

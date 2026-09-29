@@ -103,6 +103,15 @@
 #define HAVE_PIPE2 1
 #endif
 
+/* Detect for closefrom().  It is the portable way to close every descriptor
+ * above a given one, so we can avoid assuming a bound on descriptor numbers.
+ * Linux is excluded on purpose: it has no closefrom(), but close_range()
+ * (tried first, in server.c) is better still. */
+#if (defined(__FreeBSD__) && __FreeBSD_version >= 800000) || \
+    defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+#define HAVE_CLOSEFROM 1
+#endif
+
 /* Detect for kqueue */
 #if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || \
     defined(__OpenBSD__) || defined (__NetBSD__) || defined(__DragonFly__)
