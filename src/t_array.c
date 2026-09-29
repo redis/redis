@@ -1864,7 +1864,8 @@ void arlastitemsCommand(client *c) {
      * Note that we use an array to collect the items: in the no-REV case
      * otherwise a double scan would be needed. */
     void **collected = zmalloc(effective_count * sizeof(void *));
-    uint64_t anchor_idx = (ar->insert_idx == AR_INSERT_IDX_NONE || ar->insert_idx >= ar_len) ? ar_len - 1 : ar->insert_idx;
+    uint64_t anchor_idx = (ar->insert_idx == AR_INSERT_IDX_NONE || ar->insert_idx >= ar_len) ?
+                          ar_len - 1 : ar->insert_idx;
     uint64_t current_idx = anchor_idx;
     uint64_t steps = 0;
 
