@@ -3,14 +3,15 @@
 STD = -std=gnu11
 WARN = -Wall
 OPT = -O3
+DEBUG = -g
 
 AR ?= ar
 ARFLAGS = rcs
 
 # The vendored headers come before CFLAGS so that an installed CRoaring reached
 # through a user-supplied -I path cannot shadow them.
-CROARING_CFLAGS = -Iinclude -Isrc $(STD) $(WARN) $(OPT) $(ENABLE_LTO) $(CFLAGS) \
-	-fPIC -fvisibility=hidden -DROARING_DISABLE_X64=1 -DDISABLENEON=1
+CROARING_CFLAGS = -Iinclude -Isrc $(STD) $(WARN) $(OPT) $(DEBUG) $(ENABLE_LTO) \
+	$(CFLAGS) -fPIC -fvisibility=hidden -DROARING_DISABLE_X64=1 -DDISABLENEON=1
 CROARING_BUILD_SETTINGS = .make-build-settings
 REFCOUNT_NONE_TEST = .make-refcount-none-test
 
