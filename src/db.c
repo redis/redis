@@ -2237,12 +2237,12 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 
     if (o && o->type == OBJ_ZSET) {
         addReplyArrayLen(c, vecSize(&keys) * 2);
-        char buf[MAX_LONG_DOUBLE_CHARS];
+        char buf[MAX_D2STRING_CHARS];
         for (size_t i = 0; i < vecSize(&keys); i++) {
             zskiplistNode *node = vecGet(&keys, i);
             sds member = zslGetNodeElement(node);
             addReplyBulkCBuffer(c, member, sdslen(member));
-            int len = ld2string(buf, sizeof(buf), node->score, LD_STR_AUTO);
+            int len = d2string(buf, sizeof(buf), node->score);
             addReplyBulkCBuffer(c, buf, len);
         }
     } else {
