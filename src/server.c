@@ -1165,7 +1165,7 @@ int updateClientMemUsageAndBucket(client *c) {
             updateClientUnsharedReplyBytes(c);
     } else {
         /* No shared bytes: clear any stale cached unshared. */
-        setClientUnsharedReplyBytes(c, 0);
+        c->reply_bytes_unshared = 0;
     }
 
     /* Update client memory usage. */

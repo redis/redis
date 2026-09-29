@@ -2122,7 +2122,6 @@ struct redisServer {
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
     list *clients_with_pending_ref_reply; /* Clients with referenced reply objects. */
-    size_t clients_unshared_mem; /* Sum of c->reply_bytes_unshared across clients_with_pending_ref_reply, updated incrementally by cron. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
@@ -3416,7 +3415,6 @@ size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c);
 void updateClientUnsharedReplyBytes(client *c);
-void setClientUnsharedReplyBytes(client *c, unsigned long long new_unshared);
 void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
