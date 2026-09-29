@@ -94,7 +94,8 @@ int bitroarBitopNotWithinMissingChunkLimit(const robj *o, uint64_t max_missing);
 /* Write operations */
 int bitroarSetBit(robj *o, uint64_t bitoffset, int on);
 int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t value);
-robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen);
+robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen,
+                     int try_alloc);
 
 /* Serialization. MaterializeForDebug flattens to the logical raw string bytes
  * for DEBUG BITMAP-RAW and rejects lengths above proto-max-bulk-len.
