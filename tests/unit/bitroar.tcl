@@ -3346,6 +3346,376 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     }
 }
 
+# Randomized differential fuzz over multi-container values. A chunk is the
+# 8192-byte slice of a raw value that becomes one 2^16-bit Roaring container,
+# and its shape selects the container type after conversion: an all-zero chunk
+# leaves no container, sparse chunks become arrays, chunks with 4095 to 4097
+# set bits sit on either side of the array container limit, random bytes need
+# a bitset, and long runs of ones or zeroes become run containers.
+proc bitroar_fuzz_chunk {len} {
+    switch [randomInt 7] {
+        0 {return [string repeat \x00 $len]}
+        1 {return [string repeat \xff $len]}
+        2 {
+            set words {}
+            for {set i 0} {$i < ($len + 3) / 4} {incr i} {
+                lappend words [randomInt 4294967296]
+            }
+            return [string range [binary format I* $words] 0 [expr {$len - 1}]]
+        }
+        3 {
+            set bytes [lrepeat $len 0]
+            for {set i [randomInt 128]} {$i >= 0} {incr i -1} {
+                set byte [randomInt $len]
+                lset bytes $byte [expr {[lindex $bytes $byte] | (1 << [randomInt 8])}]
+            }
+        }
+        4 {
+            set bytes [lrepeat $len 0]
+            set count [expr {min($len, 4095 + [randomInt 3])}]
+            for {set i 0} {$i < $count} {incr i} {
+                lset bytes $i [expr {1 << [randomInt 8]}]
+            }
+        }
+        default {
+            # Runs of ones over zeroes, or of zeroes over ones, with random
+            # edge bytes so most runs do not start or end on a byte boundary.
+            set fill [expr {[randomInt 2] ? 0 : 255}]
+            set bytes [lrepeat $len $fill]
+            for {set runs [randomInt 4]} {$runs >= 0} {incr runs -1} {
+                set start [randomInt $len]
+                set end [expr {min($len, $start + 1 + [randomInt [expr {$len / 4 + 1}]])}]
+                for {set i $start} {$i < $end} {incr i} {
+                    lset bytes $i [expr {255 - $fill}]
+                }
+                if {$start > 0} {lset bytes [expr {$start - 1}] [randomInt 256]}
+                if {$end < $len} {lset bytes $end [randomInt 256]}
+            }
+        }
+    }
+    return [binary format c* $bytes]
+}
+
+# Random raw value of $min_chunks to $max_chunks chunks. The last chunk is
+# partial half of the time, so the logical length does not always end on a
+# container boundary.
+proc bitroar_fuzz_raw {min_chunks max_chunks} {
+    set chunks [expr {$min_chunks + [randomInt [expr {$max_chunks - $min_chunks + 1}]]}]
+    set raw {}
+    for {set i 1} {$i <= $chunks} {incr i} {
+        set len 8192
+        if {$i == $chunks && [randomInt 2]} {
+            set len [expr {1 + [randomInt 8192]}]
+        }
+        append raw [bitroar_fuzz_chunk $len]
+    }
+    return $raw
+}
+
+# Bits where container walks start and stop: the first and last set bit and
+# the first and last clear bit of every chunk of $raw.
+proc bitroar_fuzz_edges {raw} {
+    binary scan $raw B* bits
+    set size [string length $bits]
+    set edges {}
+    for {set base 0} {$base < $size} {incr base 65536} {
+        set last [expr {min($base + 65535, $size - 1)}]
+        foreach bit {0 1} {
+            set first [string first $bit $bits $base]
+            if {$first >= 0 && $first <= $last} {
+                lappend edges $first [string last $bit $bits $last]
+            }
+        }
+    }
+    return $edges
+}
+
+# Random position in a value of $units bytes or bits, $chunk units per
+# container: anywhere in the value, next to a container boundary or to one of
+# the $edges of the value, or past the end.
+proc bitroar_fuzz_position {units chunk edges} {
+    randpath {
+        randomInt [expr {$units + 1}]
+    } {
+        expr {[randomInt [expr {$units / $chunk + 2}]] * $chunk + [randomInt 3] - 1}
+    } {
+        expr {[lindex $edges [randomInt [llength $edges]]] + [randomInt 3] - 1}
+    } {
+        expr {$units + [randomInt $chunk]}
+    }
+}
+
+# Random BITCOUNT/BITPOS start and end over $units bytes or bits. Either the
+# two positions are independent, so start > end is common, or one of them is
+# close to the other, so short ranges inside a single gap or run of ones that
+# stop right at a container boundary or edge are common too. A third of the
+# time each index is counted from the end, which can also land before the
+# start of the value.
+proc bitroar_fuzz_range {units chunk edges} {
+    set start [bitroar_fuzz_position $units $chunk $edges]
+    set span [randomInt [expr {[randomInt 2] ? 16 : $chunk}]]
+    switch [randomInt 3] {
+        0 {set end [bitroar_fuzz_position $units $chunk $edges]}
+        1 {set end [expr {$start + $span}]}
+        2 {
+            set end $start
+            set start [expr {$end - $span}]
+        }
+    }
+    set range {}
+    foreach index [list $start $end] {
+        if {[randomInt 3] == 0} {incr index [expr {-$units}]}
+        lappend range $index
+    }
+    return $range
+}
+
+# Random BITFIELD type and offset for a value of $bits bits: a plain offset up
+# to one field past the end or straddling a container boundary, or #N.
+proc bitroar_fuzz_field {bits} {
+    if {[randomInt 2]} {
+        set width [expr {1 + [randomInt 64]}]
+        set type i$width
+    } else {
+        # u64 is not supported by BITFIELD.
+        set width [expr {1 + [randomInt 63]}]
+        set type u$width
+    }
+    set offset [randpath {
+        randomInt [expr {$bits + 64}]
+    } {
+        expr {max(0, [randomInt [expr {$bits / 65536 + 2}]] * 65536 - [randomInt $width])}
+    } {
+        format #%d [randomInt [expr {$bits / $width + 2}]]
+    }]
+    return [list $type $offset]
+}
+
+# Random BITFIELD SET value or INCRBY increment for a $width-bit field: small,
+# within twice the field range so overflows are common, or an int64 extreme.
+proc bitroar_fuzz_value {width} {
+    randpath {
+        expr {[randomInt 512] - 256}
+    } {
+        set value [expr {entier(rand() * 2.0 ** ($width + 1)) - 2 ** $width}]
+        expr {max(-9223372036854775808, min(9223372036854775807, $value))}
+    } {
+        lindex {-9223372036854775808 -1 0 1 9223372036854775807} [randomInt 5]
+    }
+}
+
+# Random BITCOUNT, BITPOS or BITFIELD_RO command for a value of $len bytes
+# with the given bit $edges, with "key" standing for the key name.
+proc bitroar_fuzz_read_command {len edges} {
+    set bits [expr {$len * 8}]
+    set byte_edges [lmap edge $edges {expr {$edge / 8}}]
+    set byte_range [bitroar_fuzz_range $len 8192 $byte_edges]
+    set bit_range [concat [bitroar_fuzz_range $bits 65536 $edges] bit]
+    switch [randomInt 3] {
+        0 {
+            set cmd [list bitcount key]
+            switch [randomInt 5] {
+                0 {}
+                1 {lappend cmd {*}$byte_range}
+                2 {lappend cmd {*}$byte_range byte}
+                default {lappend cmd {*}$bit_range}
+            }
+        }
+        1 {
+            set cmd [list bitpos key [randomInt 2]]
+            switch [randomInt 6] {
+                0 {}
+                1 {lappend cmd [lindex $byte_range 0]}
+                2 {lappend cmd {*}$byte_range}
+                3 {lappend cmd {*}$byte_range byte}
+                default {lappend cmd {*}$bit_range}
+            }
+        }
+        default {
+            set cmd [list bitfield_ro key]
+            for {set i [randomInt 3]} {$i >= 0} {incr i -1} {
+                lappend cmd get {*}[bitroar_fuzz_field $bits]
+            }
+        }
+    }
+    return $cmd
+}
+
+# Random BITFIELD command for a value of $len bytes mixing GET, SET and INCRBY
+# under every OVERFLOW mode, with "key" standing for the key name.
+proc bitroar_fuzz_write_command {len} {
+    set cmd [list bitfield key]
+    for {set i [randomInt 3]} {$i >= 0} {incr i -1} {
+        if {[randomInt 3] == 0} {
+            lappend cmd overflow [lindex {wrap sat fail} [randomInt 3]]
+        }
+        lassign [bitroar_fuzz_field [expr {$len * 8}]] type offset
+        set width [string range $type 1 end]
+        switch [randomInt 5] {
+            0 {lappend cmd get $type $offset}
+            1 - 2 {lappend cmd set $type $offset [bitroar_fuzz_value $width]}
+            default {lappend cmd incrby $type $offset [bitroar_fuzz_value $width]}
+        }
+    }
+    return $cmd
+}
+
+# Reply of $command run against $key, or its error, so that error replies are
+# compared as well.
+proc bitroar_fuzz_reply {key command} {
+    if {[catch {r {*}[lreplace $command 1 1 $key]} reply]} {
+        return "error: $reply"
+    }
+    return $reply
+}
+
+# Compare possibly large logical values, reporting the first differing byte
+# instead of dumping both.
+proc assert_bitroar_fuzz_raw_equal {value expected detail} {
+    if {$value eq $expected} return
+    set i 0
+    while {[string index $value $i] eq [string index $expected $i]} {
+        incr i
+    }
+    fail "Bitmap values differ at byte $i (lengths [string length $value]\
+        and [string length $expected]) $detail"
+}
+
+start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
+    # A SET larger than the default 4096-byte channel buffer leaves the client
+    # in several writes, and Nagle's algorithm then stalls it for a delayed
+    # ACK. Send each of these values of up to 48KB in a single write.
+    fconfigure [r channel] -buffersize 65536
+
+    test {Multi-container Roaring BITCOUNT BITPOS and BITFIELD fuzz matches strings} {
+        # Replace the seed with the one a failure reports to reproduce it.
+        set seed [clock milliseconds]
+        expr {srand($seed)}
+        if {$::verbose} {puts "Multi-container Roaring fuzz seed: $seed"}
+        if {$::accurate} {set bitmaps 120} else {set bitmaps 24}
+
+        r config set bitmap-default-roaring no
+        for {set i 0} {$i < $bitmaps} {incr i} {
+            set raw [bitroar_fuzz_raw 3 6]
+            r set bitmap:fuzz:string $raw
+            r set bitmap:fuzz:roaring $raw
+            convert_string_bitmap_to_roaring r bitmap:fuzz:roaring
+            set len [string length $raw]
+            set edges [bitroar_fuzz_edges $raw]
+
+            # The first reads see the containers built by the conversion, the
+            # rest interleave with BITFIELD writes that reshape and grow them.
+            for {set j 0} {$j < 300} {incr j} {
+                if {$j < 150 || [randomInt 2]} {
+                    set cmd [bitroar_fuzz_read_command $len $edges]
+                } else {
+                    set cmd [bitroar_fuzz_write_command $len]
+                }
+                assert_equal [bitroar_fuzz_reply bitmap:fuzz:string $cmd] \
+                    [bitroar_fuzz_reply bitmap:fuzz:roaring $cmd] \
+                    "(seed $seed, bitmap $i, command $j: $cmd)"
+                if {[lindex $cmd 0] eq "bitfield"} {
+                    set len [r strlen bitmap:fuzz:string]
+                }
+            }
+            set detail "(seed $seed, bitmap $i)"
+            assert_bitroar_fuzz_raw_equal [r debug bitmap-raw bitmap:fuzz:roaring] \
+                [r get bitmap:fuzz:string] $detail
+            assert_equal bitmap [r type bitmap:fuzz:roaring] $detail
+            assert_equal bitmap-roaring [r object encoding bitmap:fuzz:roaring] $detail
+        }
+    }
+
+    test {BITOP multi-container Roaring fuzz matches bitmap-default-roaring no strings} {
+        # Replace the seed with the one a failure reports to reproduce it.
+        set seed [clock milliseconds]
+        expr {srand($seed)}
+        if {$::verbose} {puts "Multi-container Roaring BITOP fuzz seed: $seed"}
+        if {$::accurate} {set iterations 40} else {set iterations 8}
+
+        r config set bitmap-default-roaring no
+        foreach op {and or xor diff diff1 andor one not} {
+            for {set i 0} {$i < $iterations} {incr i} {
+                if {$op eq "not"} {
+                    set count 1
+                } elseif {$op in {diff diff1 andor}} {
+                    set count [expr {2 + [randomInt 3]}]
+                } else {
+                    set count [expr {1 + [randomInt 4]}]
+                }
+
+                # Each source is missing, or is a string on one side and a
+                # string or a Roaring bitmap on the other, with lengths from
+                # one to six chunks. The destination may alias a source.
+                set string_sources {}
+                set roaring_sources {}
+                set raws {}
+                set has_roaring 0
+                for {set j 0} {$j < $count} {incr j} {
+                    set string_key bitmap:fuzz:bitop:string:$j
+                    set roaring_key bitmap:fuzz:bitop:roaring:$j
+                    lappend string_sources $string_key
+                    lappend roaring_sources $roaring_key
+                    if {[randomInt 8] == 0} {
+                        r del $string_key $roaring_key
+                        lappend raws {}
+                        continue
+                    }
+                    set raw [bitroar_fuzz_raw 1 6]
+                    r set $string_key $raw
+                    r set $roaring_key $raw
+                    if {[randomInt 2]} {
+                        convert_string_bitmap_to_roaring r $roaring_key
+                        set has_roaring 1
+                    }
+                    lappend raws $raw
+                }
+                set alias -1
+                set string_dest bitmap:fuzz:bitop:string:dest
+                set roaring_dest bitmap:fuzz:bitop:roaring:dest
+                if {[randomInt 4] == 0} {
+                    set alias [randomInt $count]
+                    set string_dest [lindex $string_sources $alias]
+                    set roaring_dest [lindex $roaring_sources $alias]
+                }
+
+                set detail "(seed $seed, op $op, iteration $i)"
+                assert_equal [r bitop $op $string_dest {*}$string_sources] \
+                    [r bitop $op $roaring_dest {*}$roaring_sources] $detail
+                assert_equal [r exists $string_dest] [r exists $roaring_dest] $detail
+                assert_bitroar_fuzz_raw_equal [bitmap_logical_raw $roaring_dest] \
+                    [bitmap_logical_raw $string_dest] $detail
+                if {[r exists $roaring_dest]} {
+                    # At least one Roaring source makes the destination Roaring.
+                    assert_equal string [r type $string_dest] $detail
+                    assert_equal [expr {$has_roaring ? "bitmap" : "string"}] \
+                        [r type $roaring_dest] $detail
+
+                    # BITOP builds the destination containers itself instead of
+                    # converting bytes, so compare reads over them as well.
+                    set dest_raw [r get $string_dest]
+                    set edges [bitroar_fuzz_edges $dest_raw]
+                    for {set j 0} {$j < 20} {incr j} {
+                        set cmd [bitroar_fuzz_read_command [string length $dest_raw] $edges]
+                        assert_equal [bitroar_fuzz_reply $string_dest $cmd] \
+                            [bitroar_fuzz_reply $roaring_dest $cmd] \
+                            "(seed $seed, op $op, iteration $i, command $j: $cmd)"
+                    }
+                }
+                for {set j 0} {$j < $count} {incr j} {
+                    if {$j == $alias} continue
+                    assert_bitroar_fuzz_raw_equal \
+                        [bitmap_logical_raw [lindex $roaring_sources $j]] \
+                        [lindex $raws $j] $detail
+                    assert_bitroar_fuzz_raw_equal \
+                        [bitmap_logical_raw [lindex $string_sources $j]] \
+                        [lindex $raws $j] $detail
+                }
+            }
+        }
+    }
+}
+
 
 start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     test {Roaring bitmap BITOP supports OLAP columnar index user stories} {
