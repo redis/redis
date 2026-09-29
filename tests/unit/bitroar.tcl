@@ -1697,6 +1697,29 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
     } {OK}
 }
 
+tags {"bitmap" "bitmap-roaring" "aof" "external:skip" "cluster:skip" "logreqres:skip"} {
+    # AOFs written before scripts were replicated by effects hold the EVAL
+    # itself. Its writes run on the script client, but replaying it obeys the
+    # AOF all the same and must not apply the local configuration.
+    set server_path [tmpdir server.bitmap-aof-eval]
+    set aof_dirpath "$server_path/appendonlydir"
+    create_aof $aof_dirpath "$aof_dirpath/appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix" {
+        append_to_aof [formatCommand select 0]
+        append_to_aof [formatCommand eval {return redis.call('setbit', KEYS[1], 1, 1)} 1 bitmap:aof-eval]
+    }
+    create_aof_manifest $aof_dirpath "$aof_dirpath/appendonly.aof$::manifest_suffix" {
+        append_to_manifest "file appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix seq 1 type i\n"
+    }
+
+    start_server [list overrides [list dir $server_path appendonly yes bitmap-default-roaring yes] keep_persistence true] {
+        test {bitmap-default-roaring yes: scripts replayed from the AOF keep strings} {
+            r select 0
+            assert_equal string [r type bitmap:aof-eval]
+            assert_equal [binary format H* 40] [r get bitmap:aof-eval]
+        }
+    }
+}
+
 start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:skip"}} {
     start_server {} {
         set master [srv -1 client]
@@ -1970,11 +1993,14 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "extern
             $replica config set bitmap-default-roaring no
             set cases {}
 
-            foreach {mode constant on_replica in_aof} {
-                none REPL_NONE 0 0
-                aof REPL_AOF 0 1
-                replica REPL_REPLICA 1 0
-                all REPL_ALL 1 1
+            # The configuration only applies when the transition reaches both
+            # the AOF and the replicas: a target missing it would apply later
+            # writes to a string. Restricted scripts keep strings everywhere.
+            foreach {mode constant on_replica in_aof type} {
+                none REPL_NONE 0 0 string
+                aof REPL_AOF 0 1 string
+                replica REPL_REPLICA 1 0 string
+                all REPL_ALL 1 1 bitmap
             } {
                 foreach command {setbit bitfield bitop} {
                     set key bitmap:selective:$mode:$command
@@ -2001,27 +2027,27 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "extern
                     if {!$in_aof} {
                         assert_equal $aof_size_before [status $master aof_current_size]
                     }
-                    assert_equal bitmap [$master type $key]
-                    lappend cases $key $on_replica $in_aof
+                    assert_equal $type [$master type $key]
+                    lappend cases $key $on_replica $in_aof $type
                 }
             }
 
             wait_for_ofs_sync $master $replica
-            foreach {key on_replica in_aof} $cases {
+            foreach {key on_replica in_aof type} $cases {
                 if {$on_replica} {
-                    assert_equal bitmap [$replica type $key]
+                    assert_equal $type [$replica type $key]
                 } else {
                     assert_equal none [$replica type $key]
                 }
             }
 
             # Detach before replacing the master's live dataset from its AOF;
-            # only REPL_AOF and REPL_ALL transition commands should be present.
+            # only REPL_AOF and REPL_ALL writes should be present.
             $replica replicaof no one
             $master debug loadaof
-            foreach {key on_replica in_aof} $cases {
+            foreach {key on_replica in_aof type} $cases {
                 if {$in_aof} {
-                    assert_equal bitmap [$master type $key]
+                    assert_equal $type [$master type $key]
                 } else {
                     assert_equal none [$master type $key]
                 }
