@@ -142,30 +142,30 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {Internal BITOP_ROARING replay stores native results independently of config} {
-        assert_equal {{}} [r command info bitop_roaring]
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_bitop_out bitmap_bitop_source
+    test {Internal BITROAROP replay stores native results independently of config} {
+        assert_equal {{}} [r command info bitroarop]
+        assert_error {ERR unknown command 'bitroarop'*} {
+            r bitroarop or bitmap_bitop_out bitmap_bitop_source
         }
 
         r debug mark-internal-client
         assert_equal {bitmap_bitop_out bitmap_bitop_source} \
-            [r command getkeys bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
+            [r command getkeys bitroarop or bitmap_bitop_out bitmap_bitop_source]
         assert_equal {{bitmap_bitop_out {OW update}} {bitmap_bitop_source {RO access}}} \
-            [r command getkeysandflags bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
+            [r command getkeysandflags bitroarop or bitmap_bitop_out bitmap_bitop_source]
 
         r config set bitmap-default-roaring no
         r set bitmap_bitop_source [binary format H* f0]
-        assert_equal 1 [r bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
+        assert_equal 1 [r bitroarop or bitmap_bitop_out bitmap_bitop_source]
         assert_equal bitmap [r type bitmap_bitop_out]
         assert_equal [binary format H* f0] [r debug bitmap-raw bitmap_bitop_out]
         # Destination/source aliasing must read the original string first.
-        assert_equal 1 [r bitop_roaring not bitmap_bitop_source bitmap_bitop_source]
+        assert_equal 1 [r bitroarop not bitmap_bitop_source bitmap_bitop_source]
         assert_equal [binary format H* 0f] [r debug bitmap-raw bitmap_bitop_source]
 
         r debug mark-internal-client unmark
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_bitop_out bitmap_bitop_source
+        assert_error {ERR unknown command 'bitroarop'*} {
+            r bitroarop or bitmap_bitop_out bitmap_bitop_source
         }
     }
 
@@ -177,8 +177,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             redis.register_function('call_bitconvert', function(KEYS, ARGV)
                 return redis.call('bitconvert', KEYS[1])
             end)
-            redis.register_function('call_bitop_roaring', function(KEYS, ARGV)
-                return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])
+            redis.register_function('call_bitroarop', function(KEYS, ARGV)
+                return redis.call('bitroarop', 'or', KEYS[1], KEYS[2])
             end)
         }
 
@@ -190,14 +190,14 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
                 r eval {return redis.call('bitconvert', KEYS[1])} 1 bitmap_gate
             }
             assert_error {*not allowed from script*} {
-                r eval {return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])} \
+                r eval {return redis.call('bitroarop', 'or', KEYS[1], KEYS[2])} \
                     2 bitmap_gate_out bitmap_gate
             }
             assert_error {*not allowed from script*} {
                 r fcall call_bitconvert 1 bitmap_gate
             }
             assert_error {*not allowed from script*} {
-                r fcall call_bitop_roaring 2 bitmap_gate_out bitmap_gate
+                r fcall call_bitroarop 2 bitmap_gate_out bitmap_gate
             }
         }
         r debug mark-internal-client unmark
@@ -205,8 +205,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # Ordinary clients cannot queue them either, which aborts the transaction.
         r multi
         assert_error {ERR unknown command 'bitconvert'*} {r bitconvert bitmap_gate}
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_gate_out bitmap_gate
+        assert_error {ERR unknown command 'bitroarop'*} {
+            r bitroarop or bitmap_gate_out bitmap_gate
         }
         assert_error {EXECABORT*} {r exec}
 
@@ -218,7 +218,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     }
 
     test {Internal bitmap propagation primitives cannot be renamed} {
-        foreach command {bitconvert bitop_roaring} {
+        foreach command {bitconvert bitroarop} {
             catch {exec src/redis-server --rename-command $command renamed} err
             assert_match {*Cannot rename an internal command*} $err
         }
@@ -1546,7 +1546,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             set cmd [read_from_aof $fp]
             if {$cmd eq ""} break
             set name [lindex $cmd 0]
-            if {$name in {multi exec bitconvert setbit bitfield bitop bitop_roaring}} {
+            if {$name in {multi exec bitconvert setbit bitfield bitop bitroarop}} {
                 lappend transitions $cmd
             }
             if {$name eq "restore" && [string match "bitmap:aof-incr:*" [lindex $cmd 1]]} {
@@ -1568,7 +1568,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             [list bitconvert bitmap:aof-incr:bitfield] \
             [list bitfield bitmap:aof-incr:bitfield SET u1 0 1] \
             {exec} \
-            [list bitop_roaring or bitmap:aof-incr:bitop:out \
+            [list bitroarop or bitmap:aof-incr:bitop:out \
                 bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2] \
             [list bitop or bitmap:aof-incr:bitop:empty \
                 bitmap:aof-incr:bitop:missing]] $transitions
@@ -1588,6 +1588,30 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal [binary format H* ff] [r debug bitmap-raw bitmap:aof-incr:bitop:out]
         assert_equal 0 [r exists bitmap:aof-incr:bitop:empty]
     }
+
+    test {Native BITOP into a logically expired destination survives AOF replay} {
+        r debug set-active-expire 0
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:aof-expired:roaring 100 1
+        r set bitmap:aof-expired:string [binary format H* f0]
+        r set bitmap:aof-expired:dest1 x PX 1
+        r set bitmap:aof-expired:dest2 x PX 1
+        after 10
+
+        # A Roaring source, and a string source with a config-selected result.
+        # BITOP expires the old destination, whose DEL must be replayed before
+        # BITOP rather than after it.
+        assert_equal 13 [r bitop or bitmap:aof-expired:dest1 bitmap:aof-expired:roaring]
+        assert_equal 1 [r bitop or bitmap:aof-expired:dest2 bitmap:aof-expired:string]
+        r config set bitmap-default-roaring no
+
+        set digest_before [debug_digest]
+        r debug loadaof
+        assert_equal $digest_before [debug_digest]
+        assert_equal bitmap [r type bitmap:aof-expired:dest1]
+        assert_equal bitmap [r type bitmap:aof-expired:dest2]
+        r debug set-active-expire 1
+    } {OK}
 }
 
 tags {"bitmap" "bitmap-roaring" "aof" "external:skip" "cluster:skip" "logreqres:skip"} {
@@ -1700,7 +1724,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
         test {BITOP destinations replicate deterministically across modes} {
             # String-only sources with a bitmap-default-roaring yes master: the
             # destination decision is master-local, so the stream carries the
-            # internal BITOP_ROARING command.
+            # internal BITROAROP command.
             $master del bitop:repl:s1 bitop:repl:s2 bitop:repl:out
             $master set bitop:repl:s1 [binary format H* f0]
             $master set bitop:repl:s2 [binary format H* 0f]
