@@ -482,6 +482,15 @@ start_server {
         assert_equal {e d c {} a} [r arlastitems myarray 10 REV]
     }
 
+    test {ARLASTITEMS starts from the tail after the last element is deleted} {
+        r del myarray
+        r arinsert myarray a b c d e
+        r ardel myarray 4
+
+        assert_equal {a b c d} [r arlastitems myarray 10]
+        assert_equal {d c b a} [r arlastitems myarray 10 REV]
+    }
+
     test {ARLASTITEMS errors when the walked positions exceed the hard limit} {
         r del myarray
         r arset myarray 0 a

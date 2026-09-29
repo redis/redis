@@ -1864,6 +1864,11 @@ void arlastitemsCommand(client *c) {
     void **collected = zmalloc(effective_count * sizeof(void *));
     uint64_t anchor_idx =
         (ar->insert_idx == AR_INSERT_IDX_NONE) ? ar_len - 1 : ar->insert_idx;
+
+    /* The cursor can be past the tail, for instance when the last inserted
+     * element was deleted: start from the last existing element instead of
+     * walking positions that no longer exist. */
+    if (anchor_idx >= ar_len) anchor_idx = ar_len - 1;
     uint64_t current_idx = anchor_idx;
     uint64_t steps = 0;
 
