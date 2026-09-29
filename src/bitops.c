@@ -862,7 +862,7 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state instead of being re-derived from node-local
  * configuration. BITCONVERT carries in-place write transitions, while
- * BITOP_ROARING carries BITOP's selection of a native result.
+ * BITROAROP carries BITOP's selection of a native result.
  *
  * A replica ignores the flag for its local clients too: on a writable replica,
  * even a no-op SETBIT would otherwise convert a key the master owns, and the
@@ -1485,15 +1485,25 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * a transient string and emit different type-change and set notifications.
  * Queue the operation before callbacks, with alsoPropagate() applying the
  * caller's AOF/replication target restrictions. */
-static void bitroarPropagateBitopRoaring(client *c) {
+static void bitroarPropagateBitroarop(client *c) {
     robj **argv = zmalloc(sizeof(*argv) * c->argc);
     memcpy(argv, c->argv, sizeof(*argv) * c->argc);
-    argv[0] = createStringObject("BITOP_ROARING", 13);
+    argv[0] = createStringObject("BITROAROP", 9);
 
     alsoPropagate(c->db->id, argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL);
     preventCommandPropagation(c);
     decrRefCount(argv[0]);
     zfree(argv);
+}
+
+/* BITOP allocates its result-sized buffers with a try-variant so a normal
+ * client gets an out of memory error instead of aborting the server. A master
+ * or the AOF, also when running a nested command, must apply every write the
+ * primary performed: an error there is only logged and the dataset silently
+ * diverges, so fail-stop through the regular allocation instead. */
+static int bitopUseTryAlloc(client *c) {
+    return !mustObeyClient(c) &&
+           !(server.current_client && mustObeyClient(server.current_client));
 }
 
 /* BITOP whose result is a Roaring bitmap. Sources come from
@@ -1506,18 +1516,25 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
 
     /* Only borrowed Roaring sources can encode many missing logical chunks in
      * little resident memory. Bound that allocation amplification without
-     * rejecting dense sources solely because their byte length is large. */
+     * rejecting dense sources solely because their byte length is large. The
+     * budget follows proto-max-bulk-len, so like the offset limit it is not
+     * applied to the replication stream or AOF, which replay accepted
+     * commands. */
     if (op == BITOP_NOT && objects[0]->type == OBJ_BITMAP &&
-        !bitroarBitopNotWithinMissingChunkLimit(objects[0]))
+        !mustObeyClient(c))
     {
-        addReplyErrorFormat(c,
-            "BITOP NOT would materialize more than %llu missing Roaring chunks",
-            (unsigned long long)BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS);
-        return;
+        uint64_t max_missing = bitroarBitopNotMissingChunkLimit();
+        if (!bitroarBitopNotWithinMissingChunkLimit(objects[0], max_missing)) {
+            addReplyErrorFormat(c,
+                "BITOP NOT would materialize more than %llu missing Roaring chunks",
+                (unsigned long long)max_missing);
+            return;
+        }
     }
 
     if (maxlen)
-        res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen);
+        res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen,
+                                    bitopUseTryAlloc(c));
     if (maxlen && res_bitmap == NULL) {
         addReplyError(c, "BITOP failed allocating the result, out of memory");
         return;
@@ -1527,7 +1544,7 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
      * notifications on every native path. */
     if (maxlen) {
         if (propagate_forced)
-            bitroarPropagateBitopRoaring(c);
+            bitroarPropagateBitroarop(c);
         else
             bitroarPropagateCurrentCommand(c);
         setKey(c, c->db, targetkey, &res_bitmap, 0);
@@ -1595,6 +1612,13 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
         return;
     }
 
+    /* Expire a logically expired target before reading the sources. Storing
+     * the result would otherwise expire it last: a native result would queue
+     * its DEL after BITOP, so replicas and the AOF would delete the result,
+     * and writes that expired callbacks make to a source would be replayed
+     * before BITOP although BITOP did not see them. */
+    lookupKeyWriteWithFlags(c->db, targetkey, LOOKUP_NOTOUCH);
+
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
     src = zmalloc(sizeof(unsigned char*) * numkeys);
@@ -1640,7 +1664,7 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
     }
 
     /* Native sources determine the representation from replicated state.
-     * Config-selected results use BITOP_ROARING to preserve the native store
+     * Config-selected results use BITROAROP to preserve the native store
      * and its callbacks regardless of the replaying node's configuration. */
     int mode_forced = maxlen && !has_roaring_bitmap &&
                       (force_roaring || bitroarDefaultEnabled(c));
@@ -1667,8 +1691,11 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
          * proto-max-bulk-len when a source was created under a larger limit
          * (or loaded from RDB/replication). Allocate it with a try-variant so
          * an oversized BITOP fails with an OOM error instead of aborting,
-         * rather than being rejected outright. */
-        res = (unsigned char*) sdstrynewlen(NULL,maxlen);
+         * rather than being rejected outright (see bitopUseTryAlloc()). */
+        if (bitopUseTryAlloc(c))
+            res = (unsigned char*) sdstrynewlen(NULL,maxlen);
+        else
+            res = (unsigned char*) sdsnewlen(NULL,maxlen);
         if (res == NULL) {
             addReplyError(c, "BITOP failed allocating the result, out of memory");
             for (j = 0; j < numkeys; j++)
@@ -1979,7 +2006,7 @@ void bitopCommand(client *c) {
     bitopCommandGeneric(c, 0);
 }
 
-void bitopRoaringCommand(client *c) {
+void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 

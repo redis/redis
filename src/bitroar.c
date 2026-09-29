@@ -239,6 +239,25 @@ static int bitroarNormalizeAlignment(size_t *alignment) {
     return C_OK;
 }
 
+/* CRoaring only uses its aligned allocator for bitset container words (see
+ * BITROAR_BITSET_WORDS_ALIGNMENT). bitroarAlignedAllocBase() maps the pointer
+ * it returns back to the zmalloc allocation that holds it. */
+#if defined(USE_JEMALLOC)
+/* jemalloc honors the alignment itself, so the words get an exact-size
+ * allocation: 8 KiB of words stay in the 8 KiB size class instead of spilling
+ * into the next one, and the pointer is its own zmalloc allocation. */
+static void *bitroarAlignedMalloc(size_t alignment, size_t size) {
+    if (bitroarNormalizeAlignment(&alignment) != C_OK) return NULL;
+    /* Unlike malloc(), mallocx() leaves a zero size undefined. */
+    return zmalloc_with_flags(size ? size : 1, MALLOCX_ALIGN(alignment));
+}
+
+static void *bitroarAlignedAllocBase(void *ptr) {
+    return ptr;
+}
+#else
+/* Other allocators have no aligned zmalloc variant, so over-allocate and keep
+ * a pointer to the zmalloc base just below the aligned address. */
 static void *bitroarAlignedMalloc(size_t alignment, size_t size) {
     void *base;
     uintptr_t raw, aligned;
@@ -260,6 +279,7 @@ static void *bitroarAlignedAllocBase(void *ptr) {
     if (ptr == NULL) return NULL;
     return ((void **)ptr)[-1];
 }
+#endif
 
 static void bitroarAlignedFree(void *ptr) {
     if (ptr == NULL) return;
@@ -607,9 +627,11 @@ void bitroarDismiss(robj *o, size_t size_hint) {
 /* CRoaring requests this alignment for bitset container word buffers in the
  * portable build Redis uses (see align_size in CRoaring's
  * bitset_container_create(); the SIMD-gated 64-byte case is compiled out by
- * ROARING_DISABLE_X64). bitroarAlignedMalloc() over-allocates by
- * alignment - 1 + sizeof(void *), so re-deriving an aligned offset inside a
- * relocated block always fits. */
+ * ROARING_DISABLE_X64). With jemalloc the words are an exact-size block in the
+ * 8 KiB size class, whose regions are at least 4 KiB aligned, so relocating
+ * it within that class keeps the alignment. Otherwise bitroarAlignedMalloc()
+ * over-allocates by alignment - 1 + sizeof(void *), so re-deriving an aligned
+ * offset inside a relocated block always fits. */
 #define BITROAR_BITSET_WORDS_ALIGNMENT 32
 
 static void *bitroarActiveDefragAlloc(bitroar *bitmap, void *ptr) {
@@ -630,6 +652,22 @@ static bitroar *bitroarActiveDefragSelf(bitroar *bitmap) {
     return newbitmap;
 }
 
+#if defined(USE_JEMALLOC)
+/* With 4 or 8 KiB pages each 8 KiB slab holds a single region, so the defrag
+ * hint never moves these words; larger pages or forced defrag can. */
+static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset) {
+    uint64_t *words;
+
+    if (bitset->words == NULL) return;
+    words = bitroarActiveDefragAlloc(bitmap, bitset->words);
+    if (words == NULL) return;
+
+    /* activeDefragAlloc() drops the alignment flag but keeps the usable size,
+     * and with it the size class, so the words must still be aligned. */
+    serverAssert(((uintptr_t)words & (BITROAR_BITSET_WORDS_ALIGNMENT - 1)) == 0);
+    bitset->words = words;
+}
+#else
 static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset) {
     void *base, *newbase;
     uintptr_t aligned;
@@ -656,6 +694,7 @@ static void bitroarDefragBitsetWords(bitroar *bitmap, bitset_container_t *bitset
     ((void **)aligned)[-1] = newbase;
     bitset->words = (uint64_t *)aligned;
 }
+#endif
 
 /* Defrag one container; returns the moved container pointer, or NULL if the
  * container struct itself did not move (its payload may still have moved). */
@@ -1355,7 +1394,8 @@ static uint64_t bitroarRawOpWord(bitroarOp op,
 }
 
 static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
-                                                  size_t numkeys, size_t maxlen)
+                                                  size_t numkeys, size_t maxlen,
+                                                  int try_alloc)
 {
     bitroarRawOpSource *sources = zcalloc(sizeof(*sources) * numkeys);
     unsigned char **raw_sources = zmalloc(sizeof(*raw_sources) * numkeys);
@@ -1374,7 +1414,7 @@ static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
             /* The mixed-path cap, rather than proto-max-bulk-len, bounds this
              * internal temporary so lowering the protocol limit cannot change
              * whether an otherwise valid Roaring BITOP succeeds. */
-            sources[i].owned = bitroarMaterializeRaw(o, 0, 1);
+            sources[i].owned = bitroarMaterializeRaw(o, 0, try_alloc);
             if (sources[i].owned == NULL) {
                 for (size_t j = 0; j < i; j++) sdsfree(sources[j].owned);
                 zfree(raw_sources);
@@ -1391,7 +1431,8 @@ static roaring64_bitmap_t *bitroarApplyMixedRawOp(bitroarOp op, robj **objects,
         if (sources[i].len < minlen) minlen = sources[i].len;
     }
 
-    sds raw_result = sdstrynewlen(SDS_NOINIT, maxlen);
+    sds raw_result = try_alloc ? sdstrynewlen(SDS_NOINIT, maxlen) :
+                                 sdsnewlen(SDS_NOINIT, maxlen);
     if (raw_result == NULL) {
         for (size_t i = 0; i < numkeys; i++) sdsfree(sources[i].owned);
         zfree(raw_sources);
@@ -1508,19 +1549,32 @@ static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSources *sources, size_t
     return copy;
 }
 
+/* Return the missing-chunk allocation budget for BITOP NOT. Any value clients
+ * can create under the current proto-max-bulk-len must stay complementable,
+ * as its string form is, so the fixed floor is raised to the chunks such a
+ * value can span. BITFIELD checks only a field's first bit against the limit,
+ * so a 64-bit field can extend the logical length up to 8 bytes past it.
+ * Longer values (restored, loaded or created under a larger limit) remain
+ * bounded. */
+uint64_t bitroarBitopNotMissingChunkLimit(void) {
+    uint64_t reachable_len = (uint64_t)server.proto_max_bulk_len + 8;
+    uint64_t reachable_chunks = ((reachable_len - 1) >> 13) + 1;
+    return max(reachable_chunks, BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS);
+}
+
 /* Return whether complementing this borrowed Roaring source stays within the
- * missing-chunk allocation budget. Every nonempty ART leaf accounts for one
- * logical chunk that NOT does not have to create from nothing. Stop once
+ * given missing-chunk allocation budget. Every nonempty ART leaf accounts for
+ * one logical chunk that NOT does not have to create from nothing. Stop once
  * enough leaves have been seen, so rejecting a huge sparse value is
  * proportional to its resident containers rather than its logical length. */
-int bitroarBitopNotWithinMissingChunkLimit(const robj *o) {
+int bitroarBitopNotWithinMissingChunkLimit(const robj *o, uint64_t max_missing) {
     bitroar *bitmap = bitroarGet(o);
     if (bitmap->byte_len == 0) return 1;
 
     uint64_t logical_chunks = ((bitmap->byte_len - 1) >> 13) + 1;
-    if (logical_chunks <= BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS) return 1;
+    if (logical_chunks <= max_missing) return 1;
 
-    uint64_t required_present = logical_chunks - BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS;
+    uint64_t required_present = logical_chunks - max_missing;
     uint64_t present = 0;
     art_iterator_t it = art_init_iterator(&bitmap->roaring->art, true);
     while (it.value != NULL && present < required_present) {
@@ -1681,8 +1735,12 @@ static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSources *sources)
  * as a new Roaring bitmap object whose logical length is 'maxlen', matching the
  * string semantics where the destination length equals the longest source.
  * Sparse, large and Roaring-only operations stay entirely in Roaring space;
- * bounded dense mixed operands use the raw-word path above. */
-robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen) {
+ * bounded dense mixed operands use the raw-word path above. With 'try_alloc'
+ * set, failing to allocate that path's raw temporaries returns NULL instead
+ * of aborting; otherwise this never returns NULL. */
+robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen,
+                     int try_alloc)
+{
     bitroarOpSources sources;
     const roaring64_bitmap_t *source;
     roaring64_bitmap_t *result = NULL;
@@ -1695,7 +1753,7 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxl
     serverAssert(maxlen <= BITROAR_MAX_BYTES);
 
     if (bitroarUseMixedRawOp(objects, numkeys, maxlen)) {
-        result = bitroarApplyMixedRawOp(op, objects, numkeys, (size_t)maxlen);
+        result = bitroarApplyMixedRawOp(op, objects, numkeys, (size_t)maxlen, try_alloc);
         if (result == NULL) return NULL;
         optimize_result = 0;
         shrink_result = 0;

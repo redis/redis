@@ -36,7 +36,9 @@
  * Bound that allocation amplification rather than the source's byte length:
  * dense sources above 512 MiB can remain cheap to complement, while a sparse
  * source cannot make one command materialize an unbounded number of chunks.
- * Plain strings already occupy memory proportional to their logical length. */
+ * Plain strings already occupy memory proportional to their logical length.
+ * This is a floor: bitroarBitopNotMissingChunkLimit() raises it to cover every
+ * value clients can create under the current proto-max-bulk-len. */
 #define BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS (1ULL << 16)
 
 /* Bitwise operations supported by bitroarApplyOp() (the BITOP command). */
@@ -86,12 +88,14 @@ long long bitroarBitpos(const robj *o, int bit, uint64_t start, uint64_t end, in
 int bitroarCanRepresentBit(uint64_t bitoffset);
 int bitroarGetBit(const robj *o, uint64_t bitoffset);
 uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bits);
-int bitroarBitopNotWithinMissingChunkLimit(const robj *o);
+uint64_t bitroarBitopNotMissingChunkLimit(void);
+int bitroarBitopNotWithinMissingChunkLimit(const robj *o, uint64_t max_missing);
 
 /* Write operations */
 int bitroarSetBit(robj *o, uint64_t bitoffset, int on);
 int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t value);
-robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen);
+robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen,
+                     int try_alloc);
 
 /* Serialization. MaterializeForDebug flattens to the logical raw string bytes
  * for DEBUG BITMAP-RAW and rejects lengths above proto-max-bulk-len.
