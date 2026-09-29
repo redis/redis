@@ -74,12 +74,12 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
-    unsigned int distrib_counted: 8; /* INFO `Streams`: one bit per per-stream metric whose
-                                        row holds this stream's sample, valid only while
-                                        distrib_epoch is current. Shares the bit-field unit. */
+    uint8_t distrib_counted; /* INFO `Streams`: one bit per per-stream metric whose row
+                                holds this stream's sample, valid only while distrib_epoch
+                                is current. */
     uint32_t distrib_epoch;  /* INFO `Streams`: the generation distrib_counted refers to,
-                                or STREAM_DISTRIB_NEVER_COUNTED. Sits in the padding after
-                                the bit-field unit above. */
+                                or STREAM_DISTRIB_NEVER_COUNTED. Both stamp fields sit in
+                                the padding after the bit-field above. */
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
     rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
