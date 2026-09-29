@@ -3452,18 +3452,11 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             dictExpand(dstzset->dict,zuiLength(&src[setnum-1]));
         }
 
-        /* Sized to the worst case (no overlap at all across inputs) so Step 1
-         * can fill it unconditionally without knowing yet whether Step 2 will
-         * end up wanting it. Captures, for every genuinely NEW member, the
-         * node plus the hash dictFindLinkWithHash() below already needed to
-         * locate the dict bucket -- reused by the B+tree fast path in Step 2
-         * (dictGetHash()/dictSdsHash() and zbtree's own hashing both reduce
-         * to dictGenHashFunction() on the same bytes, so the value is valid
-         * either way). Freed unconditionally at the end of this branch. */
-        unsigned long maxpossible = 0;
-        for (i = 0; i < setnum; i++) maxpossible += zuiLength(&src[i]);
-        zsetUnionMember *members = zmalloc(sizeof(zsetUnionMember) * (maxpossible ? maxpossible : 1));
-        unsigned long nmembers = 0;
+        /* Only STORE needs the node/hash array for the B+tree bulk build.
+         * Grow it with distinct members: repeated or overlapping inputs must
+         * not allocate space proportional to the sum of their lengths. */
+        zsetUnionMember *members = NULL;
+        size_t nmembers = 0, memberscap = 0;
 
         /* Step 1: Iterate all sorted sets and aggregate scores.
          * For each element, either insert into skiplist (new) or update score (existing). */
@@ -3495,9 +3488,16 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                     znode = zslCreateNode(dstzset->zsl, zslRandomLevel(), score, tmp);
                     /* Add node pointer to dict using the bucket we already found */
                     dictSetKeyAtLink(dstzset->dict, znode, &bucket, 1);
-                    members[nmembers].node = znode;
-                    members[nmembers].hash = (uint32_t)hash;
-                    nmembers++;
+                    if (dstkey) {
+                        if (nmembers == memberscap) {
+                            serverAssert(memberscap <= SIZE_MAX / sizeof(*members) / 2);
+                            memberscap = memberscap ? memberscap * 2 : 16;
+                            members = zrealloc(members, memberscap * sizeof(*members));
+                        }
+                        members[nmembers].node = znode;
+                        members[nmembers].hash = (uint32_t)hash;
+                        nmembers++;
+                    }
                     sdsfree(tmp); /* zslCreateNode copied it, we can free our copy */
                 } else {
                     /* Existing element: aggregate score */
@@ -3531,7 +3531,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
          * variant reuses this exact accumulation code but replies straight
          * off dstzset->zsl's linked list a few lines below, so it must keep
          * getting a real, linked skiplist. */
-        unsigned long unioncount = nmembers; /* == dictSize(dstzset->dict) */
+        unsigned long unioncount = dictSize(dstzset->dict);
         if (dstkey && !(unioncount <= server.zset_max_listpack_entries &&
               maxelelen <= server.zset_max_listpack_value &&
               lpSafeToAdd(NULL, totelelen)))
