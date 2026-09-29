@@ -862,9 +862,13 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state instead of being re-derived from node-local
  * configuration. BITCONVERT carries in-place write transitions, while
- * BITOP_ROARING carries BITOP's selection of a native result. */
+ * BITOP_ROARING carries BITOP's selection of a native result.
+ *
+ * A replica ignores the flag for its local clients too: on a writable replica,
+ * even a no-op SETBIT would otherwise convert a key the master owns, and the
+ * master's later string writes to it would fail there with WRONGTYPE. */
 static int bitroarDefaultEnabled(client *c) {
-    return server.bitmap_default_roaring && !mustObeyClient(c);
+    return server.bitmap_default_roaring && !server.masterhost && !mustObeyClient(c);
 }
 
 /* Convert a string value of any encoding into a Roaring bitmap object holding
