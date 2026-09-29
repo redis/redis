@@ -138,8 +138,8 @@ void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
      * This avoids materializing sparse high-offset bitmaps and keeps the
      * digest independent from CRoaring's history-dependent container choices.
      * All the ranges are streamed into a single SHA1 that is mixed into the
-     * digest once, so the cost is a linear pass rather than one SHA1
-     * finalization per run. */
+     * digest once, so each run costs one 16-byte SHA1Update rather than two
+     * mixDigest() calls with a SHA1 finalization each. */
     SHA1_CTX ctx;
     unsigned char hash[20];
     uint64_t len = intrev64ifbe(bitroarLen(o));

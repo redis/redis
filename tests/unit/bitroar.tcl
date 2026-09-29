@@ -390,10 +390,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {DEBUG DIGEST for fragmented Roaring bitmaps is linear and history independent} {
+    test {DEBUG DIGEST for fragmented Roaring bitmaps is fast and history independent} {
         # Alternating bits give one set-bit run per two bits, so 1MB holds 4M
-        # runs. All of them must be hashed in one linear SHA1 pass rather than
-        # with a SHA1 finalization per run.
+        # runs. All of them must be streamed into one SHA1 rather than paying
+        # SHA1 finalizations for every run.
         set bytes 1048576
         set raw [string repeat [binary format H* 55] $bytes]
         r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
