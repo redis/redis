@@ -3634,7 +3634,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
         R 0 config set rdb-key-save-delay 0
 
-        # BITOP_ROARING carries the destination and sources through the import
+        # BITROAROP carries the destination and sources through the import
         # stream, preserving the source-selected representation despite the
         # destination's opposite local default.
         assert_equal bitmap [R 1 type $dest]
