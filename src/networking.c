@@ -2108,6 +2108,7 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
 
         /* Total shared reply bytes (logical size, shared with keyspace). */
         *shared_mem += c->reply_bytes_shared;
+
         /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
         *unshared_mem += c->reply_bytes_unshared;
     }
