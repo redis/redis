@@ -61,6 +61,27 @@ if {!$::valgrind && !$::tsan} {
         }
     }
 
+    # The crash watchdog (crash-handler-timeout) is only compiled on Linux.
+    if {[get_system_name] eq {linux}} {
+        start_server {tags {"modules external:skip"}} {
+            r module load $testmodule hang
+            r config set crash-handler-timeout 2
+
+            test {Crash watchdog terminates a stuck crash report} {
+                set pid [s process_id]
+                catch {r debug segfault}
+                wait_for_log_messages 0 {"*CRASH WATCHDOG*"} 0 100 100
+                wait_for_condition 50 100 {
+                    [process_is_alive $pid] == 0
+                } else {
+                    fail "process did not terminate after the crash watchdog fired"
+                }
+                # The watchdog killed the process mid-report, so the report never completed.
+                assert_equal 0 [count_log_message 0 "REDIS BUG REPORT END"]
+            }
+        }
+    }
+
     start_server {tags {"modules external:skip"}} {
         r module load $testmodule
 

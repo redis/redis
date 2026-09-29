@@ -92,6 +92,20 @@ if {!$::valgrind} {
         }
     }
 
+    # test that a healthy crash report completes within crash-handler-timeout,
+    # so the crash watchdog stays silent (the watchdog is Linux-only)
+    if {$threads_mngr_supported} {
+        set server_path [tmpdir server_watchdog_healthy.log]
+        start_server [list overrides [list dir $server_path crash-handler-timeout 2 crash-memcheck-enabled no]] {
+            test "Crash watchdog does not fire on a healthy crash report" {
+                catch {r debug segfault}
+                $check_cb "*crashed by signal*"
+                assert_equal [count_log_message 0 "CRASH WATCHDOG"] 0
+                assert_equal [count_log_message 0 "REDIS BUG REPORT END"] 1
+            }
+        }
+    }
+
     # test DEBUG SIGALRM being non-fatal
     set server_path [tmpdir server3.log]
     start_server [list overrides [list dir $server_path]] {
