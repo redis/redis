@@ -1858,17 +1858,13 @@ void arlastitemsCommand(client *c) {
     /* Collect items walking backward from insert_idx. If ARSEEK 0 was used,
      * insert_idx is AR_INSERT_IDX_NONE: in that case use the max set index as
      * the anchor so ARLASTITEMS still reports the tail of the current array.
+     * The same applies when insert_idx is past the tail, for instance when
+     * the last inserted element was deleted.
      *
      * Note that we use an array to collect the items: in the no-REV case
      * otherwise a double scan would be needed. */
     void **collected = zmalloc(effective_count * sizeof(void *));
-    uint64_t anchor_idx =
-        (ar->insert_idx == AR_INSERT_IDX_NONE) ? ar_len - 1 : ar->insert_idx;
-
-    /* The cursor can be past the tail, for instance when the last inserted
-     * element was deleted: start from the last existing element instead of
-     * walking positions that no longer exist. */
-    if (anchor_idx >= ar_len) anchor_idx = ar_len - 1;
+    uint64_t anchor_idx = (ar->insert_idx == AR_INSERT_IDX_NONE || ar->insert_idx >= ar_len) ? ar_len - 1 : ar->insert_idx;
     uint64_t current_idx = anchor_idx;
     uint64_t steps = 0;
 
