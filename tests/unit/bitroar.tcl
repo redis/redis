@@ -1724,6 +1724,34 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
                 $master config set proto-max-bulk-len $master_limit
                 $replica config set proto-max-bulk-len $replica_limit
             }
+
+            test {replicated BITOP NOT obeys the master's missing-chunk budget} {
+                # The BITOP NOT budget follows proto-max-bulk-len. A replica
+                # with a lower limit must still apply the master's accepted
+                # complement of an empty 1 GiB value.
+                set byte_len [expr {1024 * 1024 * 1024}]
+                set master_limit [lindex [$master config get proto-max-bulk-len] 1]
+                set replica_limit [lindex [$replica config get proto-max-bulk-len] 1]
+
+                $master config set proto-max-bulk-len $byte_len
+                $replica config set proto-max-bulk-len 536870912
+                $master config set bitmap-default-roaring yes
+                $master del bitop:repl:not:src bitop:repl:not:dest
+                $master setbit bitop:repl:not:src [expr {$byte_len * 8 - 1}] 0
+                assert_equal $byte_len \
+                    [$master bitop not bitop:repl:not:dest bitop:repl:not:src]
+                wait_for_ofs_sync $master $replica
+
+                assert_equal bitmap [$replica type bitop:repl:not:dest]
+                assert_equal [expr {$byte_len * 8}] \
+                    [$replica bitcount bitop:repl:not:dest]
+                assert_equal [$master debug digest] [$replica debug digest]
+
+                $master del bitop:repl:not:src bitop:repl:not:dest
+                wait_for_ofs_sync $master $replica
+                $master config set proto-max-bulk-len $master_limit
+                $replica config set proto-max-bulk-len $replica_limit
+            }
         }
 
         test {BITOP destinations replicate deterministically across modes} {
@@ -2828,12 +2856,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitop:not:roaring:huge:copy bitop:not:roaring:limit \
             bitop:not:roaring:limit:dest bitop:not:roaring:dense:dest
 
-        # An empty source at exactly 65,536 missing chunks remains valid.
+        # An empty source at exactly 65,536 missing chunks remains valid, even
+        # under a limit low enough that the fixed floor is the whole budget.
         set limit_last_bit [expr {$allocation_envelope * 8 - 1}]
         assert_equal 0 [r setbit bitop:not:roaring:limit $limit_last_bit 0]
+        r config set proto-max-bulk-len 1048576
         assert_equal $allocation_envelope \
             [r bitop not bitop:not:roaring:limit:dest \
                 bitop:not:roaring:limit]
+        r config set proto-max-bulk-len $byte_len
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest 0]
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest $limit_last_bit]
 
@@ -2884,6 +2915,77 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
             bitop:not:roaring:huge:copy
+        set _ {}
+    } {} {config:restore}
+
+    test {BITOP NOT complements Roaring values BITFIELD extends past proto-max-bulk-len} {
+        # BITFIELD checks only a field's first bit against proto-max-bulk-len,
+        # so a field at the last allowed offset extends the logical length up
+        # to 8 bytes further. At the default limit that spans one chunk more
+        # than the fixed 65,536-chunk floor. The string form of the same value
+        # complements fine, so the Roaring form must too.
+        set limit 536870912
+        set last_offset [expr {$limit * 8 - 1}]
+        r config set proto-max-bulk-len $limit
+        r config set bitmap-default-roaring yes
+        r del bitop:not:bitfield:src bitop:not:bitfield:dest
+
+        assert_equal 0 [r bitfield bitop:not:bitfield:src set u8 $last_offset 0]
+        assert_equal bitmap [r type bitop:not:bitfield:src]
+        assert_equal 0 [r bitcount bitop:not:bitfield:src]
+
+        # Same replies as the string form: its length and every bit set. The
+        # 512 MiB of set bits stays compact as full run containers.
+        assert_equal [expr {$limit + 1}] \
+            [r bitop not bitop:not:bitfield:dest bitop:not:bitfield:src]
+        assert_equal bitmap [r type bitop:not:bitfield:dest]
+        assert_equal [expr {($limit + 1) * 8}] \
+            [r bitcount bitop:not:bitfield:dest]
+        assert_lessthan [r memory usage bitop:not:bitfield:dest] \
+            [expr {16 * 1024 * 1024}]
+
+        # A 64-bit field reaches the full 8-byte overshoot. With a limit 7
+        # bytes short of a chunk boundary, only the full overshoot crosses
+        # into the next chunk.
+        set limit [expr {536870912 + 8192 - 7}]
+        set last_offset [expr {$limit * 8 - 1}]
+        r config set proto-max-bulk-len $limit
+        assert_equal 0 [r bitfield bitop:not:bitfield:src set i64 $last_offset 0]
+        assert_equal [expr {$limit + 8}] \
+            [r bitop not bitop:not:bitfield:dest bitop:not:bitfield:src]
+        assert_equal [expr {($limit + 8) * 8}] \
+            [r bitcount bitop:not:bitfield:dest]
+        assert_lessthan [r memory usage bitop:not:bitfield:dest] \
+            [expr {16 * 1024 * 1024}]
+
+        r del bitop:not:bitfield:src bitop:not:bitfield:dest
+        set _ {}
+    } {} {config:restore}
+
+    test {BITOP NOT missing-chunk budget follows proto-max-bulk-len} {
+        # A raised limit lets clients create longer values, which stay
+        # complementable like their string forms. Once the limit is lowered
+        # again, the same value is bounded by the budget of the new limit.
+        set limit [expr {1024 * 1024 * 1024}]
+        r config set proto-max-bulk-len $limit
+        r config set bitmap-default-roaring yes
+        r del bitop:not:raised:src bitop:not:raised:dest
+
+        assert_equal 0 [r setbit bitop:not:raised:src [expr {$limit * 8 - 1}] 0]
+        assert_equal $limit \
+            [r bitop not bitop:not:raised:dest bitop:not:raised:src]
+        assert_equal [expr {$limit * 8}] [r bitcount bitop:not:raised:dest]
+        assert_lessthan [r memory usage bitop:not:raised:dest] \
+            [expr {32 * 1024 * 1024}]
+
+        r config set proto-max-bulk-len 536870912
+        r set bitop:not:raised:dest keep
+        assert_error {ERR BITOP NOT would materialize more than 65537 missing Roaring chunks} {
+            r bitop not bitop:not:raised:dest bitop:not:raised:src
+        }
+        assert_equal keep [r get bitop:not:raised:dest]
+
+        r del bitop:not:raised:src bitop:not:raised:dest
         set _ {}
     } {} {config:restore}
 

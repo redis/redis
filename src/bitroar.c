@@ -1528,19 +1528,32 @@ static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSource *source) {
     return copy;
 }
 
+/* Return the missing-chunk allocation budget for BITOP NOT. Any value clients
+ * can create under the current proto-max-bulk-len must stay complementable,
+ * as its string form is, so the fixed floor is raised to the chunks such a
+ * value can span. BITFIELD checks only a field's first bit against the limit,
+ * so a 64-bit field can extend the logical length up to 8 bytes past it.
+ * Longer values (restored, loaded or created under a larger limit) remain
+ * bounded. */
+uint64_t bitroarBitopNotMissingChunkLimit(void) {
+    uint64_t reachable_len = (uint64_t)server.proto_max_bulk_len + 8;
+    uint64_t reachable_chunks = ((reachable_len - 1) >> 13) + 1;
+    return max(reachable_chunks, BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS);
+}
+
 /* Return whether complementing this borrowed Roaring source stays within the
- * missing-chunk allocation budget. Every nonempty ART leaf accounts for one
- * logical chunk that NOT does not have to create from nothing. Stop once
+ * given missing-chunk allocation budget. Every nonempty ART leaf accounts for
+ * one logical chunk that NOT does not have to create from nothing. Stop once
  * enough leaves have been seen, so rejecting a huge sparse value is
  * proportional to its resident containers rather than its logical length. */
-int bitroarBitopNotWithinMissingChunkLimit(const robj *o) {
+int bitroarBitopNotWithinMissingChunkLimit(const robj *o, uint64_t max_missing) {
     bitroar *bitmap = bitroarGet(o);
     if (bitmap->byte_len == 0) return 1;
 
     uint64_t logical_chunks = ((bitmap->byte_len - 1) >> 13) + 1;
-    if (logical_chunks <= BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS) return 1;
+    if (logical_chunks <= max_missing) return 1;
 
-    uint64_t required_present = logical_chunks - BITROAR_BITOP_NOT_MAX_MISSING_CHUNKS;
+    uint64_t required_present = logical_chunks - max_missing;
     uint64_t present = 0;
     art_iterator_t it = art_init_iterator(&bitmap->roaring->art, true);
     while (it.value != NULL && present < required_present) {
