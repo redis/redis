@@ -4338,6 +4338,7 @@ int parseExtendedExpireArgumentsOrReply(client *c, int *flags);
 kvobj *lookupKeyRead(redisDb *db, robj *key);
 kvobj *lookupKeyWrite(redisDb *db, robj *key);
 kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link);
+kvobj *lookupKeyWriteWithLinkFlags(redisDb *db, robj *key, int flags, dictEntryLink *link);
 kvobj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
 kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
 kvobj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
