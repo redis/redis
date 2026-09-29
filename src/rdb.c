@@ -1166,16 +1166,20 @@ static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
     return nwritten;
 }
 
+/* Load a RDB_TYPE_BITMAP value. As for the other types, a read failure returns
+ * NULL without reporting it, so the caller handles it as a short read (which
+ * is not fatal when loading from a socket). Only a value that fails validation
+ * is reported as corruption. */
 static robj *rdbLoadBitmapObject(rio *rdb) {
     uint64_t byte_len;
     size_t payload_len;
     sds payload;
     robj *o;
 
-    byte_len = rdbLoadLen(rdb, NULL);
-    if (byte_len == RDB_LENERR || byte_len > BITROAR_MAX_BYTES) return NULL;
+    if ((byte_len = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+    if (byte_len > BITROAR_MAX_BYTES) goto toolarge;
 #if SIZE_MAX < UINT64_MAX
-    if (byte_len > (uint64_t)SIZE_MAX) return NULL;
+    if (byte_len > (uint64_t)SIZE_MAX) goto toolarge;
 #endif
 
     payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
@@ -1186,7 +1190,16 @@ static robj *rdbLoadBitmapObject(rio *rdb) {
      * the logical length. */
     o = bitroarCreateFromPortable((unsigned char *)payload, payload_len, byte_len);
     sdsfree(payload);
+    if (o == NULL) {
+        rdbReportCorruptRDB("Invalid bitmap RDB payload");
+        return NULL;
+    }
     return o;
+
+toolarge:
+    rdbReportCorruptRDB("Bitmap byte length %llu too large",
+        (unsigned long long)byte_len);
+    return NULL;
 }
 
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
@@ -4548,11 +4561,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             arSet(ar, idx, v);
         }
     } else if (rdbtype == RDB_TYPE_BITMAP) {
-        o = rdbLoadBitmapObject(rdb);
-        if (o == NULL) {
-            rdbReportCorruptRDB("Invalid bitmap RDB payload");
-            return NULL;
-        }
+        if ((o = rdbLoadBitmapObject(rdb)) == NULL) return NULL;
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
