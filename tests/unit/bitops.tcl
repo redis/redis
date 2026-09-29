@@ -736,21 +736,21 @@ start_server {tags {"bitops"}} {
 
         # A sparse Roaring source one byte beyond UINT32_MAX remains usable
         # when proto-max-bulk-len permits it.
-        r del bitop:wide-source
+        r del bitop:wide-source{t}
         r config set bitmap-default-roaring yes
-        r setbit bitop:wide-source 0 1
-        r setbit bitop:wide-source $bitpos 1
-        r set bitop:wide:dest sentinel
-        assert_equal $bytes [r bitop or bitop:wide:dest bitop:wide-source]
+        r setbit bitop:wide-source{t} 0 1
+        r setbit bitop:wide-source{t} $bitpos 1
+        r set bitop:wide:dest{t} sentinel
+        assert_equal $bytes [r bitop or bitop:wide:dest{t} bitop:wide-source{t}]
         assert_equal string [r type mykey]
         assert_equal $bytes [r strlen mykey]
-        assert_equal bitmap [r type bitop:wide:dest]
-        assert_equal 1 [r getbit bitop:wide:dest 0]
-        assert_equal 1 [r getbit bitop:wide:dest $bitpos]
+        assert_equal bitmap [r type bitop:wide:dest{t}]
+        assert_equal 1 [r getbit bitop:wide:dest{t} 0]
+        assert_equal 1 [r getbit bitop:wide:dest{t} $bitpos]
 
         r config set bitmap-default-roaring $oldroaring
         r config set proto-max-bulk-len $oldval
-        r del bitop:wide:dest bitop:wide-source
+        r del bitop:wide:dest{t} bitop:wide-source{t}
         r del mykey
     } {1} {large-memory}
 
