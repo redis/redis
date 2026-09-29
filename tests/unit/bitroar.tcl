@@ -1476,22 +1476,36 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
     }
 
     test {AOF replay cannot create Roaring bitmaps the RDB loader rejects} {
-        # AOF clients skip the proto-max-bulk-len offset check. Byte 2^32+1 is
-        # valid on 64-bit builds, but 32-bit builds must reject it: their RDB
-        # loader refuses byte lengths above SIZE_MAX.
-        set bit [expr {(1 << 35) + 8}]
+        # AOF clients skip the proto-max-bulk-len offset check. 32-bit builds
+        # must still keep byte lengths within SIZE_MAX, which their RDB loader
+        # requires: byte 2^32-2 (length SIZE_MAX) is the last one a write may
+        # reach there, and byte 2^32-1 is rejected. 64-bit builds accept both.
+        set last_ok_bit [expr {(1 << 35) - 9}]   ;# last bit of byte 2^32-2
+        set last_ok_byte [expr {(1 << 35) - 16}] ;# first bit of byte 2^32-2
+        set first_bad_bit [expr {(1 << 35) - 8}] ;# first bit of byte 2^32-1
+        set keys {}
+        foreach key {setbit:ok setbit:bad bitfield:ok bitfield:bad} {
+            lappend keys bitmap:aof-wide:$key
+        }
         set aof [get_last_incr_aof_path r]
         set fp [open $aof a]
         fconfigure $fp -translation binary
         # the client uses db 9 by default, db 0 under --singledb
         puts -nonewline $fp [formatCommand select [expr {$::singledb ? 0 : 9}]]
-        puts -nonewline $fp [formatCommand bitconvert bitmap:aof-wide:setbit]
-        puts -nonewline $fp [formatCommand setbit bitmap:aof-wide:setbit $bit 1]
-        puts -nonewline $fp [formatCommand bitconvert bitmap:aof-wide:bitfield]
-        puts -nonewline $fp [formatCommand bitfield bitmap:aof-wide:bitfield SET u8 $bit 255]
+        foreach key $keys {
+            puts -nonewline $fp [formatCommand bitconvert $key]
+        }
+        puts -nonewline $fp [formatCommand setbit bitmap:aof-wide:setbit:ok $last_ok_bit 1]
+        puts -nonewline $fp [formatCommand setbit bitmap:aof-wide:setbit:bad $first_bad_bit 1]
+        puts -nonewline $fp [formatCommand bitfield bitmap:aof-wide:bitfield:ok \
+            SET u8 $last_ok_byte 255]
+        # An out-of-range field rejects the whole command, including the
+        # in-range field before it.
+        puts -nonewline $fp [formatCommand bitfield bitmap:aof-wide:bitfield:bad \
+            SET u8 0 255 SET u8 $first_bad_bit 255]
         close $fp
 
-        # 32-bit replay rejects both writes: log those errors, don't panic.
+        # 32-bit replay rejects the bad writes: log those errors, don't panic.
         set old_behavior [config_get_set propagation-error-behavior ignore]
         r debug loadaof
         r config set propagation-error-behavior $old_behavior
@@ -1499,12 +1513,19 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         set wide [expr {[s arch_bits] == 64}]
         foreach reload {0 1} {
             if {$reload} {r debug reload}
-            assert_equal bitmap [r type bitmap:aof-wide:setbit]
-            assert_equal bitmap [r type bitmap:aof-wide:bitfield]
-            assert_equal [expr {$wide ? 1 : 0}] [r bitcount bitmap:aof-wide:setbit]
-            assert_equal [expr {$wide ? 8 : 0}] [r bitcount bitmap:aof-wide:bitfield]
+            foreach key $keys {
+                assert_equal bitmap [r type $key]
+            }
+            assert_equal 1 [r bitcount bitmap:aof-wide:setbit:ok]
+            assert_equal $last_ok_bit [r bitpos bitmap:aof-wide:setbit:ok 1]
+            assert_equal 8 [r bitcount bitmap:aof-wide:bitfield:ok]
+            assert_equal [expr {$wide ? 1 : 0}] [r bitcount bitmap:aof-wide:setbit:bad]
+            assert_equal [expr {$wide ? 16 : 0}] [r bitcount bitmap:aof-wide:bitfield:bad]
         }
-        r del bitmap:aof-wide:setbit bitmap:aof-wide:bitfield
+        # BITOP reports the longest source length, SIZE_MAX on 32-bit.
+        assert_equal [expr {(1 << 32) - 1}] [r bitop or bitmap:aof-wide:out \
+            bitmap:aof-wide:setbit:ok bitmap:aof-wide:bitfield:ok]
+        r del {*}$keys bitmap:aof-wide:out
     }
 }
 
@@ -2841,7 +2862,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
     if {[s arch_bits] == 64} {
         test {Roaring BITOP keeps source lengths above 4 GiB} {
-            # Byte 2^32+1 gives a length that a 32-bit size_t would wrap to 2.
+            # 64-bit coverage for BITOP over a source longer than 4 GiB, whose
+            # length a 32-bit size_t would wrap to 2. 32-bit builds cannot hold
+            # such a source (see the AOF replay test above), so it never runs
+            # there; BITOP keeps source lengths as uint64_t for defense in depth.
             set bit [expr {(1 << 35) + 8}]
             set byte_len [expr {($bit >> 3) + 1}]
             set oldval [config_get_set proto-max-bulk-len $byte_len]
