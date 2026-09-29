@@ -177,8 +177,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             redis.register_function('call_bitconvert', function(KEYS, ARGV)
                 return redis.call('bitconvert', KEYS[1])
             end)
-            redis.register_function('call_bitop_roaring', function(KEYS, ARGV)
-                return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])
+            redis.register_function('call_bitroarop', function(KEYS, ARGV)
+                return redis.call('bitroarop', 'or', KEYS[1], KEYS[2])
             end)
         }
 
@@ -190,14 +190,14 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
                 r eval {return redis.call('bitconvert', KEYS[1])} 1 bitmap_gate
             }
             assert_error {*not allowed from script*} {
-                r eval {return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])} \
+                r eval {return redis.call('bitroarop', 'or', KEYS[1], KEYS[2])} \
                     2 bitmap_gate_out bitmap_gate
             }
             assert_error {*not allowed from script*} {
                 r fcall call_bitconvert 1 bitmap_gate
             }
             assert_error {*not allowed from script*} {
-                r fcall call_bitop_roaring 2 bitmap_gate_out bitmap_gate
+                r fcall call_bitroarop 2 bitmap_gate_out bitmap_gate
             }
         }
         r debug mark-internal-client unmark
@@ -205,8 +205,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # Ordinary clients cannot queue them either, which aborts the transaction.
         r multi
         assert_error {ERR unknown command 'bitconvert'*} {r bitconvert bitmap_gate}
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_gate_out bitmap_gate
+        assert_error {ERR unknown command 'bitroarop'*} {
+            r bitroarop or bitmap_gate_out bitmap_gate
         }
         assert_error {EXECABORT*} {r exec}
 
