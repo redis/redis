@@ -1838,9 +1838,10 @@ void arlastitemsCommand(client *c) {
         (uint64_t)count > ar_len ? ar_len : (uint64_t)count;
 
     /* We walk positions, not existing items, so on a sparse array the reply
-     * can be made of a huge amount of NULLs. Same hard limit as ARGETRANGE,
-     * see the comment there, applied only when the reply would be longer
-     * than the number of existing items, so dense arrays are not affected. */
+     * can be made of a huge amount of NULLs. We cap it with the same constant
+     * as ARGETRANGE, but only when the walked span exceeds the number of
+     * existing items: below that, a big reply is something the user paid for
+     * by actually storing that many elements. */
     if (effective_count > ar->count && effective_count > AR_MAX_REPLY_ITEMS) {
         addReplyErrorFormat(c, "count exceeds maximum of %u items", AR_MAX_REPLY_ITEMS);
         return;
