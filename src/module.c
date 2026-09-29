@@ -9315,8 +9315,8 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
  *  - REDISMODULE_NOTIFY_MODULE: Module types events
  *  - REDISMODULE_NOTIFY_BITMAP: Bitmap events (class 'b'). SETBIT, BITFIELD
- *                               and BITOP writes on native (Roaring) bitmap
- *                               keys are reported under this class, while the
+ *                               and BITOP writes on native bitmap keys are
+ *                               reported under this class, while the
  *                               same commands on string bitmaps keep using
  *                               REDISMODULE_NOTIFY_STRING, so a module that
  *                               wants all bitmap writes must subscribe to
