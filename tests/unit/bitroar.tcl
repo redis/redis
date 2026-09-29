@@ -549,6 +549,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
+    # Keyspace events are published for the client's selected db, which is
+    # db 0 under --singledb and db 9 otherwise.
+    set db [expr {$::singledb ? 0 : 9}]
+
     test {Roaring bitmap creation and conversion emit documented keyspace events in order} {
         r config set bitmap-default-roaring no
         r config set notify-keyspace-events {}
@@ -560,7 +564,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         r config set notify-keyspace-events Eocnb
         set rd [redis_deferring_client]
-        $rd psubscribe __keyevent@9__:*
+        $rd psubscribe __keyevent@${db}__:*
         $rd read
 
         # Direct roaring creation in bitmap-default-roaring yes: same event
@@ -568,26 +572,26 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # write event classified under the bitmap notification class.
         r config set bitmap-default-roaring yes
         r setbit bitmap:public:notify $sparse_public_offset 1
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:new bitmap:public:notify} [$rd read]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:public:notify} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:new bitmap:public:notify" [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:setbit bitmap:public:notify" [$rd read]
 
         # A no-op SETBIT still converts the representation. BITCONVERT emits
         # type_changed; SETBIT then observes the native value and has no
         # logical write event, exactly as it does during replay.
         assert_equal 1 [r setbit bitmap:public:notify:conv 0 1]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:conv} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:type_changed bitmap:public:notify:conv" [$rd read]
 
         # BITFIELD follows the same replay-equivalent contract when its write
         # leaves the logical bits unchanged.
         assert_equal {1} [r bitfield bitmap:public:notify:bitfield SET u8 0 1]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:bitfield} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:type_changed bitmap:public:notify:bitfield" [$rd read]
 
         # The representation transition still occurs when every write is
         # rejected by OVERFLOW FAIL, but the rejected command emits no event.
         assert_equal {{}} [r bitfield bitmap:public:notify:bitfield:fail \
             OVERFLOW FAIL INCRBY u8 0 1]
         assert_equal bitmap [r type bitmap:public:notify:bitfield:fail]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:type_changed bitmap:public:notify:bitfield:fail} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:type_changed bitmap:public:notify:bitfield:fail" [$rd read]
         r config set bitmap-default-roaring no
 
         $rd close
@@ -609,7 +613,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
 
         set rd [redis_deferring_client]
-        $rd psubscribe __keyevent@9__:*
+        $rd psubscribe __keyevent@${db}__:*
         $rd read
 
         r config set notify-keyspace-events E\$
@@ -621,20 +625,20 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # The string SETBIT is a sentinel: if either roaring write above were
         # misclassified as a string event, this read would see it first.
         r setbit bitmap:notify:string-dollar 0 1
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:string-dollar} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:setbit bitmap:notify:string-dollar" [$rd read]
 
         r config set notify-keyspace-events Eb
         r setbit bitmap:notify:string-bitmap 0 1
         r config set bitmap-default-roaring yes
         r setbit bitmap:notify:roaring-bitmap 0 1
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:roaring-bitmap} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:setbit bitmap:notify:roaring-bitmap" [$rd read]
         assert_equal 1 [r bitop or bitmap:notify:bitop-bitmap \
             bitmap:notify:bitop-source]
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:set bitmap:notify:bitop-bitmap} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:set bitmap:notify:bitop-bitmap" [$rd read]
 
         r config set notify-keyspace-events EA
         r setbit bitmap:notify:roaring-all 0 1
-        assert_equal {pmessage __keyevent@9__:* __keyevent@9__:setbit bitmap:notify:roaring-all} [$rd read]
+        assert_equal "pmessage __keyevent@${db}__:* __keyevent@${db}__:setbit bitmap:notify:roaring-all" [$rd read]
 
         $rd close
         r config set bitmap-default-roaring no
