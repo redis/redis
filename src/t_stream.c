@@ -89,6 +89,8 @@ stream *streamNew(void) {
     s->idmp_producers = NULL; /* Created on demand to save memory when not used. */
     s->iids_added = 0;
     s->iids_duplicates = 0;
+    s->distrib_epoch = STREAM_DISTRIB_NEVER_COUNTED; /* not yet in the INFO `Streams` histograms */
+    s->distrib_counted = 0;
     return s;
 }
 
@@ -151,14 +153,27 @@ unsigned long streamLength(const robj *subject) {
  * stream.h) plus one case in each of the per-metric switches below.
  *
  * Collection is lazy: it only runs while the `stream-stats` directive is
- * enabled. The gauges are accurate when the directive is set at startup or
- * after an RDB reload (the load path counts every stream and its groups).
- * Toggling at runtime is best-effort: on disable the histograms are zeroed
- * (applyStreamStats) so they never carry stale samples, and on a later enable
- * they fill in lazily as streams are written -- which may temporarily
- * under-count (a pre-existing group isn't counted until its next change) but
- * never over-counts, and a reload makes it exact again. We avoid a full
- * keyspace rescan on enable, which would block the server with many keys.
+ * enabled. The gauges are exact when the directive is set at startup or after
+ * an RDB reload (the load path registers every stream and its groups). Enabling
+ * at runtime deliberately does not rescan the keyspace -- that would block the
+ * server for roughly half a second per million stream keys -- so streams and
+ * groups that already exist are not counted until a command next touches
+ * them: the gauges under-count until then, never over-count, and converge as
+ * traffic reaches each object (a reload makes them exact at once).
+ *
+ * What makes that safe is a per-object stamp: a generation epoch plus one bit
+ * per metric of the object's unit. Each db's rows carry an epoch
+ * (kvstoreMetadata.stream_stats_epoch) that streamStatsResetMeta() bumps
+ * whenever it zeroes them; a stream's or group's sample is in a row iff its
+ * distrib_epoch equals its db's epoch and that row's bit is set in
+ * distrib_counted. Bins are anonymous counts, so without the stamp any
+ * decrement on behalf of a sample that was never entered -- an object's first
+ * update after enable, its removal, a slot-trim delta -- would take some other
+ * object's tally, and since a bin is only touched when a value changes bin, the
+ * loss would never heal. With it, a row that does not yet hold the object's
+ * sample receives it at the NEW value on the first update of that metric, no
+ * untrusted old value is ever decremented, and removing a sample that was
+ * never entered removes nothing. See streamUpdateStat().
  * -------------------------------------------------------------------------- */
 
 /* Return the histogram row for 'metric' inside 'meta', or NULL if 'meta' is
@@ -189,12 +204,21 @@ const char *streamDistribMetricName(streamDistribMetric metric) {
     return "stream_distrib_unknown"; /* unreachable: every metric has a case above */
 }
 
-/* Zero every stream histogram in 'meta', starting a new generation of samples.
+/* Zero every stream histogram in 'meta' and start a new generation of samples.
  * Every path that resets the gauges (stream-stats disable, an emptied kvstore, a
- * rebuild) goes through this instead of clearing named fields, so a newly added
- * metric cannot be left behind holding stale samples. */
+ * rebuild) goes through this, so a newly added metric cannot be left behind
+ * holding stale samples -- and so the generation bump lives in exactly one
+ * place. Advancing the epoch is what makes a reset safe: every stream and group
+ * stamped with the old generation is now "not counted", so its next change
+ * registers it afresh instead of decrementing a bin it is no longer in, and an
+ * async slot-trim delta captured against the old generation is discarded on
+ * completion (asmBackgroundTrimDoneCB). The epoch only ever moves forward,
+ * never back to 0, so a delta that captured epoch 0 cannot match again after a
+ * sync flush; the never-counted sentinel is skipped so no live epoch can equal
+ * it. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
     if (!meta) return;
+    if (++meta->stream_stats_epoch == STREAM_DISTRIB_NEVER_COUNTED) meta->stream_stats_epoch = 0;
     for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
         int64_t *row = streamDistribHistRowMeta(meta, (streamDistribMetric) m);
         if (row) memset(row, 0, sizeof(int64_t) * MAX_KEYSIZES_BINS);
@@ -237,54 +261,96 @@ int streamDistribBin(int64_t value) {
     return bin;
 }
 
-/* Move one sample for 'metric' from the bin for 'old_val' to the bin for
- * 'new_val'; either may be -1, meaning "no sample" (a sample entering or
- * leaving the histogram). The metric selects the per-db histogram, so this one
- * function serves every metric -- no per-metric variant.
- *
- * The decrement is clamped at 0 rather than asserted >= 0: because collection is
- * gated on stream-stats, enabling it at runtime means a pre-existing sample's
- * first change decrements a bin it was never counted into. Clamping keeps that
- * safe; the histograms are zeroed on disable so they never hold stale samples,
- * and a reload rebuilds them exactly (see the section comment above). Gated on
- * stream-stats. */
-static void streamUpdateStat(redisDb *db, streamDistribMetric metric, int64_t old_val, int64_t new_val) {
-    if (!server.stream_stats) return;
-
-    int old_bin = streamDistribBin(old_val);
-    int new_bin = streamDistribBin(new_val);
-    if (old_bin == new_bin) return;            /* sample didn't move */
-
-    int64_t *hist = streamDistribHistRow(db, metric);
-    if (!hist) return;
-    if (old_bin >= 0 && hist[old_bin] > 0) hist[old_bin]--; /* clamp; see comment */
-    if (new_bin >= 0) hist[new_bin]++;
+/* The generation a db's INFO `Streams` rows currently hold. An object's
+ * distrib_counted bits are valid only while its distrib_epoch equals this. */
+static inline uint32_t streamDistribEpoch(redisDb *db) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    return meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
 }
 
-/* Add (adding=1) or remove (adding=0) every histogram sample stream 's' holds:
- * its own sample for each per-stream metric -- taken whether or not it has any
- * consumer group -- and one per group for each per-group metric. Used where a
- * whole stream appears or vanishes at once: the key lifecycle hooks
- * (streamKeyLoaded / streamKeyRemoved, i.e. creation, RDB/replica load,
- * RESTORE, COPY, MOVE, DEBUG RELOAD and key deletion) and streamStatsRebuild().
- * Walks the groups once and samples every per-group metric per group, so a new
- * metric costs no extra traversal. Each loop covers exactly its unit's range of
- * the enum (see STREAM_DISTRIB_FIRST_CGROUP_METRIC), so every metric is sampled
- * once per object and neither sampler is asked about the other's metrics. */
+/* The metric ranges of the two units, and the width of the per-metric bits. */
 static_assert(STREAM_DISTRIB_STREAMS_CGROUPS < STREAM_DISTRIB_FIRST_CGROUP_METRIC,
               "per-stream metrics must precede STREAM_DISTRIB_FIRST_CGROUP_METRIC");
 static_assert(STREAM_DISTRIB_CGROUPS_PEL >= STREAM_DISTRIB_FIRST_CGROUP_METRIC &&
               STREAM_DISTRIB_CGROUPS_CONSUMERS >= STREAM_DISTRIB_FIRST_CGROUP_METRIC,
               "per-group metrics must not precede STREAM_DISTRIB_FIRST_CGROUP_METRIC");
+static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric");
+
+/* Move one object's sample for 'metric' from the bin for 'old_val' to the bin
+ * for 'new_val' (either may be -1: no sample on that side). 'epoch' and
+ * 'counted' are the object's stamp -- the generation its bits refer to, and one
+ * bit per metric of its unit saying whether that row currently holds its
+ * sample. Returns the updated bits; the typed wrappers below store them back.
+ *
+ * If the row holds the sample this is an exact move. If it does not -- the
+ * object predates a runtime enable or the last reset, or the metric had no
+ * sample -- then old_val is not ours to remove: only the NEW value is entered
+ * and the row's bit set. That is what makes lazy registration safe with no
+ * ordering requirement on callers: a command that updates two metrics enters
+ * each row from its own post-mutation value and never decrements a bin the
+ * object was not in. A single per-object flag would not do -- two metrics of
+ * one object can be entered at different times, which is why the bits are per
+ * metric. Gated on stream-stats. */
+static uint8_t streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t counted,
+                                    streamDistribMetric metric, int64_t old_val, int64_t new_val)
+{
+    if (!server.stream_stats) return counted;
+    uint32_t live = streamDistribEpoch(db);
+    if (*epoch != live) {                      /* new generation: no row holds this object */
+        *epoch = live;
+        counted = 0;
+    }
+
+    uint8_t bit = 1u << metric;
+    int old_bin = streamDistribBin(old_val);
+    int new_bin = streamDistribBin(new_val);
+    if ((counted & bit) && old_bin == new_bin) return counted; /* sample didn't move */
+
+    int64_t *hist = streamDistribHistRow(db, metric);
+    if (!hist) return counted;
+    if (counted & bit) {                       /* this row holds the sample: exact move */
+        debugServerAssert(old_bin >= 0 && hist[old_bin] > 0);
+        if (old_bin >= 0 && hist[old_bin] > 0) hist[old_bin]--;
+        if (new_bin < 0) return counted & ~bit; /* the sample leaves this row */
+        hist[new_bin]++;
+        return counted;
+    }
+    /* Not in this row: old_val is not ours. Enter the current value, if any. */
+    if (new_bin < 0) return counted;
+    hist[new_bin]++;
+    return counted | bit;
+}
+
+static void streamUpdateCGStat(redisDb *db, streamCG *cg, streamDistribMetric metric,
+                               int64_t old_val, int64_t new_val)
+{
+    cg->distrib_counted = streamUpdateStat(db, &cg->distrib_epoch, cg->distrib_counted,
+                                               metric, old_val, new_val);
+}
+
+static void streamUpdateStreamStat(redisDb *db, stream *s, streamDistribMetric metric,
+                                   int64_t old_val, int64_t new_val)
+{
+    s->distrib_counted = streamUpdateStat(db, &s->distrib_epoch, s->distrib_counted,
+                                              metric, old_val, new_val);
+}
+
+/* Add (adding=1) or remove (adding=0) every histogram sample stream 's' holds:
+ * its own sample for each per-stream metric -- whether or not it has any
+ * consumer group -- and one per group for each per-group metric. Used where a
+ * whole stream appears or vanishes at once: the key lifecycle hooks
+ * (streamKeyLoaded / streamKeyRemoved, i.e. creation, RDB/replica load,
+ * RESTORE, COPY, MOVE, DEBUG RELOAD and key deletion) and streamStatsRebuild().
+ * Samples already entered (adding) or never entered (removing) are left alone
+ * by the update core, so this is safe on a stream that predates a runtime
+ * enable. One traversal of the groups however many metrics there are. */
 static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
     if (!server.stream_stats) return;
     for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
         streamDistribMetric metric = (streamDistribMetric) m;
         int64_t sample = streamStreamSample(s, metric);
-        if (adding)
-            streamUpdateStat(db, metric, -1, sample);
-        else
-            streamUpdateStat(db, metric, sample, -1);
+        if (adding) streamUpdateStreamStat(db, s, metric, -1, sample);
+        else        streamUpdateStreamStat(db, s, metric, sample, -1);
     }
     if (!s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;
@@ -295,10 +361,8 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
         for (int m = STREAM_DISTRIB_FIRST_CGROUP_METRIC; m < STREAM_DISTRIB_MAX; m++) {
             streamDistribMetric metric = (streamDistribMetric) m;
             int64_t sample = streamCGroupSample(s, cg, metric);
-            if (adding)
-                streamUpdateStat(db, metric, -1, sample);
-            else
-                streamUpdateStat(db, metric, sample, -1);
+            if (adding) streamUpdateCGStat(db, cg, metric, -1, sample);
+            else        streamUpdateCGStat(db, cg, metric, sample, -1);
         }
     }
     raxStop(&ri);
@@ -2022,13 +2086,23 @@ int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
  * other, or with the live walker above, about which samples exist. It only
  * reads the stream, so the BIO thread may call it on a detached kvstore; it
  * deliberately does not consult server.stream_stats -- that is the caller's
- * decision. As in streamUpdateStreamSamples(), each loop covers exactly its
- * unit's range of the enum. */
-void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS]) {
-    for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
-        streamDistribMetric metric = (streamDistribMetric) m;
-        int bin = streamDistribBin(streamStreamSample(s, metric));
-        if (bin >= 0) tally[m][bin]++;
+ * decision. Each loop covers exactly its unit's range of the enum.
+ *
+ * 'only_epoch' selects which samples count. STREAM_DISTRIB_NEVER_COUNTED means
+ * every object's every metric -- the debug assertion's ground truth, which must
+ * see a sample the live path forgot to enter. Otherwise only the rows whose bit
+ * is set on an object stamped with it: the slot-trim delta passes the epoch it
+ * captured at schedule, so a sample never entered, or entered in a generation
+ * since zeroed, has nothing live to subtract and is skipped. */
+void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS], uint32_t only_epoch) {
+    int all = (only_epoch == STREAM_DISTRIB_NEVER_COUNTED);
+    if (all || s->distrib_epoch == only_epoch) {
+        for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
+            if (!all && !(s->distrib_counted & (1u << m))) continue;
+            streamDistribMetric metric = (streamDistribMetric) m;
+            int bin = streamDistribBin(streamStreamSample(s, metric));
+            if (bin >= 0) tally[m][bin]++;
+        }
     }
     if (!s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;
@@ -2036,7 +2110,9 @@ void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_K
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
         streamCG *cg = ri.data;
+        if (!all && cg->distrib_epoch != only_epoch) continue;
         for (int m = STREAM_DISTRIB_FIRST_CGROUP_METRIC; m < STREAM_DISTRIB_MAX; m++) {
+            if (!all && !(cg->distrib_counted & (1u << m))) continue;
             streamDistribMetric metric = (streamDistribMetric) m;
             int bin = streamDistribBin(streamCGroupSample(s, cg, metric));
             if (bin >= 0) tally[m][bin]++;
@@ -3319,7 +3395,7 @@ void xreadCommand(client *c) {
                 consumer = streamCreateConsumer(s,groups[i],consumername->ptr,
                                                 c->argv[streams_arg+i],
                                                 c->db->id,SCC_DEFAULT);
-                streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers,
+                streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers,
                                  (int64_t) raxSize(groups[i]->consumers));
                 if (server.memory_tracking_enabled)
                     updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -3391,7 +3467,7 @@ void xreadCommand(client *c) {
             int64_t old_pel = groups ? (int64_t) raxSize(groups[i]->pel) : -1;
             total_entries += streamReplyWithRange(c,s,&args);
             if (groups)
-                streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(groups[i]->pel));
+                streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(groups[i]->pel));
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
             if (propCount) {
@@ -3559,7 +3635,7 @@ int streamCleanupEntryCGroupRefs(redisDb *db, stream *s, streamID *id) {
         raxRemove(group->pel, buf, sizeof(buf), NULL);
         if (nack->consumer)
             raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
-        streamUpdateStat(db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel));
+        streamUpdateCGStat(db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel));
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
         streamFreeNACK(s, nack);
@@ -3700,6 +3776,8 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
+    cg->distrib_epoch = STREAM_DISTRIB_NEVER_COUNTED; /* not yet in the INFO `Streams` histograms */
+    cg->distrib_counted = 0;
     raxInsertAt(s->cgroups,(unsigned char*)name,namelen,cg,NULL,&link);
     return cg;
 }
@@ -3945,10 +4023,10 @@ NULL
         if (cg) {
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
-            streamUpdateStat(c->db, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups,
+            streamUpdateStreamStat(c->db, s, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups,
                              streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS)); /* the stream gained a group */
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, -1, 0); /* new group, empty PEL */
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1, 0); /* new group, no consumers */
+            streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL, -1, 0);       /* new group: empty PEL */
+            streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1, 0); /* new group: no consumers */
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
@@ -3979,12 +4057,12 @@ NULL
         if (cg) {
             if (server.memory_tracking_enabled)
                 old_alloc = kvobjAllocSize(o);
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, (int64_t) raxSize(cg->pel), -1); /* group gone */
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, (int64_t) raxSize(cg->consumers), -1); /* group gone */
+            streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL, (int64_t) raxSize(cg->pel), -1);             /* group gone */
+            streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, (int64_t) raxSize(cg->consumers), -1); /* group gone */
             int64_t old_cgroups = streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS);
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
-            streamUpdateStat(c->db, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups,
+            streamUpdateStreamStat(c->db, s, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups,
                              streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS)); /* the stream lost a group */
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -4004,7 +4082,7 @@ NULL
         int64_t old_consumers = (int64_t) raxSize(cg->consumers);
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
-        streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* no-op if it already existed */
+        streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* no-op if it already existed */
         keyModified(c,c->db,c->argv[2],o,0);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -4021,8 +4099,8 @@ NULL
             int64_t old_pel = raxSize(cg->pel);
             int64_t old_consumers = (int64_t) raxSize(cg->consumers);
             streamDelConsumer(s,cg,consumer);
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(cg->pel)); /* consumer's PEL entries removed */
-            streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* consumer removed */
+            streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(cg->pel)); /* consumer's PEL entries removed */
+            streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* consumer removed */
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             server.dirty++;
@@ -4255,7 +4333,7 @@ void xackCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
-    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
+    streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
     addReplyLongLong(c,acknowledged);
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4411,7 +4489,7 @@ void xnackCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
-    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE may add PEL entries */
+    streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE may add PEL entries */
 
     addReplyLongLong(c,nacked);
 
@@ -4518,7 +4596,7 @@ void xackdelCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
-    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
+    streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
 
     /* Update the stream's first ID. */
     if (deleted) {
@@ -5020,8 +5098,8 @@ void xclaimCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
-    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE adds / deleted entries removed */
-    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
+    streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE adds / deleted entries removed */
+    streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
     if (propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
@@ -5307,8 +5385,8 @@ void xautoclaimCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
-    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* deleted entries removed from PEL */
-    streamUpdateStat(c->db, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
+    streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* deleted entries removed from PEL */
+    streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
 
     streamID endid;
     if (raxEOF(&ri)) {
@@ -6568,7 +6646,6 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
  * generation as well, so an async slot-trim delta scheduled against the old
  * contents is discarded rather than applied to the fresh counts. */
 void streamStatsRebuild(void) {
-    server.stream_stats_epoch++;
     for (int j = 0; j < server.dbnum; j++) {
         redisDb *db = &server.db[j];
         kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
@@ -6638,7 +6715,7 @@ void dbgAssertStreamStats(redisDb *db) {
         if (!kv || kv->type != OBJ_STREAM) continue;
         /* Every stream contributes, groups or not: a group-less stream still
          * holds its per-stream samples. */
-        streamTallyStreamSamples(kv->ptr, scan);
+        streamTallyStreamSamples(kv->ptr, scan, STREAM_DISTRIB_NEVER_COUNTED);
     }
     kvstoreIteratorReset(&kvs_it);
 

@@ -105,8 +105,9 @@ typedef struct asmBgTrimState {
                                     scheduled; the BIO thread reads this instead of the
                                     live config, and the delta is applied only if it was
                                     set. */
-    uint64_t stream_stats_epoch; /* stream_stats_epoch captured at schedule; the delta is
-                                    applied only if it still matches (no reset since). */
+    uint32_t stream_stats_epoch; /* db0's stream_stats_epoch captured at schedule; the delta
+                                    is applied only if it still matches (no reset since), and
+                                    only objects stamped with it are tallied. */
 } asmBgTrimState;
 
 typedef struct asmTrimJob {
@@ -3114,9 +3115,12 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
          * owns these streams, and streamTallyStreamSamples() only reads them.
          * It bins through the same code as the live path and the debug
          * assertion, so this delta cannot disagree with either about which
-         * samples exist. */
+         * samples exist -- and it tallies only samples registered under the
+         * epoch captured at schedule (the object's stamp and per-row bits), so
+         * a sample never entered, or entered in a generation since zeroed,
+         * subtracts nothing. */
         if (trim_job->bg->track_stream_stats && kv->type == OBJ_STREAM) {
-            streamTallyStreamSamples(kv->ptr, trim_job->bg->delta_distrib);
+            streamTallyStreamSamples(kv->ptr, trim_job->bg->delta_distrib, trim_job->bg->stream_stats_epoch);
         }
 
         int64_t *keysizes_row = keysizesHistRow(trim_job->bg->delta_keysizes_hist, kv->type);
@@ -3163,7 +3167,7 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
          * a different generation of groups counted after a re-enable.
          * Clamp at 0 defensively. */
         if (job->bg->track_stream_stats &&
-            job->bg->stream_stats_epoch == server.stream_stats_epoch)
+            job->bg->stream_stats_epoch == meta->stream_stats_epoch)
         {
             for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
                 int64_t *row = streamDistribHistRowMeta(meta, (streamDistribMetric) m);
@@ -3193,17 +3197,19 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
  * detached data, followed by a completion request that notifies the main thread
  * to apply the deltas, reply to the client if needed. */
 static void asmTriggerBackgroundTrim(asmTrimJob *job) {
+    redisDb *db = &server.db[0]; /* cluster mode has a single db */
     /* Allocate histogram tracking state only for background trim. */
     serverAssert(job && job->bg == NULL);
     job->bg = zcalloc(sizeof(*job->bg));
     /* Save the target kvstore for completion validation. */
-    job->bg->target_kvstore = server.db[0].keys;
+    job->bg->target_kvstore = db->keys;
     /* Capture the INFO `Streams` histogram state now, on the main thread: the
      * BIO thread reads track_stream_stats instead of the live config, and the
      * completion applies the delta only if both are still valid (see
      * asmBackgroundTrimDoneCB). */
     job->bg->track_stream_stats = server.stream_stats;
-    job->bg->stream_stats_epoch = server.stream_stats_epoch;
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    job->bg->stream_stats_epoch = meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
 
     /* Increment background trim counter. */
     asmManager->bg_trim_running++;
@@ -3243,19 +3249,19 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     /* Move slot dictionaries from main DB to temp kvstores (O(1) per slot) */
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
-            total_keys += kvstoreDictSize(server.db[0].keys, slot);
-            kvstoreMoveDict(server.db[0].keys, keys, slot);
-            kvstoreMoveDict(server.db[0].expires, expires, slot);
-            estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
-            kvstoreMoveDict(server.db[0].blessed_keys, blessed_keys, slot);
+            total_keys += kvstoreDictSize(db->keys, slot);
+            kvstoreMoveDict(db->keys, keys, slot);
+            kvstoreMoveDict(db->expires, expires, slot);
+            estoreMoveEbuckets(db->subexpires, subexpires, slot);
+            kvstoreMoveDict(db->blessed_keys, blessed_keys, slot);
         }
     }
     /* Move stream IDMP keys from main DB to temp dict (O(IDMP entries x number of slot ranges)) */
-    streamMoveIdmpKeys(server.db[0].stream_idmp_keys, stream_idmp_keys, slots);
+    streamMoveIdmpKeys(db->stream_idmp_keys, stream_idmp_keys, slots);
 
     /* kvstoreMoveDict bypassed blessUntrack, so fix up db 0's cached overhead
      * byte-count for the entries that just left its index. */
-    blessedIndexReconcileMoved(&server.db[0], blessed_keys);
+    blessedIndexReconcileMoved(db, blessed_keys);
 
     /* The temp blessed-keys index is freed on the BIO thread alongside the other
      * detached slot structures; the callback computes the keysize deltas. */
