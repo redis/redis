@@ -862,7 +862,7 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
  * master or the AOF: the representation decision must stay a pure function
  * of replicated logical state instead of being re-derived from node-local
  * configuration. BITCONVERT carries in-place write transitions, while
- * BITOP_ROARING carries BITOP's selection of a native result.
+ * BITROAROP carries BITOP's selection of a native result.
  *
  * A replica ignores the flag for its local clients too: on a writable replica,
  * even a no-op SETBIT would otherwise convert a key the master owns, and the
@@ -1485,10 +1485,10 @@ unsigned long bitopCommandAVX512(unsigned char **keys, unsigned char *res,
  * a transient string and emit different type-change and set notifications.
  * Queue the operation before callbacks, with alsoPropagate() applying the
  * caller's AOF/replication target restrictions. */
-static void bitroarPropagateBitopRoaring(client *c) {
+static void bitroarPropagateBitroarop(client *c) {
     robj **argv = zmalloc(sizeof(*argv) * c->argc);
     memcpy(argv, c->argv, sizeof(*argv) * c->argc);
-    argv[0] = createStringObject("BITOP_ROARING", 13);
+    argv[0] = createStringObject("BITROAROP", 9);
 
     alsoPropagate(c->db->id, argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL);
     preventCommandPropagation(c);
@@ -1527,7 +1527,7 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
      * notifications on every native path. */
     if (maxlen) {
         if (propagate_forced)
-            bitroarPropagateBitopRoaring(c);
+            bitroarPropagateBitroarop(c);
         else
             bitroarPropagateCurrentCommand(c);
         setKey(c, c->db, targetkey, &res_bitmap, 0);
@@ -1640,7 +1640,7 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
     }
 
     /* Native sources determine the representation from replicated state.
-     * Config-selected results use BITOP_ROARING to preserve the native store
+     * Config-selected results use BITROAROP to preserve the native store
      * and its callbacks regardless of the replaying node's configuration. */
     int mode_forced = maxlen && !has_roaring_bitmap &&
                       (force_roaring || bitroarDefaultEnabled(c));
@@ -1979,7 +1979,7 @@ void bitopCommand(client *c) {
     bitopCommandGeneric(c, 0);
 }
 
-void bitopRoaringCommand(client *c) {
+void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
