@@ -341,6 +341,15 @@ robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t b
         return NULL;
     }
 
+    /* Serialized containers keep the types they had when saved, and SETBIT or
+     * BITFIELD writes never compact them. Optimize here so RDB load, full sync
+     * and RESTORE turn dense runs kept as BITSET containers into RUN
+     * containers, then trim the spare slots that inserting the containers one
+     * at a time left in the container index. Both walks visit each container
+     * once, the same order of work as the deserialization above. */
+    roaring64_bitmap_run_optimize(roaring);
+    roaring64_bitmap_shrink_to_fit(roaring);
+
     bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = byte_len;
     bitmap->roaring = roaring;
