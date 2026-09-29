@@ -2045,10 +2045,7 @@ void unlinkClient(client *c) {
  * contain any referenced robj. */
 void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
-        /* The client is leaving the list, so it won't be revisited by
-         * clientsCronRunClient() again. Drop the stale cached value: it is
-         * still read by getClientOutputBufferMemoryUsage() and reported as
-         * omem-unshared, neither of which looks at list membership. */
+        /* The client is leaving the list, so it won't be revisited by clientsCronRunClient() again. */
         c->reply_bytes_unshared = 0;
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }
@@ -2081,17 +2078,14 @@ static size_t computeUnsharedReplyBytes(char *buf, size_t bufpos) {
 
 /* Update the client's unshared reply memory (solely owned). */
 void updateClientUnsharedReplyBytes(client *c) {
-    unsigned long long new_unshared = 0;
+    c->reply_bytes_unshared = 0;
 
     /* No shared memory means no unshared memory either. */
-    if (c->reply_bytes_shared == 0) {
-        c->reply_bytes_unshared = new_unshared;
-        return;
-    }
+    if (c->reply_bytes_shared == 0) return;
 
     /* Scan the static output buffer. */
     if (c->buf_encoded)
-        new_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
+        c->reply_bytes_unshared += computeUnsharedReplyBytes(c->buf, c->bufpos);
 
     /* Scan each block in the reply list. */
     listIter reply_li;
@@ -2101,10 +2095,8 @@ void updateClientUnsharedReplyBytes(client *c) {
         clientReplyBlock *block = listNodeValue(reply_ln);
         if (block == NULL) continue; /* deferred-length placeholder */
         if (block->buf_encoded)
-            new_unshared += computeUnsharedReplyBytes(block->buf, block->used);
+            c->reply_bytes_unshared += computeUnsharedReplyBytes(block->buf, block->used);
     }
-
-    c->reply_bytes_unshared = new_unshared;
 }
 
 /* Compute shared reply memory: total shared reply bytes and the unshared subset where the key
@@ -2115,7 +2107,10 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
     listRewind(server.clients_with_pending_ref_reply, &li);
     while ((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
+
+        /* Total shared reply bytes (logical size, shared with keyspace). */
         *shared_mem += c->reply_bytes_shared;
+        /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
         *unshared_mem += c->reply_bytes_unshared;
     }
 }
