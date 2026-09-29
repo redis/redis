@@ -3449,14 +3449,25 @@ static int applyClientMaxMemoryUsage(const char **err) {
 static int applyStreamStats(const char **err) {
     UNUSED(err);
     if (!server.stream_stats) {
-        /* Zeroing the live histograms starts a new generation of each db's
-         * rows (streamStatsResetMeta() bumps the db's epoch): every stream and
+        /* Nothing to do: the hooks stop updating and INFO stops printing the
+         * rows. They keep their last content on purpose. A failed multi-setting
+         * CONFIG SET re-applies `yes` during its rollback before anything else
+         * can run, and then finds them exact and keeps them. Whether they are
+         * still exact when tracking is next enabled is what
+         * server.stream_stats_stale tracks. */
+        return 1;
+    }
+    if (server.stream_stats_stale) {
+        /* Streams changed while tracking was off, so the rows fell behind.
+         * Zeroing them starts a new generation of each db's rows
+         * (streamStatsResetMeta() bumps the db's epoch): every stream and
          * group is uncounted until next touched, and an async slot-trim delta
          * scheduled against the old contents is discarded on completion. */
-        for (int j = 0; j < server.dbnum; j++) {
+        for (int j = 0; j < server.dbnum; j++)
             streamStatsResetMeta(kvstoreGetMetadata(server.db[j].keys));
-        }
-    } else if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
+        server.stream_stats_stale = 0;
+    }
+    if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
         /* Enabling at runtime deliberately does not rescan, so the gauges are
          * legitimately behind until each group is next touched -- which
          * DEBUG STREAM-STATS-ASSERT would report as corruption on this very
