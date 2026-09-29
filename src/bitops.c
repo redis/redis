@@ -1632,13 +1632,28 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
      * before BITOP although BITOP did not see them. */
     lookupKeyWriteWithFlags(c->db, targetkey, LOOKUP_NOTOUCH);
 
-    /* Lookup keys, and store pointers to the string objects into an array. */
+    /* Look up every source first for the lookup side effects (lazy expiration,
+     * key-miss notifications, access statistics). Module callbacks fired by
+     * those lookups may delete, replace or modify sources that were already
+     * looked up, and their writes are propagated before BITOP itself. Collect
+     * the source values only afterwards, without further effects, so BITOP
+     * never keeps a value a callback freed and computes from the sources as
+     * the callbacks left them, which replicas and the AOF normally see too,
+     * since they replay BITOP after the callbacks' writes. A source of the wrong
+     * type fails the command right away, before any later source is looked up,
+     * so a failing BITOP has no further lookup side effects. */
     numkeys = c->argc - 3;
+    for (j = 0; j < numkeys; j++) {
+        kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
+        if (checkStringOrBitmapType(c, kv)) return;
+    }
+
+    /* Store pointers to the string objects into an array. */
     src = zmalloc(sizeof(unsigned char*) * numkeys);
     len = zmalloc(sizeof(size_t) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
-        kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
+        kvobj *kv = lookupKeyReadWithFlags(c->db, c->argv[j + 3], LOOKUP_NOEFFECTS);
         /* Handle non-existing keys as empty strings. */
         if (kv == NULL) {
             objects[j] = NULL;
