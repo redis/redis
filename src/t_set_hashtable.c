@@ -17,9 +17,8 @@
 #include "server.h"
 #include "t_set_encoding.h"
 
-static int htRawAdd(robj *set, char *str, size_t len, int64_t llval, int llval_valid, int str_is_sds, int after_convert, int *target_enc) {
-    UNUSED(llval);
-    UNUSED(llval_valid);
+static int htRawAdd(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc) {
+    UNUSED(llvalp);
     UNUSED(after_convert);
     *target_enc = OBJ_ENCODING_HT; /* Hash table is the final encoding: no further conversion is possible. */
     /* Avoid duping the string if it is an sds string. */

@@ -27,16 +27,20 @@
  * if the value cannot be added as-is (a configured limit would be
  * exceeded, or the encoding structurally can't represent the value) - in
  * which case it does not mutate the object at all.
- * Note that after_convert is set to 1 when rawAdd is called after a conversion,
- * so it is guaranteed that the item to add doesn't already exist in the set,
- * and therefore there is no need to search for it. Also, for listpack, the
- * listpack may be shrink after adding the new item if too much space was
+ * Note that after_convert is set to 1 when rawAdd is called after set encoding
+ * conversion, so it is guaranteed that the item to add doesn't already exist in
+ * the set, and therefore there is no need to search for it. Also, for listpack,
+ * the listpack may be shrink after adding the new item if too much space was
  * allocated for it during conversion.
- * target_enc is set to the encoding that the caller should convert to if rawAdd returns -1.
+ * target_enc is set to the encoding that the caller should convert the set to
+ * if rawAdd returns -1.
+ * llvalp is NULL if the value was received as string (this does not necessarily
+ * mean that the value can't be converted to an integer), and points to the integer
+ * value if the value was received as an integer.
  */
 typedef struct {
     /* return 0 if the member already exists, 1 if added, -1 if it cannot be added (due to encoding mismatch or size limits)*/
-    int (*rawAdd)(robj *set, char *str, size_t len, int64_t llval, int llval_valid, int str_is_sds, int after_convert, int *target_enc);
+    int (*rawAdd)(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc);
     /* return 0 if the member doesn't exist, 1 if removed */
     int (*rawRemove)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
     /* return 1 if the member exists, 0 if not */
