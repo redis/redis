@@ -1274,10 +1274,20 @@ sds bitroarSerializePortable(const robj *o) {
     return payload;
 }
 
-typedef struct bitroarOpSource {
-    const roaring64_bitmap_t *roaring;
-    roaring64_bitmap_t *owned;
-} bitroarOpSource;
+/* Roaring-space BITOP reads its sources one at a time. Native bitmaps are
+ * borrowed from the keyspace, while a string source is converted into a
+ * temporary Roaring bitmap only when it is read, and at most one such
+ * conversion is alive at a time. Converting every string up front would make
+ * the command's peak memory grow with the number of source arguments rather
+ * than with the size of the data, since the same key may be listed any number
+ * of times and maxmemory is only checked before the command runs. Reading the
+ * same string object again (a repeated key) reuses the live conversion. */
+typedef struct bitroarOpSources {
+    robj **objects;
+    size_t numkeys;
+    const robj *converted_obj;      /* String source 'converted' was built from. */
+    roaring64_bitmap_t *converted;  /* Live string conversion, or NULL. */
+} bitroarOpSources;
 
 typedef struct bitroarRawOpSource {
     const unsigned char *raw;
@@ -1489,54 +1499,63 @@ static int bitroarHasRunContainers(const roaring64_bitmap_t *roaring) {
     return 0;
 }
 
-static int bitroarOpSourcesBorrowedWithoutRuns(bitroarOpSource *sources, size_t numkeys) {
-    for (size_t i = 0; i < numkeys; i++) {
-        if (sources[i].owned != NULL) return 0;
-        if (sources[i].roaring != NULL &&
-            bitroarHasRunContainers(sources[i].roaring))
-            return 0;
+static int bitroarOpSourcesBorrowedWithoutRuns(const bitroarOpSources *sources) {
+    for (size_t i = 0; i < sources->numkeys; i++) {
+        robj *o = sources->objects[i];
+        if (o == NULL) continue;
+        if (o->type != OBJ_BITMAP) return 0;
+        if (bitroarHasRunContainers(bitroarGet(o)->roaring)) return 0;
     }
     return 1;
 }
 
-static void bitroarReleaseOpSources(bitroarOpSource *sources, size_t numkeys) {
-    for (size_t i = 0; i < numkeys; i++) {
-        if (sources[i].owned != NULL)
-            roaring64_bitmap_free(sources[i].owned);
-    }
+static void bitroarInitOpSources(bitroarOpSources *sources, robj **objects, size_t numkeys) {
+    sources->objects = objects;
+    sources->numkeys = numkeys;
+    sources->converted_obj = NULL;
+    sources->converted = NULL;
 }
 
-static void bitroarPrepareOpSources(robj **objects, bitroarOpSource *sources, size_t numkeys) {
-    for (size_t i = 0; i < numkeys; i++) {
-        robj *o = objects[i];
-
-        sources[i].roaring = NULL;
-        sources[i].owned = NULL;
-        if (o == NULL) continue;
-
-        if (o->type == OBJ_BITMAP) {
-            sources[i].roaring = bitroarGet(o)->roaring;
-        } else {
-            serverAssert(o->type == OBJ_STRING);
-            sources[i].owned = bitroarFromRaw((unsigned char *)o->ptr, sdslen(o->ptr), 0);
-            sources[i].roaring = sources[i].owned;
-        }
-    }
+static void bitroarReleaseOpSources(bitroarOpSources *sources) {
+    if (sources->converted != NULL)
+        roaring64_bitmap_free(sources->converted);
+    sources->converted_obj = NULL;
+    sources->converted = NULL;
 }
 
-static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSource *source) {
-    /* Roarings built from string sources are owned temporaries that no later
-     * operand reads again (every caller seeds the accumulator from this
-     * source exactly once), so steal them instead of deep-copying. */
-    if (source->owned != NULL) {
-        roaring64_bitmap_t *stolen = source->owned;
-        source->owned = NULL;
-        source->roaring = NULL;
-        return stolen;
-    }
+/* Return source 'i' for reading, or NULL for a missing key. Reading a string
+ * source other than the one currently converted frees that conversion before
+ * building the new one, so the result is only valid until the next call. */
+static const roaring64_bitmap_t *bitroarGetOpSource(bitroarOpSources *sources, size_t i) {
+    robj *o = sources->objects[i];
 
-    roaring64_bitmap_t *copy = source->roaring != NULL ?
-        roaring64_bitmap_copy(source->roaring) : roaring64_bitmap_create();
+    if (o == NULL) return NULL;
+    if (o->type == OBJ_BITMAP) return bitroarGet(o)->roaring;
+
+    serverAssert(o->type == OBJ_STRING);
+    if (sources->converted_obj != o) {
+        bitroarReleaseOpSources(sources);
+        sources->converted = bitroarFromRaw((unsigned char *)o->ptr, sdslen(o->ptr), 0);
+        sources->converted_obj = o;
+    }
+    return sources->converted;
+}
+
+/* Return a new Roaring bitmap holding source 'i', used to seed an accumulator.
+ * String sources are converted directly into it rather than into a temporary
+ * that would then have to be copied. */
+static roaring64_bitmap_t *bitroarCopyOpSource(bitroarOpSources *sources, size_t i) {
+    robj *o = sources->objects[i];
+    roaring64_bitmap_t *copy;
+
+    if (o == NULL) {
+        copy = roaring64_bitmap_create();
+    } else if (o->type == OBJ_BITMAP) {
+        copy = roaring64_bitmap_copy(bitroarGet(o)->roaring);
+    } else {
+        serverAssert(o->type == OBJ_STRING);
+        copy = bitroarFromRaw((unsigned char *)o->ptr, sdslen(o->ptr), 0);
+    }
     serverAssert(copy != NULL);
     return copy;
 }
@@ -1649,17 +1668,17 @@ static void bitroarAppendNotChunk(roaring64_bitmap_t *result,
     }
 }
 
-static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
+static roaring64_bitmap_t *bitroarNotOpSource(const roaring64_bitmap_t *source,
                                               uint64_t bit_len)
 {
     roaring64_bitmap_t *result = roaring64_bitmap_create();
     serverAssert(result != NULL);
     if (bit_len == 0) return result;
 
-    serverAssert(source->roaring != NULL);
+    serverAssert(source != NULL);
     uint64_t last_high48 = (bit_len - 1) >> 16;
     uint64_t next_high48 = 0;
-    art_iterator_t it = art_init_iterator((art_t *)&source->roaring->art, true);
+    art_iterator_t it = art_init_iterator((art_t *)&source->art, true);
 
     while (it.value != NULL) {
         uint64_t source_high48 = bitroarArtKeyToHigh48(it.key);
@@ -1667,12 +1686,12 @@ static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
         serverAssert(source_high48 >= next_high48);
 
         while (next_high48 < source_high48) {
-            bitroarAppendNotChunk(result, source->roaring, NULL, next_high48,
+            bitroarAppendNotChunk(result, source, NULL, next_high48,
                 bitroarNotChunkEnd(next_high48, last_high48, bit_len));
             next_high48++;
         }
 
-        bitroarAppendNotChunk(result, source->roaring,
+        bitroarAppendNotChunk(result, source,
             (const roaring64_leaf_t *)it.value, source_high48,
             bitroarNotChunkEnd(source_high48, last_high48, bit_len));
         next_high48 = source_high48 + 1;
@@ -1680,42 +1699,42 @@ static roaring64_bitmap_t *bitroarNotOpSource(const bitroarOpSource *source,
     }
 
     while (next_high48 <= last_high48) {
-        bitroarAppendNotChunk(result, source->roaring, NULL, next_high48,
+        bitroarAppendNotChunk(result, source, NULL, next_high48,
             bitroarNotChunkEnd(next_high48, last_high48, bit_len));
         next_high48++;
     }
     return result;
 }
 
-static roaring64_bitmap_t *bitroarUnionOpSources(bitroarOpSource *sources,
-                                                 size_t start, size_t numkeys)
-{
+static roaring64_bitmap_t *bitroarUnionOpSources(bitroarOpSources *sources, size_t start) {
     roaring64_bitmap_t *result = roaring64_bitmap_create();
     serverAssert(result != NULL);
 
-    for (size_t i = start; i < numkeys; i++) {
-        if (sources[i].roaring != NULL)
-            roaring64_bitmap_or_inplace(result, sources[i].roaring);
+    for (size_t i = start; i < sources->numkeys; i++) {
+        const roaring64_bitmap_t *source = bitroarGetOpSource(sources, i);
+        if (source != NULL)
+            roaring64_bitmap_or_inplace(result, source);
     }
     return result;
 }
 
-static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources, size_t numkeys) {
-    roaring64_bitmap_t *result = bitroarCopyOpSource(&sources[0]);
+static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSources *sources) {
+    roaring64_bitmap_t *result = bitroarCopyOpSource(sources, 0);
     roaring64_bitmap_t *multiple = roaring64_bitmap_create();
     serverAssert(multiple != NULL);
 
-    for (size_t i = 1; i < numkeys; i++) {
+    for (size_t i = 1; i < sources->numkeys; i++) {
+        const roaring64_bitmap_t *source = bitroarGetOpSource(sources, i);
         roaring64_bitmap_t *both;
 
-        if (sources[i].roaring == NULL) continue;
+        if (source == NULL) continue;
 
-        both = roaring64_bitmap_and(result, sources[i].roaring);
+        both = roaring64_bitmap_and(result, source);
         serverAssert(both != NULL);
         roaring64_bitmap_or_inplace(multiple, both);
         roaring64_bitmap_free(both);
 
-        roaring64_bitmap_xor_inplace(result, sources[i].roaring);
+        roaring64_bitmap_xor_inplace(result, source);
         roaring64_bitmap_andnot_inplace(result, multiple);
     }
 
@@ -1733,7 +1752,8 @@ static roaring64_bitmap_t *bitroarExactlyOneOpSources(bitroarOpSource *sources, 
 robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen,
                      int try_alloc)
 {
-    bitroarOpSource *sources;
+    bitroarOpSources sources;
+    const roaring64_bitmap_t *source;
     roaring64_bitmap_t *result = NULL;
     int optimize_result = 1;
     int shrink_result = 1;
@@ -1748,21 +1768,20 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxl
         if (result == NULL) return NULL;
         optimize_result = 0;
         shrink_result = 0;
-        sources = NULL;
         goto bitop_result;
     }
 
-    sources = zcalloc(sizeof(*sources) * numkeys);
-    bitroarPrepareOpSources(objects, sources, numkeys);
+    bitroarInitOpSources(&sources, objects, numkeys);
 
     switch (op) {
     case BITOP_AND: {
         int skip_optimize = maxlen <= BITROAR_BITOP_FAST_RESULT_MAX_BYTES &&
-            bitroarOpSourcesBorrowedWithoutRuns(sources, numkeys);
-        result = bitroarCopyOpSource(&sources[0]);
+            bitroarOpSourcesBorrowedWithoutRuns(&sources);
+        result = bitroarCopyOpSource(&sources, 0);
         for (size_t i = 1; i < numkeys; i++) {
-            if (sources[i].roaring != NULL)
-                roaring64_bitmap_and_inplace(result, sources[i].roaring);
+            source = bitroarGetOpSource(&sources, i);
+            if (source != NULL)
+                roaring64_bitmap_and_inplace(result, source);
             else
                 roaring64_bitmap_clear(result);
         }
@@ -1773,57 +1792,63 @@ robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxl
         break;
     }
     case BITOP_OR:
-        result = bitroarCopyOpSource(&sources[0]);
+        result = bitroarCopyOpSource(&sources, 0);
         for (size_t i = 1; i < numkeys; i++) {
-            if (sources[i].roaring != NULL)
-                roaring64_bitmap_or_inplace(result, sources[i].roaring);
+            source = bitroarGetOpSource(&sources, i);
+            if (source != NULL)
+                roaring64_bitmap_or_inplace(result, source);
         }
         break;
     case BITOP_XOR:
-        result = bitroarCopyOpSource(&sources[0]);
+        result = bitroarCopyOpSource(&sources, 0);
         for (size_t i = 1; i < numkeys; i++) {
-            if (sources[i].roaring != NULL)
-                roaring64_bitmap_xor_inplace(result, sources[i].roaring);
+            source = bitroarGetOpSource(&sources, i);
+            if (source != NULL)
+                roaring64_bitmap_xor_inplace(result, source);
         }
         break;
     case BITOP_NOT:
-        if (sources[0].owned != NULL) {
+        if (objects[0] != NULL && objects[0]->type == OBJ_STRING) {
             /* String sources already occupy memory proportional to maxlen.
-             * Keep their converted temporary as the result so dense strings
-             * do not require a second full set of containers. */
-            result = bitroarCopyOpSource(&sources[0]);
+             * Convert them straight into the result and complement it in
+             * place so dense strings do not require a second full set of
+             * containers. */
+            result = bitroarCopyOpSource(&sources, 0);
             roaring64_bitmap_flip_inplace(result, 0, maxlen * 8);
         } else {
-            result = bitroarNotOpSource(&sources[0], maxlen * 8);
+            result = bitroarNotOpSource(bitroarGetOpSource(&sources, 0), maxlen * 8);
         }
         break;
     case BITOP_DIFF:
-        result = bitroarCopyOpSource(&sources[0]);
+        result = bitroarCopyOpSource(&sources, 0);
         for (size_t i = 1; i < numkeys; i++) {
-            if (sources[i].roaring != NULL)
-                roaring64_bitmap_andnot_inplace(result, sources[i].roaring);
+            source = bitroarGetOpSource(&sources, i);
+            if (source != NULL)
+                roaring64_bitmap_andnot_inplace(result, source);
         }
         break;
     case BITOP_DIFF1:
-        result = bitroarUnionOpSources(sources, 1, numkeys);
-        if (sources[0].roaring != NULL)
-            roaring64_bitmap_andnot_inplace(result, sources[0].roaring);
+        result = bitroarUnionOpSources(&sources, 1);
+        source = bitroarGetOpSource(&sources, 0);
+        if (source != NULL)
+            roaring64_bitmap_andnot_inplace(result, source);
         break;
     case BITOP_ANDOR:
-        result = bitroarUnionOpSources(sources, 1, numkeys);
-        if (sources[0].roaring != NULL)
-            roaring64_bitmap_and_inplace(result, sources[0].roaring);
+        result = bitroarUnionOpSources(&sources, 1);
+        source = bitroarGetOpSource(&sources, 0);
+        if (source != NULL)
+            roaring64_bitmap_and_inplace(result, source);
         else
             roaring64_bitmap_clear(result);
         break;
     case BITOP_ONE:
-        result = bitroarExactlyOneOpSources(sources, numkeys);
+        result = bitroarExactlyOneOpSources(&sources);
         break;
     default:
         serverPanic("Unknown Roaring bitmap BITOP");
     }
 
-    bitroarReleaseOpSources(sources, numkeys);
+    bitroarReleaseOpSources(&sources);
 
 bitop_result:
     /* Large or potentially run-friendly results still pay the conversion and
@@ -1831,7 +1856,6 @@ bitop_result:
      * skip both full-result CRoaring walks above. */
     if (optimize_result) roaring64_bitmap_run_optimize(result);
     if (shrink_result) roaring64_bitmap_shrink_to_fit(result);
-    zfree(sources);
 
     bitroar *bitmap = zmalloc(sizeof(*bitmap));
     bitmap->byte_len = maxlen;
