@@ -1583,7 +1583,7 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
     unsigned long j, numkeys;
     robj **objects;      /* Array of source objects. */
     unsigned char **src; /* Array of source strings pointers. */
-    size_t *len;         /* Array of length of src strings. */
+    uint64_t *len;       /* Array of source lengths in bytes. */
     uint64_t maxlen = 0; /* Max len among the input keys. */
     size_t minlen = 0;   /* Min len among the input keys. */
     unsigned char *res = NULL; /* Resulting string. */
@@ -1650,7 +1650,7 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
 
     /* Store pointers to the string objects into an array. */
     src = zmalloc(sizeof(unsigned char*) * numkeys);
-    len = zmalloc(sizeof(size_t) * numkeys);
+    len = zmalloc(sizeof(uint64_t) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
         kvobj *kv = lookupKeyReadWithFlags(c->db, c->argv[j + 3], LOOKUP_NOEFFECTS);
@@ -1688,7 +1688,9 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
             len[j] = sdslen(objects[j]->ptr);
         }
         if (len[j] > maxlen) maxlen = len[j];
-        if (j == 0 || len[j] < minlen) minlen = len[j];
+        /* minlen only feeds the string path below, which runs when every
+         * source is a string, so it never truncates a length there. */
+        if (j == 0 || len[j] < minlen) minlen = (size_t)len[j];
     }
 
     /* Native sources determine the representation from replicated state.
