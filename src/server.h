@@ -1333,8 +1333,8 @@ typedef struct multiState {
 typedef struct blockingState {
     /* Generic fields. */
     blocking_type btype;                  /* Type of blocking op if CLIENT_BLOCKED. */
-    mstime_t timeout;           /* Blocking operation timeout. If UNIX current time
-                                 * is > timeout then the operation timed out. */
+    uint64_t timeout;           /* Monotonic deadline in milliseconds, or 0 for no timeout.
+                                 * The operation times out when monotonic time > timeout. */
     int unblock_on_nokey;       /* Whether to unblock the client when at least one of the keys
                                    is deleted or does not exist anymore */
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM or any other Keys related blocking */
@@ -4514,16 +4514,17 @@ void queueClientForReprocessing(client *c);
 int blockedClientMayTimeout(client *c);
 void replyToBlockedClientTimedOut(client *c);
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit);
+int getMonotonicTimeoutFromObjectOrReply(client *c, robj *object, uint64_t *timeout, int unit);
 void disconnectAllBlockedClients(void);
 void handleClientsBlockedOnKeys(void);
 void signalKeyAsReady(redisDb *db, robj *key, int type);
 void signalKeyAsReadyNonEmptyList(redisDb *db, robj *key);
-void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, int unblock_on_nokey);
+void blockForKeys(client *c, int btype, robj **keys, int numkeys, uint64_t timeout, int unblock_on_nokey);
 void blockClientShutdown(client *c);
 void blockPostponeClient(client *c);
 void blockPostponeClientWithType(client *c, int btype);
-void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas);
-void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas);
+void blockForReplication(client *c, uint64_t timeout, long long offset, long numreplicas);
+void blockForAofFsync(client *c, uint64_t timeout, long long offset, int numlocal, long numreplicas);
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
