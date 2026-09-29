@@ -142,30 +142,30 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {Internal BITOP_ROARING replay stores native results independently of config} {
-        assert_equal {{}} [r command info bitop_roaring]
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_bitop_out bitmap_bitop_source
+    test {Internal BITROAROP replay stores native results independently of config} {
+        assert_equal {{}} [r command info bitroarop]
+        assert_error {ERR unknown command 'bitroarop'*} {
+            r bitroarop or bitmap_bitop_out bitmap_bitop_source
         }
 
         r debug mark-internal-client
         assert_equal {bitmap_bitop_out bitmap_bitop_source} \
-            [r command getkeys bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
+            [r command getkeys bitroarop or bitmap_bitop_out bitmap_bitop_source]
         assert_equal {{bitmap_bitop_out {OW update}} {bitmap_bitop_source {RO access}}} \
-            [r command getkeysandflags bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
+            [r command getkeysandflags bitroarop or bitmap_bitop_out bitmap_bitop_source]
 
         r config set bitmap-default-roaring no
         r set bitmap_bitop_source [binary format H* f0]
-        assert_equal 1 [r bitop_roaring or bitmap_bitop_out bitmap_bitop_source]
+        assert_equal 1 [r bitroarop or bitmap_bitop_out bitmap_bitop_source]
         assert_equal bitmap [r type bitmap_bitop_out]
         assert_equal [binary format H* f0] [r debug bitmap-raw bitmap_bitop_out]
         # Destination/source aliasing must read the original string first.
-        assert_equal 1 [r bitop_roaring not bitmap_bitop_source bitmap_bitop_source]
+        assert_equal 1 [r bitroarop not bitmap_bitop_source bitmap_bitop_source]
         assert_equal [binary format H* 0f] [r debug bitmap-raw bitmap_bitop_source]
 
         r debug mark-internal-client unmark
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_bitop_out bitmap_bitop_source
+        assert_error {ERR unknown command 'bitroarop'*} {
+            r bitroarop or bitmap_bitop_out bitmap_bitop_source
         }
     }
 
@@ -177,8 +177,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             redis.register_function('call_bitconvert', function(KEYS, ARGV)
                 return redis.call('bitconvert', KEYS[1])
             end)
-            redis.register_function('call_bitop_roaring', function(KEYS, ARGV)
-                return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])
+            redis.register_function('call_bitroarop', function(KEYS, ARGV)
+                return redis.call('bitroarop', 'or', KEYS[1], KEYS[2])
             end)
         }
 
@@ -190,14 +190,14 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
                 r eval {return redis.call('bitconvert', KEYS[1])} 1 bitmap_gate
             }
             assert_error {*not allowed from script*} {
-                r eval {return redis.call('bitop_roaring', 'or', KEYS[1], KEYS[2])} \
+                r eval {return redis.call('bitroarop', 'or', KEYS[1], KEYS[2])} \
                     2 bitmap_gate_out bitmap_gate
             }
             assert_error {*not allowed from script*} {
                 r fcall call_bitconvert 1 bitmap_gate
             }
             assert_error {*not allowed from script*} {
-                r fcall call_bitop_roaring 2 bitmap_gate_out bitmap_gate
+                r fcall call_bitroarop 2 bitmap_gate_out bitmap_gate
             }
         }
         r debug mark-internal-client unmark
@@ -205,8 +205,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # Ordinary clients cannot queue them either, which aborts the transaction.
         r multi
         assert_error {ERR unknown command 'bitconvert'*} {r bitconvert bitmap_gate}
-        assert_error {ERR unknown command 'bitop_roaring'*} {
-            r bitop_roaring or bitmap_gate_out bitmap_gate
+        assert_error {ERR unknown command 'bitroarop'*} {
+            r bitroarop or bitmap_gate_out bitmap_gate
         }
         assert_error {EXECABORT*} {r exec}
 
@@ -218,7 +218,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     }
 
     test {Internal bitmap propagation primitives cannot be renamed} {
-        foreach command {bitconvert bitop_roaring} {
+        foreach command {bitconvert bitroarop} {
             catch {exec src/redis-server --rename-command $command renamed} err
             assert_match {*Cannot rename an internal command*} $err
         }
@@ -426,16 +426,71 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # across CRoaring's 16-bit container boundary.
         foreach {key bits expected_digest} {
             bitmap:digest:ranges:singleton {3}
-            {0fdbe68d29365ad0882498117659e397bf5050ba}
+            {4af788cd0cac52dc5f1a0c491c5afd79ef086b73}
             bitmap:digest:ranges:multi {1 2 3 4}
-            {bfafd3f1520764ed3706f6448ee778884e151323}
+            {4f213d509203fc746181634c30a9de6b8adba6d0}
             bitmap:digest:ranges:cross-container {65534 65535 65536 65537}
-            {92210d5971fd016b830e89475c07b04104263d7d}
+            {252834eaf1e8586068d6bb75c1b6764718fd0a34}
         } {
             assert_equal OK [create_roaring_bitmap_from_bits r $key $bits]
             assert_equal bitmap-roaring [r object encoding $key]
             assert_equal $expected_digest [r debug digest-value $key]
         }
+    }
+
+    test {DEBUG DIGEST for fragmented Roaring bitmaps is fast and history independent} {
+        # Alternating bits give one set-bit run per two bits, so 1MB holds 4M
+        # runs. All of them must be streamed into one SHA1 rather than paying
+        # SHA1 finalizations for every run.
+        set bytes 1048576
+        set raw [string repeat [binary format H* 55] $bytes]
+        r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
+            bitmap:digest:frag:cleared bitmap:digest:frag:converted:restored \
+            bitmap:digest:frag:cleared:restored
+
+        assert_equal OK [create_roaring_bitmap_from_raw r bitmap:digest:frag:converted $raw]
+        assert_equal [expr {$bytes * 4}] [r bitcount bitmap:digest:frag:converted]
+        set start [clock milliseconds]
+        set digest [r debug digest-value bitmap:digest:frag:converted]
+        set elapsed [expr {[clock milliseconds] - $start}]
+        if {!$::valgrind} {
+            assert_lessthan $elapsed 2000
+        }
+
+        # Build the same bits through other container histories: BITFIELD
+        # writes into an empty bitmap grow array containers into bitsets, and
+        # clearing every other bit of an all-ones bitmap fragments its run
+        # containers. DUMP/RESTORE then round-trips both representations.
+        # The BITFIELD writes loop in Lua to keep them server-side.
+        set fill {
+            for i = 0, tonumber(ARGV[1]) - 1 do
+                redis.call('BITFIELD', KEYS[1], 'SET', 'i64', '#' .. i, ARGV[2])
+            end
+        }
+        set pattern 6148914691236517205 ;# 0x5555555555555555
+        r config set bitmap-default-roaring yes
+        r eval $fill 1 bitmap:digest:frag:bitfield [expr {$bytes / 8}] $pattern
+        r config set bitmap-default-roaring no
+        assert_equal OK [create_roaring_bitmap_from_raw r bitmap:digest:frag:cleared \
+            [string repeat [binary format H* ff] $bytes]]
+        r eval $fill 1 bitmap:digest:frag:cleared [expr {$bytes / 8}] $pattern
+        foreach key {bitmap:digest:frag:converted bitmap:digest:frag:cleared} {
+            r restore $key:restored 0 [r dump $key]
+        }
+
+        foreach key {
+            bitmap:digest:frag:bitfield
+            bitmap:digest:frag:cleared
+            bitmap:digest:frag:converted:restored
+            bitmap:digest:frag:cleared:restored
+        } {
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal $raw [r debug bitmap-raw $key]
+            assert_equal $digest [r debug digest-value $key]
+        }
+        r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
+            bitmap:digest:frag:cleared bitmap:digest:frag:converted:restored \
+            bitmap:digest:frag:cleared:restored
     }
 
     test {Roaring bitmap writes keep the proto-max-bulk-len offset limit} {
@@ -1278,6 +1333,34 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitmap:rdb:oversized-len bitmap:rdb:trailing]
     }
 
+    test {Roaring bitmap RESTORE rejects truncated payloads} {
+        set old_compression [config_get_set rdbcompression no]
+
+        # Six array containers make the portable blob longer than 63 bytes, so
+        # both the logical byte length and the blob length use multi-byte RDB
+        # length encodings.
+        create_roaring_bitmap_from_bits r bitmap:rdb:truncated \
+            {3 70000 140000 210000 280000 1000000}
+        set dump [r dump bitmap:rdb:truncated]
+        r del bitmap:rdb:truncated
+        r config set rdbcompression $old_compression
+
+        # Cut the value at every offset, from the logical byte length through
+        # the portable blob, and append the RDB version and an all-zero
+        # checksum. RESTORE hands that footer to the loader as well, so each
+        # cut drops more than ten bytes. A shorter cut could let the footer
+        # bytes complete the blob as a different, valid bitmap.
+        set body [string range $dump 0 end-10]
+        set footer [string range $dump end-9 end-8][binary format x8]
+        for {set len 1} {$len < [string length $body] - 10} {incr len} {
+            set truncated [string range $body 0 [expr {$len - 1}]]$footer
+            assert_error {*Bad data format*} {
+                r restore bitmap:rdb:truncated 0 $truncated
+            }
+        }
+        assert_equal 0 [r exists bitmap:rdb:truncated]
+    }
+
     if {[s arch_bits] == 64} {
         test {Roaring bitmap DUMP stays compact at a 2^40 bit offset} {
             set high_bit [expr {(1 << 40) - 1}]
@@ -1546,7 +1629,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             set cmd [read_from_aof $fp]
             if {$cmd eq ""} break
             set name [lindex $cmd 0]
-            if {$name in {multi exec bitconvert setbit bitfield bitop bitop_roaring}} {
+            if {$name in {multi exec bitconvert setbit bitfield bitop bitroarop}} {
                 lappend transitions $cmd
             }
             if {$name eq "restore" && [string match "bitmap:aof-incr:*" [lindex $cmd 1]]} {
@@ -1568,7 +1651,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
             [list bitconvert bitmap:aof-incr:bitfield] \
             [list bitfield bitmap:aof-incr:bitfield SET u1 0 1] \
             {exec} \
-            [list bitop_roaring or bitmap:aof-incr:bitop:out \
+            [list bitroarop or bitmap:aof-incr:bitop:out \
                 bitmap:aof-incr:bitop:s1 bitmap:aof-incr:bitop:s2] \
             [list bitop or bitmap:aof-incr:bitop:empty \
                 bitmap:aof-incr:bitop:missing]] $transitions
@@ -1588,6 +1671,30 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal [binary format H* ff] [r debug bitmap-raw bitmap:aof-incr:bitop:out]
         assert_equal 0 [r exists bitmap:aof-incr:bitop:empty]
     }
+
+    test {Native BITOP into a logically expired destination survives AOF replay} {
+        r debug set-active-expire 0
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:aof-expired:roaring 100 1
+        r set bitmap:aof-expired:string [binary format H* f0]
+        r set bitmap:aof-expired:dest1 x PX 1
+        r set bitmap:aof-expired:dest2 x PX 1
+        after 10
+
+        # A Roaring source, and a string source with a config-selected result.
+        # BITOP expires the old destination, whose DEL must be replayed before
+        # BITOP rather than after it.
+        assert_equal 13 [r bitop or bitmap:aof-expired:dest1 bitmap:aof-expired:roaring]
+        assert_equal 1 [r bitop or bitmap:aof-expired:dest2 bitmap:aof-expired:string]
+        r config set bitmap-default-roaring no
+
+        set digest_before [debug_digest]
+        r debug loadaof
+        assert_equal $digest_before [debug_digest]
+        assert_equal bitmap [r type bitmap:aof-expired:dest1]
+        assert_equal bitmap [r type bitmap:aof-expired:dest2]
+        r debug set-active-expire 1
+    } {OK}
 }
 
 start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:skip"}} {
@@ -1672,12 +1779,40 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
                 $master config set proto-max-bulk-len $master_limit
                 $replica config set proto-max-bulk-len $replica_limit
             }
+
+            test {replicated BITOP NOT obeys the master's missing-chunk budget} {
+                # The BITOP NOT budget follows proto-max-bulk-len. A replica
+                # with a lower limit must still apply the master's accepted
+                # complement of an empty 1 GiB value.
+                set byte_len [expr {1024 * 1024 * 1024}]
+                set master_limit [lindex [$master config get proto-max-bulk-len] 1]
+                set replica_limit [lindex [$replica config get proto-max-bulk-len] 1]
+
+                $master config set proto-max-bulk-len $byte_len
+                $replica config set proto-max-bulk-len 536870912
+                $master config set bitmap-default-roaring yes
+                $master del bitop:repl:not:src bitop:repl:not:dest
+                $master setbit bitop:repl:not:src [expr {$byte_len * 8 - 1}] 0
+                assert_equal $byte_len \
+                    [$master bitop not bitop:repl:not:dest bitop:repl:not:src]
+                wait_for_ofs_sync $master $replica
+
+                assert_equal bitmap [$replica type bitop:repl:not:dest]
+                assert_equal [expr {$byte_len * 8}] \
+                    [$replica bitcount bitop:repl:not:dest]
+                assert_equal [$master debug digest] [$replica debug digest]
+
+                $master del bitop:repl:not:src bitop:repl:not:dest
+                wait_for_ofs_sync $master $replica
+                $master config set proto-max-bulk-len $master_limit
+                $replica config set proto-max-bulk-len $replica_limit
+            }
         }
 
         test {BITOP destinations replicate deterministically across modes} {
             # String-only sources with a bitmap-default-roaring yes master: the
             # destination decision is master-local, so the stream carries the
-            # internal BITOP_ROARING command.
+            # internal BITROAROP command.
             $master del bitop:repl:s1 bitop:repl:s2 bitop:repl:out
             $master set bitop:repl:s1 [binary format H* f0]
             $master set bitop:repl:s2 [binary format H* 0f]
@@ -2237,6 +2372,26 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r del bitmap:roaring:memory bitmap:roaring:memory:same-container
     }
 
+    if {[string match {*jemalloc*} [s mem_allocator]]} {
+        test {Roaring BITSET container words stay in jemalloc's 8 KiB size class} {
+            # Alternating bits make every chunk a BITSET container with 8 KiB of
+            # aligned words. Over-allocating them for the alignment would move
+            # each buffer into jemalloc's 10 KiB size class, so a container
+            # would cost about 10 KiB instead of a little over 8 KiB.
+            set containers 100
+            set key bitmap:roaring:memory:bitsets
+            r del $key
+            r set $key [string repeat [binary format H* aa] \
+                [expr {$containers * 8192}]]
+            convert_string_bitmap_to_roaring r $key
+            assert_equal bitmap-roaring [r object encoding $key]
+            assert_equal [expr {$containers * 32768}] [r bitcount $key]
+            set usage [r memory usage $key]
+            assert_lessthan [expr {$usage / $containers}] 9216
+            r del $key
+        }
+    }
+
     test {Roaring bitmap whole-object operations keep lazy memory accounting accurate} {
         r config set bitmap-default-roaring yes
         set source bitmap:roaring:lazy:a
@@ -2756,12 +2911,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitop:not:roaring:huge:copy bitop:not:roaring:limit \
             bitop:not:roaring:limit:dest bitop:not:roaring:dense:dest
 
-        # An empty source at exactly 65,536 missing chunks remains valid.
+        # An empty source at exactly 65,536 missing chunks remains valid, even
+        # under a limit low enough that the fixed floor is the whole budget.
         set limit_last_bit [expr {$allocation_envelope * 8 - 1}]
         assert_equal 0 [r setbit bitop:not:roaring:limit $limit_last_bit 0]
+        r config set proto-max-bulk-len 1048576
         assert_equal $allocation_envelope \
             [r bitop not bitop:not:roaring:limit:dest \
                 bitop:not:roaring:limit]
+        r config set proto-max-bulk-len $byte_len
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest 0]
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest $limit_last_bit]
 
@@ -2812,6 +2970,77 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         r del bitop:not:roaring:huge bitop:not:roaring:huge:dest \
             bitop:not:roaring:huge:copy
+        set _ {}
+    } {} {config:restore}
+
+    test {BITOP NOT complements Roaring values BITFIELD extends past proto-max-bulk-len} {
+        # BITFIELD checks only a field's first bit against proto-max-bulk-len,
+        # so a field at the last allowed offset extends the logical length up
+        # to 8 bytes further. At the default limit that spans one chunk more
+        # than the fixed 65,536-chunk floor. The string form of the same value
+        # complements fine, so the Roaring form must too.
+        set limit 536870912
+        set last_offset [expr {$limit * 8 - 1}]
+        r config set proto-max-bulk-len $limit
+        r config set bitmap-default-roaring yes
+        r del bitop:not:bitfield:src bitop:not:bitfield:dest
+
+        assert_equal 0 [r bitfield bitop:not:bitfield:src set u8 $last_offset 0]
+        assert_equal bitmap [r type bitop:not:bitfield:src]
+        assert_equal 0 [r bitcount bitop:not:bitfield:src]
+
+        # Same replies as the string form: its length and every bit set. The
+        # 512 MiB of set bits stays compact as full run containers.
+        assert_equal [expr {$limit + 1}] \
+            [r bitop not bitop:not:bitfield:dest bitop:not:bitfield:src]
+        assert_equal bitmap [r type bitop:not:bitfield:dest]
+        assert_equal [expr {($limit + 1) * 8}] \
+            [r bitcount bitop:not:bitfield:dest]
+        assert_lessthan [r memory usage bitop:not:bitfield:dest] \
+            [expr {16 * 1024 * 1024}]
+
+        # A 64-bit field reaches the full 8-byte overshoot. With a limit 7
+        # bytes short of a chunk boundary, only the full overshoot crosses
+        # into the next chunk.
+        set limit [expr {536870912 + 8192 - 7}]
+        set last_offset [expr {$limit * 8 - 1}]
+        r config set proto-max-bulk-len $limit
+        assert_equal 0 [r bitfield bitop:not:bitfield:src set i64 $last_offset 0]
+        assert_equal [expr {$limit + 8}] \
+            [r bitop not bitop:not:bitfield:dest bitop:not:bitfield:src]
+        assert_equal [expr {($limit + 8) * 8}] \
+            [r bitcount bitop:not:bitfield:dest]
+        assert_lessthan [r memory usage bitop:not:bitfield:dest] \
+            [expr {16 * 1024 * 1024}]
+
+        r del bitop:not:bitfield:src bitop:not:bitfield:dest
+        set _ {}
+    } {} {config:restore}
+
+    test {BITOP NOT missing-chunk budget follows proto-max-bulk-len} {
+        # A raised limit lets clients create longer values, which stay
+        # complementable like their string forms. Once the limit is lowered
+        # again, the same value is bounded by the budget of the new limit.
+        set limit [expr {1024 * 1024 * 1024}]
+        r config set proto-max-bulk-len $limit
+        r config set bitmap-default-roaring yes
+        r del bitop:not:raised:src bitop:not:raised:dest
+
+        assert_equal 0 [r setbit bitop:not:raised:src [expr {$limit * 8 - 1}] 0]
+        assert_equal $limit \
+            [r bitop not bitop:not:raised:dest bitop:not:raised:src]
+        assert_equal [expr {$limit * 8}] [r bitcount bitop:not:raised:dest]
+        assert_lessthan [r memory usage bitop:not:raised:dest] \
+            [expr {32 * 1024 * 1024}]
+
+        r config set proto-max-bulk-len 536870912
+        r set bitop:not:raised:dest keep
+        assert_error {ERR BITOP NOT would materialize more than 65537 missing Roaring chunks} {
+            r bitop not bitop:not:raised:dest bitop:not:raised:src
+        }
+        assert_equal keep [r get bitop:not:raised:dest]
+
+        r del bitop:not:raised:src bitop:not:raised:dest
         set _ {}
     } {} {config:restore}
 
@@ -4104,6 +4333,32 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
         assert_match "*RDB looks OK*" $res
 
         r del bitmap:checkrdb:sparse bitmap:checkrdb:dense
+    }
+
+    test {redis-check-rdb reports a truncated Roaring bitmap as an unexpected EOF} {
+        r flushall
+        create_roaring_bitmap_from_bits r bitmap:checkrdb:truncated \
+            {3 70000 140000 210000 280000 1000000}
+        r save
+        set dir [lindex [r config get dir] 1]
+        set fd [open [file join $dir dump.rdb] rb]
+        set rdb [read $fd]
+        close $fd
+
+        # The bitmap is the only key, so it is the last value before the EOF
+        # opcode and the 8-byte checksum. Cutting the file inside its portable
+        # blob is a short read, which must not be reported as corruption: a
+        # replica loading from a socket resumes after read errors but exits on
+        # corruption errors.
+        set truncated_path [file join $dir truncated.rdb]
+        set fd [open $truncated_path wb]
+        puts -nonewline $fd [string range $rdb 0 end-14]
+        close $fd
+        catch {exec src/redis-check-rdb $truncated_path} res
+        file delete $truncated_path
+        assert_match "*Unexpected EOF reading RDB file*" $res
+        assert_no_match "*Invalid bitmap RDB payload*" $res
+        r del bitmap:checkrdb:truncated
     }
 }
 

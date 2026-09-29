@@ -397,11 +397,15 @@ static inline int roaring_hamming(uint64_t x) {
 #endif
 
 // Allow unaligned memory access
-// Local Redis patch: gated to compilers known to honor
-// __attribute__((no_sanitize("alignment"))).
-#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 5)
+// Local Redis patch: gated on __has_attribute(no_sanitize) so the attribute
+// is only used by compilers that support it (clang, GCC >= 8). GCC 5-7 would
+// otherwise warn that it is ignored, breaking -Werror builds.
+#if defined(__has_attribute)
+#if __has_attribute(no_sanitize)
 #define CROARING_ALLOW_UNALIGNED __attribute__((no_sanitize("alignment")))
-#else
+#endif
+#endif
+#if !defined(CROARING_ALLOW_UNALIGNED)
 #define CROARING_ALLOW_UNALIGNED
 #endif
 
