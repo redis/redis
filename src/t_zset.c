@@ -1549,6 +1549,10 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
 
         if (encoding == OBJ_ENCODING_BTREE) {
             zbtreeSet *bt = zbtreeCreate();
+            /* ZADD's hint counts its arguments, which can be fewer than the
+             * existing members after a listpack limit is lowered. */
+            unsigned long length = zzlLength(zl);
+            if (cap < length) cap = length;
             /* Presize the member index to avoid rehashing, mirroring the
              * dictExpand(zs->dict, cap) a few lines below for the
              * LISTPACK->SKIPLIST branch. cap here is always a real element

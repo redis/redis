@@ -2746,6 +2746,27 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZADD converts an existing listpack after lowering its limit} {
+        set conversion_limit [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 128
+        r del conversion{t}
+        set conversion_args {}
+        for {set i 0} {$i < 40} {incr i} {
+            lappend conversion_args $i m$i
+        }
+        r zadd conversion{t} {*}$conversion_args
+        assert_encoding listpack conversion{t}
+        r config set zset-max-listpack-entries 1
+        assert_equal 2 [r zadd conversion{t} 1 x 2 y]
+        assert_encoding btree conversion{t}
+        assert_equal 42 [r zcard conversion{t}]
+        foreach {score member} $conversion_args {
+            assert_equal $score [r zscore conversion{t} $member]
+        }
+        r del conversion{t}
+        r config set zset-max-listpack-entries $conversion_limit
+    }
+
     test {ZRANGESTORE bulk append during member-index rehash} {
         set old_entries [lindex [r config get zset-max-listpack-entries] 1]
         set old_value [lindex [r config get zset-max-listpack-value] 1]

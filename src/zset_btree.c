@@ -2035,6 +2035,17 @@ static int zbtIndexStartResize(zbtreeSet *zs, unsigned long elements,
     unsigned long buckets = zbtIndexBucketsForElements(elements);
     if (buckets == zs->member_index.size && !allow_same_size) return 0;
 
+    /* A size hint may underestimate the first batch. There are no leaves
+     * to migrate yet, so replace the empty table directly. */
+    if (zs->length == 0) {
+        int wide_ids = zs->member_index.wide_ids ||
+                       zs->next_score_leaf_id >= ZBT_INDEX_WIDE_ID_AT;
+        zbtIndexTableRelease(zs, &zs->member_index);
+        zbtIndexTableInit(zs, &zs->member_index, buckets, wide_ids);
+        zs->member_revision = zbtIndexNextRevision();
+        return 1;
+    }
+
     zs->member_rehash = zbtAlloc(zs, sizeof(*zs->member_rehash));
     memset(zs->member_rehash, 0, sizeof(*zs->member_rehash));
     int wide_ids = zs->member_index.wide_ids ||
@@ -4059,6 +4070,28 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
     UNUSED(flags);
 
     printf("Testing B+ tree zbtreeReserve()\n");
+
+    {
+        zbtreeSet *zs = zbtreeCreate();
+        zbtreeReserve(zs, 1);
+        zbtreeAppendBatch *batch = zbtreeAppendBatchCreate(zs);
+        char member[32];
+        for (int i = 0; i < 1000; i++) {
+            int len = snprintf(member, sizeof(member), "member:%05d", i);
+            zbtreeAppendBatchAdd(batch, i, (unsigned char *)member, len);
+        }
+        zbtreeAppendBatchFinish(batch);
+        int valid = zbtreeLength(zs) == 1000;
+        for (int i = 0; i < 1000; i++) {
+            snprintf(member, sizeof(member), "member:%05d", i);
+            sds ele = sdsnew(member);
+            double score;
+            valid = valid && zbtreeScore(zs, ele, &score) && score == i;
+            sdsfree(ele);
+        }
+        test_cond("Batch append tolerates an underestimated reserve", valid);
+        zbtreeFree(zs);
+    }
 
     /* zbtreeReserve() on a fresh set sizes the member index directly,
      * without ever starting an incremental member_rehash. */
