@@ -3218,34 +3218,18 @@ static void zbtreeAppendBatchFlush(zbtreeAppendBatch *b) {
             oldleaf = zbtScoreCompactLeaf(zs, oldleaf);
         newleaf = zbtScoreLeafBuild(zs, b->count, b->scores, b->eles, b->tags,
                                     ZBT_NEW_LEAF_ID, 0);
-        newleaf->n.index_resize = oldleaf->n.index_resize;
         newleaf->prev = oldleaf;
         newleaf->next = oldleaf->next;
         oldleaf->next = newleaf;
         zs->score_last = newleaf;
         zbtScoreInsertSibling(zs, &oldleaf->n, &newleaf->n);
     }
-    /* zbtIndexInsert()'s member_rehash interaction assumes a newly-linked,
-     * not-yet-migrated leaf grows by exactly one member per call: its first
-     * call for such a leaf bulk-copies the leaf's *entire* current content
-     * (zbtIndexCopyLeaf(), which re-derives every member's hash from the
-     * leaf itself and doesn't care which hash was passed in) and marks the
-     * leaf migrated, which is exactly right when that "entire content" is
-     * still just the one member the single-element append path always
-     * builds a fresh edge leaf with. A batch-built leaf breaks that
-     * assumption: newleaf already holds all b->count members from the single
-     * zbtScoreLeafBuild() call above, so calling zbtIndexInsert() once per
-     * member here would let the first call's bulk copy index everything,
-     * then every subsequent call (now seeing an already-migrated leaf) would
-     * insert the same member again through the plain-insert path -- a real
-     * double-registration, not just a bookkeeping mismatch. Call it exactly
-     * once for a newly-linked, not-yet-migrated leaf during an active
-     * rehash; otherwise (no rehash in progress, or the leaf already counts
-     * as migrated -- e.g. it inherited an already-current index_resize from
-     * oldleaf when splicing after an already-migrated leaf) the plain
-     * per-member path is the only one that indexes every member, exactly as
-     * it does outside a rehash. */
-    if (zs->member_rehash && !zbtIndexLeafMigrated(zs, newleaf)) {
+    /* The leaf is complete, but none of its members have index entries yet.
+     * Keep its initial index_resize (zero, never an active resize ID) so a
+     * rehash copies the whole leaf once. Publish its length before indexing:
+     * zbtIndexInsert() can finish the rehash and check the total member count. */
+    zs->length += b->count;
+    if (zs->member_rehash) {
         zbtIndexInsert(zs, b->eles[0].hash, newleaf->id, NULL);
     } else {
         /* zbtIndexTableInsertRaw()'s bucket lookup is a near-guaranteed
@@ -3271,7 +3255,6 @@ static void zbtreeAppendBatchFlush(zbtreeAppendBatch *b) {
             zbtIndexInsert(zs, b->eles[i].hash, newleaf->id, NULL);
         }
     }
-    zs->length += b->count;
     b->count = 0;
     b->conservative_bytes = 0;
     b->scratch_used = 0;

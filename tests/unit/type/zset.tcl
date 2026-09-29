@@ -2746,6 +2746,37 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZRANGESTORE bulk append during member-index rehash} {
+        set old_entries [lindex [r config get zset-max-listpack-entries] 1]
+        set old_value [lindex [r config get zset-max-listpack-value] 1]
+        r config set zset-max-listpack-entries 128
+        r config set zset-max-listpack-value 64
+        foreach size {65 127 319 320 4096} {
+            foreach count {40 60 100 1000} {
+                r del rehash-src{t} rehash-dst{t}
+                set elements {}
+                for {set j 0} {$j < $count} {incr j} {
+                    set member [format %08d $j][string repeat x [expr {$size - 8}]]
+                    lappend elements $j $member
+                }
+                r zadd rehash-src{t} {*}$elements
+                set rehash_expected [r zrange rehash-src{t} 0 -1 withscores]
+                foreach bounds {{0 -1} {-inf +inf BYSCORE}} {
+                    assert_equal $count [r zrangestore rehash-dst{t} rehash-src{t} {*}$bounds]
+                    assert_encoding btree rehash-dst{t}
+                    assert_equal $rehash_expected [r zrange rehash-dst{t} 0 -1 withscores]
+                    # Point reads advance and finish any remaining rehash.
+                    foreach {member score} $rehash_expected {
+                        assert_equal $score [r zscore rehash-dst{t} $member]
+                    }
+                }
+            }
+        }
+        r del rehash-src{t} rehash-dst{t}
+        r config set zset-max-listpack-entries $old_entries
+        r config set zset-max-listpack-value $old_value
+    }
+
     test {ZRANGESTORE btree-encoded result matches expected slice, forward and REV, with score collisions} {
         set original_max [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 8
