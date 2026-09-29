@@ -525,16 +525,27 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
     # Conversion is observable through WATCH and ordered type_changed
     # keyspace notifications; these tests pin both behaviors.
     test {WATCH aborts the transaction when bitmap-default-roaring converts the key} {
-        r config set bitmap-default-roaring yes
-
+        # Setting an already set bit is a logical no-op, so only the
+        # conversion can touch the watched key. Control: without the
+        # conversion the same no-op SETBIT leaves the transaction alone.
+        r config set bitmap-default-roaring no
         r del bitmap:public:watch
-        r set bitmap:public:watch ""
+        r set bitmap:public:watch [binary format H* 80]
         r watch bitmap:public:watch
-        assert_equal 0 [r setbit bitmap:public:watch $sparse_public_offset 1]
+        assert_equal 1 [r setbit bitmap:public:watch 0 1]
+        assert_equal string [r type bitmap:public:watch]
+        r multi
+        r ping
+        assert_equal {PONG} [r exec]
+
+        r config set bitmap-default-roaring yes
+        r watch bitmap:public:watch
+        assert_equal 1 [r setbit bitmap:public:watch 0 1]
         assert_equal bitmap [r type bitmap:public:watch]
         r multi
         r ping
         assert_equal {} [r exec]
+        assert_equal 1 [r bitcount bitmap:public:watch]
         r config set bitmap-default-roaring no
     }
 
