@@ -671,32 +671,71 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
     }
 
-    test "STREAM-STATS - a failed multi-setting CONFIG SET resets but never corrupts" {
+    test "STREAM-STATS - a failed multi-setting CONFIG SET leaves the histograms intact" {
         r config set stream-stats yes
         r FLUSHALL
         seed_stream r st 4
         r xgroup create st g 0
         r xreadgroup group g c count 4 streams st >
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
-        # Apply hooks run in argument order: `stream-stats no` is applied (a new
-        # generation, rows zeroed) before key-memory-histograms is rejected, and
-        # the rollback re-applies `stream-stats yes` lazily.
+        # Apply hooks run in argument order: `stream-stats no` is applied before
+        # key-memory-histograms is rejected, and the rollback re-applies
+        # `stream-stats yes`. Disabling leaves the rows alone and nothing can
+        # run in between, so the re-enable finds them exact and keeps them.
         catch {r config set stream-stats no key-memory-histograms yes} err
         assert_match "*cannot be enabled at runtime*" $err
         assert_equal {yes} [lindex [r config get stream-stats] 1]
-        # By design the rows are empty afterwards (a rescan is what we avoid)...
-        assert_equal "" [get_info_stream_stripped r]
-        # ...but nothing is corrupted: the group's next change re-enters its
-        # sample in that row exactly. PEL 4 -> 3 lands in bin "2", with no tally
-        # taken from anyone, and the row matches the keyspace.
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # The generation survived too: the group is still counted, so PEL 4 -> 3
+        # is an exact move into bin "2". A lost generation would re-enter the
+        # sample instead and leave bin "4" behind (2=1,4=1).
         r xack st g 1-1
         assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
-        # Rows converge independently: the consumers row stays empty until a
-        # consumer changes, and is exact as soon as one does.
-        assert_equal "" [get_info_stream_field r stream_distrib_cgroups_consumers]
-        r xgroup createconsumer st g c2
-        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - a failed multi-setting CONFIG SET that enabled tracking leaves it off" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r st 4
+        r xgroup create st g 0
+        # The forward `yes` starts a new generation (streams changed while off),
+        # the rollback turns tracking off again: hidden, and nothing counted.
+        catch {r config set stream-stats yes key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+        assert_equal {no} [lindex [r config get stream-stats] 1]
+        assert_equal "" [get_info_stream_stripped r]
+        # Enabling for real is lazy as usual: the group predates the generation
+        # and is not counted until touched.
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        r xreadgroup group g c count 1 streams st >
+        assert_equal "db0_stream_distrib_cgroups_pel:1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+    }
+
+    test "STREAM-STATS - disabling and re-enabling with no stream change keeps the counts" {
+        r config set stream-stats yes
+        r FLUSHALL
+        seed_stream r st 4
+        r xgroup create st g 0
+        r xreadgroup group g c count 4 streams st >
+        r config set stream-stats no
+        # Hidden while off; non-stream traffic does not disturb the rows.
+        assert_equal "" [get_info_stream_stripped r]
+        r set unrelated 1
+        r config set stream-stats yes
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
+        # A stream change while off does: enabling starts a new generation and
+        # the group is counted again only once touched.
+        r config set stream-stats no
+        r xack st g 1-1
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        r xack st g 2-1
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
     }
 
     test "STREAM-STATS - runtime enable is lazy, reload makes it exact" {

@@ -2635,6 +2635,10 @@ struct redisServer {
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
     int stream_stats;                   /* Enable stream stats for INFO `Streams` section. */
+    int stream_stats_stale;             /* A stream or group changed, appeared, vanished or was
+                                           trimmed while stream_stats was off, so the INFO `Streams`
+                                           rows no longer match the keyspace and enabling must start
+                                           a new generation. Clear otherwise: enabling keeps the rows. */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */

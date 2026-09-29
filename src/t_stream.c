@@ -205,7 +205,7 @@ const char *streamDistribMetricName(streamDistribMetric metric) {
 }
 
 /* Zero every stream histogram in 'meta' and start a new generation of samples.
- * Every path that resets the gauges (stream-stats disable, an emptied kvstore, a
+ * Every path that resets the gauges (a stale re-enable, an emptied kvstore, a
  * rebuild) goes through this, so a newly added metric cannot be left behind
  * holding stale samples -- and so the generation bump lives in exactly one
  * place. Advancing the epoch is what makes a reset safe: every stream and group
@@ -295,7 +295,10 @@ static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric
 static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
                              streamDistribMetric metric, int64_t old_val, int64_t new_val)
 {
-    if (!server.stream_stats) return;
+    if (!server.stream_stats) {
+        server.stream_stats_stale = 1; /* the rows fall behind: enabling starts over */
+        return;
+    }
     uint32_t live = streamDistribEpoch(db);
     if (*epoch != live) {                      /* new generation: no row holds this object */
         *epoch = live;
@@ -335,7 +338,10 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
  * by streamUpdateStat(), so this is safe on a stream that predates a runtime
  * enable. One traversal of the groups however many metrics there are. */
 static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
-    if (!server.stream_stats) return;
+    if (!server.stream_stats) {
+        server.stream_stats_stale = 1; /* the rows fall behind: enabling starts over */
+        return;
+    }
     for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
         streamDistribMetric metric = (streamDistribMetric) m;
         int64_t sample = streamStreamSample(s, metric);
@@ -6686,17 +6692,11 @@ void dbgAssertStreamStats(redisDb *db) {
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
     if (!meta) return;
 
-    /* While stream-stats is off nothing is collected, so the scan would be
-     * pointless, but every row must still be empty. */
-    if (!server.stream_stats) {
-        static const int64_t empty[MAX_KEYSIZES_BINS] = {0};
-        for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
-            streamDistribMetric metric = (streamDistribMetric) m;
-            int64_t *live = streamDistribHistRowMeta(meta, metric);
-            if (live) dbgAssertStreamRow(empty, live, streamDistribMetricName(metric));
-        }
-        return;
-    }
+    /* While stream-stats is off nothing is collected and the rows are not
+     * printed. They keep whatever they held, and a re-enable either keeps them
+     * (no stream changed meanwhile) or starts a new generation, so there is
+     * nothing to check here. */
+    if (!server.stream_stats) return;
 
     int64_t scan[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS];
     memset(scan, 0, sizeof(scan));

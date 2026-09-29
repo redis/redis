@@ -3208,6 +3208,9 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
      * completion applies the delta only if both are still valid (see
      * asmBackgroundTrimDoneCB). */
     job->bg->track_stream_stats = server.stream_stats;
+    /* Off: these keys leave with their samples untallied, so the rows fall
+     * behind and enabling must start a new generation. */
+    if (!server.stream_stats) server.stream_stats_stale = 1;
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
     job->bg->stream_stats_epoch = meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
 
