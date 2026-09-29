@@ -567,7 +567,141 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "" [get_info_stream_stripped r]
     }
 
+    # The lazy-enable tests below run with the assertion unarmed on purpose: arming
+    # it primes a full rebuild, which would register every object and hide exactly
+    # the pre-existing / never-counted state these tests exercise.
+
+    test "STREAM-STATS - lazy enable: a first update registers the object and steals nothing" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r A 4
+        r xgroup create A gA 0
+        seed_stream r B 4
+        r xgroup create B gB 0
+        r config set stream-stats yes
+        # Nothing is counted yet: both groups predate the enable.
+        assert_equal "" [get_info_stream_stripped r]
+        # gB's first read enters its consumers sample (the new consumer) and its
+        # PEL sample (at 1); the ack then moves the PEL 1 -> 0.
+        r xreadgroup group gB c count 1 streams B >
+        r xack B gB 1-1
+        assert_equal "db0_stream_distrib_cgroups_pel:0=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # gA's first change used to decrement bin 0 -- gB's tally -- because gA
+        # was never in it. Now it registers gA instead: 0=1 (gB) and 1=1 (gA).
+        r xreadgroup group gA c count 1 streams A >
+        assert_equal "db0_stream_distrib_cgroups_pel:0=1,1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=2" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - lazy enable: removing a never-counted stream steals nothing" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r A 4
+        r xgroup create A gA 0
+        seed_stream r B 4
+        r xgroup create B gB 0
+        r config set stream-stats yes
+        r xreadgroup group gB c count 1 streams B >
+        r xack B gB 1-1
+        assert_equal "db0_stream_distrib_cgroups_pel:0=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        # DEL of a stream whose group was never counted must remove nothing.
+        r del A
+        assert_equal "db0_stream_distrib_cgroups_pel:0=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - lazy enable: a two-metric command on a stale group is exact" {
+        # XCLAIM and XGROUP DELCONSUMER update PEL and consumers in one command.
+        # Each row enters the group's sample from its own new value, so no
+        # untrusted old value is ever decremented and the result is exact.
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r A 4
+        r xgroup create A gA 0
+        r xreadgroup group gA alice count 4 streams A >
+        seed_stream r B 4
+        r xgroup create B gB 0
+        r xreadgroup group gB bob count 2 streams B >
+        r xgroup createconsumer B gB carol
+        r config set stream-stats yes
+        # A new claimer on stale gA: PEL stays 4, consumers 1 -> 2.
+        r xclaim A gA zed 0 1-1
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # DELCONSUMER on stale gB: PEL stays 2, consumers 2 -> 1.
+        r xgroup delconsumer B gB carol
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1,4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1,2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # Both groups are now counted, and the rows match the keyspace exactly.
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - lazy enable: a change within the same bin registers a stale group" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r A 8
+        r xgroup create A g 0
+        r xreadgroup group g c count 5 streams A >
+        r config set stream-stats yes
+        # PEL 5 -> 4 stays in bin "4". Before, a same-bin change was an early
+        # return and the group stayed invisible; now the change enters its sample.
+        r xack A g 1-1
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+    }
+
+    test "STREAM-STATS - FLUSHDB of one database leaves another's counts intact" {
+        r config set stream-stats yes
+        r FLUSHALL
+        seed_stream r A 4
+        r xgroup create A g 0
+        r xreadgroup group g c count 4 streams A >
+        r select 5
+        seed_stream r X 2
+        r xgroup create X g 0
+        r flushdb
+        r select 0
+        # The generation is per database: flushing db 5 must not un-count db 0.
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        # ...and db 0's objects are still counted, so a change is an exact move.
+        r xack A g 1-1 2-1
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+    }
+
+    test "STREAM-STATS - a failed multi-setting CONFIG SET resets but never corrupts" {
+        r config set stream-stats yes
+        r FLUSHALL
+        seed_stream r st 4
+        r xgroup create st g 0
+        r xreadgroup group g c count 4 streams st >
+        assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        # Apply hooks run in argument order: `stream-stats no` is applied (a new
+        # generation, rows zeroed) before key-memory-histograms is rejected, and
+        # the rollback re-applies `stream-stats yes` lazily.
+        catch {r config set stream-stats no key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+        assert_equal {yes} [lindex [r config get stream-stats] 1]
+        # By design the rows are empty afterwards (a rescan is what we avoid)...
+        assert_equal "" [get_info_stream_stripped r]
+        # ...but nothing is corrupted: the group's next change re-enters its
+        # sample in that row exactly. PEL 4 -> 3 lands in bin "2", with no tally
+        # taken from anyone, and the row matches the keyspace.
+        r xack st g 1-1
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_pel pending] [get_info_stream_field r stream_distrib_cgroups_pel]
+        # Rows converge independently: the consumers row stays empty until a
+        # consumer changes, and is exact as soon as one does.
+        assert_equal "" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        r xgroup createconsumer st g c2
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
     test "STREAM-STATS - runtime enable is lazy, reload makes it exact" {
+        # Start from stats off: the tests above may leave them enabled.
+        r config set stream-stats no
         r FLUSHALL
         seed_stream r st 4
         r xgroup create st g 0

@@ -56,6 +56,12 @@ typedef enum {
 /* First per-group metric: [0, this) are per-stream, [this, MAX) per-group. */
 #define STREAM_DISTRIB_FIRST_CGROUP_METRIC STREAM_DISTRIB_CGROUPS_PEL
 
+/* The distrib_epoch of a stream or consumer group that has never been counted
+ * into the INFO `Streams` histograms. A db's live epoch starts at 0 and only
+ * ever increments (streamStatsResetMeta() skips this value), so it can never
+ * match. */
+#define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
+
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -68,6 +74,12 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
+    unsigned int distrib_counted: 8; /* INFO `Streams`: one bit per per-stream metric whose
+                                        row holds this stream's sample, valid only while
+                                        distrib_epoch is current. Shares the bit-field unit. */
+    uint32_t distrib_epoch;  /* INFO `Streams`: the generation distrib_counted refers to,
+                                or STREAM_DISTRIB_NEVER_COUNTED. Sits in the padding after
+                                the bit-field unit above. */
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
     rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
@@ -141,6 +153,11 @@ typedef struct streamCG {
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
+    uint32_t distrib_epoch;  /* INFO `Streams`: the generation distrib_counted refers to,
+                                or STREAM_DISTRIB_NEVER_COUNTED. */
+    uint8_t distrib_counted; /* INFO `Streams`: one bit per per-group metric whose row
+                                holds this group's sample, valid only while distrib_epoch
+                                is current. Fits the alignment padding after the epoch. */
 } streamCG;
 
 /* A specific consumer in a consumer group.  */
@@ -250,7 +267,7 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 int streamDistribBin(int64_t value);
 int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric);
 int64_t streamStreamSample(stream *s, streamDistribMetric metric);
-void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS]);
+void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS], uint32_t only_epoch);
 int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric metric);
 const char *streamDistribMetricName(streamDistribMetric metric);
 void streamStatsResetMeta(kvstoreMetadata *meta);
