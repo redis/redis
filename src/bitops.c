@@ -789,9 +789,9 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * returned. Otherwise if the key holds a wrong type NULL is returned and
  * an error is sent to the client.
  *
- * The caller provides 'o' and 'link' from a single lookupKeyWriteWithLink()
- * call, so command paths that first probe for a Roaring bitmap don't pay a
- * second keyspace lookup.
+ * The caller provides 'o' and 'link' from its own write lookup (after a
+ * Roaring conversion, the re-lookup that follows it), so command paths that
+ * first probe for a Roaring bitmap don't pay another keyspace lookup.
  *
  * (Must provide all the arguments to the function)
  */
@@ -936,7 +936,9 @@ static void bitroarPropagateConvert(client *c, robj *key) {
  * BITCONVERT first preserves both cases and places callback-propagated writes
  * before the triggering bitmap command. Callers must re-lookup the key
  * afterwards: NOTIFY_NEW and NOTIFY_TYPE_CHANGED callbacks may replace or
- * delete it synchronously. */
+ * delete it synchronously. The re-lookup passes LOOKUP_NOTOUCH: the caller's
+ * first lookup, or dbAddByLink() for a missing key, already accounted for this
+ * command's LRU/LFU access. */
 static void bitroarConvertKey(client *c, robj *key, kvobj *o, dictEntryLink link) {
     serverAssert(o == NULL || o->type == OBJ_STRING);
 
@@ -1103,7 +1105,7 @@ void setbitCommand(client *c) {
          * those effects before SETBIT too, so continue from a fresh lookup and
          * deliberately do not apply bitmap-default-roaring a second time. */
         link = NULL;
-        o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+        o = lookupKeyWriteWithLinkFlags(c->db, c->argv[1], LOOKUP_NOTOUCH, &link);
 
         if (o != NULL && checkStringOrBitmapType(c, o)) {
             /* The conversion callback replaced the key with an incompatible
@@ -2777,7 +2779,7 @@ void bitfieldGeneric(client *c, int flags) {
         /* Resume from the state left by synchronous conversion callbacks.
          * Replay observes those callback effects before BITFIELD too. */
         link = NULL;
-        o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+        o = lookupKeyWriteWithLinkFlags(c->db,c->argv[1],LOOKUP_NOTOUCH,&link);
         if (o != NULL && checkStringOrBitmapType(c,o)) {
             preventCommandPropagation(c);
             server.dirty++;

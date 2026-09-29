@@ -322,6 +322,48 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
+    test {bitmap-default-roaring yes: converting SETBIT and BITFIELD count one LFU access} {
+        # With lfu-log-factor 0 every access increments the LFU counter, and
+        # with lfu-decay-time 0 it never decays, so OBJECT FREQ counts the
+        # accesses exactly. A conversion must count the command's access once,
+        # like the string path does, and keep a string's earlier accesses.
+        r config set maxmemory-policy allkeys-lfu
+        r config set lfu-log-factor 0
+        r config set lfu-decay-time 0
+
+        set keys {lfu:setbit:new lfu:bitfield:new lfu:setbit:str lfu:bitfield:str}
+        foreach roaring {no yes} {
+            r config set bitmap-default-roaring $roaring
+            r del {*}$keys
+
+            r setbit lfu:setbit:new 7 1
+            r bitfield lfu:bitfield:new SET u8 0 255
+            foreach key {lfu:setbit:str lfu:bitfield:str} {
+                # SET creates the string at LFU_INIT_VAL (5); two reads
+                # bring it to 7.
+                r set $key [binary format H* 00]
+                r get $key
+                r get $key
+            }
+            r setbit lfu:setbit:str 7 1
+            r bitfield lfu:bitfield:str SET u8 0 255
+
+            set type [expr {$roaring eq "yes" ? "bitmap" : "string"}]
+            foreach key $keys {
+                assert_equal [r type $key] $type
+            }
+            # New keys keep LFU_INIT_VAL; the strings get one more access.
+            set freqs {}
+            foreach key $keys {
+                lappend freqs [r object freq $key]
+            }
+            assert_equal $freqs {5 5 8 8} "bitmap-default-roaring $roaring"
+        }
+
+        r del {*}$keys
+        set _ {}
+    } {} {needs:config-maxmemory config:restore}
+
     test {bitmap-default-roaring converts non-empty strings to Roaring bitmaps and keeps TTL} {
         r config set bitmap-default-roaring yes
         set raw [binary format H* 80400100080000]
