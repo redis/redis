@@ -1149,10 +1149,21 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         # The loader rejects a logical byte length beyond the public bitmap
         # limit before the object can reach bitmap operations. 0x81 is the RDB
         # 64-bit length marker and the following value is 2^60, one byte past
-        # BITROAR_MAX_BYTES.
-        set oversized_len [binary format H* "218110000000000000001000${checksum}"]
+        # BITROAR_MAX_BYTES. The blob is valid, so only the bound rejects it.
+        set oversized_len [binary format H* "218110000000000000001e${one_bit}1000${checksum}"]
         assert_error {*Bad data format*} {
             r restore bitmap:rdb:oversized-len 0 $oversized_len
+        }
+
+        # The same blob at exactly BITROAR_MAX_BYTES (2^60-1) is accepted, so
+        # the rejection above comes from the bound. 32-bit builds reject any
+        # length beyond SIZE_MAX.
+        if {[s arch_bits] == 64} {
+            set max_len [binary format H* "21810fffffffffffffff1e${one_bit}1000${checksum}"]
+            r restore bitmap:rdb:max-len 0 $max_len
+            assert_equal bitmap [r type bitmap:rdb:max-len]
+            assert_equal 1 [r bitcount bitmap:rdb:max-len]
+            r del bitmap:rdb:max-len
         }
 
         # A valid portable bitmap must consume the entire RDB string payload.
