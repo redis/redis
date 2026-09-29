@@ -1772,6 +1772,44 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:sk
             assert_equal $raw [$replica get bitmap:public:repl:restore:target]
             assert_equal [$master debug digest] [$replica debug digest]
         }
+
+        test {writable replica ignores bitmap-default-roaring for local writes} {
+            # The master owns the representation decision. Local writes on a
+            # writable replica must not convert a key the master owns, not even
+            # logical no-ops, or the master's later string writes to it would
+            # fail on the replica with WRONGTYPE.
+            $master config set bitmap-default-roaring no
+            $replica config set bitmap-default-roaring yes
+            $replica config set replica-read-only no
+
+            $master set bitmap:repl:writable abc
+            wait_for_ofs_sync $master $replica
+            assert_equal abc [$replica get bitmap:repl:writable]
+
+            assert_equal 0 [$replica setbit bitmap:repl:writable 0 0]
+            assert_equal {0} [$replica bitfield bitmap:repl:writable SET u1 0 0]
+            assert_equal string [$replica type bitmap:repl:writable]
+
+            assert_equal 6 [$master append bitmap:repl:writable def]
+            wait_for_ofs_sync $master $replica
+            assert_equal string [$replica type bitmap:repl:writable]
+            assert_equal abcdef [$replica get bitmap:repl:writable]
+
+            # Keys created by local writes stay plain strings as well.
+            set local_keys {bitmap:repl:writable:setbit bitmap:repl:writable:bitfield
+                            bitmap:repl:writable:bitop}
+            assert_equal 0 [$replica setbit bitmap:repl:writable:setbit 7 1]
+            assert_equal {0} [$replica bitfield bitmap:repl:writable:bitfield SET u8 0 255]
+            assert_equal 6 [$replica bitop or bitmap:repl:writable:bitop bitmap:repl:writable]
+            foreach key $local_keys {
+                assert_equal string [$replica type $key]
+            }
+
+            $replica del {*}$local_keys
+            $replica config set replica-read-only yes
+            $replica config set bitmap-default-roaring no
+            assert_equal [$master debug digest] [$replica debug digest]
+        }
     }
 }
 
