@@ -1278,6 +1278,34 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitmap:rdb:oversized-len bitmap:rdb:trailing]
     }
 
+    test {Roaring bitmap RESTORE rejects truncated payloads} {
+        set old_compression [config_get_set rdbcompression no]
+
+        # Six array containers make the portable blob longer than 63 bytes, so
+        # both the logical byte length and the blob length use multi-byte RDB
+        # length encodings.
+        create_roaring_bitmap_from_bits r bitmap:rdb:truncated \
+            {3 70000 140000 210000 280000 1000000}
+        set dump [r dump bitmap:rdb:truncated]
+        r del bitmap:rdb:truncated
+        r config set rdbcompression $old_compression
+
+        # Cut the value at every offset, from the logical byte length through
+        # the portable blob, and append the RDB version and an all-zero
+        # checksum. RESTORE hands that footer to the loader as well, so each
+        # cut drops more than ten bytes. A shorter cut could let the footer
+        # bytes complete the blob as a different, valid bitmap.
+        set body [string range $dump 0 end-10]
+        set footer [string range $dump end-9 end-8][binary format x8]
+        for {set len 1} {$len < [string length $body] - 10} {incr len} {
+            set truncated [string range $body 0 [expr {$len - 1}]]$footer
+            assert_error {*Bad data format*} {
+                r restore bitmap:rdb:truncated 0 $truncated
+            }
+        }
+        assert_equal 0 [r exists bitmap:rdb:truncated]
+    }
+
     if {[s arch_bits] == 64} {
         test {Roaring bitmap DUMP stays compact at a 2^40 bit offset} {
             set high_bit [expr {(1 << 40) - 1}]
@@ -4029,6 +4057,32 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "needs:save" "cluste
         assert_match "*RDB looks OK*" $res
 
         r del bitmap:checkrdb:sparse bitmap:checkrdb:dense
+    }
+
+    test {redis-check-rdb reports a truncated Roaring bitmap as an unexpected EOF} {
+        r flushall
+        create_roaring_bitmap_from_bits r bitmap:checkrdb:truncated \
+            {3 70000 140000 210000 280000 1000000}
+        r save
+        set dir [lindex [r config get dir] 1]
+        set fd [open [file join $dir dump.rdb] rb]
+        set rdb [read $fd]
+        close $fd
+
+        # The bitmap is the only key, so it is the last value before the EOF
+        # opcode and the 8-byte checksum. Cutting the file inside its portable
+        # blob is a short read, which must not be reported as corruption: a
+        # replica loading from a socket resumes after read errors but exits on
+        # corruption errors.
+        set truncated_path [file join $dir truncated.rdb]
+        set fd [open $truncated_path wb]
+        puts -nonewline $fd [string range $rdb 0 end-14]
+        close $fd
+        catch {exec src/redis-check-rdb $truncated_path} res
+        file delete $truncated_path
+        assert_match "*Unexpected EOF reading RDB file*" $res
+        assert_no_match "*Invalid bitmap RDB payload*" $res
+        r del bitmap:checkrdb:truncated
     }
 }
 
