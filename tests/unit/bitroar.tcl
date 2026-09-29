@@ -2632,12 +2632,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             bitop:not:roaring:huge:copy bitop:not:roaring:limit \
             bitop:not:roaring:limit:dest bitop:not:roaring:dense:dest
 
-        # An empty source at exactly 65,536 missing chunks remains valid.
+        # An empty source at exactly 65,536 missing chunks remains valid, even
+        # under a limit low enough that the fixed floor is the whole budget.
         set limit_last_bit [expr {$allocation_envelope * 8 - 1}]
         assert_equal 0 [r setbit bitop:not:roaring:limit $limit_last_bit 0]
+        r config set proto-max-bulk-len 1048576
         assert_equal $allocation_envelope \
             [r bitop not bitop:not:roaring:limit:dest \
                 bitop:not:roaring:limit]
+        r config set proto-max-bulk-len $byte_len
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest 0]
         assert_equal 1 [r getbit bitop:not:roaring:limit:dest $limit_last_bit]
 
