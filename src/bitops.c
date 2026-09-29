@@ -1595,6 +1595,13 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
         return;
     }
 
+    /* Expire a logically expired target before reading the sources. Storing
+     * the result would otherwise expire it last: a native result would queue
+     * its DEL after BITOP, so replicas and the AOF would delete the result,
+     * and writes that expired callbacks make to a source would be replayed
+     * before BITOP although BITOP did not see them. */
+    lookupKeyWriteWithFlags(c->db, targetkey, LOOKUP_NOTOUCH);
+
     /* Lookup keys, and store pointers to the string objects into an array. */
     numkeys = c->argc - 3;
     src = zmalloc(sizeof(unsigned char*) * numkeys);

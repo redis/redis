@@ -1588,6 +1588,30 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal [binary format H* ff] [r debug bitmap-raw bitmap:aof-incr:bitop:out]
         assert_equal 0 [r exists bitmap:aof-incr:bitop:empty]
     }
+
+    test {Native BITOP into a logically expired destination survives AOF replay} {
+        r debug set-active-expire 0
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:aof-expired:roaring 100 1
+        r set bitmap:aof-expired:string [binary format H* f0]
+        r set bitmap:aof-expired:dest1 x PX 1
+        r set bitmap:aof-expired:dest2 x PX 1
+        after 10
+
+        # A Roaring source, and a string source with a config-selected result.
+        # BITOP expires the old destination, whose DEL must be replayed before
+        # BITOP rather than after it.
+        assert_equal 13 [r bitop or bitmap:aof-expired:dest1 bitmap:aof-expired:roaring]
+        assert_equal 1 [r bitop or bitmap:aof-expired:dest2 bitmap:aof-expired:string]
+        r config set bitmap-default-roaring no
+
+        set digest_before [debug_digest]
+        r debug loadaof
+        assert_equal $digest_before [debug_digest]
+        assert_equal bitmap [r type bitmap:aof-expired:dest1]
+        assert_equal bitmap [r type bitmap:aof-expired:dest2]
+        r debug set-active-expire 1
+    } {OK}
 }
 
 start_server {tags {"bitmap" "bitmap-roaring" "repl" "external:skip" "cluster:skip"}} {
