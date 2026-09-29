@@ -819,7 +819,7 @@ tags "modules aof external:skip" {
             set expected_stream [list {select *} [list set bitmap:rmcall:source [binary format H* 80]]]
             set bitmap_cases {}
 
-            # The configuration only applies when the BITCONVERT / BITOP_ROARING
+            # The configuration only applies when the BITCONVERT / BITROAROP
             # companion reaches both the AOF and the replicas: a target missing
             # it would replay the write, or whatever the module replicates in
             # its place, against a string. Otherwise the write keeps the string
