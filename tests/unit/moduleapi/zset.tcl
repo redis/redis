@@ -57,6 +57,37 @@ start_server {tags {"modules external:skip"}} {
         r config set zset-max-listpack-entries $old_max_entries
     }
 
+    foreach encoding {listpack btree} {
+        foreach count {3 1000} {
+            test "Module zset NaN score bounds are empty - $encoding, $count members" {
+                set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
+                r config set zset-max-listpack-entries [expr {$encoding eq "listpack" ? 2000 : 0}]
+                r del k
+                set elements {}
+                for {set j 1} {$j <= $count} {incr j} {
+                    lappend elements $j member:$j
+                }
+                r zadd k {*}$elements
+                assert_encoding $encoding k
+
+                foreach direction {first last} {
+                    foreach {min max} {NaN 10 0 NaN NaN NaN -NaN 10 0 -NaN -NaN -NaN} {
+                        foreach minex {0 1} {
+                            foreach maxex {0 1} {
+                                assert_equal {} [r zset.range k score $direction $min $max $minex $maxex]
+                            }
+                        }
+                    }
+                }
+                assert_equal {member:1 1 member:2 2 member:3 3} \
+                    [r zset.range k score first -inf 3 0 0]
+                assert_equal {member:3 3 member:2 2 member:1 1} \
+                    [r zset.range k score last -inf 3 0 0]
+                r config set zset-max-listpack-entries $old_max_entries
+            }
+        }
+    }
+
     test {Module zset range iteration ends after its saved rank is invalidated} {
         set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 0

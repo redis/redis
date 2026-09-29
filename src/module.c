@@ -5409,8 +5409,8 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
         if (found) {
             serverAssert(moduleZsetBtreeElementAtRank(key, rank, NULL, NULL,
                                                       &score));
-            if (first ? zslValueLteMax(score, zrs) :
-                        zslValueGteMin(score, zrs))
+            /* Module callers can pass NaN bounds, so check both sides. */
+            if (zslValueGteMin(score, zrs) && zslValueLteMax(score, zrs))
                 key->u.zset.current = (void *)(uintptr_t)(rank + 1);
         }
     } else {

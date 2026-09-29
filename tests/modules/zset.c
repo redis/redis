@@ -70,6 +70,22 @@ int zset_incrby(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx, "ERR ZsetIncrby failed");
 }
 
+/* Range APIs take doubles directly, so expose NaN bounds even though
+ * RedisModule_StringToDouble() rejects them. */
+static int zset_range_bound(RedisModuleString *arg, double *value) {
+    size_t len;
+    const char *str = RedisModule_StringPtrLen(arg, &len);
+    if (len == 3 && !strncasecmp(str, "nan", 3)) {
+        *value = NAN;
+        return REDISMODULE_OK;
+    }
+    if (len == 4 && !strncasecmp(str, "-nan", 4)) {
+        *value = -NAN;
+        return REDISMODULE_OK;
+    }
+    return RedisModule_StringToDouble(arg, value);
+}
+
 /* ZSET.RANGE key score first|last min max minex maxex
  * ZSET.RANGE key lex   first|last min max
  *
@@ -95,8 +111,8 @@ int zset_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (mode_len == 5 && !strncasecmp(mode, "score", 5) && argc == 8) {
         double min, max;
         long long minex, maxex;
-        if (RedisModule_StringToDouble(argv[4], &min) == REDISMODULE_ERR ||
-            RedisModule_StringToDouble(argv[5], &max) == REDISMODULE_ERR ||
+        if (zset_range_bound(argv[4], &min) == REDISMODULE_ERR ||
+            zset_range_bound(argv[5], &max) == REDISMODULE_ERR ||
             RedisModule_StringToLongLong(argv[6], &minex) == REDISMODULE_ERR ||
             RedisModule_StringToLongLong(argv[7], &maxex) == REDISMODULE_ERR ||
             (minex != 0 && minex != 1) || (maxex != 0 && maxex != 1))
