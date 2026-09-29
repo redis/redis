@@ -2045,8 +2045,6 @@ void unlinkClient(client *c) {
  * contain any referenced robj. */
 void tryUnlinkClientFromPendingRefReply(client *c, int force) {
     if (clientIsInPendingRefReplyList(c) && (force || !clientHasPendingReplies(c))) {
-        /* The client is leaving the list, so it won't be revisited by clientsCronRunClient() again. */
-        c->reply_bytes_unshared = 0;
         listUnlinkNode(server.clients_with_pending_ref_reply, &c->pending_ref_reply_node);
     }
 }
