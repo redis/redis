@@ -492,11 +492,28 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
         assert_equal OK [create_roaring_bitmap_from_raw r bitmap:digest:frag:converted $raw]
         assert_equal [expr {$bytes * 4}] [r bitcount bitmap:digest:frag:converted]
-        set start [clock milliseconds]
         set digest [r debug digest-value bitmap:digest:frag:converted]
-        set elapsed [expr {[clock milliseconds] - $start}]
         if {!$::valgrind} {
-            assert_lessthan $elapsed 2000
+            # Time the digest against a plain SHA1 pass over a 16MB string in
+            # the same server instead of a fixed limit, so the check holds on
+            # slow builds and busy runners alike. Streaming costs about 5x that
+            # baseline, while a SHA1 finalization per run costs about 100x.
+            # Keep the fastest of three runs to ride out scheduling noise.
+            r setrange bitmap:digest:baseline [expr {16 * 1024 * 1024 - 1}] x
+            foreach key {bitmap:digest:frag:converted bitmap:digest:baseline} {
+                set fastest($key) {}
+                for {set i 0} {$i < 3} {incr i} {
+                    set start [clock milliseconds]
+                    r debug digest-value $key
+                    set elapsed [expr {[clock milliseconds] - $start}]
+                    if {$fastest($key) eq {} || $elapsed < $fastest($key)} {
+                        set fastest($key) $elapsed
+                    }
+                }
+            }
+            r del bitmap:digest:baseline
+            assert_lessthan $fastest(bitmap:digest:frag:converted) \
+                [expr {25 * max(1, $fastest(bitmap:digest:baseline))}]
         }
 
         # Build the same bits through other container histories: BITFIELD
