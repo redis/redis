@@ -157,7 +157,8 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     }
 
     const setTypeOps *ops = setTypeGetOps(set->encoding);
-    int target_enc, added = ops->rawAdd(set, str, len, ((str == NULL) || (str == tmpbuf) ? &llval : NULL), str_is_sds, 0, &target_enc);
+    int64_t *llvalp = (str == NULL) || (str == tmpbuf) ? &llval : NULL;
+    int target_enc, added = ops->rawAdd(set, str, len, llvalp, str_is_sds, 0, &target_enc);
     if (added == -1) {
         serverAssert(str); /* make sure a string value is valid before conversion */
         /* Doesn't fit under the current encoding: convert encoding and retry there. */
