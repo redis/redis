@@ -155,6 +155,55 @@ if {$::debug_defrag} {
             r config set bitmap-default-roaring $old_bitmap_default_roaring
             assert_equal OK [r config set activedefrag $old_activedefrag]
         } {} {needs:config-resetstat}
+
+        test {forced active defrag walks a large Roaring bitmap incrementally} {
+            r flushall
+            set old_bitmap_default_roaring [config_get_set bitmap-default-roaring yes]
+            set old_activedefrag [config_get_set activedefrag no]
+            wait_for_condition 500 10 {
+                [s active_defrag_running] eq 0
+            } else {
+                fail "bitmap defrag did not stop"
+            }
+            r config resetstat
+
+            # One set bit per 2^16-bit chunk makes one sparse ARRAY container
+            # per chunk. More containers than active-defrag-max-scan-fields
+            # send the key to defragLater(), and more than two batches of 128
+            # make bitroarDefragIncremental() resume its cursor in every walk.
+            set containers 300
+            for {set j 0} {$j < $containers} {incr j} {
+                r setbit bitmap:defrag:sparse [expr {$j * 65536 + $j % 97}] 1
+            }
+            assert_equal bitmap-roaring [r object encoding bitmap:defrag:sparse]
+            set digest [debug_digest_value bitmap:defrag:sparse]
+            set old_max_scan_fields [config_get_set active-defrag-max-scan-fields 100]
+            # With jemalloc, serverCron's cached allocator stats rather than the
+            # forced 99% decide whether a cycle starts, so start on any
+            # fragmentation.
+            set old_threshold [config_get_set active-defrag-threshold-lower 0]
+            set old_ignore_bytes [config_get_set active-defrag-ignore-bytes 1]
+
+            set cycles [run_complete_defrag_cycles]
+            assert_morethan $cycles 0
+            # DEBUG_DEFRAG=force moves every allocation, so each walk step is a
+            # key hit: the main scan that queues the key, then one defragLater()
+            # step per batch of up to 128 containers. Every walk also moves
+            # each container and its value array.
+            set batches [expr {($containers + 127) / 128}]
+            assert_equal 0 [s active_defrag_key_misses]
+            assert_equal [expr {$cycles * (1 + $batches)}] [s active_defrag_key_hits]
+            assert_morethan_equal [s active_defrag_hits] [expr {$cycles * 2 * $containers}]
+
+            r config set active-defrag-max-scan-fields $old_max_scan_fields
+            r config set active-defrag-threshold-lower $old_threshold
+            r config set active-defrag-ignore-bytes $old_ignore_bytes
+            assert_equal $containers [r bitcount bitmap:defrag:sparse]
+            assert_equal $digest [debug_digest_value bitmap:defrag:sparse]
+            assert_equal 1 [r del bitmap:defrag:sparse]
+            r config set bitmap-default-roaring $old_bitmap_default_roaring
+            assert_equal OK [r config set activedefrag $old_activedefrag]
+        } {} {needs:config-resetstat}
     }
 }
 
@@ -1481,6 +1530,69 @@ run_solo {defrag} {
             assert_equal bitmap [r type bitmap:frag:0]
             assert_equal $template_raw [r debug bitmap-raw bitmap:frag:0]
             assert_equal $digest [debug_digest]
+            assert_equal OK [r save] ;# Iterates all pointers again after defrag.
+        }
+
+        test "Active defrag walks a large Roaring bitmap incrementally: $type" {
+            r flushall
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-max-scan-fields 100
+            r config set active-defrag-threshold-lower 1
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1
+            r config set maxmemory 0
+
+            # Interleave the containers of two bitmaps, with one set bit per
+            # 2^16-bit chunk and so one sparse ARRAY container per chunk, then
+            # delete one of them to leave holes around the other's containers.
+            r config set bitmap-default-roaring yes
+            set containers 1000
+            set rd [redis_deferring_client]
+            set count 0
+            for {set j 0} {$j < $containers} {incr j} {
+                set offset [expr {$j * 65536 + $j % 97}]
+                $rd setbit bigbitmap1 $offset 1
+                $rd setbit bigbitmap2 $offset 1
+                incr count
+                discard_replies_every $rd $count 500 1000
+            }
+            set remaining [expr {($count % 500) * 2}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
+            }
+            $rd close
+            r config set bitmap-default-roaring no
+            assert_equal 1 [r del bigbitmap2]
+            # Return the freed containers from the thread cache to their slabs.
+            r debug mallctl-str thread.tcache.flush VOID
+            assert_equal bitmap-roaring [r object encoding bigbitmap1]
+            assert_equal $containers [r bitcount bigbitmap1]
+            set digest [debug_digest_value bigbitmap1]
+
+            set cycles [run_complete_defrag_cycles]
+            if {$cycles > 0} {
+                # bigbitmap1 has more containers than active-defrag-max-scan-fields,
+                # so every cycle counts one key step for the main scan that queues
+                # it, then one defragLater() step per batch of up to 128 containers
+                # walked by bitroarDefragIncremental(). Each walk checks every
+                # container and its value array. Whether jemalloc moves one depends
+                # on its bin's average utilization, so count checks (a hit or a
+                # miss each) rather than relocations.
+                set batches [expr {($containers + 127) / 128}]
+                assert_equal [expr {$cycles * (1 + $batches)}] \
+                    [expr {[s active_defrag_key_hits] + [s active_defrag_key_misses]}]
+                assert_morethan_equal \
+                    [expr {[s active_defrag_hits] + [s active_defrag_misses]}] \
+                    [expr {$cycles * 2 * $containers}]
+            }
+
+            assert_equal bitmap-roaring [r object encoding bigbitmap1]
+            assert_equal $containers [r bitcount bigbitmap1]
+            assert_equal $digest [debug_digest_value bigbitmap1]
             assert_equal OK [r save] ;# Iterates all pointers again after defrag.
         }
 
