@@ -772,6 +772,39 @@ tags "modules external:skip" {
                 }
             }
 
+            test "Keyspace notifications: BITOP expires its destination before reading sources" {
+                set dest bitmap:bitop-expired:dest
+                set src bitmap:bitop-expired:src
+                # The module's expired callback increments testkeyspace:expired,
+                # which is also a source: BITOP must read it after that write,
+                # which is replayed before BITOP, as replicas do.
+                $master debug set-active-expire 0
+                foreach {mode roaring} {roaring yes config yes dense no} {
+                    $master config set bitmap-default-roaring $roaring
+                    $master del $dest $src
+                    $master set testkeyspace:expired 5
+                    if {$mode eq "roaring"} {
+                        $master setbit $src 100 1
+                    } else {
+                        $master set $src [binary format H* 00]
+                    }
+                    $master set $dest x PX 1
+                    after 10
+
+                    $master bitop or $dest testkeyspace:expired $src
+                    wait_for_ofs_sync $master $replica
+                    assert_equal 6 [$master get testkeyspace:expired]
+                    assert_equal [$master get testkeyspace:expired] \
+                        [$replica get testkeyspace:expired]
+                    assert_equal [$master debug digest-value $dest] \
+                        [$replica debug digest-value $dest]
+                }
+                $master config set bitmap-default-roaring no
+                $master debug set-active-expire 1
+                $master del $dest $src testkeyspace:expired
+                wait_for_ofs_sync $master $replica
+            }
+
             test "Keyspace notifications: conversion replay preserves callback contract" {
                 set key bitmap:transition:replay
 

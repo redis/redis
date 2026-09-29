@@ -855,7 +855,7 @@ tags "modules aof external:skip" {
                         if {$type eq "string"} {
                             lappend expected_stream $cmd
                         } elseif {$command eq "bitop"} {
-                            lappend expected_stream [lreplace $cmd 0 0 bitop_roaring]
+                            lappend expected_stream [lreplace $cmd 0 0 bitroarop]
                         } else {
                             lappend expected_stream {multi} [list bitconvert $key] $cmd {exec}
                         }
