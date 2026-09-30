@@ -2563,6 +2563,28 @@ static void zbtScoreDeleteInPlace(zbtreeSet *zs, zbtScoreLeaf *leaf,
     zbtScoreUpdatePath(&leaf->n, -1);
 }
 
+/* Put the smallest score at the physical end before draining the first
+ * leaf. Reusing the existing reversed encoding avoids shifting all packed
+ * scores on every pop. Member records and index references stay in place. */
+static void zbtScoreLeafReverseForPop(zbtScoreLeaf *leaf) {
+    unsigned int count = leaf->n.count;
+    double scores[ZBT_SCORE_LEAF_MAX];
+    for (unsigned int i = 0; i < count; i++)
+        scores[i] = zbtScoreLeafScore(leaf, i);
+    uint16_t *offsets = zbtScoreLeafOffsets(leaf);
+    uint8_t *tags = zbtScoreLeafHashTags(leaf);
+    for (unsigned int i = 0; i < count / 2; i++) {
+        unsigned int j = count - i - 1;
+        uint16_t offset = offsets[i]; offsets[i] = offsets[j]; offsets[j] = offset;
+        uint8_t tag = tags[i]; tags[i] = tags[j]; tags[j] = tag;
+    }
+    leaf->score_base = zbtScoreToOrdered(scores[count - 1]);
+    leaf->reversed = 1;
+    memset(leaf->data, 0, zbtScoreLeafScoreBytes(count, leaf->score_bits));
+    for (unsigned int i = 0; i < count; i++)
+        zbtScoreLeafWriteScore(leaf, i, scores[i]);
+}
+
 /* Delete one score-tree element. Score updates disable merging because they
  * are about to reinsert the same member; normal deletions also compact the
  * records and try to join a small leaf. */
@@ -2579,6 +2601,8 @@ static void zbtScoreDeleteAt(zbtreeSet *zs, zbtScoreLeaf *leaf,
      * members to be deleted next, so let it empty and disappear instead. */
     int edge = (pos == 0 && leaf == zs->score_first) ||
                (pos + 1 == leaf->n.count && leaf == zs->score_last);
+    if (allow_merge && pos == 0 && leaf == zs->score_first && !leaf->reversed)
+        zbtScoreLeafReverseForPop(leaf);
     zbtScoreDeleteInPlace(zs, leaf, pos, allow_merge);
     if (!allow_merge || leaf->n.count > ZBT_SCORE_LEAF_MERGE) return;
     if (edge) {

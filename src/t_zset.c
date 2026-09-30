@@ -4962,6 +4962,32 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         addReplyDouble(c,score);
         sdsfree(ele);
         ++result_count;
+
+        /* The first pop above preserves the usual notification point. Read
+         * the rest before deleting their rank range, so each B+tree leaf is
+         * edited once instead of shifting its packed arrays for every item. */
+        if (zobj->encoding == OBJ_ENCODING_BTREE && rangelen > 1) {
+            zbtreeSet *zs = zobj->ptr;
+            long remaining = rangelen - 1;
+            zbtreeIterator iter;
+            serverAssert(zbtreeIteratorStart(zs, where == ZSET_MAX, &iter));
+            for (long i = 0; i < remaining; i++) {
+                const unsigned char *raw;
+                size_t len;
+                serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX,
+                                                 &raw, &len, &score));
+                if (use_nested_array) addReplyArrayLen(c, 2);
+                addReplyBulkCBuffer(c, raw, len);
+                addReplyDouble(c, score);
+            }
+            unsigned long start = where == ZSET_MAX ?
+                zbtreeLength(zs) - remaining : 0;
+            serverAssert(zbtreeDeleteRangeByRank(zs, start,
+                start + remaining - 1) == (unsigned long)remaining);
+            result_count += remaining;
+            server.dirty += remaining;
+            break;
+        }
     } while(--rangelen);
 
     if (server.memory_tracking_enabled)
