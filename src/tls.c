@@ -704,16 +704,32 @@ static sds getCertFieldByName(X509 *cert, const char *field) {
 
     if (nid == -1) return NULL;
 
-    X509_NAME *subject = X509_get_subject_name(cert);
-    if (!subject) return NULL;
+    /* The subject (e.g. "CN=alice, O=redis"), its entries and their values
+     * are all owned by the cert, don't free them. They are deliberately not
+     * held in typed locals: the const-ness of these accessors differs between
+     * OpenSSL 1.0.2, 3.x and 4.0, and chaining the calls keeps every version
+     * warning-free. */
+    if (!X509_get_subject_name(cert)) return NULL;
 
-    /* The name may contain embedded NULs, so use the returned length, not
+    /* Find the first entry of type nid (e.g. CN), searching from the start
+     * (-1). Returns its index, or -1 if not found. */
+    int index = X509_NAME_get_index_by_NID(X509_get_subject_name(cert), nid, -1);
+    if (index < 0) return NULL;
+
+    /* Decode the entry's ASN.1 string (UTF8String, BMPString, ...) into UTF-8.
+     * The name may contain embedded NULs, so use the returned length, not
      * strlen, to build the proper binary-safe string. */
-    char buf[256];
-    int len = X509_NAME_get_text_by_NID(subject, nid, buf, sizeof(buf));
-    if (len <= 0) return NULL;
+    unsigned char *utf8 = NULL;
+    int len = ASN1_STRING_to_UTF8(&utf8,
+        X509_NAME_ENTRY_get_data(X509_NAME_get_entry(X509_get_subject_name(cert), index)));
+    if (len <= 0) {
+        OPENSSL_free(utf8);
+        return NULL;
+    }
 
-    return sdstrynewlen(buf, len);
+    sds result = sdstrynewlen(utf8, len);
+    OPENSSL_free(utf8);
+    return result;
 }
 
 sds tlsGetPeerUsername(connection *conn_) {
