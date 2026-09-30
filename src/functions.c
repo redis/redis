@@ -258,7 +258,9 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
         .f_flags = f_flags,
     };
 
-    dictReplace(li->functions, fi->name, fi);
+    if (!dictReplace(li->functions, fi->name, fi)) {
+        serverLog(LL_WARNING, "Function %s was overwritten in library %s", fi->name, li->name);
+    }
 
     return C_OK;
 }
