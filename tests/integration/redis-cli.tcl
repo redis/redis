@@ -971,6 +971,35 @@ start_server {tags {"cli external:skip logreqres:skip"}} {
     }
 }
 
+if {!$::force_resp3} {
+    start_server {tags {"cli external:skip logreqres:skip"}} {
+        start_server {tags {"cli external:skip logreqres:skip"}} {
+            test_interactive_cli_with_prompt "explicit connect does not use the previous protocol" {
+                run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+                run_command_until $fd "CLIENT INFO\x0D" {resp=3}
+
+                # Connect to a different server. Its default protocol is RESP2,
+                # so HELLO 3 from the first server must not be replayed.
+                run_command_until $fd "connect [srv -1 host] [srv -1 port]\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+                run_command_until $fd "CLIENT INFO\x0D" {resp=2}
+            }
+
+            test_interactive_cli_with_prompt "failed explicit connect does not restore the previous protocol on retry" {
+                run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+                run_command_until $fd "CLIENT INFO\x0D" {resp=3.*127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+
+                exec kill [srv -1 pid]
+                wait_for_log_messages -1 {"*Redis is now ready to exit*"} 0 1000 10
+                run_command_until $fd "connect [srv -1 host] [srv -1 port]\x0D" {not connected>}
+
+                restart_server -1 true false 0
+                set info [run_command_until $fd "CLIENT INFO\x0D" {resp=2}]
+                assert_match "*laddr=[srv -1 host]:[srv -1 port] *resp=2*" $info
+            }
+        }
+    }
+}
+
 start_server {tags {"cli external:skip"}} {
     test "keystats on empty database should not produce garbage stats" {
         # On an empty DB the keystats histogram has total_count = 0. Verify hdr_mean(), hdr_stddev(),

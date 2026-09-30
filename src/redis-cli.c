@@ -3694,6 +3694,8 @@ static void repl(void) {
                 config.conn_info.hostip = sdsnew(argv[1]);
                 config.conn_info.hostport = atoi(argv[2]);
                 cliRefreshPrompt();
+                /* Reset the protocol when connecting to a new server. */
+                config.current_resp = RESP_PROTO_NONE;
                 cliConnect(CC_FORCE);
             } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                 linenoiseClearScreen();
