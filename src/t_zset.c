@@ -4942,12 +4942,17 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
                                               where == ZSET_MAX, &iter));
             serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX,
                                              &raw, &len, &score));
-            ele = sdsnewlen(raw, len);
+            /* Copy the reply before deletion invalidates the leaf bytes. */
+            if (use_nested_array) addReplyArrayLen(c, 2);
+            addReplyBulkCBuffer(c, raw, len);
+            addReplyDouble(c, score);
+            zbtreeDeleteEdge(zobj->ptr, where == ZSET_MAX);
+            ele = NULL;
         } else {
             serverPanic("Unknown sorted set encoding");
         }
 
-        serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
+        if (ele) serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
         if (result_count == 0) { /* Do this only for the first iteration. */
@@ -4955,12 +4960,12 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
         }
 
-        if (use_nested_array) {
-            addReplyArrayLen(c,2);
+        if (ele) {
+            if (use_nested_array) addReplyArrayLen(c,2);
+            addReplyBulkCBuffer(c,ele,sdslen(ele));
+            addReplyDouble(c,score);
+            sdsfree(ele);
         }
-        addReplyBulkCBuffer(c,ele,sdslen(ele));
-        addReplyDouble(c,score);
-        sdsfree(ele);
         ++result_count;
 
         /* The first pop above preserves the usual notification point. Read

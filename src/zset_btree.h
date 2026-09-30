@@ -106,6 +106,7 @@ void zbtreeAppendBatchAddWithHash(zbtreeAppendBatch *b, double score,
                                   uint32_t hash);
 void zbtreeAppendBatchFinish(zbtreeAppendBatch *b);
 int zbtreeDelete(zbtreeSet *zs, sds ele);
+void zbtreeDeleteEdge(zbtreeSet *zs, int reverse);
 void zbtreeUpdateScore(zbtreeSet *zs, sds ele, double score,
                        const zbtreeInsertPosition *position);
 unsigned long zbtreeDeleteRangeByRank(zbtreeSet *zs, unsigned long start,

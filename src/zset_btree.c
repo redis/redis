@@ -2649,6 +2649,8 @@ static void zbtScoreDeleteRun(zbtreeSet *zs, zbtScoreLeaf *score_leaf,
 {
     unsigned int count = score_leaf->n.count;
     serverAssert(n >= 1 && score_pos + n <= count);
+    int edge = (score_pos == 0 && score_leaf == zs->score_first) ||
+               (score_pos + n == count && score_leaf == zs->score_last);
 
     if (update_member_index) {
         for (unsigned int i = 0; i < n; i++) {
@@ -2698,7 +2700,9 @@ static void zbtScoreDeleteRun(zbtreeSet *zs, zbtScoreLeaf *score_leaf,
     zbtScoreLeaf *newleaf = zbtScoreLeafBuild(zs, kept, scores, eles, tags,
                                               score_leaf->id, 0);
     zbtScoreReplaceLeaf(zs, score_leaf, newleaf);
-    if (allow_merge && kept <= ZBT_SCORE_LEAF_MERGE)
+    /* Like single-member pops, a range draining an end need not pull
+     * neighboring members into the leaf that will be emptied next. */
+    if (allow_merge && !edge && kept <= ZBT_SCORE_LEAF_MERGE)
         zbtScoreMerge(zs, newleaf);
 }
 
@@ -3469,6 +3473,15 @@ int zbtreeDelete(zbtreeSet *zs, sds ele) {
     zs->length--;
     zbtIndexShrinkIfNeeded(zs);
     return 1;
+}
+
+/* Delete an already selected end member without looking it up by name. */
+void zbtreeDeleteEdge(zbtreeSet *zs, int reverse) {
+    zbtIndexRehashStep(zs, 1);
+    zbtScoreLeaf *leaf = reverse ? zs->score_last : zs->score_first;
+    serverAssert(leaf != NULL);
+    zbtScoreDeleteRun(zs, leaf, reverse ? leaf->n.count - 1 : 0, 1, 1, 1);
+    zbtIndexShrinkIfNeeded(zs);
 }
 
 /* Change a score without moving the element when two conditions hold:
