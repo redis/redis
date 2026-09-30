@@ -306,6 +306,78 @@ start_server {tags {"expire"}} {
         r ttl foo
     } {-2}
 
+    test {Expiration lag: lazy deletion reports how long the key outlived its deadline} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking yes
+        r debug set-active-expire 0
+        r psetex lagkey 100 v
+        after 600
+        # The read is what deletes the key here, so the reported lag is the
+        # time the key spent past its deadline before anyone asked for it.
+        assert_equal {} [r get lagkey]
+        set line [latencyrstat_percentiles lazy r expire_lag_percentiles_usec]
+        assert_match {*p50=*} $line
+        assert_match {} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
+        regexp {p50=([0-9.]+)} $line -> p50
+        assert {$p50 >= 400000}
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test {Expiration lag: lazy deletion measures elapsed time, not the execution unit clock} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking yes
+        r debug set-active-expire 0
+        r psetex unitlagkey 100 v
+        after 200
+        # The deletion happens inside the transaction, after the sleep. The clock
+        # the execution unit carries is frozen at EXEC, so reading that instead of
+        # the current time would drop the whole second the key spent waiting.
+        r multi
+        r debug sleep 1
+        r get unitlagkey
+        assert_equal {} [lindex [r exec] 1]
+        set line [latencyrstat_percentiles lazy r expire_lag_percentiles_usec]
+        assert_match {*p50=*} $line
+        regexp {p50=([0-9.]+)} $line -> p50
+        assert {$p50 >= 900000}
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test {Expiration lag: the active cycle reports its own samples} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking yes
+        r debug set-active-expire 1
+        r psetex activelagkey 100 v
+        wait_for_condition 50 100 {
+            [latencyrstat_percentiles active r expire_lag_percentiles_usec] ne {}
+        } else {
+            fail "active expire cycle recorded no lag sample"
+        }
+        assert_match {*p50=*} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
+    } {} {needs:debug}
+
+    test {Expiration lag: nothing is recorded while latency tracking is off} {
+        r flushall
+        r config resetstat
+        r config set latency-tracking no
+        r debug set-active-expire 0
+        r psetex offlagkey 100 v
+        after 600
+        # Take the lazy path on purpose: with the active cycle running the key
+        # would usually be reaped before anyone reads it.
+        assert_equal {} [r get offlagkey]
+        # Read INFO with tracking back on. The whole latencystats body is emitted
+        # only while tracking is on, so asserting on it with tracking off would
+        # match nothing whether or not a sample had been recorded.
+        r config set latency-tracking yes
+        assert_match {} [latencyrstat_percentiles lazy r expire_lag_percentiles_usec]
+        assert_match {} [latencyrstat_percentiles active r expire_lag_percentiles_usec]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     # Start a new server with empty data and AOF file.
     start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
         test {All time-to-live(TTL) in commands are propagated as absolute timestamp in milliseconds in AOF} {
