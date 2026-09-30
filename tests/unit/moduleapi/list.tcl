@@ -154,6 +154,35 @@ start_server {tags {"modules external:skip"}} {
         config_set list-max-listpack-size $original_config
     }
 
+    test {Module list push to an existing list wakes BLMOVEM EXACTLY} {
+        r del src dst
+        r rpush src 1
+        set rd [redis_deferring_client]
+        $rd blmovem src dst left right 0 exactly 3 bulk
+        wait_for_blocked_clients_count 1
+        r list.insert src -1 2   ;# RM_ListPush to the tail -> 1 2
+        r list.insert src 0 0    ;# RM_ListPush to the head -> 0 1 2
+        wait_for_blocked_clients_count 0
+        assert_equal {0 1 2} [$rd read]
+        assert_equal {0 1 2} [r lrange dst 0 -1]
+        assert_equal 0 [r exists src]
+        $rd close
+    }
+
+    test {Module list insert in the middle of a list wakes BLMOVEM EXACTLY} {
+        r del src dst
+        r rpush src 1 3
+        set rd [redis_deferring_client]
+        $rd blmovem src dst left right 0 exactly 3 bulk
+        wait_for_blocked_clients_count 1
+        r list.insert src 1 2    ;# listTypeInsert -> 1 2 3
+        wait_for_blocked_clients_count 0
+        assert_equal {1 2 3} [$rd read]
+        assert_equal {1 2 3} [r lrange dst 0 -1]
+        assert_equal 0 [r exists src]
+        $rd close
+    }
+
     test {Module list - KEYSIZES is updated as expected} {
         proc run_cmd_verify_hist {cmd expOutput {retries 1}} {
             proc K {} {return [string map { "db0_distrib_lists_items" "db0_LIST" "# Keysizes" "" " " "" "\n" "" "\r" "" } [r info keysizes] ]}
