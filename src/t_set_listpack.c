@@ -18,6 +18,10 @@
 #include "intset.h" /* Compact integer set structure, for the conversion size estimate below. */
 #include "t_set_encoding.h"
 
+void setTypeListpackShrinkToFit(robj *set) {
+    set->ptr = lpShrinkToFit(set->ptr);
+}
+
 static int lpRawAdd(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc) {
     UNUSED(str_is_sds);
     unsigned char *lp = set->ptr;
@@ -133,10 +137,6 @@ static robj *lpSetDup(robj *o) {
 
 static void lpSetFree(robj *set) {
     zfree(set->ptr);
-}
-
-void setTypeListpackShrinkToFit(robj *set) {
-    set->ptr = lpShrinkToFit(set->ptr);
 }
 
 static void *lpConvertFrom(robj *set, unsigned long cap, int panic) {
