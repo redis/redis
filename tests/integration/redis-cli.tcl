@@ -953,6 +953,7 @@ start_server {tags {"cli external:skip"}} {
     }
 }
 
+if {!$::force_resp3} {
 start_server {tags {"cli external:skip"}} {
     test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
         run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
@@ -969,6 +970,7 @@ start_server {tags {"cli external:skip"}} {
         after 100
         read_cli_until $fd {resp=2}
     }
+}
 }
 
 start_server {tags {"cli external:skip"}} {
