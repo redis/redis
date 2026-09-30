@@ -149,12 +149,14 @@
 /* Member lookup uses an open addressed table with eight slots per bucket. */
 #define ZBT_INDEX_BUCKET_ITEMS 8
 #define ZBT_INDEX_INITIAL_BUCKETS 4
-#define ZBT_INDEX_MAX_LOAD_NUM 31
-#define ZBT_INDEX_MAX_LOAD_DEN 32
+/* Leave headroom for bounded probe runs, including the overflow walk used
+ * by ZSCAN. Tombstones need a separate limit because they also extend runs. */
+#define ZBT_INDEX_MAX_LOAD_NUM 7
+#define ZBT_INDEX_MAX_LOAD_DEN 8
 #define ZBT_INDEX_MIN_LOAD_NUM 1
 #define ZBT_INDEX_MIN_LOAD_DEN 8
-#define ZBT_INDEX_MAX_FILLED_NUM 63
-#define ZBT_INDEX_MAX_FILLED_DEN 64
+#define ZBT_INDEX_MAX_FILLED_NUM 15
+#define ZBT_INDEX_MAX_FILLED_DEN 16
 #define ZBT_INDEX_DELETED_ID UINT32_MAX
 #define ZBT_INDEX_WIDE_ID_AT (UINT16_MAX / 2)
 
@@ -2578,11 +2580,21 @@ static void zbtScoreLeafReverseForPop(zbtScoreLeaf *leaf) {
         uint16_t offset = offsets[i]; offsets[i] = offsets[j]; offsets[j] = offset;
         uint8_t tag = tags[i]; tags[i] = tags[j]; tags[j] = tag;
     }
-    leaf->score_base = zbtScoreToOrdered(scores[count - 1]);
+    /* +0.0 and -0.0 compare equal and are ordered by member, so the last
+     * logical score need not have the largest ordered value. */
+    uint64_t base = zbtScoreToOrdered(scores[0]);
+    for (unsigned int i = 1; i < count; i++) {
+        uint64_t ordered = zbtScoreToOrdered(scores[i]);
+        if (ordered > base) base = ordered;
+    }
+    leaf->score_base = base;
     leaf->reversed = 1;
     memset(leaf->data, 0, zbtScoreLeafScoreBytes(count, leaf->score_bits));
-    for (unsigned int i = 0; i < count; i++)
+    for (unsigned int i = 0; i < count; i++) {
         zbtScoreLeafWriteScore(leaf, i, scores[i]);
+        debugServerAssert(zbtScoreToOrdered(zbtScoreLeafScore(leaf, i)) ==
+                          zbtScoreToOrdered(scores[i]));
+    }
 }
 
 /* Delete one score-tree element. Score updates disable merging because they
@@ -4532,7 +4544,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
     {
         uint8_t seed[16] = {0};
         dictSetHashFunctionSeed(seed);
-        const int N = 7900; /* 1024 buckets, about 96% load, no resize. */
+        const int N = 7000; /* 1024 buckets, about 85% load, no resize. */
         zbtreeSet *zs = zbtreeCreate();
         zbtreeReserve(zs, N);
         int *perm = zmalloc(sizeof(int) * N);
@@ -4857,6 +4869,39 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         zbtreeFree(zs);
         zfree(ref);
         zfree(alive);
+    }
+
+    printf("Testing B+ tree first-leaf pop with mixed signed zero scores\n");
+    {
+        /* +0.0 and -0.0 compare equal, so members order them. The last member
+         * of a leaf can then have the smaller ordered score. */
+        const char *names[] = {"a", "b", "c", "d"};
+        double in[] = {0.0, 0.0, 0.0, -0.0};
+        zbtreeSet *zs = zbtreeCreate();
+        for (int i = 0; i < 4; i++) {
+            sds ele = sdsnew(names[i]);
+            double cur;
+            zbtreeInsertPosition position;
+            serverAssert(!zbtreeFindForAdd(zs, ele, &cur, &position));
+            zbtreeInsertNew(zs, in[i], ele, &position);
+            sdsfree(ele);
+        }
+        sds first = sdsnew("a");
+        serverAssert(zbtreeDelete(zs, first));
+        sdsfree(first);
+        int ok = zbtreeLength(zs) == 3;
+        for (int i = 1; i < 4; i++) {
+            sds ele = sdsnew(names[i]);
+            double score = 12345;
+            int found = zbtreeScore(zs, ele, &score);
+            printf("    %s found=%d score=%.17g signbit=%d\n", names[i], found,
+                   score, signbit(score) != 0);
+            ok = ok && found && score == 0 &&
+                 (signbit(score) != 0) == (signbit(in[i]) != 0);
+            sdsfree(ele);
+        }
+        test_cond("Popping the first member keeps signed zero scores exact", ok);
+        zbtreeFree(zs);
     }
 
     return 0;

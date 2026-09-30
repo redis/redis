@@ -1235,6 +1235,18 @@ start_server {tags {"zset"}} {
             }
         }
 
+    test {ZPOPMIN keeps mixed signed zero scores exact in a B+tree leaf} {
+        set old_limit [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del signed-zero-pop
+        r zadd signed-zero-pop 0 a 0 b 0 c -0 d
+        assert_encoding btree signed-zero-pop
+        assert_equal {a 0} [r zpopmin signed-zero-pop]
+        assert_equal {b 0 c 0 d -0} [r zrange signed-zero-pop 0 -1 withscores]
+        r del signed-zero-pop
+        r config set zset-max-listpack-entries $old_limit
+    }
+
     foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
         test "Basic $popmin/$popmax with a single key - $encoding" {
             r del zset
