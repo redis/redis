@@ -3863,21 +3863,29 @@ static int zbtIndexHashReachesBucket(const zbtIndexTable *table, uint32_t hash,
     return 0;
 }
 
-/* Return the members represented by one physical table slot. Usually its tag
- * occurs once in the score leaf and the answer is immediate. If tags collide,
- * emit each member from every matching slot on its own search path. Duplicates
- * are allowed by ZSCAN, while this rule cannot move a member behind the cursor
- * merely because another member was inserted or changed score. */
+/* Return the members represented by one physical table slot. If home_end is
+ * nonzero, only return members whose home bucket is in [home_start,home_end).
+ * Tags may represent several members in a leaf; duplicates are allowed. */
 static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
                                       zbtIndexTable *table,
                                       zbtIndexBucket *bucket,
                                       unsigned int slot_pos,
+                                      unsigned long home_start,
+                                      unsigned long home_end,
                                       zbtreeScanFunction *fn,
                                       void *privdata)
 {
     uint8_t tag = zbtIndexTags(bucket) >> (slot_pos * 8);
     uint32_t id = zbtIndexGetId(table, bucket, slot_pos);
     if (tag == 0 || id == ZBT_INDEX_DELETED_ID) return 0;
+    if (home_end) {
+        uint64_t bits = zbtIndexTagBits(tag);
+        unsigned long home;
+        for (home = home_start; home < home_end; home++) {
+            if ((*zbtIndexHomeTagsAt(table, home) & bits) == bits) break;
+        }
+        if (home == home_end) return 0;
+    }
     zbtScoreLeaf *leaf = id < zs->next_score_leaf_id ?
         zs->score_leaf_by_id[id] : NULL;
     if (leaf == NULL || ZBT_IS_FREE_LEAF_ID(leaf)) {
@@ -3946,9 +3954,12 @@ static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
          * zbtIndexHashReachesBucket() -- whether a same-tag member actually
          * probes through this bucket or only landed here via open-
          * addressing chaining. A single match needs no such check. */
-        if (count > 1) {
+        if (count > 1 || home_end) {
             uint32_t hash = zbtScoreLeafHash(leaf, positions[i]);
-            if (!zbtIndexHashReachesBucket(table, hash, bucket))
+            unsigned long home = hash & (table->size - 1);
+            if (home_end && (home < home_start || home >= home_end))
+                continue;
+            if (count > 1 && !zbtIndexHashReachesBucket(table, hash, bucket))
                 continue;
         }
         size_t len;
@@ -3957,7 +3968,7 @@ static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
         fn(privdata, ele, len, zbtScoreLeafScore(leaf, positions[i]));
         emitted++;
     }
-    serverAssert(emitted != 0);
+    serverAssert(home_end || emitted != 0);
     return emitted;
 }
 
@@ -3991,23 +4002,38 @@ uint64_t zbtreeScan(zbtreeSet *zs, uint64_t cursor,
         if (end > total_buckets) end = total_buckets;
 
         /* Finish the whole group before saving the cursor. COUNT is a hint,
-         * as it is for a normal dictionary scan. */
+         * as it is for a normal dictionary scan. Groups never span tables:
+         * both table sizes are powers of two and at least one group long. */
+        zbtIndexTable *table = bucket_index < first_buckets ?
+            &zs->member_index : &zs->member_rehash->table;
+        uint64_t base = bucket_index < first_buckets ? 0 : first_buckets;
+        unsigned long home_start = bucket_index - base;
+        unsigned long home_end = end - base;
         while (bucket_index < end) {
-            zbtIndexTable *table;
-            uint64_t local;
-            if (bucket_index < first_buckets) {
-                table = &zs->member_index;
-                local = bucket_index;
-            } else {
-                serverAssert(zs->member_rehash != NULL);
-                table = &zs->member_rehash->table;
-                local = bucket_index - first_buckets;
-            }
-            zbtIndexBucket *bucket = zbtIndexBucketAt(table, local);
+            zbtIndexBucket *bucket = zbtIndexBucketAt(table, bucket_index - base);
             for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++)
-                emitted += zbtIndexScanSlot(zs, table, bucket, pos,
+                emitted += zbtIndexScanSlot(zs, table, bucket, pos, 0, 0,
                                             fn, privdata);
             bucket_index++;
+        }
+
+        /* Same-tag references can exchange slots when a member changes
+         * score, so its physical slot is not a stable scan position. Its
+         * home bucket is stable. Also visit the probe run beyond this group
+         * to return every member whose home is here before advancing past it.
+         * Most members were already returned above, without rehashing their
+         * bytes; only displaced entries need the extra home-bucket check. */
+        unsigned long mask = table->size - 1;
+        unsigned long index = home_end - 1;
+        unsigned long remaining = table->size - (home_end - home_start);
+        while (remaining-- &&
+               !zbtIndexTagMask(zbtIndexTags(zbtIndexBucketAt(table, index)), 0))
+        {
+            index = (index + 1) & mask;
+            zbtIndexBucket *bucket = zbtIndexBucketAt(table, index);
+            for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++)
+                emitted += zbtIndexScanSlot(zs, table, bucket, pos,
+                                            home_start, home_end, fn, privdata);
         }
         group++;
     }
@@ -4062,6 +4088,47 @@ static void zbtTestPopulateRange(zbtreeSet *zs, int from, int to) {
 
 static void zbtTestPopulate(zbtreeSet *zs, int n) {
     zbtTestPopulateRange(zs, 0, n);
+}
+
+/* Helpers for the M1 same-tag scan regression. */
+static uint32_t zbtTestHash(const char *s) {
+    return (uint32_t)dictGenHashFunction((const unsigned char *)s, strlen(s));
+}
+
+static zbtScoreLeaf *zbtTestLeafOf(zbtreeSet *zs, const char *s) {
+    zbtScoreLeaf *leaf = NULL;
+    unsigned int pos;
+    serverAssert(zbtIndexFind(zs, zbtTestHash(s), (const unsigned char *)s,
+                              strlen(s), NULL, &leaf, &pos, NULL, NULL));
+    return leaf;
+}
+
+static int zbtTestTagCount(zbtScoreLeaf *leaf, uint8_t tag) {
+    int count = 0;
+    for (unsigned int i = 0; i < leaf->n.count; i++)
+        if (zbtIndexTag(zbtScoreLeafHash(leaf, i)) == tag) count++;
+    return count;
+}
+
+static int zbtTestSlotOf(zbtreeSet *zs, uint32_t hash, uint32_t id,
+                         unsigned long *bucket_index, unsigned int *pos)
+{
+    zbtIndexBucket *bucket;
+    if (!zbtIndexTableFindReference(&zs->member_index, hash, id, &bucket, pos))
+        return 0;
+    *bucket_index = ((unsigned char *)bucket -
+                     (unsigned char *)zs->member_index.buckets) /
+                    zbtIndexBucketBytes(&zs->member_index);
+    return 1;
+}
+
+static void zbtTestSetScore(zbtreeSet *zs, const char *s, double score) {
+    sds ele = sdsnew(s);
+    double current;
+    zbtreeInsertPosition position;
+    serverAssert(zbtreeFindForAdd(zs, ele, &current, &position));
+    zbtreeUpdateScore(zs, ele, score, &position);
+    sdsfree(ele);
 }
 
 int zsetBtreeTest(int argc, char **argv, int flags) {
@@ -4336,6 +4403,144 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
 
         zbtreeFree(fast);
         zbtreeFree(slow);
+    }
+
+    printf("Testing B+ tree ZSCAN across a same-tag slot exchange (M1)\n");
+
+    /* Deterministic regression for a ZSCAN omission. X and Y have the same
+     * folded 8 bit index tag. Y's slot b1 lies on X's probe path before X's
+     * slot b2, and the two slots are in different scan groups. The cursor
+     * passes b1 while X and Y live in different leaves. X then moves into
+     * Y's leaf and out again. The second zbtIndexMove() relabels the first
+     * (tag, leaf) slot on X's path, b1, so X ends up represented only behind
+     * the cursor while b2 now stands for Y. X never leaves the set. */
+    {
+        uint8_t seed[16] = {0};
+        dictSetHashFunctionSeed(seed);
+        const int N = 7900; /* 1024 buckets, about 96% load, no resize. */
+        zbtreeSet *zs = zbtreeCreate();
+        zbtreeReserve(zs, N);
+        int *perm = zmalloc(sizeof(int) * N);
+        for (int i = 0; i < N; i++) perm[i] = i;
+        uint64_t rnd = 12345;
+        for (int i = N - 1; i > 0; i--) {
+            rnd = rnd * 6364136223846793005ULL + 1442695040888963407ULL;
+            int j = (int)((rnd >> 33) % (uint64_t)(i + 1));
+            int tmp = perm[i]; perm[i] = perm[j]; perm[j] = tmp;
+        }
+        for (int k = 0; k < N; k++)
+            zbtTestPopulateRange(zs, perm[k], perm[k] + 1);
+        zfree(perm);
+        serverAssert(zs->member_rehash == NULL);
+
+        zbtIndexTable *t = &zs->member_index;
+        unsigned long mask = t->size - 1;
+        int X = -1, Y = -1;
+        unsigned long b1 = 0, b2 = 0;
+        unsigned int p1 = 0, p2 = 0;
+        uint32_t ly_id = 0;
+        char xbuf[32], ybuf[32];
+
+        for (int x = 0; x < N && X < 0; x++) {
+            snprintf(xbuf, sizeof(xbuf), "member:%d", x);
+            uint32_t hx = zbtTestHash(xbuf);
+            uint8_t tag = zbtIndexTag(hx);
+            zbtScoreLeaf *lx = zbtTestLeafOf(zs, xbuf);
+            if (zbtTestTagCount(lx, tag) != 1) continue;
+            unsigned long sb;
+            unsigned int sp;
+            serverAssert(zbtTestSlotOf(zs, hx, lx->id, &sb, &sp));
+            unsigned long home = hx & mask;
+            if (sb <= home) continue; /* Home slot, or a wrapped probe run. */
+            for (unsigned long b = home; b < sb && X < 0; b++) {
+                if (b / ZBT_SCAN_BUCKETS_PER_STEP ==
+                    sb / ZBT_SCAN_BUCKETS_PER_STEP) continue;
+                zbtIndexBucket *bucket = zbtIndexBucketAt(t, b);
+                for (unsigned int p = 0; p < ZBT_INDEX_BUCKET_ITEMS; p++) {
+                    uint8_t slot_tag = zbtIndexTags(bucket) >> (p * 8);
+                    uint32_t id = zbtIndexGetId(t, bucket, p);
+                    if (slot_tag != tag || id == ZBT_INDEX_DELETED_ID ||
+                        id == lx->id) continue;
+                    zbtScoreLeaf *ly = zs->score_leaf_by_id[id];
+                    if (zbtTestTagCount(ly, tag) != 1) continue;
+                    if (ly->n.count >= ZBT_SCORE_LEAF_MAX - 1 ||
+                        ly == zs->score_last) continue;
+                    int yi = -1;
+                    for (unsigned int i = 0; i < ly->n.count; i++) {
+                        if (zbtIndexTag(zbtScoreLeafHash(ly, i)) != tag)
+                            continue;
+                        size_t len;
+                        const unsigned char *e =
+                            zbtScoreLeafElement(ly, i, &len);
+                        char tmp[32];
+                        memcpy(tmp, e, len);
+                        tmp[len] = '\0';
+                        serverAssert(sscanf(tmp, "member:%d", &yi) == 1);
+                    }
+                    if (yi < 0 || abs(yi - x) < 3) continue;
+                    snprintf(ybuf, sizeof(ybuf), "member:%d", yi);
+                    unsigned long yb;
+                    unsigned int yp;
+                    serverAssert(zbtTestSlotOf(zs, zbtTestHash(ybuf), id,
+                                               &yb, &yp));
+                    if (yb != b || yp != p) continue;
+                    X = x; Y = yi; b1 = b; p1 = p; b2 = sb; p2 = sp;
+                    ly_id = id;
+                    break;
+                }
+            }
+        }
+        test_cond("M1: found X/Y with same tag and overlapping probe runs",
+                  X >= 0);
+        if (X >= 0) {
+            snprintf(xbuf, sizeof(xbuf), "member:%d", X);
+            snprintf(ybuf, sizeof(ybuf), "member:%d", Y);
+            printf("    X=%s Y=%s tag=%u b1=%lu/%u b2=%lu/%u leafY=%u\n",
+                   xbuf, ybuf, zbtIndexTag(zbtTestHash(xbuf)), b1, p1,
+                   b2, p2, ly_id);
+
+            int *seen = zcalloc(sizeof(int) * N);
+            zbtScanTestPrivdata pd = {seen, N};
+            uint64_t cursor = 0;
+            do {
+                cursor = zbtreeScan(zs, cursor, 1, zbtScanTestMarkSeen, &pd);
+                serverAssert(cursor != 0);
+            } while (((uint32_t)cursor - 1) *
+                     (uint64_t)ZBT_SCAN_BUCKETS_PER_STEP <= b1);
+            serverAssert(((uint32_t)cursor - 1) *
+                         (uint64_t)ZBT_SCAN_BUCKETS_PER_STEP <= b2);
+            test_cond("M1: cursor is between b1 and b2",
+                      seen[Y] > 0);
+
+            /* Move X into Y's leaf: just below Y, far from X's neighbors. */
+            zbtTestSetScore(zs, xbuf, (double)Y - 0.5);
+            test_cond("M1: X now lives in Y's leaf",
+                      zbtTestLeafOf(zs, xbuf)->id == ly_id);
+            zbtIndexBucket *s1 = zbtIndexBucketAt(t, b1);
+            zbtIndexBucket *s2 = zbtIndexBucketAt(t, b2);
+            test_cond("M1: both slots now name Y's leaf",
+                      zbtIndexGetId(t, s1, p1) == ly_id &&
+                      zbtIndexGetId(t, s2, p2) == ly_id);
+
+            /* Move X out to the right edge. */
+            zbtTestSetScore(zs, xbuf, 1e9);
+            uint32_t lr_id = zbtTestLeafOf(zs, xbuf)->id;
+            test_cond("M1: X moved to another leaf", lr_id != ly_id);
+            printf("    after moves: slot b1 -> leaf %u, slot b2 -> leaf %u,"
+                   " X leaf %u\n", zbtIndexGetId(t, s1, p1),
+                   zbtIndexGetId(t, s2, p2), lr_id);
+
+            while (cursor != 0)
+                cursor = zbtreeScan(zs, cursor, 1, zbtScanTestMarkSeen, &pd);
+            int missed = 0;
+            for (int i = 0; i < N; i++) if (seen[i] == 0) missed++;
+            printf("    X seen %d time(s); total members missed: %d\n",
+                   seen[X], missed);
+            test_cond("ZSCAN returns every member despite same-tag slot exchanges",
+                      missed == 0);
+            zfree(seen);
+        }
+        zbtreeFree(zs);
     }
 
     return 0;
