@@ -1167,6 +1167,58 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 }
 
 # -----------------------------------------------------------------------------
+# Test cases for CLUSTER SLOT-STATS memory-bytes with IDMP expiry.
+# -----------------------------------------------------------------------------
+
+start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled mem stream-idmp-duration 1}} {
+    test "CLUSTER SLOT-STATS memory-bytes follows IDMP expiry after DEL" {
+        set drained_keeper "{idmp-expiry-drained}keep"
+        set drained_stream "{idmp-expiry-drained}stream"
+        R 0 SET $drained_keeper value
+        set drained_slot [R 0 CLUSTER KEYSLOT $drained_keeper]
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $drained_slot $drained_slot]
+        set drained_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        R 0 XADD $drained_stream IDMP p0 i0 * f v
+        wait_for_condition 100 50 {
+            [dict get [R 0 XINFO STREAM $drained_stream] pids-tracked] == 0
+        } else {
+            fail "IDMP producer did not expire"
+        }
+
+        R 0 DEL $drained_stream
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $drained_slot $drained_slot]
+        set drained_actual [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        set partial_keeper "{idmp-expiry-partial}keep"
+        set partial_stream "{idmp-expiry-partial}stream"
+        R 0 SET $partial_keeper value
+        set partial_slot [R 0 CLUSTER KEYSLOT $partial_keeper]
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $partial_slot $partial_slot]
+        set partial_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        R 0 XADD $partial_stream * f v
+        R 0 XCFGSET $partial_stream IDMP-DURATION 5
+        R 0 XADD $partial_stream IDMP p0 old-request * f v
+        after 2000
+        R 0 XADD $partial_stream IDMP p1 new-request * f v
+        wait_for_condition 100 50 {
+            [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked] == 1
+        } else {
+            fail "IDMP expiry did not leave the newer producer tracked"
+        }
+
+        R 0 DEL $partial_stream
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $partial_slot $partial_slot]
+        set partial_actual [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
+
+        set expected [list $drained_baseline $partial_baseline]
+        set actual [list $drained_actual $partial_actual]
+        assert_equal $expected $actual
+    }
+}
+
+# -----------------------------------------------------------------------------
 # Test cases for memory tracking accuracy with DEBUG ALLOCSIZE-SLOTS-ASSERT.
 # These tests verify that memory accounting is correct after operations that
 # may change object encoding (e.g., listTypeTryConversion).
