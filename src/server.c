@@ -1136,7 +1136,7 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
-int updateClientMemUsageAndBucket(client *c) {
+static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refreshed) {
     /* The unlikely case this function was called from a thread different
      * than the main one is a module call from a spawned thread. This is safe
      * since this call must have been made after calling
@@ -1158,12 +1158,12 @@ int updateClientMemUsageAndBucket(client *c) {
      * Walking the reply buffer is costly, so skip the scan when its outcome
      * cannot affect bucket placement: since 0 <= unshared <= shared, if both
      * endpoints map to the same bucket the cached value is reused. */
-    if (c->reply_bytes_shared > 0) {
+    if (!unshared_refreshed && c->reply_bytes_shared > 0) {
         size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
         size_t upper_bound = lower_bound + c->reply_bytes_shared;
         if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
             updateClientUnsharedReplyBytes(c);
-    } else {
+    } else if (!unshared_refreshed) {
         /* No shared bytes: clear any stale cached unshared. */
         c->reply_bytes_unshared = 0;
     }
@@ -1183,6 +1183,10 @@ int updateClientMemUsageAndBucket(client *c) {
         c->mem_usage_bucket_node = listLast(bucket->clients);
     }
     return 1;
+}
+
+int updateClientMemUsageAndBucket(client *c) {
+    return updateClientMemUsageAndBucketInternal(c, 0);
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -1210,13 +1214,20 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
+    /* Refresh unshared reply memory once per second for every client. */
+    int unshared_refreshed = c->last_unshared_refresh + 1000 <= now;
+    if (unshared_refreshed) {
+        c->last_unshared_refresh = now;
+        updateClientUnsharedReplyBytes(c);
+    }
+
     /* Iterating all the clients in getMemoryOverheadData() is too slow and
      * in turn would make the INFO command too slow. So we perform this
      * computation incrementally and track the (not instantaneous but updated
      * to the second) total memory used by clients using clientsCron() in
      * a more incremental way (depending on server.hz).
      * If client eviction is enabled, update the bucket as well. */
-    if (!updateClientMemUsageAndBucket(c))
+    if (!updateClientMemUsageAndBucketInternal(c, unshared_refreshed))
         updateClientMemoryUsage(c);
 
     if (closeClientOnOutputBufferLimitReached(c, 0)) return 1;

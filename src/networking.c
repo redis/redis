@@ -215,6 +215,7 @@ client *createClient(connection *conn) {
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
+    c->last_unshared_refresh = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
@@ -2109,7 +2110,6 @@ void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
         *shared_mem += c->reply_bytes_shared;
 
         /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
-        updateClientUnsharedReplyBytes(c);
         *unshared_mem += c->reply_bytes_unshared;
     }
 }
@@ -4267,9 +4267,6 @@ sds catClientInfoString(sds s, client *client) {
         if (connHasWriteHandler(client->conn)) *p++ = 'w';
     }
     *p = '\0';
-
-    /* Refresh the cached unshared reply bytes before computing memory stats below. */
-    updateClientUnsharedReplyBytes(client);
 
     /* Compute the total memory consumed by this client. */
     size_t obufmem = getClientOutputBufferLogicalSize(client);
