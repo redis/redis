@@ -236,28 +236,16 @@ static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
  * that is only a stream or consumer group entering or leaving the histogram:
  * none of a group count, a PEL size or a consumer count is ever negative.
  *
- * The top-bin clamp and the 64-bit binning below are deliberately stricter than
- * those metrics need. All three are bounded by addressable memory, exactly like
- * a key size, so neither guard can trigger for them. They are here because this
- * is the single place every stream metric is binned, and a metric need not be
- * memory-bounded: a counter the stream keeps in a 64-bit field can reach ~2^63 --
- * entries_added, which XSETID ... ENTRIESADDED sets independently of how much the
- * stream actually holds. Paying for both here once means the next metric cannot
- * silently corrupt the histogram:
- *
- * - Clamping to the last bin keeps it a "this large or larger" bucket and
- *   prevents an out-of-bounds write past the end of the row.
- * - log2ceil64() is used rather than log2ceil(), whose argument is a size_t: on a
- *   32-bit build that narrows the value before its magnitude is known, so a ~2^63
- *   sample would be binned by its low 32 bits (landing in "2G") and the clamp
- *   above would never see it.
+ * Every metric is the size of a rax, bounded by addressable memory exactly like
+ * a key size, so binning it as a size_t is exact and the row's last bin is far
+ * out of reach; as for keysizes, a debug assertion guards the row bound.
  *
  * Non-static so the async slot-trim delta (cluster_asm.c) bins through the exact
  * same logic instead of duplicating it. */
 int streamDistribBin(int64_t value) {
     if (value < 0) return -1;
-    int bin = (value == 0) ? 0 : log2ceil64((uint64_t) value) + 1;
-    if (bin >= MAX_KEYSIZES_BINS) bin = MAX_KEYSIZES_BINS - 1;
+    int bin = (value == 0) ? 0 : log2ceil((size_t) value) + 1;
+    debugServerAssert(bin < MAX_KEYSIZES_BINS);
     return bin;
 }
 
