@@ -1917,6 +1917,32 @@ start_server {tags {"zset"}} {
         assert_match {*ERR*wrong*number*arg*} $e
     }
 
+    test {ZMSCORE B+tree batches preserve order, duplicates and missing members} {
+        r del mscore-batches
+        set batch_args {}
+        for {set i 0} {$i < 300} {incr i} {
+            lappend batch_args [expr {$i - 150}] member:$i
+        }
+        r zadd mscore-batches {*}$batch_args
+        assert_encoding btree mscore-batches
+        foreach count {1 2 15 16 17 31 32 33 63 64 65 100} {
+            set batch_members {}
+            set batch_scores {}
+            for {set i 0} {$i < $count} {incr i} {
+                if {$i % 3 == 0} {
+                    lappend batch_members missing:$i
+                    lappend batch_scores {}
+                } else {
+                    set member [expr {($i * 37) % 23}]
+                    lappend batch_members member:$member
+                    lappend batch_scores [expr {$member - 150}]
+                }
+            }
+            assert_equal $batch_scores [r zmscore mscore-batches {*}$batch_members]
+        }
+        r del mscore-batches
+    }
+
     test "ZSET commands don't accept the empty strings as valid score" {
         assert_error "*not*float*" {r zadd myzset "" abc}
     }

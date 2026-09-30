@@ -1903,8 +1903,10 @@ static void zbtIndexTableInsertRaw(zbtIndexTable *table, uint32_t hash,
 }
 
 /* Search one table. A matching hash still has to be checked against the
- * member in its score leaf because the stored hash is not a unique key. */
-static int zbtIndexTableFind(zbtreeSet *zs, zbtIndexTable *table,
+ * member in its score leaf because the stored hash is not a unique key.
+ * Inline so read-only callers can omit the insertion/cursor bookkeeping. */
+static inline __attribute__((always_inline))
+int zbtIndexTableFind(zbtreeSet *zs, zbtIndexTable *table,
                              uint32_t hash, const unsigned char *ele,
                              size_t elelen, double *score,
                              zbtScoreLeaf **score_leaf,
@@ -1915,7 +1917,6 @@ static int zbtIndexTableFind(zbtreeSet *zs, zbtIndexTable *table,
                              unsigned int *insert_pos)
 {
     if (table->size == 0) return 0;
-    if (!zbtIndexHomeMayContain(table, hash)) return 0;
     uint8_t tag = zbtIndexTag(hash);
     unsigned long mask = table->size - 1;
     unsigned long index = hash & mask;
@@ -1963,6 +1964,10 @@ static int zbtIndexTableFind(zbtreeSet *zs, zbtIndexTable *table,
             }
             matches &= matches - 1;
         }
+
+        /* Hits in the home bucket need no missing-member filter. Check it
+         * only after those candidates, before following the probe run. */
+        if (probes == 0 && !zbtIndexHomeMayContain(table, hash)) return 0;
 
         /* Save the first tombstone for a possible insertion. An unused slot,
          * unlike a tombstone, proves that the member is not farther ahead. */
@@ -2210,7 +2215,8 @@ static int zbtIndexOwnsBucket(zbtIndexTable *table,
 }
 
 /* Look in both tables and optionally return score and insertion positions. */
-static int zbtIndexFind(zbtreeSet *zs, uint32_t hash,
+static inline __attribute__((always_inline))
+int zbtIndexFind(zbtreeSet *zs, uint32_t hash,
                         const unsigned char *ele, size_t elelen,
                         double *score,
                         zbtScoreLeaf **found_score_leaf,
@@ -2220,22 +2226,26 @@ static int zbtIndexFind(zbtreeSet *zs, uint32_t hash,
 {
     zbtIndexBucket *bucket = NULL, *hint_bucket = NULL;
     unsigned int pos = 0, hint_pos = 0;
-    zbtIndexRehashStep(zs, 1);
+    if (zs->member_rehash) zbtIndexRehashStep(zs, 1);
 
     if (zs->member_rehash &&
         zbtIndexTableFind(zs, &zs->member_rehash->table, hash, ele, elelen,
                           score,
                           found_score_leaf, found_score_position,
-                          &bucket, &pos, &hint_bucket, &hint_pos))
+                          found_bucket ? &bucket : NULL,
+                          found_bucket_position ? &pos : NULL,
+                          found_bucket ? &hint_bucket : NULL,
+                          found_bucket ? &hint_pos : NULL))
         goto found;
 
     /* During a resize new entries go to the new table, so an insertion slot
      * found in the old table would not be useful to the caller. */
     if (zbtIndexTableFind(zs, &zs->member_index, hash, ele, elelen, score,
                           found_score_leaf, found_score_position,
-                          &bucket, &pos,
-                          zs->member_rehash ? NULL : &hint_bucket,
-                          zs->member_rehash ? NULL : &hint_pos))
+                          found_bucket ? &bucket : NULL,
+                          found_bucket_position ? &pos : NULL,
+                          zs->member_rehash || !found_bucket ? NULL : &hint_bucket,
+                          zs->member_rehash || !found_bucket ? NULL : &hint_pos))
         goto found;
 
     if (found_bucket) *found_bucket = hint_bucket;
@@ -3033,6 +3043,31 @@ int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
 /* Find an sds member and optionally return its score. */
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score) {
     return zbtreeScoreRaw(zs, (unsigned char *)ele, sdslen(ele), score);
+}
+
+/* ZMSCORE can bring several independent index buckets into cache before it
+ * reads any of their members. Hash once, then reuse the normal lookup. */
+unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
+                          double *scores)
+{
+    serverAssert(count <= ZBT_SCORE_BATCH_SIZE);
+    uint32_t hashes[ZBT_SCORE_BATCH_SIZE];
+    for (unsigned int i = 0; i < count; i++) {
+        hashes[i] = (uint32_t)dictGenHashFunction(members[i], sdslen(members[i]));
+        if (zs->member_index.size)
+            redis_prefetch_read(zbtIndexBucketAt(&zs->member_index,
+                hashes[i] & (zs->member_index.size - 1)));
+        if (zs->member_rehash)
+            redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
+                hashes[i] & (zs->member_rehash->table.size - 1)));
+    }
+    unsigned int found = 0;
+    for (unsigned int i = 0; i < count; i++) {
+        if (zbtIndexFind(zs, hashes[i], (unsigned char *)members[i],
+                         sdslen(members[i]), &scores[i], NULL, NULL, NULL, NULL))
+            found |= 1U << i;
+    }
+    return found;
 }
 
 /* Lookup used by ZADD. In addition to the normal result, save the member hash

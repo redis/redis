@@ -4714,12 +4714,28 @@ void zmscoreCommand(client *c) {
     if (server.memory_tracking_enabled && zobj != NULL)
         oldsize = kvobjAllocSize(zobj);
     addReplyArrayLen(c,c->argc - 2);
-    for (int j = 2; j < c->argc; j++) {
-        /* Treat a missing set the same way as an empty set */
-        if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
-            addReplyNull(c);
-        } else {
-            addReplyDouble(c,score);
+    if (zobj && zobj->encoding == OBJ_ENCODING_BTREE) {
+        for (int j = 2; j < c->argc;) {
+            sds members[ZBT_SCORE_BATCH_SIZE];
+            double scores[ZBT_SCORE_BATCH_SIZE];
+            unsigned int count = c->argc - j;
+            if (count > ZBT_SCORE_BATCH_SIZE) count = ZBT_SCORE_BATCH_SIZE;
+            for (unsigned int i = 0; i < count; i++) members[i] = c->argv[j+i]->ptr;
+            unsigned int found = zbtreeScores(zobj->ptr, members, count, scores);
+            for (unsigned int i = 0; i < count; i++) {
+                if (found & (1U << i)) addReplyDouble(c, scores[i]);
+                else addReplyNull(c);
+            }
+            j += count;
+        }
+    } else {
+        for (int j = 2; j < c->argc; j++) {
+            /* Treat a missing set the same way as an empty set */
+            if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
+                addReplyNull(c);
+            } else {
+                addReplyDouble(c,score);
+            }
         }
     }
     if (server.memory_tracking_enabled && zobj != NULL)
