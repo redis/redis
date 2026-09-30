@@ -2466,6 +2466,8 @@ struct redisServer {
     /* Replication (master) */
     char replid[CONFIG_RUN_ID_SIZE+1];  /* My current replication ID. */
     char replid2[CONFIG_RUN_ID_SIZE+1]; /* replid inherited from master*/
+    char failover_replid[CONFIG_RUN_ID_SIZE+1]; /* replid of the master that
+                                                    promoted us with PSYNC FAILOVER */
     long long master_repl_offset;   /* My current replication offset */
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     redisAtomic long long fsynced_reploff_pending;/* Largest replication offset to
