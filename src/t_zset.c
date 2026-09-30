@@ -50,6 +50,15 @@
 
 const void *zslGetNodeElementForDict(const void *node);
 
+/* The zset dict's "key" is the zskiplistNode* itself (no_value=1), so
+ * prefetching it also warms 'score' (the node's leading field) for free.
+ * No prefetchEntryValue: there is no separate value-side payload to point
+ * at here, unlike dbDictType's RAW-string case. Mirrors
+ * dbDictPrefetchEntryKey (server.c). */
+static void *zsetDictPrefetchEntryKey(const dictEntry *de) {
+    return dictEntryIsKey(de) ? NULL : dictGetKey(de);
+}
+
 /* dictType for zset's dict (maps sds to zskiplistNode*) */
 dictType zsetDictType = {
     dictSdsHash,        /* hash function */
@@ -61,6 +70,7 @@ dictType zsetDictType = {
     NULL,               /* allow to expand */
     .no_value = 1,      /* no values stored (only nodes) */
     .keyFromStoredKey = zslGetNodeElementForDict,  /* extract embedded sds from node */
+    .prefetchEntryKey = zsetDictPrefetchEntryKey,
 };
 
 /*-----------------------------------------------------------------------------
@@ -4109,6 +4119,9 @@ void zscoreCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 }
 
+/* Batch size for ZMSCORE's intra-command member-lookup prefetching. */
+#define ZMSCORE_PREFETCH_BATCH 16
+
 void zmscoreCommand(client *c) {
     robj *key = c->argv[1];
     double score;
@@ -4119,12 +4132,51 @@ void zmscoreCommand(client *c) {
     if (server.memory_tracking_enabled && zobj != NULL)
         oldsize = kvobjAllocSize(zobj);
     addReplyArrayLen(c,c->argc - 2);
-    for (int j = 2; j < c->argc; j++) {
-        /* Treat a missing set the same way as an empty set */
-        if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
-            addReplyNull(c);
-        } else {
-            addReplyDouble(c,score);
+
+    /* Multiple independent lookups into the same dict in one call -- the
+     * zset analog of mgetCommand()'s use of dictPrefetchKeys(). Skiplist
+     * only (listpack has no dict); gated on prefetch-batch-max-size like
+     * MGET/MSET. No PENDING_CMD_KEYS_PREFETCHED check: the cross-command
+     * batch path only ever warms the main keyspace dict, never a zset's
+     * member dict, so there's nothing to double-prefetch here. */
+    int nmembers = c->argc - 2;
+    if (zobj != NULL && zobj->encoding == OBJ_ENCODING_SKIPLIST &&
+        server.prefetch_batch_max_size && nmembers > 1)
+    {
+        dict *d = ((zset*)zobj->ptr)->dict;
+        int j = 0;
+        while (j < nmembers) {
+            /* Take a full batch only if at least one more remains after it;
+             * otherwise take everything left, so a trailing remainder is
+             * never too small for dictPrefetchKeys() to help (it no-ops at
+             * nkeys<=1). */
+            int batch = nmembers - j;
+            if (batch >= ZMSCORE_PREFETCH_BATCH*2) batch = ZMSCORE_PREFETCH_BATCH;
+            void *keys[ZMSCORE_PREFETCH_BATCH*2];
+            dict *dicts[ZMSCORE_PREFETCH_BATCH*2];
+            for (int k = 0; k < batch; k++) {
+                keys[k]  = c->argv[2 + j + k]->ptr;
+                dicts[k] = d;
+            }
+            dictPrefetchKeys(dicts, keys, batch);
+
+            for (int k = 0; k < batch; k++) {
+                if (zsetScore(zobj, c->argv[2 + j + k]->ptr, &score) == C_ERR) {
+                    addReplyNull(c);
+                } else {
+                    addReplyDouble(c,score);
+                }
+            }
+            j += batch;
+        }
+    } else {
+        for (int j = 2; j < c->argc; j++) {
+            /* Treat a missing set the same way as an empty set */
+            if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
+                addReplyNull(c);
+            } else {
+                addReplyDouble(c,score);
+            }
         }
     }
     if (server.memory_tracking_enabled && zobj != NULL)
