@@ -3197,6 +3197,7 @@ typedef struct {
 typedef struct {
     robj *subject;
     int encoding;
+    void *typeOps; /* encoding-specifc ops struct, to avoid re-fetching it for every next call */
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */

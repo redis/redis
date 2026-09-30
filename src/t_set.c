@@ -223,10 +223,12 @@ ALWAYS_INLINE int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t l
 void setTypeInitIterator(setTypeIterator *si, robj *subject) {
     si->subject = subject;
     si->encoding = subject->encoding;
-    setTypeGetOps(si->encoding)->iterInit(si);
+    si->typeOps = (void *)setTypeGetOps(si->encoding);
+    ((setTypeOps*)(si->typeOps))->iterInit(si);
 }
 
 void setTypeResetIterator(setTypeIterator *si) {
+    si->subject = NULL;
     setTypeGetOps(si->encoding)->iterReset(si);
 }
 
@@ -252,7 +254,7 @@ void setTypeResetIterator(setTypeIterator *si) {
  *
  * When there are no more elements -1 is returned. */
 ALWAYS_INLINE int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
-    if (setTypeGetOps(si->encoding)->iterNext(si, str, len, llele) == -1) return -1;
+    if (((setTypeOps*)(si->typeOps))->iterNext(si, str, len, llele) == -1) return -1;
     return si->encoding;
 }
 
