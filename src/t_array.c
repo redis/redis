@@ -42,7 +42,7 @@ robj *arrayTypeDup(robj *o) {
  * Internal helpers
  * -------------------------------------------------------------------------- */
 
-#define ARGETRANGE_MAX_ITEMS 1000000
+#define AR_MAX_REPLY_ITEMS 1000000
 
 /* Lookup array object for write, create it if missing, or reply with
  * WRONGTYPE and return NULL if the key holds a different type. */
@@ -444,9 +444,9 @@ void argetrangeCommand(client *c) {
      * any way: 1 million items, with an hard error if the range is bigger than
      * that, not just a silent trimming at this length, that would cause hard
      * to track bugs. */
-    if (len > ARGETRANGE_MAX_ITEMS) {
+    if (len > AR_MAX_REPLY_ITEMS) {
         addReplyErrorFormat(c, "range exceeds maximum of %u items",
-            ARGETRANGE_MAX_ITEMS);
+            AR_MAX_REPLY_ITEMS);
         return;
     }
 
@@ -1835,7 +1835,17 @@ void arlastitemsCommand(client *c) {
     redisArray *ar = o->ptr;
     uint64_t ar_len = arLen(ar);
     uint64_t effective_count =
-        (uint64_t)count > ar->count ? ar->count : (uint64_t)count;
+        (uint64_t)count > ar_len ? ar_len : (uint64_t)count;
+
+    /* We walk positions, not existing items, so on a sparse array the reply
+     * can be made of a huge amount of NULLs. We cap it with the same constant
+     * as ARGETRANGE, but only when the walked span exceeds the number of
+     * existing items: below that, a big reply is something the user paid for
+     * by actually storing that many elements. */
+    if (effective_count > ar->count && effective_count > AR_MAX_REPLY_ITEMS) {
+        addReplyErrorFormat(c, "count exceeds maximum of %u items", AR_MAX_REPLY_ITEMS);
+        return;
+    }
 
     /* Should never happen in practice, because we checked the COUNT before
      * and the array should not be empty to be still a Redis key, so this
@@ -1848,12 +1858,14 @@ void arlastitemsCommand(client *c) {
     /* Collect items walking backward from insert_idx. If ARSEEK 0 was used,
      * insert_idx is AR_INSERT_IDX_NONE: in that case use the max set index as
      * the anchor so ARLASTITEMS still reports the tail of the current array.
+     * The same applies when insert_idx is past the tail, for instance when
+     * the last inserted element was deleted.
      *
      * Note that we use an array to collect the items: in the no-REV case
      * otherwise a double scan would be needed. */
     void **collected = zmalloc(effective_count * sizeof(void *));
-    uint64_t anchor_idx =
-        (ar->insert_idx == AR_INSERT_IDX_NONE) ? ar_len - 1 : ar->insert_idx;
+    uint64_t anchor_idx = (ar->insert_idx == AR_INSERT_IDX_NONE || ar->insert_idx >= ar_len) ?
+                          ar_len - 1 : ar->insert_idx;
     uint64_t current_idx = anchor_idx;
     uint64_t steps = 0;
 

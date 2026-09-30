@@ -995,15 +995,13 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             }
         }
         deleted += deleted_from_lp;
-        /* If this node was originally eligible for removal but we couldn't remove it upfront
-         * due to delete strategy constraints, and now we've processed and deleted all entries
-         * in the node, we can finally remove the entire node. */
-        if (node_eligible_for_remove && deleted_from_lp == entries) {
+        /* Drop the node if no live entries remain (RDB rejects live == 0). */
+        if (deleted_from_lp == entries) {
             s->alloc_size -= oldsize;
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
-            continue;
+            continue; /* Node gone; keep scanning later nodes. */
         }
 
         /* Now we update the entries/deleted counters. */
@@ -2783,7 +2781,8 @@ void xlenCommand(client *c) {
 #define XREAD_BLOCKED_DEFAULT_COUNT 1000
 void xreadCommand(client *c) {
     long long min_idle_time = -1; /* -1 means, no IDLE argument given. */
-    long long timeout = -1; /* -1 means, no BLOCK argument given. */
+    uint64_t timeout = 0;
+    int has_block_timeout = 0;
     long long count = 0;
     long long maxcount = 0; /* 0 means, no MAXCOUNT argument given. */
     long long maxsize = 0;  /* 0 means, no MAXSIZE argument given. */
@@ -2819,8 +2818,9 @@ void xreadCommand(client *c) {
             }
         } else if (!strcasecmp(o,"BLOCK") && moreargs) {
             i++;
-            if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
-                UNIT_MILLISECONDS) != C_OK) return;
+            if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[i], &timeout, UNIT_MILLISECONDS) != C_OK)
+                return;
+            has_block_timeout = 1;
         } else if (!strcasecmp(o,"COUNT") && moreargs) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&count,NULL) != C_OK)
@@ -3157,7 +3157,7 @@ void xreadCommand(client *c) {
     }
 
     /* Block if needed. */
-    if (timeout != -1) {
+    if (has_block_timeout) {
         /* If we are not allowed to block the client, the only thing
          * we can do is treating it as a timeout (even with timeout 0). */
         if (c->flags & CLIENT_DENY_BLOCKING) {
