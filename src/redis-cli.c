@@ -199,13 +199,6 @@ static int createClusterManagerCommand(char *cmdname, int argc, char **argv);
 
 
 static redisContext *context;
-
-typedef enum {
-    RESP_PROTO_NONE = 0,
-    RESP_PROTO_2 = 2,
-    RESP_PROTO_3 = 3
-} resp_protocol;
-
 static struct config {
     cliConnInfo conn_info;
     struct timeval connect_timeout;
@@ -278,7 +271,7 @@ static struct config {
     int no_auth_warning;
     int resp2; /* value of 1: specified explicitly with option -2 */
     int resp3; /* value of 1: specified explicitly, value of 2: implicit like --json option */
-    resp_protocol current_resp; /* Protocol explicitly selected on the current connection. */
+    int current_resp3; /* 1 if we have RESP3 right now in the current connection. */
     int in_multi;
     int pre_multi_dbnum;
     char *server_version;
@@ -1660,15 +1653,12 @@ static int cliSelect(void) {
     return result;
 }
 
-/* Select the protocol requested by startup options or a forced reconnect. */
-static int cliSwitchProto(resp_protocol reconnect_proto) {
+/* Select RESP3 mode if redis-cli was started with the -3 option.  */
+static int cliSwitchProto(void) {
     redisReply *reply;
-    int proto = reconnect_proto;
+    if (!config.resp3 || config.resp2) return REDIS_OK;
 
-    if (reconnect_proto == RESP_PROTO_NONE && (!config.resp3 || config.resp2)) return REDIS_OK;
-    if (reconnect_proto == RESP_PROTO_NONE) proto = RESP_PROTO_3;
-
-    reply = redisCommand(context,"HELLO %d", proto);
+    reply = redisCommand(context,"HELLO 3");
     if (reply == NULL) {
         fprintf(stderr, "\nI/O error\n");
         return REDIS_ERR;
@@ -1676,7 +1666,7 @@ static int cliSwitchProto(resp_protocol reconnect_proto) {
 
     int result = REDIS_OK;
     if (reply->type == REDIS_REPLY_ERROR) {
-        fprintf(stderr,"HELLO %d failed: %s\n",proto,reply->str);
+        fprintf(stderr,"HELLO 3 failed: %s\n",reply->str);
         if (config.resp3 == 1) {
             result = REDIS_ERR;
         } else if (config.resp3 == 2) {
@@ -1694,7 +1684,7 @@ static int cliSwitchProto(resp_protocol reconnect_proto) {
         }
     }
     freeReplyObject(reply);
-    config.current_resp = proto == RESP_PROTO_2 ? RESP_PROTO_2 : RESP_PROTO_3;
+    config.current_resp3 = 1;
     return result;
 }
 
@@ -1722,15 +1712,6 @@ static int cliSetName(void) {
  *      CC_QUIET: Don't print errors if connection fails. */
 static int cliConnect(int flags) {
     if (context == NULL || flags & CC_FORCE) {
-        /* Preserve an explicitly negotiated protocol across every forced
-         * reconnect, including reconnects initiated by interactive commands. */
-        resp_protocol reconnect_proto = RESP_PROTO_NONE;
-        if (flags & CC_FORCE) {
-            reconnect_proto = config.current_resp;
-            if (reconnect_proto == RESP_PROTO_3 && config.resp3 != 0)
-                reconnect_proto = RESP_PROTO_NONE;
-        }
-
         if (context != NULL) {
             redisFree(context);
             config.dbnum = 0;
@@ -1784,14 +1765,14 @@ static int cliConnect(int flags) {
         anetKeepAlive(NULL, context->fd, REDIS_CLI_KEEPALIVE_INTERVAL);
 
         /* State of the current connection. */
-        config.current_resp = RESP_PROTO_NONE;
+        config.current_resp3 = 0;
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
         if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK)
             return REDIS_ERR;
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
-        if (cliSwitchProto(reconnect_proto) != REDIS_OK)
+        if (cliSwitchProto() != REDIS_OK)
             return REDIS_ERR;
         if (cliSetName() != REDIS_OK)
             return REDIS_ERR;
@@ -1997,7 +1978,7 @@ static sds cliFormatReplyTTY(redisReply *r, char *prefix) {
 /* Returns 1 if the reply is a pubsub pushed reply. */
 int isPubsubPush(redisReply *r) {
     if (r == NULL ||
-        r->type != (config.current_resp == RESP_PROTO_3 ? REDIS_REPLY_PUSH : REDIS_REPLY_ARRAY) ||
+        r->type != (config.current_resp3 ? REDIS_REPLY_PUSH : REDIS_REPLY_ARRAY) ||
         r->elements < 3 ||
         r->element[0]->type != REDIS_REPLY_STRING)
     {
@@ -2643,7 +2624,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 config.in_multi = 0;
                 config.dbnum = 0;
                 config.conn_info.input_dbnum = 0;
-                config.current_resp = RESP_PROTO_NONE;
+                config.current_resp3 = 0;
                 if (config.pubsub_mode && config.push_output) {
                     redisSetPushCallback(context, cliPushHandler);
                 }
@@ -2651,9 +2632,9 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
                 cliRefreshPrompt();
             } else if (!strcasecmp(command,"hello")) {
                 if (config.last_cmd_type == REDIS_REPLY_MAP) {
-                    config.current_resp = RESP_PROTO_3;
+                    config.current_resp3 = 1;
                 } else if (config.last_cmd_type == REDIS_REPLY_ARRAY) {
-                    config.current_resp = RESP_PROTO_2;
+                    config.current_resp3 = 0;
                 }
             } else if ((is_subscribe || is_unsubscribe) && !config.pubsub_mode) {
                 /* We didn't enter pubsub mode. Restore push callback. */
@@ -3407,11 +3388,17 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
+            /* The previous connection used RESP3 via HELLO 3; temporarily promote resp3
+            * so cliConnect() re-sends HELLO 3 for this reconnect only. */
+            int resend_resp3 = config.current_resp3 && config.resp3 == 0;
+            if (resend_resp3) config.resp3 = 2;
             if (cliConnect(CC_FORCE) != REDIS_OK) {
+                if (resend_resp3) config.resp3 = 0;
                 cliPrintContextError();
                 config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
+            if (resend_resp3) config.resp3 = 0;
             /* Reset dbnum after reconnecting so we can re-select the previous db in cliSelect(). */
             config.dbnum = 0;
             cliSelect();
@@ -3694,8 +3681,6 @@ static void repl(void) {
                 config.conn_info.hostip = sdsnew(argv[1]);
                 config.conn_info.hostport = atoi(argv[2]);
                 cliRefreshPrompt();
-                /* Reset the protocol when connecting to a new server. */
-                config.current_resp = RESP_PROTO_NONE;
                 cliConnect(CC_FORCE);
             } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                 linenoiseClearScreen();
@@ -9772,7 +9757,7 @@ static int getDatabases(void) {
         dbnum = 16;
         fprintf(stderr, "CONFIG GET databases fails: %s, use default value 16 instead\n", reply->str);
     } else {
-        assert(reply->type == (config.current_resp == RESP_PROTO_3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
+        assert(reply->type == (config.current_resp3 ? REDIS_REPLY_MAP : REDIS_REPLY_ARRAY));
         assert(reply->elements == 2);
         dbnum = atoi(reply->element[1]->str);
     }
