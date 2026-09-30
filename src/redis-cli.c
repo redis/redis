@@ -74,8 +74,8 @@
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
-    "address (ie. 120.0.0.1:7000) or space separated IP " \
-    "and port (ie. 120.0.0.1 7000)\n"
+    "address (ie. 120.0.0.1:7000 or [::1]:7000) or space " \
+    "separated IP and port (ie. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
@@ -4116,12 +4116,21 @@ static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
         if (bus_port_ptr != NULL)
             *bus_port_ptr = atoi(c + 1);
     }
-    c = strrchr(addr, ':');
-    if (c != NULL) {
+
+    if (addr[0] == '[') {
+        /* [IPv6]:port */
+        c = strchr(addr, ']');
+        if (c == NULL || c[1] != ':') return 0;
+        *c = '\0';
+        *ip_ptr = addr + 1;
+        *port_ptr = atoi(c + 2);
+    } else {
+        c = strrchr(addr, ':');
+        if (c == NULL) return 0;
         *c = '\0';
         *ip_ptr = addr;
-        *port_ptr = atoi(++c);
-    } else return 0;
+        *port_ptr = atoi(c + 1);
+    }
     return 1;
 }
 
