@@ -882,6 +882,7 @@ void modulePostExecutionUnitOperations(void) {
     if (server.busy_module_yield_flags) {
         blockingOperationEnds();
         server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
+        atomicSetWithSync(server.busy_module_yielding, 0);
         if (server.current_client)
             unprotectClient(server.current_client);
         unblockPostponedClients();
@@ -2513,6 +2514,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
             /* start the blocking operation if not already started. */
             if (!server.busy_module_yield_flags) {
                 server.busy_module_yield_flags = BUSY_MODULE_YIELD_EVENTS;
+                atomicSetWithSync(server.busy_module_yielding, 1);
                 blockingOperationStarts();
                 if (server.current_client)
                     protectClient(server.current_client);
