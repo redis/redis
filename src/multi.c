@@ -190,11 +190,13 @@ void execCommand(client *c) {
         c->cmd = c->realcmd = c->mstate.commands[j]->cmd;
 
         /* ACL permissions are also checked at the time of execution in case
-         * they were changed after the commands were queued. */
+         * they were changed after the commands were queued. Note we pass the
+         * queued command itself, so that the key permissions are checked against
+         * its keys and not against the EXEC command we are currently running. */
         int acl_errpos;
         int acl_retval = ACL_OK;
         if (!skip_acl_check) {
-            acl_retval = ACLCheckAllPerm(c,&acl_errpos);
+            acl_retval = ACLCheckAllPerm(c,c->mstate.commands[j],&acl_errpos);
         }
         if (acl_retval != ACL_OK) {
             char *reason;
@@ -227,6 +229,13 @@ void execCommand(client *c) {
                 call(c,CMD_CALL_FULL);
 
             serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+
+            /* Drain per-key jobs queued by this sub-command so modules observe
+             * per-key effects between MULTI/EXEC sub-commands. Done here rather
+             * than on afterCommand() so standalone commands pay nothing. Regular
+             * jobs drain at the end of the EXEC's execution unit. */
+            if (server.fire_keyed_jobs_between_subcommands)
+                firePerKeyJobsBetweenSubcommands();
         }
 
         /* Commands may alter argc/argv, restore mstate. */

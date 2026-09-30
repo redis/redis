@@ -8,6 +8,10 @@ on:
     paths:
       - 'src/commands/*.json'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   reply-schemas-linter:
     runs-on: ubuntu-latest

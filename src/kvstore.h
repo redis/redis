@@ -49,6 +49,7 @@ typedef struct _kvstoreDictIterator {
 typedef int (kvstoreScanShouldSkipDict)(dict *d, int didx);
 typedef int (kvstoreExpandShouldSkipDictIndex)(int didx);
 typedef int (kvstoreRandomShouldSkipDictIndex)(int didx);
+typedef int (kvstoreResizeShouldSkipDictIndex)(int didx);
 
 /* kvstoreType: Callback structure for kvstore-specific operations.
  * Similar to dictType for dict, this allows kvstore to be a generic data structure
@@ -115,7 +116,7 @@ int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it);
 dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
 
 /* Rehashing */
-void kvstoreTryResizeDicts(kvstore *kvs, int limit);
+void kvstoreTryResizeDicts(kvstore *kvs, int limit, kvstoreResizeShouldSkipDictIndex *skip_cb);
 uint64_t kvstoreIncrementallyRehash(kvstore *kvs, uint64_t threshold_us);
 size_t kvstoreOverheadHashtableLut(kvstore *kvs);
 size_t kvstoreOverheadHashtableRehashing(kvstore *kvs);

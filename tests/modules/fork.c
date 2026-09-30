@@ -11,11 +11,11 @@
 #define UNUSED(V) ((void) V)
 
 int child_pid = -1;
-int exitted_with_code = -1;
+int exited_with_code = -1;
 
 void done_handler(int exitcode, int bysignal, void *user_data) {
     child_pid = -1;
-    exitted_with_code = exitcode;
+    exited_with_code = exitcode;
     assert(user_data==(void*)0xdeadbeef);
     UNUSED(bysignal);
 }
@@ -36,7 +36,7 @@ int fork_create(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RedisModule_StringToLongLong(argv[1], &code_to_exit_with);
     RedisModule_StringToLongLong(argv[2], &usleep_us);
-    exitted_with_code = -1;
+    exited_with_code = -1;
     int fork_child_pid = RedisModule_Fork(done_handler, (void*)0xdeadbeef);
     if (fork_child_pid < 0) {
         RedisModule_ReplyWithError(ctx, "Fork failed");
@@ -61,7 +61,7 @@ int fork_exitcode(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     UNUSED(argv);
     UNUSED(argc);
-    RedisModule_ReplyWithLongLong(ctx, exitted_with_code);
+    RedisModule_ReplyWithLongLong(ctx, exited_with_code);
     return REDISMODULE_OK;
 }
 

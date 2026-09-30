@@ -445,12 +445,16 @@ void debugCommand(client *c) {
 "    Create a memory leak of the input string.",
 "LOG <message>",
 "    Write <message> to the server log.",
+"DEFRAG-FRAG-CACHE-STATS",
+"    Return hits counters for the defrag-side fragmentation cache.",
 "HTSTATS <dbid> [full]",
 "    Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> [full]",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
+"KEYMETA-AOF-DUMP <key>",
+"    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "REPLICATE <string>",
@@ -625,6 +629,8 @@ NULL
             }
         }
 
+        backupSetFailed("debug reload executed");
+
         /* The default behavior is to save the RDB file before loading
          * it back. */
         if (save) {
@@ -652,6 +658,7 @@ NULL
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
+        backupSetFailed("debug loadaof executed");
         if (server.aof_state != AOF_OFF) flushAppendOnlyFile(1);
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
         protectClient(c);
@@ -725,6 +732,16 @@ NULL
             (void*)kv, kv->refcount,
             strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id),
             kv->lru, estimateObjectIdleTime(kv)/1000, extra);
+    } else if (!strcasecmp(c->argv[1]->ptr,"keymeta-aof-dump") && c->argc == 3) {
+        kvobj *kv = dbFind(c->db, c->argv[2]->ptr);
+        if (kv == NULL) {
+            addReplyNull(c);
+            return;
+        }
+
+        rio payload;
+        createDumpPayload(&payload, kv, c->argv[2], c->db->id, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+        addReplyBulkSds(c, payload.io.buffer.ptr);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
         robj *val;
         sds key;
@@ -990,6 +1007,11 @@ NULL
         sizes = sdscatprintf(sizes,"sdshdr32:%d ",(int)sizeof(struct sdshdr32));
         sizes = sdscatprintf(sizes,"sdshdr64:%d ",(int)sizeof(struct sdshdr64));
         addReplyBulkSds(c,sizes);
+    } else if (!strcasecmp(c->argv[1]->ptr,"defrag-frag-cache-stats")) {
+        sds stats = sdsempty();
+        stats = sdscatprintf(stats, "defrag_frag_cache_hits:%lld\r\n", server.defrag_frag_cache.hits);
+        addReplyVerbatim(c,stats,sdslen(stats),"txt");
+        sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats") && c->argc >= 3) {
         long dbid;
         sds stats = sdsempty();
@@ -1448,6 +1470,8 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     GET_SET_RETURN(uc->uc_mcontext.arm_pc, eip);
     #elif defined(__aarch64__) /* Linux AArch64 */
     GET_SET_RETURN(uc->uc_mcontext.pc, eip);
+    #elif defined(__loongarch_lp64) /* Linux LoongArch64 */
+    GET_SET_RETURN(uc->uc_mcontext.__pc, eip);
     #else
     NOT_SUPPORTED();
     #endif
@@ -1781,6 +1805,50 @@ void logRegisters(ucontext_t *uc) {
 	      (unsigned long) uc->uc_mcontext.fault_address
 		      );
 	      logStackContent((void**)uc->uc_mcontext.arm_sp);
+    #elif defined(__loongarch_lp64) /* Linux LoongArch64 */
+    serverLog(LL_WARNING,
+        "\n"
+        "ra:%016llx tp:%016llx\nsp:%016llx a0:%016llx\n"
+        "a1:%016llx a2:%016llx\na3:%016llx a4:%016llx\n"
+        "a5:%016llx a6:%016llx\na7:%016llx t0:%016llx\n"
+        "t1:%016llx t2:%016llx\nt3:%016llx t4:%016llx\n"
+        "t5:%016llx t6:%016llx\nt7:%016llx t8:%016llx\n"
+        "fp:%016llx s0:%016llx\ns1:%016llx s2:%016llx\n"
+        "s3:%016llx s4:%016llx\ns5:%016llx s6:%016llx\n"
+        "s7:%016llx s8:%016llx\npc:%016llx\n",
+        (unsigned long long) uc->uc_mcontext.__gregs[1],
+        (unsigned long long) uc->uc_mcontext.__gregs[2],
+        (unsigned long long) uc->uc_mcontext.__gregs[3],
+        (unsigned long long) uc->uc_mcontext.__gregs[4],
+        (unsigned long long) uc->uc_mcontext.__gregs[5],
+        (unsigned long long) uc->uc_mcontext.__gregs[6],
+        (unsigned long long) uc->uc_mcontext.__gregs[7],
+        (unsigned long long) uc->uc_mcontext.__gregs[8],
+        (unsigned long long) uc->uc_mcontext.__gregs[9],
+        (unsigned long long) uc->uc_mcontext.__gregs[10],
+        (unsigned long long) uc->uc_mcontext.__gregs[11],
+        (unsigned long long) uc->uc_mcontext.__gregs[12],
+        (unsigned long long) uc->uc_mcontext.__gregs[13],
+        (unsigned long long) uc->uc_mcontext.__gregs[14],
+        (unsigned long long) uc->uc_mcontext.__gregs[15],
+        (unsigned long long) uc->uc_mcontext.__gregs[16],
+        (unsigned long long) uc->uc_mcontext.__gregs[17],
+        (unsigned long long) uc->uc_mcontext.__gregs[18],
+        (unsigned long long) uc->uc_mcontext.__gregs[19],
+        (unsigned long long) uc->uc_mcontext.__gregs[20],
+        (unsigned long long) uc->uc_mcontext.__gregs[22],
+        (unsigned long long) uc->uc_mcontext.__gregs[23],
+        (unsigned long long) uc->uc_mcontext.__gregs[24],
+        (unsigned long long) uc->uc_mcontext.__gregs[25],
+        (unsigned long long) uc->uc_mcontext.__gregs[26],
+        (unsigned long long) uc->uc_mcontext.__gregs[27],
+        (unsigned long long) uc->uc_mcontext.__gregs[28],
+        (unsigned long long) uc->uc_mcontext.__gregs[29],
+        (unsigned long long) uc->uc_mcontext.__gregs[30],
+        (unsigned long long) uc->uc_mcontext.__gregs[31],
+        (unsigned long long) uc->uc_mcontext.__pc
+    );
+    logStackContent((void**)uc->uc_mcontext.__gregs[3]);
     #else
 	NOT_SUPPORTED();
     #endif

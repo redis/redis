@@ -129,6 +129,7 @@ test "SFLUSH - Errors and output validation" {
     assert_error {ERR Invalid or out of range slot}         {$master1 SFLUSH 0 12x}
     assert_error {ERR Slot 3 specified multiple times}      {$master1 SFLUSH 2 4 3 5}
     assert_error {ERR start slot number 8 is greater than*} {$master1 SFLUSH 8 4}
+    assert_error {ERR start slot number 201 is greater than*} {$master1 SFLUSH 100 200 201 150}
     assert_error {ERR wrong number of arguments*}           {$master1 SFLUSH 4 8 10}
     assert_error {ERR wrong number of arguments*}           {$master1 SFLUSH 0 999 2001 8191 ASYNCX}
 

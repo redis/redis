@@ -96,10 +96,10 @@ class TestCase:
         self.error_details = None
         self.test_key = f"test:{self.__class__.__name__.lower()}"
         # Primary Redis instance
-        self.redis = redis.Redis(port=primary_port,db=9)
+        self.redis = redis.Redis(port=primary_port,protocol=2,db=9)
         self.redis3 = redis.Redis(port=primary_port,protocol=3,db=9)
         # Replica Redis instance
-        self.replica = redis.Redis(port=replica_port,db=9)
+        self.replica = redis.Redis(port=replica_port,protocol=2,db=9)
         # Replication status
         self.replication_setup = False
         # Ports

@@ -112,6 +112,7 @@ static size_t reqresAppendEncodedBuffer(client *c, char *buf, size_t len) {
         } else {
             /* BULK_STR_REF - expand to full RESP format */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
+            formatBulkStrRefPrefix(str_ref);
 
             /* Append prefix: "$<len>\r\n" */
             ret += reqresAppendBuffer(c, str_ref->prefix, str_ref->prefix_cnt);

@@ -1,5 +1,0 @@
-[codespell]
-quiet-level = 2
-count =
-skip = ./deps,./src/crc16_slottable.h,tmp*,./.git,./lcov-html
-ignore-words = ./.codespell/wordlist.txt

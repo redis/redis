@@ -619,10 +619,10 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
 
     /* Note that maxincr and minincr could overflow, but we use the values
      * only after checking 'value' range, so when we use it no overflow
-     * happens. 'uint64_t' cast is there just to prevent undefined behavior on
+     * happens. 'uint64_t' casts are there just to prevent undefined behavior on
      * overflow */
     int64_t maxincr = (uint64_t)max-value;
-    int64_t minincr = min-value;
+    int64_t minincr = (uint64_t)min-value;
 
     if (value > max || (bits != 64 && incr > maxincr) || (value >= 0 && incr > 0 && incr > maxincr))
     {
@@ -721,16 +721,22 @@ int getBitOffsetFromArgument(client *c, robj *o, uint64_t *offset, int hash, int
     /* Handle #<offset> form. */
     if (p[0] == '#' && hash && bits > 0) usehash = 1;
 
-    if (string2ll(p+usehash,plen-usehash,&loffset) == 0) {
+    if (string2ll(p+usehash,plen-usehash,&loffset) == 0 || loffset < 0) {
         addReplyError(c,err);
         return C_ERR;
     }
 
     /* Adjust the offset by 'bits' for #<offset> form. */
-    if (usehash) loffset *= bits;
+    if (usehash) {
+        if (loffset > LLONG_MAX / bits) {
+            addReplyError(c,err);
+            return C_ERR;
+        }
+        loffset *= bits;
+    }
 
     /* Limit offset to server.proto_max_bulk_len (512MB in bytes by default) */
-    if (loffset < 0 || (!mustObeyClient(c) && (loffset >> 3) >= server.proto_max_bulk_len))
+    if (!mustObeyClient(c) && (loffset >> 3) >= server.proto_max_bulk_len)
     {
         addReplyError(c,err);
         return C_ERR;
@@ -804,6 +810,11 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldAllocSize, kvobjAllocSize(o));
         *strGrowSize = sdslen(o->ptr) - *strOldSize;
+        
+        /* New keys are accounted for by dbAddByLink() above; here the key
+         * already existed, so account for the growth ourselves. */
+        if (*strGrowSize != 0)
+            updateKeysizesHist(c->db, OBJ_STRING, *strOldSize, *strOldSize + *strGrowSize);
     }
     return o;
 }
@@ -880,12 +891,6 @@ void setbitCommand(client *c) {
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
         server.dirty++;
-
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
     }
 
     /* Return original value. */
@@ -2101,17 +2106,12 @@ void bitfieldGeneric(client *c, int flags) {
         }
     }
 
-    if (changes) {
-
-        /* If this is not a new key (old size not 0) and size changed, then 
-         * update the keysizes histogram. Otherwise, the histogram already 
-         * updated in lookupStringForBitCommand() by calling dbAdd(). */
-        if ((strOldSize > 0) && (strGrowSize != 0))
-            updateKeysizesHist(c->db, OBJ_STRING, strOldSize, strOldSize + strGrowSize);
-        
+    if (changes || strGrowSize) {
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"setbit",c->argv[1],c->db->id);
-        server.dirty += changes;
+        /* OVERFLOW FAIL can reject every write after the string has already
+         * grown. Account for that growth as one mutation. */
+        server.dirty += changes ? changes : 1;
     }
     zfree(ops);
 }

@@ -95,6 +95,10 @@ typedef struct ConnectionType {
 
     /* Get peer username based on connection type */
     sds (*get_peer_username)(connection *conn);
+
+    /* Set the expected peer certificate name(s) to verify during the handshake
+     * (TLS only; may be NULL for connection types without certificate identity). */
+    int (*set_verify_name)(struct connection *conn, const char *name);
 } ConnectionType;
 
 struct connection {
@@ -145,6 +149,15 @@ struct connListener {
 
 static inline int connAccept(connection *conn, ConnectionCallbackFunc accept_handler) {
     return conn->type->accept(conn, accept_handler);
+}
+
+/* Set the expected peer certificate name(s) (space-separated SAN/CN values) to
+ * verify during the handshake. Must be called before connConnect()/connAccept().
+ * For connection types without certificate identity (e.g. TCP/Unix) this is a
+ * no-op. Returns C_OK on success (including no-op), C_ERR if it could not be set. */
+static inline int connSetVerifyName(connection *conn, const char *name) {
+    if (conn->type->set_verify_name == NULL) return 0;
+    return conn->type->set_verify_name(conn, name);
 }
 
 /* Establish a connection.  The connect_handler will be called when the connection

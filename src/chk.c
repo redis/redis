@@ -394,7 +394,7 @@ static inline double getMinDecayCount(chkTopK *topk, counter_t cnt) {
            topk->lut_min_decay[cnt % (CHK_LUT_SIZE)];
 }
 
-/* When there is a hash-collission between lobby entries we decay the existing
+/* When there is a hash-collision between lobby entries we decay the existing
  * lobby entry with the weight of the new one. Return the counter after decaying. */
 lobby_counter_t chkDecayCounter(chkTopK *topk, lobby_counter_t cnt, counter_t weight) {
     if (weight == 0) return cnt;

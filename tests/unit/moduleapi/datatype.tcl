@@ -151,8 +151,7 @@ start_server {tags {"modules external:skip"}} {
             set n 20000
             set dummy "[string repeat x 400]"
             set rd [redis_deferring_client]
-            for {set i 0} {$i < $n} {incr i} { $rd datatype.set k$i 1 $dummy }
-            for {set i 0} {$i < [expr $n]} {incr i} { $rd read } ;# Discard replies
+            deferred_batch $rd $n { $rd datatype.set k$i 1 $dummy }
 
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -163,8 +162,7 @@ start_server {tags {"modules external:skip"}} {
             }
             assert_lessthan [s allocator_frag_ratio] 1.05
 
-            for {set i 0} {$i < $n} {incr i 2} { $rd del k$i }
-            for {set j 0} {$j < $n} {incr j 2} { $rd read } ; # Discard del replies
+            deferred_batch $rd [expr {$n / 2}] { $rd del k[expr {$i * 2}] }
             after 120 ;# serverCron only updates the info once in 100ms
             assert_morethan [s allocator_frag_ratio] 1.4
 

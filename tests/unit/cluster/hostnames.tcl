@@ -16,6 +16,36 @@ proc get_slot_field {slot_output shard_id node_id attrib_id} {
     return [lindex [lindex [lindex $slot_output $shard_id] $node_id] $attrib_id]
 }
 
+proc build_cluster_bus_ping {sender_name sender_port sender_cport extensions_data} {
+    set CLUSTERMSG_TYPE_PING 0
+    set CLUSTERMSG_FLAG0_EXT_DATA 0x04
+    set CLUSTER_NODE_MASTER 1
+
+    set num_extensions [expr {[string length $extensions_data] > 0 ? 1 : 0}]
+    set mflags0 [expr {$num_extensions > 0 ? $CLUSTERMSG_FLAG0_EXT_DATA : 0}]
+    set totlen [expr {2256 + [string length $extensions_data]}]
+
+    set hdr [build_cluster_bus_header $sender_name $sender_port $sender_cport \
+        $CLUSTERMSG_TYPE_PING $totlen $num_extensions $CLUSTER_NODE_MASTER $mflags0]
+    append hdr $extensions_data
+    return $hdr
+}
+
+proc build_hostname_extension {hostname_bytes} {
+    set ext_header_size 8
+    set total_ext_len [expr {$ext_header_size + [string length $hostname_bytes]}]
+    set padded_len [expr {(($total_ext_len + 7) / 8) * 8}]
+    set padding_len [expr {$padded_len - $total_ext_len}]
+
+    set ext ""
+    append ext [binary format I $padded_len]
+    append ext [binary format S 0]
+    append ext [binary format S 0]
+    append ext $hostname_bytes
+    append ext [string repeat \x00 $padding_len]
+    return $ext
+}
+
 # Start a cluster with 3 masters and 4 replicas.
 # These tests rely on specific node ordering, so make sure no node fails over.
 start_cluster 3 4 {tags {external:skip cluster} overrides {cluster-replica-no-failover yes}} {
@@ -226,5 +256,53 @@ test "Test hostname validation" {
 
     # Note this isn't a valid hostname, but it passes our internal validation
     R 0 config set cluster-announce-hostname "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-."
+}
+
+test "PING with hostname extension missing null terminator is rejected" {
+    for {set j 0} {$j < [llength $::servers]} {incr j} {
+        R $j config set cluster-announce-hostname ""
+    }
+    wait_for_condition 50 100 {
+        [are_hostnames_propagated ""] eq 1
+    } else {
+        fail "hostnames were not cleared"
+    }
+
+    set node1_id [R 1 CLUSTER MYID]
+    set target_host [srv 0 host]
+    set target_bus_port [expr {[srv 0 port] + 10000}]
+    set sender_port [srv -1 port]
+    set sender_cport [expr {$sender_port + 10000}]
+
+    # Freeze node 1 so its real PINGs cannot overwrite the injected hostname.
+    set node1_pid [srv -1 pid]
+    pause_process $node1_pid
+
+    set payload_len 32
+    set bad_hostname [string repeat A $payload_len]
+    set bad_ext [build_hostname_extension $bad_hostname]
+    set bad_packet [build_cluster_bus_ping $node1_id $sender_port $sender_cport $bad_ext]
+
+    # Record the log position before injecting the bad packet.
+    set loglines [count_log_lines 0]
+
+    if {$::tls} {
+        set fd [::tls::socket \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
+            $target_host $target_bus_port]
+    } else {
+        set fd [socket $target_host $target_bus_port]
+    }
+    fconfigure $fd -translation binary -buffering full
+    puts -nonewline $fd $bad_packet
+    flush $fd
+
+    # Verify the server logged the proper rejection message.
+    wait_for_log_messages 0 {"*missing null terminator*"} $loglines 50 100
+
+    close $fd
+    resume_process $node1_pid
 }
 }

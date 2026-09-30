@@ -157,7 +157,7 @@ void crcspeed16big_init(crcfn16 fn, uint16_t big_table[8][256]) {
  * reasonable for Intel CPUs made since 2010. Please adjust as necessary if
  * or when your CPU has more load / execute units. We've written benchmark code
  * to help you tune your platform, see crc64Test. */
-#if defined(__i386__) || defined(__X86_64__)
+#if defined(__i386__) || defined(__X86_64__) || defined(__x86_64__)
 static size_t CRC64_TRI_CUTOFF = (2*1024);
 static size_t CRC64_DUAL_CUTOFF = (128);
 #else
@@ -234,7 +234,7 @@ uint64_t crcspeed64little(uint64_t little_table[8][256], uint64_t crc1,
         MERGE_END(next2, 2);
     }
     /* We fall through here to handle our <CRC64_DUAL_CUTOFF inputs, and for any trailing
-     * bytes that wasn't evenly divisble by 16 or 24 above. */
+     * bytes that wasn't evenly divisible by 16 or 24 above. */
 
     /* fast processing, 8 bytes (aligned!) per loop */
     while (len >= 8) {

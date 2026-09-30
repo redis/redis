@@ -388,6 +388,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
         # SET key value\r\n --> 15 bytes.
         $rd write "SET $key value\r\n"
         $rd flush
+        assert_equal OK [$rd read]
 
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
         set expected_slot_stats [
@@ -489,8 +490,8 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         set slot [R 0 cluster keyslot $channel]
         set primary [Rn 0]
         set replica [Rn 1]
-        set replica_subcriber [redis_deferring_client -1]
-        $replica_subcriber SSUBSCRIBE $channel
+        set replica_subscriber [redis_deferring_client -1]
+        $replica_subscriber SSUBSCRIBE $channel
         # *2\r\n$10\r\nssubscribe\r\n$7\r\nchannel\r\n --> 34 bytes.
         $primary SPUBLISH $channel hello
         # *3\r\n$8\r\nspublish\r\n$7\r\nchannel\r\n$5\r\nhello\r\n --> 42 bytes.

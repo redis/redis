@@ -35,6 +35,7 @@ typedef struct {
 } listpackEntry;
 
 unsigned char *lpNew(size_t capacity);
+unsigned char *lpNewWithEntries(listpackEntry *entries, unsigned int len);
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
@@ -67,7 +68,9 @@ unsigned char *lpFirst(unsigned char *lp);
 unsigned char *lpLast(unsigned char *lp);
 unsigned char *lpNext(unsigned char *lp, unsigned char *p);
 unsigned char *lpNextWithBytes(unsigned char *lp, unsigned char *p, const size_t lpbytes);
+unsigned char *lpNextN(unsigned char *lp, unsigned char *p, unsigned long n);
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p);
+unsigned char *lpPrevN(unsigned char *lp, unsigned char *p, unsigned long n);
 size_t lpBytes(unsigned char *lp);
 size_t lpEntrySizeInteger(long long lval);
 size_t lpEstimateBytesRepeatedInteger(long long lval, unsigned long rep);

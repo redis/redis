@@ -50,13 +50,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r client setname foobar
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
-        assert_equal [llength $e] 6
+        assert_equal [llength $e] 7
         if {!$::external} {
             assert_equal [lindex $e 0] 106
         }
         assert_equal [expr {[lindex $e 2] > 100000}] 1
         assert_equal [lindex $e 3] {debug sleep 0.2}
         assert_equal {foobar} [lindex $e 5]
+        assert_equal [lindex $e 6] 3
     } {} {needs:debug}
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
@@ -478,5 +479,14 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         # ... while the old one remains untouched
         set old_entry_argv_again [latest_slowlog_argv_for set]
         assert_equal "set k1 $arg" $old_entry_argv_again
+    }
+
+    test {SLOWLOG - command argument count is tracked when truncated} {
+        r config set slowlog-log-slower-than 0
+        r slowlog reset
+        # Run a command with 33 arguments (sadd + set + 31 items)
+        r sadd set 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33
+        set e [lindex [r slowlog get] end-1]
+        assert_equal [lindex $e 6] 33
     }
 }

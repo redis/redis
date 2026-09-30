@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <memory.h>
+#include <string.h>
 #include <errno.h>
 
 #define MAX_EVENTS 1024
@@ -20,13 +21,17 @@ const char *lastDeletedKeyLog = NULL;
 /* Flag to disable trim. */
 int disableTrimFlag = 0;
 
-int replicateModuleCommand = 0;   /* Enable or disable module command replication. */
-RedisModuleString *moduleCommandKeyName = NULL; /* Key name to replicate. */
-RedisModuleString *moduleCommandKeyVal = NULL;  /* Key value to replicate. */
+int replicateModuleCommandBegin = 0; /* Enable or disable module command replication at the beginning. */
+int replicateModuleCommandEnd = 0;   /* Enable or disable module command replication at the end. */
+RedisModuleString *moduleCommandKeyName = NULL; /* Key name to replicate at the beginning. */
+RedisModuleString *moduleCommandKeyVal = NULL;  /* Key value to replicate at the beginning. */
+RedisModuleString *moduleCommandEndKeyName = NULL; /* Key name to replicate at the end. */
+RedisModuleString *moduleCommandEndKeyVal = NULL;  /* Key value to replicate at the end. */
 
-/* Enable or disable module command replication. */
+/* Enable or disable module command replication.
+ * asm.replicate_module_command <enable> <key> <val> [<at_the_end>] */
 int replicate_module_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 4) {
+    if (argc != 4 && argc != 5) {
         RedisModule_ReplyWithError(ctx, "ERR wrong number of arguments");
         return REDISMODULE_OK;
     }
@@ -36,13 +41,27 @@ int replicate_module_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         RedisModule_ReplyWithError(ctx, "ERR enable value");
         return REDISMODULE_OK;
     }
-    replicateModuleCommand = (enable != 0);
+    long long at_the_end = 0;
+    if (argc == 5 && RedisModule_StringToLongLong(argv[4], &at_the_end) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR at_the_end value");
+        return REDISMODULE_OK;
+    }
 
-    /* Set the key name and value to replicate. */
-    if (moduleCommandKeyName) RedisModule_FreeString(ctx, moduleCommandKeyName);
-    if (moduleCommandKeyVal) RedisModule_FreeString(ctx, moduleCommandKeyVal);
-    moduleCommandKeyName = RedisModule_CreateStringFromString(ctx, argv[2]);
-    moduleCommandKeyVal = RedisModule_CreateStringFromString(ctx, argv[3]);
+    if (at_the_end) {
+        /* Enable/disable end-phase replication and set the key/value to replicate at the end. */
+        replicateModuleCommandEnd = (enable != 0);
+        if (moduleCommandEndKeyName) RedisModule_FreeString(ctx, moduleCommandEndKeyName);
+        if (moduleCommandEndKeyVal) RedisModule_FreeString(ctx, moduleCommandEndKeyVal);
+        moduleCommandEndKeyName = RedisModule_CreateStringFromString(ctx, argv[2]);
+        moduleCommandEndKeyVal = RedisModule_CreateStringFromString(ctx, argv[3]);
+    } else {
+        /* Enable/disable begin-phase replication and set the key/value to replicate at the beginning. */
+        replicateModuleCommandBegin = (enable != 0);
+        if (moduleCommandKeyName) RedisModule_FreeString(ctx, moduleCommandKeyName);
+        if (moduleCommandKeyVal) RedisModule_FreeString(ctx, moduleCommandKeyVal);
+        moduleCommandKeyName = RedisModule_CreateStringFromString(ctx, argv[2]);
+        moduleCommandKeyVal = RedisModule_CreateStringFromString(ctx, argv[3]);
+    }
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
@@ -77,6 +96,36 @@ int testClusterGetLocalSlotRanges(RedisModuleCtx *ctx, RedisModuleString **argv,
         slots = RedisModule_ClusterGetLocalSlotRanges(ctx);
     } else {
         slots = RedisModule_ClusterGetLocalSlotRanges(NULL);
+    }
+
+    RedisModule_ReplyWithArray(ctx, slots->num_ranges);
+    for (int i = 0; i < slots->num_ranges; i++) {
+        RedisModule_ReplyWithArray(ctx, 2);
+        RedisModule_ReplyWithLongLong(ctx, slots->ranges[i].start);
+        RedisModule_ReplyWithLongLong(ctx, slots->ranges[i].end);
+    }
+    if (!use_auto_memory)
+        RedisModule_ClusterFreeSlotRanges(NULL, slots);
+    return REDISMODULE_OK;
+}
+
+/* Test command for RedisModule_GetClusterNodeSlotRanges */
+int testGetClusterNodeSlotRanges(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    const char *nodeid = RedisModule_StringPtrLen(argv[1], NULL);
+
+    static int use_auto_memory = 0;
+    use_auto_memory = !use_auto_memory;
+
+    RedisModuleSlotRangeArray *slots;
+    if (use_auto_memory) {
+        RedisModule_AutoMemory(ctx);
+        slots = RedisModule_GetClusterNodeSlotRanges(ctx, nodeid);
+    } else {
+        slots = RedisModule_GetClusterNodeSlotRanges(NULL, nodeid);
     }
 
     RedisModule_ReplyWithArray(ctx, slots->num_ranges);
@@ -277,14 +326,31 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
             /* Test some non-fatal scenarios. */
             testNonFatalScenarios(ctx, info);
 
-            if (replicateModuleCommand == 0) return;
+            if (replicateModuleCommandBegin == 0) return;
 
             /* Replicate a keyless command. */
             ret = RedisModule_ClusterPropagateForSlotMigration(ctx, "asm.keyless_cmd", "");
             RedisModule_Assert(ret == REDISMODULE_OK);
 
-            /* Propagate configured key and value. */
+            if (moduleCommandKeyName == NULL) return;
+
+            /* Propagate configured key and value at the beginning. */
             ret = RedisModule_ClusterPropagateForSlotMigration(ctx, "SET", "ss", moduleCommandKeyName, moduleCommandKeyVal);
+            RedisModule_Assert(ret == REDISMODULE_OK);
+        } else if (sub == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE_END) {
+            /* Test some non-fatal scenarios in the end-of-migration context too. */
+            testNonFatalScenarios(ctx, info);
+
+            if (replicateModuleCommandEnd == 0) return;
+
+            /* Replicate a keyless command. */
+            ret = RedisModule_ClusterPropagateForSlotMigration(ctx, "asm.keyless_cmd", "");
+            RedisModule_Assert(ret == REDISMODULE_OK);
+
+            if (moduleCommandEndKeyName == NULL) return;
+
+            /* Propagate configured end key and value, delivered last. */
+            ret = RedisModule_ClusterPropagateForSlotMigration(ctx, "SET", "ss", moduleCommandEndKeyName, moduleCommandEndKeyVal);
             RedisModule_Assert(ret == REDISMODULE_OK);
         } else {
             /* Log the event. */
@@ -510,6 +576,35 @@ int asmGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+/* Wipe the whole dataset via RM_ResetDataset. Used to verify that resetting
+ * the dataset cancels any in-progress atomic slot migration. */
+int resetDatasetCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ResetDataset(0, 0);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+/* Save the dataset to an internal file and load it back via RM_RdbLoad. Used
+ * to verify that loading an RDB cancels any in-progress atomic slot migration. */
+int rdbLoadCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModuleRdbStream *stream = RedisModule_RdbStreamCreateFromFile("asm_rdbload_test.rdb");
+    if (RedisModule_RdbSave(ctx, stream, 0) != REDISMODULE_OK ||
+        RedisModule_RdbLoad(ctx, stream, 0) != REDISMODULE_OK)
+    {
+        RedisModule_RdbStreamFree(stream);
+        RedisModule_ReplyWithError(ctx, strerror(errno));
+        return REDISMODULE_OK;
+    }
+    RedisModule_RdbStreamFree(stream);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -562,10 +657,19 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.cluster_get_local_slot_ranges", testClusterGetLocalSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "asm.get_cluster_node_slot_ranges", testGetClusterNodeSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx, "asm.get_last_deleted_key", getLastDeletedKey, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.get", asmGetCommand, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.reset_dataset", resetDatasetCmd, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.rdbload", rdbLoadCmd, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.parent", NULL, "", 0, 0, 0) == REDISMODULE_ERR)

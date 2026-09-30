@@ -1,0 +1,9 @@
+{
+    "BLESS": {
+        "summary": "A container for key-blessing commands.",
+        "complexity": "Depends on subcommand.",
+        "group": "generic",
+        "since": "8.12.0",
+        "arity": -2
+    }
+}
