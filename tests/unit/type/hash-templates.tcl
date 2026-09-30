@@ -1840,6 +1840,30 @@ start_server {tags {"hash" "needs:debug" "cluster:skip"}
         assert_equal [s hash_templates] 0
     }
 
+    test "bound: growing a template hash past max converts it to plain ($encoding)" {
+        r flushall
+        wait_num_templates 0
+        r hset k a 1 b 2 c 3 d 4 e 5
+        assert_equal [r object encoding k] $encoding
+        r hset k f 6
+        assert_encoding $plain_enc k
+        assert_equal 6 [r hlen k]
+        assert_equal 1 [r hget k a]
+        assert_equal 6 [r hget k f]
+    }
+
+    test "bound: a single HSET that widens past max converts to plain ($encoding)" {
+        r flushall
+        wait_num_templates 0
+        r hset k f1 1 f2 2 f3 3 f4 4 f5 5
+        assert_equal [r object encoding k] $encoding
+        r hset k f6 6 f7 7 f8 8
+        assert_encoding $plain_enc k
+        assert_equal 8 [r hlen k]
+        assert_equal 1 [r hget k f1]
+        assert_equal 8 [r hget k f8]
+    }
+
     test "bound: max=0 disables the upper bound ($encoding)" {
         r flushall
         wait_num_templates 0
