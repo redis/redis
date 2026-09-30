@@ -38,7 +38,7 @@
  * mean that the value can't be converted to an integer), and points to the integer
  * value if the value was received as an integer.
  */
-typedef struct _setTypeOps {
+struct _setTypeOps {
     /* return 0 if the member already exists, 1 if added, -1 if it cannot be added (due to encoding mismatch or size limits)*/
     int (*rawAdd)(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc);
     /* return 0 if the member doesn't exist, 1 if removed */
@@ -71,7 +71,7 @@ typedef struct _setTypeOps {
      * that setTypeConvertAndExpand() never targets (currently intset - see
      * maybeConvertToIntset() in t_set.c instead). */
     void *(*convertFrom)(robj *set, unsigned long cap, int panic);
-} setTypeOps;
+};
 
 /* One instance per encoding, defined in the matching t_set_<encoding>.c file. */
 extern const setTypeOps setTypeOpsIntset;

@@ -223,7 +223,7 @@ ALWAYS_INLINE int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t l
 void setTypeInitIterator(setTypeIterator *si, robj *subject) {
     si->subject = subject;
     si->encoding = subject->encoding;
-    si->typeOps = (void *)setTypeGetOps(si->encoding);
+    si->typeOps = setTypeGetOps(si->encoding);
     si->typeOps->iterInit(si);
 }
 
