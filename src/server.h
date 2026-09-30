@@ -3194,10 +3194,12 @@ typedef struct {
 } listTypeEntry;
 
 /* Structure to hold set iteration abstraction. */
+typedef struct _setTypeOps setTypeOps;
+
 typedef struct {
     robj *subject;
     int encoding;
-    void *typeOps; /* encoding-specifc ops struct, to avoid re-fetching it for every next call */
+    setTypeOps *typeOps; /* encoding-specific ops struct, to avoid re-fetching it for every next call */
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
