@@ -397,12 +397,7 @@ kvobj *lookupKeyWrite(redisDb *db, robj *key) {
  *   empty dict       -> returns NULL;      link = NULL.
  */
 kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link) {
-    return lookupKeyWriteWithLinkFlags(db, key, LOOKUP_NONE, link);
-}
-
-/* Like lookupKeyWriteWithLink(), but also accepts lookup flags. */
-kvobj *lookupKeyWriteWithLinkFlags(redisDb *db, robj *key, int flags, dictEntryLink *link) {
-    return lookupKey(db, key, flags | LOOKUP_WRITE, link);
+    return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, link);
 }
 
 kvobj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
