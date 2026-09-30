@@ -903,8 +903,12 @@ start_server {tags {"cli external:skip"}} {
     }
 
     test "key analysis modes do not alter key LFU metadata" {
+        # lfu-log-factor 0 makes every access count, and lfu-decay-time 0 stops
+        # the counter from decaying when a minute boundary falls between the
+        # two OBJECT FREQ reads, so any change comes from redis-cli itself.
         r config set maxmemory-policy allkeys-lfu
         r config set lfu-log-factor 0
+        r config set lfu-decay-time 0
 
         foreach mode {--bigkeys --memkeys --keystats --hotkeys} {
             r set key value
@@ -919,6 +923,7 @@ start_server {tags {"cli external:skip"}} {
         r del key
         r config set maxmemory-policy noeviction
         r config set lfu-log-factor 10
+        r config set lfu-decay-time 1
     }
 
     test "key size analysis continues when CLIENT NO-TOUCH is unavailable" {
