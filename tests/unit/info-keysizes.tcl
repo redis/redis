@@ -1192,6 +1192,40 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
         r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
     }
 
+    test "SLOT-ALLOCSIZE - SMOVE to the same key keeps slot alloc tracking across rehash" {
+        # SMOVE with the same source and destination only checks membership,
+        # but that lookup still drives the set's incremental rehash forward, and
+        # the step that finishes it frees the old hash table and shrinks the
+        # set's allocation - which must be recorded via updateSlotAllocSize().
+        # The per-slot assertion runs after every command, so any miscounting
+        # panics inside the loop below.
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+
+        # Keep the set hashtable-encoded from its first member, so its dict
+        # grows (and rehashes) along with the SADDs below instead of being
+        # pre-sized once by the listpack conversion.
+        set origin_conf [lindex [r CONFIG GET set-max-listpack-entries] 1]
+        r CONFIG SET set-max-listpack-entries 0
+
+        # One member per SADD on purpose: a single SADD with many members would
+        # pre-size the dict and skip rehashing. Stopping shortly after an expand
+        # boundary (here 128) leaves the rehash unfinished.
+        for {set i 0} {$i < 130} {incr i} { r SADD "src{t}" "s-$i" }
+        assert_encoding hashtable "src{t}"
+
+        # Each lookup rehashes about one bucket, so repeat it enough times for
+        # one of them to finish the rehash. Both a present and a missing member
+        # take the same path.
+        for {set i 0} {$i < 300} {incr i} {
+            assert_equal 1 [r SMOVE "src{t}" "src{t}" "s-1"]
+            assert_equal 0 [r SMOVE "src{t}" "src{t}" "missing"]
+        }
+
+        r CONFIG SET set-max-listpack-entries $origin_conf
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+    }
+
     test "SLOT-ALLOCSIZE - SUNION/SDIFF family keep slot alloc tracking across rehash" {
         # Every command routed through sunionDiffGenericCommand() is exercised
         # against a source set that is mid-rehash. The DIFF commands dictFind()
