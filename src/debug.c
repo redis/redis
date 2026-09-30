@@ -2588,10 +2588,11 @@ static void crashWatchdogHandler(int sig) {
     sigaction(SIGABRT, &act, NULL);
 
     int signo = crash_watchdog_signo;
-    kill(getpid(), signo);
-
-    /* Only reached if the re-raised signal cannot be delivered. */
-    _exit(1);
+    /* kill() returns once the signal is queued. abort() only if it
+     * could not be queued. SIGABRT is SIG_DFL too, so the kernel can
+     * still write a core. */
+    if (kill(getpid(), signo) == -1)
+        abort();
 }
 
 /* Resolve timer_settime and kill while the loader lock is free. */
