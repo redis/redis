@@ -96,6 +96,15 @@ start_server {tags {"dump"}} {
         }
     }
 
+    test {RESTORE with a huge IDLETIME doesn't overflow} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        assert_equal OK [r restore foo 0 $encoded IDLETIME 9223372036854775807]
+        assert_equal bar [r get foo]
+        r del foo
+    }
+
     test {RESTORE can set LFU} {
         r set foo bar
         set encoded [r dump foo]
