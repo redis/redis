@@ -4296,6 +4296,9 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
+    /* A string-to-Roaring-bitmap conversion changes the result from
+     * REDISMODULE_KEYTYPE_STRING to REDISMODULE_KEYTYPE_BITMAP. */
+    case OBJ_BITMAP: return REDISMODULE_KEYTYPE_BITMAP;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }
@@ -9327,6 +9330,14 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_EVICTED: Eviction events
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
  *  - REDISMODULE_NOTIFY_MODULE: Module types events
+ *  - REDISMODULE_NOTIFY_BITMAP: Bitmap events (class 'b'). SETBIT, BITFIELD
+ *                               and BITOP writes on native bitmap keys are
+ *                               reported under this class, while the
+ *                               same commands on string bitmaps keep using
+ *                               REDISMODULE_NOTIFY_STRING, so a module that
+ *                               wants all bitmap writes must subscribe to
+ *                               both. REDISMODULE_NOTIFY_ALL from an older
+ *                               redismodule.h does not include this flag.
  *  - REDISMODULE_NOTIFY_KEYMISS: Key-miss events
  *                                Notice, key-miss event is the only type
  *                                of event that is fired from within a read command.
