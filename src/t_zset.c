@@ -3262,6 +3262,11 @@ struct zrange_result_handler {
     zrangeResultFinalizeFunction         finalizeResultEmission;
     zrangeResultEmitCBufferFunction      emitResultFromCBuffer;
     zrangeResultEmitLongLongFunction     emitResultFromLongLong;
+    /* STORE fast path state. See zrangeStoreTryAppend(). */
+    zskiplistNode                       *bulk_update[ZSKIPLIST_MAXLEVEL];
+    unsigned long                        bulk_rank[ZSKIPLIST_MAXLEVEL];
+    int                                  bulk_initialized;
+    int                                  bulk_disarmed;
 };
 
 /* Result handler methods for responding the ZRANGE to clients.
@@ -3333,12 +3338,108 @@ static void zrangeResultBeginStore(zrange_result_handler *handler, long length)
     handler->dstobj = zsetTypeCreate(length >= 0 ? length : 0, 0);
 }
 
+/* STORE-mode tail-append fast path for forward ZRANGESTORE.
+ *
+ * When the destination is skiplist-encoded and incoming (score, ele) is >=
+ * the current tail, append the new node directly using per-level tail
+ * pointers cached on 'handler'. On first use with a non-empty skiplist
+ * (destination was listpack and converted mid-store, e.g. ZRANGESTORE
+ * BYSCORE/BYLEX), the cache seeds from the existing tail chain. Span
+ * bookkeeping mirrors zslInsertNode() verbatim: level-0 spans are implicit,
+ * level>=1 predecessor span = (new_rank - prev_rank) + 1, new-tail span = 0;
+ * bulk_rank[i] = hops-from-header to bulk_update[i] so the formula stays
+ * invariant across calls.
+ *
+ * Returns 1 if handled, 0 to fall back to zsetAdd() (not skiplist, not
+ * monotonic, or unexpected duplicate). */
+static int zrangeStoreTryAppend(zrange_result_handler *handler, double score, sds ele) {
+    if (handler->bulk_disarmed) return 0;
+    if (handler->dstobj->encoding != OBJ_ENCODING_SKIPLIST) return 0;
+    zset *zs = handler->dstobj->ptr;
+    zskiplist *zsl = zs->zsl;
+    if (zsl->tail != NULL && zslCompareWithNode(score, ele, zsl->tail) < 0) {
+        handler->bulk_disarmed = 1;
+        return 0;
+    }
+    dictEntryLink bucket;
+    if (dictFindLink(zs->dict, ele, &bucket) != NULL) {
+        handler->bulk_disarmed = 1;  /* unexpected duplicate */
+        return 0;
+    }
+
+    if (!handler->bulk_initialized) {
+        if (zsl->length == 0) {
+            for (int i = 0; i < ZSKIPLIST_MAXLEVEL; i++) {
+                handler->bulk_update[i] = zsl->header;
+                handler->bulk_rank[i] = 0;
+            }
+        } else {
+            /* Walk the existing tail chain so update[]/rank[] match what
+             * zslInsertNode() would have computed; otherwise the first
+             * stitch would overwrite header.forward on a non-empty chain. */
+            zskiplistNode *x = zsl->header;
+            unsigned long r = 0;
+            for (int i = zsl->level - 1; i >= 0; i--) {
+                while (x->level[i].forward != NULL) {
+                    r += zslGetNodeSpanAtLevel(x, i);
+                    x = x->level[i].forward;
+                }
+                handler->bulk_update[i] = x;
+                handler->bulk_rank[i] = r;
+            }
+            for (int i = zsl->level; i < ZSKIPLIST_MAXLEVEL; i++) {
+                handler->bulk_update[i] = zsl->header;
+                handler->bulk_rank[i] = 0;
+            }
+        }
+        handler->bulk_initialized = 1;
+    }
+
+    int level = zslRandomLevel();
+    zskiplistNode *node = zslCreateNode(zsl, level, score, ele);
+    unsigned long insert_rank = zsl->length;  /* 0-indexed position of new node */
+
+    if (level > zsl->level) {
+        for (int i = zsl->level; i < level; i++) {
+            handler->bulk_update[i] = zsl->header;
+            handler->bulk_rank[i] = 0;
+            zslSetNodeSpanAtLevel(zsl->header, i, zsl->length);
+        }
+        zsl->level = level;
+        zslGetNodeInfo(zsl->header)->levels = level;
+    }
+
+    zskiplistNode *prev_level0 = handler->bulk_update[0];
+    for (int i = 0; i < level; i++) {
+        node->level[i].forward = NULL;
+        handler->bulk_update[i]->level[i].forward = node;
+        zslSetNodeSpanAtLevel(node, i, 0);
+        zslSetNodeSpanAtLevel(handler->bulk_update[i], i,
+                              (insert_rank - handler->bulk_rank[i]) + 1);
+        handler->bulk_update[i] = node;
+        handler->bulk_rank[i] = insert_rank + 1;
+    }
+    for (int i = level; i < zsl->level; i++) {
+        zslIncrNodeSpanAtLevel(handler->bulk_update[i], i, 1);
+    }
+    node->backward = (prev_level0 == zsl->header) ? NULL : prev_level0;
+    zsl->tail = node;
+    zsl->length++;
+
+    dictSetKeyAtLink(zs->dict, node, &bucket, 1);
+    return 1;
+}
+
 static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
     const void *value, size_t value_length_in_bytes, double score)
 {
+    sds ele = sdsnewlen(value, value_length_in_bytes);
+    if (zrangeStoreTryAppend(handler, score, ele)) {
+        sdsfree(ele);
+        return;
+    }
     double newscore;
     int retflags = 0;
-    sds ele = sdsnewlen(value, value_length_in_bytes);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
@@ -3347,9 +3448,13 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
 static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
     long long value, double score)
 {
+    sds ele = sdsfromlonglong(value);
+    if (zrangeStoreTryAppend(handler, score, ele)) {
+        sdsfree(ele);
+        return;
+    }
     double newscore;
     int retflags = 0;
-    sds ele = sdsfromlonglong(value);
     int retval = zsetAdd(handler->dstobj, score, ele, ZADD_IN_NONE, &retflags, &newscore);
     sdsfree(ele);
     serverAssert(retval);
