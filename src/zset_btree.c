@@ -2410,28 +2410,45 @@ static void zbtIndexInsert(zbtreeSet *zs, uint32_t hash, uint32_t leaf_id,
 
 /* ------------------------------ Deletion -------------------------------- */
 
-/* Join a small score leaf with a neighbor when count and byte limits allow.
- * The left leaf ID survives. Before releasing the right ID, every member
- * reference to it is redirected to the merged leaf.
- */
-static zbtScoreLeaf *zbtScoreMerge(zbtreeSet *zs, zbtScoreLeaf *leaf) {
-    zbtScoreLeaf *left = leaf->prev;
-    zbtScoreLeaf *right = leaf;
+/* Return the bytes used by a leaf's member records. Gaps left by score
+ * updates are not counted. */
+static size_t zbtScoreLeafRecordBytes(zbtScoreLeaf *leaf) {
+    uint16_t *offsets = zbtScoreLeafOffsets(leaf);
+    size_t bytes = 0;
+    for (unsigned int i = 0; i < leaf->n.count; i++)
+        bytes += zbtRecordStorageBytes((unsigned char *)leaf + offsets[i]);
+    return bytes;
+}
+
+/* Return the live bytes excluding growth reserve and allocator rounding.
+ * The current score encoding can represent every remaining score, so a
+ * fresh encoding never needs more bits. */
+static size_t zbtScoreLeafLiveBytes(zbtScoreLeaf *leaf) {
+    return offsetof(zbtScoreLeaf, data) +
+           zbtScoreLeafScoreBytes(leaf->n.count, leaf->score_bits) +
+           leaf->n.count * (sizeof(uint16_t) + sizeof(uint8_t)) +
+           zbtScoreLeafRecordBytes(leaf);
+}
+
+/* Join two adjacent leaves if the result fits, returning the merged leaf or
+ * NULL. The left leaf ID survives. Before releasing the right ID, every
+ * member reference to it is redirected to the merged leaf. */
+static zbtScoreLeaf *zbtScoreMergePair(zbtreeSet *zs, zbtScoreLeaf *left,
+                                       zbtScoreLeaf *right)
+{
     double scores[ZBT_SCORE_LEAF_MAX];
     zbtBuildElement eles[ZBT_SCORE_LEAF_MAX];
     uint8_t tags[ZBT_SCORE_LEAF_MAX];
 
-    if (left == NULL ||
-        left->n.count + right->n.count > ZBT_SCORE_LEAF_MAX)
-    {
-        left = leaf;
-        right = leaf->next;
-    }
-    if (right == NULL ||
-        left->n.count + right->n.count > ZBT_SCORE_LEAF_MAX)
-        return leaf;
-
     unsigned int count = left->n.count + right->n.count;
+    if (count > ZBT_SCORE_LEAF_MAX) return NULL;
+    /* Records, offsets and tags alone must fit before scores are decoded. */
+    if (offsetof(zbtScoreLeaf, data) +
+        count * (sizeof(uint16_t) + sizeof(uint8_t)) +
+        zbtScoreLeafRecordBytes(left) + zbtScoreLeafRecordBytes(right) >
+        ZBT_SCORE_LEAF_BYTES)
+        return NULL;
+
     for (unsigned int i = 0; i < left->n.count; i++) {
         scores[i] = zbtScoreLeafScore(left, i);
         zbtBuildElementFromLeaf(&eles[i], left, i);
@@ -2446,7 +2463,7 @@ static zbtScoreLeaf *zbtScoreMerge(zbtreeSet *zs, zbtScoreLeaf *leaf) {
     }
     if (zbtScoreLeafRequestBytes(count, scores, eles) >
         ZBT_SCORE_LEAF_BYTES)
-        return leaf;
+        return NULL;
 
     uint32_t left_id = left->id;
     uint32_t right_id = right->id;
@@ -2461,6 +2478,16 @@ static zbtScoreLeaf *zbtScoreMerge(zbtreeSet *zs, zbtScoreLeaf *leaf) {
     }
     zbtScoreRemoveLeaf(zs, right);
     return merged;
+}
+
+/* Join a small score leaf with its previous or next neighbor when count and
+ * byte limits allow. Return the merged leaf, or 'leaf' if nothing changed. */
+static zbtScoreLeaf *zbtScoreMerge(zbtreeSet *zs, zbtScoreLeaf *leaf) {
+    zbtScoreLeaf *merged = NULL;
+    if (leaf->prev) merged = zbtScoreMergePair(zs, leaf->prev, leaf);
+    if (merged == NULL && leaf->next)
+        merged = zbtScoreMergePair(zs, leaf, leaf->next);
+    return merged ? merged : leaf;
 }
 
 /* Remove one packed score and offset. The existing base, shift and width can
@@ -2496,6 +2523,16 @@ static void zbtScoreDeleteInPlace(zbtreeSet *zs, zbtScoreLeaf *leaf,
      * avoids moving every record in the leaf. The next rebuild or compaction
      * removes such gaps.
      */
+    /* The record of the first member of a rebuilt leaf is the last one in
+     * memory, so closing its gap would move every other record. When no
+     * record lies above the deleted one, leave the gap at the top instead;
+     * the next rebuild reclaims it. */
+    if (compact_records && deleted_offset != leaf->record_start) {
+        int above = 0;
+        for (unsigned int i = 0; i < oldcount && !above; i++)
+            above = old_offsets[i] > deleted_offset;
+        if (!above) compact_records = 0;
+    }
     if (compact_records) {
         unsigned char *records = (unsigned char *)leaf + leaf->record_start;
         memmove(records + deleted_bytes, records,
@@ -2537,9 +2574,28 @@ static void zbtScoreDeleteAt(zbtreeSet *zs, zbtScoreLeaf *leaf,
         return;
     }
 
+    /* ZPOPMIN, ZPOPMAX and queues keep deleting from one end of the set.
+     * Merging that edge leaf would copy its neighbor into it only for those
+     * members to be deleted next, so let it empty and disappear instead. */
+    int edge = (pos == 0 && leaf == zs->score_first) ||
+               (pos + 1 == leaf->n.count && leaf == zs->score_last);
     zbtScoreDeleteInPlace(zs, leaf, pos, allow_merge);
-    if (allow_merge && leaf->n.count <= ZBT_SCORE_LEAF_MERGE)
-        zbtScoreMerge(zs, leaf);
+    if (!allow_merge || leaf->n.count > ZBT_SCORE_LEAF_MERGE) return;
+    if (edge) {
+        /* Check occasionally while draining an edge, including its final
+         * member, so stopping a pop sequence cannot leave a large page for
+         * one member. Powers of two keep the checks amortized. */
+        if (leaf->n.count & (leaf->n.count - 1)) return;
+    } else if (zbtScoreMerge(zs, leaf) != leaf) {
+        return;
+    }
+
+    /* Deleting never shrinks the allocation. When a small leaf cannot join
+     * a neighbor, rebuild it at the real size once at least half of the
+     * allocation is unused, so sparse leaves return their memory. */
+    if (zmalloc_usable_size(leaf) >=
+        2 * zbtScoreLeafLiveBytes(leaf) + ZBT_SCORE_LEAF_RESERVE)
+        zbtScoreCompactLeaf(zs, leaf);
 }
 
 /* Remove a run of consecutive elements from one score leaf. Their member
@@ -4576,6 +4632,207 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             zfree(seen);
         }
         zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree memory after deleting most members\n");
+    {
+        /* 319 byte members are the longest kept inside a leaf, so a leaf
+         * holds about a dozen. Build in random order, change and delete some
+         * members, reload in RDB order, then delete 95% spread evenly over
+         * all leaves. Deletion used to leave most surviving members alone in
+         * a 4 KB leaf: about five times the memory of a rebuilt set. */
+        const int N = 60000;
+        char buf[319];
+        memset(buf, 'x', sizeof(buf));
+        int *order = zmalloc(sizeof(int) * N);
+        char *gone = zcalloc(N);
+        for (int i = 0; i < N; i++) order[i] = i;
+        uint64_t r = 654;
+        for (int i = N - 1; i > 0; i--) {
+            r = r * 6364136223846793005ULL + 1442695040888963407ULL;
+            int j = (int)((r >> 33) % (uint64_t)(i + 1));
+            int t = order[i]; order[i] = order[j]; order[j] = t;
+        }
+#define ZBT_TEST_SET(zs, i, score) do { \
+            snprintf(buf, 13, "%012d", (i)); buf[12] = 'x'; \
+            sds ele = sdsnewlen(buf, sizeof(buf)); \
+            double cur; zbtreeInsertPosition position; \
+            if (!zbtreeFindForAdd((zs), ele, &cur, &position)) \
+                zbtreeInsertNew((zs), (score), ele, &position); \
+            else if (cur != (score)) \
+                zbtreeUpdateScore((zs), ele, (score), &position); \
+            sdsfree(ele); \
+        } while (0)
+#define ZBT_TEST_DEL(zs, i) do { \
+            snprintf(buf, 13, "%012d", (i)); buf[12] = 'x'; \
+            sds ele = sdsnewlen(buf, sizeof(buf)); \
+            serverAssert(zbtreeDelete((zs), ele)); \
+            sdsfree(ele); gone[(i)] = 1; \
+        } while (0)
+        zbtreeSet *zs = zbtreeCreate();
+        for (int k = 0; k < N; k++) ZBT_TEST_SET(zs, order[k], order[k] % 997);
+        for (int k = 0; k < N; k++) {
+            int i = order[k];
+            if (i % 5 == 0) ZBT_TEST_DEL(zs, i);
+            else if (i % 3 == 0) ZBT_TEST_SET(zs, i, -(double)i / 7);
+        }
+        /* Reload the way RDB does: descending order into a new set. */
+        zbtreeSet *loaded = zbtreeCreate();
+        zbtreeIterator it;
+        const unsigned char *e;
+        size_t len;
+        double score;
+        zbtreeIteratorStart(zs, 1, &it);
+        while (zbtreeIteratorNext(&it, 1, &e, &len, &score)) {
+            sds ele = sdsnewlen(e, len);
+            double cur;
+            zbtreeInsertPosition position;
+            serverAssert(!zbtreeFindForAdd(loaded, ele, &cur, &position));
+            zbtreeInsertNew(loaded, score, ele, &position);
+            sdsfree(ele);
+        }
+        zbtreeFree(zs);
+        zs = loaded;
+        for (int i = 0; i < N; i++)
+            if (!gone[i] && i % 20 != 1) ZBT_TEST_DEL(zs, i);
+#undef ZBT_TEST_SET
+#undef ZBT_TEST_DEL
+        zbtreeSet *packed = zbtreeCreate();
+        int intact = 1;
+        const unsigned char *pe = NULL;
+        size_t plen = 0;
+        double pscore = 0;
+        zbtreeIteratorStart(zs, 0, &it);
+        while (zbtreeIteratorNext(&it, 0, &e, &len, &score)) {
+            int i = atoi((const char *)e);
+            intact = intact && i % 20 == 1 && !gone[i] &&
+                     score == (i % 3 == 0 ? -(double)i / 7 : i % 997);
+            if (pe) intact = intact &&
+                zbtScoreCompare(pscore, pe, plen, score, e, len) < 0;
+            pe = e; plen = len; pscore = score;
+            zbtreeInsertNewAppend(packed, score, e, len);
+        }
+        test_cond("Survivors are intact after deleting 95% of the members",
+                  intact && zbtreeLength(zs) == (unsigned long)N / 20);
+        test_cond("Sparse leaves release memory after mass deletion",
+                  zbtreeAllocSize(zs) < 2 * zbtreeAllocSize(packed));
+        zbtreeFree(packed);
+        zbtreeFree(zs);
+        zfree(order);
+        zfree(gone);
+    }
+
+    printf("Testing B+ tree memory when end deletions stop at one member\n");
+    for (int reverse = 0; reverse <= 1; reverse++) {
+        zbtreeSet *zs = zbtreeCreate();
+        char buf[319];
+        memset(buf, 'x', sizeof(buf));
+        for (int i = 0; i < 96; i++) {
+            snprintf(buf, 13, "%012d", i); buf[12] = 'x';
+            zbtreeInsertNewAppend(zs, i, (unsigned char *)buf, sizeof(buf));
+        }
+        for (int k = 0; k < 95; k++) {
+            int i = reverse ? 95 - k : k;
+            snprintf(buf, 13, "%012d", i); buf[12] = 'x';
+            sds ele = sdsnewlen(buf, sizeof(buf));
+            serverAssert(zbtreeDelete(zs, ele));
+            sdsfree(ele);
+        }
+        test_cond("Stopping end deletions at one member releases the leaf's unused space",
+                  zbtreeLength(zs) == 1 && zs->score_first == zs->score_last &&
+                  zmalloc_usable_size(zs->score_first) < 1024 &&
+                  zbtScoreLeafScore(zs->score_first, 0) == (reverse ? 0 : 95));
+        zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree random deletes at both ends and in the middle\n");
+    {
+        /* Mix pops from both ends, random deletes, inserts and score
+         * changes, with inline and external members. Compare everything
+         * with a plain array after every batch. */
+        const int U = 3000;
+        double *ref = zmalloc(sizeof(double) * U);
+        char *alive = zcalloc(U);
+        char buf[512];
+        uint64_t r = 4242;
+        int ok = 1;
+#define ZBT_TEST_RAND() (r = r * 6364136223846793005ULL + \
+                         1442695040888963407ULL, (unsigned)(r >> 33))
+#define ZBT_TEST_MEMBER(i) (snprintf(buf, 13, "%012d", (i)), \
+                            memset(buf + 12, 'a' + (i) % 26, \
+                                   (size_t)(8 + ((i) * 37) % 400)), \
+                            (size_t)(20 + ((i) * 37) % 400))
+        zbtreeSet *zs = zbtreeCreate();
+        for (int round = 0; round < 60 && ok; round++) {
+            for (int op = 0; op < 2000; op++) {
+                unsigned kind = ZBT_TEST_RAND() % 10;
+                int i = (int)(ZBT_TEST_RAND() % U);
+                if (kind <= 1 && zbtreeLength(zs)) {
+                    zbtreeIterator it;
+                    const unsigned char *e;
+                    size_t len;
+                    double score;
+                    int reverse = kind == 1;
+                    serverAssert(zbtreeIteratorStart(zs, reverse, &it));
+                    serverAssert(zbtreeIteratorNext(&it, reverse, &e, &len,
+                                                    &score));
+                    int m = atoi((const char *)e);
+                    sds ele = sdsnewlen(e, len);
+                    serverAssert(zbtreeDelete(zs, ele));
+                    sdsfree(ele);
+                    ok = ok && alive[m] && ref[m] == score;
+                    alive[m] = 0;
+                    continue;
+                }
+                size_t len = ZBT_TEST_MEMBER(i);
+                sds ele = sdsnewlen(buf, len);
+                if (kind <= 4) {
+                    ok = ok && zbtreeDelete(zs, ele) == alive[i];
+                    alive[i] = 0;
+                } else {
+                    double score = (double)(ZBT_TEST_RAND() % 50);
+                    double cur;
+                    zbtreeInsertPosition position;
+                    int found = zbtreeFindForAdd(zs, ele, &cur, &position);
+                    ok = ok && found == alive[i];
+                    if (!found)
+                        zbtreeInsertNew(zs, score, ele, &position);
+                    else if (cur != score)
+                        zbtreeUpdateScore(zs, ele, score, &position);
+                    alive[i] = 1;
+                    ref[i] = score;
+                }
+                sdsfree(ele);
+            }
+            unsigned long count = 0;
+            for (int i = 0; i < U; i++) {
+                if (!alive[i]) continue;
+                count++;
+                size_t len = ZBT_TEST_MEMBER(i);
+                double score;
+                ok = ok && zbtreeScoreRaw(zs, (unsigned char *)buf, len,
+                                          &score) && score == ref[i];
+            }
+            zbtreeIterator it;
+            const unsigned char *e, *pe = NULL;
+            size_t len, plen = 0;
+            double score, pscore = 0;
+            unsigned long seen = 0;
+            zbtreeIteratorStart(zs, 0, &it);
+            while (zbtreeIteratorNext(&it, 0, &e, &len, &score)) {
+                if (pe) ok = ok && zbtScoreCompare(pscore, pe, plen, score,
+                                                   e, len) < 0;
+                pe = e; plen = len; pscore = score;
+                seen++;
+            }
+            ok = ok && count == zbtreeLength(zs) && seen == count;
+        }
+#undef ZBT_TEST_RAND
+#undef ZBT_TEST_MEMBER
+        test_cond("Random pops, deletes and updates match a reference", ok);
+        zbtreeFree(zs);
+        zfree(ref);
+        zfree(alive);
     }
 
     return 0;
