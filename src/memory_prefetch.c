@@ -332,6 +332,8 @@ typedef struct PrefetchCommandsBatch {
     client **clients;               /* Array of clients in the current batch */
     pendingCommand **pending_cmds;  /* Array of pending commands in the current batch */
     dict **keys_dicts;              /* Main dict for each key */
+    pendingCommand **key_owners;    /* Command that contributed each key */
+    uint8_t *key_slots;             /* Position of each key within its command */
     dictPrefetcher prefetcher;      /* Initialized once; reset and reused per batch. */
 } PrefetchCommandsBatch;
 
@@ -346,6 +348,8 @@ void freePrefetchCommandsBatch(void) {
     zfree(batch->pending_cmds);
     zfree(batch->keys);
     zfree(batch->keys_dicts);
+    zfree(batch->key_owners);
+    zfree(batch->key_slots);
     dictPrefetcherFree(&batch->prefetcher);
     zfree(batch);
     batch = NULL;
@@ -369,6 +373,8 @@ void prefetchCommandsBatchInit(void) {
     batch->pending_cmds = zcalloc(max_prefetch_size * sizeof(pendingCommand *));
     batch->keys = zcalloc(max_prefetch_size * sizeof(void *));
     batch->keys_dicts = zcalloc(max_prefetch_size * sizeof(dict *));
+    batch->key_owners = zcalloc(max_prefetch_size * sizeof(pendingCommand *));
+    batch->key_slots = zcalloc(max_prefetch_size * sizeof(uint8_t));
     dictPrefetcherInit(&batch->prefetcher, max_prefetch_size);
 }
 
@@ -465,6 +471,20 @@ void prefetchCommands(void) {
         /* Prefetch keys from the main dict — value-side prefetch (if any)
          * is driven by dbDictType->prefetchEntryValue. */
         dictPrefetcherReset(&batch->prefetcher, batch->keys_dicts, batch->keys, batch->key_count);
+
+        /* We hand the hashes back to the commands that own the keys, so that
+         * the lookup does not compute them again when the command runs. */
+        for (size_t i = 0; i < batch->key_count; i++) {
+            pendingCommand *owner = batch->key_owners[i];
+            uint8_t slot = batch->key_slots[i];
+            if (!owner || slot >= PENDING_CMD_MAX_CACHED_HASHES) continue;
+            /* `dictPrefetcherReset` leaves key_hash untouched for a missing or
+             * empty dict, so it still holds the key of an earlier batch. */
+            if (batch->prefetcher.lookups[i].state == PREFETCH_DONE) continue;
+            owner->key_hashes[slot] = batch->prefetcher.lookups[i].key_hash;
+            owner->key_hashes_valid |= (uint8_t)(1u << slot);
+        }
+
         dictPrefetcherRun(&batch->prefetcher);
     }
 }
@@ -513,6 +533,8 @@ int addCommandToBatch(client *c) {
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
             batch->keys[batch->key_count] = pcmd->argv[pcmd->keys_result.keys[i].pos];
             batch->keys_dicts[batch->key_count] = cmd_dict;
+            batch->key_owners[batch->key_count] = pcmd;
+            batch->key_slots[batch->key_count] = (uint8_t)i;
             batch->key_count++;
             /* Mark the command as prefetched so the intra-command prefetch
              * path skips it. Even on a partial batch, running both paths

@@ -5913,6 +5913,9 @@ static pendingCommand *acquirePendingCommand(void) {
         pcmd = zmalloc(sizeof(pendingCommand));
         initPendingCommand(pcmd);
     }
+    /* A command from the pool still holds the key hashes of its previous owner,
+     * and using one of those would report a live key as missing. */
+    pcmd->key_hashes_valid = 0;
     return pcmd;
 }
 
