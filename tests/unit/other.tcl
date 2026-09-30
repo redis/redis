@@ -514,6 +514,68 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
     } {} {needs:debug}
 }
 
+# DEBUG RESTART re-executes the server image, so every descriptor the process
+# inherited has to be gone before execve() runs, whatever number it carries.
+# maxclients is set very low on purpose: the bound the old code used,
+# maxclients + 1024, then stops well below the descriptor planted here, so
+# a server that only closes up to that bound leaves it open across the
+# restart.
+#
+# Tcl cannot hand a child process a descriptor with an arbitrary number, and
+# that is precisely the situation under test, so the server is launched
+# through a tiny shell wrapper that opens the descriptor first.
+start_server {tags {"other external:skip needs:debug"}} {
+    test {DEBUG RESTART closes inherited descriptors above the maxclients bound} {
+        set fd 1500
+        set dir [file dirname [srv 0 unixsocket]]
+        set sock [file join $dir "inherited-fd.sock"]
+        set conf [file join $dir "inherited-fd.conf"]
+        set wrapper [file join $dir "inherited-fd.sh"]
+        set log [file join $dir "inherited-fd.log"]
+
+        set f [open $conf w]
+        puts $f "port 0"
+        puts $f "unixsocket $sock"
+        puts $f "maxclients 100"
+        puts $f "enable-debug-command yes"
+        puts $f {save ""}
+        puts $f "appendonly no"
+        close $f
+
+        set f [open $wrapper w]
+        puts $f "#!/bin/sh"
+        puts $f "cd [pwd]"
+        puts $f "exec $fd</dev/null"
+        puts $f "exec ./src/redis-server $conf"
+        close $f
+        file attributes $wrapper -permissions 0755
+
+        set pid [exec /bin/sh $wrapper >> $log 2>&1 &]
+        set cli [rediscli_unixsocket $sock]
+
+        wait_for_condition 500 10 {
+            [catch {exec {*}$cli ping}] == 0
+        } else {
+            puts [exec cat $log]
+            fail "server did not start"
+        }
+
+        # The descriptor is open before the restart, and the old bound
+        # (maxclients + 1024) does not reach it.
+        assert_equal [file readlink /proc/$pid/fd/$fd] /dev/null
+
+        catch {exec {*}$cli debug restart 0}
+        wait_for_condition 500 10 {
+            [catch {file readlink /proc/$pid/fd/$fd}]
+        } else {
+            fail "descriptor $fd survived DEBUG RESTART"
+        }
+
+        catch {exec {*}$cli shutdown nosave}
+        catch {exec kill -9 $pid}
+    }
+}
+
 start_server {tags {"other external:skip"}} {
     test "Redis can resize empty dict" {
         # Write and then delete 128 keys, creating an empty dict
