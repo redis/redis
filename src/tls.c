@@ -704,12 +704,17 @@ static sds getCertFieldByName(X509 *cert, const char *field) {
 
     if (nid == -1) return NULL;
 
-    const X509_NAME *subject = X509_get_subject_name(cert);
+    /* The subject is the cert owner's name, e.g. "CN=alice, O=redis".
+     * It's owned by the cert, don't free it. */
+    X509_NAME *subject = X509_get_subject_name(cert);
     if (!subject) return NULL;
 
+    /* Find the first entry of type nid (e.g. CN), searching from the start
+     * (-1). Returns its index, or -1 if not found. */
     int index = X509_NAME_get_index_by_NID(subject, nid, -1);
     if (index < 0) return NULL;
 
+    /* Get the entry (e.g. CN=alice) and its value, both owned by the cert. */
     X509_NAME_ENTRY *entry = X509_NAME_get_entry(subject, index);
     ASN1_STRING *data = X509_NAME_ENTRY_get_data(entry);
 
