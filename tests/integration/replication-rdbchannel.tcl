@@ -583,6 +583,104 @@ start_server {tags {"repl external:skip"}} {
 
     $master config set repl-diskless-sync yes
     $master config set repl-rdb-channel yes
+    $master config set rdb-key-save-delay 300
+    $master config set client-output-buffer-limit "replica 0 0 0"
+    $master config set repl-diskless-sync-delay 5
+
+    populate 100 master_large 100000
+
+    start_server {} {
+        set replica1 [srv 0 client]
+        $replica1 config set repl-rdb-channel yes
+
+        start_server {} {
+            set replica2 [srv 0 client]
+            $replica2 config set repl-rdb-channel yes
+
+            set load_handle [start_write_load $master_host $master_port 100 "key"]
+
+            test "Test master continues RDB delivery if not all replicas are dropped (large values)" {
+                $replica1 replicaof $master_host $master_port
+                $replica2 replicaof $master_host $master_port
+
+                wait_for_condition 50 200 {
+                    [s -2 rdb_bgsave_in_progress] == 1
+                } else {
+                    fail "Sync did not start"
+                }
+
+                # Verify replicas are connected
+                wait_for_condition 500 100 {
+                    [s -2 connected_slaves] == 2
+                } else {
+                    fail "Replicas didn't connect: [s -2 connected_slaves]"
+                }
+
+                # kill one of the replicas
+                catch {$replica1 shutdown nosave}
+
+                # Wait until replica completes full sync
+                # Verify there is no other full sync attempt
+                wait_for_condition 50 1000 {
+                    [s 0 master_link_status] == "up" &&
+                    [s -2 sync_full] == 2 &&
+                    [s -2 connected_slaves] == 1
+                } else {
+                    fail "Sync session did not continue
+                          master_link_status: [s 0 master_link_status]
+                          sync_full:[s -2 sync_full]
+                          connected_slaves: [s -2 connected_slaves]"
+                }
+
+                # Wait until replica catches up
+                wait_replica_online $master 0 200 100
+                wait_for_condition 200 100 {
+                    [s 0 mem_replica_full_sync_buffer] == 0
+                } else {
+                    fail "Replica did not consume buffer in time"
+                }
+            }
+
+            test "Test master aborts rdb delivery if all replicas are dropped (large values)" {
+                $replica2 replicaof no one
+
+                # Start replication
+                $replica2 replicaof $master_host $master_port
+
+                wait_for_condition 50 1000 {
+                    [s -2 rdb_bgsave_in_progress] == 1
+                } else {
+                    fail "Sync did not start"
+                }
+                set loglines [count_log_lines -2]
+
+                # kill replica
+                catch {$replica2 shutdown nosave}
+
+                # Verify master aborts rdb save
+                wait_for_condition 50 1000 {
+                    [s -2 rdb_bgsave_in_progress] == 0 &&
+                    [s -2 connected_slaves] == 0
+                } else {
+                    fail "Master should abort the sync
+                          rdb_bgsave_in_progress:[s -2 rdb_bgsave_in_progress]
+                          connected_slaves: [s -2 connected_slaves]"
+                }
+                wait_for_log_messages -2 {"*Background transfer error*"} $loglines 1000 50
+            }
+
+            stop_write_load $load_handle
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    $master config set repl-diskless-sync yes
+    $master config set repl-rdb-channel yes
     $master config set rdb-key-save-delay 1000
 
     populate 3000 prefix1 1
