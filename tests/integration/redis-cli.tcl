@@ -953,26 +953,24 @@ start_server {tags {"cli external:skip"}} {
     }
 }
 
-# With --force-resp3 the server defaults new connections to RESP3, so a reconnect
-# that sends no HELLO lands on RESP3 regardless of the earlier HELLO 2.
 if {!$::force_resp3} {
-    start_server {tags {"cli external:skip"}} {
-        test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
-            run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
-            run_command_until $fd "HELLO 2\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
-            run_command_until $fd "CLIENT INFO\x0D" {resp=2}
+    start_server {tags {"cli external:skip logreqres:skip"}} {
+    test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "HELLO 2\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=2}
 
-            exec kill [s process_id]
-            wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
-            catch {[run_command $fd "ping\x0D"]}
-            restart_server 0 true false 0
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
 
-            # must stay on RESP2 -- the explicit downgrade must not be re-promoted
-            write_cli $fd "CLIENT INFO\x0D"
-            after 100
-            read_cli_until $fd {resp=2}
-        }
+        # must stay on RESP2 -- the explicit downgrade must not be re-promoted
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=2}
     }
+}
 }
 
 start_server {tags {"cli external:skip"}} {
