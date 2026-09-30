@@ -2,6 +2,7 @@
 
 #include <strings.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 #define UNUSED(V) ((void) V)
 
@@ -9,6 +10,14 @@ void assertCrash(RedisModuleInfoCtx *ctx, int for_crash_report) {
     UNUSED(ctx);
     UNUSED(for_crash_report);
     RedisModule_Assert(0);
+}
+
+void hangCrash(RedisModuleInfoCtx *ctx, int for_crash_report) {
+    UNUSED(ctx);
+    if (for_crash_report) {
+        /* Stay inside the crash report until crash-handler-timeout kills the process. */
+        while (1) sleep(1);
+    }
 }
 
 void segfaultCrash(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -41,6 +50,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             if (RedisModule_RegisterInfoFunc(ctx, segfaultCrash) == REDISMODULE_ERR) return REDISMODULE_ERR;
         } else if (!strcasecmp(RedisModule_StringPtrLen(argv[0], NULL),"assert")) {
             if (RedisModule_RegisterInfoFunc(ctx, assertCrash) == REDISMODULE_ERR) return REDISMODULE_ERR;
+        } else if (!strcasecmp(RedisModule_StringPtrLen(argv[0], NULL),"hang")) {
+            if (RedisModule_RegisterInfoFunc(ctx, hangCrash) == REDISMODULE_ERR) return REDISMODULE_ERR;
         }
     }
 
