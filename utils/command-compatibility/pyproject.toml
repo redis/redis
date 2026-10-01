@@ -1,0 +1,7 @@
+[tool.black]
+line-length = 120
+target-version = ['py312']
+
+[tool.mypy]
+python_version = '3.12'
+check_untyped_defs = true

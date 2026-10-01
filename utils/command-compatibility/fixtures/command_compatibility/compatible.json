@@ -1,0 +1,42 @@
+{
+  "src/commands/reorganized.json": {
+    "set": {
+      "arity": -3,
+      "summary": "Updated prose has no contract effect.",
+      "command_flags": ["DENYOOM", "WRITE", "WRITE"],
+      "acl_categories": ["WRITE", "STRING"],
+      "key_specs": [{"begin_search": {"index": {"pos": 1}}, "flags": ["OW", "UPDATE"]}],
+      "reply_schema": {"anyOf": [{"const": "OK"}, {"type": "null"}], "description": "Updated reply prose"},
+      "arguments": [
+        {"name": "pair", "type": "block", "arguments": [
+          {"name": "renamed-key", "type": "key", "key_spec_index": 0, "optional": false},
+          {"name": "renamed-value", "type": "string", "multiple": false}
+        ]},
+        {"name": "condition", "type": "oneof", "optional": true, "arguments": [
+          {"name": "xx", "type": "pure-token", "token": "XX"},
+          {"name": "nx", "type": "pure-token", "token": "NX"},
+          {"name": "new-choice", "type": "pure-token", "token": "NEW"}
+        ]},
+        {"name": "expiration", "type": "block", "optional": true, "arguments": [
+          {"name": "ex", "type": "pure-token", "token": "EX"},
+          {"name": "seconds", "type": "integer", "optional": true}
+        ]},
+        {"name": "new-option", "type": "pure-token", "token": "GET", "optional": true}
+      ]
+    },
+    "gone": {"arity": 1},
+    "NEW": {"arity": 1}
+  },
+  "src/commands/filters.json": {
+    "kill": {
+      "container": "client",
+      "arity": -3,
+      "arguments": [
+        {"name": "filters", "type": "oneof", "multiple": true, "arguments": [
+          {"name": "address", "type": "string", "token": "ADDR", "optional": true},
+          {"name": "id", "type": "integer", "token": "ID", "optional": true}
+        ]}
+      ]
+    }
+  }
+}
