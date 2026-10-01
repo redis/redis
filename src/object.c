@@ -686,6 +686,7 @@ void decrRefCount(robj *o) {
             case OBJ_HASH: freeHashObject(o); break;
             case OBJ_MODULE: freeModuleObject(o); break;
             case OBJ_STREAM: freeStreamObject(o); break;
+            case OBJ_HLL_ULTRA: freeStringObject(o); break; /* raw sds, like a string */
 #ifdef ENABLE_GCRA
             case OBJ_GCRA: freeGCRAObject(o); break;
 #endif
@@ -892,6 +893,7 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_ZSET: dismissZsetObject(o, size_hint); break;
         case OBJ_HASH: dismissHashObject(o, size_hint); break;
         case OBJ_STREAM: dismissStreamObject(o, size_hint); break;
+        case OBJ_HLL_ULTRA: dismissStringObject(o); break; /* raw sds, like a string */
 #ifdef ENABLE_GCRA
         case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
 #endif
@@ -1017,6 +1019,7 @@ size_t getObjectLength(robj *o) {
         case OBJ_ZSET: return zsetLength(o);
         case OBJ_HASH: return hashTypeLength(o, 0);
         case OBJ_STREAM: return streamLength(o);
+        case OBJ_HLL_ULTRA: return sdslen(o->ptr); /* raw sds blob length */
 #ifdef ENABLE_GCRA
         case OBJ_GCRA: return gcraObjectLength(o);
 #endif
@@ -1341,6 +1344,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         o->type == OBJ_ZSET ||
         o->type == OBJ_HASH ||
         o->type == OBJ_STREAM ||
+        o->type == OBJ_HLL_ULTRA ||
 #ifdef ENABLE_GCRA
         o->type == OBJ_GCRA ||
 #endif
@@ -1383,6 +1387,8 @@ size_t kvobjAllocSize(kvobj *o) {
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
         asize += s->alloc_size;
+    } else if (o->type == OBJ_HLL_ULTRA) {
+        asize += sdsAllocSize(o->ptr); /* raw sds blob */
 #ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
         asize += gcraTypeAllocSize(o);
