@@ -4739,58 +4739,87 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* Advance the stream iterator 'si' to the first entry whose ID is greater than
- * or equal to 'target'. This implements the merge join used by
- * xautoclaimCommand().
+/* State of the merge join used by xautoclaimCommand(). The stream is not
+ * mutated during the command, so both iterators stay valid throughout. */
+typedef struct xautoclaimIterator {
+    streamIterator si;       /* Forward iterator over the stream entries. */
+    streamID entry_id;       /* Current entry, valid if have_entry is set. */
+    int64_t entry_numfields;
+    int have_entry;          /* 1 if entry_id is valid and its fields are unread. */
+    raxIterator next_ri;     /* Positioned at the node after si's node. */
+    streamID next_id;        /* First ID of that node: si's node upper bound. */
+    int have_next;           /* 0 if si's node is the last node. */
+    streamID bound_master;   /* Master ID of the node next_id was computed for. */
+    int have_bound;          /* 1 if next_id/have_next are valid for bound_master. */
+} xautoclaimIterator;
+
+static void xautoclaimIteratorStart(xautoclaimIterator *it, stream *s, streamID *start) {
+    streamID maxid = {UINT64_MAX, UINT64_MAX};
+    streamIteratorStart(&it->si,s,start,&maxid,0);
+    raxStart(&it->next_ri,s->rax);
+    it->have_entry = 0;
+    it->have_next = 0;
+    it->have_bound = 0;
+}
+
+static void xautoclaimIteratorStop(xautoclaimIterator *it) {
+    raxStop(&it->next_ri);
+    streamIteratorStop(&it->si);
+}
+
+/* Advance 'it' to the first entry whose ID is greater than or equal to
+ * 'target'. PEL IDs are visited in order, so the iterator only moves forward.
  *
- * If 'have_entry' is set, 'entry_id' and 'entry_numfields' describe the
+ * If 'it->have_entry' is set, 'entry_id' and 'entry_numfields' describe the
  * current entry and its fields have not been consumed. Otherwise, the next
  * call to streamIteratorGetID() returns the following entry.
  *
  * If 'target' is past the current listpack, seek directly to it instead of
- * scanning the intervening entries. The last ID of the current listpack is
- * cached in 'last_id', 'last_master', and 'have_last' across calls.
+ * scanning the intervening entries. The current listpack is bounded by the
+ * first ID of the next rax node, so this check does not depend on the size of
+ * the listpack's last entry.
  *
  * Return 1 if 'target' exists, leaving its fields unconsumed. Otherwise return
  * 0. If a later entry was found, it is also left unconsumed for the next call. */
-static int xautoclaimAdvance(streamIterator *si, stream *s, streamID *target,
-                             streamID *entry_id, int64_t *entry_numfields,
-                             int *have_entry, streamID *last_id,
-                             streamID *last_master, int *have_last)
-{
+static int xautoclaimAdvance(xautoclaimIterator *it, stream *s, streamID *target) {
+    streamIterator *si = &it->si;
     streamID maxid = {UINT64_MAX, UINT64_MAX};
     while (1) {
-        /* Cache this listpack's last ID once per node (persists across calls). */
-        if (si->lp && (!*have_last || streamCompareID(&si->master_id,last_master) != 0)) {
-            *have_last = lpGetEdgeStreamID(si->lp,0,&si->master_id,last_id);
-            *last_master = si->master_id;
+        /* Compute the bound once per node. When si moved to the node next_ri
+         * points at, step next_ri forward instead of seeking again. */
+        if (si->lp && (!it->have_bound || streamCompareID(&si->master_id,&it->bound_master) != 0)) {
+            if (!it->have_bound || !it->have_next || streamCompareID(&si->master_id,&it->next_id) != 0)
+                raxSeek(&it->next_ri,">",si->ri.key,si->ri.key_len);
+            it->have_next = raxNext(&it->next_ri);
+            if (it->have_next) streamDecodeID(it->next_ri.key,&it->next_id);
+            it->bound_master = si->master_id;
+            it->have_bound = 1;
         }
-        int past_node = *have_last && streamCompareID(target,last_id) > 0;
+        int past_node = it->have_next && streamCompareID(target,&it->next_id) >= 0;
 
-        if (*have_entry) {
-            int cmp = streamCompareID(entry_id,target);
+        if (it->have_entry) {
+            int cmp = streamCompareID(&it->entry_id,target);
             if (cmp == 0) return 1;  /* Found target. */
             if (cmp > 0) return 0;   /* Past target: not found, leave entry for reuse. */
             /* entry_id < target. Skip fields only if we stay in this node;
              * a seek below abandons the listpack cursor entirely. */
             if (!past_node) {
                 int64_t to_skip = (si->entry_flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
-                                  *entry_numfields : *entry_numfields*2;
+                                  it->entry_numfields : it->entry_numfields*2;
                 while (to_skip-- > 0)
                     si->lp_ele = lpNext(si->lp,si->lp_ele);
             }
-            *have_entry = 0;
+            it->have_entry = 0;
         }
 
         /* Sparse PEL: jump past this node instead of walking intervening entries. */
         if (past_node) {
             streamIteratorStop(si);
             streamIteratorStart(si,s,target,&maxid,0);
-            *have_last = 0;
         }
 
-        *have_entry = streamIteratorGetID(si,entry_id,entry_numfields);
-        if (!*have_entry) return 0; /* EOF */
+        it->have_entry = streamIteratorGetID(si,&it->entry_id,&it->entry_numfields);
+        if (!it->have_entry) return 0; /* EOF */
     }
 }
 
@@ -4891,13 +4920,8 @@ void xautoclaimCommand(client *c) {
      * entries. The stream's entry data is never mutated during a single
      * XAUTOCLAIM (only the group/consumer PEL and NACKs are), so this iterator
      * stays valid for the whole command. */
-    streamID maxid = {UINT64_MAX, UINT64_MAX};
-    streamID entry_id, last_id, last_master = {0,0};
-    int64_t entry_numfields;
-    int have_entry = 0; /* 1 if entry_id is valid and its fields are unread. */
-    int have_last = 0; /* Node last-ID cache, persists across xautoclaimAdvance(). */
-    streamIterator si;
-    streamIteratorStart(&si,s,&startid,&maxid,0);
+    xautoclaimIterator it;
+    xautoclaimIteratorStart(&it,s,&startid);
 
     unsigned char startkey[sizeof(streamID)];
     streamEncodeID(startkey,&startid);
@@ -4916,8 +4940,7 @@ void xautoclaimCommand(client *c) {
         /* Merge-join: advance the shared iterator to the first stream entry
          * with ID >= this PEL id, reusing it both to check existence and (for
          * non-JUSTID) to emit its fields. */
-        int found = xautoclaimAdvance(&si,s,&id,&entry_id,&entry_numfields,&have_entry,
-                                      &last_id,&last_master,&have_last);
+        int found = xautoclaimAdvance(&it,s,&id);
 
         /* Item must exist for us to transfer it to another consumer. */
         if (!found) {
@@ -4981,16 +5004,16 @@ void xautoclaimCommand(client *c) {
         } else {
             addReplyArrayLen(c,2);
             addReplyStreamID(c,&id);
-            addReplyArrayLen(c,entry_numfields*2);
-            int64_t nf = entry_numfields;
+            addReplyArrayLen(c,it.entry_numfields*2);
+            int64_t nf = it.entry_numfields;
             while (nf--) {
                 unsigned char *field, *value;
                 int64_t field_len, value_len;
-                streamIteratorGetField(&si,&field,&value,&field_len,&value_len);
+                streamIteratorGetField(&it.si,&field,&value,&field_len,&value_len);
                 addReplyBulkCBuffer(c,field,field_len);
                 addReplyBulkCBuffer(c,value,value_len);
             }
-            have_entry = 0; /* Fields consumed; next GetID yields the next entry. */
+            it.have_entry = 0; /* Fields consumed; next GetID yields the next entry. */
         }
         arraylen++;
         count--;
@@ -5004,7 +5027,7 @@ void xautoclaimCommand(client *c) {
         server.dirty++;
     }
 
-    streamIteratorStop(&si);
+    xautoclaimIteratorStop(&it);
 
     /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
     raxNext(&ri);
