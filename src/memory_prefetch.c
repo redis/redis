@@ -508,6 +508,9 @@ int addCommandToBatch(client *c) {
 
         batch->pending_cmds[batch->pcmd_count++] = pcmd;
 
+        /* On the main thread the keys are extracted only when needed, see
+         * preprocessCommand(). */
+        if (!(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)) preprocessCommandKeys(pcmd);
         serverAssert(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID);
         dict *cmd_dict = kvstoreGetDict(c->db->keys, pcmd->slot > 0 ? pcmd->slot : 0);
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
