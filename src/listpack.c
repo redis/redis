@@ -989,6 +989,19 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
     return 1;
 }
 
+/* Comparator function to find Integer */
+static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p, 
+                                   void *user, unsigned char *value, long long ll) {
+    (void) lp;
+    (void) p;
+    int64_t vll = *(int64_t *) user;
+
+    if (value == NULL) {
+        if (ll == vll) return 0;
+    }
+    return 1;
+}
+
 /* Find pointer to the entry equal to the specified entry. Skip 'skip' entries
  * between every comparison. Returns NULL when the field could not be found. */
 unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
@@ -999,6 +1012,14 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
         .slen = slen
     };
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
+}
+
+/* Find pointer to the entry (Integer) equal to the specified entry (Integer).
+ * Skip 'skip' entries between every comparison. Return NULL when the Integer entry could not be found. */
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
+                             int64_t vll, unsigned int skip)
+{
+    return lpFindCbInternal(lp, p, &vll, lpFindIntegerCmp, skip);
 }
 
 /* Insert, delete or replace the specified string element 'elestr' of length
@@ -3347,6 +3368,102 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpFind(lp, lpFirst(lp), (unsigned char*)"abc", 3, 0) == NULL);
         verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"hello", 5, 0), (unsigned char*)"hello", 5);
         verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"1024", 4, 0), (unsigned char*)"1024", 4);
+        lpFree(lp);
+    }
+
+    TEST("Test lpFindInteger") {
+        long long lget;
+        unsigned int slen;
+        unsigned char *q;
+
+        lp = lpNew(0);
+        assert(lpFirst(lp) == NULL);
+        assert(lpFindInteger(lp, NULL, 0, 0) == NULL);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppendInteger(lp, 42);
+        lp = lpAppend(lp, (unsigned char*)"x", 1);
+        lp = lpAppendInteger(lp, -7);
+        p = lpFirst(lp);
+        assert(lpFindInteger(lp, NULL, 42, 0) == p);
+        assert(lpGetIntegerValue(p, &lget) && lget == 42);
+        assert(lpFindInteger(lp, p, -7, 0) == lpNext(lp, lpNext(lp, p)));
+        assert(lpFindInteger(lp, p, 99, 0) == NULL);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"100x", 4);
+        lp = lpAppendInteger(lp, 100);
+        p = lpFirst(lp);
+        assert(lpGetValue(p, &slen, &lget) != NULL);
+        assert(slen == 4);
+        verifyEntry(p, (unsigned char*)"100x", 4);
+        q = lpFindInteger(lp, p, 100, 0);
+        assert(q == lpNext(lp, p));
+        assert(lpGetIntegerValue(q, &lget) && lget == 100);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"42x", 3);
+        lp = lpAppend(lp, (unsigned char*)"-7y", 3);
+        p = lpFirst(lp);
+
+        /* Ensure they are stored as strings */
+        assert(lpGetValue(p, &slen, &lget) != NULL);
+        assert(lpGetValue(lpNext(lp, p), &slen, &lget) != NULL);
+
+        /* lpFindInteger should NOT match */
+        assert(lpFindInteger(lp, p, 42, 0) == NULL);
+        assert(lpFindInteger(lp, p, -7, 0) == NULL);
+
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppendInteger(lp, 127);
+        lp = lpAppendInteger(lp, 32767);
+        lp = lpAppendInteger(lp, 2147483647);
+        p = lpFirst(lp);
+        assert(lpGetIntegerValue(p, &lget) && lget == 127);
+        q = lpFindInteger(lp, NULL, 32767, 0);
+        assert(q != NULL);
+        assert(lpGetIntegerValue(q, &lget) && lget == 32767);
+        assert(lpFindInteger(lp, NULL, 9223372036854775807LL, 0) == NULL);
+        q = lpLast(lp);
+        assert(lpGetIntegerValue(q, &lget) && lget == 2147483647);
+        assert(lpFindInteger(lp, q, 2147483647, 0) == q);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppendInteger(lp, 1);
+        lp = lpAppendInteger(lp, 2);
+        p = lpFirst(lp);
+        assert(lpFindInteger(lp, p, 1, 0) == p);
+        assert(lpFindInteger(lp, p, 2, 1) == NULL);
+        p = lpNext(lp, p);
+        assert(lpFindInteger(lp, p, 2, 0) == p);
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"100", 3);  // becomes integer
+        p = lpFirst(lp);
+
+        /* Ensure it's stored as integer */
+        assert(lpGetIntegerValue(p, &lget) && lget == 100);
+
+        /* lpFindInteger SHOULD find it */
+        assert(lpFindInteger(lp, p, 100, 0) == p);
+
+        lpFree(lp);
+
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"100x", 4);  // string
+        lp = lpAppend(lp, (unsigned char*)"100", 3);   // integer
+        p = lpFirst(lp);
+
+        /* First is string → skip */
+        assert(lpFindInteger(lp, p, 100, 0) == lpNext(lp, p));
+
         lpFree(lp);
     }
 
