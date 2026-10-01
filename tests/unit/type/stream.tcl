@@ -1121,6 +1121,34 @@ start_server {
         assert_equal {2 2} [list $len0_after $len1_after]
     } {} {singledb:skip}
 
+    test {XADD IDMP rejected command leaves no producer behind} {
+        r DEL idmpstream{t}
+
+        # Exhaust the stream ID space so that every subsequent XADD on this key
+        # is rejected before anything is stored.
+        r XADD idmpstream{t} 18446744073709551615-18446744073709551615 field "init"
+
+        # Trying to add IDMP entries now fails with a reply error and stores
+        # nothing, so no IDMP state should be created for the stream at all.
+        for {set i 0} {$i < 5} {incr i} {
+            assert_error "*exhausted the last possible ID*" {
+                r XADD idmpstream{t} IDMP p$i i$i * field "v$i"
+            }
+        }
+
+        assert_equal 1 [r XLEN idmpstream{t}]
+        assert_equal 0 [dict get [r XINFO STREAM idmpstream{t}] pids-tracked]
+        assert_equal 0 [dict get [r XINFO STREAM idmpstream{t}] iids-tracked]
+
+        # A successful XADD still creates the producer, so a later duplicate of
+        # an existing IID keeps being deduplicated.
+        r DEL idmpsecondstream{t}
+        set id1 [r XADD idmpsecondstream{t} IDMP p1 "req-1" * field "v1"]
+        set id1_dup [r XADD idmpsecondstream{t} IDMP p1 "req-1" * field "v2"]
+        assert_equal $id1 $id1_dup
+        assert_equal 1 [dict get [r XINFO STREAM idmpsecondstream{t}] pids-tracked]
+    } {} {singledb:skip}
+
     test {XADD IDMP tracking survives RENAME} {
         r DEL idmpstream{t}
         r DEL idmpnewstream{t}
