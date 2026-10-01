@@ -187,7 +187,7 @@ int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric met
     case STREAM_DISTRIB_STREAMS_CGROUPS: return meta->distrib_streams_cgroups;
     case STREAM_DISTRIB_CGROUPS_PEL: return meta->distrib_cgroups_pel;
     case STREAM_DISTRIB_CGROUPS_CONSUMERS: return meta->distrib_cgroups_consumers;
-    case STREAM_DISTRIB_MAX: break; /* not a real metric */
+    default: serverAssert(0); /* not a real metric */
     }
     return NULL; /* unreachable: every metric has a case above */
 }
