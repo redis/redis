@@ -176,13 +176,11 @@ unsigned long streamLength(const robj *subject) {
  * never entered removes nothing. See streamUpdateStat().
  * -------------------------------------------------------------------------- */
 
-/* Return the histogram row for 'metric' inside 'meta', or NULL if 'meta' is
- * absent (defensive; a db's keys kvstore always has it in practice). Non-static
- * so the INFO renderer (server.c) and the async slot-trim completion
- * (cluster_asm.c) reach the rows through this switch instead of naming the
- * kvstoreMetadata fields themselves. */
+/* Return the histogram row for 'metric' inside 'meta', a db's keys kvstore
+ * metadata (every db kvstore carries one). Non-static so the INFO renderer
+ * (server.c) and the async slot-trim completion (cluster_asm.c) reach the rows
+ * through this switch instead of naming the kvstoreMetadata fields themselves. */
 int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric metric) {
-    if (!meta) return NULL;
     switch (metric) {
     case STREAM_DISTRIB_STREAMS_CGROUPS: return meta->distrib_streams_cgroups;
     case STREAM_DISTRIB_CGROUPS_PEL: return meta->distrib_cgroups_pel;
@@ -217,7 +215,6 @@ const char *streamDistribMetricName(streamDistribMetric metric) {
  * sync flush; the never-counted sentinel is skipped so no live epoch can equal
  * it. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
-    if (!meta) return;
     if (++meta->stream_stats_epoch == STREAM_DISTRIB_NEVER_COUNTED) meta->stream_stats_epoch = 0;
     for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
         int64_t *row = streamDistribHistRowMeta(meta, (streamDistribMetric) m);

@@ -546,12 +546,7 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
 
 static void kvstoreOnEmpty(kvstore *kvs) {
     kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
-    /* kvstoreGetMetadata() may return NULL for types without metadata, though
-     * this callback is only installed for types that have it. Check meta
-     * explicitly to satisfy GCC/LTO, which inlines streamStatsResetMeta()'s own
-     * NULL check below and can otherwise treat NULL as possible here, flagging
-     * the following memsets with -Wstringop-overflow. */
-    if (!meta) return;
+    serverAssert(meta); /* installed only for kvstore types that carry metadata */
 
     /* An emptied kvstore holds no samples for any histogram in here, so clear
      * them all. The stream rows go through streamStatsResetMeta() so that a
