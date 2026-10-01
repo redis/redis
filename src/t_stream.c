@@ -348,9 +348,9 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
             streamDistribMetric metric = (streamDistribMetric) m;
             int64_t sample = streamCGroupSample(s, cg, metric);
             if (adding)
-                streamUpdateStat(db, &cg->distrib_epoch, &cg->distrib_counted, metric, -1, sample);
+                streamUpdateStat(db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, metric, -1, sample);
             else
-                streamUpdateStat(db, &cg->distrib_epoch, &cg->distrib_counted, metric, sample, -1);
+                streamUpdateStat(db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, metric, sample, -1);
         }
     }
     raxStop(&ri);
@@ -2098,9 +2098,9 @@ void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_K
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
         streamCG *cg = ri.data;
-        if (!all && cg->distrib_epoch != only_epoch) continue;
+        if (!all && streamCGStamp(cg)->epoch != only_epoch) continue;
         for (int m = STREAM_DISTRIB_FIRST_CGROUP_METRIC; m < STREAM_DISTRIB_MAX; m++) {
-            if (!all && !(cg->distrib_counted & (1u << m))) continue;
+            if (!all && !(streamCGStamp(cg)->counted & (1u << m))) continue;
             streamDistribMetric metric = (streamDistribMetric) m;
             int bin = streamDistribBin(streamCGroupSample(s, cg, metric));
             if (bin >= 0) tally[m][bin]++;
@@ -3383,7 +3383,7 @@ void xreadCommand(client *c) {
                 consumer = streamCreateConsumer(s,groups[i],consumername->ptr,
                                                 c->argv[streams_arg+i],
                                                 c->db->id,SCC_DEFAULT);
-                streamUpdateStat(c->db, &groups[i]->distrib_epoch, &groups[i]->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers,
+                streamUpdateStat(c->db, &streamCGStamp(groups[i])->epoch, &streamCGStamp(groups[i])->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers,
                                  (int64_t) raxSize(groups[i]->consumers));
                 if (server.memory_tracking_enabled)
                     updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -3455,7 +3455,7 @@ void xreadCommand(client *c) {
             int64_t old_pel = groups ? (int64_t) raxSize(groups[i]->pel) : -1;
             total_entries += streamReplyWithRange(c,s,&args);
             if (groups)
-                streamUpdateStat(c->db, &groups[i]->distrib_epoch, &groups[i]->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(groups[i]->pel));
+                streamUpdateStat(c->db, &streamCGStamp(groups[i])->epoch, &streamCGStamp(groups[i])->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(groups[i]->pel));
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
             if (propCount) {
@@ -3623,7 +3623,7 @@ int streamCleanupEntryCGroupRefs(redisDb *db, stream *s, streamID *id) {
         raxRemove(group->pel, buf, sizeof(buf), NULL);
         if (nack->consumer)
             raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
-        streamUpdateStat(db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel));
+        streamUpdateStat(db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel));
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
         streamFreeNACK(s, nack);
@@ -3755,7 +3755,9 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     size_t usable;
     streamCG *cg = zmalloc_usable(sizeof(*cg), &usable);
     s->alloc_size += usable;
-    cg->pel = raxNewEx(0, &s->alloc_size, sizeof(streamID));
+    /* The PEL rax carries the group's INFO `Streams` stamp in its metadata
+     * (see streamDistribStamp); the header's allocation class has room. */
+    cg->pel = raxNewEx(sizeof(streamDistribStamp), &s->alloc_size, sizeof(streamID));
     cg->pel_time_head = NULL;
     cg->pel_time_tail = NULL;
     cg->pel_nack_tail = NULL;
@@ -3764,8 +3766,8 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
-    cg->distrib_epoch = STREAM_DISTRIB_NEVER_COUNTED; /* not yet in the INFO `Streams` histograms */
-    cg->distrib_counted = 0;
+    streamCGStamp(cg)->epoch = STREAM_DISTRIB_NEVER_COUNTED; /* not yet in the INFO `Streams` histograms */
+    streamCGStamp(cg)->counted = 0;
     raxInsertAt(s->cgroups,(unsigned char*)name,namelen,cg,NULL,&link);
     return cg;
 }
@@ -4013,8 +4015,8 @@ NULL
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             streamUpdateStat(c->db, &s->distrib_epoch, &s->distrib_counted, STREAM_DISTRIB_STREAMS_CGROUPS, old_cgroups,
                              streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS)); /* the stream gained a group */
-            streamUpdateStat(c->db, &cg->distrib_epoch, &cg->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, -1, 0);       /* new group: empty PEL */
-            streamUpdateStat(c->db, &cg->distrib_epoch, &cg->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1, 0); /* new group: no consumers */
+            streamUpdateStat(c->db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_PEL, -1, 0);       /* new group: empty PEL */
+            streamUpdateStat(c->db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1, 0); /* new group: no consumers */
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
@@ -4045,8 +4047,8 @@ NULL
         if (cg) {
             if (server.memory_tracking_enabled)
                 old_alloc = kvobjAllocSize(o);
-            streamUpdateStat(c->db, &cg->distrib_epoch, &cg->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, (int64_t) raxSize(cg->pel), -1);             /* group gone */
-            streamUpdateStat(c->db, &cg->distrib_epoch, &cg->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, (int64_t) raxSize(cg->consumers), -1); /* group gone */
+            streamUpdateStat(c->db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_PEL, (int64_t) raxSize(cg->pel), -1);             /* group gone */
+            streamUpdateStat(c->db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, (int64_t) raxSize(cg->consumers), -1); /* group gone */
             int64_t old_cgroups = streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS);
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
@@ -4070,7 +4072,7 @@ NULL
         int64_t old_consumers = (int64_t) raxSize(cg->consumers);
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
-        streamUpdateStat(c->db, &cg->distrib_epoch, &cg->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* no-op if it already existed */
+        streamUpdateStat(c->db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* no-op if it already existed */
         keyModified(c,c->db,c->argv[2],o,0);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -4087,8 +4089,8 @@ NULL
             int64_t old_pel = raxSize(cg->pel);
             int64_t old_consumers = (int64_t) raxSize(cg->consumers);
             streamDelConsumer(s,cg,consumer);
-            streamUpdateStat(c->db, &cg->distrib_epoch, &cg->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(cg->pel)); /* consumer's PEL entries removed */
-            streamUpdateStat(c->db, &cg->distrib_epoch, &cg->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* consumer removed */
+            streamUpdateStat(c->db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(cg->pel)); /* consumer's PEL entries removed */
+            streamUpdateStat(c->db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(cg->consumers)); /* consumer removed */
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             server.dirty++;
@@ -4321,7 +4323,7 @@ void xackCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
-    streamUpdateStat(c->db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
+    streamUpdateStat(c->db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
     addReplyLongLong(c,acknowledged);
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4477,7 +4479,7 @@ void xnackCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
-    streamUpdateStat(c->db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE may add PEL entries */
+    streamUpdateStat(c->db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE may add PEL entries */
 
     addReplyLongLong(c,nacked);
 
@@ -4584,7 +4586,7 @@ void xackdelCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
-    streamUpdateStat(c->db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
+    streamUpdateStat(c->db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* acked entries left the PEL */
 
     /* Update the stream's first ID. */
     if (deleted) {
@@ -5086,8 +5088,8 @@ void xclaimCommand(client *c) {
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
-    streamUpdateStat(c->db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE adds / deleted entries removed */
-    streamUpdateStat(c->db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
+    streamUpdateStat(c->db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* FORCE adds / deleted entries removed */
+    streamUpdateStat(c->db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
     if (propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
@@ -5373,8 +5375,8 @@ void xautoclaimCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,old_alloc,kvobjAllocSize(o));
-    streamUpdateStat(c->db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* deleted entries removed from PEL */
-    streamUpdateStat(c->db, &group->distrib_epoch, &group->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
+    streamUpdateStat(c->db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_PEL, old_pel, (int64_t) raxSize(group->pel)); /* deleted entries removed from PEL */
+    streamUpdateStat(c->db, &streamCGStamp(group)->epoch, &streamCGStamp(group)->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers, (int64_t) raxSize(group->consumers)); /* claimer created above */
 
     streamID endid;
     if (raxEOF(&ri)) {
