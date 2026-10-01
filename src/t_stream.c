@@ -52,6 +52,10 @@ static void streamClearIdmpEntries(stream *s);
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id);
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
 static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id);
+static idmpProducer *idmpGetProducer(stream *s, const char *pid, size_t pid_len);
+
+/* Get or create an idmpProducer for the given producer ID.
+ * Returns the producer, or NULL on allocation failure. */
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
@@ -2571,14 +2575,18 @@ void xaddCommand(client *c) {
     XXH128_hash_t hash;
     char *iid_str = NULL;
     size_t iid_len = 0;
+    char *pid_str = NULL;
+    size_t pid_len = 0;
     idmpProducer *producer = NULL;
     idmpEntry *entry = NULL;
-    
+
     if (parsed_args.idmp_pid != NULL) {
-        /* Get or create the producer for this pid */
-        char *pid_str = parsed_args.idmp_pid->ptr;
-        size_t pid_len = sdslen((sds)pid_str);
-        producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
+        /* Lookup the producer for this pid. It is deliberately not created here:
+         * a producer is only materialized once the append succeeds, so a rejected
+         * command leaves no IDMP state behind (see the failure paths below). */
+        pid_str = parsed_args.idmp_pid->ptr;
+        pid_len = sdslen((sds)pid_str);
+        producer = idmpGetProducer(s, pid_str, pid_len);
 
         /* Get IID string based on option */
         if (parsed_args.idmp_auto) {
@@ -2600,7 +2608,7 @@ void xaddCommand(client *c) {
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         
         /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, producer, entry, c)) {
+        if (producer != NULL && idmpLookupAndReply(s, producer, entry, c)) {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
             keyModified(c,c->db,c->argv[1],kv,0);
@@ -2639,6 +2647,9 @@ void xaddCommand(client *c) {
 
     /* IDMP: Insert the entry now that we have the actual ID */
     if (parsed_args.idmp_pid != NULL) {
+        /* The append succeeded, so this is the point where the producer is
+         * created if it did not exist yet. */
+        if (producer == NULL) producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
         idmpInsertEntry(s, producer, entry, &id);
         trackStreamIdmpEntries(c, c->argv[1]);
     }
@@ -6183,6 +6194,18 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
     
     /* Remove oldest entry if exceeding max entries */
     idmpEvictOldestEntry(s, producer);
+}
+
+/* Lookup the idmpProducer for the given producer ID, without creating it.
+ * Returns the producer, or NULL if it does not exist. */
+static idmpProducer *idmpGetProducer(stream *s, const char *pid, size_t pid_len) {
+    if (s->idmp_producers == NULL) return NULL;
+
+    idmpProducer *producer = NULL;
+    if (!raxFind(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer))
+        return NULL;
+
+    return producer;
 }
 
 /* Get or create an idmpProducer for the given producer ID.
