@@ -1231,6 +1231,33 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
 
         R 0 CONFIG SET list-max-listpack-size [lindex $origin_conf 1]
     }
+
+    test "HGETDEL memory tracking when no field is deleted" {
+        # More fields than hash-max-listpack-entries and values longer than
+        # hash-max-listpack-value force hashtable encoding, and the insert that
+        # crosses the load factor starts a rehash.
+        R 0 DEL myhash{t}
+        set args {}
+        for {set i 0} {$i < 200} {incr i} {
+            lappend args f$i [string repeat v 150]
+        }
+        R 0 HSET myhash{t} {*}$args
+
+        assert_equal "hashtable" [R 0 OBJECT ENCODING myhash{t}]
+
+        # Looking up a missing field deletes nothing, but it runs the rehash
+        # steps that eventually free the old table. The bug was that HGETDEL
+        # returned early on this path without tracking the shrink.
+        for {set i 0} {$i < 40} {incr i} {
+            R 0 HGETDEL myhash{t} FIELDS 1 missing$i
+        }
+
+        # The DEBUG ALLOCSIZE-SLOTS-ASSERT will have already panicked if memory
+        # tracking was wrong. If we reach here, the test passed.
+        assert_equal 200 [R 0 HLEN myhash{t}]
+
+        R 0 DEL myhash{t}
+    }
 }
 
 start_server {} {
