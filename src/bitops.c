@@ -392,7 +392,7 @@ static inline long long redisPopcountAuto(const unsigned char *p, long count) {
 long long redisBitpos(void *s, unsigned long count, int bit) {
     unsigned long *l;
     unsigned char *c;
-    unsigned long skipval, word = 0, one;
+    unsigned long skipval, word = 0;
     long long pos = 0; /* Position of bit, to return to the caller. */
     unsigned long j;
     int found;
@@ -456,24 +456,12 @@ long long redisBitpos(void *s, unsigned long count, int bit) {
      * that the right of the string is zero padded. */
     if (bit == 1 && word == 0) return -1;
 
-    /* Last word left, scan bit by bit. The first thing we need is to
-     * have a single "1" set in the most significant position in an
-     * unsigned long. We don't know the size of the long so we use a
-     * simple trick. */
-    one = ULONG_MAX; /* All bits set to 1.*/
-    one >>= 1;       /* All bits set to 1 but the MSB. */
-    one = ~one;      /* All bits set to 0 but the MSB. */
-
-    while(one) {
-        if (((one & word) != 0) == bit) return pos;
-        pos++;
-        one >>= 1;
-    }
-
-    /* If we reached this point, there is a bug in the algorithm, since
-     * the case of no match is handled as a special case before. */
-    serverPanic("End of redisBitpos() reached.");
-    return 0; /* Just to avoid warnings. */
+    /* Last word left, find the position of the first matching bit.
+     * __builtin_clzl gives the count of leading zeros in an unsigned long,
+     * which is exactly the bit offset from MSB to the first set bit.
+     * For bit=0 we invert the word first to find the first zero bit. */
+    pos += bit ? __builtin_clzl(word) : __builtin_clzl(~word);
+    return pos;
 }
 
 /* The following set.*Bitfield and get.*Bitfield functions implement setting
