@@ -29,7 +29,7 @@ struct _kvstore {
     int flags;
     kvstoreType *type;
     dictType dtype;
-    dict **dicts;
+    dict **dicts;                          /* Dict pointer LUT. Inline when num_dicts == 1. */
     long long num_dicts;
     long long num_dicts_bits;
     list *rehashing;                       /* List of dictionaries in this kvstore that are currently rehashing. */
@@ -40,12 +40,36 @@ struct _kvstore {
     unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
     fenwickTree *dict_sizes;               /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
     size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
-    void *metadata[];                      /* conditionally allocated based on "flags" */
 };
 
 /**********************************/
 /*** Helpers **********************/
 /**********************************/
+
+/* zmalloc guarantees at least 8-byte alignment on all platforms. */
+#define KVSTORE_ALIGNMENT 8
+
+static inline size_t kvstoreAlignUp(size_t offset) {
+    size_t remainder = offset % KVSTORE_ALIGNMENT;
+    return remainder ? offset + KVSTORE_ALIGNMENT - remainder : offset;
+}
+
+static inline size_t kvstoreEmbeddedDictOffset(void) {
+    return kvstoreAlignUp(sizeof(kvstore) + sizeof(dict *));
+}
+
+static inline dict *kvstoreGetEmbeddedDict(kvstore *kvs) {
+    return (dict *)((char *)kvs + kvstoreEmbeddedDictOffset());
+}
+
+static size_t kvstoreMetadataOffset(kvstore *kvs) {
+    size_t offset = sizeof(*kvs);
+    if (kvs->num_dicts == 1) {
+        offset = kvstoreEmbeddedDictOffset() + sizeof(dict) + kvs->dtype.dictMetadataBytes(NULL);
+        offset = kvstoreAlignUp(offset);
+    }
+    return offset;
+}
 
 /* Get the dictionary pointer based on dict-index. */
 dict *kvstoreGetDict(kvstore *kvs, int didx) {
@@ -53,6 +77,7 @@ dict *kvstoreGetDict(kvstore *kvs, int didx) {
 }
 
 static dict **kvstoreGetDictRef(kvstore *kvs, int didx) {
+    assert(kvs->num_dicts > 1);
     return &kvs->dicts[didx];
 }
 
@@ -103,9 +128,16 @@ static dict *createDictIfNeeded(kvstore *kvs, int didx) {
     dict *d = kvstoreGetDict(kvs, didx);
     if (d) return d;
 
-    kvs->dicts[didx] = dictCreate(&kvs->dtype);
+    if (kvs->num_dicts == 1) {
+        assert(didx == 0);
+        d = kvstoreGetEmbeddedDict(kvs);
+        dictInit(d, &kvs->dtype);
+        kvs->dicts[didx] = d;
+    } else {
+        d = kvs->dicts[didx] = dictCreate(&kvs->dtype);
+    }
     kvs->allocated_dicts++;
-    return kvs->dicts[didx];
+    return d;
 }
 
 /* Called when the dict will delete entries, the function will check
@@ -126,7 +158,12 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
     if (kvs->type->canFreeDict && !kvs->type->canFreeDict(kvs, didx))
         return;
 
-    dictRelease(kvs->dicts[didx]);
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (kvs->num_dicts == 1) {
+        dictDestroy(d);
+    } else {
+        dictRelease(d);
+    }
     kvs->dicts[didx] = NULL;
     kvs->allocated_dicts--;
 }
@@ -200,8 +237,16 @@ kvstore *kvstoreCreate(kvstoreType *type, dictType *dtype, int num_dicts_bits, i
     assert(num_dicts_bits <= 16);
     assert(!type->dictMetadataBytes || type->dictMetadataBytes(NULL) >= sizeof(kvstoreDictMetaBase));
 
-    /* Calc kvstore size */   
+    size_t dict_meta_size = type->dictMetadataBytes ?
+        type->dictMetadataBytes(NULL) : sizeof(kvstoreDictMetaBase);
+
+    /* Calc kvstore size. A single-dict kvstore stores its one-entry pointer
+     * LUT, dict, and dict metadata inline after the kvstore header. */
     size_t kvsize = sizeof(kvstore);
+    if (num_dicts_bits == 0) {
+        kvsize = kvstoreEmbeddedDictOffset() + sizeof(dict) + dict_meta_size;
+        kvsize = kvstoreAlignUp(kvsize);
+    }
     /* Conditionally calc also histogram size */
     if (type->kvstoreMetadataBytes)
         kvsize += type->kvstoreMetadataBytes(NULL);
@@ -226,7 +271,7 @@ kvstore *kvstoreCreate(kvstoreType *type, dictType *dtype, int num_dicts_bits, i
 
     kvs->num_dicts_bits = num_dicts_bits;
     kvs->num_dicts = 1 << kvs->num_dicts_bits;
-    kvs->dicts = zcalloc(sizeof(dict*) * kvs->num_dicts);
+    kvs->dicts = kvs->num_dicts > 1 ? zcalloc(sizeof(dict*) * kvs->num_dicts) : (dict **)(kvs + 1);
     if (!(kvs->flags & KVSTORE_ALLOCATE_DICTS_ON_DEMAND)) {
         for (int i = 0; i < kvs->num_dicts; i++)
             createDictIfNeeded(kvs, i);
@@ -277,9 +322,13 @@ void kvstoreRelease(kvstore *kvs) {
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         if (kvs->type->onDictEmpty) kvs->type->onDictEmpty(kvs, didx);
-        dictRelease(d);
+        if (kvs->num_dicts == 1)
+            dictDestroy(d);
+        else
+            dictRelease(d);
     }
-    zfree(kvs->dicts);
+    if (kvs->num_dicts > 1 && kvs->dicts)
+        zfree(kvs->dicts);
 
     listRelease(kvs->rehashing);
     if (kvs->dict_sizes)
@@ -298,17 +347,21 @@ unsigned long kvstoreBuckets(kvstore *kvs) {
     if (kvs->num_dicts != 1) {
         return kvs->bucket_count;
     } else {
-        return kvs->dicts[0]? dictBuckets(kvs->dicts[0]) : 0;
+        dict *d = kvstoreGetDict(kvs, 0);
+        return d ? dictBuckets(d) : 0;
     }
 }
 
 size_t kvstoreMemUsage(kvstore *kvs) {
     size_t mem = sizeof(*kvs);
     size_t metaSize = kvs->dtype.dictMetadataBytes(NULL);
+    int dict_allocations = kvs->num_dicts == 1 ? 1 : kvs->allocated_dicts;
+    if (kvs->num_dicts == 1)
+        mem += kvstoreEmbeddedDictOffset() - sizeof(*kvs);
     unsigned long long keys_count = kvstoreSize(kvs);
     mem += keys_count * dictEntryMemUsage(kvs->dtype.no_value) +
            kvstoreBuckets(kvs) * sizeof(dictEntry*) +
-           kvs->allocated_dicts * (sizeof(dict) + metaSize);
+           dict_allocations * (sizeof(dict) + metaSize);
 
     /* Values are dict* shared with kvs->dicts */
     mem += listLength(kvs->rehashing) * sizeof(listNode);
@@ -555,6 +608,8 @@ int kvstoreNumDicts(kvstore *kvs) {
 
 /* Move dict from one kvstore to another. */
 void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
+    assert(kvs->num_dicts > 1);
+    assert(dst->num_dicts > 1);
     assert(kvs->num_dicts > didx);
     assert(kvs->num_dicts == dst->num_dicts);
     assert(dst->dicts[didx] == NULL);
@@ -622,7 +677,7 @@ dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it) {
 
     kvs_it->didx = kvs_it->next_didx;
     kvs_it->next_didx = kvstoreGetNextNonEmptyDictIndex(kvs_it->kvs, kvs_it->didx);
-    return kvs_it->kvs->dicts[kvs_it->didx];
+    return kvstoreGetDict(kvs_it->kvs, kvs_it->didx);
 }
 
 int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it) {
@@ -790,7 +845,7 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
 }
 
 /* Unlike kvstoreDictScanDefrag(), this method doesn't defrag the data(keys and values)
- * within dict, it only reallocates the memory used by the dict structure itself using 
+ * within dict, it only reallocates the memory used by the dict structure itself using
  * the provided allocation function. This feature was added for the active defrag feature.
  *
  * With 16k dictionaries for cluster mode with 1 shard, this operation may require substantial time
@@ -801,17 +856,17 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
  * The 'defragfn' callback is called with a reference to the dict that callback can reallocate. */
 unsigned long kvstoreDictLUTDefrag(kvstore *kvs, unsigned long cursor, kvstoreDictLUTDefragFunction *defragfn) {
     for (int didx = cursor; didx < kvs->num_dicts; didx++) {
-        dict **d = kvstoreGetDictRef(kvs, didx), *newd;
-        if (!*d)
+        dict *d = kvstoreGetDict(kvs, didx), *newd;
+        if (!d)
             continue;
-        if ((newd = defragfn(*d))) {
-            *d = newd;
+        if ((newd = defragfn(d, kvs->num_dicts > 1))) {
+            *kvstoreGetDictRef(kvs, didx) = newd;
 
             /* After defragmenting the dict, update its corresponding
              * rehashing node in the kvstore's rehashing list. */
-            kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(*d);
+            kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(newd);
             if (metadata->rehashing_node)
-                metadata->rehashing_node->value = *d;
+                metadata->rehashing_node->value = newd;
         }
         return (didx + 1);
     }
@@ -947,7 +1002,7 @@ void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded) {
 void *kvstoreGetMetadata(kvstore *kvs) {
     if (!kvs->type->kvstoreMetadataBytes)
         return NULL;
-    return &kvs->metadata;
+    return (char *)kvs + kvstoreMetadataOffset(kvs);
 }
 
 #ifdef REDIS_TEST
@@ -973,15 +1028,17 @@ void *defragAllocTest(void *ptr) {
     return newptr;
 }
 
-dict *defragLUTTestCallback(dict *d) {
+dict *defragLUTTestCallback(dict *d, int defrag_dict) {
+    dict *ret = NULL;
     /* handle the dict struct */
-    d = defragAllocTest(d);
+    if (defrag_dict)
+        d = ret = defragAllocTest(d);
     /* handle the first hash table */
     d->ht_table[0] = defragAllocTest(d->ht_table[0]);
     /* handle the second hash table */
     if (d->ht_table[1])
         d->ht_table[1] = defragAllocTest(d->ht_table[1]);
-    return d; 
+    return ret;
 }
 
 dictType KvstoreDictTestType = {
@@ -1034,6 +1091,17 @@ int kvstoreTest(int argc, char **argv, int flags) {
     int curr_slot = 0;
     kvstore *kvs1 = kvstoreCreate(&KvstoreTestType, &KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     kvstore *kvs2 = kvstoreCreate(&KvstoreTestType, &KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+    dict *kvs1_embedded_dict = kvstoreGetEmbeddedDict(kvs1);
+    dict *kvs2_embedded_dict = kvstoreGetEmbeddedDict(kvs2);
+
+    TEST("Single-dict kvstores reserve the dict inline and initialize it on demand") {
+        assert(kvs1->dicts == (dict **)(kvs1 + 1));
+        assert(kvs2->dicts == (dict **)(kvs2 + 1));
+        assert(kvs1->dicts[0] == NULL);
+        assert(kvs2->dicts[0] == NULL);
+        assert(kvstoreGetDict(kvs1, didx) == NULL);
+        assert(kvstoreGetDict(kvs2, didx) == NULL);
+    }
 
     TEST("Add 16 keys") {
         for (i = 0; i < 16; i++) {
@@ -1046,6 +1114,10 @@ int kvstoreTest(int argc, char **argv, int flags) {
         assert(kvstoreSize(kvs1) == 16);
         assert(kvstoreDictSize(kvs2, didx) == 16);
         assert(kvstoreSize(kvs2) == 16);
+        assert(kvstoreGetDict(kvs1, didx) == kvs1_embedded_dict);
+        assert(kvstoreGetDict(kvs2, didx) == kvs2_embedded_dict);
+        assert(kvs1->dicts[0] == kvs1_embedded_dict);
+        assert(kvs2->dicts[0] == kvs2_embedded_dict);
     }
 
     TEST("kvstoreIterator creating and releasing without kvstoreIteratorNextDict()") {
@@ -1100,6 +1172,7 @@ int kvstoreTest(int argc, char **argv, int flags) {
         assert(kvstoreSize(kvs1) == 16);
         assert(kvstoreDictSize(kvs2, didx) == 16);
         assert(kvstoreSize(kvs2) == 16);
+        assert(kvstoreGetDict(kvs2, didx) == kvs2_embedded_dict);
     }
 
     TEST("kvstoreDictIterator case 1: removing all keys does not delete the empty dict") {
@@ -1130,7 +1203,7 @@ int kvstoreTest(int argc, char **argv, int flags) {
         assert(kvstoreSize(kvs2) == 0);
     }
 
-    TEST("Verify that a rehashing dict's node in the rehashing list is correctly updated after defragmentation") {
+    TEST("Defragmenting an embedded dict keeps its header address stable") {
         unsigned long cursor = 0;
         kvstore *kvs = kvstoreCreate(&KvstoreTestType, &KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
         for (i = 0; i < 256; i++) {
@@ -1138,7 +1211,27 @@ int kvstoreTest(int argc, char **argv, int flags) {
             if (listLength(kvs->rehashing)) break;
         }
         assert(listLength(kvs->rehashing));
+        dict *embedded_dict = kvstoreGetDict(kvs, 0);
         while ((cursor = kvstoreDictLUTDefrag(kvs, cursor, defragLUTTestCallback)) != 0) {}
+        assert(kvstoreGetDict(kvs, 0) == embedded_dict);
+        while (kvstoreIncrementallyRehash(kvs, 1000)) {}
+        kvstoreRelease(kvs);
+    }
+
+    TEST("Defragmenting a rehashing LUT dict updates its rehashing list node") {
+        unsigned long cursor = 0;
+        kvstore *kvs = kvstoreCreate(&KvstoreTestType, &KvstoreDictTestType, 1, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        for (i = 0; i < 256; i++) {
+            de = kvstoreDictAddRaw(kvs, 1, stringFromInt(i), NULL);
+            if (listLength(kvs->rehashing)) break;
+        }
+        assert(listLength(kvs->rehashing));
+        dict *old_dict = kvstoreGetDict(kvs, 1);
+        while ((cursor = kvstoreDictLUTDefrag(kvs, cursor, defragLUTTestCallback)) != 0) {}
+        dict *new_dict = kvstoreGetDict(kvs, 1);
+        assert(new_dict != old_dict);
+        kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(new_dict);
+        assert(metadata->rehashing_node->value == new_dict);
         while (kvstoreIncrementallyRehash(kvs, 1000)) {}
         kvstoreRelease(kvs);
     }
