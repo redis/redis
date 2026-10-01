@@ -62,6 +62,20 @@ typedef enum {
  * match. */
 #define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
 
+/* A consumer group's INFO `Streams` stamp: the generation its bits refer to
+ * (or STREAM_DISTRIB_NEVER_COUNTED) and one bit per per-group metric whose row
+ * holds the group's sample, valid only while 'epoch' is current. It lives in
+ * the metadata of the group's PEL rax rather than in streamCG: streamCG is just
+ * one cache line, and growing it by even a byte moves it to jemalloc's 80-byte
+ * class, where three objects in four straddle a line -- measured as about 7%
+ * more last-level cache misses per XREADGROUP. The rax header is 40 bytes in
+ * the 48-byte class, so these 8 bytes are free, and the header is touched by
+ * every command that touches the group anyway. */
+typedef struct {
+    uint32_t epoch;
+    uint8_t counted;
+} streamDistribStamp;
+
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -153,12 +167,15 @@ typedef struct streamCG {
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
-    uint32_t distrib_epoch;  /* INFO `Streams`: the generation distrib_counted refers to,
-                                or STREAM_DISTRIB_NEVER_COUNTED. */
-    uint8_t distrib_counted; /* INFO `Streams`: one bit per per-group metric whose row
-                                holds this group's sample, valid only while distrib_epoch
-                                is current. Fits the alignment padding after the epoch. */
+    /* The group's INFO `Streams` stamp is streamCGStamp(cg), kept in the
+     * metadata of 'pel'; see streamDistribStamp for why it is not a field. */
 } streamCG;
+
+/* The INFO `Streams` stamp of consumer group 'cg': the raw metadata storage
+ * that streamCreateCG() sized for it when it created the PEL rax. */
+static inline streamDistribStamp *streamCGStamp(streamCG *cg) {
+    return (streamDistribStamp *) cg->pel->metadata;
+}
 
 /* A specific consumer in a consumer group.  */
 typedef struct streamConsumer {
