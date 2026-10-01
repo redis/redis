@@ -28,6 +28,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_legacy.h"
 #include "cluster_slot_stats.h"
 #include "bio.h"
 #include "functions.h"
@@ -1666,6 +1667,22 @@ void replconfCommand(client *c) {
             } else {
                 c->slave_req &= ~SLAVE_REQ_RDB_NO_CHECKSUM;
             }
+        } else if (!strcasecmp(c->argv[j]->ptr,"set-cluster-node-id")) {
+            /* REPLCONF set-cluster-node-id <node-id>
+             * Used by replicas in cluster mode to inform the master of
+             * their cluster node name, for SHUTDOWN FAILOVER support. */
+            if (j+1 >= c->argc) {
+                addReplyError(c,"REPLCONF set-cluster-node-id: missing node-id");
+                return;
+            }
+            sds nodeid = c->argv[j+1]->ptr;
+            if (sdslen(nodeid) == CLUSTER_NAMELEN) {
+                if (c->slave_nodeid) sdsfree(c->slave_nodeid);
+                c->slave_nodeid = sdsdup(nodeid);
+            } else {
+                addReplyError(c,"REPLCONF set-cluster-node-id: invalid length");
+                return;
+            }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -3274,6 +3291,18 @@ void syncWithMaster(connection *conn) {
 
         if (err) goto write_error;
 
+        /* Send our cluster node id to the master so it can identify us
+         * for SHUTDOWN FAILOVER. The master stores this as slave_nodeid
+         * on the client struct. Use sendCommandArgv with explicit lengths
+         * because node IDs are binary data (not null-terminated). */
+        if (server.cluster_enabled) {
+            char *nid_args[3] = {"REPLCONF","set-cluster-node-id",NULL};
+            size_t nid_lens[3] = {8,19,CLUSTER_NAMELEN};
+            nid_args[2] = server.cluster->myself->name;
+            err = sendCommandArgv(conn,3,nid_args,nid_lens);
+            if (err) goto write_error;
+        }
+
         server.repl_state = REPL_STATE_RECEIVE_AUTH_REPLY;
         return;
     }
@@ -3380,6 +3409,21 @@ void syncWithMaster(connection *conn) {
         if (err[0] == '-') {
             serverLog(LL_NOTICE,"(Non critical) Master does not understand "
                                   "REPLCONF capa: %s", err);
+        }
+        sdsfree(err);
+        err = NULL;
+        server.repl_state = server.cluster_enabled ?
+            REPL_STATE_RECEIVE_NODEID_REPLY : REPL_STATE_SEND_PSYNC;
+    }
+
+    /* Receive REPLCONF set-cluster-node-id reply. */
+    if (server.repl_state == REPL_STATE_RECEIVE_NODEID_REPLY) {
+        err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
+        /* Ignore errors from older masters that don't support this. */
+        if (err[0] == '-') {
+            serverLog(LL_NOTICE,"(Non critical) Master does not understand "
+                                  "REPLCONF set-cluster-node-id: %s", err);
         }
         sdsfree(err);
         err = NULL;

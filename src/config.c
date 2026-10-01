@@ -93,6 +93,7 @@ configEnum shutdown_on_sig_enum[] = {
     {"nosave", SHUTDOWN_NOSAVE},
     {"now", SHUTDOWN_NOW},
     {"force", SHUTDOWN_FORCE},
+    {"failover", SHUTDOWN_FAILOVER},
     {NULL, 0}
 };
 
