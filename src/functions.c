@@ -259,7 +259,7 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
     };
 
     if (!dictReplace(li->functions, fi->name, fi)) {
-        serverLog(LL_WARNING, "Function %s was overwritten in library %s", fi->name, li->name);
+        serverLog(LL_NOTICE, "Function %s was overwritten in library %s", fi->name, li->name);
     }
 
     return C_OK;
@@ -306,7 +306,7 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     while ((entry = dictNext(&iter))) {
         functionInfo *fi = dictGetVal(entry);
         if (dictAdd(lib_ctx->functions, fi->name, fi) != DICT_OK) {
-            serverLog(LL_WARNING, "Function %s already exists when linking library %s", fi->name, li->name);
+            serverLog(LL_NOTICE, "Function %s already exists when linking library %s", fi->name, li->name);
         }
         lib_ctx->cache_memory += functionMallocSize(fi);
     }
