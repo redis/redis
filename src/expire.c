@@ -672,6 +672,10 @@ int checkAlreadyExpired(long long when) {
 #define EXPIRE_XX (1<<1)
 #define EXPIRE_GT (1<<2)
 #define EXPIRE_LT (1<<3)
+#define EXPIRE_IFEQ (1<<4)
+#define EXPIRE_IFNE (1<<5)
+#define EXPIRE_IFDEQ (1<<6)
+#define EXPIRE_IFDNE (1<<7)
 
 /* Parse additional flags of expire commands
  *
@@ -679,9 +683,19 @@ int checkAlreadyExpired(long long when) {
  * - NX: set expiry only when the key has no expiry
  * - XX: set expiry only when the key has an existing expiry
  * - GT: set expiry only when the new expiry is greater than current one
- * - LT: set expiry only when the new expiry is less than current one */
-int parseExtendedExpireArgumentsOrReply(client *c, int *flags) {
+ * - LT: set expiry only when the new expiry is less than current one
+ * - IFEQ match-value: set expiry only if current value equals match-value
+ * - IFNE match-value: set expiry only if current value does not equal match-value
+ * - IFDEQ match-digest: set expiry only if current value digest equals match-digest
+ * - IFDNE match-digest: set expiry only if current value digest does not equal match-digest
+ *
+ * When IFEQ/IFNE/IFDEQ/IFDNE is used, *match_value is set to the provided value/digest
+ * robj (borrowed reference, owned by c->argv). The key must be of STRING type. */
+int parseExtendedExpireArgumentsOrReply(client *c, int *flags, robj **match_value) {
     int nx = 0, xx = 0, gt = 0, lt = 0;
+    int ifeq = 0, ifne = 0, ifdeq = 0, ifdne = 0;
+
+    if (match_value) *match_value = NULL;
 
     int j = 3;
     while (j < c->argc) {
@@ -698,6 +712,32 @@ int parseExtendedExpireArgumentsOrReply(client *c, int *flags) {
         } else if (!strcasecmp(opt,"lt")) {
             *flags |= EXPIRE_LT;
             lt = 1;
+        } else if (!strcasecmp(opt,"ifeq") || !strcasecmp(opt,"ifne") ||
+                   !strcasecmp(opt,"ifdeq") || !strcasecmp(opt,"ifdne")) {
+            if (j + 1 >= c->argc) {
+                addReplyErrorFormat(c, "Option %s requires a value", opt);
+                return C_ERR;
+            }
+            if (ifeq || ifne || ifdeq || ifdne) {
+                addReplyError(c, "IFEQ, IFNE, IFDEQ and IFDNE options are mutually exclusive");
+                return C_ERR;
+            }
+            if (!strcasecmp(opt,"ifeq")) {
+                *flags |= EXPIRE_IFEQ;
+                ifeq = 1;
+            } else if (!strcasecmp(opt,"ifne")) {
+                *flags |= EXPIRE_IFNE;
+                ifne = 1;
+            } else if (!strcasecmp(opt,"ifdeq")) {
+                *flags |= EXPIRE_IFDEQ;
+                ifdeq = 1;
+            } else {
+                *flags |= EXPIRE_IFDNE;
+                ifdne = 1;
+            }
+            if (match_value) *match_value = c->argv[j + 1];
+            j += 2;
+            continue;
         } else {
             addReplyErrorFormat(c, "Unsupported option %s", opt);
             return C_ERR;
@@ -736,9 +776,10 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     long long when; /* unix time in milliseconds when the key will expire. */
     long long current_expire = -1;
     int flag = 0;
+    robj *match_value = NULL;
 
     /* checking optional flags */
-    if (parseExtendedExpireArgumentsOrReply(c, &flag) != C_OK) {
+    if (parseExtendedExpireArgumentsOrReply(c, &flag, &match_value) != C_OK) {
         return;
     }
 
@@ -762,10 +803,38 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     when += basetime;
 
     /* No key, return zero. */
-    kvobj *kv = lookupKeyWrite(c->db,key); 
+    kvobj *kv = lookupKeyWrite(c->db,key);
     if (kv == NULL) {
         addReply(c,shared.czero);
         return;
+    }
+
+    /* Value condition check (IFEQ/IFNE/IFDEQ/IFDNE) - only for STRING type.
+     * Evaluation order: 1) key existence  2) value condition  3) expiry condition (NX/XX/GT/LT) */
+    if (flag & (EXPIRE_IFEQ | EXPIRE_IFNE | EXPIRE_IFDEQ | EXPIRE_IFDNE)) {
+        if (kv->type != OBJ_STRING) {
+            addReplyError(c, "Value conditions (IFEQ/IFNE/IFDEQ/IFDNE) only support string type");
+            return;
+        }
+
+        int condition_met = 0;
+        if (flag & (EXPIRE_IFEQ | EXPIRE_IFNE)) {
+            robj *decoded = getDecodedObject(kv);
+            int eq = sdscmp(decoded->ptr, match_value->ptr) == 0;
+            decrRefCount(decoded);
+            condition_met = (flag & EXPIRE_IFEQ) ? eq : !eq;
+        } else { /* IFDEQ or IFDNE */
+            if (validateHexDigest(c, match_value->ptr) != C_OK) return;
+            sds digest = stringDigest(kv);
+            int eq = strcasecmp(digest, match_value->ptr) == 0;
+            sdsfree(digest);
+            condition_met = (flag & EXPIRE_IFDEQ) ? eq : !eq;
+        }
+
+        if (!condition_met) {
+            addReply(c,shared.czero);
+            return;
+        }
     }
 
     if (flag) {
