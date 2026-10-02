@@ -3022,6 +3022,10 @@ static void monotonicLogCallback(const char *fmt, ...) {
 }
 
 void initServer(void) {
+#if defined(__riscv) && defined(SIPHASH_RISCV_DISPATCH)
+    extern void siphash_init_riscv(void);
+    siphash_init_riscv();
+#endif
     int j;
 
     signal(SIGHUP, SIG_IGN);
