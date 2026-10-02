@@ -33,28 +33,8 @@ typedef struct idmpProducer {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
-/* INFO `Streams` section: per-database stream distribution histograms. Each
- * enumerator selects a per-db histogram (in kvstoreMetadata), so a single
- * update function serves every metric. A metric is sampled either once per
- * stream key or once per consumer group, and the field name spells that out as
- * stream_distrib_<unit>_<property>. The enumerators are grouped by unit --
- * per-stream metrics first, per-group metrics from
- * STREAM_DISTRIB_FIRST_CGROUP_METRIC on -- so the walkers run each sampler over
- * exactly its own range in a single pass. STREAM_DISTRIB_MAX marks the end of
- * the enum, keeping the per-metric switches exhaustive: adding a metric is one
- * enumerator here, placed in its unit's range, plus one case in each of
- * streamDistribHistRowMeta(), streamDistribMetricName() and the sampler for its
- * unit (streamStreamSample() or streamCGroupSample()). */
-typedef enum {
-    /* Per-stream metrics: one sample per stream key. */
-    STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
-    /* Per-group metrics: one sample per consumer group. Keep these last. */
-    STREAM_DISTRIB_CGROUPS_PEL,         /* stream_distrib_cgroups_pel */
-    STREAM_DISTRIB_CGROUPS_CONSUMERS,   /* stream_distrib_cgroups_consumers */
-    STREAM_DISTRIB_MAX
-} streamDistribMetric;
-/* First per-group metric: [0, this) are per-stream, [this, MAX) per-group. */
-#define STREAM_DISTRIB_FIRST_CGROUP_METRIC STREAM_DISTRIB_CGROUPS_PEL
+/* The INFO `Streams` metric enum (streamDistribMetric) and the per-db table
+ * it indexes (streamStatsHist) live in server.h, next to kvstoreMetadata. */
 
 /* The distrib_epoch of a stream or consumer group that has never been counted
  * into the INFO `Streams` histograms. A db's live epoch starts at 0 and only
@@ -284,9 +264,8 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val);
 int streamDistribBin(int64_t value);
 int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric);
 int64_t streamStreamSample(stream *s, streamDistribMetric metric);
-void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS], uint32_t only_epoch);
-int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric metric);
-const char *streamDistribMetricName(streamDistribMetric metric);
+void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch);
+extern const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX];
 void streamStatsResetMeta(kvstoreMetadata *meta);
 void streamStatsRebuild(void);
 void dbgAssertStreamStats(redisDb *db);

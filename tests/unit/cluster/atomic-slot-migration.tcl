@@ -390,8 +390,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     # FLUSHALL is only synchronous while lazyfree-lazy-user-flush defaults to no.
     #
     # The replacement group is deliberately put in the same PEL bin as the
-    # migrated group so that, without the epoch fix, the stale subtraction removes
-    # the fresh sample rather than being clamped in an already-empty bin.
+    # migrated group so that, without the generation check, the stale subtraction
+    # removes the fresh sample instead of merely driving an empty bin negative.
+    # The keysizes rows share the check: the migrated slot's strings and stream
+    # must not be subtracted from the fresh keyspace either.
     test "Slot bg-trim delta is dropped when a sync FLUSH resets the histogram" {
         R 0 debug asm-trim-method bg
         R 0 flushall
@@ -453,6 +455,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         assert_equal "1=1" [stream_pel_hist 0]
+        # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
+        # strings row (20000 migrated values of 512 bytes) must stay absent and the
+        # streams row must still hold the fresh sample, bin "2" for 3 entries.
+        assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_strings_sizes]
+        assert_equal "2=1" [getInfoProperty [R 0 info keysizes] db0_distrib_streams_items]
 
         # Cleanup: flush and migrate the slots back to R 0.
         R 0 flushall

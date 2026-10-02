@@ -176,36 +176,18 @@ unsigned long streamLength(const robj *subject) {
  * never entered removes nothing. See streamUpdateStat().
  * -------------------------------------------------------------------------- */
 
-/* Return the histogram row for 'metric' inside 'meta', a db's keys kvstore
- * metadata (every db kvstore carries one). Non-static so the INFO renderer
- * (server.c) and the async slot-trim completion (cluster_asm.c) reach the rows
- * through this switch instead of naming the kvstoreMetadata fields themselves. */
-int64_t *streamDistribHistRowMeta(kvstoreMetadata *meta, streamDistribMetric metric) {
-    switch (metric) {
-    case STREAM_DISTRIB_STREAMS_CGROUPS: return meta->distrib_streams_cgroups;
-    case STREAM_DISTRIB_CGROUPS_PEL: return meta->distrib_cgroups_pel;
-    case STREAM_DISTRIB_CGROUPS_CONSUMERS: return meta->distrib_cgroups_consumers;
-    default: serverAssert(0); /* not a real metric */
-    }
-    return NULL; /* unreachable: every metric has a case above */
-}
+/* The INFO field name of each metric, indexed by streamDistribMetric, so a
+ * metric is spelled out in exactly one place and the INFO section and the
+ * debug assertion cannot drift apart. */
+const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX] = {
+    [STREAM_DISTRIB_STREAMS_CGROUPS] = "stream_distrib_streams_cgroups",
+    [STREAM_DISTRIB_CGROUPS_PEL] = "stream_distrib_cgroups_pel",
+    [STREAM_DISTRIB_CGROUPS_CONSUMERS] = "stream_distrib_cgroups_consumers",
+};
 
-/* The INFO field name for 'metric', so a metric is spelled out in exactly one
- * place and the INFO section and the debug assertion cannot drift apart. */
-const char *streamDistribMetricName(streamDistribMetric metric) {
-    switch (metric) {
-    case STREAM_DISTRIB_STREAMS_CGROUPS: return "stream_distrib_streams_cgroups";
-    case STREAM_DISTRIB_CGROUPS_PEL: return "stream_distrib_cgroups_pel";
-    case STREAM_DISTRIB_CGROUPS_CONSUMERS: return "stream_distrib_cgroups_consumers";
-    case STREAM_DISTRIB_MAX: break; /* not a real metric */
-    }
-    return "stream_distrib_unknown"; /* unreachable: every metric has a case above */
-}
-
-/* Zero every stream histogram in 'meta' and start a new generation of samples.
+/* Zero the stream histograms in 'meta' and start a new generation of samples.
  * Every path that resets the gauges (a stale re-enable, an emptied kvstore, a
- * rebuild) goes through this, so a newly added metric cannot be left behind
- * holding stale samples -- and so the generation bump lives in exactly one
+ * rebuild) goes through this, so the generation bump lives in exactly one
  * place. Advancing the epoch is what makes a reset safe: every stream and group
  * stamped with the old generation is now "not counted", so its next change
  * registers it afresh instead of decrementing a bin it is no longer in, and an
@@ -216,15 +198,7 @@ const char *streamDistribMetricName(streamDistribMetric metric) {
  * it. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
     if (++meta->stream_stats_epoch == STREAM_DISTRIB_NEVER_COUNTED) meta->stream_stats_epoch = 0;
-    for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
-        int64_t *row = streamDistribHistRowMeta(meta, (streamDistribMetric) m);
-        if (row) memset(row, 0, sizeof(int64_t) * MAX_KEYSIZES_BINS);
-    }
-}
-
-/* Return the per-db histogram row for 'metric'. */
-static int64_t *streamDistribHistRow(redisDb *db, streamDistribMetric metric) {
-    return streamDistribHistRowMeta(kvstoreGetMetadata(db->keys), metric);
+    memset(meta->stream_hist, 0, sizeof(meta->stream_hist));
 }
 
 /* Map a stream property value to its histogram bin, matching the keysizes
@@ -246,12 +220,6 @@ int streamDistribBin(int64_t value) {
     return bin;
 }
 
-/* The generation a db's INFO `Streams` rows currently hold. An object's
- * distrib_counted bits are valid only while its distrib_epoch equals this. */
-static inline uint32_t streamDistribEpoch(redisDb *db) {
-    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-    return meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
-}
 
 /* The metric ranges of the two units, and the width of the per-metric bits. */
 static_assert(STREAM_DISTRIB_STREAMS_CGROUPS < STREAM_DISTRIB_FIRST_CGROUP_METRIC,
@@ -284,9 +252,9 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
         server.stream_stats_stale = 1; /* the rows fall behind: enabling starts over */
         return;
     }
-    uint32_t live = streamDistribEpoch(db);
-    if (*epoch != live) {                      /* new generation: no row holds this object */
-        *epoch = live;
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    if (*epoch != meta->stream_stats_epoch) {  /* new generation: no row holds this object */
+        *epoch = meta->stream_stats_epoch;
         *counted = 0;
     }
 
@@ -295,8 +263,7 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
     int new_bin = streamDistribBin(new_val);
     if ((*counted & bit) && old_bin == new_bin) return; /* sample didn't move */
 
-    int64_t *hist = streamDistribHistRow(db, metric);
-    if (!hist) return;
+    int64_t *hist = meta->stream_hist[metric];
     if (*counted & bit) {                      /* this row holds the sample: exact move */
         debugServerAssert(old_bin >= 0 && hist[old_bin] > 0);
         if (old_bin >= 0 && hist[old_bin] > 0) hist[old_bin]--;
@@ -2079,7 +2046,7 @@ int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
  * is set on an object stamped with it: the slot-trim delta passes the epoch it
  * captured at schedule, so a sample never entered, or entered in a generation
  * since zeroed, has nothing live to subtract and is skipped. */
-void streamTallyStreamSamples(stream *s, int64_t tally[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS], uint32_t only_epoch) {
+void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch) {
     int all = (only_epoch == STREAM_DISTRIB_NEVER_COUNTED);
     if (all || s->distrib_epoch == only_epoch) {
         for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
@@ -6685,7 +6652,7 @@ void dbgAssertStreamStats(redisDb *db) {
      * nothing to check here. */
     if (!server.stream_stats) return;
 
-    int64_t scan[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS];
+    streamStatsHist scan;
     memset(scan, 0, sizeof(scan));
 
     kvstoreIterator kvs_it;
@@ -6701,9 +6668,7 @@ void dbgAssertStreamStats(redisDb *db) {
     kvstoreIteratorReset(&kvs_it);
 
     for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
-        streamDistribMetric metric = (streamDistribMetric) m;
-        int64_t *live = streamDistribHistRowMeta(meta, metric);
-        if (live) dbgAssertStreamRow(scan[m], live, streamDistribMetricName(metric));
+        dbgAssertStreamRow(scan[m], meta->stream_hist[m], streamDistribMetricNames[m]);
     }
 }
 
