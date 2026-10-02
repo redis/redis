@@ -550,6 +550,17 @@ start_server {tags {"scripting"}} {
         } 0
     } {d3ffffff0000000000}
 
+    test {EVAL - cmsgpack encodes 2^63 identically on every platform} {
+        run_script {local n = cmsgpack.unpack("\211\127\255\255\255\255\255\255\255")
+                local encoded = cmsgpack.pack(n)
+                local h = ""
+                for i = 1, #encoded do
+                    h = h .. string.format("%02x",string.byte(encoded,i))
+                end
+                return h
+        } 0
+    } {ca5f000000}
+
     test {EVAL - cmsgpack pack/unpack smoke test} {
         run_script {
                 local str_lt_32 = string.rep("x", 30)
