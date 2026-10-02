@@ -6052,7 +6052,7 @@ sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, st
      * pass, and scatter the results back into the configured order so the
      * output is byte-identical to the per-percentile path. */
     int64_t values[LATENCY_PERCENTILE_FASTPATH_MAX];
-    int use_fastpath = (len > 0 && len <= LATENCY_PERCENTILE_FASTPATH_MAX);
+    int use_fastpath = (len > 0 && len <= LATENCY_PERCENTILE_FASTPATH_MAX && histogram->total_count > 0);
     if (use_fastpath) {
         int order[LATENCY_PERCENTILE_FASTPATH_MAX];
         double sorted_p[LATENCY_PERCENTILE_FASTPATH_MAX];
@@ -6066,7 +6066,12 @@ sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, st
         }
         for (int j = 0; j < len; j++) sorted_p[j] = pcfg[order[j]];
         hdr_value_at_percentiles(histogram, sorted_p, sorted_v, len);
-        for (int j = 0; j < len; j++) values[order[j]] = sorted_v[j];
+        for (int j = 0; j < len; j++) {
+            /* The upstream batch API returns the highest equivalent value even
+             * for p0. Match hdr_value_at_percentile() without another scan. */
+            values[order[j]] = sorted_p[j] == 0.0 ?
+                hdr_lowest_equivalent_value(histogram, sorted_v[j]) : sorted_v[j];
+        }
     }
 
     for (int j = 0; j < len; j++) {

@@ -144,6 +144,35 @@ start_server {tags {"info" "external:skip"}} {
             assert {$p0 < $p100}
         } {} {needs:debug}
 
+        test {latencystats: batch percentiles match the fallback exactly} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            # Keep this histogram unchanged while testing different configs.
+            # Millisecond samples have wide buckets, exposing a p0 boundary error.
+            r debug sleep 0.005
+            r debug sleep 0.015
+            r debug sleep 0.03
+            foreach percentiles {
+                {0}
+                {100 0 99.9 50 0 50}
+                {100 0 99.9 50 1 2 3 4 5 6 7 8 9 10 25 75}
+            } {
+                r CONFIG SET latency-tracking-info-percentiles $percentiles
+                set batch [split [latency_percentiles_usec debug] ,]
+                assert_equal [llength $percentiles] [llength $batch]
+                # More than 16 percentiles uses hdr_value_at_percentile().
+                set padded $percentiles
+                while {[llength $padded] <= 16} { lappend padded 100 }
+                r CONFIG SET latency-tracking-info-percentiles $padded
+                set fallback [split [latency_percentiles_usec debug] ,]
+                assert_equal 17 [llength $fallback]
+                assert_equal $batch [lrange $fallback 0 [expr {[llength $batch] - 1}]]
+            }
+            r CONFIG SET latency-tracking-info-percentiles ""
+            assert_equal {} [latency_percentiles_usec debug]
+            assert_equal OK [r CONFIG SET latency-tracking-info-percentiles "50 99 99.9"]
+        } {} {needs:debug}
+
         test {errorstats: failed call authentication error} {
             r config resetstat
             assert_match {} [errorstat ERR]
