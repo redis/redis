@@ -100,14 +100,17 @@ typedef struct asmBgTrimState {
     kvstore *target_kvstore;
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
-    int64_t delta_distrib[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS]; /* INFO `Streams`; BIO thread */
+    streamStatsHist delta_stream_hist; /* INFO `Streams`; tallied on the BIO thread */
+    uint32_t epoch;              /* db0's kvstoreMetadata.epoch captured at schedule; every
+                                    delta is applied only if it still matches (the kvstore was
+                                    not emptied in place meanwhile). */
     int track_stream_stats;      /* stream-stats state captured when the trim job was
                                     scheduled; the BIO thread reads this instead of the
-                                    live config, and the delta is applied only if it was
-                                    set. */
-    uint32_t stream_stats_epoch; /* db0's stream_stats_epoch captured at schedule; the delta
-                                    is applied only if it still matches (no reset since), and
-                                    only objects stamped with it are tallied. */
+                                    live config, and the stream delta is applied only if it
+                                    was set. */
+    uint32_t stream_stats_epoch; /* db0's stream_stats_epoch captured at schedule; the stream
+                                    delta is applied only if it still matches (no stream reset
+                                    since), and only objects stamped with it are tallied. */
 } asmBgTrimState;
 
 typedef struct asmTrimJob {
@@ -3100,27 +3103,13 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
 
-        /* Update the INFO `Streams` deltas: every histogram sample the stream
-         * holds, per metric -- its own per-stream sample and one per consumer
-         * group. Bg slot trim frees stream keys without going through
-         * streamKeyRemoved, so record the samples here. Done before the
-         * keysizes row lookup below, so it stays reachable regardless of
-         * whether streams are a tracked keysizes type.
-         *
-         * Gated on the stream-stats state captured when the job was scheduled
-         * (bg->track_stream_stats), not the live config, since this runs on the
-         * BIO thread; completion re-validates the epoch. Reading the stream
-         * here is safe without locking: bg slot trim moved the freed slots into
-         * a detached kvstore before this job started, so this thread solely
-         * owns these streams, and streamTallyStreamSamples() only reads them.
-         * It bins through the same code as the live path and the debug
-         * assertion, so this delta cannot disagree with either about which
-         * samples exist -- and it tallies only samples registered under the
-         * epoch captured at schedule (the object's stamp and per-row bits), so
-         * a sample never entered, or entered in a generation since zeroed,
-         * subtracts nothing. */
+        /* INFO `Streams` rows (bg trim frees streams without streamKeyRemoved).
+         * Safe to read here: the trimmed slots are in a detached kvstore this
+         * thread owns. Gated on the state captured at schedule, not the live
+         * config, and only samples stamped with the captured generation are
+         * tallied; completion re-validates that generation. */
         if (trim_job->bg->track_stream_stats && kv->type == OBJ_STREAM) {
-            streamTallyStreamSamples(kv->ptr, trim_job->bg->delta_distrib, trim_job->bg->stream_stats_epoch);
+            streamTallyStreamSamples(kv->ptr, trim_job->bg->delta_stream_hist, trim_job->bg->stream_stats_epoch);
         }
 
         int64_t *keysizes_row = keysizesHistRow(trim_job->bg->delta_keysizes_hist, kv->type);
@@ -3149,32 +3138,29 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
     serverAssert(job && job->bg && job->client_id == client_id);
 
     kvstoreMetadata *meta = kvstoreGetMetadata(server.db[0].keys);
-    /* Apply histogram deltas only if the target kvstore has not changed. */
-    if (job->bg->target_kvstore == server.db[0].keys && meta) {
+    /* Apply the histogram deltas only if the target kvstore has not changed and
+     * its histograms were not zeroed meanwhile (a sync FLUSH empties it in
+     * place and advances its generation, see kvstoreOnEmpty). */
+    if (job->bg->target_kvstore == server.db[0].keys && meta &&
+        job->bg->epoch == meta->epoch)
+    {
         for (int row = 0; row < MAX_KEYSIZES_ROWS; row++) {
             for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
                 meta->keysizes_hist[row][bin] -= job->bg->delta_keysizes_hist[row][bin];
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
             }
         }
-        /* The stream histograms are single-row (not per-type), one row per
-         * metric. Apply the deltas only if they still hold the same
-         * generation of samples the job was scheduled against: stream-stats
-         * was enabled at schedule (track_stream_stats) and has not been reset
-         * since (epoch unchanged). Otherwise the samples were either never
-         * counted (scheduled while disabled) or already dropped by a reset,
-         * and subtracting the delta would corrupt the live counts -- possibly
-         * a different generation of groups counted after a re-enable.
-         * Clamp at 0 defensively. */
+        /* The INFO `Streams` rows have a generation of their own, which a
+         * stale re-enable and a rebuild also advance, and were tallied only
+         * if tracking was on at schedule. The tally counted only samples that
+         * are in these rows, so the subtraction cannot go below zero. */
         if (job->bg->track_stream_stats &&
             job->bg->stream_stats_epoch == meta->stream_stats_epoch)
         {
             for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
-                int64_t *row = streamDistribHistRowMeta(meta, (streamDistribMetric) m);
-                if (!row) continue;
                 for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
-                    int64_t delta = job->bg->delta_distrib[m][bin];
-                    row[bin] = (row[bin] > delta) ? (row[bin] - delta) : 0;
+                    debugServerAssert(meta->stream_hist[m][bin] >= job->bg->delta_stream_hist[m][bin]);
+                    meta->stream_hist[m][bin] -= job->bg->delta_stream_hist[m][bin];
                 }
             }
         }
@@ -3203,15 +3189,16 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     job->bg = zcalloc(sizeof(*job->bg));
     /* Save the target kvstore for completion validation. */
     job->bg->target_kvstore = db->keys;
-    /* Capture the INFO `Streams` histogram state now, on the main thread: the
-     * BIO thread reads track_stream_stats instead of the live config, and the
-     * completion applies the delta only if both are still valid (see
-     * asmBackgroundTrimDoneCB). */
+    /* Capture the histogram generations now, on the main thread: the completion
+     * applies a delta only if its generation still matches (see
+     * asmBackgroundTrimDoneCB). For the INFO `Streams` rows also capture the
+     * tracking state, which the BIO thread reads instead of the live config. */
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    job->bg->epoch = meta ? meta->epoch : 0;
     job->bg->track_stream_stats = server.stream_stats;
     /* Off: these keys leave with their samples untallied, so the rows fall
      * behind and enabling must start a new generation. */
     if (!server.stream_stats) server.stream_stats_stale = 1;
-    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
     job->bg->stream_stats_epoch = meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
 
     /* Increment background trim counter. */

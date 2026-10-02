@@ -549,10 +549,14 @@ static void kvstoreOnEmpty(kvstore *kvs) {
     serverAssert(meta); /* installed only for kvstore types that carry metadata */
 
     /* An emptied kvstore holds no samples for any histogram in here, so clear
-     * them all. The stream rows go through streamStatsResetMeta() so that a
-     * metric added later cannot be left behind holding stale samples. */
+     * them all and start a new generation: an async slot-trim delta tallied
+     * against the old contents must be discarded, not subtracted (see
+     * asmBackgroundTrimDoneCB). The stream rows go through
+     * streamStatsResetMeta(), which also advances their own generation so that
+     * every stream's and group's stamp goes stale. */
     memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
     memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
+    meta->epoch++;
     streamStatsResetMeta(meta);
 }
 
@@ -7345,12 +7349,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
                 kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
                 if (!meta) continue;
-                for (int m = 0; m < STREAM_DISTRIB_MAX; m++) {
-                    streamDistribMetric metric = (streamDistribMetric) m;
-                    int64_t *row = streamDistribHistRowMeta(meta, metric);
-                    if (row)
-                        info = sdscatHistogramRow(info, dbnum, streamDistribMetricName(metric), row);
-                }
+                for (int m = 0; m < STREAM_DISTRIB_MAX; m++)
+                    info = sdscatHistogramRow(info, dbnum, streamDistribMetricNames[m], meta->stream_hist[m]);
             }
         }
     }

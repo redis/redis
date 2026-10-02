@@ -454,7 +454,9 @@ void debugCommand(client *c) {
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
 "STREAM-STATS-ASSERT <0|1>",
-"    Enable/disable INFO `Streams` histogram assertion after each command.",
+"    Enable/disable INFO streams histogram assertion after each command.",
+"    Arm on an exact state: tracking enabled at startup, an empty keyspace,",
+"    or right after DEBUG RELOAD; a runtime enable fills in lazily.",
 "KEYMETA-AOF-DUMP <key>",
 "    Return a DUMP payload without KeyMeta for an AOF rewrite.",
 "LOADAOF",
@@ -599,15 +601,10 @@ NULL
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        if (flag) {
-            /* Prime an exact baseline first: enabling stream-stats at runtime
-             * deliberately does not rescan the keyspace, so the gauges may be
-             * legitimately behind and that would look like corruption here. */
-            streamStatsRebuild();
+        if (flag)
             server.dbg_assert_flags |= DBG_ASSERT_STREAM_STATS;
-        } else {
+        else
             server.dbg_assert_flags &= ~DBG_ASSERT_STREAM_STATS;
-        }
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;
