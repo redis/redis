@@ -258,6 +258,7 @@ client *createClient(connection *conn) {
     c->stat_avg_pipeline_length_cnt = 0;
     c->task = NULL;
     c->node_id = NULL;
+    c->module_compatibility_checked = 0;
     c->himport_fieldsets = NULL;
     c->compression_level = 0;
     c->compression_state = NULL;
