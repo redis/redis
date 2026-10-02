@@ -710,6 +710,25 @@ start_server {tags {"scripting"}} {
         r script exists a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bd9 a27e7e8a43702b7046d4f6a7ccf5b60cef6b9bda
     } {1 0}
 
+    test {EVAL - scripts with bodies of the same length are not mixed up} {
+        # EVAL remembers the SHA1 of the last body hashed for each length, so
+        # these scripts compete for the same entry: alternate them, inside
+        # MULTI too, and across a flush of the scripts cache.
+        for {set j 0} {$j < 3} {incr j} {
+            assert_equal 1 [r eval {return 1} 0]
+            assert_equal 2 [r eval {return 2} 0]
+        }
+        r multi
+        r eval {return 1} 0
+        r eval {return 2} 0
+        assert_equal {1 2} [r exec]
+        r script flush
+        assert_equal 2 [r eval {return 2} 0]
+        assert_equal 1 [r eval {return 1} 0]
+        r script load {return 3}
+        assert_equal 3 [r eval {return 3} 0]
+    }
+
     test {SCRIPT LOAD - is able to register scripts in the scripting cache} {
         list \
             [r script load "return 'loaded'"] \
