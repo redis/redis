@@ -10,6 +10,10 @@
             [
                 "6.2.0",
                 "`protover` made optional; when called without arguments the command reports the current connection's context."
+            ],
+            [
+                "8.10.0",
+                "Added `run_id` to the reply."
             ]
         ],
         "command_flags": [
@@ -41,6 +45,9 @@
                     "type": "integer"
                 },
                 "mode": {
+                    "type": "string"
+                },
+                "run_id": {
                     "type": "string"
                 },
                 "role": {
