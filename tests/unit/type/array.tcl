@@ -26,6 +26,21 @@ start_server {
         assert_error {*invalid array index*} {r arget myarray not-an-index}
     }
 
+    test {Array commands reject indices that underflow long long} {
+        r del myarray
+        # A negative number whose magnitude exceeds LLONG_MIN used to reach the
+        # strtoull() fallback in string2ull(), which silently wrapped it into a
+        # huge positive index instead of failing.
+        assert_error {*invalid array index*} {r arset myarray -9223372036854775809 v}
+        assert_error {*invalid array index*} {r arget myarray -9223372036854775809}
+        assert_error {*invalid array index*} {r ardel myarray -9223372036854775809}
+        assert_error {*invalid array index*} {r arget myarray { -1}}
+        assert_equal 0 [r exists myarray]
+        # large positive indices within uint64 remain valid by design
+        assert_equal 1 [r arset myarray 9223372036854775807 v]
+        assert_equal v [r arget myarray 9223372036854775807]
+    }
+
     test {ARSET/ARGET with integer values} {
         r del myarray
         r arset myarray 0 12345
