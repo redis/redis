@@ -706,3 +706,22 @@ start_server {tags {"maxmemory" "external:skip"}} {
         }
     }
 }
+
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {A memory config value with no digits warns and is interpreted as 0} {
+        set loglines [count_log_lines 0]
+        r config set maxmemory gb
+        assert_equal 0 [lindex [r config get maxmemory] 1]
+        wait_for_log_messages 0 {"*maxmemory value 'gb' has no numeric part*"} $loglines 100 10
+        r config set maxmemory {}
+        wait_for_log_messages 0 {"*maxmemory value '' has no numeric part*"} $loglines 100 10
+    }
+
+    test {An explicit zero memory config value does not warn} {
+        set before [count_log_message 0 "has no numeric part"]
+        r config set maxmemory 0
+        r config set maxmemory 0kb
+        r config set maxmemory 100mb
+        assert_equal $before [count_log_message 0 "has no numeric part"]
+    }
+}
