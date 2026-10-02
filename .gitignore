@@ -43,6 +43,18 @@ Makefile.dep
 compile_commands.json
 redis.code-workspace
 
+# MSVC build
+build_msvc2026/
+msvc2026-build/
+build_msvc_wine/
+Testing/
+*.exe
+*.pdb
+*.ilk
+*.obj
+.vs/
+patched/
+
 # External bundled modules — cloned (not git submodules) into modules/<name>/src/
 # by `make modules-update`. See modules/modules.yaml + modules/MODULES.md.
 modules/redisbloom/src/
