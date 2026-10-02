@@ -3442,6 +3442,41 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
+/* When stream-stats is turned off, zero the per-db INFO `Streams` histograms so
+ * they hold no stale samples while disabled; re-enabling starts from a clean
+ * slate and fills in lazily (a reload rebuilds them exactly). Apply hooks run
+ * only on runtime CONFIG SET, so the dbs are always initialized here. */
+static int applyStreamStats(const char **err) {
+    UNUSED(err);
+    if (!server.stream_stats) {
+        /* Nothing to do: the hooks stop updating and INFO stops printing the
+         * rows. They keep their last content on purpose. A failed multi-setting
+         * CONFIG SET re-applies `yes` during its rollback before anything else
+         * can run, and then finds them exact and keeps them. Whether they are
+         * still exact when tracking is next enabled is what
+         * server.stream_stats_stale tracks. */
+        return 1;
+    }
+    if (server.stream_stats_stale) {
+        /* Streams changed while tracking was off, so the rows fell behind.
+         * Zeroing them starts a new generation of each db's rows
+         * (streamStatsResetMeta() bumps the db's epoch): every stream and
+         * group is uncounted until next touched, and an async slot-trim delta
+         * scheduled against the old contents is discarded on completion. */
+        for (int j = 0; j < server.dbnum; j++)
+            streamStatsResetMeta(kvstoreGetMetadata(server.db[j].keys));
+        server.stream_stats_stale = 0;
+    }
+    if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
+        /* Enabling at runtime deliberately does not rescan, so the gauges are
+         * legitimately behind until each group is next touched -- which
+         * DEBUG STREAM-STATS-ASSERT would report as corruption on this very
+         * command. Re-prime an exact baseline while the assertion is armed. */
+        streamStatsRebuild();
+    }
+    return 1;
+}
+
 standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -3496,6 +3531,7 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 0, NULL, applyStreamStats),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),

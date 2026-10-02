@@ -757,6 +757,8 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     }
 
     key->kv = dbAdd(key->db, key->key, &obj);
+    if (type == REDISMODULE_KEYTYPE_STREAM)
+        streamKeyLoaded(key->db, key->key, key->kv); /* a new stream key: enter its INFO `Streams` samples */
     moduleInitKeyTypeSpecific(key);
     return REDISMODULE_OK;
 }
@@ -6436,7 +6438,7 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    long long retval = streamTrimByLength(s, length, approx);
+    long long retval = streamTrimByLength(key->db, s, length, approx);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -6474,7 +6476,7 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    long long retval = streamTrimByID(s, minid, approx);
+    long long retval = streamTrimByID(key->db, s, minid, approx);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));

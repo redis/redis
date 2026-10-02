@@ -240,8 +240,9 @@ static void dbgAssertAllocSizePerSlot(redisDb *db) {
 
 /* Run debug assertions based on server.dbg_assert_flags.
  *
- * DBG_ASSERT_KEYSIZES:   Triggered by DEBUG KEYSIZES-HIST-ASSERT 1
- * DBG_ASSERT_ALLOC_SLOT: Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+ * DBG_ASSERT_KEYSIZES:     Triggered by DEBUG KEYSIZES-HIST-ASSERT 1
+ * DBG_ASSERT_ALLOC_SLOT:   Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+ * DBG_ASSERT_STREAM_STATS: Triggered by DEBUG STREAM-STATS-ASSERT 1
  */
 void dbgRunAssertions(redisDb *db) {
     /* Don't assert during nested calls. Intermediate state may be inconsistent. */
@@ -260,6 +261,9 @@ void dbgRunAssertions(redisDb *db) {
 
     if (server.dbg_assert_flags & DBG_ASSERT_ALLOC_SLOT)
         dbgAssertAllocSizePerSlot(db);
+
+    if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS)
+        dbgAssertStreamStats(db);
 }
 
 /* Lookup a kvobj for read or write operations, or return NULL if the it is not

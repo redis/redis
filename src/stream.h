@@ -33,6 +33,29 @@ typedef struct idmpProducer {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
+/* The INFO `Streams` metric enum (streamDistribMetric) and the per-db table
+ * it indexes (streamStatsHist) live in server.h, next to kvstoreMetadata. */
+
+/* The distrib_epoch of a stream or consumer group that has never been counted
+ * into the INFO `Streams` histograms. A db's live epoch starts at 0 and only
+ * ever increments (streamStatsResetMeta() skips this value), so it can never
+ * match. */
+#define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
+
+/* A consumer group's INFO `Streams` stamp: the generation its bits refer to
+ * (or STREAM_DISTRIB_NEVER_COUNTED) and one bit per per-group metric whose row
+ * holds the group's sample, valid only while 'epoch' is current. It lives in
+ * the metadata of the group's PEL rax rather than in streamCG: streamCG is just
+ * one cache line, and growing it by even a byte moves it to jemalloc's 80-byte
+ * class, where three objects in four straddle a line -- measured as about 7%
+ * more last-level cache misses per XREADGROUP. The rax header is 40 bytes in
+ * the 48-byte class, so these 8 bytes are free, and the header is touched by
+ * every command that touches the group anyway. */
+typedef struct {
+    uint32_t epoch;
+    uint8_t counted;
+} streamDistribStamp;
+
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -45,6 +68,12 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
+    uint8_t distrib_counted; /* INFO `Streams`: one bit per per-stream metric whose row
+                                holds this stream's sample, valid only while distrib_epoch
+                                is current. */
+    uint32_t distrib_epoch;  /* INFO `Streams`: the generation distrib_counted refers to,
+                                or STREAM_DISTRIB_NEVER_COUNTED. Both stamp fields sit in
+                                the padding after the bit-field above. */
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
     rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
@@ -118,7 +147,15 @@ typedef struct streamCG {
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
+    /* The group's INFO `Streams` stamp is streamCGStamp(cg), kept in the
+     * metadata of 'pel'; see streamDistribStamp for why it is not a field. */
 } streamCG;
+
+/* The INFO `Streams` stamp of consumer group 'cg': the raw metadata storage
+ * that streamCreateCG() sized for it when it created the PEL rax. */
+static inline streamDistribStamp *streamCGStamp(streamCG *cg) {
+    return (streamDistribStamp *) cg->pel->metadata;
+}
 
 /* A specific consumer in a consumer group.  */
 typedef struct streamConsumer {
@@ -219,11 +256,19 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 int streamDeleteItem(stream *s, streamID *id);
 void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
 long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
-int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
-int64_t streamTrimByID(stream *s, streamID minid, int approx);
+int64_t streamTrimByLength(redisDb *db, stream *s, long long maxlen, int approx);
+int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx);
 int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
+int streamDistribBin(int64_t value);
+int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric);
+int64_t streamStreamSample(stream *s, streamDistribMetric metric);
+void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch);
+extern const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX];
+void streamStatsResetMeta(kvstoreMetadata *meta);
+void streamStatsRebuild(void);
+void dbgAssertStreamStats(redisDb *db);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
