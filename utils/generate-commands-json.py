@@ -7,6 +7,38 @@ import subprocess
 from collections import OrderedDict
 
 
+# Module commands are reported by `COMMAND DOCS` with a group of "module", so
+# the group is derived from the command's name prefix instead. Prefixes are
+# matched longest-first, so overlapping prefixes are unambiguous.
+MODULE_COMMAND_GROUPS = {
+    'BF.': 'bf',
+    'CF.': 'cf',
+    'CMS.': 'cms',
+    'FT.': 'search',
+    '_FT.': 'search',
+    'SEARCH.': 'search',
+    'JSON.': 'json',
+    'TDIGEST.': 'tdigest',
+    'TOPK.': 'topk',
+    'TS.': 'timeseries',
+    'TIMESERIES.': 'timeseries',
+    'V': 'vector_set',
+}
+
+MODULE_COMMAND_PREFIXES = sorted(MODULE_COMMAND_GROUPS, key=len, reverse=True)
+
+
+def get_module_command_group(name):
+    """Return the group of a module command, based on its name prefix.
+
+    'name' is the command's full upper-case name. Commands with an unknown
+    prefix keep the generic "module" group."""
+    for prefix in MODULE_COMMAND_PREFIXES:
+        if name.startswith(prefix):
+            return MODULE_COMMAND_GROUPS[prefix]
+    return 'module'
+
+
 def convert_flags_to_boolean_dict(flags):
     """Return a dict with a key set to `True` per element in the flags list."""
     return {f: True for f in flags}
@@ -71,6 +103,8 @@ def convert_entry_to_objects_array(cmd, docs):
     value = OrderedDict()
     group = docs.pop('group')
     if group == 'module':
+        # Modules don't declare a group, so it is derived from the command's name
+        group = get_module_command_group(name)
         set_if_not_none_or_empty(value, 'summary', docs.pop('summary', None))
         set_if_not_none_or_empty(value, 'since', docs.pop('since', None))
     else:
