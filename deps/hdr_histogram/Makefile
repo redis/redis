@@ -1,6 +1,6 @@
 STD= -std=c99
 WARN= -Wall
-OPT= -Os
+OPT= -O3
 
 R_CFLAGS= $(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) -DHDR_MALLOC_INCLUDE=\"hdr_redis_malloc.h\"
 R_LDFLAGS= $(LDFLAGS)
