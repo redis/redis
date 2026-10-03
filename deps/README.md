@@ -98,9 +98,35 @@ and our version:
 Hdr_Histogram
 ---
 
-Updated source can be found here: https://github.com/HdrHistogram/HdrHistogram_c
-We use a customized version based on master branch commit e4448cf6d1cd08fff519812d3b1e58bd5a94ac42.
-1. Compare all changes under /hdr_histogram directory to upstream master commit e4448cf6d1cd08fff519812d3b1e58bd5a94ac42
-2. Copy updated files from newer version onto files in /hdr_histogram.
-3. Apply the changes from 1 above to the updated files.
+We vendor the core amalgamation of [HdrHistogram_c 0.12.0](https://github.com/HdrHistogram/HdrHistogram_c/releases/tag/0.12.0)
+(tag commit `8885476fc83fa362fec2fb2b5e9cd9544514976e`). It is used for per-command
+latency tracking, redis-cli, and redis-benchmark. Only the core is included; the
+log codec, packed histogram, interval recorder, and phaser are not vendored.
 
+To upgrade, check out the desired upstream release and run its amalgamation
+script, replacing `/path/to/redis` with the Redis checkout:
+
+```sh
+git clone --branch 0.12.0 --depth 1 https://github.com/HdrHistogram/HdrHistogram_c.git
+cd HdrHistogram_c
+python3 script/amalgamate.py --output /path/to/redis/deps/hdr_histogram \
+    --malloc-include hdr_redis_malloc.h
+cp LICENSE.txt COPYING.txt /path/to/redis/deps/hdr_histogram/
+```
+
+`hdr_histogram.c` and `hdr_histogram.h` are generated files; do not edit them by
+hand. The private `hdr_atomic.h` and `hdr_tests.h` headers are inlined by the
+script and are no longer separate files. Keep Redis's `Makefile` and
+`hdr_redis_malloc.h`, which routes allocations through the Redis allocator. The
+existing `HDR_MALLOC_INCLUDE` build flag is compatible with the generated default.
+The Makefile uses `-O3` and selects upstream's scalar percentile fallback for
+GCC 4.8, whose intrinsic headers cannot support the runtime AVX2 dispatch.
+
+The former local iterator extension, `hdr_iter_linear_set_value_units_per_bucket`,
+is now provided upstream. `INFO latencystats` sorts configured percentiles for the
+upstream batch API and converts p0 to the lowest equivalent value in the caller
+to preserve the singular API's output. No local library patches are needed.
+
+After upgrading, update the version and tag commit here and in
+`hdr_histogram/README.md`. Rebuild Redis from a clean tree and run the INFO,
+latency-monitor, redis-cli, and redis-benchmark tests.
