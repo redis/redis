@@ -119,6 +119,8 @@ hand. The private `hdr_atomic.h` and `hdr_tests.h` headers are inlined by the
 script and are no longer separate files. Keep Redis's `Makefile` and
 `hdr_redis_malloc.h`, which routes allocations through the Redis allocator. The
 existing `HDR_MALLOC_INCLUDE` build flag is compatible with the generated default.
+The Makefile uses `-O3` and selects upstream's scalar percentile fallback for
+GCC 4.8, whose intrinsic headers cannot support the runtime AVX2 dispatch.
 
 The former local iterator extension, `hdr_iter_linear_set_value_units_per_bucket`,
 is now provided upstream. `INFO latencystats` sorts configured percentiles for the
