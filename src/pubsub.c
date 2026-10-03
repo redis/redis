@@ -578,6 +578,89 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     kvstoreResetDictIterator(&kvs_di);
 }
 
+/* Return the length of the literal prefix of a glob-style pattern: the bytes
+ * before its first '*', '?', '[' or '\\'. stringmatchlen() compares those
+ * bytes one by one with the start of the string, so every string the pattern
+ * matches begins with them. Stopping at an escape too keeps this simple, at
+ * the cost of a shorter prefix. */
+static size_t pubsubPatternPrefixLen(sds pattern) {
+    size_t len = sdslen(pattern), i;
+
+    for (i = 0; i < len; i++) {
+        char c = pattern[i];
+        if (c == '*' || c == '?' || c == '[' || c == '\\') break;
+    }
+    return i;
+}
+
+/* server.pubsub_patterns_index maps every literal prefix to the patterns that
+ * have it, so that a PUBLISH only tries the patterns whose prefix the channel
+ * starts with. Most prefixes belong to a single pattern, so the value of a
+ * key is that pattern (the robj key of server.pubsub_patterns), and only
+ * when two or more patterns share the prefix it is a set of them, marked by
+ * the lowest bit of the pointer (both are at least 8-byte aligned). */
+#define PATTERN_SET_TAG 1
+
+/* Return 1 if the index value 'v' is a set of patterns, 0 if a pattern. */
+static int pubsubPatternIndexIsSet(void *v) {
+    return ((uintptr_t)v & PATTERN_SET_TAG) != 0;
+}
+
+/* Return the set of patterns held by the index value 'v'. */
+static dict *pubsubPatternIndexGetSet(void *v) {
+    return (dict *)((uintptr_t)v & ~(uintptr_t)PATTERN_SET_TAG);
+}
+
+/* Add a pattern that was just added to server.pubsub_patterns to
+ * server.pubsub_patterns_index. */
+static void pubsubIndexPattern(robj *pattern) {
+    unsigned char *p = pattern->ptr;
+    size_t prefixlen = pubsubPatternPrefixLen(pattern->ptr);
+    void *v;
+    dict *set;
+
+    if (!raxFind(server.pubsub_patterns_index, p, prefixlen, &v)) {
+        raxInsert(server.pubsub_patterns_index, p, prefixlen, pattern, NULL);
+        return;
+    }
+    if (pubsubPatternIndexIsSet(v)) {
+        set = pubsubPatternIndexGetSet(v);
+    } else {
+        /* The second pattern with this prefix: move both to a set. */
+        set = dictCreate(&pubsubPatternSetDictType);
+        dictAdd(set, v, NULL);
+        raxInsert(server.pubsub_patterns_index, p, prefixlen,
+                  (void *)((uintptr_t)set | PATTERN_SET_TAG), NULL);
+    }
+    serverAssert(dictAdd(set, pattern, NULL) == DICT_OK);
+}
+
+/* Remove a pattern that is about to leave server.pubsub_patterns from
+ * server.pubsub_patterns_index, with its prefix if no other pattern has it.
+ * A set left with one pattern goes back to holding that pattern alone. */
+static void pubsubUnindexPattern(robj *pattern) {
+    unsigned char *p = pattern->ptr;
+    size_t prefixlen = pubsubPatternPrefixLen(pattern->ptr);
+    void *v;
+
+    serverAssert(raxFind(server.pubsub_patterns_index, p, prefixlen, &v));
+    if (!pubsubPatternIndexIsSet(v)) {
+        serverAssert(equalStringObjects(v, pattern));
+        raxRemove(server.pubsub_patterns_index, p, prefixlen, NULL);
+        return;
+    }
+    dict *set = pubsubPatternIndexGetSet(v);
+    serverAssert(dictDelete(set, pattern) == DICT_OK);
+    if (dictSize(set) == 1) {
+        dictIterator di;
+        dictInitIterator(&di, set);
+        robj *last = dictGetKey(dictNext(&di));
+        dictResetIterator(&di);
+        dictRelease(set);
+        raxInsert(server.pubsub_patterns_index, p, prefixlen, last, NULL);
+    }
+}
+
 /* Subscribe a client to a pattern. Returns 1 if the operation succeeded, or 0 if the client was already subscribed to that pattern. */
 int pubsubSubscribePattern(client *c, robj *pattern) {
     dictEntry *de;
@@ -593,6 +676,7 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
             clients = dictCreate(&clientDictType);
             dictAdd(server.pubsub_patterns,pattern,clients);
             incrRefCount(pattern);
+            pubsubIndexPattern(pattern);
         } else {
             clients = dictGetVal(de);
         }
@@ -621,6 +705,7 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
         if (dictSize(clients) == 0) {
             /* Free the dict and associated hash entry at all if this was
              * the latest client. */
+            pubsubUnindexPattern(pattern);
             dictDelete(server.pubsub_patterns,pattern);
         }
     }
@@ -691,13 +776,63 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     return count;
 }
 
+/* What pubsubPublishToPatterns() needs to deliver a message. */
+typedef struct {
+    robj *channel;  /* Decoded channel name. */
+    robj *message;
+    int receivers;  /* Clients the message was sent to. */
+} pubsubPatternMessage;
+
+/* Send the message to the clients of 'pattern' if it matches the channel. */
+static void pubsubPublishToPattern(robj *pattern, pubsubPatternMessage *pm) {
+    robj *channel = pm->channel;
+
+    /* Match the whole pattern, not just what follows the prefix: "a*"
+     * matches "a", but "*" does not match "". */
+    if (!stringmatchlen((char*)pattern->ptr,
+                        sdslen(pattern->ptr),
+                        (char*)channel->ptr,
+                        sdslen(channel->ptr),0)) return;
+
+    dict *clients = dictFetchValue(server.pubsub_patterns, pattern);
+    dictEntry *entry;
+    dictIterator iter;
+
+    dictInitIterator(&iter, clients);
+    while ((entry = dictNext(&iter)) != NULL) {
+        client *c = dictGetKey(entry);
+        addReplyPubsubPatMessage(c,pattern,channel,pm->message);
+        updateClientMemUsageAndBucket(c);
+        pm->receivers++;
+    }
+    dictResetIterator(&iter);
+}
+
+/* raxFindPrefixes() callback for server.pubsub_patterns_index: try the
+ * patterns ('v') whose literal prefix is a prefix of the channel. */
+static void pubsubPublishToPatterns(void *v, size_t prefixlen, void *privdata) {
+    UNUSED(prefixlen);
+
+    if (!pubsubPatternIndexIsSet(v)) {
+        pubsubPublishToPattern(v, privdata);
+        return;
+    }
+
+    dictEntry *de;
+    dictIterator di;
+
+    dictInitIterator(&di, pubsubPatternIndexGetSet(v));
+    while((de = dictNext(&di)) != NULL)
+        pubsubPublishToPattern(dictGetKey(de), privdata);
+    dictResetIterator(&di);
+}
+
 /*
  * Publish a message to all the subscribers.
  */
 int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) {
     int receivers = 0;
     dictEntry *de;
-    dictIterator di;
     unsigned int slot = 0;
 
     /* Send to clients listening for that channel */
@@ -727,32 +862,14 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         return receivers;
     }
 
-    /* Send to clients listening to matching channels */
+    /* Send to clients listening to matching channels: only the patterns
+     * whose literal prefix starts the channel name can match it. */
     if (dictSize(server.pubsub_patterns) > 0) {
-        channel = getDecodedObject(channel);
-        dictInitIterator(&di, server.pubsub_patterns);
-        while((de = dictNext(&di)) != NULL) {
-            robj *pattern = dictGetKey(de);
-            dict *clients = dictGetVal(de);
-            if (!stringmatchlen((char*)pattern->ptr,
-                                sdslen(pattern->ptr),
-                                (char*)channel->ptr,
-                                sdslen(channel->ptr),0)) continue;
-
-            dictEntry *entry;
-            dictIterator iter;
-
-            dictInitIterator(&iter, clients);
-            while ((entry = dictNext(&iter)) != NULL) {
-                client *c = dictGetKey(entry);
-                addReplyPubsubPatMessage(c,pattern,channel,message);
-                updateClientMemUsageAndBucket(c);
-                receivers++;
-            }
-            dictResetIterator(&iter);
-        }
-        decrRefCount(channel);
-        dictResetIterator(&di);
+        pubsubPatternMessage pm = { getDecodedObject(channel), message, 0 };
+        raxFindPrefixes(server.pubsub_patterns_index, pm.channel->ptr,
+                        sdslen(pm.channel->ptr), pubsubPublishToPatterns, &pm);
+        receivers += pm.receivers;
+        decrRefCount(pm.channel);
     }
     return receivers;
 }

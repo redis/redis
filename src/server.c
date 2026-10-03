@@ -733,6 +733,21 @@ dictType objToDictDictType = {
     NULL                        /* allow to expand */
 };
 
+/* Set of the patterns that share a literal prefix in
+ * server.pubsub_patterns_index: robj keys of server.pubsub_patterns, which
+ * owns them. Anything that reallocates them (e.g. defrag) must update both. */
+dictType pubsubPatternSetDictType = {
+    dictObjHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictObjKeyCompare,          /* key compare */
+    NULL,                       /* key destructor */
+    NULL,                       /* val destructor */
+    NULL,                       /* allow to expand */
+    .no_value = 1,              /* no values in this dict */
+    .keys_are_odd = 0           /* a robj pointer is not an odd pointer */
+};
+
 /* Modules system dictionary type. Keys are module name,
  * values are pointer to RedisModule struct. */
 dictType modulesDictType = {
@@ -3145,6 +3160,7 @@ void initServer(void) {
         &kvstoreBaseType, &objToDictDictType,
         0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     server.pubsub_patterns = dictCreate(&objToDictDictType);
+    server.pubsub_patterns_index = raxNew();
     server.pubsubshard_channels = kvstoreCreate(
         &kvstoreBaseType, &objToDictDictType,
         slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
