@@ -485,12 +485,14 @@ start_server {tags {"tracking network logreqres:skip"}} {
             assert_equal PONG [$rd_prefix read]
         }
         r MULTI
-        r SET gone:1 1
-        r SET stay:1 1
+        r SET gone:1{t} 1
+        r SET stay:1{t} 1
         r CLIENT KILL ID $gone_id
         assert_equal {OK OK 1} [r EXEC]
         $rd_stay PING
-        assert_equal {invalidate stay:1} [$rd_stay read]
+        set reply [$rd_stay read]
+        assert_equal invalidate [lindex $reply 0]
+        assert_equal [list stay:1{t}] [lindex $reply 1]
         assert_equal PONG [$rd_stay read]
         $rd_gone close
         $rd_stay close
