@@ -106,8 +106,8 @@
  * This matters because adding, deleting, compacting, or defragmenting a score
  * leaf can move its allocation. A replacement keeps the old ID, a split keeps
  * it on the left page and gives the right page a new one, and a merge keeps
- * the left page's ID. Only members that move to another leaf need their member
- * record changed.
+ * the ID of the page with more members. Only members that move to another
+ * leaf need their member record changed.
  *
  * Released IDs form a free list inside score_leaf_by_id itself. A marked
  * pointer stores the next free ID. Real allocations are aligned, so their low
@@ -146,6 +146,9 @@
 #define ZBT_SCORE_LEAF_RESERVE 128
 #define ZBT_SCORE_INNER_MAX 32
 #define ZBT_SCORE_LEAF_MERGE (ZBT_SCORE_LEAF_MAX / 2)
+/* Score changes count what they move out of a leaf in 1/96 of a page, by
+ * count or bytes, whichever is larger. The leaf is checked after a quarter. */
+#define ZBT_SCORE_MOVED_CHECK (ZBT_SCORE_LEAF_MAX / 4)
 /* Member lookup uses an open addressed table with eight slots per bucket. */
 #define ZBT_INDEX_BUCKET_ITEMS 8
 #define ZBT_INDEX_INITIAL_BUCKETS 4
@@ -159,6 +162,12 @@
 #define ZBT_INDEX_MAX_FILLED_DEN 16
 #define ZBT_INDEX_DELETED_ID UINT32_MAX
 #define ZBT_INDEX_WIDE_ID_AT (UINT16_MAX / 2)
+/* Narrow buckets store leaf IDs below UINT16_MAX, which marks a deleted slot.
+ * One modification creates at most one score leaf; keep some margin. */
+#define ZBT_INDEX_NARROW_ID_LIMIT (UINT16_MAX - 16)
+/* Copy steps per leaf-creating modification while a narrow resize delays the
+ * widening. It then ends long before ZBT_INDEX_NARROW_ID_LIMIT. */
+#define ZBT_INDEX_WIDEN_STEPS 4
 
 /* UINT32_MAX asks for a new leaf ID or marks the absence of a leaf. Use the
  * name that describes the meaning at each call site. */
@@ -178,17 +187,14 @@
 #define ZBT_EXTERNAL_RECORD_BYTES \
     (ZBT_EXTERNAL_POINTER_OFFSET + sizeof(void *))
 
-/* One ZSCAN cursor position covers this many buckets. This keeps the complete
- * 32 bit table revision while allowing 2^34 buckets to be visited (still far
- * beyond any realistic table size). Kept at 4 rather than the original 8: the
- * per-bucket-group cost is dominated by zbtIndexScanSlot()'s per-occupied-slot
- * leaf scan, and at this benchmark's ~49% table fill a group of 4 buckets
- * (~15.7 occupied slots) already comfortably exceeds the default COUNT=10, so
- * halving the group size roughly halves the number of those expensive scans
- * per call without changing SCAN's cursor-decode correctness (group is a
- * compile-time-uniform divisor, used identically by every encode and decode
- * within a running binary) or its completeness/duplicate-tolerance contract. */
+/* ZSCAN visits groups of this many adjacent buckets, which share one walk of
+ * the probe run that follows them. At the usual table fill a group already
+ * holds more members than the default COUNT. It must be a power of two no
+ * larger than ZBT_INDEX_INITIAL_BUCKETS. Member hashes have 32 bits, so no
+ * home bucket lies beyond ZBT_SCAN_MAX_GROUPS groups. */
 #define ZBT_SCAN_BUCKETS_PER_STEP 4
+#define ZBT_SCAN_MAX_GROUPS \
+    ((UINT64_C(1) << 32) / ZBT_SCAN_BUCKETS_PER_STEP)
 
 /* Released score leaf IDs form a list in the leaf table. Allocations are
  * aligned, so the low bit distinguishes a list link from a live pointer. */
@@ -206,13 +212,14 @@ typedef struct zbtScoreInner zbtScoreInner;
 struct zbtScoreNode {
     zbtScoreInner *parent;   /* NULL only for the root. */
     uint64_t subtree;        /* Elements represented by this node. */
-    uint16_t parent_index;   /* Our position in parent->child[]. */
+    uint8_t parent_index;    /* Our position in parent->child[]. */
     uint8_t count;           /* Elements in a leaf, children in an inner node. */
     uint8_t isleaf;          /* Non-zero for zbtScoreLeaf. */
     /* Only score leaves use these. They live in this header's padding so that
      * a score leaf still costs 56 bytes before its packed arrays. */
     uint8_t score_shift;
     uint8_t has_external;
+    uint8_t moved_out;       /* Page share moved out by score changes. */
     uint16_t index_resize;   /* Resize that copied this leaf, zero if none. */
 };
 
@@ -265,7 +272,6 @@ typedef struct zbtIndexTable {
     unsigned long used;       /* Live entries. */
     unsigned long filled;     /* Live entries plus tombstones. */
     int wide_ids;             /* IDs are 32 rather than 16 bits. */
-    uint32_t scan_revision;   /* Identity used by scan cursors. */
 } zbtIndexTable;
 
 typedef struct zbtIndexRehash {
@@ -689,9 +695,9 @@ static void *zbtAlloc(zbtreeSet *zs, size_t bytes) {
     return ptr;
 }
 
-/* Cached positions and scan cursors use these numbers to notice that a member
- * table changed. A process-wide counter also distinguishes a deleted set from
- * a new one that happens to reuse the same address. */
+/* Cached insertion positions use these numbers to notice that a member table
+ * changed. A process-wide counter also distinguishes a deleted set from a new
+ * one that happens to reuse the same address. */
 static uint32_t zbtIndexNextRevision(void) {
     static uint32_t revision = 0;
     if (++revision == 0) revision++;
@@ -882,8 +888,9 @@ static void zbtScoreRefreshParents(zbtScoreNode *node) {
     }
 }
 
-/* Update only the path fields affected by a local leaf edit. length_change is
- * +1 for insertion, -1 for deletion, and zero for a score change. */
+/* Update only the path fields affected by a local leaf edit or by replacing a
+ * leaf at the same position. length_change is the change in the leaf's
+ * element count: +1 for insertion, -1 for deletion, zero for a score change. */
 static void zbtScoreUpdatePath(zbtScoreNode *node, long long length_change) {
     while (node->parent) {
         zbtScoreInner *parent = node->parent;
@@ -1042,7 +1049,10 @@ static void zbtScoreReplaceLeaf(zbtreeSet *zs, zbtScoreLeaf *oldleaf, zbtScoreLe
         oldleaf->n.parent->child[oldleaf->n.parent_index] = &newleaf->n;
     else
         zs->score_root = &newleaf->n;
-    zbtScoreRefreshParents(&newleaf->n);
+    /* The leaf keeps its position, so only its path can change. Refreshing
+     * every child of each ancestor would read up to 32 cold sibling leaves. */
+    zbtScoreUpdatePath(&newleaf->n, (long long)newleaf->n.subtree -
+                                    (long long)oldleaf->n.subtree);
     zbtScoreLeafFreeOwned(zs, oldleaf);
 }
 
@@ -1863,7 +1873,6 @@ static void zbtIndexTableInit(zbtreeSet *zs, zbtIndexTable *table,
     memset(table, 0, sizeof(*table));
     table->size = zbtIndexNextPower(buckets);
     table->wide_ids = wide_ids;
-    table->scan_revision = zbtIndexNextRevision();
     size_t bytes = zbtIndexTableBytes(table);
     table->buckets = zbtAlloc(zs, bytes);
     memset(table->buckets, 0, bytes);
@@ -2131,14 +2140,42 @@ static int zbtIndexRehashStep(zbtreeSet *zs, int steps) {
     return 1;
 }
 
+/* Call before a modification that can create a score leaf. New leaf IDs are
+ * written to the resize destination while one is active, otherwise to the
+ * current table; during a resize the old table only receives deletions. If
+ * that receiving table is narrow, next_score_leaf_id must stay below
+ * UINT16_MAX. Released IDs are reused only below next_score_leaf_id, and one
+ * modification creates at most one leaf, so a check here is sufficient.
+ *
+ * Widening starts incrementally at ZBT_INDEX_WIDE_ID_AT, as for insertions.
+ * A narrow resize that is already running is advanced faster so that the
+ * widening can follow it. Finishing it at once is only a last resort. */
+static void zbtIndexReserveLeafId(zbtreeSet *zs, unsigned long add) {
+    if (zs->next_score_leaf_id < ZBT_INDEX_WIDE_ID_AT) return;
+    if (zs->member_rehash && !zs->member_rehash->table.wide_ids) {
+        if (zs->next_score_leaf_id < ZBT_INDEX_NARROW_ID_LIMIT)
+            zbtIndexRehashStep(zs, ZBT_INDEX_WIDEN_STEPS);
+        else
+            while (zs->member_rehash) zbtIndexRehashStep(zs, 64);
+    }
+    if (zs->member_rehash == NULL && zs->member_index.size &&
+        !zs->member_index.wide_ids)
+    {
+        zbtIndexStartResize(zs, zs->member_index.used + add, 1);
+    }
+}
+
 /* Grow, widen, or clean the member index before adding more entries. */
 static void zbtIndexExpandIfNeeded(zbtreeSet *zs, unsigned long add) {
     if (zs->member_index.size == 0) {
+        /* A set emptied by deletions keeps its leaf ID counter. */
         zbtIndexTableInit(zs, &zs->member_index,
-                          zbtIndexBucketsForElements(add), 0);
+                          zbtIndexBucketsForElements(add),
+                          zs->next_score_leaf_id >= ZBT_INDEX_WIDE_ID_AT);
         zs->member_revision = zbtIndexNextRevision();
         return;
     }
+    zbtIndexReserveLeafId(zs, add);
     if (zs->member_rehash) {
         zbtIndexTable *target = &zs->member_rehash->table;
         unsigned long slots = zbtIndexSlots(target);
@@ -2288,6 +2325,9 @@ static int zbtIndexFindReference(zbtreeSet *zs, uint32_t hash,
  * A resize may place the source and destination leaves in different tables.
  * If the destination leaf is incomplete, copying it would miss the member
  * currently being inserted, so the caller copies it after finishing the leaf.
+ * Until then only the old entry is removed: the copy adds every member of the
+ * destination. Relabeling the old entry instead could put a wide ID in a
+ * narrow old table, and during a resize that table only receives deletions.
  * When several members move to one leaf, target_was_copied records that its
  * complete contents were already copied; later old entries are then removed
  * instead of creating duplicates. */
@@ -2310,14 +2350,15 @@ static int zbtIndexMove(zbtreeSet *zs, uint32_t hash,
     serverAssert(newleaf && !ZBT_IS_FREE_LEAF_ID(newleaf));
     if (!zbtIndexLeafMigrated(zs, newleaf) && target_is_incomplete) {
         /* A split may put the newly inserted, not-yet-indexed member in the
-         * right leaf. Keep its existing entries in the old table for now;
-         * zbtIndexInsert() will copy the complete leaf after the split. */
+         * right leaf. zbtIndexInsert(), or the zbtIndexMove() that follows a
+         * score change, copies that complete leaf after the split. A split
+         * leaf passes its copy state to both halves, and the new table holds
+         * no entries for leaves not yet copied, so the entry is old. */
         if (!zbtIndexFindReference(zs, hash, old_leaf_id, &bucket, &pos))
             return 0;
-        zbtIndexTable *source = zbtIndexOwnsBucket(&zs->member_index, bucket) ?
-                                &zs->member_index :
-                                &zs->member_rehash->table;
-        zbtIndexSetId(source, bucket, pos, new_leaf_id);
+        serverAssert(zbtIndexOwnsBucket(&zs->member_index, bucket));
+        zbtIndexSetId(&zs->member_index, bucket, pos, ZBT_INDEX_DELETED_ID);
+        zs->member_index.used--;
         return 1;
     }
     int copied_target = target_was_copied && *target_was_copied;
@@ -2432,23 +2473,26 @@ static size_t zbtScoreLeafLiveBytes(zbtScoreLeaf *leaf) {
            zbtScoreLeafRecordBytes(leaf);
 }
 
-/* Join two adjacent leaves if the result fits, returning the merged leaf or
- * NULL. The left leaf ID survives. Before releasing the right ID, every
- * member reference to it is redirected to the merged leaf. */
+/* Join two adjacent leaves if the result stays within max_count elements and
+ * max_bytes, returning the merged leaf or NULL. The ID of the larger leaf
+ * survives. Before releasing the other ID, every member reference to it is
+ * redirected to the merged leaf. */
 static zbtScoreLeaf *zbtScoreMergePair(zbtreeSet *zs, zbtScoreLeaf *left,
-                                       zbtScoreLeaf *right)
+                                       zbtScoreLeaf *right,
+                                       unsigned int max_count,
+                                       size_t max_bytes)
 {
     double scores[ZBT_SCORE_LEAF_MAX];
     zbtBuildElement eles[ZBT_SCORE_LEAF_MAX];
     uint8_t tags[ZBT_SCORE_LEAF_MAX];
 
     unsigned int count = left->n.count + right->n.count;
-    if (count > ZBT_SCORE_LEAF_MAX) return NULL;
+    if (count > max_count) return NULL;
     /* Records, offsets and tags alone must fit before scores are decoded. */
     if (offsetof(zbtScoreLeaf, data) +
         count * (sizeof(uint16_t) + sizeof(uint8_t)) +
         zbtScoreLeafRecordBytes(left) + zbtScoreLeafRecordBytes(right) >
-        ZBT_SCORE_LEAF_BYTES)
+        max_bytes)
         return NULL;
 
     for (unsigned int i = 0; i < left->n.count; i++) {
@@ -2463,32 +2507,39 @@ static zbtScoreLeaf *zbtScoreMergePair(zbtreeSet *zs, zbtScoreLeaf *left,
         zbtBuildElementFromLeaf(&eles[dst], right, i);
         tags[dst] = zbtScoreLeafTag(right, i);
     }
-    if (zbtScoreLeafRequestBytes(count, scores, eles) >
-        ZBT_SCORE_LEAF_BYTES)
+    if (zbtScoreLeafRequestBytes(count, scores, eles) > max_bytes)
         return NULL;
 
-    uint32_t left_id = left->id;
-    uint32_t right_id = right->id;
+    /* Keep the ID of the leaf with more members: each member of the other
+     * one needs its hash, and inline members have to be hashed again. */
+    zbtScoreLeaf *kept = right->n.count > left->n.count ? right : left;
+    zbtScoreLeaf *gone = kept == left ? right : left;
+    uint32_t kept_id = kept->id;
+    uint32_t gone_id = gone->id;
     zbtScoreLeaf *merged = zbtScoreLeafBuild(zs, count, scores, eles,
-                                              tags, left_id, 0);
-    zbtScoreReplaceLeaf(zs, left, merged);
+                                              tags, kept_id, 0);
+    zbtScoreReplaceLeaf(zs, kept, merged);
 
-    for (unsigned int i = 0; i < right->n.count; i++) {
-        uint32_t hash = zbtScoreLeafHash(right, i);
-        serverAssert(zbtIndexMove(zs, hash, right_id, left_id, 0,
+    for (unsigned int i = 0; i < gone->n.count; i++) {
+        uint32_t hash = zbtScoreLeafHash(gone, i);
+        serverAssert(zbtIndexMove(zs, hash, gone_id, kept_id, 0,
                                   &merged_was_copied));
     }
-    zbtScoreRemoveLeaf(zs, right);
+    zbtScoreRemoveLeaf(zs, gone);
     return merged;
 }
 
-/* Join a small score leaf with its previous or next neighbor when count and
- * byte limits allow. Return the merged leaf, or 'leaf' if nothing changed. */
-static zbtScoreLeaf *zbtScoreMerge(zbtreeSet *zs, zbtScoreLeaf *leaf) {
+/* Join a small score leaf with its previous or next neighbor when the result
+ * stays within the supplied limits. Return the merged leaf, or 'leaf' if
+ * nothing changed. */
+static zbtScoreLeaf *zbtScoreMerge(zbtreeSet *zs, zbtScoreLeaf *leaf,
+                                   unsigned int max_count, size_t max_bytes)
+{
     zbtScoreLeaf *merged = NULL;
-    if (leaf->prev) merged = zbtScoreMergePair(zs, leaf->prev, leaf);
+    if (leaf->prev)
+        merged = zbtScoreMergePair(zs, leaf->prev, leaf, max_count, max_bytes);
     if (merged == NULL && leaf->next)
-        merged = zbtScoreMergePair(zs, leaf, leaf->next);
+        merged = zbtScoreMergePair(zs, leaf, leaf->next, max_count, max_bytes);
     return merged ? merged : leaf;
 }
 
@@ -2622,7 +2673,9 @@ static void zbtScoreDeleteAt(zbtreeSet *zs, zbtScoreLeaf *leaf,
          * member, so stopping a pop sequence cannot leave a large page for
          * one member. Powers of two keep the checks amortized. */
         if (leaf->n.count & (leaf->n.count - 1)) return;
-    } else if (zbtScoreMerge(zs, leaf) != leaf) {
+    } else if (zbtScoreMerge(zs, leaf, ZBT_SCORE_LEAF_MAX,
+                             ZBT_SCORE_LEAF_BYTES) != leaf)
+    {
         return;
     }
 
@@ -2703,7 +2756,7 @@ static void zbtScoreDeleteRun(zbtreeSet *zs, zbtScoreLeaf *score_leaf,
     /* Like single-member pops, a range draining an end need not pull
      * neighboring members into the leaf that will be emptied next. */
     if (allow_merge && !edge && kept <= ZBT_SCORE_LEAF_MERGE)
-        zbtScoreMerge(zs, newleaf);
+        zbtScoreMerge(zs, newleaf, ZBT_SCORE_LEAF_MAX, ZBT_SCORE_LEAF_BYTES);
 }
 
 /* ------------------------- Creation and release ------------------------- */
@@ -2756,9 +2809,8 @@ void zbtreeReserve(zbtreeSet *zs, unsigned long count) {
     /* length/member_index.size cover the "has an index" invariant the rest
      * of this file already relies on. next_score_leaf_id also rules out a
      * set that was emptied by deletion and shrunk (zbtIndexShrinkIfNeeded())
-     * but not yet compacted: the empty-table fast path below always starts
-     * narrow (wide_ids=0), and a leftover high leaf-id counter from before
-     * the shrink could still need wide ids on reuse. */
+     * but not yet compacted. Its new table would take its width from the
+     * leftover leaf-id counter, but only a genuinely fresh set is presized. */
     if (zs->length != 0 || zs->member_index.size != 0 ||
         zs->next_score_leaf_id != 0 || count == 0)
         return;
@@ -2818,7 +2870,6 @@ static void zbtIndexDupTable(zbtreeSet *dst, zbtIndexTable *copy,
                              const zbtIndexTable *source)
 {
     *copy = *source;
-    copy->scan_revision = zbtIndexNextRevision();
     if (source->buckets) {
         size_t bytes = zbtIndexTableBytes(source);
         copy->buckets = zbtAlloc(dst, bytes);
@@ -3058,9 +3109,10 @@ static void zbtDefragFinishedLeaf(
     }
 }
 
-/* Resolve a defrag cursor. Deleted IDs contain a marked free-list link rather
- * than a live leaf and must be treated as missing. */
-static zbtScoreLeaf *zbtDefragScoreLeafById(zbtreeSet *zs, uint32_t id) {
+/* Resolve a saved leaf ID, such as a defrag cursor. Deleted IDs contain a
+ * marked free-list link rather than a live leaf and must be treated as
+ * missing. */
+static zbtScoreLeaf *zbtScoreLeafById(zbtreeSet *zs, uint32_t id) {
     if (id >= zs->next_score_leaf_id) return NULL;
     zbtScoreLeaf *leaf = zs->score_leaf_by_id[id];
     if (leaf == NULL || ZBT_IS_FREE_LEAF_ID(leaf)) return NULL;
@@ -3087,7 +3139,7 @@ int zbtreeDefragStep(zbtreeSet *zs, zbtreeDefragState *state,
 
     while (state->score_leaf_id != ZBT_NO_LEAF_ID) {
         zbtScoreLeaf *leaf =
-            zbtDefragScoreLeafById(zs, state->score_leaf_id);
+            zbtScoreLeafById(zs, state->score_leaf_id);
         if (leaf == NULL) {
             /* A write removed the saved leaf between defrag slices. New
              * allocations do not need defrag, so restarting is sufficient. */
@@ -3536,6 +3588,56 @@ static int zbtScoreUpdateInPlace(zbtScoreLeaf *leaf, unsigned int pos,
     return 1;
 }
 
+/* Record the page share that a score change moves out of a leaf, in 1/96 of
+ * a page by count or bytes, whichever is larger. A rebuilt leaf starts at
+ * zero. */
+static void zbtScoreLeafNoteMove(zbtScoreLeaf *leaf, unsigned int pos) {
+    size_t bytes = zbtRecordStorageBytes(zbtScoreLeafRecord(leaf, pos)) +
+                   sizeof(uint16_t) + sizeof(uint8_t);
+    unsigned int share = bytes * ZBT_SCORE_LEAF_MAX / ZBT_SCORE_LEAF_BYTES;
+    if (share == 0) share = 1;
+    share += leaf->n.moved_out;
+    leaf->n.moved_out = share > UINT8_MAX ? UINT8_MAX : share;
+}
+
+/* A score change deletes the member from its old leaf without merging: the
+ * member is detached from its record at that point and its index entry still
+ * names the old leaf. Once it has its new record and entry, the old leaf is
+ * an ordinary leaf again. After every quarter page moved out of it, join it
+ * with a neighbor or rebuild it at its real size, as deletion does. Moves
+ * also fill leaves, so a join must leave a quarter of a page free; otherwise
+ * the next few moves into the merged leaf could split it again. The leaf is
+ * found by ID because the insertion may have rebuilt or removed it. */
+static void zbtScoreMovedOut(zbtreeSet *zs, uint32_t id) {
+    zbtScoreLeaf *leaf = zbtScoreLeafById(zs, id);
+    if (leaf == NULL || leaf->n.moved_out < ZBT_SCORE_MOVED_CHECK) return;
+    leaf->n.moved_out = 0;
+
+    /* A neighbor's records are rarely in cache. When this leaf is still more
+     * than half of a join's budget, estimate the neighbor from this leaf's
+     * average member and read it only if a join looks possible. A sparse
+     * leaf always checks the real sizes, so a neighbor with shorter members
+     * cannot be skipped forever. */
+    const unsigned int max_count = ZBT_SCORE_LEAF_MAX * 3 / 4;
+    const size_t max_bytes = ZBT_SCORE_LEAF_BYTES * 3 / 4;
+    size_t live = zbtScoreLeafLiveBytes(leaf);
+    size_t member_bytes = (live - offsetof(zbtScoreLeaf, data)) /
+                          leaf->n.count;
+    int estimate = live > max_bytes / 2;
+    for (int side = 0; side < 2; side++) {
+        zbtScoreLeaf *other = side == 0 ? leaf->prev : leaf->next;
+        if (other == NULL || leaf->n.count + other->n.count > max_count ||
+            (estimate && live + other->n.count * member_bytes > max_bytes))
+            continue;
+        if (zbtScoreMergePair(zs, side == 0 ? other : leaf,
+                              side == 0 ? leaf : other,
+                              max_count, max_bytes))
+            return;
+    }
+    if (zmalloc_usable_size(leaf) >= 2 * live + ZBT_SCORE_LEAF_RESERVE)
+        zbtScoreCompactLeaf(zs, leaf);
+}
+
 /* Update an existing member's score. Its hash entry remains in place unless
  * the member lands in a different score leaf. */
 void zbtreeUpdateScore(zbtreeSet *zs, sds ele, double score,
@@ -3556,8 +3658,11 @@ void zbtreeUpdateScore(zbtreeSet *zs, sds ele, double score,
 
     /* A larger move removes and reinserts the member in the score tree. Its
      * hash entry stays in place; only the score leaf number may need
-     * to change.
+     * to change. Reinsertion can split a leaf, so first make sure that a new
+     * leaf ID fits the member index. That may advance a resize, which moves
+     * no score leaf.
      */
+    zbtIndexReserveLeafId(zs, 0);
     zbtBuildElement moved;
     zbtBuildElementFromLeaf(&moved, oldleaf, oldpos);
     if (moved.external) {
@@ -3570,6 +3675,7 @@ void zbtreeUpdateScore(zbtreeSet *zs, sds ele, double score,
                                  sdslen(ele), hash);
     }
     uint32_t oldid = oldleaf->id;
+    if (oldleaf->n.count > 1) zbtScoreLeafNoteMove(oldleaf, oldpos);
     zbtScoreDeleteAt(zs, oldleaf, oldpos, 0);
     zbtScoreLeaf *newleaf = zbtScoreInsert(zs, score, &moved);
     if (oldid != newleaf->id) {
@@ -3577,6 +3683,7 @@ void zbtreeUpdateScore(zbtreeSet *zs, sds ele, double score,
         serverAssert(zbtIndexMove(zs, hash, oldid, newleaf->id, 0,
                                   &target_was_copied));
     }
+    zbtScoreMovedOut(zs, oldid);
 }
 
 /* Give surviving score leaves dense IDs and shrink their address table. The
@@ -4003,6 +4110,48 @@ static int zbtIndexHashReachesBucket(const zbtIndexTable *table, uint32_t hash,
     return 0;
 }
 
+/* Load eight leaf tags so that numeric byte i is tags[i] on every host. This
+ * is the lane order zbtIndexTagMask() and zbtIndexFirstTag() assume; bucket
+ * tags have it because they are built with shifts. Without the conversion a
+ * big endian host would select mirrored positions. */
+static inline uint64_t zbtLeafTagWord(const uint8_t *tags) {
+    uint64_t word;
+    memcpy(&word, tags, sizeof(word));
+    return intrev64ifbe(word);
+}
+
+/* Store the logical positions of the leaf tags that an index tag can stand
+ * for, and return their number. 'tags' is the physical array, which is in
+ * reverse order when 'reversed' is set. zbtIndexTag() folds leaf tag zero
+ * into one. Eight tags are compared at once. As with bucket tags, a mask bit
+ * can be set above a real match, so each candidate is checked against its
+ * byte. Only complete words are loaded: member records follow the tags. */
+static inline unsigned int zbtLeafTagMatches(const uint8_t *tags,
+                                             unsigned int count, int reversed,
+                                             uint8_t tag,
+                                             unsigned int *positions)
+{
+    unsigned int found = 0;
+    unsigned int words = count / 8;
+    unsigned int last = reversed ? count - 1 : 0;
+    for (unsigned int w = 0; w < words; w++) {
+        uint64_t word = zbtLeafTagWord(tags + w * 8);
+        uint64_t mask = zbtIndexTagMask(word, tag);
+        if (tag == 1) mask |= zbtIndexTagMask(word, 0);
+        while (mask) {
+            unsigned int pos = w * 8 + zbtIndexFirstTag(mask);
+            if (tags[pos] == tag || (tag == 1 && tags[pos] == 0))
+                positions[found++] = reversed ? last - pos : pos;
+            mask &= mask - 1;
+        }
+    }
+    for (unsigned int pos = words * 8; pos < count; pos++) {
+        if (tags[pos] == tag || (tag == 1 && tags[pos] == 0))
+            positions[found++] = reversed ? last - pos : pos;
+    }
+    return found;
+}
+
 /* Return the members represented by one physical table slot. If home_end is
  * nonzero, only return members whose home bucket is in [home_start,home_end).
  * Tags may represent several members in a leaf; duplicates are allowed. */
@@ -4038,53 +4187,14 @@ static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
         if (in_new != zbtIndexLeafMigrated(zs, leaf)) return 0;
     }
 
-    /* First pass: match by the leaf's own stored tag byte only -- no
-     * hashing. Every leaf-tag byte is set to (that member's real hash) >> 24
-     * and only ever copied forward from an already-correct leaf (see
-     * zbtScoreInsert() and the split/merge/build paths), so a tag match here
-     * already implies zbtIndexTag(hash) == tag; re-deriving the hash to
-     * reconfirm it would just check something already established by
-     * construction.
-     *
-     * The tag bytes are stored contiguously in physical order
-     * (zbtScoreLeafHashTags()), so this reuses the same 8-byte SWAR mask
-     * already relied on for index-bucket tag matching (zbtIndexTagMask()/
-     * zbtIndexFirstTag(), see zbtIndexTableFind()) instead of a per-position
-     * zbtScoreLeafTag() call (which re-derives leaf->reversed and the
-     * physical-position conversion on every candidate, not just the 0-2
-     * that actually match). As with that existing use, a mask bit can be
-     * set above a byte that isn't an exact match (documented on
-     * zbtIndexTagMask() itself), so every candidate is re-checked against
-     * the stored byte before being accepted -- same idiom, same file.
-     *
-     * Only full 8-byte words are read via the SWAR path; the tag array
-     * directly abuts live member-record bytes with no guaranteed trailing
-     * slack, so an out-of-bounds 8-byte load past a partial final word
-     * would be unsafe. The scalar tail below covers the remainder. */
+    /* Match by the leaf's own stored tag bytes, without hashing. Every leaf
+     * tag is the member's real hash >> 24 and is only copied forward from an
+     * already correct leaf, so a match already implies zbtIndexTag(hash) ==
+     * tag. */
     unsigned int positions[ZBT_SCORE_LEAF_MAX];
-    unsigned int count = 0;
-    uint8_t *tags = zbtScoreLeafHashTags(leaf);
-    unsigned int leafcount = leaf->n.count;
-    unsigned int nwords = leafcount / 8;
-    for (unsigned int w = 0; w < nwords; w++) {
-        uint64_t word;
-        memcpy(&word, tags + w * 8, 8);
-        uint64_t mask = zbtIndexTagMask(word, tag);
-        if (tag == 1) mask |= zbtIndexTagMask(word, 0);
-        while (mask) {
-            unsigned int lane = zbtIndexFirstTag(mask);
-            unsigned int physical = w * 8 + lane;
-            uint8_t leaf_tag = tags[physical];
-            if (leaf_tag == tag || (tag == 1 && leaf_tag == 0))
-                positions[count++] = zbtScoreLeafPhysicalPos(leaf, physical);
-            mask &= mask - 1;
-        }
-    }
-    for (unsigned int physical = nwords * 8; physical < leafcount; physical++) {
-        uint8_t leaf_tag = tags[physical];
-        if (leaf_tag != tag && !(tag == 1 && leaf_tag == 0)) continue;
-        positions[count++] = zbtScoreLeafPhysicalPos(leaf, physical);
-    }
+    unsigned int count = zbtLeafTagMatches(zbtScoreLeafHashTags(leaf),
+                                           leaf->n.count, leaf->reversed,
+                                           tag, positions);
     serverAssert(count != 0);
 
     unsigned long emitted = 0;
@@ -4112,74 +4222,142 @@ static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
     return emitted;
 }
 
-/* The low half of the cursor is a group of eight buckets plus one; the high
- * half identifies the current table. A resize keeps the old table in place, so
- * the cursor remains valid while leaves are copied. Installing the new table
- * changes its revision and makes the next call restart. This can return
- * duplicates, as allowed by the SCAN contract. A cursor cannot be translated
- * if a caller explicitly changes the object to another encoding. */
+/* Return every member represented in 'table' whose home bucket is one of the
+ * buckets of scan group 'group'. Slots in the group's own buckets are returned
+ * without rehashing their members. That may repeat a member displaced from an
+ * earlier home, which SCAN allows. Members whose home is here but which were
+ * displaced further are in the probe run after the group. Same-tag references
+ * can exchange slots when a member changes score, but the slot standing for a
+ * member is always reachable from its home. A zero tag never returns to a
+ * table, so a run that was full when such a member was added is still full
+ * and the walk below cannot stop before reaching it. */
+static unsigned long zbtIndexScanGroup(const zbtreeSet *zs,
+                                       zbtIndexTable *table, uint64_t group,
+                                       zbtreeScanFunction *fn,
+                                       void *privdata)
+{
+    unsigned long home_start = group * ZBT_SCAN_BUCKETS_PER_STEP;
+    unsigned long home_end = home_start + ZBT_SCAN_BUCKETS_PER_STEP;
+    unsigned long emitted = 0;
+
+    /* Groups are visited in an order unrelated to memory, and each slot names
+     * a different leaf. Start loading those leaves before reading them. */
+    for (unsigned long index = home_start; index < home_end; index++) {
+        zbtIndexBucket *bucket = zbtIndexBucketAt(table, index);
+        for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++) {
+            if ((uint8_t)(zbtIndexTags(bucket) >> (pos * 8)) == 0) continue;
+            uint32_t id = zbtIndexGetId(table, bucket, pos);
+            if (id >= zs->next_score_leaf_id) continue;
+            zbtScoreLeaf *leaf = zs->score_leaf_by_id[id];
+            if (leaf == NULL || ZBT_IS_FREE_LEAF_ID(leaf)) continue;
+            redis_prefetch_read(leaf);
+            redis_prefetch_read((unsigned char *)leaf + 64);
+        }
+    }
+
+    for (unsigned long index = home_start; index < home_end; index++) {
+        zbtIndexBucket *bucket = zbtIndexBucketAt(table, index);
+        for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++)
+            emitted += zbtIndexScanSlot(zs, table, bucket, pos, 0, 0,
+                                        fn, privdata);
+    }
+
+    unsigned long mask = table->size - 1;
+    unsigned long index = home_end - 1;
+    unsigned long remaining = table->size - ZBT_SCAN_BUCKETS_PER_STEP;
+    while (remaining-- &&
+           !zbtIndexTagMask(zbtIndexTags(zbtIndexBucketAt(table, index)), 0))
+    {
+        index = (index + 1) & mask;
+        zbtIndexBucket *bucket = zbtIndexBucketAt(table, index);
+        for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++)
+            emitted += zbtIndexScanSlot(zs, table, bucket, pos,
+                                        home_start, home_end, fn, privdata);
+    }
+    return emitted;
+}
+
+/* Increment the bits of a cursor selected by 'mask', a run of low bits, in
+ * reverse binary order, as dictScan() does by reversing, adding one and
+ * reversing back. The carry runs from the highest bit down: set the highest
+ * zero bit and clear the ones above it. Bits outside the mask are dropped,
+ * and zero is returned after the last value. */
+static uint64_t zbtScanNext(uint64_t cursor, uint64_t mask) {
+    uint64_t missing = ~cursor & mask;
+    if (missing == 0) return 0;
+    uint64_t bit = UINT64_C(1) << (63 - __builtin_clzll(missing));
+    return (cursor & (bit - 1)) | bit;
+}
+
+/* Return the mask selecting a scan group of 'table'. */
+static uint64_t zbtScanGroupMask(const zbtIndexTable *table) {
+    uint64_t groups = table->size / ZBT_SCAN_BUCKETS_PER_STEP;
+    if (groups > ZBT_SCAN_MAX_GROUPS) groups = ZBT_SCAN_MAX_GROUPS;
+    return groups - 1;
+}
+
+/* The cursor is a dictScan() reverse binary counter over scan groups. It
+ * depends only on member hashes, never on a table, leaf or slot, so it stays
+ * valid while tables grow, shrink, are cleaned, widened or rebuilt, and while
+ * members move between leaves and tables. Its value stays below the number
+ * of groups.
+ *
+ * Group g of a table with S buckets holds the members whose home bucket is in
+ * [4g, 4g+4), that is, whose H = hash >> 2 has H & (S/4 - 1) == g. Tables are
+ * powers of two, so groups nest like dictionary buckets: group g of size S
+ * becomes groups g and g + S/4 of size 2S. During a resize, each live member
+ * is represented in exactly one table: the new one if its leaf was copied. A
+ * step visits group 'cursor & m0' of the smaller table and, as dictScan()
+ * does, the groups of the larger table that expand it.
+ *
+ * Let R() reverse 64 bits, and let k0 and k1 be the bits of m0 and m1. A
+ * group of the smaller table holds the members with R(H) in [P, P + 2^(64-k0)),
+ * where P is R(cursor) with its low 64-k0 bits cleared. The larger table is
+ * visited from the group holding R(cursor) to the end of that interval, and
+ * the next cursor has R equal to P + 2^(64-k0), or wraps to zero. So each step
+ * returns every member with R(H) in [R(cursor), R(next)), whichever table
+ * represents it, and consecutive steps tile [0, 2^64). A member present
+ * during the whole iteration keeps its H and is returned by the step whose
+ * interval holds R(H). Every R(next) is a multiple of 2^(64-K), where 2^K is
+ * the largest group count used, so R strictly increases and an iteration ends
+ * after at most 2^K + 1 steps. Table sizes depend only on the number of
+ * members, so a set kept at a bounded size always finishes its scans, however
+ * much it changes in between.
+ *
+ * A cursor cannot be translated if a caller explicitly changes the object to
+ * another encoding. */
 uint64_t zbtreeScan(zbtreeSet *zs, uint64_t cursor,
                     unsigned long count, zbtreeScanFunction *fn,
                     void *privdata)
 {
     if (zs->length == 0) return 0;
-    uint32_t revision = cursor >> 32;
-    uint64_t group = cursor ? (uint32_t)cursor - 1 : 0;
-    if (cursor == 0 || revision != zs->member_index.scan_revision) {
-        revision = zs->member_index.scan_revision;
-        group = 0;
+    zbtIndexTable *small = &zs->member_index, *large = NULL;
+    if (zs->member_rehash) {
+        large = &zs->member_rehash->table;
+        if (large->size < small->size) {
+            zbtIndexTable *tmp = small;
+            small = large;
+            large = tmp;
+        }
     }
+    uint64_t m0 = zbtScanGroupMask(small);
+    uint64_t m1 = large ? zbtScanGroupMask(large) : m0;
 
-    uint64_t first_buckets = zs->member_index.size;
-    uint64_t total_buckets = first_buckets;
-    if (zs->member_rehash)
-        total_buckets += zs->member_rehash->table.size;
-    uint64_t bucket_index = group * ZBT_SCAN_BUCKETS_PER_STEP;
-    if (bucket_index >= total_buckets) return 0;
+    /* Finish a whole step before returning the cursor. COUNT is a hint, as
+     * it is for a normal dictionary scan. */
     unsigned long emitted = 0;
-    while (bucket_index < total_buckets && emitted < count) {
-        uint64_t end = bucket_index + ZBT_SCAN_BUCKETS_PER_STEP;
-        if (end > total_buckets) end = total_buckets;
-
-        /* Finish the whole group before saving the cursor. COUNT is a hint,
-         * as it is for a normal dictionary scan. Groups never span tables:
-         * both table sizes are powers of two and at least one group long. */
-        zbtIndexTable *table = bucket_index < first_buckets ?
-            &zs->member_index : &zs->member_rehash->table;
-        uint64_t base = bucket_index < first_buckets ? 0 : first_buckets;
-        unsigned long home_start = bucket_index - base;
-        unsigned long home_end = end - base;
-        while (bucket_index < end) {
-            zbtIndexBucket *bucket = zbtIndexBucketAt(table, bucket_index - base);
-            for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++)
-                emitted += zbtIndexScanSlot(zs, table, bucket, pos, 0, 0,
-                                            fn, privdata);
-            bucket_index++;
+    do {
+        emitted += zbtIndexScanGroup(zs, small, cursor & m0, fn, privdata);
+        if (large == NULL) {
+            cursor = zbtScanNext(cursor, m0);
+            continue;
         }
-
-        /* Same-tag references can exchange slots when a member changes
-         * score, so its physical slot is not a stable scan position. Its
-         * home bucket is stable. Also visit the probe run beyond this group
-         * to return every member whose home is here before advancing past it.
-         * Most members were already returned above, without rehashing their
-         * bytes; only displaced entries need the extra home-bucket check. */
-        unsigned long mask = table->size - 1;
-        unsigned long index = home_end - 1;
-        unsigned long remaining = table->size - (home_end - home_start);
-        while (remaining-- &&
-               !zbtIndexTagMask(zbtIndexTags(zbtIndexBucketAt(table, index)), 0))
-        {
-            index = (index + 1) & mask;
-            zbtIndexBucket *bucket = zbtIndexBucketAt(table, index);
-            for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++)
-                emitted += zbtIndexScanSlot(zs, table, bucket, pos,
-                                            home_start, home_end, fn, privdata);
-        }
-        group++;
-    }
-    if (bucket_index >= total_buckets) return 0;
-    serverAssert(group < UINT32_MAX);
-    return ((uint64_t)revision << 32) | (uint32_t)(group + 1);
+        do {
+            emitted += zbtIndexScanGroup(zs, large, cursor & m1, fn, privdata);
+            cursor = zbtScanNext(cursor, m1);
+        } while (cursor & (m0 ^ m1));
+    } while (cursor != 0 && emitted < count);
+    return cursor;
 }
 
 #ifdef REDIS_TEST
@@ -4262,6 +4440,27 @@ static int zbtTestSlotOf(zbtreeSet *zs, uint32_t hash, uint32_t id,
     return 1;
 }
 
+/* Reverse the 64 bits of a scan cursor, the R() of the zbtreeScan() proof. */
+static uint64_t zbtScanReverse(uint64_t v) {
+    v = ((v >> 1) & UINT64_C(0x5555555555555555)) |
+        ((v & UINT64_C(0x5555555555555555)) << 1);
+    v = ((v >> 2) & UINT64_C(0x3333333333333333)) |
+        ((v & UINT64_C(0x3333333333333333)) << 2);
+    v = ((v >> 4) & UINT64_C(0x0f0f0f0f0f0f0f0f)) |
+        ((v & UINT64_C(0x0f0f0f0f0f0f0f0f)) << 4);
+    v = ((v >> 8) & UINT64_C(0x00ff00ff00ff00ff)) |
+        ((v & UINT64_C(0x00ff00ff00ff00ff)) << 8);
+    v = ((v >> 16) & UINT64_C(0x0000ffff0000ffff)) |
+        ((v & UINT64_C(0x0000ffff0000ffff)) << 16);
+    return (v >> 32) | (v << 32);
+}
+
+/* While the table does not change, a scan cursor has visited exactly the
+ * groups whose reversed index is below its own. Zero ends the iteration. */
+static int zbtTestGroupVisited(uint64_t cursor, uint64_t group) {
+    return cursor == 0 || zbtScanReverse(group) < zbtScanReverse(cursor);
+}
+
 static void zbtTestSetScore(zbtreeSet *zs, const char *s, double score) {
     sds ele = sdsnew(s);
     double current;
@@ -4269,6 +4468,357 @@ static void zbtTestSetScore(zbtreeSet *zs, const char *s, double score) {
     serverAssert(zbtreeFindForAdd(zs, ele, &current, &position));
     zbtreeUpdateScore(zs, ele, score, &position);
     sdsfree(ele);
+}
+
+/* One member entry or member, as (leaf ID, folded tag), for comparing the
+ * member index with the score tree as multisets. */
+typedef struct {
+    uint32_t id;
+    uint8_t tag;
+} zbtTestRef;
+
+static int zbtTestRefCompare(const void *a, const void *b) {
+    const zbtTestRef *x = a, *y = b;
+    if (x->id != y->id) return x->id < y->id ? -1 : 1;
+    return (int)x->tag - (int)y->tag;
+}
+
+#define ZBT_TEST_CHECK(cond, ...) do { \
+        if (!(cond)) { \
+            printf("    check failed at line %d: ", __LINE__); \
+            printf(__VA_ARGS__); \
+            printf("\n"); \
+            return -1; \
+        } \
+    } while (0)
+
+/* Check one score subtree and return its element count, or -1. */
+static long long zbtTestCheckNode(zbtScoreNode *node, zbtScoreInner *parent,
+                                  unsigned int index)
+{
+    ZBT_TEST_CHECK(node->parent == parent, "parent pointer");
+    ZBT_TEST_CHECK(parent == NULL || node->parent_index == index,
+                   "parent index");
+    if (node->isleaf) {
+        ZBT_TEST_CHECK(node->subtree == node->count, "leaf subtree");
+        return node->count;
+    }
+    zbtScoreInner *inner = (zbtScoreInner *)node;
+    ZBT_TEST_CHECK(inner->n.count >= 1 &&
+                   inner->n.count <= ZBT_SCORE_INNER_MAX, "inner count");
+    long long total = 0;
+    for (unsigned int i = 0; i < inner->n.count; i++) {
+        zbtScoreNode *child = inner->child[i];
+        long long sub = zbtTestCheckNode(child, inner, i);
+        if (sub < 0) return -1;
+        ZBT_TEST_CHECK(inner->child_count[i] == (uint64_t)sub &&
+                       child->subtree == (uint64_t)sub, "child count");
+        ZBT_TEST_CHECK(inner->max_score[i] == zbtScoreNodeMaxScore(child),
+                       "child maximum");
+        total += sub;
+    }
+    ZBT_TEST_CHECK(inner->n.subtree == (uint64_t)total, "inner subtree");
+    return total;
+}
+
+/* Return the usable bytes of a score subtree and the external members its
+ * records own. */
+static size_t zbtTestNodeAllocSize(zbtScoreNode *node) {
+    size_t bytes = zmalloc_usable_size(node);
+    if (node->isleaf) {
+        zbtScoreLeaf *leaf = (zbtScoreLeaf *)node;
+        for (unsigned int i = 0; i < leaf->n.count; i++) {
+            unsigned char *record = zbtScoreLeafRecord(leaf, i);
+            if (record[0] != ZBT_PACKED_EXTERNAL) continue;
+            serverAssert(leaf->n.has_external);
+            bytes += zmalloc_usable_size(zbtExternalPointer(record));
+        }
+    } else {
+        zbtScoreInner *inner = (zbtScoreInner *)node;
+        for (unsigned int i = 0; i < inner->n.count; i++)
+            bytes += zbtTestNodeAllocSize(inner->child[i]);
+    }
+    return bytes;
+}
+
+/* Recompute alloc_size from every reachable allocation. A leaked, freed or
+ * doubly owned external member makes the two differ. */
+static size_t zbtTestAllocSize(zbtreeSet *zs) {
+    size_t bytes = zmalloc_usable_size(zs);
+    if (zs->score_root) bytes += zbtTestNodeAllocSize(zs->score_root);
+    if (zs->member_index.buckets)
+        bytes += zmalloc_usable_size(zs->member_index.buckets);
+    if (zs->member_rehash) {
+        bytes += zmalloc_usable_size(zs->member_rehash);
+        if (zs->member_rehash->table.buckets)
+            bytes += zmalloc_usable_size(zs->member_rehash->table.buckets);
+    }
+    if (zs->score_leaf_by_id)
+        bytes += zmalloc_usable_size(zs->score_leaf_by_id);
+    return bytes;
+}
+
+/* Collect the entries of 'table' that stand for live members, and check the
+ * entries that do not. Return the number collected, or -1. */
+static long zbtTestTableRefs(zbtreeSet *zs, zbtIndexTable *table,
+                             zbtTestRef *refs)
+{
+    int is_new = zs->member_rehash && table == &zs->member_rehash->table;
+    unsigned long used = 0, filled = 0;
+    long n = 0;
+    for (unsigned long b = 0; b < table->size; b++) {
+        zbtIndexBucket *bucket = zbtIndexBucketAt(table, b);
+        for (unsigned int pos = 0; pos < ZBT_INDEX_BUCKET_ITEMS; pos++) {
+            uint8_t tag = zbtIndexTags(bucket) >> (pos * 8);
+            if (tag == 0) continue;
+            filled++;
+            uint32_t id = zbtIndexGetId(table, bucket, pos);
+            if (id == ZBT_INDEX_DELETED_ID) continue;
+            used++;
+            zbtScoreLeaf *leaf = zbtScoreLeafById(zs, id);
+            /* Only the old table of a resize may keep stale entries. */
+            int current = leaf && (!zs->member_rehash ||
+                                   zbtIndexLeafMigrated(zs, leaf) == is_new);
+            ZBT_TEST_CHECK(current || (zs->member_rehash && !is_new),
+                           "stale entry for leaf %u", id);
+            if (!current) continue;
+            refs[n].id = id;
+            refs[n].tag = tag;
+            n++;
+        }
+    }
+    ZBT_TEST_CHECK(table->used == used && table->filled == filled,
+                   "table counters used=%lu/%lu filled=%lu/%lu",
+                   table->used, used, table->filled, filled);
+    return n;
+}
+
+/* Check that the score tree, the leaf IDs and the member index agree: every
+ * member is found through the table that represents it, the live entries of
+ * each table are exactly its members, and a narrow table that receives new
+ * leaf IDs cannot be given one it is unable to store. Return 1 if so. */
+static int zbtTestCheck(zbtreeSet *zs) {
+    if (zs->score_root &&
+        zbtTestCheckNode(zs->score_root, NULL, 0) != (long long)zs->length)
+        return 0;
+    if (zbtTestAllocSize(zs) != zs->alloc_size) {
+        printf("    check failed: alloc_size %zu, reachable %zu\n",
+               zs->alloc_size, zbtTestAllocSize(zs));
+        return 0;
+    }
+    zbtIndexTable *receiving = zs->member_rehash ?
+        &zs->member_rehash->table : &zs->member_index;
+    if (receiving->size && !receiving->wide_ids &&
+        zs->next_score_leaf_id > UINT16_MAX)
+    {
+        printf("    check failed: narrow table with leaf IDs up to %u\n",
+               zs->next_score_leaf_id);
+        return 0;
+    }
+
+    unsigned long slots = zbtIndexSlots(&zs->member_index);
+    if (zs->member_rehash) slots += zbtIndexSlots(&zs->member_rehash->table);
+    zbtTestRef *members = zmalloc(sizeof(*members) * (zs->length + 1) * 2);
+    zbtTestRef *entries = zmalloc(sizeof(*entries) * (slots + 1));
+    int ok = 0;
+    for (int pass = 0; pass < (zs->member_rehash ? 2 : 1); pass++) {
+        zbtIndexTable *table = pass ? &zs->member_rehash->table :
+                                      &zs->member_index;
+        unsigned long count = 0, total = 0;
+        zbtScoreLeaf *prev = NULL;
+        double pscore = 0;
+        const unsigned char *pele = NULL;
+        size_t plen = 0;
+        for (zbtScoreLeaf *leaf = zs->score_first; leaf; leaf = leaf->next) {
+            if (leaf->prev != prev || leaf->n.count == 0 ||
+                zbtScoreLeafById(zs, leaf->id) != leaf)
+            {
+                printf("    check failed: leaf list or ID of leaf %u\n",
+                       leaf->id);
+                goto done;
+            }
+            int in_new = zs->member_rehash && zbtIndexLeafMigrated(zs, leaf);
+            for (unsigned int i = 0; i < leaf->n.count; i++) {
+                size_t len;
+                const unsigned char *ele = zbtScoreLeafElement(leaf, i, &len);
+                double score = zbtScoreLeafScore(leaf, i);
+                if (pele && zbtScoreCompare(pscore, pele, plen,
+                                            score, ele, len) >= 0)
+                {
+                    printf("    check failed: order in leaf %u\n", leaf->id);
+                    goto done;
+                }
+                pele = ele; plen = len; pscore = score;
+                total++;
+                if (in_new != pass) continue;
+                uint32_t hash = zbtScoreLeafHash(leaf, i);
+                zbtScoreLeaf *found = NULL;
+                unsigned int found_pos = 0;
+                double found_score;
+                if (zbtScoreLeafTag(leaf, i) != (uint8_t)(hash >> 24) ||
+                    !zbtIndexHomeMayContain(table, hash) ||
+                    !zbtIndexTableFind(zs, table, hash, ele, len,
+                                       &found_score, &found, &found_pos,
+                                       NULL, NULL, NULL, NULL) ||
+                    found != leaf || found_pos != i)
+                {
+                    printf("    check failed: member %u/%u not indexed\n",
+                           leaf->id, i);
+                    goto done;
+                }
+                members[count].id = leaf->id;
+                members[count].tag = zbtIndexTag(hash);
+                count++;
+            }
+            prev = leaf;
+        }
+        if (prev != zs->score_last || total != zs->length) {
+            printf("    check failed: leaf list end or length\n");
+            goto done;
+        }
+        long n = zbtTestTableRefs(zs, table, entries);
+        if (n != (long)count) {
+            if (n >= 0) printf("    check failed: %ld entries for %lu "
+                               "members\n", n, count);
+            goto done;
+        }
+        qsort(members, count, sizeof(*members), zbtTestRefCompare);
+        qsort(entries, count, sizeof(*entries), zbtTestRefCompare);
+        for (unsigned long i = 0; i < count; i++) {
+            if (zbtTestRefCompare(&members[i], &entries[i]) != 0) {
+                printf("    check failed: leaf %u tag %u has an entry "
+                       "mismatch\n", members[i].id, members[i].tag);
+                goto done;
+            }
+        }
+    }
+    ok = 1;
+done:
+    zfree(members);
+    zfree(entries);
+    return ok;
+}
+
+/* Make 'next' the next new leaf ID, as if the IDs below it belonged to other
+ * leaves. Reaching the leaf ID limits otherwise needs hundreds of megabytes.
+ * The skipped IDs stay NULL, so no entry or cursor can refer to them. */
+static void zbtTestSkipLeafIds(zbtreeSet *zs, uint32_t next) {
+    serverAssert(next >= zs->next_score_leaf_id);
+    if (next >= zs->score_leaf_cap) {
+        uint32_t cap = zs->score_leaf_cap ? zs->score_leaf_cap : 16;
+        while (cap <= next) cap *= 2;
+        size_t usable, old_usable = 0;
+        zs->score_leaf_by_id = zrealloc_usable(zs->score_leaf_by_id,
+            cap * sizeof(*zs->score_leaf_by_id), &usable, &old_usable);
+        memset(zs->score_leaf_by_id + zs->score_leaf_cap, 0,
+               (cap - zs->score_leaf_cap) * sizeof(*zs->score_leaf_by_id));
+        zs->score_leaf_cap = cap;
+        zs->alloc_size += usable - old_usable;
+    }
+    zs->next_score_leaf_id = next;
+}
+
+static uint64_t zbtTestRand(uint64_t *r) {
+    *r = *r * 6364136223846793005ULL + 1442695040888963407ULL;
+    return *r >> 17;
+}
+
+/* Members of the U-01 and U-09 tests: "m:<i>" padded to a chosen length. */
+static size_t zbtTestMember(char *buf, int i, size_t len) {
+    int n = snprintf(buf, 32, "m:%d:", i);
+    if (len < (size_t)n) len = n;
+    memset(buf + n, 'a' + i % 26, len - n);
+    return len;
+}
+
+/* Insert or change one member like ZADD does. */
+static void zbtTestSet(zbtreeSet *zs, const char *buf, size_t len,
+                       double score)
+{
+    sds ele = sdsnewlen(buf, len);
+    double cur;
+    zbtreeInsertPosition position;
+    if (!zbtreeFindForAdd(zs, ele, &cur, &position))
+        zbtreeInsertNew(zs, score, ele, &position);
+    else if (cur != score)
+        zbtreeUpdateScore(zs, ele, score, &position);
+    sdsfree(ele);
+}
+
+/* Return whether every member "m:<i>" with alive[i] has score ref[i]. */
+static int zbtTestVerify(zbtreeSet *zs, int n, const double *ref,
+                         const char *alive, const size_t *lens)
+{
+    char buf[1024];
+    unsigned long count = 0;
+    for (int i = 0; i < n; i++) {
+        if (alive && !alive[i]) continue;
+        size_t len = zbtTestMember(buf, i, lens ? lens[i] : 0);
+        double score;
+        if (!zbtreeScoreRaw(zs, (unsigned char *)buf, len, &score) ||
+            score != ref[i]) return 0;
+        count++;
+    }
+    return count == zbtreeLength(zs);
+}
+
+static unsigned long zbtTestLeaves(zbtreeSet *zs) {
+    unsigned long leaves = 0;
+    for (zbtScoreLeaf *leaf = zs->score_first; leaf; leaf = leaf->next)
+        leaves++;
+    return leaves;
+}
+
+/* Apply 'moves' random score changes to members 0..n-1 of an append-built
+ * set. Most land in another leaf. */
+static void zbtTestRandomMoves(zbtreeSet *zs, int n, double *ref,
+                               const size_t *lens, long moves, uint64_t *r)
+{
+    char buf[1024];
+    for (long k = 0; k < moves; k++) {
+        int i = (int)(zbtTestRand(r) % (uint64_t)n);
+        size_t len = zbtTestMember(buf, i, lens[i]);
+        double score = (double)(zbtTestRand(r) % (uint64_t)(n * 4)) + 0.5;
+        zbtTestSet(zs, buf, len, score);
+        ref[i] = score;
+    }
+}
+
+/* Scan state of the bounded-churn tests: anchors are "anchor:<i>". */
+typedef struct {
+    int *seen;
+    int anchors;
+} zbtScanAnchorPrivdata;
+
+static void zbtScanTestMarkAnchor(void *privdata, const unsigned char *ele,
+                                  size_t len, double score)
+{
+    UNUSED(score);
+    zbtScanAnchorPrivdata *pd = privdata;
+    char buf[32];
+    if (len >= sizeof(buf) || len < 7 || memcmp(ele, "anchor:", 7)) return;
+    memcpy(buf, ele, len);
+    buf[len] = '\0';
+    int idx = atoi(buf + 7);
+    serverAssert(idx >= 0 && idx < pd->anchors);
+    pd->seen[idx]++;
+}
+
+/* Return the number of groups the smaller current table has; a returned
+ * cursor must stay below it. */
+static uint64_t zbtTestScanGroups(zbtreeSet *zs) {
+    zbtIndexTable *t = &zs->member_index;
+    if (zs->member_rehash && zs->member_rehash->table.size < t->size)
+        t = &zs->member_rehash->table;
+    return zbtScanGroupMask(t) + 1;
+}
+
+/* Return the number of groups of the larger current table. */
+static uint64_t zbtTestScanMaxGroups(zbtreeSet *zs) {
+    zbtIndexTable *t = &zs->member_index;
+    if (zs->member_rehash && zs->member_rehash->table.size > t->size)
+        t = &zs->member_rehash->table;
+    return zbtScanGroupMask(t) + 1;
 }
 
 int zsetBtreeTest(int argc, char **argv, int flags) {
@@ -4593,8 +5143,9 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             unsigned long home = hx & mask;
             if (sb <= home) continue; /* Home slot, or a wrapped probe run. */
             for (unsigned long b = home; b < sb && X < 0; b++) {
-                if (b / ZBT_SCAN_BUCKETS_PER_STEP ==
-                    sb / ZBT_SCAN_BUCKETS_PER_STEP) continue;
+                /* The scan must visit b1's group strictly before b2's. */
+                if (zbtScanReverse(b / ZBT_SCAN_BUCKETS_PER_STEP) >=
+                    zbtScanReverse(sb / ZBT_SCAN_BUCKETS_PER_STEP)) continue;
                 zbtIndexBucket *bucket = zbtIndexBucketAt(t, b);
                 for (unsigned int p = 0; p < ZBT_INDEX_BUCKET_ITEMS; p++) {
                     uint8_t slot_tag = zbtIndexTags(bucket) >> (p * 8);
@@ -4645,10 +5196,10 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             do {
                 cursor = zbtreeScan(zs, cursor, 1, zbtScanTestMarkSeen, &pd);
                 serverAssert(cursor != 0);
-            } while (((uint32_t)cursor - 1) *
-                     (uint64_t)ZBT_SCAN_BUCKETS_PER_STEP <= b1);
-            serverAssert(((uint32_t)cursor - 1) *
-                         (uint64_t)ZBT_SCAN_BUCKETS_PER_STEP <= b2);
+            } while (!zbtTestGroupVisited(cursor,
+                                          b1 / ZBT_SCAN_BUCKETS_PER_STEP));
+            serverAssert(!zbtTestGroupVisited(cursor,
+                                              b2 / ZBT_SCAN_BUCKETS_PER_STEP));
             test_cond("M1: cursor is between b1 and b2",
                       seen[Y] > 0);
 
@@ -4914,6 +5465,505 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             sdsfree(ele);
         }
         test_cond("Popping the first member keeps signed zero scores exact", ok);
+        zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree leaf IDs and the narrow member index\n");
+
+    /* Score changes split leaves too. They used to do it without ever
+     * starting the widening, until a 16 bit leaf ID overflowed. Members are
+     * appended into full leaves, so most moves split one. */
+    {
+        const int N = 20000;
+        char buf[64];
+        uint64_t r = 1;
+        double *ref = zmalloc(sizeof(double) * N * 2);
+        size_t *lens = zcalloc(sizeof(size_t) * N * 2);
+        zbtreeSet *zs = zbtreeCreate();
+        for (int i = 0; i < N; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            zbtreeInsertNewAppend(zs, i * 2, (unsigned char *)buf, len);
+            ref[i] = i * 2;
+        }
+        serverAssert(!zs->member_index.wide_ids && !zs->member_rehash);
+        zbtTestSkipLeafIds(zs, ZBT_INDEX_WIDE_ID_AT - 4);
+        zbtTestRandomMoves(zs, N, ref, lens, 2000, &r);
+        int widening = zs->member_index.wide_ids ||
+                       (zs->member_rehash &&
+                        zs->member_rehash->table.wide_ids);
+        test_cond("Score changes start widening a narrow member index",
+                  widening && zbtTestCheck(zs) &&
+                  zbtTestVerify(zs, N, ref, NULL, lens));
+        zbtTestRandomMoves(zs, N, ref, lens, 20000, &r);
+        test_cond("Score changes finish widening the member index",
+                  zs->member_index.wide_ids && !zs->member_rehash &&
+                  zbtTestCheck(zs) && zbtTestVerify(zs, N, ref, NULL, lens));
+        zbtreeFree(zs);
+
+        /* A narrow table next to the limit, as the score change path used
+         * to leave it: the next splits must not store an ID that does not
+         * fit. */
+        zs = zbtreeCreate();
+        for (int i = 0; i < N; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            zbtreeInsertNewAppend(zs, i * 2, (unsigned char *)buf, len);
+            ref[i] = i * 2;
+        }
+        zbtTestSkipLeafIds(zs, UINT16_MAX - 4);
+        zbtTestRandomMoves(zs, N, ref, lens, 2000, &r);
+        test_cond("Score changes at the narrow ID limit widen first",
+                  zbtTestCheck(zs) && zbtTestVerify(zs, N, ref, NULL, lens) &&
+                  zs->next_score_leaf_id > UINT16_MAX);
+        zbtreeFree(zs);
+
+        /* A narrow resize that runs while IDs approach the limit. Released
+         * IDs are not reused during a resize, so its destination receives
+         * new IDs. It must end, and the widening start, in time: faster than
+         * usual from ZBT_INDEX_WIDE_ID_AT, at once next to the limit. */
+        for (int late = 0; late <= 1; late++) {
+            zs = zbtreeCreate();
+            zbtreeReserve(zs, N);
+            for (int i = 0; i < N; i++) {
+                size_t len = zbtTestMember(buf, i, 0);
+                zbtreeInsertNewAppend(zs, i * 2, (unsigned char *)buf, len);
+                ref[i] = i * 2;
+            }
+            int extra = N;
+            while (zs->member_rehash == NULL) {
+                size_t len = zbtTestMember(buf, extra, 0);
+                zbtreeInsertNewAppend(zs, extra * 2, (unsigned char *)buf, len);
+                ref[extra] = extra * 2;
+                extra++;
+            }
+            serverAssert(extra < N * 2);
+            serverAssert(!zs->member_rehash->table.wide_ids);
+            unsigned long leaves = zbtTestLeaves(zs);
+            zbtTestSkipLeafIds(zs, late ? UINT16_MAX - 4 : 40000);
+            long moves = 0;
+            int checked = 1;
+            while (moves < 5000 &&
+                   !(zs->member_rehash ? zs->member_rehash->table.wide_ids :
+                                         zs->member_index.wide_ids))
+            {
+                zbtTestRandomMoves(zs, N, ref, lens, 1, &r);
+                moves++;
+                if (moves % 16 == 0) checked = checked && zbtTestCheck(zs);
+            }
+            printf("    narrow resize with %lu leaves, IDs from %s: widening "
+                   "after %ld moves\n", leaves, late ? "65531" : "40000",
+                   moves);
+            test_cond(late ? "A narrow resize next to the ID limit finishes "
+                             "before a split" :
+                             "A narrow resize past the widening point "
+                             "finishes early",
+                      moves <= (late ? 2 : (long)leaves / 3 + 2) && checked &&
+                      zbtTestCheck(zs) &&
+                      zbtTestVerify(zs, extra, ref, NULL, lens));
+            zbtreeFree(zs);
+        }
+        zfree(ref);
+        zfree(lens);
+    }
+
+    /* A new member inserted into the right half of a full leaf that the
+     * widening has not copied yet. The split used to relabel the old narrow
+     * entries of the moved members with the new, too wide, leaf ID. */
+    {
+        const int N = 30000;
+        char buf[64];
+        zbtreeSet *zs = zbtreeCreate();
+        for (int i = 0; i < N; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            zbtreeInsertNewAppend(zs, i * 2, (unsigned char *)buf, len);
+        }
+        zbtTestSkipLeafIds(zs, 40000);
+        size_t len = zbtTestMember(buf, N, 0);
+        zbtTestSet(zs, buf, len, N * 2);
+        serverAssert(zs->member_rehash && zs->member_rehash->table.wide_ids &&
+                     !zs->member_index.wide_ids);
+        zbtTestSkipLeafIds(zs, 70000);
+        zbtScoreLeaf *leaf = zs->score_last->prev->prev;
+        serverAssert(leaf->n.count == ZBT_SCORE_LEAF_MAX &&
+                     !zbtIndexLeafMigrated(zs, leaf));
+        double score = zbtScoreLeafScore(leaf, 80) + 1;
+        len = zbtTestMember(buf, N + 1, 0);
+        zbtTestSet(zs, buf, len, score);
+        zbtScoreLeaf *found = zbtTestLeafOf(zs, buf);
+        double check;
+        test_cond("A split during a late widening keeps old entries narrow",
+                  found->id >= 70000 && zbtIndexLeafMigrated(zs, found) &&
+                  zbtreeScoreRaw(zs, (unsigned char *)buf, len, &check) &&
+                  check == score && zbtTestCheck(zs) &&
+                  zbtreeLength(zs) == (unsigned long)N + 2);
+        zbtreeFree(zs);
+    }
+
+    /* A set emptied by single deletions keeps its leaf ID counter and reuses
+     * released IDs. A new table must be wide enough for them. */
+    {
+        char buf[64];
+        zbtreeSet *zs = zbtreeCreate();
+        for (int i = 0; i < 2000; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            zbtreeInsertNewAppend(zs, i, (unsigned char *)buf, len);
+        }
+        zbtTestSkipLeafIds(zs, 70000);
+        for (int i = 2000; i < 6000; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            zbtreeInsertNewAppend(zs, i, (unsigned char *)buf, len);
+        }
+        for (int i = 0; i < 6000; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            sds ele = sdsnewlen(buf, len);
+            serverAssert(zbtreeDelete(zs, ele));
+            sdsfree(ele);
+        }
+        serverAssert(zs->length == 0 && zs->member_index.size == 0 &&
+                     zs->free_score_leaf_id > 70000);
+        size_t len = zbtTestMember(buf, 0, 0);
+        zbtTestSet(zs, buf, len, 1);
+        test_cond("An emptied set reuses a high leaf ID with a wide table",
+                  zs->score_first->id >= 70000 && zs->member_index.wide_ids &&
+                  zbtTestCheck(zs) && zbtreeLength(zs) == 1);
+        zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree leaf density under score changes\n");
+
+    /* Score changes used to leave their old leaves behind without ever
+     * joining or shrinking them. Start from densely appended leaves and
+     * compare the leaf count with the fewest leaves that could hold the
+     * members. Mixed lengths are random per member, so neighbors do not have
+     * similar sizes. */
+    {
+        static const struct {
+            const char *name;
+            size_t min, max;
+        } profiles[] = {
+            {"319 byte", 319, 319},
+            {"short", 1, 1},
+            {"mixed 1-319 byte", 1, 319},
+            {"mixed 1-600 byte", 1, 600},
+        };
+        const int N = 10000;
+        for (size_t p = 0; p < sizeof(profiles) / sizeof(profiles[0]); p++) {
+            char buf[1024];
+            uint64_t r = 77 + p;
+            double *ref = zmalloc(sizeof(double) * N);
+            size_t *lens = zmalloc(sizeof(size_t) * N);
+            zbtreeSet *zs = zbtreeCreate();
+            for (int i = 0; i < N; i++) {
+                lens[i] = profiles[p].min + zbtTestRand(&r) %
+                          (profiles[p].max - profiles[p].min + 1);
+                size_t len = zbtTestMember(buf, i, lens[i]);
+                zbtreeInsertNewAppend(zs, i, (unsigned char *)buf, len);
+                ref[i] = i;
+            }
+            unsigned long fresh = zbtTestLeaves(zs);
+            zbtTestRandomMoves(zs, N, ref, lens, (long)N * 20, &r);
+            size_t live = 0, external = 0;
+            unsigned long leaves = 0;
+            for (zbtScoreLeaf *leaf = zs->score_first; leaf;
+                 leaf = leaf->next)
+            {
+                live += zbtScoreLeafLiveBytes(leaf);
+                leaves++;
+                for (unsigned int i = 0; i < leaf->n.count; i++) {
+                    unsigned char *record = zbtScoreLeafRecord(leaf, i);
+                    if (record[0] == ZBT_PACKED_EXTERNAL)
+                        external += zbtExternalLength(record);
+                }
+            }
+            unsigned long fewest = (N + ZBT_SCORE_LEAF_MAX - 1) /
+                                   ZBT_SCORE_LEAF_MAX;
+            unsigned long by_bytes = (live + ZBT_SCORE_LEAF_BYTES - 1) /
+                                     ZBT_SCORE_LEAF_BYTES;
+            if (by_bytes > fewest) fewest = by_bytes;
+            printf("    %s members: %lu leaves fresh, %lu after moves, "
+                   "fewest possible %lu (%.2fx), memory %.2f of live\n",
+                   profiles[p].name, fresh, leaves, fewest,
+                   (double)leaves / fewest,
+                   (double)zbtreeAllocSize(zs) / (live + external));
+            char title[128];
+            snprintf(title, sizeof(title),
+                     "Score changes keep %s leaves dense", profiles[p].name);
+            test_cond(title, leaves <= fewest * 2 && zbtTestCheck(zs) &&
+                             zbtTestVerify(zs, N, ref, NULL, lens));
+            zbtreeFree(zs);
+            zfree(ref);
+            zfree(lens);
+        }
+    }
+
+    /* A leaf of long members next to a leaf of short ones. Estimating the
+     * neighbor from the long members says that they cannot be joined, but
+     * once moves leave the long leaf sparse it must check the real sizes. */
+    {
+        char buf[1024];
+        zbtreeSet *zs = zbtreeCreate();
+        for (int i = 0; i < ZBT_SCORE_LEAF_MAX; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            zbtreeInsertNewAppend(zs, i, (unsigned char *)buf, len);
+        }
+        for (int i = ZBT_SCORE_LEAF_MAX; i < ZBT_SCORE_LEAF_MAX + 40; i++) {
+            size_t len = zbtTestMember(buf, i, 319);
+            zbtreeInsertNewAppend(zs, i, (unsigned char *)buf, len);
+        }
+        for (int i = 10; i < 46; i++) {
+            size_t len = zbtTestMember(buf, i, 0);
+            sds ele = sdsnewlen(buf, len);
+            serverAssert(zbtreeDelete(zs, ele));
+            sdsfree(ele);
+        }
+        zbtScoreLeaf *shortleaf = zs->score_first;
+        zbtScoreLeaf *longleaf = shortleaf->next;
+        unsigned int shorts = shortleaf->n.count, longs = longleaf->n.count;
+        /* Moving all but four long members makes two quarter-page checks. */
+        serverAssert(shorts == ZBT_SCORE_LEAF_MAX - 36 && longs >= 11);
+        int first_long = ZBT_SCORE_LEAF_MAX;
+        for (unsigned int k = 0; k < longs - 4; k++) {
+            size_t len = zbtTestMember(buf, first_long + k, 319);
+            zbtTestSet(zs, buf, len, 1e9 + k);
+        }
+        test_cond("A sparse leaf joins a neighbor with much shorter members",
+                  zs->score_first->n.count == shorts + 4 && zbtTestCheck(zs));
+        zbtreeFree(zs);
+    }
+
+    /* Join and rebuild the old leaves of moved members while a resize copies
+     * leaves between tables. Most members are external, so joins also move
+     * allocation ownership. Moves drain the last leaves, which the resize
+     * copies last, into random leaves on both sides of its progress. */
+    {
+        const int N = 40000;
+        char buf[1024];
+        uint64_t r = 99;
+        double *ref = zmalloc(sizeof(double) * N);
+        size_t *lens = zmalloc(sizeof(size_t) * N);
+        zbtreeSet *zs = zbtreeCreate();
+        zbtreeReserve(zs, N / 2);
+        int n = 0;
+        while (n < N && zs->member_rehash == NULL) {
+            lens[n] = 200 + zbtTestRand(&r) % 400;
+            size_t len = zbtTestMember(buf, n, lens[n]);
+            zbtreeInsertNewAppend(zs, n, (unsigned char *)buf, len);
+            ref[n] = n;
+            n++;
+        }
+        serverAssert(zs->member_rehash != NULL);
+        unsigned long leaves_before = zbtTestLeaves(zs);
+        int ok = 1, during = 0;
+        for (int k = 0; k < 3000 && ok; k++) {
+            int i = n - 1 - (int)(zbtTestRand(&r) % (uint64_t)(n / 32));
+            size_t len = zbtTestMember(buf, i, lens[i]);
+            double score = (double)(zbtTestRand(&r) % (uint64_t)n) + 0.5;
+            zbtTestSet(zs, buf, len, score);
+            ref[i] = score;
+            if (zs->member_rehash) during++;
+            if (k % 250 == 0) ok = zbtTestCheck(zs);
+        }
+        printf("    %d of 3000 moves during the resize, leaves %lu -> %lu\n",
+               during, leaves_before, zbtTestLeaves(zs));
+        test_cond("Score change maintenance during a resize keeps ownership",
+                  ok && during > 300 && zbtTestCheck(zs) &&
+                  zbtTestVerify(zs, n, ref, NULL, lens));
+        zbtreeFree(zs);
+        zfree(ref);
+        zfree(lens);
+    }
+
+    printf("Testing B+ tree leaf tag lanes\n");
+
+    /* ZSCAN compares eight leaf tags at once. Byte i of the array must be
+     * lane i of the word on every host, as for the bucket tags, or a big
+     * endian host selects mirrored positions. */
+    {
+        uint64_t r = 5;
+        int ok = 1;
+        for (int k = 0; k < 1000 && ok; k++) {
+            uint8_t bytes[8];
+            uint64_t expected = 0;
+            for (int i = 0; i < 8; i++) {
+                bytes[i] = zbtTestRand(&r);
+                expected |= (uint64_t)bytes[i] << (i * 8);
+            }
+            ok = zbtLeafTagWord(bytes) == expected;
+        }
+        test_cond("Leaf tag words put byte i in lane i", ok);
+
+        /* Few distinct tags make repeats, folded zero tags, and the false
+         * candidates above a real match that every word comparison must
+         * reject. */
+        ok = 1;
+        for (int k = 0; k < 2000 && ok; k++) {
+            uint8_t tags[ZBT_SCORE_LEAF_MAX];
+            unsigned int count = 1 + zbtTestRand(&r) % ZBT_SCORE_LEAF_MAX;
+            static const uint8_t pool[] = {0, 1, 2, 3, 0x80, 0x81, 0xfe, 0xff};
+            for (unsigned int i = 0; i < count; i++)
+                tags[i] = k % 2 ? pool[zbtTestRand(&r) % sizeof(pool)] :
+                                  (uint8_t)zbtTestRand(&r);
+            int reversed = k % 3 == 0;
+            for (unsigned int tag = 1; tag <= 255 && ok; tag++) {
+                unsigned int got[ZBT_SCORE_LEAF_MAX], want[ZBT_SCORE_LEAF_MAX];
+                unsigned int found = zbtLeafTagMatches(tags, count, reversed,
+                                                       tag, got);
+                unsigned int expected = 0;
+                for (unsigned int i = 0; i < count; i++) {
+                    if (tags[i] == tag || (tag == 1 && tags[i] == 0))
+                        want[expected++] = reversed ? count - 1 - i : i;
+                }
+                ok = found == expected &&
+                     memcmp(got, want, found * sizeof(got[0])) == 0;
+            }
+        }
+        test_cond("Leaf tag matching agrees with a byte by byte search", ok);
+    }
+
+    printf("Testing B+ tree ZSCAN while member tables keep changing\n");
+
+    /* SCAN must finish while a set stays bounded, however often its tables
+     * are replaced. The old cursor named one table and restarted whenever it
+     * changed. Between every call, temporary members make the index grow,
+     * shrink, clean tombstones, widen, or be rebuilt, while a few anchors stay
+     * in the set. The proof in zbtreeScan() bounds the calls by the largest
+     * group count plus one. */
+    {
+        const int A = 300, T = 2000;
+        char buf[64];
+        uint64_t r = 3;
+        zbtreeSet *zs = zbtreeCreate();
+        for (int i = 0; i < A; i++) {
+            int len = snprintf(buf, sizeof(buf), "anchor:%d", i);
+            zbtTestSet(zs, buf, len, i);
+        }
+        int *seen = zcalloc(sizeof(int) * A);
+        zbtScanAnchorPrivdata pd = {seen, A};
+        uint64_t cursor = 0, max_groups = 0;
+        unsigned long calls = 0, replaced = 0;
+        int small_cursor = 1, temps = 0, next_temp = 0, widened = 0;
+        void *buckets = zs->member_index.buckets;
+        do {
+            cursor = zbtreeScan(zs, cursor, 10, zbtScanTestMarkAnchor, &pd);
+            calls++;
+            small_cursor = small_cursor && cursor < zbtTestScanGroups(zs);
+            switch (calls % 5) {
+            case 0: /* Grow. */
+                for (int i = 0; i < T; i++, next_temp++, temps++) {
+                    int len = snprintf(buf, sizeof(buf), "temp:%d", next_temp);
+                    zbtTestSet(zs, buf, len, 1e6 + next_temp);
+                }
+                break;
+            case 1: /* Replace temporaries, which leaves tombstones. */
+                for (int i = 0; i < temps && i < T; i++, next_temp++) {
+                    int len = snprintf(buf, sizeof(buf), "temp:%d",
+                                       next_temp - temps);
+                    sds ele = sdsnewlen(buf, len);
+                    serverAssert(zbtreeDelete(zs, ele));
+                    sdsfree(ele);
+                    len = snprintf(buf, sizeof(buf), "temp:%d", next_temp);
+                    zbtTestSet(zs, buf, len, 1e6 + next_temp);
+                }
+                break;
+            case 2: /* Shrink by single deletions. */
+                for (; temps > 0; temps--) {
+                    int len = snprintf(buf, sizeof(buf), "temp:%d",
+                                       next_temp - temps);
+                    sds ele = sdsnewlen(buf, len);
+                    serverAssert(zbtreeDelete(zs, ele));
+                    sdsfree(ele);
+                }
+                break;
+            case 3: /* Grow, then rebuild the index by a large range delete. */
+                for (int i = 0; i < T; i++, next_temp++) {
+                    int len = snprintf(buf, sizeof(buf), "temp:%d", next_temp);
+                    zbtTestSet(zs, buf, len, 1e6 + next_temp);
+                }
+                zbtreeDeleteRangeByScore(zs, 1e6, 0, 1e300, 0);
+                break;
+            case 4: /* Move anchors and temporaries; widen once. */
+                if (calls == 4) zbtTestSkipLeafIds(zs, ZBT_INDEX_WIDE_ID_AT);
+                for (int i = 0; i < 200; i++) {
+                    int a = zbtTestRand(&r) % A;
+                    int len = snprintf(buf, sizeof(buf), "anchor:%d", a);
+                    zbtTestSet(zs, buf, len,
+                               (double)(zbtTestRand(&r) % (A * 4)));
+                }
+                break;
+            }
+            if (zs->member_index.buckets != buckets) replaced++;
+            buckets = zs->member_index.buckets;
+            widened = widened || zs->member_index.wide_ids ||
+                      (zs->member_rehash && zs->member_rehash->table.wide_ids);
+            if (zbtTestScanMaxGroups(zs) > max_groups)
+                max_groups = zbtTestScanMaxGroups(zs);
+        } while (cursor != 0 && calls < 100000);
+        int missed = 0;
+        for (int i = 0; i < A; i++) if (seen[i] == 0) missed++;
+        printf("    %lu calls, %lu table replacements, up to %llu groups, "
+               "%d anchors missed\n", calls, replaced,
+               (unsigned long long)max_groups, missed);
+        test_cond("ZSCAN finishes while member tables keep being replaced",
+                  cursor == 0 && calls <= max_groups + 1 &&
+                  replaced >= calls / 3 && widened);
+        test_cond("ZSCAN returns every anchor across table replacements",
+                  missed == 0 && zbtTestCheck(zs));
+        test_cond("ZSCAN cursors stay below the group count", small_cursor);
+        zfree(seen);
+        zbtreeFree(zs);
+    }
+
+    /* The cursor step must be dictScan()'s reverse, add one, reverse. */
+    {
+        uint64_t r = 17;
+        int ok = 1;
+        for (int k = 0; k < 200000 && ok; k++) {
+            uint64_t mask = (UINT64_C(1) << (k % 31)) - 1;
+            uint64_t cursor = zbtTestRand(&r) ^ (zbtTestRand(&r) << 40);
+            if (k % 3 == 0) cursor &= mask;
+            uint64_t expected =
+                zbtScanReverse(zbtScanReverse(cursor | ~mask) + 1);
+            ok = zbtScanNext(cursor, mask) == expected;
+        }
+        test_cond("ZSCAN cursor steps match reversed binary increments", ok);
+    }
+
+    /* Any cursor value is accepted. Bits beyond the current table are dropped
+     * as dictScan() does, so the scan still ends within the group count. */
+    {
+        zbtreeSet *zs = zbtreeCreate();
+        zbtTestPopulate(zs, 5000);
+        uint64_t groups = zbtTestScanGroups(zs);
+        static const uint64_t starts[] = {
+            UINT64_MAX, UINT64_C(1) << 63, UINT64_C(1) << 40,
+            (UINT64_C(12345) << 32) | 7, UINT64_C(0xffffffff), 1,
+        };
+        int ok = 1;
+        for (size_t s = 0; s < sizeof(starts) / sizeof(starts[0]); s++) {
+            int *seen = zcalloc(sizeof(int) * 5000);
+            zbtScanTestPrivdata pd = {seen, 5000};
+            uint64_t cursor = starts[s];
+            unsigned long calls = 0;
+            do {
+                cursor = zbtreeScan(zs, cursor, 1, zbtScanTestMarkSeen, &pd);
+                ok = ok && cursor < groups;
+                calls++;
+            } while (cursor != 0 && calls <= groups);
+            ok = ok && cursor == 0;
+            zfree(seen);
+        }
+        test_cond("ZSCAN accepts any cursor and still finishes", ok);
+
+        /* The smallest table has a single group: one call returns all. */
+        zbtreeSet *tiny = zbtreeCreate();
+        zbtTestPopulate(tiny, 3);
+        int *seen = zcalloc(sizeof(int) * 3);
+        zbtScanTestPrivdata pd = {seen, 3};
+        uint64_t cursor = zbtreeScan(tiny, 0, 1, zbtScanTestMarkSeen, &pd);
+        test_cond("ZSCAN of a one-group table finishes in one call",
+                  tiny->member_index.size == ZBT_INDEX_INITIAL_BUCKETS &&
+                  cursor == 0 && seen[0] && seen[1] && seen[2]);
+        zfree(seen);
+        zbtreeFree(tiny);
         zbtreeFree(zs);
     }
 

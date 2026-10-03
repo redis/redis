@@ -1496,8 +1496,9 @@ static const unsigned char *zzlDecodeElement(unsigned char *eptr, char *buf,
  * Only a corrupt listpack should make this return false, in which case the
  * caller falls back to the original per-element-checked, slower path. */
 static int zzlIsSortedNoDup(unsigned char *zl) {
-    unsigned char *preveptr = NULL, *prevsptr = NULL;
+    unsigned char *preveptr = NULL;
     unsigned char *eptr, *sptr;
+    double prevscore = 0;
 
     eptr = lpSeek(zl, 0);
     if (eptr == NULL) return 1;
@@ -1505,9 +1506,9 @@ static int zzlIsSortedNoDup(unsigned char *zl) {
     if (sptr == NULL) return 0;
 
     while (eptr != NULL) {
+        double score = zzlGetScore(sptr);
+        if (isnan(score)) return 0;
         if (preveptr != NULL) {
-            double prevscore = zzlGetScore(prevsptr);
-            double score = zzlGetScore(sptr);
             int cmp;
             if (prevscore != score) {
                 cmp = prevscore < score ? -1 : 1;
@@ -1526,7 +1527,7 @@ static int zzlIsSortedNoDup(unsigned char *zl) {
             if (cmp >= 0) return 0;
         }
         preveptr = eptr;
-        prevsptr = sptr;
+        prevscore = score;
         zzlNext(zl, &eptr, &sptr);
     }
     return 1;
@@ -1588,6 +1589,7 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
                 zbtreeAppendBatch *batch = zbtreeAppendBatchCreate(bt);
                 while (eptr != NULL) {
                     score = zzlGetScore(sptr);
+                    serverAssert(!isnan(score));
                     char buf[LONG_STR_SIZE];
                     size_t rawlen;
                     const unsigned char *raw =
@@ -1599,6 +1601,7 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
             } else {
                 while (eptr != NULL) {
                     score = zzlGetScore(sptr);
+                    serverAssert(!isnan(score));
                     vstr = lpGetValue(eptr,&vlen,&vlong);
                     char buf[LONG_STR_SIZE];
                     const unsigned char *raw;
@@ -2682,7 +2685,7 @@ typedef struct {
     unsigned char _buf[32]; /* Private buffer. */
     sds ele;
     unsigned char *estr;
-    unsigned int elen;
+    size_t elen;
     long long ell;
     double score;
 } zsetopval;
@@ -2829,7 +2832,9 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
         } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
             if (it->lp.p == NULL)
                 return 0;
-            val->estr = lpGetValue(it->lp.p, &val->elen, &val->ell);
+            unsigned int len = 0;
+            val->estr = lpGetValue(it->lp.p, &len, &val->ell);
+            val->elen = len;
             val->score = 1.0;
 
             /* Move to next element. */
@@ -2843,7 +2848,9 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
             /* No need to check both, but better be explicit. */
             if (it->zl.eptr == NULL || it->zl.sptr == NULL)
                 return 0;
-            val->estr = lpGetValue(it->zl.eptr,&val->elen,&val->ell);
+            unsigned int len = 0;
+            val->estr = lpGetValue(it->zl.eptr,&len,&val->ell);
+            val->elen = len;
             val->score = zzlGetScore(it->zl.sptr);
 
             /* Move to next element (going backwards, see zuiInitIterator). */

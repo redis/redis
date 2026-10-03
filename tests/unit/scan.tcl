@@ -559,6 +559,82 @@ proc test_scan {type} {
         assert_equal 1984 [llength [lsort -unique $seen]]
     }
 
+    test "{$type} ZSCAN finishes while a bounded set keeps replacing its tables" {
+        # Between calls the set grows and is cut back by a large range
+        # deletion, which installs new member tables every time. A cursor
+        # tied to one table restarted forever. This one must finish and
+        # return every member that stays in the set.
+        r del zset
+        set elements {}
+        for {set j 0} {$j < 200} {incr j} {
+            lappend elements $j [format "anchor:%03d" $j]
+        }
+        r zadd zset {*}$elements
+        assert_encoding btree zset
+        set temps {}
+        for {set j 0} {$j < 3000} {incr j} {
+            lappend temps [expr {1000000 + $j}] temp:$j
+        }
+
+        set cursor 0
+        set seen {}
+        set calls 0
+        while 1 {
+            lassign [r zscan zset $cursor count 10] cursor items
+            foreach {member score} $items {
+                if {[string match "anchor:*" $member]} {
+                    lappend seen $member
+                }
+            }
+            # Clients that keep cursors as doubles need them below 2^53.
+            assert {$cursor < 9007199254740992}
+            if {$cursor == 0} break
+            incr calls
+            assert {$calls < 1000}
+            r zadd zset {*}$temps
+            r zremrangebyscore zset 1000000 +inf
+        }
+        assert_equal 200 [llength [lsort -unique $seen]]
+    }
+
+    test "{$type} ZSCAN finishes under constant size churn" {
+        # Replacing members leaves tombstones, and their cleanup installs a
+        # same-size table every few hundred calls, before a complete scan.
+        r del zset
+        set elements {}
+        for {set j 0} {$j < 5000} {incr j} {
+            lappend elements $j [format "anchor:%05d" $j]
+            lappend elements $j churn:$j
+        }
+        r zadd zset {*}$elements
+        assert_encoding btree zset
+
+        set cursor 0
+        set seen {}
+        set calls 0
+        set next 5000
+        while 1 {
+            lassign [r zscan zset $cursor count 10] cursor items
+            foreach {member score} $items {
+                if {[string match "anchor:*" $member]} {
+                    lappend seen $member
+                }
+            }
+            if {$cursor == 0} break
+            incr calls
+            assert {$calls < 2000}
+            set add {}
+            set rem {}
+            for {set j 0} {$j < 200} {incr j; incr next} {
+                lappend add $next churn:$next
+                lappend rem churn:[expr {$next - 5000}]
+            }
+            r zadd zset {*}$add
+            r zrem zset {*}$rem
+        }
+        assert_equal 5000 [llength [lsort -unique $seen]]
+    }
+
     test "{$type} SCAN guarantees check under write load" {
         r flushdb
         populate 100

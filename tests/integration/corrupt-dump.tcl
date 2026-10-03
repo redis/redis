@@ -18,6 +18,44 @@ set run_oom_tests [expr {($arch_name == "x86_64" || $arch_name == "aarch64") && 
 
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
+test {Zset listpack scores are validated before loading or conversion} {
+    start_server {} {
+        r zadd score-source 1.5 a 2.5 b
+        assert_encoding listpack score-source
+        set payload [r dump score-source]
+        # Mutate only the score text; bypass the now-stale DUMP checksum so
+        # the test exercises semantic validation of a well-formed listpack.
+        r debug set-skip-checksum-validation 1
+        foreach sanitize {yes no} {
+            r config set sanitize-dump-payload $sanitize
+            foreach limit {128 1} {
+                r config set zset-max-listpack-entries $limit
+                foreach score {nan NaN abc 1.x} {
+                    set invalid [string map [list 1.5 $score] $payload]
+                    assert_error {*Bad data format*} {r restore invalid-score 0 $invalid}
+                    assert_equal 0 [r exists invalid-score]
+                    assert_equal PONG [r ping]
+                }
+                # Both infinities are legal and must remain reloadable.
+                foreach score {inf -inf} {
+                    # -inf needs four bytes, so use ZADD's genuine payload.
+                    r del score-valid
+                    r zadd score-valid $score a 2.5 b
+                    set valid [r dump score-valid]
+                    r restore score-roundtrip 0 $valid replace
+                    assert_equal $score [r zscore score-roundtrip a]
+                }
+            }
+        }
+        r debug set-skip-checksum-validation 0
+        r config set sanitize-dump-payload yes
+        r config set zset-max-listpack-entries 128
+        r debug reload
+        assert_equal PONG [r ping]
+        assert_equal 0 [r exists invalid-score]
+    }
+}
+
 test {corrupt payload: #7445 - with sanitize} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
@@ -971,14 +1009,16 @@ test {corrupt payload: fuzzer findings - set with invalid length causes sscan to
     }
 }
 
-test {corrupt payload: zset listpack encoded with invalid length causes zscan to hang} {
+test {corrupt payload: zset listpack with invalid length is rejected without sanitization} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
-        assert_equal {OK} [r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81\x61\x02\x01\x01\x81\x62\x02\x02\x01\x81\x63\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd\x31\x22\x6c\xef\xf7" replace]
-        assert_encoding listpack _zset
-        catch { r ZSCAN _zset 0 } err
+        assert_error {*Bad data format*} {
+            r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81\x61\x02\x01\x01\x81\x62\x02\x02\x01\x81\x63\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd\x31\x22\x6c\xef\xf7" replace
+        }
+        assert_equal 0 [r exists _zset]
+        assert_equal PONG [r ping]
         assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 0
     }
 }
 
@@ -1196,4 +1236,3 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
 }
 
 } ;# tags
-

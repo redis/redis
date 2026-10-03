@@ -6,6 +6,44 @@ start_server {tags {"zset"}} {
         }
     }
 
+    test {Small ZSET_2 loads preserve signed zero when a long member needs a B+tree} {
+        set old_limit [lindex [r config get zset-max-listpack-entries] 1]
+        set longmember [string repeat L 65]
+        foreach count {2 128 129} {
+            foreach longscore {-1 1} {
+                r del zero-source zero-restored
+                r config set zset-max-listpack-entries 0
+                r zadd zero-source $longscore $longmember
+                for {set i 1} {$i < $count} {incr i} {
+                    r zadd zero-source -0 [format m%03d $i]
+                }
+                set zero_expected [r zrange zero-source 0 -1 withscores]
+                set payload [r dump zero-source]
+                r config set zset-max-listpack-entries 128
+                r restore zero-restored 0 $payload
+                assert_encoding btree zero-restored
+                assert_equal $zero_expected [r zrange zero-restored 0 -1 withscores]
+                assert_equal $payload [r dump zero-restored]
+            }
+        }
+        r config set zset-max-listpack-entries $old_limit
+        r del zero-source zero-restored
+    }
+
+    test {Small ZSET_2 loads still select listpack after all members are known} {
+        set old_limit [lindex [r config get zset-max-listpack-entries] 1]
+        r del small-load-source small-load-restored
+        r config set zset-max-listpack-entries 0
+        r zadd small-load-source 1 a 2 b 3 c
+        set payload [r dump small-load-source]
+        r config set zset-max-listpack-entries 128
+        r restore small-load-restored 0 $payload
+        assert_encoding listpack small-load-restored
+        assert_equal {a 1 b 2 c 3} [r zrange small-load-restored 0 -1 withscores]
+        r config set zset-max-listpack-entries $old_limit
+        r del small-load-source small-load-restored
+    }
+
     # A helper function to verify either ZPOP* or ZMPOP* response.
     proc verify_pop_response {pop res zpop_expected_response zmpop_expected_response} {
         if {[string match "*ZM*" $pop]} {

@@ -2492,23 +2492,27 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
     return 1;
 }
 
-/* callback for to check the listpack doesn't have duplicate records */
-static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
-    struct {
-        int tuple_len;
-        long count;
-        dict *fields;
-        long long last_expireat;
-    } *data = userdata;
+typedef struct {
+    int tuple_len;
+    long count;
+    dict *fields;
+    long long last_expireat;
+    int check_duplicates;
+    int validate_scores;
+} lpValidationData;
 
-    if (data->fields == NULL) {
+/* Validate tuple fields after lpValidateIntegrity checked the entry. */
+static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
+    lpValidationData *data = userdata;
+
+    if (data->check_duplicates && data->fields == NULL) {
         data->fields = dictCreate(&hashDictType);
         dictExpand(data->fields, head_count/data->tuple_len);
     }
 
     /* If we're checking pairs, then even records are field names. Otherwise
      * we're checking all elements. Add to dict and check that's not a dup */
-    if (data->count % data->tuple_len == 0) {
+    if (data->check_duplicates && data->count % data->tuple_len == 0) {
         unsigned char *str;
         int64_t slen;
         unsigned char buf[LP_INTBUF_SIZE];
@@ -2520,6 +2524,17 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
             sdsfree(field);
             return 0;
         }
+    }
+
+    /* A zset's second entry is a score, not an arbitrary hash value. Parse
+     * it before any conversion can store an invalid or NaN score. Integer
+     * entries are always valid, and infinity remains a supported score. */
+    if (data->validate_scores && data->count % data->tuple_len == 1) {
+        unsigned int len;
+        long long integer;
+        unsigned char *str = lpGetValue(p, &len, &integer);
+        double score;
+        if (str && !string2d((char *)str, len, &score)) return 0;
     }
 
     /* Validate TTL field, only for listpackex. */
@@ -2545,17 +2560,15 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
  * tuple_len indicates what is a logical entry tuple size.
  * Whether tuple is of size 1 (set), 2 (field-value) or 3 (field-value[-ttl]),
  * first element in the tuple must be unique */
-int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
-    if (!deep)
+static int lpValidateIntegrityAndDupsEx(unsigned char *lp, size_t size,
+                                      int deep, int tuple_len, int validate_scores)
+{
+    if (!deep && !validate_scores)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
-    /* Keep track of the field names to locate duplicate ones */
-    struct {
-        int tuple_len;
-        long count;
-        dict *fields; /* Initialisation at the first callback. */
-        long long last_expireat; /* Last field's expiry time to ensure order in TTL fields. */
-    } data = {tuple_len, 0, NULL, -1};
+    /* Score validation must visit every entry even when duplicate checking
+     * is disabled. The integrity walker bounds each entry before decoding. */
+    lpValidationData data = {tuple_len, 0, NULL, -1, deep, validate_scores};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
@@ -2565,6 +2578,10 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
 
     if (data.fields) dictRelease(data.fields);
     return ret;
+}
+
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
+    return lpValidateIntegrityAndDupsEx(lp, size, deep, tuple_len, 0);
 }
 
 /* ---- shared SDS-array helpers ---- */
@@ -3064,14 +3081,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read sorted set value. */
         uint64_t zsetlen;
+        size_t maxelelen = 0, totelelen = 0;
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (zsetlen == 0) goto emptykey;
-        /* Large sets can be loaded directly into their final B+ tree. Small
-         * sets still use the listpack selected by zsetTypeCreate(). */
-        size_t size_hint = zsetlen > (uint64_t)SIZE_MAX ?
-                           SIZE_MAX : (size_t)zsetlen;
-        o = zsetTypeCreate(size_hint, 0);
+        /* Decide listpack eligibility only after seeing every member. A
+         * temporary listpack would normalize -0 before a later long member
+         * promotes the object, changing the final B+tree's score bits. */
+        o = createZsetBtreeObject();
 
         /* Load every single element of the sorted set. */
         while(zsetlen--) {
@@ -3113,8 +3130,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 sdsfree(sdsele);
                 return NULL;
             }
+            size_t elelen = sdslen(sdsele);
+            if (elelen > maxelelen) maxelelen = elelen;
+            if (totelelen <= SIZE_MAX - elelen)
+                totelelen += elelen;
+            else
+                totelelen = SIZE_MAX;
             sdsfree(sdsele);
         }
+        zsetConvertAfterBulkInsert(o, maxelelen, totelelen);
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len, original_len;
         int ret;
@@ -3752,7 +3776,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
-                    if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
+                    if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp) ||
+                        !lpValidateIntegrityAndDupsEx(lp, lpBytes(lp), 0, 2, 1)) {
                         rdbReportCorruptRDB("Zset ziplist integrity check failed.");
                         zfree(lp);
                         zfree(encoded);
@@ -3778,7 +3803,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 }
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 2)) {
+                if (!lpValidateIntegrityAndDupsEx(encoded, encoded_len,
+                                                deep_integrity_validation, 2, 1)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
