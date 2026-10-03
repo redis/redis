@@ -23,6 +23,9 @@
  * them when invalidation messages are received. */
 rax *TrackingTable = NULL;
 rax *PrefixTable = NULL;
+list *BcastPendingStates = NULL; /* bcastState of the prefixes that have keys
+                                    to broadcast, so that beforeSleep() does
+                                    not need to scan the whole PrefixTable. */
 uint64_t TrackingTableTotalItems = 0; /* Total number of IDs stored across
                                          the whole tracking table. This gives
                                          an hint about the total memory we
@@ -36,6 +39,8 @@ typedef struct bcastState {
     rax *keys;      /* Keys modified in the current event loop cycle. */
     rax *clients;   /* Clients subscribed to the notification events for this
                        prefix. */
+    listNode *pending; /* Node in BcastPendingStates when 'keys' is not empty,
+                          NULL otherwise. */
 } bcastState;
 
 /* Remove the tracking state from the client 'c'. Note that there is not much
@@ -60,6 +65,7 @@ void disableTracking(client *c) {
             /* Was it the last client? Remove the prefix from the
              * table. */
             if (raxSize(bs->clients) == 0) {
+                if (bs->pending) listDelNode(BcastPendingStates,bs->pending);
                 raxFree(bs->clients);
                 raxFree(bs->keys);
                 zfree(bs);
@@ -144,6 +150,7 @@ void enableBcastTrackingForPrefix(client *c, char *prefix, size_t plen) {
         bs = zmalloc(sizeof(*bs));
         bs->keys = raxNew();
         bs->clients = raxNewEx(0, NULL, sizeof(client *));
+        bs->pending = NULL;
         raxInsertAt(PrefixTable,(unsigned char*)prefix,plen,bs,NULL,&link);
     } else {
         bs = result;
@@ -176,6 +183,7 @@ void enableTracking(client *c, uint64_t redirect_to, uint64_t options, robj **pr
     if (TrackingTable == NULL) {
         TrackingTable = raxNew();
         PrefixTable = raxNew();
+        BcastPendingStates = listCreate();
         TrackingChannelName = createStringObject("__redis__:invalidate",20);
     }
 
@@ -331,6 +339,31 @@ done:
     }
 }
 
+/* The key changed and the client that changed it, passed by
+ * trackingRememberKeyToBroadcast() to trackingRememberKeyInBcastState(). */
+typedef struct bcastKeyChange {
+    client *c;
+    unsigned char *keyname;
+    size_t keylen;
+} bcastKeyChange;
+
+/* raxFindPrefixes() callback: remember the changed key in the broadcast
+ * state of one of the prefixes it matches. */
+static void trackingRememberKeyInBcastState(void *data, size_t prefixlen, void *privdata) {
+    UNUSED(prefixlen);
+    bcastState *bs = data;
+    bcastKeyChange *kc = privdata;
+    if (bs->pending == NULL) {
+        listAddNodeTail(BcastPendingStates,bs);
+        bs->pending = listLast(BcastPendingStates);
+    }
+    /* We insert the client pointer as associated value in the radix
+     * tree. This way we know who was the client that did the last
+     * change to the key, and can avoid sending the notification in the
+     * case the client is in NOLOOP mode. */
+    raxInsert(bs->keys,kc->keyname,kc->keylen,kc->c,NULL);
+}
+
 /* This function is called when a key is modified in Redis and in the case
  * we have at least one client with the BCAST mode enabled.
  * Its goal is to set the key in the right broadcast state if the key
@@ -338,21 +371,11 @@ done:
  * return to the event loop, we'll send invalidation messages to the
  * clients subscribed to each prefix. */
 void trackingRememberKeyToBroadcast(client *c, char *keyname, size_t keylen) {
-    raxIterator ri;
-    raxStart(&ri,PrefixTable);
-    raxSeek(&ri,"^",NULL,0);
-    while(raxNext(&ri)) {
-        if (ri.key_len > keylen) continue;
-        if (ri.key_len != 0 && memcmp(ri.key,keyname,ri.key_len) != 0)
-            continue;
-        bcastState *bs = ri.data;
-        /* We insert the client pointer as associated value in the radix
-         * tree. This way we know who was the client that did the last
-         * change to the key, and can avoid sending the notification in the
-         * case the client is in NOLOOP mode. */
-        raxInsert(bs->keys,(unsigned char*)keyname,keylen,c,NULL);
-    }
-    raxStop(&ri);
+    /* Only the prefixes of the key can match it: find them with a walk of
+     * the prefix table along the key, instead of scanning every prefix. */
+    bcastKeyChange kc = {c, (unsigned char*)keyname, keylen};
+    raxFindPrefixes(PrefixTable,(unsigned char*)keyname,keylen,
+                    trackingRememberKeyInBcastState,&kc);
 }
 
 /* This function is called from keyModified() or other places in Redis
@@ -672,6 +695,8 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
      * from now. */
     raxFree(bs->keys);
     bs->keys = raxNew();
+    listDelNode(BcastPendingStates,bs->pending);
+    bs->pending = NULL;
 }
 
 /* Return 1 if at least one client subscribed to 'bs' is authenticated as
@@ -727,21 +752,20 @@ void trackingBroadcastFlushClientPrefixes(client *c) {
  * would otherwise cause beforeSleep to re-filter them by the new permissions.
  * Passing NULL flushes every prefix. */
 void trackingBroadcastInvalidationMessages(user *u) {
-    raxIterator ri;
+    listIter li;
+    listNode *ln;
 
     /* Return ASAP if there is nothing to do here. */
     if (TrackingTable == NULL || !server.tracking_clients) return;
 
-    raxStart(&ri,PrefixTable);
-    raxSeek(&ri,"^",NULL,0);
-
-    /* For each prefix... */
-    while(raxNext(&ri)) {
-        bcastState *bs = ri.data;
+    /* For each prefix with keys to broadcast... Sending them removes the
+     * prefix from the list, which is safe while iterating with listNext(). */
+    listRewind(BcastPendingStates,&li);
+    while((ln = listNext(&li))) {
+        bcastState *bs = listNodeValue(ln);
         if (u == NULL || bcastStateHasUser(bs, u))
             trackingBcastInvalidationsForPrefix(bs);
     }
-    raxStop(&ri);
 }
 
 /* This is just used in order to access the amount of used slots in the

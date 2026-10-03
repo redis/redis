@@ -1244,6 +1244,57 @@ int raxFind(rax *rax, unsigned char *s, size_t len, void **value) {
     return raxFindLink(rax, s, len, value, &link);
 }
 
+/* Call 'cb' for every key of the rax that is a prefix of the string 's',
+ * including the empty key and 's' itself when they are present, in order
+ * of increasing length. The callback gets the value of the key, its length
+ * (the key is s[0..keylen-1]) and 'privdata', and must not modify the rax.
+ * A single walk along 's' finds all of them, so the cost grows with 'len'
+ * and not with the number of keys in the rax, unlike a scan of the keys
+ * with an iterator. Returns the number of keys found. */
+size_t raxFindPrefixes(rax *rax, unsigned char *s, size_t len,
+                       void (*cb)(void *data, size_t keylen, void *privdata),
+                       void *privdata)
+{
+    void *data;
+
+    /* All the keys of a fixed-length rax are keyFixedLen bytes long, and
+     * their values live in the slots of the leaf parents: just look up the
+     * only candidate. */
+    if (rax->keyFixedLen) {
+        if (len < rax->keyFixedLen ||
+            !raxFind(rax,s,rax->keyFixedLen,&data)) return 0;
+        cb(data,rax->keyFixedLen,privdata);
+        return 1;
+    }
+
+    raxNode *h = rax->head;
+    size_t i = 0; /* Bytes of 's' consumed to reach 'h'. */
+    size_t found = 0;
+    while(1) {
+        /* 'h' is a key if the bytes leading to it, s[0..i-1], are a key. */
+        if (h->iskey) {
+            cb(raxGetData(h),i,privdata);
+            found++;
+        }
+        if (h->size == 0 || i == len) break;
+
+        raxNode **children = raxNodeFirstChildPtr(h);
+        if (h->iscompr) {
+            /* Keys only end at node boundaries: if 's' ends or differs
+             * inside the compressed sequence, no longer key can match. */
+            if (h->size > len-i || memcmp(h->data,s+i,h->size) != 0) break;
+            i += h->size;
+        } else {
+            unsigned char *p = memchr(h->data,s[i],h->size);
+            if (p == NULL) break;
+            children += p - h->data;
+            i++;
+        }
+        memcpy(&h,children,sizeof(h));
+    }
+    return found;
+}
+
 /* Return the memory address where the 'parent' node stores the specified
  * 'child' pointer, so that the caller can update the pointer with another
  * one if needed. The function assumes it will find a match, otherwise the
@@ -2569,6 +2620,51 @@ static int _rax_test_cmpkey(const void *a, const void *b) {
     return memcmp(a, b, _rax_test_klen);
 }
 
+/* Keys reported by raxFindPrefixes() in the prefix tests below. */
+typedef struct {
+    size_t n;
+    size_t lens[64];
+    void *data[64];
+} _rax_test_prefixes;
+
+/* raxFindPrefixes() callback for the prefix tests below: records the length
+ * and the value of every key it is called with. */
+static void _rax_test_collect_prefix(void *data, size_t keylen, void *privdata) {
+    _rax_test_prefixes *p = privdata;
+    assert(p->n < 64);
+    p->lens[p->n] = keylen;
+    p->data[p->n] = data;
+    p->n++;
+}
+
+/* Check raxFindPrefixes() on 's' against one raxFind() for each prefix of
+ * 's': same keys, in order of increasing length, with the same values. */
+static void _rax_test_check_prefixes(rax *r, unsigned char *s, size_t len) {
+    _rax_test_prefixes p = {0};
+    size_t found = raxFindPrefixes(r, s, len, _rax_test_collect_prefix, &p);
+    assert(found == p.n);
+    size_t n = 0;
+    for (size_t l = 0; l <= len; l++) {
+        void *v;
+        if (!raxFind(r, s, l, &v)) continue;
+        assert(n < p.n && p.lens[n] == l && p.data[n] == v);
+        n++;
+    }
+    assert(n == p.n);
+}
+
+/* Lengths of the keys raxFindPrefixes() finds for 's', as "0,1,3". */
+static char *_rax_test_prefix_lens(rax *r, const char *s, char *buf, size_t size) {
+    _rax_test_prefixes p = {0};
+    raxFindPrefixes(r, (unsigned char*)s, strlen(s), _rax_test_collect_prefix, &p);
+    buf[0] = '\0';
+    for (size_t i = 0; i < p.n; i++) {
+        size_t used = strlen(buf);
+        snprintf(buf+used, size-used, "%s%zu", i ? "," : "", p.lens[i]);
+    }
+    return buf;
+}
+
 int raxTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -3015,6 +3111,77 @@ int raxTest(int argc, char **argv, int flags) {
                 raxFree(r); /* values are integers, not heap pointers */
             }
         }
+    }
+
+    TEST("raxFindPrefixes: exactly the keys that are prefixes of the string") {
+        /* Nested keys, the empty key, a key with a NULL value, and strings
+         * that end or differ inside a compressed node. */
+        static const char *keys[] = {"", "a", "ab", "abc", "abcde", "abx", "b"};
+        rax *r = raxNew();
+        char buf[64];
+        for (size_t k = 0; k < sizeof(keys)/sizeof(keys[0]); k++)
+            assert(raxInsert(r, (unsigned char*)keys[k], strlen(keys[k]),
+                             (void*)(uintptr_t)(k+1), NULL) == 1);
+        assert(raxInsert(r, (unsigned char*)"abcdef", 6, NULL, NULL) == 1);
+
+        assert(!strcmp(_rax_test_prefix_lens(r, "abcdefg", buf, sizeof(buf)), "0,1,2,3,5,6"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "abcd", buf, sizeof(buf)), "0,1,2,3"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "abcdx", buf, sizeof(buf)), "0,1,2,3"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "ab", buf, sizeof(buf)), "0,1,2"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "abxy", buf, sizeof(buf)), "0,1,2,3"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "bc", buf, sizeof(buf)), "0,1"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "zz", buf, sizeof(buf)), "0"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "", buf, sizeof(buf)), "0"));
+        _rax_test_check_prefixes(r, (unsigned char*)"abcdefg", 7);
+
+        assert(raxRemove(r, (unsigned char*)"", 0, NULL) == 1);
+        assert(!strcmp(_rax_test_prefix_lens(r, "abcdefg", buf, sizeof(buf)), "1,2,3,5,6"));
+        assert(!strcmp(_rax_test_prefix_lens(r, "zz", buf, sizeof(buf)), ""));
+        raxFree(r);
+
+        r = raxNew();
+        assert(!strcmp(_rax_test_prefix_lens(r, "abc", buf, sizeof(buf)), ""));
+        raxFree(r);
+    }
+
+    TEST("raxFindPrefixes: random trees match a raxFind() per prefix") {
+        /* Two letters keys of random lengths: dense trees with many
+         * non-compressed nodes, and sparse ones with long compressed nodes. */
+        uint32_t seed = 0xBEEFu;
+        #define PREFIXRAND() ((seed = seed*1664525u + 1013904223u) >> 16)
+        for (int round = 0; round < 200; round++) {
+            rax *r = raxNew();
+            int nkeys = 1 + PREFIXRAND() % 60;
+            for (int k = 0; k < nkeys; k++) {
+                unsigned char key[12];
+                size_t klen = PREFIXRAND() % 13;
+                for (size_t b = 0; b < klen; b++) key[b] = 'a' + PREFIXRAND() % 2;
+                raxInsert(r, key, klen, (void*)(uintptr_t)(k+1), NULL);
+            }
+            for (int q = 0; q < 50; q++) {
+                unsigned char s[14];
+                size_t slen = PREFIXRAND() % 15;
+                for (size_t b = 0; b < slen; b++) s[b] = 'a' + PREFIXRAND() % 2;
+                _rax_test_check_prefixes(r, s, slen);
+            }
+            raxFree(r); /* values are integers, not heap pointers */
+        }
+        #undef PREFIXRAND
+    }
+
+    TEST("raxFindPrefixes: fixed-length rax") {
+        rax *r = raxNewEx(0, NULL, 4);
+        _rax_test_prefixes p = {0};
+        assert(raxInsert(r, (unsigned char*)"abcd", 4, (void*)1, NULL) == 1);
+        assert(raxInsert(r, (unsigned char*)"abce", 4, (void*)2, NULL) == 1);
+        assert(raxFindPrefixes(r, (unsigned char*)"abcdzz", 6, _rax_test_collect_prefix, &p) == 1);
+        assert(p.lens[0] == 4 && p.data[0] == (void*)1);
+        assert(raxFindPrefixes(r, (unsigned char*)"abce", 4, _rax_test_collect_prefix, &p) == 1);
+        assert(p.lens[1] == 4 && p.data[1] == (void*)2);
+        assert(raxFindPrefixes(r, (unsigned char*)"abc", 3, _rax_test_collect_prefix, &p) == 0);
+        assert(raxFindPrefixes(r, (unsigned char*)"abcf", 4, _rax_test_collect_prefix, &p) == 0);
+        assert(p.n == 2);
+        raxFree(r);
     }
 
     if (!err)

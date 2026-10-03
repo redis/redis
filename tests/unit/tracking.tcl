@@ -425,6 +425,77 @@ start_server {tags {"tracking network logreqres:skip"}} {
         assert_match {*flags off*} [r CLIENT TRACKINGINFO]
     }
 
+    test {BCAST clients with nested prefixes get exactly the keys that match} {
+        # Different clients may register prefixes of each other: every client
+        # must be notified of the keys starting with its prefix, the prefix
+        # itself included, and of nothing else.
+        clean_all
+        set prefixes {{} a ab abc abcde b}
+        set clients {}
+        foreach p $prefixes {
+            set c [redis_deferring_client]
+            $c HELLO 3
+            $c read
+            if {$p eq {}} {
+                $c CLIENT TRACKING on BCAST
+            } else {
+                $c CLIENT TRACKING on BCAST PREFIX $p
+            }
+            assert_equal OK [$c read]
+            lappend clients $c
+        }
+        foreach key {abcd ab abcdef abcdx ac b bc x} {
+            $rd_sg SET $key 1
+        }
+        set got {}
+        foreach c $clients {
+            $c PING
+            set keys {}
+            while {[set reply [$c read]] ne {PONG}} {
+                lappend keys {*}[lindex $reply 1]
+            }
+            lappend got [lsort $keys]
+            $c close
+        }
+        assert_equal {{ab abcd abcdef abcdx ac b bc x} {ab abcd abcdef abcdx ac} {ab abcd abcdef abcdx} {abcd abcdef abcdx} abcdef {b bc}} $got
+    }
+
+    test {BCAST prefix with keys to broadcast removed in the same event loop cycle} {
+        # The only client of the prefix gone: goes away after a key with that
+        # prefix was modified, before the invalidations are sent at the end
+        # of the event loop cycle: the other prefixes must still be served.
+        clean_all
+        set rd_gone [redis_deferring_client]
+        $rd_gone HELLO 3
+        $rd_gone read
+        $rd_gone CLIENT TRACKING on BCAST PREFIX gone:
+        assert_equal OK [$rd_gone read]
+        $rd_gone CLIENT ID
+        set gone_id [$rd_gone read]
+        set rd_stay [redis_deferring_client]
+        $rd_stay HELLO 3
+        $rd_stay read
+        $rd_stay CLIENT TRACKING on BCAST PREFIX stay:
+        assert_equal OK [$rd_stay read]
+        # Both prefixes already had a key sent once.
+        foreach {rd_prefix prefix} [list $rd_gone gone $rd_stay stay] {
+            r SET $prefix:0 1
+            $rd_prefix PING
+            assert_equal "invalidate $prefix:0" [$rd_prefix read]
+            assert_equal PONG [$rd_prefix read]
+        }
+        r MULTI
+        r SET gone:1 1
+        r SET stay:1 1
+        r CLIENT KILL ID $gone_id
+        assert_equal {OK OK 1} [r EXEC]
+        $rd_stay PING
+        assert_equal {invalidate stay:1} [$rd_stay read]
+        assert_equal PONG [$rd_stay read]
+        $rd_gone close
+        $rd_stay close
+    }
+
     test {hdel deliver invalidate message after response in the same connection} {
         r CLIENT TRACKING off
         r HELLO 3
