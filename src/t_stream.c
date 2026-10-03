@@ -972,15 +972,20 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             while(to_skip--) p = lpNext(lp,p); /* Skip the whole entry. */
             p = lpNext(lp,p); /* Skip the final lp-count field. */
 
+            /* Remove all consumer group references for this entry. This is
+             * done even for entries that are already marked as deleted: a
+             * tombstone left behind by XDEL/XDELEX with KEEPREF may still be
+             * referenced by consumer groups, and once it is trimmed away those
+             * references could never be removed anymore. */
+            if (delete_strategy == DELETE_STRATEGY_DELREF)
+                streamCleanupEntryCGroupRefs(s, &currid);
+
             /* Mark the entry as deleted if allowed. */
             if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
                 int can_delete = 1;
                 if (delete_strategy == DELETE_STRATEGY_ACKED) {
                     /* Only delete entry that has been acknowledged by all consumer groups. */
                     can_delete = (streamEntryIsReferenced(s, &currid) == 0);
-                } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
-                    /* Remove all consumer group references for this entry */
-                    streamCleanupEntryCGroupRefs(s, &currid);
                 }
 
                 if (can_delete) {
