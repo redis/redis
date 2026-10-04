@@ -388,7 +388,7 @@ def parse_args():
             or args.duration <= 0 or args.timeout_ms <= 0 or args.startup_timeout <= 0
             or args.convergence_timeout <= 0 or args.warmup < 0 or args.meet_timeout <= 0
             or args.meet_retries < 0 or args.meet_delay < 0
-            or args.workers < 1 or args.base_port < 1
+            or args.workers < 1 or args.base_port < 1 or max(args.nodes) > 10000
             or args.base_port + max(args.nodes) - 1 + 10000 > 65535):
         parser.error("invalid cluster size, duration, timeout, worker count, or port range")
     return args
