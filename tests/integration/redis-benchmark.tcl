@@ -25,13 +25,18 @@ proc default_set_get_checks {} {
     assert_match  {} [cmdstat lrange]
 }
 
-proc benchmark_new_client_id {known_ids} {
+proc benchmark_new_client_ids {known_ids} {
+    set ids {}
     foreach line [split [r client list] "\n"] {
         if {[regexp {^id=([0-9]+)} $line -> id] && "id=$id" ni $known_ids} {
-            return $id
+            lappend ids $id
         }
     }
-    return {}
+    return $ids
+}
+
+proc benchmark_new_client_id {known_ids} {
+    return [lindex [benchmark_new_client_ids $known_ids] 0]
 }
 
 tags {"benchmark network external:skip logreqres:skip"} {
@@ -210,6 +215,58 @@ tags {"benchmark network external:skip logreqres:skip"} {
                 close $fh
                 assert_match {*4 requests completed in*} $output
                 assert_match {*calls=4,*} [cmdstat ping]
+            } error options]
+            if {[is_alive $pid]} {catch {exec kill $pid}}
+            file delete -force $output_file
+            if {$rc} {return -options $options $error}
+        }
+
+        test {benchmark: multi-thread disconnect while waiting for target request rate} {
+            r config resetstat
+            set known_ids [regexp -all -inline {id=[0-9]+} [r client list]]
+            set output_file [tmpfile benchmark-rate-thread-disconnect]
+            set cmd [redisbenchmark $master_host $master_port "--threads 2 -c 2 -P 8 -n 8 --rate 2 PING"]
+            set pid [exec {*}$cmd > $output_file 2>@1 &]
+
+            set rc [catch {
+                set original_ids {}
+                wait_for_condition 100 10 {
+                    [llength [set original_ids [benchmark_new_client_ids $known_ids]]] == 2
+                } else {
+                    fail "redis-benchmark did not connect both clients"
+                }
+
+                # Both clients must be waiting for the first pipeline's eight
+                # tokens before disconnecting them. Replacing both original
+                # clients exercises reconnects from both worker threads.
+                foreach id $original_ids {
+                    wait_for_condition 250 10 {
+                        [regexp {idle=([1-9][0-9]*)} [r client list id $id]]
+                    } else {
+                        fail "redis-benchmark client $id did not wait for rate tokens"
+                    }
+                }
+                assert_match {} [cmdstat ping]
+
+                set replacements {}
+                foreach id $original_ids {
+                    assert_equal 1 [r client kill id $id]
+                    set expected [expr {[llength $replacements] + 1}]
+                    wait_for_condition 100 10 {
+                        [llength [set replacements [benchmark_new_client_ids [concat $known_ids $original_ids]]]] == $expected
+                    } else {
+                        fail "redis-benchmark did not replace client $id"
+                    }
+                }
+
+                wait_for_condition 120 100 {![is_alive $pid]} else {
+                    fail "redis-benchmark did not finish after the disconnects"
+                }
+                set fh [open $output_file r]
+                set output [read $fh]
+                close $fh
+                assert_match {*8 requests completed in*} $output
+                assert_match {*calls=8,*} [cmdstat ping]
             } error options]
             if {[is_alive $pid]} {catch {exec kill $pid}}
             file delete -force $output_file

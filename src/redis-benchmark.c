@@ -175,6 +175,8 @@ typedef struct redisConfig {
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static int rateLimitTimer(aeEventLoop *el, long long id, void *clientData);
 static void rateWaitReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+static client createClient(char *cmd, size_t len, client from, int thread_id,
+                           clusterNode *target_node);
 static void createMissingClients(client c);
 static benchmarkThread *createBenchmarkThread(int index);
 static void freeBenchmarkThread(benchmarkThread *thread);
@@ -388,10 +390,10 @@ static void resetClient(client c) {
 }
 
 static void replaceClient(client c) {
+    /* A running worker must register its replacement on its own event loop,
+     * and keep the same cluster node. */
     if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
-    config.liveclients--;
-    createMissingClients(c);
-    config.liveclients++;
+    createClient(NULL,0,c,c->thread_id,c->cluster_node);
     if (config.num_threads) pthread_mutex_unlock(&(config.liveclients_mutex));
     freeClient(c);
 }
@@ -717,8 +719,10 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * 2) The offsets of the __rand_int__ elements inside the command line, used
  *    for arguments randomization.
  *
- * Even when cloning another client, prefix commands are applied if needed.*/
-static client createClient(char *cmd, size_t len, client from, int thread_id) {
+ * Even when cloning another client, prefix commands are applied if needed.
+ * target_node keeps a replacement on the same cluster node. */
+static client createClient(char *cmd, size_t len, client from, int thread_id,
+                           clusterNode *target_node) {
     int j;
     int is_cluster_client = (config.cluster_mode && thread_id >= 0);
     client c = zmalloc(sizeof(struct _client));
@@ -731,12 +735,15 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             ip = config.conn_info.hostip;
             port = config.conn_info.hostport;
         } else {
-            int node_idx = 0;
-            if (config.num_threads < config.cluster_node_count)
-                node_idx = config.liveclients % config.cluster_node_count;
-            else
-                node_idx = thread_id % config.cluster_node_count;
-            clusterNode *node = config.cluster_nodes[node_idx];
+            clusterNode *node = target_node;
+            if (node == NULL) {
+                int node_idx = 0;
+                if (config.num_threads < config.cluster_node_count)
+                    node_idx = config.liveclients % config.cluster_node_count;
+                else
+                    node_idx = thread_id % config.cluster_node_count;
+                node = config.cluster_nodes[node_idx];
+            }
             assert(node != NULL);
             ip = (const char *) node->ip;
             port = node->port;
@@ -915,7 +922,7 @@ static void createMissingClients(client c) {
         int thread_id = -1;
         if (config.num_threads)
             thread_id = config.liveclients % config.num_threads;
-        createClient(NULL,0,c,thread_id);
+        createClient(NULL,0,c,thread_id,NULL);
 
         /* Listen backlog is quite limited on most systems */
         if (++n > 64) {
@@ -1079,7 +1086,7 @@ static void benchmark(const char *title, char *cmd, int len) {
     if (config.num_threads) initBenchmarkThreads();
 
     int thread_id = config.num_threads > 0 ? 0 : -1;
-    c = createClient(cmd,len,NULL,thread_id);
+    c = createClient(cmd,len,NULL,thread_id,NULL);
     createMissingClients(c);
 
     config.rate_last_us = getMonotonicUs();
@@ -1970,7 +1977,7 @@ int main(int argc, char **argv) {
             thread_id = 0;
             initBenchmarkThreads();
         }
-        c = createClient("",0,NULL,thread_id); /* will never receive a reply */
+        c = createClient("",0,NULL,thread_id,NULL); /* will never receive a reply */
         createMissingClients(c);
         if (use_threads) startBenchmarkThreads();
         else aeMain(config.el);
