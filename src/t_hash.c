@@ -4643,6 +4643,23 @@ void himportDiscardallCommand(client *c) {
     addReplyLongLong(c, himportFieldsetsFree(c));
 }
 
+/* HIMPORT HELP
+ * List HIMPORT subcommands. */
+void himportHelpCommand(client *c) {
+    const char *help[] = {
+        "PREPARE <fieldset-name> <field> [<field> ...]",
+        "    Defines a session-local fieldset mapping a name to field names.",
+        "SET <key> <fieldset-name> <value> [<value> ...]",
+        "    Creates a hash from values ordered to match a prepared fieldset.",
+        "DISCARD <fieldset-name>",
+        "    Removes a single session-local fieldset by name.",
+        "DISCARDALL",
+        "    Removes all session-local fieldsets for the connection.",
+        NULL
+    };
+    addReplyHelp(c, help);
+}
+
 /* Parse expire time from argument and do boundary checks. */
 static int parseExpireTime(client *c, robj *o, int unit, long long basetime,
                            long long *expire)
