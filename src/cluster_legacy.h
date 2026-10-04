@@ -53,6 +53,21 @@ typedef struct clusterLink {
     size_t rcvbuf_alloc;        /* Allocated size of rcvbuf */
     clusterNode *node;          /* Node related to this link. Initialized to NULL when unknown */
     int inbound;                /* 1 if this link is an inbound link accepted from the related node */
+    int compact_gossip_supported; /* Peer advertised compact gossip on this link. */
+    int short_gossip_supported; /* Peer advertised version 2 PING/PONG on this link. */
+    int peer_member_digest_valid;
+    unsigned char peer_member_digest[20];
+    unsigned char last_full_member_digest[20];
+    uint64_t last_full_slots_digest;
+    unsigned char *peer_slots; /* Last full slots bitmap received on this link. */
+    uint64_t peer_slots_digest;
+    unsigned short short_since_full;
+    int last_full_valid;
+    int force_full_next;
+    int request_full_next;
+    int request_node_next; /* Member index, or -1. */
+    int requested_node; /* Member index requested by peer, or -1. */
+    mstime_t last_full_request_time;
 } clusterLink;
 
 /* Cluster node flags and macros. */
@@ -120,6 +135,8 @@ typedef struct {
     uint16_t notused1;
 } clusterMsgDataGossip;
 
+static_assert(sizeof(clusterMsgDataGossip) == 104, "unexpected gossip entry size");
+
 typedef struct {
     char nodename[CLUSTER_NAMELEN];
 } clusterMsgDataFail;
@@ -152,6 +169,8 @@ typedef enum {
     CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE,
     CLUSTERMSG_EXT_TYPE_SHARDID,
     CLUSTERMSG_EXT_TYPE_INTERNALSECRET,
+    CLUSTERMSG_EXT_TYPE_COMPACT_GOSSIP,
+    CLUSTERMSG_EXT_TYPE_SHORT_GOSSIP,
 } clusterMsgPingtypes;
 
 /* Helper function for making sure extensions are eight byte aligned. */
@@ -226,7 +245,15 @@ union clusterMsgData {
     } module;
 };
 
+/* Version 2 applies only to negotiated PING/PONG messages. It retains the
+ * first 80 bytes of clusterMsg, removes the 2048-byte myslots bitmap, then
+ * retains the remaining 128-byte header suffix and extensions unchanged.
+ * The notused1 suffix carries a 20-byte SHA1 of sorted member IDs, an
+ * 8-byte network-order CRC64 of the omitted slots, and a 2-byte requested
+ * member index. A receiver restores the last full bitmap from this link
+ * before using the existing version 1 packet processor. */
 #define CLUSTER_PROTO_VER 1 /* Cluster bus protocol version. */
+#define CLUSTER_PROTO_VER_SHORT 2
 
 typedef struct {
     char sig[4];        /* Signature "RCmb" (Redis Cluster message bus). */
@@ -288,6 +315,8 @@ static_assert(offsetof(clusterMsg, mflags) == 2253, "unexpected field offset");
 static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 
 #define CLUSTERMSG_MIN_LEN (sizeof(clusterMsg)-sizeof(union clusterMsgData))
+#define CLUSTERMSG_SHORT_MIN_LEN (CLUSTERMSG_MIN_LEN - CLUSTER_SLOTS/8)
+static_assert(CLUSTERMSG_SHORT_MIN_LEN == 208, "unexpected short cluster header size");
 
 /* Message flags better specify the packet content or are used to
  * provide some information about the node state. */
@@ -295,10 +324,16 @@ static_assert(offsetof(clusterMsg, data) == 2256, "unexpected field offset");
 #define CLUSTERMSG_FLAG0_FORCEACK (1<<1) /* Give ACK to AUTH_REQUEST even if
                                             master is up. */
 #define CLUSTERMSG_FLAG0_EXT_DATA (1<<2) /* Message contains extension data */
+#define CLUSTERMSG_FLAG1_COMPACT_GOSSIP (1<<0) /* Supports compact gossip extension. */
+#define CLUSTERMSG_FLAG1_SHORT_GOSSIP (1<<1) /* Supports version 2 short PING/PONG. */
+#define CLUSTERMSG_FLAG1_REQUEST_FULL (1<<2) /* Request a full PING/PONG. */
+#define CLUSTERMSG_FLAG1_REQUEST_NODE (1<<3) /* Request full gossip for one indexed node. */
+#define CLUSTER_MEMBER_INDEX_DIGEST_LEN 20
 
 struct _clusterNode {
     mstime_t ctime; /* Node object creation time. */
     char name[CLUSTER_NAMELEN]; /* Node name, hex string, sha1-size */
+    uint16_t member_index; /* Valid only through the current member index map. */
     char shard_id[CLUSTER_NAMELEN]; /* shard id, hex string, sha1-size */
     int flags;      /* CLUSTER_NODE_... */
     uint64_t configEpoch; /* Last configEpoch observed for this node */
@@ -338,6 +373,10 @@ struct clusterState {
     int state;            /* CLUSTER_OK, CLUSTER_FAIL, ... */
     int size;             /* Num of master nodes with at least one slot */
     dict *nodes;          /* Hash table of name -> clusterNode structures */
+    clusterNode **member_index_nodes; /* Nodes sorted by their 40-byte IDs. */
+    size_t member_index_count; /* Actual node count; may exceed uint16_t. */
+    unsigned char member_index_digest[CLUSTER_MEMBER_INDEX_DIGEST_LEN];
+    int member_index_dirty;
     dict *shards;         /* Hash table of shard_id -> list (of nodes) structures */
     dict *nodes_black_list; /* Nodes we don't re-add for a few seconds. */
     clusterNode *migrating_slots_to[CLUSTER_SLOTS];
@@ -369,6 +408,10 @@ struct clusterState {
     /* Messages received and sent by type. */
     long long stats_bus_messages_sent[CLUSTERMSG_TYPE_COUNT];
     long long stats_bus_messages_received[CLUSTERMSG_TYPE_COUNT];
+    unsigned long long stats_bus_bytes_sent;
+    unsigned long long stats_bus_bytes_received;
+    unsigned long long stats_bus_short_messages_sent;
+    unsigned long long stats_bus_short_messages_received;
     long long stats_pfail_nodes;    /* Number of nodes in PFAIL status,
                                        excluding nodes without address. */
     unsigned long long stat_cluster_links_buffer_limit_exceeded;  /* Total number of cluster links freed due to exceeding buffer limit */
