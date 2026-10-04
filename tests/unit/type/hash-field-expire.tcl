@@ -64,9 +64,11 @@ start_server {tags {"hash external:skip needs:debug"}} {
         set large "[string repeat x 513]\x00tail"
         set values [list a 0 b $large c -9223372036854775808 d 007 e tail]
         r hset ordered {*}$values
-        r hpexpireat ordered [expr {$base - 1000}] FIELDS 1 a
-        r hpexpireat ordered $base FIELDS 1 b
-        r hpexpireat ordered [expr {$base + 1000}] FIELDS 1 c
+        assert_equal {1} [r hpexpireat ordered [expr {$base - 1000}] FIELDS 1 a]
+        assert_equal {1} [r hpexpireat ordered $base FIELDS 1 b]
+        assert_equal {1} [r hpexpireat ordered [expr {$base + 1000}] FIELDS 1 c]
+        set expected [dict create a [expr {$base - 1000}] b $base \
+                                  c [expr {$base + 1000}] d -1 e -1]
         assert_encoding listpackex ordered
 
         # Exercise equal TTLs, movement in both directions, and transitions
@@ -86,7 +88,21 @@ start_server {tags {"hash external:skip needs:debug"}} {
             [list HPERSIST ordered FIELDS 5 c a e b d]]
 
         foreach update $updates {
-            r {*}$update
+            set replies {}
+            if {[lindex $update 0] eq "HPEXPIREAT"} {
+                foreach field [lrange $update 5 end] {
+                    dict set expected $field [lindex $update 2]
+                    lappend replies 1
+                }
+            } else {
+                foreach field [lrange $update 4 end] {
+                    lappend replies [expr {[dict get $expected $field] == -1 ? -1 : 1}]
+                    dict set expected $field -1
+                }
+            }
+            assert_equal $replies [r {*}$update]
+            assert_equal [dict values $expected] \
+                         [r hpexpiretime ordered FIELDS 5 {*}[dict keys $expected]]
             set fields [r hkeys ordered]
             set expiries [r hpexpiretime ordered FIELDS 5 {*}$fields]
             set previous 0
@@ -103,7 +119,9 @@ start_server {tags {"hash external:skip needs:debug"}} {
         }
 
         # Restore must preserve both the listpack and its field expiries.
-        r hpexpireat ordered $base FIELDS 3 c a b
+        assert_equal {1 1 1} [r hpexpireat ordered $base FIELDS 3 c a b]
+        assert_equal [list $base $base $base -1 -1] \
+                     [r hpexpiretime ordered FIELDS 5 a b c d e]
         r restore restored 0 [r dump ordered]
         assert_equal [r hgetall ordered] [r hgetall restored]
         assert_equal [r hpexpiretime ordered FIELDS 5 a b c d e] \
