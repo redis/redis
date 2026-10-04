@@ -56,7 +56,7 @@ proc dumpAllHashes {client} {
 
 ############################### TESTS #########################################
 
-start_server {tags {"hash external:skip needs:debug"}} {
+start_server {tags {"hash external:skip"}} {
     test "Listpack field expiry updates preserve ordering and values" {
         r config set hash-max-listpack-entries 512
         r config set hash-max-listpack-value 4096
@@ -123,6 +123,7 @@ start_server {tags {"hash external:skip needs:debug"}} {
         assert_equal [list $base $base $base -1 -1] \
                      [r hpexpiretime ordered FIELDS 5 a b c d e]
         r restore restored 0 [r dump ordered]
+        assert_encoding listpackex restored
         assert_equal [r hgetall ordered] [r hgetall restored]
         assert_equal [r hpexpiretime ordered FIELDS 5 a b c d e] \
                      [r hpexpiretime restored FIELDS 5 a b c d e]
@@ -2034,7 +2035,10 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset h1 f1 v1
             r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
             r hset h2 f2 v2
-            r hpexpireat h2 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
+            set absolute_expire [expr {[clock milliseconds] + 100000}]
+            assert_equal {1} [r hpexpireat h2 $absolute_expire NX FIELDS 1 f2]
+            # An unchanged TTL still succeeds and propagates, including duplicates.
+            assert_equal {1 1} [r hpexpireat h2 $absolute_expire FIELDS 2 f2 f2]
             r hset h3 f3 v3 f4 v4 f5 v5
             # hpersist does nothing here. Verify it is not propagated.
             r hpersist h3 FIELDS 1 f5
@@ -2047,6 +2051,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hpexpireat h1 * NX FIELDS 1 f1}
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
+                {hpexpireat h2 * FIELDS 2 f2 f2}
                 {hset h3 f3 v3 f4 v4 f5 v5}
                 {hpexpireat h3 * FIELDS 2 f3 f4}
                 {hpersist h3 FIELDS 1 f3}
