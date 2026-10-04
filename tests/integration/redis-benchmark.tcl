@@ -196,6 +196,14 @@ tags {"benchmark network external:skip logreqres:skip"} {
             assert_match *rate* [string tolower $error]
         }
 
+        test {benchmark: target request rate rejects idle mode} {
+            set cmd [redisbenchmark $master_host $master_port "-I --rate 1"]
+            if {![catch {exec {*}$cmd 2>@1} error]} {
+                fail "redis-benchmark accepted --rate with idle mode"
+            }
+            assert_match {*--rate cannot be used with idle mode (-I).*} $error
+        }
+
         test {benchmark: keyspace length} {
             set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000"]
             common_bench_setup $cmd
