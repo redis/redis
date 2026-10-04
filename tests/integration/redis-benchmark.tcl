@@ -107,6 +107,95 @@ tags {"benchmark network external:skip logreqres:skip"} {
             assert_match  {1} [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         }
 
+        test {benchmark: target request rate} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -n 32 --rate 32 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            # An empty bucket needs roughly one second for 32 requests at 32 RPS.
+            # Leave room for timer granularity and process startup differences.
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=32,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate is shared across threads} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "--threads 4 -c 8 -n 32 --rate 32 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=32,*} [cmdstat ping]
+        }
+
+        test {benchmark: pipeline consumes request rate per command} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -P 4 -n 32 --rate 32 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=32,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate with fewer requests than clients} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -n 4 --rate 8 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=4,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate without keepalive} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-k 0 -c 4 -n 8 --rate 16 PING"]
+            set start [clock milliseconds]
+            exec {*}$cmd 2>@1
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=8,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate resets for each test} {
+            r config resetstat
+            set cmd [redisbenchmark $master_host $master_port "-c 8 -n 4 --rate 8 -t ping"]
+            set start [clock milliseconds]
+            exec {*}$cmd
+            set elapsed [expr {[clock milliseconds] - $start}]
+
+            # -t ping runs both PING_INLINE and PING_MBULK at the target rate.
+            assert_morethan_equal $elapsed 600
+            assert_lessthan $elapsed 5000
+            assert_match {*calls=8,*} [cmdstat ping]
+        }
+
+        test {benchmark: target request rate rejects invalid values} {
+            foreach value {0 -1 abc} {
+                set cmd [redisbenchmark $master_host $master_port "-n 1 --rate $value PING"]
+                if {![catch {exec {*}$cmd 2>@1} error]} {
+                    fail "redis-benchmark accepted invalid --rate value '$value'"
+                }
+                assert_match *rate* [string tolower $error]
+            }
+
+            set cmd [redisbenchmark $master_host $master_port "--rate"]
+            if {![catch {exec {*}$cmd 2>@1} error]} {
+                fail "redis-benchmark accepted --rate without a value"
+            }
+            assert_match *rate* [string tolower $error]
+        }
+
         test {benchmark: keyspace length} {
             set cmd [redisbenchmark $master_host $master_port "-r 50 -t set -n 1000"]
             common_bench_setup $cmd
