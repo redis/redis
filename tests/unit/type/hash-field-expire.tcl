@@ -56,6 +56,61 @@ proc dumpAllHashes {client} {
 
 ############################### TESTS #########################################
 
+start_server {tags {"hash external:skip needs:debug"}} {
+    test "Listpack field expiry updates preserve ordering and values" {
+        r config set hash-max-listpack-entries 512
+        r config set hash-max-listpack-value 4096
+        set base 4102444800000
+        set large "[string repeat x 513]\x00tail"
+        set values [list a 0 b $large c -9223372036854775808 d 007 e tail]
+        r hset ordered {*}$values
+        r hpexpireat ordered [expr {$base - 1000}] FIELDS 1 a
+        r hpexpireat ordered $base FIELDS 1 b
+        r hpexpireat ordered [expr {$base + 1000}] FIELDS 1 c
+        assert_encoding listpackex ordered
+
+        # Exercise equal TTLs, movement in both directions, and transitions
+        # between volatile and persistent fields, including duplicate fields.
+        set updates [list \
+            [list HPEXPIREAT ordered $base FIELDS 2 b b] \
+            [list HPEXPIREAT ordered [expr {$base + 500}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base - 500}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base + 2000}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base - 2000}] FIELDS 1 b] \
+            [list HPERSIST ordered FIELDS 2 b b] \
+            [list HPEXPIREAT ordered $base FIELDS 1 d] \
+            [list HPEXPIREAT ordered [expr {$base + 3000}] FIELDS 1 e] \
+            [list HPERSIST ordered FIELDS 1 e] \
+            [list HPEXPIREAT ordered $base FIELDS 5 e d c b a] \
+            [list HPEXPIREAT ordered [expr {$base + 1}] FIELDS 5 a b c d e] \
+            [list HPERSIST ordered FIELDS 5 c a e b d]]
+
+        foreach update $updates {
+            r {*}$update
+            set fields [r hkeys ordered]
+            set expiries [r hpexpiretime ordered FIELDS 5 {*}$fields]
+            set previous 0
+            foreach expiry $expiries {
+                # Persistent fields sort after all volatile fields.
+                if {$expiry == -1} { set expiry 9223372036854775807 }
+                assert {$expiry >= $previous}
+                set previous $expiry
+            }
+            foreach {field value} $values {
+                assert_equal $value [r hget ordered $field]
+            }
+            assert_encoding listpackex ordered
+        }
+
+        # Restore must preserve both the listpack and its field expiries.
+        r hpexpireat ordered $base FIELDS 3 c a b
+        r restore restored 0 [r dump ordered]
+        assert_equal [r hgetall ordered] [r hgetall restored]
+        assert_equal [r hpexpiretime ordered FIELDS 5 a b c d e] \
+                     [r hpexpiretime restored FIELDS 5 a b c d e]
+    }
+}
+
 start_server {tags {"external:skip needs:debug"}} {
     foreach type {listpackex hashtable} {
         if {$type eq "hashtable"} {

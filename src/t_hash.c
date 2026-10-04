@@ -1800,19 +1800,52 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
     listpackExAddInternal(o, ent);
 }
 
-/* If expiry time is changed, this function will place field into the correct
- * position. First, it deletes the field and re-inserts to the listpack ordered
- * by expiry time. */
+/* Update a field's expiry while preserving expiry-time order. If the tuple
+ * cannot stay at its current position, delete and re-insert it in the
+ * listpack. */
 static void listpackExUpdateExpiry(robj *o, sds field,
                                    unsigned char *fptr,
                                    unsigned char *vptr,
                                    uint64_t expire_at) {
+    listpackEx *lpt = o->ptr;
+
+    /* Keep the tuple in place if changing its TTL preserves the sorted
+     * order. A persistent field sorts after every volatile field. Only the
+     * neighbor in the direction of the change can constrain the new TTL. */
+    unsigned char *tptr = lpNext(lpt->lp, vptr);
+    long long oldttl, adjacent;
+    serverAssert(tptr && lpGetIntegerValue(tptr, &oldttl));
+    if ((uint64_t)oldttl == expire_at)
+        return;
+
+    int later = expire_at == HASH_LP_NO_TTL ||
+                (oldttl != HASH_LP_NO_TTL && expire_at > (uint64_t)oldttl);
+    unsigned char *neighbor;
+    int inplace;
+    if (later) {
+        neighbor = lpNextN(lpt->lp, tptr, 3);
+        if (neighbor) {
+            serverAssert(neighbor && lpGetIntegerValue(neighbor, &adjacent));
+        }
+        inplace = !neighbor || adjacent == HASH_LP_NO_TTL ||
+                  (expire_at != HASH_LP_NO_TTL && expire_at <= (uint64_t)adjacent);
+    } else {
+        neighbor = lpPrev(lpt->lp, fptr);
+        if (neighbor)
+            serverAssert(lpGetIntegerValue(neighbor, &adjacent));
+        inplace = !neighbor || (adjacent != HASH_LP_NO_TTL &&
+                                expire_at >= (uint64_t)adjacent);
+    }
+    if (inplace) {
+        lpt->lp = lpReplaceInteger(lpt->lp, &tptr, expire_at);
+        return;
+    }
+
     unsigned int slen = 0;
     long long val = 0;
     unsigned char tmp[512] = {0};
     unsigned char *valstr;
     sds tmpval = NULL;
-    listpackEx *lpt = o->ptr;
 
     /* Copy value */
     valstr = lpGetValue(vptr, &slen, &val);
