@@ -132,7 +132,6 @@ typedef struct _client {
     struct clusterNode *cluster_node;
     int slots_last_update;
     int rate_reserved;      /* This pipeline was counted in requests_issued. */
-    int rate_granted;       /* This pipeline has consumed its rate tokens. */
     long long rate_timer_id;
 } *client;
 
@@ -386,15 +385,31 @@ static void resetClient(client c) {
     c->written = 0;
     c->pending = config.pipeline;
     c->rate_reserved = 0;
-    c->rate_granted = 0;
 }
 
-/* Return the time to wait before sending a pipeline, or consume its tokens.
+static void replaceClient(client c) {
+    if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
+    config.liveclients--;
+    createMissingClients(c);
+    config.liveclients++;
+    if (config.num_threads) pthread_mutex_unlock(&(config.liveclients_mutex));
+    freeClient(c);
+}
+
+/* Return the time to wait before sending a pipeline, consume its tokens and
+ * reserve its requests, or return -1 when the request limit has been reached.
  * Start with an empty bucket so even a short benchmark respects the target
  * average rate. Keep only a small amount of credit after a stall, while
  * allowing enough headroom to recover from millisecond timer jitter. */
 static long long rateLimitDelay(void) {
     pthread_mutex_lock(&rate_mutex);
+    int requests_issued = 0;
+    atomicGet(config.requests_issued, requests_issued);
+    if (requests_issued >= config.requests) {
+        pthread_mutex_unlock(&rate_mutex);
+        return -1;
+    }
+
     monotime now = getMonotonicUs();
     double capacity = ceil((double)config.rate / 1000.0) + 1;
     if (capacity < config.pipeline) capacity = config.pipeline;
@@ -412,6 +427,7 @@ static long long rateLimitDelay(void) {
     long long delay = 0;
     if (config.rate_tokens + slack >= config.pipeline) {
         config.rate_tokens -= config.pipeline;
+        atomicIncr(config.requests_issued, config.pipeline);
     } else {
         delay = (long long)ceil((config.pipeline - config.rate_tokens - slack) * 1000.0 / config.rate);
         if (delay < 1) delay = 1;
@@ -437,7 +453,7 @@ static void rateWaitReadHandler(aeEventLoop *el, int fd, void *privdata, int mas
     UNUSED(mask);
     if (redisBufferRead(c->context) != REDIS_OK) {
         fprintf(stderr,"Error: %s\n",c->context->errstr);
-        freeClient(c);
+        replaceClient(c);
     }
 }
 
@@ -495,13 +511,7 @@ static void clientDone(client c) {
     if (config.keepalive) {
         resetClient(c);
     } else {
-        if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
-        config.liveclients--;
-        createMissingClients(c);
-        config.liveclients++;
-        if (config.num_threads)
-            pthread_mutex_unlock(&(config.liveclients_mutex));
-        freeClient(c);
+        replaceClient(c);
     }
 }
 
@@ -627,26 +637,30 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* Initialize request when nothing was written. */
     if (c->written == 0) {
-        /* Enforce upper bound to number of requests. */
         if (!c->rate_reserved) {
-            int requests_issued = 0;
-            atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
-            if (requests_issued >= config.requests) {
-                freeClient(c);
-                return;
+            if (config.rate) {
+                /* Count the requests only when they are ready to be sent. A
+                 * client disconnected during the wait has no quota to lose. */
+                long long delay = rateLimitDelay();
+                if (delay < 0) {
+                    freeClient(c);
+                    return;
+                }
+                if (delay) {
+                    aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
+                    aeCreateFileEvent(el,c->context->fd,AE_READABLE,rateWaitReadHandler,c);
+                    c->rate_timer_id = aeCreateTimeEvent(el,delay,rateLimitTimer,c,NULL);
+                    return;
+                }
+            } else {
+                int requests_issued = 0;
+                atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
+                if (requests_issued >= config.requests) {
+                    freeClient(c);
+                    return;
+                }
             }
             c->rate_reserved = 1;
-        }
-
-        if (config.rate && !c->rate_granted) {
-            long long delay = rateLimitDelay();
-            if (delay) {
-                aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
-                aeCreateFileEvent(el,c->context->fd,AE_READABLE,rateWaitReadHandler,c);
-                c->rate_timer_id = aeCreateTimeEvent(el,delay,rateLimitTimer,c,NULL);
-                return;
-            }
-            c->rate_granted = 1;
         }
 
         /* Really initialize: randomize keys and set start time. */
@@ -812,7 +826,6 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
     c->written = 0;
     c->pending = config.pipeline+c->prefix_pending;
     c->rate_reserved = 0;
-    c->rate_granted = 0;
     c->rate_timer_id = -1;
     c->randptr = NULL;
     c->randlen = 0;

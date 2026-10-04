@@ -25,6 +25,15 @@ proc default_set_get_checks {} {
     assert_match  {} [cmdstat lrange]
 }
 
+proc benchmark_new_client_id {known_ids} {
+    foreach line [split [r client list] "\n"] {
+        if {[regexp {^id=([0-9]+)} $line -> id] && "id=$id" ni $known_ids} {
+            return $id
+        }
+    }
+    return {}
+}
+
 tags {"benchmark network external:skip logreqres:skip"} {
     start_server {} {
         set master_host [srv 0 host]
@@ -165,6 +174,46 @@ tags {"benchmark network external:skip logreqres:skip"} {
 
             assert_lessthan $elapsed 5000
             assert_match {*calls=8,*} [cmdstat ping]
+        }
+
+        test {benchmark: disconnect while waiting for target request rate} {
+            r config resetstat
+            set known_ids [regexp -all -inline {id=[0-9]+} [r client list]]
+            set output_file [tmpfile benchmark-rate-disconnect]
+            set cmd [redisbenchmark $master_host $master_port "-c 1 -P 4 -n 4 --rate 1 PING"]
+            set pid [exec {*}$cmd > $output_file 2>@1 &]
+
+            set rc [catch {
+                set benchmark_id {}
+                wait_for_condition 100 10 {
+                    [set benchmark_id [benchmark_new_client_id $known_ids]] ne {}
+                } else {
+                    fail "redis-benchmark did not connect"
+                }
+
+                # Its first pipeline cannot be sent until the empty rate bucket
+                # has accumulated four tokens. An idle second confirms the client
+                # is waiting, before the four-second send deadline.
+                wait_for_condition 250 10 {
+                    [regexp {idle=([1-9][0-9]*)} [r client list id $benchmark_id]]
+                } else {
+                    fail "redis-benchmark did not wait for rate tokens"
+                }
+                assert_match {} [cmdstat ping]
+                assert_equal 1 [r client kill id $benchmark_id]
+
+                wait_for_condition 120 100 {![is_alive $pid]} else {
+                    fail "redis-benchmark did not finish after the disconnect"
+                }
+                set fh [open $output_file r]
+                set output [read $fh]
+                close $fh
+                assert_match {*4 requests completed in*} $output
+                assert_match {*calls=4,*} [cmdstat ping]
+            } error options]
+            if {[is_alive $pid]} {catch {exec kill $pid}}
+            file delete -force $output_file
+            if {$rc} {return -options $options $error}
         }
 
         test {benchmark: target request rate resets for each test} {
