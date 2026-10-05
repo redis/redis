@@ -34,9 +34,9 @@ def skip_string(buf, pos):
     v, encoded, pos = read_len(buf, pos)
     if not encoded: return pos + v
     if v < 3: return pos + (1 << v)   # INT8 / INT16 / INT32
-    clen, _, pos = read_len(buf, pos)  # LZF
+    compressed_len, _, pos = read_len(buf, pos)  # LZF
     _, _, pos = read_len(buf, pos)
-    return pos + clen
+    return pos + compressed_len
 
 def decode_dump(payload):
     """Split a vector set DUMP payload into (module_id, tokens, rdb_version),
