@@ -4238,23 +4238,25 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         #
         # Rows model ad-tech events in a Druid-style columnar segment:
         # 0 {country Brazil clicks 1 gender male}
-        # 1 {country Brazil clicks 1 gender female}
-        # 2 {country United States impressions 1 gender female}
+        # 1 {country United States impressions 1 gender female}
+        # 2 {country Brazil clicks 1 gender female}
         # 3 {country United States clicks 1 gender male}
         # 4 {country United States installs 1 gender female}
         # 5 {country United States impressions 1 gender female}
-        # 6 {country United States installs 1 gender female}
+        # 6 {country Israel impressions 1 gender male}
+        # 7 {country United States installs 1 gender female}
         #
         # Each dimension or metric value is indexed by the row IDs that match it.
         foreach {index bits} {
-            country:brazil {0 1}
-            country:united-states {2 3 4 5 6}
-            gender:male {0 3}
-            gender:female {1 2 4 5 6}
-            metric:clicks {0 1 3}
-            metric:impressions {2 5}
-            metric:installs {4 6}
-            universe {0 1 2 3 4 5 6}
+            country:brazil {0 2}
+            country:united-states {1 3 4 5 7}
+            country:israel {6}
+            gender:male {0 3 6}
+            gender:female {1 2 4 5 7}
+            metric:clicks {0 2 3}
+            metric:impressions {1 5 6}
+            metric:installs {4 7}
+            universe {0 1 2 3 4 5 6 7}
         } {
             seed_roaring_bitmap "bitmap:olap:$index" $bits
             assert_equal bitmap [r type "bitmap:olap:$index"]
@@ -4270,27 +4272,30 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         #
         # The NOT predicate must be bounded by the segment universe. Otherwise
         # complementing a bitmap may include bits outside the ingested rows.
+        # All eight rows fill one byte. Pad the logical length with a zero in
+        # the next byte so NOT still exercises a bit outside the universe.
+        r setbit bitmap:olap:metric:installs 8 0
         r bitop not bitmap:olap:q:not-installs:raw bitmap:olap:metric:installs
-        assert_equal 1 [r getbit bitmap:olap:q:not-installs:raw 7]
+        assert_equal 1 [r getbit bitmap:olap:q:not-installs:raw 8]
 
         r bitop and bitmap:olap:q:not-installs \
             bitmap:olap:universe bitmap:olap:q:not-installs:raw
-        assert_bitmap_has_exact_bits bitmap:olap:q:not-installs {0 1 2 3 5}
-        assert_equal 0 [r getbit bitmap:olap:q:not-installs 7]
+        assert_bitmap_has_exact_bits bitmap:olap:q:not-installs {0 1 2 3 5 6}
+        assert_equal 0 [r getbit bitmap:olap:q:not-installs 8]
 
         r bitop and bitmap:olap:q:female-click-no-install \
             bitmap:olap:gender:female bitmap:olap:metric:clicks bitmap:olap:q:not-installs
-        assert_bitmap_has_exact_bits bitmap:olap:q:female-click-no-install {1}
+        assert_bitmap_has_exact_bits bitmap:olap:q:female-click-no-install {2}
         assert_equal bitmap [r type bitmap:olap:q:female-click-no-install]
 
         # Query: how many United States users clicked or saw an impression?
         r bitop or bitmap:olap:q:engaged \
             bitmap:olap:metric:clicks bitmap:olap:metric:impressions
-        assert_bitmap_has_exact_bits bitmap:olap:q:engaged {0 1 2 3 5}
+        assert_bitmap_has_exact_bits bitmap:olap:q:engaged {0 1 2 3 5 6}
 
         r bitop and bitmap:olap:q:us-engaged \
             bitmap:olap:country:united-states bitmap:olap:q:engaged
-        assert_bitmap_has_exact_bits bitmap:olap:q:us-engaged {2 3 5}
+        assert_bitmap_has_exact_bits bitmap:olap:q:us-engaged {1 3 5}
         assert_equal bitmap [r type bitmap:olap:q:us-engaged]
     }
 
