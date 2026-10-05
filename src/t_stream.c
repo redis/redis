@@ -2779,6 +2779,21 @@ void xlenCommand(client *c) {
  * This is useful because while XREAD is a read command and can be called
  * on slaves, XREADGROUP is not. */
 #define XREAD_BLOCKED_DEFAULT_COUNT 1000
+/* Called by handleClientsBlockedOnKey() for a consumer blocked by XREADGROUP
+ * that only new entries can serve (c->bstate.xread_group is set): return 0 if
+ * re-executing it would just block it again, because nothing was added to the
+ * stream 'o' after the last ID its group delivered (another consumer of the
+ * group was served first), or because the stream is empty. When the newest
+ * entries were deleted, xreadCommand() does not serve the consumer either, but
+ * telling that apart needs a stream iterator, so it is re-executed as before.
+ * A missing group returns 1, so that the command replies -NOGROUP. */
+int streamBlockedReaderMayBeServed(client *c, kvobj *o) {
+    stream *s = o->ptr;
+    streamCG *group = streamLookupCG(s, c->bstate.xread_group->ptr);
+    if (group == NULL) return 1;
+    return s->length != 0 && streamCompareID(&s->last_id, &group->last_id) > 0;
+}
+
 void xreadCommand(client *c) {
     long long min_idle_time = -1; /* -1 means, no IDLE argument given. */
     uint64_t timeout = 0;
@@ -3188,6 +3203,17 @@ void xreadCommand(client *c) {
             else
                 pel_expire_time += commandTimeSnapshot();
             trackStreamClaimTimeouts(c, c->argv+streams_arg, streams_count, pel_expire_time);
+        }
+        /* A consumer waiting on one stream for new entries can only be served
+         * by entries its group has not delivered yet: remember the group, so
+         * that handleClientsBlockedOnKey() leaves the consumer blocked when
+         * there are none instead of re-executing the command. With CLAIM the
+         * PEL can serve it too, and a consumer of several streams also moves
+         * to the back of the other streams' queues when it blocks again, so
+         * both are always re-executed. */
+        if (xreadgroup && min_idle_time == -1 && streams_count == 1) {
+            c->bstate.xread_group = groupname;
+            incrRefCount(groupname);
         }
         blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout, xreadgroup);
         goto cleanup;
