@@ -2196,6 +2196,8 @@ void afterSleep(struct aeEventLoop *eventLoop) {
         server.el_start = getMonotonicUs();
         /* Set the eventloop command count at start. */
         server.el_cmd_cnt_start = server.stat_numcommands;
+        /* Start the CPU window. After the GIL, so waiting for it isn't counted. */
+        cpuSampleTake(&server.cpu_checkpoint);
     }
 
     /* Set running after waking up */
@@ -2999,6 +3001,8 @@ void resetServerStats(void) {
     server.stat_slowlog_count = 0;
     server.stat_slowlog_time_us_sum = 0;
     server.stat_slowlog_time_us_max = 0;
+    server.stat_cpu_starvation_events = 0;
+    server.stat_off_cpu_blocked_events = 0;
     lazyfreeResetStats();
 }
 
@@ -3106,6 +3110,8 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit(monotonicLogCallback);
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
+    /* Initial CPU window, until the first afterSleep(). */
+    cpuSampleTake(&server.cpu_checkpoint);
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -3915,25 +3921,130 @@ int getPropagateTargetsForCall(client *c, int flags) {
     return targets;
 }
 
-/* Log the last command a client executed into the slowlog. */
-void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration) {
+/* The thread running call(): the main thread, or a module thread via RM_Call. */
+#ifdef RUSAGE_THREAD
+#define COMMAND_RUSAGE_WHO RUSAGE_THREAD
+#else
+#define COMMAND_RUSAGE_WHO RUSAGE_SELF
+#endif
+
+/* user+sys CPU time in a struct rusage, in microseconds. */
+static inline ustime_t rusageCpuUs(const struct rusage *ru) {
+    return (ustime_t)ru->ru_utime.tv_sec*1000000 + ru->ru_utime.tv_usec +
+           (ustime_t)ru->ru_stime.tv_sec*1000000 + ru->ru_stime.tv_usec;
+}
+
+/* A slow command is reported when its guaranteed off-CPU time reaches both
+ * slowlog-log-slower-than and this floor (user/sys time are truncated to
+ * whole microseconds, so a few us of "off-CPU" can be noise).
+ * More involuntary than voluntary switches is reported as starvation,
+ * otherwise blocked. Run-queue wait after a sleep adds no involuntary
+ * switch, so it shows as blocked. */
+#define CPU_STARVATION_MIN_OFFCPU_US 100
+
+/* Sample the current thread: wall clock, CPU time, context switches. */
+void cpuSampleTake(cpuSample *s) {
+    struct rusage ru;
+    getrusage(COMMAND_RUSAGE_WHO, &ru);
+    s->wall = getMonotonicUs();
+    s->cpu_us = rusageCpuUs(&ru);
+    s->nvcsw = ru.ru_nvcsw;
+    s->nivcsw = ru.ru_nivcsw;
+}
+
+/* Log the last command a client executed into the slowlog, with its CPU time,
+ * and warn if it was mostly off-CPU.
+ *
+ * Main thread: off-CPU time is measured over the window since
+ * server.cpu_checkpoint (taken when the event loop wakes, moved by each slow
+ * command), so fast commands pay no syscall. Only the part that must have
+ * happened inside this command is charged to it.
+ * Module thread: call() measured the command exactly into c->cpu_*.
+ * sample_cpu is 0 on the unblock path: c->duration is from an earlier iteration. */
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, int sample_cpu) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
     if (cmd->flags & CMD_SKIP_SLOWLOG)
         return;
+    /* Don't sample for commands that won't be logged. */
+    if (!slowlogWouldLog(duration))
+        return;
+
+    /* Execution time only; 'duration' may also include blocked/background time. */
+    ustime_t measured = c->duration;
+    ustime_t cpu_duration = 0;
+    /* off_min: off-CPU time that must be inside this command; off_max: at most. */
+    ustime_t off_min = 0, off_max = 0;
+    long cpu_nvcsw = 0, cpu_nivcsw = 0;
+    if (sample_cpu) {
+        if (pthread_equal(pthread_self(), server.main_thread_id)) {
+            cpuSample now;
+            cpuSampleTake(&now);
+            ustime_t window = (ustime_t)(now.wall - server.cpu_checkpoint.wall);
+            ustime_t gap = window - (now.cpu_us - server.cpu_checkpoint.cpu_us);
+            if (gap < 0) gap = 0;
+            /* Off-CPU outside the command can't exceed the window time outside it. */
+            ustime_t outside = window > measured ? window - measured : 0;
+            off_max = gap < measured ? gap : measured;
+            off_min = gap > outside ? gap - outside : 0;
+            if (off_min > off_max) off_min = off_max;
+            cpu_duration = measured - off_min;
+            cpu_nvcsw = now.nvcsw - server.cpu_checkpoint.nvcsw;
+            cpu_nivcsw = now.nivcsw - server.cpu_checkpoint.nivcsw;
+            server.cpu_checkpoint = now;
+        } else {
+            cpu_duration = c->cpu_duration;
+            off_max = measured > cpu_duration ? measured - cpu_duration : 0;
+            off_min = off_max;
+            cpu_nvcsw = c->cpu_nvcsw;
+            cpu_nivcsw = c->cpu_nivcsw;
+        }
+    }
 
     /* If command argument vector was rewritten, use the original
      * arguments. */
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
-    if (slowlogPushEntryIfNeeded(c,argv,argc,duration)) {
-        server.stat_slowlog_count++;
-        server.stat_slowlog_time_us_sum += duration;
-        if (duration > server.stat_slowlog_time_us_max)
-            server.stat_slowlog_time_us_max = duration;
-        cmd->slowlog_count++;
-        cmd->slowlog_time_us_sum += duration;
-        if (duration > cmd->slowlog_time_us_max)
-            cmd->slowlog_time_us_max = duration;
+    if (!slowlogPushEntryIfNeeded(c,argv,argc,duration,cpu_duration))
+        return;
+    server.stat_slowlog_count++;
+    server.stat_slowlog_time_us_sum += duration;
+    if (duration > server.stat_slowlog_time_us_max)
+        server.stat_slowlog_time_us_max = duration;
+    cmd->slowlog_count++;
+    cmd->slowlog_time_us_sum += duration;
+    if (duration > cmd->slowlog_time_us_max)
+        cmd->slowlog_time_us_max = duration;
+
+    /* Decide on off_min, so earlier off-CPU time isn't blamed on this command. */
+    if (sample_cpu && off_min >= server.slowlog_log_slower_than &&
+        off_min >= CPU_STARVATION_MIN_OFFCPU_US)
+    {
+        int starvation = cpu_nivcsw > cpu_nvcsw;
+        const char *what = starvation ? "starvation" : "blocked";
+        if (starvation)
+            server.stat_cpu_starvation_events++;
+        else
+            server.stat_off_cpu_blocked_events++;
+
+        /* At most one line per second; the INFO counters count every event. */
+        static mstime_t last_log_time_ms = 0;
+        static long long suppressed = 0;
+        const mstime_t log_interval_ms = 1000;
+        if (server.mstime > last_log_time_ms + log_interval_ms) {
+            char extra[64];
+            extra[0] = '\0';
+            if (suppressed)
+                snprintf(extra, sizeof(extra), " (%lld more suppressed)", suppressed);
+            last_log_time_ms = server.mstime;
+            suppressed = 0;
+            serverLog(LL_WARNING,
+                "Slow command off-CPU (%s): took %lldus, at least %lldus off-CPU "
+                "(up to %lldus), %ld involuntary / %ld voluntary context switches%s",
+                what, (long long)measured, (long long)off_min, (long long)off_max,
+                cpu_nivcsw, cpu_nvcsw, extra);
+        } else {
+            suppressed++;
+        }
     }
 }
 
@@ -4208,6 +4319,13 @@ void call(client *c, int flags) {
     const long long call_timer = use_hw_clock ? server.ustime : ustime();
     enterExecutionUnit(1, call_timer);
 
+    /* Per-command CPU sample only on a module thread; main-thread commands
+     * are estimated from server.cpu_checkpoint (no syscall per command). */
+    const int sample_cpu = update_command_stats &&
+                           !pthread_equal(pthread_self(), server.main_thread_id);
+    struct rusage ru_start;
+    if (sample_cpu) getrusage(COMMAND_RUSAGE_WHO, &ru_start);
+
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
      * sending client side caching message in the middle of a command reply.
      * In case of blocking commands, the flag will be un-set only after successfully
@@ -4254,6 +4372,14 @@ void call(client *c, int flags) {
     /* Store for afterCommandEx before we reset c->duration. */
     ustime_t total_duration = c->duration;
 
+    if (sample_cpu) {
+        struct rusage ru_end;
+        getrusage(COMMAND_RUSAGE_WHO, &ru_end);
+        c->cpu_duration += rusageCpuUs(&ru_end) - rusageCpuUs(&ru_start);
+        c->cpu_nvcsw += ru_end.ru_nvcsw - ru_start.ru_nvcsw;
+        c->cpu_nivcsw += ru_end.ru_nivcsw - ru_start.ru_nivcsw;
+    }
+
     dirty = server.dirty-dirty;
     if (dirty < 0) dirty = 0;
 
@@ -4289,10 +4415,10 @@ void call(client *c, int flags) {
             durationAddSample(EL_DURATION_TYPE_CMD, duration);
     }
 
-    /* Log the command into the Slow log if needed.
+    /* Log the command into the Slow log if needed (also flags off-CPU time).
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED))
-        slowlogPushCurrentCommand(c, real_cmd, c->duration);
+        slowlogPushCurrentCommand(c, real_cmd, c->duration, 1);
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
@@ -4338,6 +4464,9 @@ void call(client *c, int flags) {
      * which is expected to record and reset the duration after unblocking. */
     if (!(c->flags & CLIENT_BLOCKED)) {
         c->duration = 0;
+        c->cpu_duration = 0;
+        c->cpu_nvcsw = 0;
+        c->cpu_nivcsw = 0;
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -4456,6 +4585,9 @@ void call(client *c, int flags) {
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
     c->duration = 0;
+    c->cpu_duration = 0;
+    c->cpu_nvcsw = 0;
+    c->cpu_nivcsw = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
@@ -4468,6 +4600,9 @@ void rejectCommand(client *c, robj *reply) {
 void rejectCommandSds(client *c, sds s) {
     flagTransaction(c);
     c->duration = 0;
+    c->cpu_duration = 0;
+    c->cpu_nvcsw = 0;
+    c->cpu_nivcsw = 0;
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
@@ -4810,6 +4945,9 @@ int processCommand(client *c) {
             }
             clusterRedirectClient(c,n,c->slot,error_code);
             c->duration = 0;
+            c->cpu_duration = 0;
+            c->cpu_nvcsw = 0;
+            c->cpu_nivcsw = 0;
             c->cmd->rejected_calls++;
             return C_OK;
         }
@@ -7024,6 +7162,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "slowlog_commands_count:%lld\r\n", server.stat_slowlog_count,
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
             "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
+            "cpu_starvation_events:%lld\r\n", server.stat_cpu_starvation_events,
+            "off_cpu_blocked_events:%lld\r\n", server.stat_off_cpu_blocked_events,
             "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
             "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
         info = genRedisInfoStringACLStats(info);

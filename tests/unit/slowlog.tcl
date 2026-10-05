@@ -50,7 +50,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r client setname foobar
         r debug sleep 0.2
         set e [lindex [r slowlog get] 0]
-        assert_equal [llength $e] 7
+        assert_equal [llength $e] 8
         if {!$::external} {
             assert_equal [lindex $e 0] 106
         }
@@ -58,6 +58,47 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal [lindex $e 3] {debug sleep 0.2}
         assert_equal {foobar} [lindex $e 5]
         assert_equal [lindex $e 6] 3
+        # debug sleep blocks on a syscall rather than burning CPU, so the
+        # executing-thread CPU time (field 7) should be far below the
+        # wall-clock duration (field 2).
+        assert_equal [expr {[lindex $e 7] < [lindex $e 2]}] 1
+    } {} {needs:debug}
+
+    test {SLOWLOG - off-CPU blocked command is counted and logged} {
+        r config set slowlog-log-slower-than 100000
+        # Earlier tests' DEBUG SLEEPs also log this line; wait out the
+        # one-second rate limit so this test's line is not suppressed.
+        after 1100
+        set loglines [count_log_lines 0]
+        set before [s off_cpu_blocked_events]
+        r debug sleep 0.2
+        wait_for_log_messages 0 {"*off-CPU (blocked)*"} $loglines 50 100
+        assert_equal [expr {$before + 1}] [s off_cpu_blocked_events]
+    } {} {needs:debug external:skip}
+
+    test {SLOWLOG - CPU-bound command gets a non-zero CPU estimate} {
+        r config set slowlog-log-slower-than 0
+        r slowlog reset
+        r eval {local i = 0 while i < 3000000 do i = i + 1 end return i} 0
+        set e [lindex [r slowlog get] 0]
+        assert_match {eval *} [lindex $e 3]
+        # No ratio assertion: how much of it ran on-CPU depends on the host.
+        assert_morethan [lindex $e 7] 0
+    }
+
+    test {SLOWLOG - off-CPU time before a command is not blamed on it} {
+        # Five sleeps, each under the threshold so none of them is logged,
+        # add 25ms of off-CPU time to the window before a CPU-bound EVAL.
+        r config set slowlog-log-slower-than 20000
+        r slowlog reset
+        set before [s off_cpu_blocked_events]
+        r multi
+        for {set i 0} {$i < 5} {incr i} { r debug sleep 0.005 }
+        r eval {local i = 0 while i < 10000000 do i = i + 1 end return i} 0
+        r exec
+        set e [lindex [r slowlog get 1] 0]
+        assert_match {eval *} [lindex $e 3]
+        assert_equal $before [s off_cpu_blocked_events]
     } {} {needs:debug}
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
@@ -312,12 +353,16 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r debug sleep 0.2
         set info [r info stats]
         assert_equal 1 [getInfoProperty $info slowlog_commands_count]
+        assert_equal 1 [expr {[getInfoProperty $info off_cpu_blocked_events] +
+                              [getInfoProperty $info cpu_starvation_events]}]
 
         r config resetstat
         set info [r info stats]
         assert_equal 0 [getInfoProperty $info slowlog_commands_count]
         assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_max]
         assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_sum]
+        assert_equal 0 [getInfoProperty $info off_cpu_blocked_events]
+        assert_equal 0 [getInfoProperty $info cpu_starvation_events]
     } {} {needs:debug}
 
     test {SLOWLOG - INFO COMMANDSTATS shows slowlog metrics for slow commands} {
@@ -488,5 +533,40 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r sadd set 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33
         set e [lindex [r slowlog get] end-1]
         assert_equal [lindex $e 6] 33
+    }
+}
+
+# Real CPU starvation: pin the server and a few busy loops to one CPU and drop
+# the server to the lowest priority, so a CPU-bound command is preempted many
+# times while it runs. Own server, because renice can't be undone unprivileged.
+set system_name [string tolower [exec uname -s]]
+if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
+    start_server {tags {"slowlog external:skip"}} {
+        test {SLOWLOG - CPU starvation is detected for a preempted command} {
+            set pid [srv 0 pid]
+            set fd [open "/proc/$pid/status" r]
+            regexp {Cpus_allowed_list:\s*([0-9]+)} [read $fd] -> cpu
+            close $fd
+            exec taskset -cp $cpu $pid
+            exec renice -n 19 -p $pid
+
+            r config set slowlog-log-slower-than 1000
+            set before [s cpu_starvation_events]
+            set busy {}
+            for {set i 0} {$i < 3} {incr i} {
+                lappend busy [exec taskset -c $cpu sh -c {while :; do :; done} &]
+            }
+            set err [catch {
+                r eval {local i = 0 while i < 1000000 do i = i + 1 end return i} 0
+                set e [lindex [r slowlog get 1] 0]
+            } msg]
+            foreach p $busy {catch {exec kill $p}}
+            if {$err} {error $msg}
+
+            assert_match {eval *} [lindex $e 3]
+            # Mostly off-CPU: the estimated CPU is well under half the duration.
+            assert {[lindex $e 7] < [lindex $e 2] / 2}
+            assert_morethan [s cpu_starvation_events] $before
+        }
     }
 }

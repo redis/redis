@@ -1577,6 +1577,10 @@ typedef struct client {
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
+    long cpu_duration;      /* CPU time (usec) of the current command; measured only off the
+                               main thread. Accumulates/resets with duration. */
+    long cpu_nvcsw;         /* Voluntary context switches, same rule. */
+    long cpu_nivcsw;        /* Involuntary context switches, same rule. */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
     int cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
                                            * -2 means we don't need to check slot violation, or we already found
@@ -2075,6 +2079,14 @@ typedef enum childInfoType {
 
 typedef struct hotkeyStats hotkeyStats;
 
+/* A thread sample (wall clock, CPU time, context switches), for diffing. */
+typedef struct cpuSample {
+    monotime wall;
+    ustime_t cpu_us;    /* user+sys */
+    long nvcsw;
+    long nivcsw;
+} cpuSample;
+
 struct redisServer {
     /* General */
     pid_t pid;                  /* Main process pid. */
@@ -2250,6 +2262,9 @@ struct redisServer {
     long long stat_slowlog_count;          /* Total slowlog entries ever pushed */
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
+    long long stat_cpu_starvation_events;  /* Slowlog entries classified as CPU starvation */
+    long long stat_off_cpu_blocked_events; /* Slowlog entries classified as off-CPU (blocked) */
+    cpuSample cpu_checkpoint;   /* Start of the main thread's CPU window. */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
@@ -3909,7 +3924,8 @@ void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
 void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
-void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration);
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, int sample_cpu);
+void cpuSampleTake(cpuSample *s);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);
