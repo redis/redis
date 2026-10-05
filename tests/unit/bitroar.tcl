@@ -1818,6 +1818,11 @@ tags {"bitmap" "bitmap-roaring" "aof" "external:skip" "cluster:skip" "logreqres:
     create_aof $aof_dirpath "$aof_dirpath/appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix" {
         append_to_aof [formatCommand select 0]
         append_to_aof [formatCommand eval {return redis.call('setbit', KEYS[1], 1, 1)} 1 bitmap:aof-eval]
+        # The complement of an empty 1 GiB value, which a writer with a 1 GiB
+        # proto-max-bulk-len accepted. pcall keeps a rejection silent.
+        append_to_aof [formatCommand bitconvert bitop:aof-eval-not:src]
+        append_to_aof [formatCommand setbit bitop:aof-eval-not:src [expr {1024 * 1024 * 1024 * 8 - 1}] 0]
+        append_to_aof [formatCommand eval {redis.pcall('bitop', 'not', KEYS[1], KEYS[2]) return 1} 2 bitop:aof-eval-not:dest bitop:aof-eval-not:src]
     }
     create_aof_manifest $aof_dirpath "$aof_dirpath/appendonly.aof$::manifest_suffix" {
         append_to_manifest "file appendonly.aof.1$::incr_aof_suffix$::aof_format_suffix seq 1 type i\n"
@@ -1828,6 +1833,12 @@ tags {"bitmap" "bitmap-roaring" "aof" "external:skip" "cluster:skip" "logreqres:
             r select 0
             assert_equal string [r type bitmap:aof-eval]
             assert_equal [binary format H* 40] [r get bitmap:aof-eval]
+        }
+
+        test {scripts replayed from the AOF obey the writer's BITOP NOT missing-chunk budget} {
+            r select 0
+            assert_equal bitmap [r type bitop:aof-eval-not:dest]
+            assert_equal [expr {1024 * 1024 * 1024 * 8}] [r bitcount bitop:aof-eval-not:dest]
         }
     }
 }
@@ -3175,6 +3186,11 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r set bitop:not:raised:dest keep
         assert_error {ERR BITOP NOT would materialize more than 65537 missing Roaring chunks} {
             r bitop not bitop:not:raised:dest bitop:not:raised:src
+        }
+        # A script run by a normal client is bounded too.
+        assert_error {*BITOP NOT would materialize more than 65537 missing Roaring chunks*} {
+            r eval {return redis.call('bitop', 'not', KEYS[1], KEYS[2])} 2 \
+                bitop:not:raised:dest bitop:not:raised:src
         }
         assert_equal keep [r get bitop:not:raised:dest]
 
