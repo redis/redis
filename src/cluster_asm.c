@@ -3198,7 +3198,7 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     job->bg->track_stream_stats = server.stream_stats;
     /* Off: these keys leave with their samples untallied, so the rows fall
      * behind and enabling must start a new generation. */
-    if (!server.stream_stats) server.stream_stats_stale = 1;
+    if (!server.stream_stats && !server.stream_stats_stale) server.stream_stats_stale = 1;
     job->bg->stream_stats_epoch = meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
 
     /* Increment background trim counter. */

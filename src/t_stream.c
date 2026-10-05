@@ -249,7 +249,10 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
                              streamDistribMetric metric, int64_t old_val, int64_t new_val)
 {
     if (!server.stream_stats) {
-        server.stream_stats_stale = 1; /* the rows fall behind: enabling starts over */
+        /* The rows fall behind: enabling must start over. Check before storing
+         * so the steady state is a read of an already-set flag -- no store to
+         * the (hot, shared) cache line this flag lives on. */
+        if (!server.stream_stats_stale) server.stream_stats_stale = 1;
         return;
     }
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
@@ -291,7 +294,10 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
  * enable. One traversal of the groups however many metrics there are. */
 static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
     if (!server.stream_stats) {
-        server.stream_stats_stale = 1; /* the rows fall behind: enabling starts over */
+        /* A stream entering or leaving always moves samples, so the rows fall
+         * behind and enabling must start over. Check before storing so the
+         * steady state is a read of an already-set flag, not a store. */
+        if (!server.stream_stats_stale) server.stream_stats_stale = 1;
         return;
     }
     for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
