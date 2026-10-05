@@ -1513,14 +1513,20 @@ static void bitroarPropagateBitroarop(client *c) {
     zfree(argv);
 }
 
+/* True for the master and the AOF, and for a command they replay that runs
+ * nested on the fake client of RM_Call() or a script. */
+static int bitopMustObey(client *c) {
+    return mustObeyClient(c) ||
+           (server.current_client && mustObeyClient(server.current_client));
+}
+
 /* BITOP allocates its result-sized buffers with a try-variant so a normal
  * client gets an out of memory error instead of aborting the server. A master
  * or the AOF, also when running a nested command, must apply every write the
  * primary performed: an error there is only logged and the dataset silently
  * diverges, so fail-stop through the regular allocation instead. */
 static int bitopUseTryAlloc(client *c) {
-    return !mustObeyClient(c) &&
-           !(server.current_client && mustObeyClient(server.current_client));
+    return !bitopMustObey(c);
 }
 
 /* BITOP whose result is a Roaring bitmap. Sources come from
@@ -1534,11 +1540,11 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     /* Only borrowed Roaring sources can encode many missing logical chunks in
      * little resident memory. Bound that allocation amplification without
      * rejecting dense sources solely because their byte length is large. The
-     * budget follows proto-max-bulk-len, so like the offset limit it is not
-     * applied to the replication stream or AOF, which replay accepted
-     * commands. */
+     * budget follows proto-max-bulk-len, so it is not applied to the
+     * replication stream or AOF, which replay accepted commands, including a
+     * BITOP NOT nested in a module command or a script they replay. */
     if (op == BITOP_NOT && objects[0]->type == OBJ_BITMAP &&
-        !mustObeyClient(c))
+        !bitopMustObey(c))
     {
         uint64_t max_missing = bitroarBitopNotMissingChunkLimit();
         if (!bitroarBitopNotWithinMissingChunkLimit(objects[0], max_missing)) {
