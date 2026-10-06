@@ -2632,9 +2632,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
 
-        /* Sanity check: links should be less than max links and
-         * in general a reasonable amount. */
-        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+        /* Sanity check: links should be less than max links, and max links
+         * must not exceed what select_neighbors() can ever grow a layer to.
+         * A larger fan-out can only come from tampered data, and deleting
+         * such a node makes hnsw_reconnect_nodes() quadratic in its size. */
+        uint32_t links_limit = i == 0 ? index->M * 3 : index->M * 2;
+        if (num_links > max_links || max_links > links_limit) {
             hnsw_node_free(node);
             return NULL;
         }
