@@ -3442,10 +3442,11 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
-/* When stream-stats is turned off, zero the per-db INFO `Streams` histograms so
- * they hold no stale samples while disabled; re-enabling starts from a clean
- * slate and fills in lazily (a reload rebuilds them exactly). Apply hooks run
- * only on runtime CONFIG SET, so the dbs are always initialized here. */
+/* Disabling stream-stats stops the bookkeeping and hides the section; the
+ * per-db INFO `Streams` rows are kept. Re-enabling keeps them if no stream
+ * changed meanwhile (server.stream_stats_stale is clear) and otherwise starts
+ * a new generation, filling in lazily. Apply hooks run only on runtime CONFIG
+ * SET, so the dbs are always initialized here. */
 static int applyStreamStats(const char **err) {
     UNUSED(err);
     if (!server.stream_stats) {
