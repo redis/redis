@@ -2144,6 +2144,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.el_start > 0) {
         monotime el_duration = getMonotonicUs() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+        /* Not reached while nested: ProcessingEventsWhileBlocked returns early above. */
         offCpuCheckEventLoopCycle((ustime_t)el_duration);
     }
     server.el_cron_duration += duration_before_aof + duration_after_write;
@@ -4016,7 +4017,9 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
             cpu_duration = measured - off_min;
             cpu_nvcsw = now.nvcsw - server.cpu_checkpoint.nvcsw;
             cpu_nivcsw = now.nivcsw - server.cpu_checkpoint.nivcsw;
-            server.cpu_checkpoint = now;
+            /* Only top-level commands move the checkpoint, so a script or module
+             * command keeps the off-CPU time of slow commands it calls. */
+            if (server.execution_nesting == 0) server.cpu_checkpoint = now;
         } else {
             cpu_duration = c->cpu_duration;
             off_max = measured > cpu_duration ? measured - cpu_duration : 0;
