@@ -248,6 +248,7 @@ robj *streamDup(robj *o) {
                                                        src_entry->iid_len,
                                                        &new_s->alloc_size);
                 new_entry->id = src_entry->id;
+                new_entry->insert_time = src_entry->insert_time;
 
                 /* Append to tail of the new producer's linked list. */
                 if (new_prod->idmp_tail != NULL) {
@@ -6168,6 +6169,11 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
     entry->next = NULL;
     entry->id = *id;
 
+    /* Expiration is driven by the wall clock, not by the stream ID: stream
+     * IDs are monotonic within a stream and can be set explicitly to any
+     * value, including one far in the future. */
+    entry->insert_time = server.mstime;
+
     /* Insert into dict (should always succeed since we already checked with lookup) */
     serverAssert(dictAdd(producer->idmp_dict, entry, NULL) == DICT_OK);
     
@@ -6253,9 +6259,10 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
  * The function processes up to CRON_DBS_PER_CALL databases per call in a
  * round-robin fashion, cycling through all databases over multiple invocations.
  * For each database, it iterates through the stream_idmp_keys dictionary.
- * For each tracked stream, it compares the timestamp of entries in the stream's
- * idmp linked list against the expiration threshold (current time - idmp_duration).
- * Entries with timestamps older than the threshold are removed from the head
+ * For each tracked stream, it compares the wall-clock recording time of the
+ * entries in the stream's idmp linked list against the expiration threshold
+ * (current time - idmp_duration).
+ * Entries with a recording time older than the threshold are removed from the head
  * of the linked list. When all entries have been removed and the list becomes empty,
  * the stream key is removed from stream_idmp_keys to stop tracking it. */
 void handleExpiredIdmpEntries(void) {
@@ -6301,7 +6308,7 @@ void handleExpiredIdmpEntries(void) {
                 /* Remove expired entries from the head of this producer's linked list */
                 while (producer->idmp_head != NULL) {
                     idmpEntry *entry = producer->idmp_head;
-                    if (entry->id.ms <= expire_time) {
+                    if (entry->insert_time <= expire_time) {
                         /* Remove from dict */
                         dictDelete(producer->idmp_dict, entry);
                         /* Remove from linked list head */

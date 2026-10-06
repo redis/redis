@@ -850,7 +850,7 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
          * timestamp, so all entries after the first valid one are also valid. */
         idmpEntry *first_valid = producer->idmp_head;
         size_t expired = 0;
-        while (first_valid && first_valid->id.ms <= expire_time) {
+        while (first_valid && first_valid->insert_time <= expire_time) {
             first_valid = first_valid->next;
             expired++;
         }
@@ -974,6 +974,12 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             /* Set the stream ID. */
             entry->id = id;
             entry->next = NULL;
+
+            /* The recording time is not persisted. For auto-generated IDs the
+             * stream ID's timestamp equals it, otherwise clamp to the current
+             * clock so that entries with an explicit future timestamp still
+             * expire after one duration (see issue #15836). */
+            entry->insert_time = (id.ms < server.mstime) ? id.ms : server.mstime;
 
             /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
             int ret = dictAdd(producer->idmp_dict, entry, NULL);

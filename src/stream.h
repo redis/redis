@@ -19,6 +19,9 @@ typedef struct streamID {
 typedef struct idmpEntry {
     struct idmpEntry *next;  /* Pointer to next entry in insertion order (linked list) */
     streamID id;             /* Associated stream ID */
+    uint64_t insert_time;    /* Wall clock time (ms) when the entry was recorded.
+                                Entries expire by this time, not by the stream ID,
+                                which can be set explicitly to any value. */
     size_t iid_len;          /* Length of the IID */
     char iid[];              /* Flexible array member for inline IID storage */
 } idmpEntry;

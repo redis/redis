@@ -963,6 +963,41 @@ start_server {
         assert_equal 4 [r XLEN mystream]
     } {} {external:skip}
 
+    test {XADD IDMP entries with future stream IDs expire after RDB load} {
+        r DEL mystream
+
+        # Set the stream's last ID far in the future with an explicit ID:
+        # auto-generated IDs inherit that timestamp, so expiration must be
+        # driven by the recording time, not by the stream ID.
+        r XADD mystream 9999999999999-0 field "value"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP p2 "req-1" * field "v2"]
+
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 2 [dict get $reply iids-tracked]
+
+        r SAVE
+        restart_server 0 true false
+
+        # Entries survive the restart and still deduplicate
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal $id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+
+        # After the restart the entries must expire within one duration
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries did not expire after RDB load"
+        }
+
+        # Expired IIDs should be re-addable as new entries
+        set new_id [r XADD mystream IDMP p1 "req-1" * field "new"]
+        assert {$new_id ne $id1}
+    } {} {external:skip}
+
     test {XADD IDMP tracking survives SWAPDB} {
         # Use dedicated clients for DB 0 and DB 1 so that `r` stays on
         # DB 9 (the test default).  If any assertion fails mid-test,
@@ -1816,6 +1851,33 @@ start_server {
         # Now should create new entry
         set id3 [r XADD mystream IDMP p1 "req-1" * field "value3"]
         assert {$id1 ne $id3}
+    }
+
+    test {XIDMP entries expire based on wall clock even with future stream IDs} {
+        r DEL mystream
+
+        # Set the stream's last ID far in the future with an explicit ID:
+        # auto-generated IDs inherit that timestamp, so expiration must be
+        # driven by the recording time, not by the stream ID.
+        r XADD mystream 9999999999999-0 field "value"
+        r XCFGSET mystream IDMP-DURATION 1
+
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+
+        # The entry is still tracked: the same request returns the same ID
+        assert_equal $id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+
+        # Wait for expiration (1 second duration, cron runs every second)
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entries did not expire"
+        }
+
+        # After expiration the same request creates a new entry
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "value2"]
+        assert {$id1 ne $id2}
     }
 
     test {XIDMP set evicts entries when MAXSIZE is reached} {
