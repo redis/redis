@@ -651,6 +651,38 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
     }
 
+    test "STREAM-STATS - lazy enable: a read by an existing consumer registers every row" {
+        # A steady workload is reads and acks by consumers that already exist;
+        # it must fill in all three rows, not only the PEL one.
+        r config set stream-stats no
+        r FLUSHALL
+        r xadd s 1-0 f v
+        r xgroup create s g 0
+        r xreadgroup group g c streams s >
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        r xadd s 2-0 f v
+        r xreadgroup group g c streams s >
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_streams_cgroups groups] [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal [eval_stream_histogram r 0 stream_distrib_cgroups_consumers consumers] [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - lazy enable: an ack registers every row of the group and its stream" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r s 4
+        r xgroup create s g 0
+        r xreadgroup group g c count 2 streams s >
+        r config set stream-stats yes
+        r xack s g 1-1
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
     test "STREAM-STATS - FLUSHDB of one database leaves another's counts intact" {
         r config set stream-stats yes
         r FLUSHALL
