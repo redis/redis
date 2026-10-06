@@ -895,6 +895,8 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
 /* Load IDMP entries for a stream from the RDB file.
  * This loads all the idempotent producer tracking entries (IID -> stream ID mappings)
  * and inserts them into the stream's idmp_producers rax tree.
+ * The save side only wrote entries that were still within their duration, so
+ * everything found in the file is restored.
  * Format: num_producers, then for each producer: pid, num_entries, entries... */
 int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
     /* Load the number of producers. */
@@ -904,8 +906,6 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
     }
 
     if (num_producers == 0) return 0;
-
-    uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
 
     /* Create the producers rax tree. */
     s->idmp_producers = raxNewEx(0, &s->alloc_size, 0);
@@ -961,12 +961,6 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
                 goto cleanup;
             }
 
-            /* Skip entries that have already expired. */
-            if (id.ms <= expire_time) {
-                sdsfree(iid);
-                continue;
-            }
-
             /* Create the idmpEntry. */
             idmpEntry *entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
             sdsfree(iid); /* idmpEntryCreate makes a copy */
@@ -975,11 +969,14 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             entry->id = id;
             entry->next = NULL;
 
-            /* The recording time is not persisted. For auto-generated IDs the
-             * stream ID's timestamp equals it, otherwise clamp to the current
-             * clock so that entries with an explicit future timestamp still
+            /* The recording time is not persisted, so restored entries are
+             * honored for a fresh duration: everything the save side wrote
+             * was still within its duration when it was written. A fresh
+             * window can only extend deduplication (a retry keeps resolving
+             * to the recorded ID), never expire a mapping early. Entries
+             * recorded under an explicit future stream ID therefore also
              * expire after one duration (see issue #15836). */
-            entry->insert_time = (id.ms < server.mstime) ? id.ms : server.mstime;
+            entry->insert_time = server.mstime;
 
             /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
             int ret = dictAdd(producer->idmp_dict, entry, NULL);

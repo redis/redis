@@ -998,6 +998,25 @@ start_server {
         assert {$new_id ne $id1}
     } {} {external:skip}
 
+    test {XADD IDMP entries with explicit past stream IDs survive RDB load} {
+        r DEL mystream
+
+        # A mapping recorded now, but pointing at an old stream ID: expiration
+        # is driven by the recording time (which is not persisted), so the
+        # mapping must survive a save/load round trip and stay resolvable.
+        r XADD mystream 1000-0 field "value"
+        r XCFGSET mystream IDMP-DURATION 60
+        r XIDMPRECORD mystream p1 "req-1" 1000-0
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+
+        r SAVE
+        restart_server 0 true false
+
+        # The mapping is still tracked and deduplicates after the restart
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+        assert_equal "1000-0" [r XADD mystream IDMP p1 "req-1" * field "dup"]
+    } {} {external:skip}
+
     test {XADD IDMP tracking survives SWAPDB} {
         # Use dedicated clients for DB 0 and DB 1 so that `r` stays on
         # DB 9 (the test default).  If any assertion fails mid-test,
