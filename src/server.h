@@ -2264,7 +2264,11 @@ struct redisServer {
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     long long stat_cpu_starvation_events;  /* Slowlog entries classified as CPU starvation */
     long long stat_off_cpu_blocked_events; /* Slowlog entries classified as off-CPU (blocked) */
+    long long stat_eventloop_cpu_starvation_events;  /* Event-loop cycles classified as CPU starvation */
+    long long stat_eventloop_off_cpu_blocked_events; /* Event-loop cycles classified as off-CPU (blocked) */
     cpuSample cpu_checkpoint;   /* Start of the main thread's CPU window. */
+    cpuSample el_cpu_start;     /* Sample at the start of the event-loop cycle; never
+                                   moved by commands. */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
     redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
@@ -3926,6 +3930,7 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, int sample_cpu);
 void cpuSampleTake(cpuSample *s);
+void offCpuCheckEventLoopCycle(ustime_t el_duration);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);

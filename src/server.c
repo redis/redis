@@ -2144,6 +2144,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.el_start > 0) {
         monotime el_duration = getMonotonicUs() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+        offCpuCheckEventLoopCycle((ustime_t)el_duration);
     }
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
@@ -2198,6 +2199,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
         server.el_cmd_cnt_start = server.stat_numcommands;
         /* Start the CPU window. After the GIL, so waiting for it isn't counted. */
         cpuSampleTake(&server.cpu_checkpoint);
+        server.el_cpu_start = server.cpu_checkpoint;
     }
 
     /* Set running after waking up */
@@ -3003,6 +3005,8 @@ void resetServerStats(void) {
     server.stat_slowlog_time_us_max = 0;
     server.stat_cpu_starvation_events = 0;
     server.stat_off_cpu_blocked_events = 0;
+    server.stat_eventloop_cpu_starvation_events = 0;
+    server.stat_eventloop_off_cpu_blocked_events = 0;
     lazyfreeResetStats();
 }
 
@@ -3952,6 +3956,28 @@ void cpuSampleTake(cpuSample *s) {
     s->nivcsw = ru.ru_nivcsw;
 }
 
+/* Log an off-CPU warning, at most one line per second. The next line printed
+ * reports how many were suppressed; the INFO counters count every event. */
+static void offCpuLog(const char *fmt, ...) {
+    static mstime_t last_log_time_ms = 0;
+    static long long suppressed = 0;
+    if (server.mstime <= last_log_time_ms + 1000) {
+        suppressed++;
+        return;
+    }
+    char msg[LOG_MAX_LEN];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    if (suppressed)
+        serverLog(LL_WARNING, "%s (%lld more suppressed)", msg, suppressed);
+    else
+        serverLog(LL_WARNING, "%s", msg);
+    last_log_time_ms = server.mstime;
+    suppressed = 0;
+}
+
 /* Log the last command a client executed into the slowlog, with its CPU time,
  * and warn if it was mostly off-CPU.
  *
@@ -4026,26 +4052,38 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
         else
             server.stat_off_cpu_blocked_events++;
 
-        /* At most one line per second; the INFO counters count every event. */
-        static mstime_t last_log_time_ms = 0;
-        static long long suppressed = 0;
-        const mstime_t log_interval_ms = 1000;
-        if (server.mstime > last_log_time_ms + log_interval_ms) {
-            char extra[64];
-            extra[0] = '\0';
-            if (suppressed)
-                snprintf(extra, sizeof(extra), " (%lld more suppressed)", suppressed);
-            last_log_time_ms = server.mstime;
-            suppressed = 0;
-            serverLog(LL_WARNING,
-                "Slow command off-CPU (%s): took %lldus, at least %lldus off-CPU "
-                "(up to %lldus), %ld involuntary / %ld voluntary context switches%s",
-                what, (long long)measured, (long long)off_min, (long long)off_max,
-                cpu_nivcsw, cpu_nvcsw, extra);
-        } else {
-            suppressed++;
-        }
+        offCpuLog("Slow command off-CPU (%s): took %lldus, at least %lldus off-CPU "
+                  "(up to %lldus), %ld involuntary / %ld voluntary context switches",
+                  what, (long long)measured, (long long)off_min, (long long)off_max,
+                  cpu_nivcsw, cpu_nvcsw);
     }
+}
+
+/* Called from beforeSleep(): report the event-loop cycle if the main thread was
+ * off-CPU long enough to make it slow on that alone (starvation between fast
+ * commands never reaches the slowlog). Uses server.el_cpu_start, which commands
+ * don't move, so all numbers describe the whole cycle. */
+void offCpuCheckEventLoopCycle(ustime_t el_duration) {
+    if (server.slowlog_log_slower_than < 0 ||
+        el_duration < server.slowlog_log_slower_than)
+        return;
+    cpuSample now;
+    cpuSampleTake(&now);
+    ustime_t took = (ustime_t)(now.wall - server.el_cpu_start.wall);
+    ustime_t off = took - (now.cpu_us - server.el_cpu_start.cpu_us);
+    if (off < server.slowlog_log_slower_than || off < CPU_STARVATION_MIN_OFFCPU_US)
+        return;
+    long nvcsw = now.nvcsw - server.el_cpu_start.nvcsw;
+    long nivcsw = now.nivcsw - server.el_cpu_start.nivcsw;
+    int starvation = nivcsw > nvcsw;
+    if (starvation)
+        server.stat_eventloop_cpu_starvation_events++;
+    else
+        server.stat_eventloop_off_cpu_blocked_events++;
+    offCpuLog("Event loop cycle off-CPU (%s): took %lldus, %lldus off-CPU, %lld commands, "
+              "%ld involuntary / %ld voluntary context switches",
+              starvation ? "starvation" : "blocked", (long long)took, (long long)off,
+              server.stat_numcommands - server.el_cmd_cnt_start, nivcsw, nvcsw);
 }
 
 /* This function is called in order to update the total command histogram duration.
@@ -7164,6 +7202,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
             "cpu_starvation_events:%lld\r\n", server.stat_cpu_starvation_events,
             "off_cpu_blocked_events:%lld\r\n", server.stat_off_cpu_blocked_events,
+            "eventloop_cpu_starvation_events:%lld\r\n", server.stat_eventloop_cpu_starvation_events,
+            "eventloop_off_cpu_blocked_events:%lld\r\n", server.stat_eventloop_off_cpu_blocked_events,
             "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
             "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
         info = genRedisInfoStringACLStats(info);

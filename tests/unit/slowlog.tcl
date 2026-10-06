@@ -355,6 +355,8 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal 1 [getInfoProperty $info slowlog_commands_count]
         assert_equal 1 [expr {[getInfoProperty $info off_cpu_blocked_events] +
                               [getInfoProperty $info cpu_starvation_events]}]
+        assert_equal 1 [expr {[getInfoProperty $info eventloop_off_cpu_blocked_events] +
+                              [getInfoProperty $info eventloop_cpu_starvation_events]}]
 
         r config resetstat
         set info [r info stats]
@@ -363,6 +365,8 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_sum]
         assert_equal 0 [getInfoProperty $info off_cpu_blocked_events]
         assert_equal 0 [getInfoProperty $info cpu_starvation_events]
+        assert_equal 0 [getInfoProperty $info eventloop_off_cpu_blocked_events]
+        assert_equal 0 [getInfoProperty $info eventloop_cpu_starvation_events]
     } {} {needs:debug}
 
     test {SLOWLOG - INFO COMMANDSTATS shows slowlog metrics for slow commands} {
@@ -537,36 +541,68 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
 }
 
 # Real CPU starvation: pin the server and a few busy loops to one CPU and drop
-# the server to the lowest priority, so a CPU-bound command is preempted many
-# times while it runs. Own server, because renice can't be undone unprivileged.
+# the server to the lowest priority, so it's preempted many times while it runs.
+# Own server, because renice can't be undone unprivileged.
 set system_name [string tolower [exec uname -s]]
 if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
     start_server {tags {"slowlog external:skip"}} {
-        test {SLOWLOG - CPU starvation is detected for a preempted command} {
-            set pid [srv 0 pid]
-            set fd [open "/proc/$pid/status" r]
-            regexp {Cpus_allowed_list:\s*([0-9]+)} [read $fd] -> cpu
-            close $fd
-            exec taskset -cp $cpu $pid
-            exec renice -n 19 -p $pid
+        set pid [srv 0 pid]
+        set fd [open "/proc/$pid/status" r]
+        regexp {Cpus_allowed_list:\s*([0-9]+)} [read $fd] -> starve_cpu
+        close $fd
+        exec taskset -cp $starve_cpu $pid
+        exec renice -n 19 -p $pid
 
+        proc start_busy_loops {cpu} {
+            set pids {}
+            for {set i 0} {$i < 3} {incr i} {
+                lappend pids [exec taskset -c $cpu sh -c {while :; do :; done} &]
+            }
+            return $pids
+        }
+        proc stop_busy_loops {pids} {
+            foreach p $pids {catch {exec kill $p}}
+        }
+
+        test {SLOWLOG - CPU starvation is detected for a preempted command} {
             r config set slowlog-log-slower-than 1000
             set before [s cpu_starvation_events]
-            set busy {}
-            for {set i 0} {$i < 3} {incr i} {
-                lappend busy [exec taskset -c $cpu sh -c {while :; do :; done} &]
-            }
+            set busy [start_busy_loops $starve_cpu]
             set err [catch {
                 r eval {local i = 0 while i < 1000000 do i = i + 1 end return i} 0
                 set e [lindex [r slowlog get 1] 0]
             } msg]
-            foreach p $busy {catch {exec kill $p}}
+            stop_busy_loops $busy
             if {$err} {error $msg}
 
             assert_match {eval *} [lindex $e 3]
             # Mostly off-CPU: the estimated CPU is well under half the duration.
             assert {[lindex $e 7] < [lindex $e 2] / 2}
             assert_morethan [s cpu_starvation_events] $before
+        }
+
+        test {SLOWLOG - CPU starvation between fast commands is detected per event-loop cycle} {
+            # SETs are too short for the slowlog; the cycle check catches it. One
+            # wakeup needs enough work (10 x 1000 SETs) to be preempted mid-cycle.
+            # Some SETs may still be preempted, so the per-command counter isn't checked.
+            r config set slowlog-log-slower-than 1000
+            set before [s eventloop_cpu_starvation_events]
+            set buf {}
+            for {set i 0} {$i < 1000} {incr i} { append buf "SET k$i v\r\n" }
+            set clients {}
+            for {set c 0} {$c < 10} {incr c} { lappend clients [redis_deferring_client] }
+            set busy [start_busy_loops $starve_cpu]
+            set err [catch {
+                foreach rd $clients { $rd write $buf; $rd flush }
+                foreach rd $clients {
+                    for {set i 0} {$i < 1000} {incr i} { $rd read }
+                }
+            } msg]
+            stop_busy_loops $busy
+            foreach rd $clients { $rd close }
+            if {$err} {error $msg}
+
+            assert_morethan [s eventloop_cpu_starvation_events] $before
         }
     }
 }
