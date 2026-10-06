@@ -567,9 +567,10 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "" [get_info_stream_stripped r]
     }
 
-    # The lazy-enable tests below run with the assertion unarmed on purpose: arming
-    # it primes a full rebuild, which would register every object and hide exactly
-    # the pre-existing / never-counted state these tests exercise.
+    # The lazy-enable tests below run with the assertion unarmed on purpose:
+    # re-enabling stream-stats while armed primes a full rebuild (see
+    # applyStreamStats), which would register every object and hide exactly the
+    # pre-existing / never-counted state these tests exercise.
 
     test "STREAM-STATS - lazy enable: a first update registers the object and steals nothing" {
         r config set stream-stats no
@@ -777,8 +778,8 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         seed_stream r st 4
         r xgroup create st g 0
         r xreadgroup group g c count 4 streams st >
-        # Enabling at runtime starts from a clean slate (no rescan): the
-        # pre-existing group isn't counted until its next change.
+        # Enabling at runtime does not rescan: the group, created while tracking
+        # was off, is not counted until a group command next touches it.
         r config set stream-stats yes
         assert_equal "" [get_info_stream_stripped r]
         # A reload rebuilds the gauges exactly from the keyspace.
@@ -786,7 +787,8 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
-        # Disabling zeroes the histogram so no stale samples linger.
+        # Disabling hides the section; the rows are kept for an exact re-enable
+        # if nothing changes meanwhile.
         r config set stream-stats no
         assert_equal "" [get_info_stream_stripped r]
     }
