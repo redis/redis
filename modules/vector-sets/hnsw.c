@@ -1708,13 +1708,13 @@ void hnsw_reconnect_nodes(HNSW *index, hnswNode **nodes, int count, uint32_t lay
 
     // Step 5: Pair nodes greedily based on scores.
     int *used = hmalloc(count*sizeof(int));
-    memset(used,0,count*sizeof(int));
     if (!used) {
         hfree(distances);
         hfree(row_avgs);
         hfree(scores);
         return;
     }
+    memset(used,0,count*sizeof(int));
 
     /* Scan the matrix looking each time for the potential
      * link with the best score. */
