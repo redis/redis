@@ -214,17 +214,31 @@ void streamStatsResetMeta(kvstoreMetadata *meta) {
  *
  * Every metric is the size of a rax, bounded by addressable memory exactly like
  * a key size, so binning it as a size_t is exact and the row's last bin is far
- * out of reach; as for keysizes, a debug assertion guards the row bound.
- *
- * Non-static so the async slot-trim delta (cluster_asm.c) bins through the exact
- * same logic instead of duplicating it. */
-int streamDistribBin(int64_t value) {
+ * out of reach; as for keysizes, a debug assertion guards the row bound. */
+static int streamDistribBin(int64_t value) {
     if (value < 0) return -1;
     int bin = (value == 0) ? 0 : log2ceil((size_t) value) + 1;
     debugServerAssert(bin < MAX_KEYSIZES_BINS);
     return bin;
 }
 
+
+/* First per-group metric: [0, this) are per-stream, [this, MAX) per-group. */
+#define STREAM_DISTRIB_FIRST_CGROUP_METRIC STREAM_DISTRIB_CGROUPS_PEL
+
+/* A consumer group's INFO Streams stamp, kept in the metadata of its PEL rax
+ * so that streamCG stays one cache line. */
+typedef struct {
+    uint32_t epoch;   /* Generation the bits refer to. */
+    uint8_t counted;  /* Bit per metric with a sample in its row. */
+} streamDistribStamp;
+
+static inline streamDistribStamp *streamCGStamp(streamCG *cg) {
+    return (streamDistribStamp *) cg->pel->metadata;
+}
+
+static int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric);
+static int64_t streamStreamSample(stream *s, streamDistribMetric metric);
 
 /* The metric ranges of the two units, and the width of the per-metric bits. */
 static_assert(STREAM_DISTRIB_STREAMS_CGROUPS < STREAM_DISTRIB_FIRST_CGROUP_METRIC,
@@ -2031,7 +2045,7 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
  * -1. Asking it about a per-stream metric is a caller bug -- the walkers keep
  * to their unit's range -- so debug builds assert and release builds answer
  * "no sample". */
-int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) {
+static int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) {
     UNUSED(s);
     switch (metric) {
     case STREAM_DISTRIB_STREAMS_CGROUPS: /* per-stream: see streamStreamSample() */
@@ -2049,7 +2063,7 @@ int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) 
  * allocated lazily. Same single-accessor role as streamCGroupSample(), and the
  * same rule for a metric of the other unit: a caller bug, asserted in debug
  * builds, "no sample" in release. */
-int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
+static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
     switch (metric) {
     case STREAM_DISTRIB_STREAMS_CGROUPS: return s->cgroups ? (int64_t) raxSize(s->cgroups) : 0;
     case STREAM_DISTRIB_CGROUPS_PEL:

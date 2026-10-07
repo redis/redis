@@ -37,13 +37,6 @@ extern dictType idmpDictType;
  * A db's epoch starts at 0 and never reaches this value. */
 #define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
 
-/* A consumer group's INFO Streams stamp, kept in the metadata of its PEL rax
- * so that streamCG stays one cache line. */
-typedef struct {
-    uint32_t epoch;   /* Generation the bits refer to. */
-    uint8_t counted;  /* Bit per metric with a sample in its row. */
-} streamDistribStamp;
-
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -132,10 +125,6 @@ typedef struct streamCG {
                                and their associated representation in the form
                                of streamConsumer structures. */
 } streamCG;
-
-static inline streamDistribStamp *streamCGStamp(streamCG *cg) {
-    return (streamDistribStamp *) cg->pel->metadata;
-}
 
 /* A specific consumer in a consumer group.  */
 typedef struct streamConsumer {
@@ -241,9 +230,6 @@ int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx);
 int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
-int streamDistribBin(int64_t value);
-int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric);
-int64_t streamStreamSample(stream *s, streamDistribMetric metric);
 void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch);
 extern const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX];
 void streamStatsResetMeta(kvstoreMetadata *meta);
