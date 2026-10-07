@@ -1288,14 +1288,13 @@ typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
  * per metric in kvstoreMetadata.stream_hist, so a single update function serves
  * every metric. A metric is sampled either once per stream key or once per
  * consumer group, and the field name spells that out as
- * stream_distrib_<unit>_<property>. The enumerators are grouped by unit --
- * per-stream metrics first, per-group metrics from
- * STREAM_DISTRIB_FIRST_CGROUP_METRIC on -- so the walkers run each sampler over
- * exactly its own range in a single pass. STREAM_DISTRIB_MAX sizes the table
- * and the name array: adding a metric is one enumerator here, placed in its
- * unit's range, one entry in streamDistribMetricNames[] and one case in the
- * sampler for its unit (streamStreamSample() or streamCGroupSample()). Defined
- * here rather than in stream.h because kvstoreMetadata below needs it. */
+ * stream_distrib_<unit>_<property>. The enumerators are grouped by unit,
+ * per-stream metrics first and per-group metrics last, so the walkers in
+ * t_stream.c run each sampler over exactly its own range in a single pass.
+ * STREAM_DISTRIB_MAX sizes the table and the name array: adding a metric is
+ * one enumerator here, placed in its unit's range, one entry in
+ * streamDistribMetricNames[] and one case in its unit's sampler. Defined here
+ * rather than in stream.h because kvstoreMetadata below needs it. */
 typedef enum {
     /* Per-stream metrics: one sample per stream key. */
     STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
@@ -1304,8 +1303,6 @@ typedef enum {
     STREAM_DISTRIB_CGROUPS_CONSUMERS,   /* stream_distrib_cgroups_consumers */
     STREAM_DISTRIB_MAX
 } streamDistribMetric;
-/* First per-group metric: [0, this) are per-stream, [this, MAX) per-group. */
-#define STREAM_DISTRIB_FIRST_CGROUP_METRIC STREAM_DISTRIB_CGROUPS_PEL
 /* Same bins as keysizesHist, and plain storage like it: zeroing resets it. */
 typedef int64_t streamStatsHist[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS];
 
