@@ -33,27 +33,15 @@ typedef struct idmpProducer {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
-/* The INFO `Streams` metric enum (streamDistribMetric) and the per-db table
- * it indexes (streamStatsHist) live in server.h, next to kvstoreMetadata. */
-
-/* The distrib_epoch of a stream or consumer group that has never been counted
- * into the INFO `Streams` histograms. A db's live epoch starts at 0 and only
- * ever increments (streamStatsResetMeta() skips this value), so it can never
- * match. */
+/* Epoch of a stream or group never counted into the INFO Streams histograms.
+ * A db's epoch starts at 0 and never reaches this value. */
 #define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
 
-/* A consumer group's INFO `Streams` stamp: the generation its bits refer to
- * (or STREAM_DISTRIB_NEVER_COUNTED) and one bit per per-group metric whose row
- * holds the group's sample, valid only while 'epoch' is current. It lives in
- * the metadata of the group's PEL rax rather than in streamCG: streamCG is just
- * one cache line, and growing it by even a byte moves it to jemalloc's 80-byte
- * class, where three objects in four straddle a line -- measured as about 7%
- * more last-level cache misses per XREADGROUP. The rax header is 40 bytes in
- * the 48-byte class, so these 8 bytes are free, and the header is touched by
- * every command that touches the group anyway. */
+/* A consumer group's INFO Streams stamp, kept in the metadata of its PEL rax
+ * so that streamCG stays one cache line. */
 typedef struct {
-    uint32_t epoch;
-    uint8_t counted;
+    uint32_t epoch;   /* Generation the bits refer to. */
+    uint8_t counted;  /* Bit per metric with a sample in its row. */
 } streamDistribStamp;
 
 typedef struct stream {
@@ -68,12 +56,8 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
-    uint8_t distrib_counted; /* INFO `Streams`: one bit per per-stream metric whose row
-                                holds this stream's sample, valid only while distrib_epoch
-                                is current. */
-    uint32_t distrib_epoch;  /* INFO `Streams`: the generation distrib_counted refers to,
-                                or STREAM_DISTRIB_NEVER_COUNTED. Both stamp fields sit in
-                                the padding after the bit-field above. */
+    uint8_t distrib_counted; /* INFO Streams: bit per metric with a sample. */
+    uint32_t distrib_epoch;  /* INFO Streams: generation of the bits above. */
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
     rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
@@ -147,12 +131,8 @@ typedef struct streamCG {
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
-    /* The group's INFO `Streams` stamp is streamCGStamp(cg), kept in the
-     * metadata of 'pel'; see streamDistribStamp for why it is not a field. */
 } streamCG;
 
-/* The INFO `Streams` stamp of consumer group 'cg': the raw metadata storage
- * that streamCreateCG() sized for it when it created the PEL rax. */
 static inline streamDistribStamp *streamCGStamp(streamCG *cg) {
     return (streamDistribStamp *) cg->pel->metadata;
 }
