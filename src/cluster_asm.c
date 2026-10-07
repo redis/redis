@@ -101,9 +101,9 @@ typedef struct asmBgTrimState {
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
     streamStatsHist delta_stream_hist; /* INFO `Streams`; tallied on the BIO thread */
-    uint32_t epoch;              /* db0's kvstoreMetadata.epoch captured at schedule; every
-                                    delta is applied only if it still matches (the kvstore was
-                                    not emptied in place meanwhile). */
+    uint32_t keysizes_stats_epoch; /* db0's value captured at schedule; the
+                                      delta is applied only if it still matches
+                                      (no in-place empty happened meanwhile). */
     int track_stream_stats;      /* stream-stats state captured when the trim job was
                                     scheduled; the BIO thread reads this instead of the
                                     live config, and the stream delta is applied only if it
@@ -3142,7 +3142,7 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
      * its histograms were not zeroed meanwhile (a sync FLUSH empties it in
      * place and advances its generation, see kvstoreOnEmpty). */
     if (job->bg->target_kvstore == server.db[0].keys && meta &&
-        job->bg->epoch == meta->epoch)
+        job->bg->keysizes_stats_epoch == meta->keysizes_stats_epoch)
     {
         for (int row = 0; row < MAX_KEYSIZES_ROWS; row++) {
             for (int bin = 0; bin < MAX_KEYSIZES_BINS; bin++) {
@@ -3194,11 +3194,12 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
      * asmBackgroundTrimDoneCB). For the INFO `Streams` rows also capture the
      * tracking state, which the BIO thread reads instead of the live config. */
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-    job->bg->epoch = meta ? meta->epoch : 0;
+    job->bg->keysizes_stats_epoch = meta ? meta->keysizes_stats_epoch : 0;
     job->bg->track_stream_stats = server.stream_stats;
     /* Off: these keys leave with their samples untallied, so the rows fall
      * behind and enabling must start a new generation. */
-    if (!server.stream_stats && !server.stream_stats_stale) server.stream_stats_stale = 1;
+    if (!server.stream_stats && !server.stream_stats_needs_reset)
+        server.stream_stats_needs_reset = 1;
     job->bg->stream_stats_epoch = meta ? meta->stream_stats_epoch : STREAM_DISTRIB_NEVER_COUNTED;
 
     /* Increment background trim counter. */

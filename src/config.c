@@ -3444,8 +3444,8 @@ static int applyClientMaxMemoryUsage(const char **err) {
 
 /* Disabling stream-stats stops the bookkeeping and hides the section; the
  * per-db INFO `Streams` rows are kept. Re-enabling keeps them if no stream
- * changed meanwhile (server.stream_stats_stale is clear) and otherwise starts
- * a new generation, filling in lazily. Apply hooks run only on runtime CONFIG
+ * changed meanwhile (stream_stats_needs_reset is clear) and otherwise starts a
+ * new generation, filling in lazily. Apply hooks run only on runtime CONFIG
  * SET, so the dbs are always initialized here. */
 static int applyStreamStats(const char **err) {
     UNUSED(err);
@@ -3455,10 +3455,10 @@ static int applyStreamStats(const char **err) {
          * CONFIG SET re-applies `yes` during its rollback before anything else
          * can run, and then finds them exact and keeps them. Whether they are
          * still exact when tracking is next enabled is what
-         * server.stream_stats_stale tracks. */
+         * server.stream_stats_needs_reset tracks. */
         return 1;
     }
-    if (server.stream_stats_stale) {
+    if (server.stream_stats_needs_reset) {
         /* Streams changed while tracking was off, so the rows fell behind.
          * Zeroing them starts a new generation of each db's rows
          * (streamStatsResetMeta() bumps the db's epoch): every stream and
@@ -3466,7 +3466,7 @@ static int applyStreamStats(const char **err) {
          * scheduled against the old contents is discarded on completion. */
         for (int j = 0; j < server.dbnum; j++)
             streamStatsResetMeta(kvstoreGetMetadata(server.db[j].keys));
-        server.stream_stats_stale = 0;
+        server.stream_stats_needs_reset = 0;
     }
     if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
         /* Enabling at runtime deliberately does not rescan, so the gauges are

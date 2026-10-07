@@ -1284,17 +1284,8 @@ enum {
 };
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
-/* INFO `Streams` section: per-database stream distribution histograms, one row
- * per metric in kvstoreMetadata.stream_hist, so a single update function serves
- * every metric. A metric is sampled either once per stream key or once per
- * consumer group, and the field name spells that out as
- * stream_distrib_<unit>_<property>. The enumerators are grouped by unit,
- * per-stream metrics first and per-group metrics last, so the walkers in
- * t_stream.c run each sampler over exactly its own range in a single pass.
- * STREAM_DISTRIB_MAX sizes the table and the name array: adding a metric is
- * one enumerator here, placed in its unit's range, one entry in
- * streamDistribMetricNames[] and one case in its unit's sampler. Defined here
- * rather than in stream.h because kvstoreMetadata below needs it. */
+/* INFO Streams histogram rows, one per metric, named stream_distrib_<unit>_
+ * <property>. Per-stream metrics come first, per-group metrics last. */
 typedef enum {
     /* Per-stream metrics: one sample per stream key. */
     STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
@@ -1310,15 +1301,11 @@ typedef int64_t streamStatsHist[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS];
 typedef struct {
     keysizesHist keysizes_hist;
     keysizesHist allocsizes_hist;
-    streamStatsHist stream_hist;  /* INFO `Streams`: one row per streamDistribMetric */
-    uint32_t epoch;               /* Generation of the histograms above. Bumped when the kvstore
-                                     is emptied in place (kvstoreOnEmpty), so an async slot-trim
-                                     delta tallied against the old contents is discarded instead
-                                     of subtracted (asmBackgroundTrimDoneCB). */
-    uint32_t stream_stats_epoch;  /* INFO `Streams` generation: advanced by streamStatsResetMeta()
-                                     on every reset of stream_hist (emptied, stale re-enable,
-                                     rebuild). A stream's or group's distrib_counted bits are
-                                     valid only while its stamp equals this. */
+    streamStatsHist stream_hist;   /* INFO Streams: one row per metric. */
+    uint32_t keysizes_stats_epoch; /* Bumped on an in-place empty; a pending
+                                      slot-trim delta is then discarded. */
+    uint32_t stream_stats_epoch;   /* Bumped on each reset of stream_hist; a
+                                      stamp counts only while it matches. */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -2659,10 +2646,7 @@ struct redisServer {
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
     int stream_stats;                   /* Enable stream stats for INFO `Streams` section. */
-    int stream_stats_stale;             /* A stream or group changed, appeared, vanished or was
-                                           trimmed while stream_stats was off, so the INFO `Streams`
-                                           rows no longer match the keyspace and enabling must start
-                                           a new generation. Clear otherwise: enabling keeps the rows. */
+    int stream_stats_needs_reset;       /* Streams changed while stream_stats was off. */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */

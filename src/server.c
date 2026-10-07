@@ -556,7 +556,7 @@ static void kvstoreOnEmpty(kvstore *kvs) {
      * every stream's and group's stamp goes stale. */
     memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
     memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
-    meta->epoch++;
+    meta->keysizes_stats_epoch++;
     streamStatsResetMeta(meta);
 }
 
@@ -7338,9 +7338,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         }
     }
 
-    /* Stream statistics (per-db distribution histograms).
-     * Everything-only section: not part of the default set. Populated only when
-     * the stream-stats directive is enabled; otherwise just the header. */
+    /* Stream statistics: everything-only, populated when stream-stats is on. */
     if (all_sections || (dictFind(section_dict,"streams") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Streams\r\n");
