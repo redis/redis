@@ -652,7 +652,17 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(old);
 
-    if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
+    if (old->refcount == 1 && old->encoding == OBJ_ENCODING_EMBSTR &&
+        val->encoding == OBJ_ENCODING_EMBSTR && newKeyMetaBits == old->metabits &&
+        !getModuleMetaBits(old->metabits) && !getModuleMetaBits(val->metabits) &&
+        kvobjSetEmbeddedValueInPlace(old, val->ptr, sdslen(val->ptr)))
+    {
+        /* The new value was copied into the old object, that keeps its key, its
+         * place in db->keys and db->expires, TTL, LRU and no_evict. Set old to
+         * val to be freed below. */
+        kvNew = old;
+        old = val;
+    } else if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
         (val->refcount == 1 && val->encoding != OBJ_ENCODING_EMBSTR) && (!freeModuleMeta))
     {
         /* Keep old object in the database. Just swap it's ptr, type and

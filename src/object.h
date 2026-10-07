@@ -139,6 +139,7 @@ static inline kvBits *kvobjBits(const kvobj *kv) {
 kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits);
 kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
+int kvobjSetEmbeddedValueInPlace(kvobj *kv, const char *val, size_t len);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
 uint64_t *kvobjMetaRef(kvobj *kv, int metaId);
