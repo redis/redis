@@ -1719,7 +1719,8 @@ void clientAcceptHandler(connection *conn) {
                           c);
 
     /* Assign the client to an IO thread */
-    if (server.io_threads_num > 1) assignClientToIOThread(c);
+    if (server.io_threads_num > 1 && !isClientMustHandledByMainThread(c))
+        assignClientToIOThread(c);
 }
 
 void acceptCommonHandler(connection *conn, int flags, char *ip) {
