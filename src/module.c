@@ -4411,23 +4411,23 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *
  * The parameters are the following:
  *
- * * **metaname**: A 9 characters metadata class name that MUST be unique in the Redis
+ * * **metaname**: A 4 characters metadata class name that MUST be unique in the Redis
  *   Modules ecosystem. Use the charset A-Z a-z 0-9, plus the two "-_" characters.
- *   A good idea is to use, for example `<metaname>-<vendor>`. For example
- *   "idx-RediSearch" may mean "Index metadata by RediSearch module". To use both
- *   lower case and upper case letters helps in order to prevent collisions.
+ *   Redis prepends "META-" to it internally to form the 9 characters entity name
+ *   (e.g. "idx1" becomes "META-idx1"). To use both lower case and upper case
+ *   letters helps in order to prevent collisions.
  *
  * * **metaver**: Encoding version, which is the version of the serialization
  *   that a module used in order to persist metadata. As long as the "metaname"
  *   matches, the RDB loading will be dispatched to the metadata class callbacks
  *   whatever 'metaver' is used, however the module can understand if
  *   the encoding it must load is of an older version of the module.
- *   For example the module "idx-RediSearch" initially used metaver=0. Later
+ *   For example the module "idx1" initially used metaver=0. Later
  *   after an upgrade, it started to serialize metadata in a different format
  *   and to register the class with metaver=1. However this module may
  *   still load old data produced by an older version if the rdb_load
  *   callback is able to check the metaver value and act accordingly.
- *   The metaver must be a positive value between 0 and 1023.
+ *   The metaver must be a non-negative value between 0 and 31.
  *
  * * **confPtr** is a pointer to a RedisModuleKeyMetaClassConfig structure
  *   that should be populated with the configuration and callbacks, like in
@@ -4456,12 +4456,16 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *
  * * **version**: Module must set it to REDISMODULE_KEY_META_VERSION. This field is
  *   bumped when new fields are added; Redis keeps backward compatibility in
- *   RM_CreateKeyMetaClass().
+ *   RM_CreateKeyMetaClass(). A value of 0, or greater than the version known
+ *   to Redis, is rejected.
  *
- * * **flags**: Currently supports REDISMODULE_META_ALLOW_IGNORE (value 0).
- *   When set, metadata will be silently ignored during RDB load if the module
- *   is not available or if rdb_load callback is NULL. Otherwise, RDB loading
- *   will fail if metadata is encountered but cannot be loaded.
+ * * **flags**: A bitmask. Each REDISMODULE_META_* constant is a bit index, so
+ *   flags are set as `1 << REDISMODULE_META_ALLOW_IGNORE`. Only the lowest 3
+ *   flag bits are serialized into RDB along with the metadata.
+ *   Currently supports REDISMODULE_META_ALLOW_IGNORE: when set, metadata will be
+ *   silently ignored during RDB load if the module is not available or if
+ *   rdb_load callback is NULL. Otherwise, RDB loading will fail if metadata is
+ *   encountered but cannot be loaded.
  *
  * * **reset_value**: The value to which metadata should be reset when it is being
  *   "removed" from a key. Typically 0, but can be any 8-byte value. This is
@@ -4476,6 +4480,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *     for the new key.
  *
  * * **rename**: A callback function pointer for RENAME command (optional).
+ *   - Return 1 to keep metadata, 0 to drop.
  *   - If NULL, then metadata is kept during rename.
  *   - The `meta` value may be modified in-place to produce a different value
  *     for the new key.
@@ -4531,10 +4536,14 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *     > 0: Ignore/skip metadata (don't attach, but continue loading - not an error)
  *     > -1: Error - abort RDB load (e.g., invalid data, version incompatibility)
  *            Module MUST clean up any allocated metadata before returning -1.
+ *     > Any other value is treated as an error and aborts RDB load as well.
  *
  * * **rdb_save**: A callback function pointer for RDB saving (optional).
  *   - If set to NULL, Redis will not save metadata to RDB.
  *   - Callback should write data using RDB assisting functions: RedisModule_Save*().
+ *   - `meta` is passed as a pointer to the 8-byte metadata slot.
+ *   - If the callback writes nothing, the class entry is dropped from the RDB
+ *     for that key, i.e. nothing is persisted for this class.
  *
  * * **aof_rewrite**: A callback function pointer for AOF rewrite (optional).
  *   Called during AOF rewrite to emit commands that reconstruct the metadata.
@@ -4542,22 +4551,22 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *   registered in RedisModule_OnLoad() so they are available when loading persisted
  *   data on server startup.
  *
- * * **defrag**: A callback function pointer for active defragmentation (optional).
- *   If the metadata contains pointers, this callback should defragment them.
+ * * **defrag**: Reserved for active defragmentation. NOT YET INVOKED by Redis;
+ *   set to NULL.
  *
- * * **mem_usage**: A callback function pointer for MEMORY USAGE command (optional).
- *   Should return the memory used by the metadata in bytes.
+ * * **mem_usage**: Reserved for MEMORY USAGE command. NOT YET INVOKED by Redis;
+ *   set to NULL.
  *
- * * **free_effort**: A callback function pointer for lazy free (optional).
- *   Should return the complexity of freeing the metadata to determine if
- *   lazy free should be used.
+ * * **free_effort**: Reserved for lazy free effort estimation. NOT YET INVOKED
+ *   by Redis; set to NULL.
  *
- * Note: the metadata class name "AAAAAAAAA" is reserved and produces an error.
+ * At most 7 module metadata classes can be registered at the same time.
  *
  * If RM_CreateKeyMetaClass() is called outside of RedisModule_OnLoad() function
- * and outside of server startup, there is already a metadata class registered
- * with the same name, or if the metadata class name or metaver is invalid,
- * a negative value is returned.
+ * and outside of server startup, if `confPtr` is NULL or its `version` is
+ * invalid, if there is already a metadata class registered with the same name,
+ * if the metadata class name or metaver is invalid, or if there is no free
+ * class slot, a negative value is returned.
  * Otherwise the new metadata class is registered into Redis, and a reference of
  * type RedisModuleKeyMetaClassId is returned: the caller of the function should store
  * this reference into a global variable to make future use of it in the
@@ -4599,11 +4608,11 @@ RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
         KeyMetaMoveFunc move;
         KeyMetaUnlinkFunc unlink;
         KeyMetaFreeFunc free;
-        /********** TBD: **********/
         KeyMetaLoadFunc rdb_load;
         KeyMetaSaveFunc rdb_save;
         KeyMetaAOFRewriteFunc aof_rewrite;
-        KeyMetaDefragFunc defrag;        
+        /* Not yet invoked by Redis: */
+        KeyMetaDefragFunc defrag;
         KeyMetaMemUsageFunc mem_usage;
         KeyMetaFreeEffortFunc free_effort;
     } *legacy = (struct KeyMetaConfAllVersions *)confPtr;
@@ -8448,10 +8457,10 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->background_duration = 0;
     bc->background_duration_accounted = 0;
 
-    mstime_t timeout = 0;
+    uint64_t timeout = 0;
     if (timeout_ms) {
-        mstime_t now = mstime();
-        if (timeout_ms > LLONG_MAX - now) {
+        uint64_t now = getMonotonicUs() / 1000;
+        if (timeout_ms > LLONG_MAX - (long long)now) {
             c->bstate.module_blocked_handle = NULL;
             addReplyError(c, "timeout is out of range"); /* 'timeout_ms+now' would overflow */
             return bc;
@@ -10299,7 +10308,9 @@ void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *sl
  * not used.
  * -------------------------------------------------------------------------- */
 
-static rax *Timers;     /* The radix tree of all the timers sorted by expire. */
+/* The radix tree of all timers, sorted by their monotonic expiration time in
+ * microseconds. The encoded expiration time is also returned as the timer ID. */
+static rax *Timers;
 long long aeTimer = -1; /* Main event loop (ae.c) timer identifier. */
 
 typedef void (*RedisModuleTimerProc)(RedisModuleCtx *ctx, void *data);
@@ -10322,7 +10333,7 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
     /* To start let's try to fire all the timers already expired. */
     raxIterator ri;
     raxStart(&ri,Timers);
-    uint64_t now = ustime();
+    uint64_t now = getMonotonicUs();
     long long next_period = 0;
     while(1) {
         raxSeek(&ri,"^",NULL,0);
@@ -10340,13 +10351,11 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
             raxRemove(Timers,(unsigned char*)ri.key,ri.key_len,NULL);
             zfree(timer);
         } else {
-            /* We call ustime() again instead of using the cached 'now' so that
-             * 'next_period' isn't affected by the time it took to execute
-             * previous calls to 'callback.
-             * We need to cast 'expiretime' so that the compiler will not treat
-             * the difference as unsigned (Causing next_period to be huge) in
-             * case expiretime < ustime() */
-            next_period = ((long long)expiretime-ustime())/1000; /* Scale to milliseconds. */
+            /* Read the clock again so callback time does not affect the delay.
+             * Check before subtracting to avoid unsigned underflow if the timer
+             * expires while callbacks are running. */
+            now = getMonotonicUs();
+            next_period = expiretime > now ? (expiretime - now) / 1000 : 0; /* Scale to milliseconds. */
             break;
         }
     }
@@ -10380,7 +10389,7 @@ RedisModuleTimerID RM_CreateTimer(RedisModuleCtx *ctx, mstime_t period, RedisMod
     timer->callback = callback;
     timer->data = data;
     timer->dbid = ctx->client ? ctx->client->db->id : 0;
-    uint64_t expiretime = ustime()+period*1000;
+    uint64_t expiretime = getMonotonicUs() + period * 1000;
     uint64_t key;
 
     while(1) {
@@ -10451,9 +10460,9 @@ int RM_GetTimerInfo(RedisModuleCtx *ctx, RedisModuleTimerID id, uint64_t *remain
     if (timer->module != ctx->module)
         return REDISMODULE_ERR;
     if (remaining) {
-        int64_t rem = ntohu64(id)-ustime();
-        if (rem < 0) rem = 0;
-        *remaining = rem/1000; /* Scale to milliseconds. */
+        uint64_t expiretime = ntohu64(id);
+        uint64_t now = getMonotonicUs();
+        *remaining = expiretime > now ? (expiretime - now) / 1000 : 0;  /* Scale to milliseconds. */
     }
     if (data) *data = timer->data;
     return REDISMODULE_OK;

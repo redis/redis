@@ -55,13 +55,13 @@ jobs:
 
       - name: Create tarball
         env:
-          OUT_PATH: /tmp/redis-full.tar.gz
+          OUT_PATH: /tmp/redis-full-${{ env.TAG_NAME }}.tar.gz
         run: ./utils/releasetools/01_create_tarball.sh "$TAG_NAME"
 
       - name: Verify tarball size
         id: size
         run: |
-          TARBALL="/tmp/redis-full.tar.gz"
+          TARBALL="/tmp/redis-full-${TAG_NAME}.tar.gz"
           SIZE_MB=$(du -m "$TARBALL" | cut -f1)
           echo "Tarball size: ${SIZE_MB} MB"
           echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
@@ -79,7 +79,7 @@ jobs:
       - name: Calculate SHA256 checksum
         id: checksum
         run: |
-          TARBALL="/tmp/redis-full.tar.gz"
+          TARBALL="/tmp/redis-full-${TAG_NAME}.tar.gz"
           SHA256=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
           echo "SHA256: $SHA256"
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
@@ -88,7 +88,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: redis-full-tarball
-          path: /tmp/redis-full.tar.gz
+          path: /tmp/redis-full-${{ env.TAG_NAME }}.tar.gz
           compression-level: 0
 
       - name: Upload tarball as release asset
@@ -99,7 +99,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "$TAG_NAME" \
-            /tmp/redis-full.tar.gz \
+            "/tmp/redis-full-${TAG_NAME}.tar.gz" \
             --clobber
 
   # ---------------------------------------------------------------------------
