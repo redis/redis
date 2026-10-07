@@ -4147,3 +4147,49 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 }
+
+start_server {tags {"repl external:skip"} overrides {enable-debug-command yes}} {
+    set replica [srv 0 client]
+
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test "XADD IDMP replica applies a propagated XADD whose mapping has not expired yet" {
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [s 0 connected_slaves] == 1
+            } else {
+                fail "Replica didn't connect"
+            }
+
+            $master XADD mystream 1000-0 field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+
+            # Record a mapping on both nodes
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+
+            # Freeze the replica's main thread: its cron and its replication
+            # feed are stalled. When the feed resumes, the mapping was
+            # stamped with the apply time and has not expired on the replica
+            # yet, while the master has already expired it.
+            $replica DEBUG SLEEP 4
+
+            # The master expired the mapping, so a retry appends a new entry
+            # and propagates it to the replica.
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert {$id1 ne $id2}
+
+            # The replica must apply the propagated append (replacing its
+            # stale copy of the mapping), not skip it.
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 3
+            } else {
+                fail "Replica did not apply the propagated append: XLEN is [$replica XLEN mystream]"
+            }
+            assert_equal 1 [dict get [$replica XINFO STREAM mystream] iids-tracked]
+        }
+    }
+}

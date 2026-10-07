@@ -2599,9 +2599,15 @@ void xaddCommand(client *c) {
         
         /* Create entry for lookup and potential insertion */
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
-        
-        /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, producer, entry, c)) {
+
+        /* Check if IID already exists and reply if found. This must not run
+         * for a command applied from a master: the master already decided
+         * the append is not a duplicate, and a mapping that has not expired
+         * on this replica yet (insert_time is stamped at apply time, so it
+         * lags behind the master) would wrongly skip the replicated append. */
+        if (!(c->flags & CLIENT_MASTER) &&
+            idmpLookupAndReply(s, producer, entry, c))
+        {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
             keyModified(c,c->db,c->argv[1],kv,0);
@@ -6174,7 +6180,28 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
      * value, including one far in the future. */
     entry->insert_time = server.mstime;
 
-    /* Insert into dict (should always succeed since we already checked with lookup) */
+    /* A replica applying a propagated XADD can still track the same IID with
+     * an older stream ID: its copy had not expired yet because insert_time
+     * is stamped when the command is applied (see xaddCommand). The
+     * propagated append is authoritative, so replace the stale mapping. */
+    dictEntry *de = dictFind(producer->idmp_dict, entry);
+    if (de != NULL) {
+        idmpEntry *stale = dictGetKey(de);
+        idmpEntry *prev = NULL;
+        idmpEntry *it = producer->idmp_head;
+        while (it != stale) {
+            serverAssert(it != NULL);
+            prev = it;
+            it = it->next;
+        }
+        if (prev) prev->next = stale->next;
+        else producer->idmp_head = stale->next;
+        if (producer->idmp_tail == stale) producer->idmp_tail = prev;
+        dictDelete(producer->idmp_dict, stale);
+        idmpEntryFree(stale, &s->alloc_size);
+    }
+
+    /* Insert into dict (any stale mapping for this IID was just replaced) */
     serverAssert(dictAdd(producer->idmp_dict, entry, NULL) == DICT_OK);
     
     /* Add to linked list tail */
