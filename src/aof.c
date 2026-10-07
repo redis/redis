@@ -1262,13 +1262,17 @@ void killAppendOnlyChild(void) {
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
-    flushAppendOnlyFile(1);
-    if (redis_fsync(server.aof_fd) == -1) {
-        serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
-    } else {
-        server.aof_last_fsync = server.mstime;
+    /* AOF may be in AOF_WAIT_REWRITE with no file opened yet when another
+     * background operation has postponed the initial rewrite. */
+    if (server.aof_fd != -1) {
+        flushAppendOnlyFile(1);
+        if (redis_fsync(server.aof_fd) == -1) {
+            serverLog(LL_WARNING, "Fail to fsync the AOF file: %s", strerror(errno));
+        } else {
+            server.aof_last_fsync = server.mstime;
+        }
+        close(server.aof_fd);
     }
-    close(server.aof_fd);
     updateCurIncrAofEndOffset();
 
     server.aof_fd = -1;
@@ -1844,6 +1848,11 @@ int loadSingleAppendOnlyFile(char *filename) {
         sdsfree(aof_filepath);
         return AOF_EMPTY;
     }
+
+#ifdef HAVE_FADVISE
+    /* The file is read sequentially: let the kernel use a larger read-ahead window. */
+    posix_fadvise(fileno(fp), 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
      * to the same file we're about to read. */

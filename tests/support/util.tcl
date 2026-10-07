@@ -117,7 +117,12 @@ proc waitForBgsave r {
 
 proc waitForBgrewriteaof r {
     while 1 {
-        if {[status $r aof_rewrite_in_progress] eq 1} {
+        set rewrite_in_progress [status $r aof_rewrite_in_progress]
+        set rewrite_scheduled [status $r aof_rewrite_scheduled]
+
+        # A rewrite can be scheduled but paused while another background task is running,
+        # so we need to check two conditions
+        if {$rewrite_in_progress eq 1 || $rewrite_scheduled eq 1} {
             if {$::verbose} {
                 puts -nonewline "\nWaiting for background AOF rewrite to finish... "
                 flush stdout
@@ -198,9 +203,17 @@ proc wait_lazyfree_done r {
     }
 }
 
+# count lines in a log file, by path. Unlike count_log_lines this doesn't need
+# a running server, so it can also be used to snapshot a log file before
+# starting the server that will write to it.
+proc count_file_lines {file} {
+    if {![file exists $file]} { return 0 }
+    return [string trim [exec wc -l < $file]]
+}
+
 # count current log lines in server's stdout
 proc count_log_lines {srv_idx} {
-    set _ [string trim [exec wc -l < [srv $srv_idx stdout]]]
+    count_file_lines [srv $srv_idx stdout]
 }
 
 # returns the number of times a line with that pattern appears in a file

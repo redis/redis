@@ -568,6 +568,15 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                 if (conn->ssl_error) zfree(conn->ssl_error);
                 conn->ssl_error = errno ? zstrdup(strerror(errno)) : NULL;
                 break;
+            case SSL_ERROR_ZERO_RETURN:
+                /* The peer sent a close_notify alert: a graceful TLS shutdown,
+                 * the equivalent of a zero-length read on a plain socket. This
+                 * is not an error and the OpenSSL error queue is empty here, so
+                 * it must not be formatted (that yields the meaningless
+                 * "error:00000000:lib(0)::reason(0)"). Leave ssl_error untouched
+                 * and let the caller report a clean EOF. */
+                conn->c.last_errno = 0;
+                break;
             default:
                 /* Error! */
                 updateTLSError(conn);
@@ -1160,7 +1169,13 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, buf_len);
-    return updateStateAfterSSLIO(conn, ret, 1);
+    ret = updateStateAfterSSLIO(conn, ret, 1);
+    /* A graceful TLS shutdown (peer close_notify) leaves the connection in the
+     * CLOSED state and returns -1. Report it as a zero-length read so callers
+     * treat it as a clean EOF -- matching a plain socket read() returning 0 --
+     * rather than as an error disconnect. */
+    if (ret == -1 && conn->c.state == CONN_STATE_CLOSED) return 0;
+    return ret;
 }
 
 static const char *connTLSGetLastError(connection *conn_) {

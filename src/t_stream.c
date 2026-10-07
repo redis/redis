@@ -2781,7 +2781,8 @@ void xlenCommand(client *c) {
 #define XREAD_BLOCKED_DEFAULT_COUNT 1000
 void xreadCommand(client *c) {
     long long min_idle_time = -1; /* -1 means, no IDLE argument given. */
-    long long timeout = -1; /* -1 means, no BLOCK argument given. */
+    uint64_t timeout = 0;
+    int has_block_timeout = 0;
     long long count = 0;
     long long maxcount = 0; /* 0 means, no MAXCOUNT argument given. */
     long long maxsize = 0;  /* 0 means, no MAXSIZE argument given. */
@@ -2817,8 +2818,9 @@ void xreadCommand(client *c) {
             }
         } else if (!strcasecmp(o,"BLOCK") && moreargs) {
             i++;
-            if (getTimeoutFromObjectOrReply(c,c->argv[i],&timeout,
-                UNIT_MILLISECONDS) != C_OK) return;
+            if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[i], &timeout, UNIT_MILLISECONDS) != C_OK)
+                return;
+            has_block_timeout = 1;
         } else if (!strcasecmp(o,"COUNT") && moreargs) {
             i++;
             if (getLongLongFromObjectOrReply(c,c->argv[i],&count,NULL) != C_OK)
@@ -3155,7 +3157,7 @@ void xreadCommand(client *c) {
     }
 
     /* Block if needed. */
-    if (timeout != -1) {
+    if (has_block_timeout) {
         /* If we are not allowed to block the client, the only thing
          * we can do is treating it as a timeout (even with timeout 0). */
         if (c->flags & CLIENT_DENY_BLOCKING) {
