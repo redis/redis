@@ -712,11 +712,6 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         }
     }
 
-   /* Register the replacement stream's histogram samples and IDMP tracking,
-    * mirroring streamKeyRemoved() for the previous value. */
-    if (kvNew->type == OBJ_STREAM)
-        streamKeyLoaded(db, key, kvNew);
-
     if (server.memory_tracking_enabled) {
         /* Save one call if old and new are the same type */
         if (oldtype == kvNew->type) {
