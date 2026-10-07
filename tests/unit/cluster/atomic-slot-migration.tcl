@@ -394,79 +394,85 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     # removes the fresh sample instead of merely driving an empty bin negative.
     # The keysizes rows share the check: the migrated slot's strings and stream
     # must not be subtracted from the fresh keyspace either.
-    test "Slot bg-trim delta is dropped when a sync FLUSH resets the histogram" {
-        R 0 debug asm-trim-method bg
-        R 0 flushall
-        R 1 flushall
-        R 0 config set stream-stats yes
+    # Timing-dependent by design: the background trim must still be in flight
+    # when the synchronous FLUSH lands. Under valgrind the migration alone
+    # outlasts the poll budget, so skip it there like the rest of this file's
+    # migration tests.
+    if {!$::valgrind} {
+        test "Slot bg-trim delta is dropped when a sync FLUSH resets the histogram" {
+            R 0 debug asm-trim-method bg
+            R 0 flushall
+            R 1 flushall
+            R 0 config set stream-stats yes
 
-        # Create a group in a slot that will be migrated. Give it one pending entry
-        # so its PEL histogram contribution is in bin "1".
-        set mig [slot_key 3 strm]
-        for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
-        R 0 xgroup create $mig g 0
-        R 0 xreadgroup group g c count 1 streams $mig >
-        assert_equal "1=1" [stream_pel_hist 0]
+            # Create a group in a slot that will be migrated. Give it one pending entry
+            # so its PEL histogram contribution is in bin "1".
+            set mig [slot_key 3 strm]
+            for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
+            R 0 xgroup create $mig g 0
+            R 0 xreadgroup group g c count 1 streams $mig >
+            assert_equal "1=1" [stream_pel_hist 0]
 
-        # Keep the background trim busy long enough to cross the synchronous FLUSH.
-        populate_slot 20000 -slot 3 -idx 0 -size 512
+            # Keep the background trim busy long enough to cross the synchronous FLUSH.
+            populate_slot 20000 -slot 3 -idx 0 -size 512
 
-        R 1 CLUSTER MIGRATION IMPORT 0 100
+            R 1 CLUSTER MIGRATION IMPORT 0 100
 
-        # Wait until the background trim has actually been scheduled and its
-        # completion callback is still outstanding.
-        wait_for_condition 1000 1 {
-            [CI 0 cluster_slot_migration_background_trim_running] > 0
-        } else {
-            fail "background trim did not start; race window not exercised"
+            # Wait until the background trim has actually been scheduled and its
+            # completion callback is still outstanding.
+            wait_for_condition 1000 1 {
+                [CI 0 cluster_slot_migration_background_trim_running] > 0
+            } else {
+                fail "background trim did not start; race window not exercised"
+            }
+
+            # Force the synchronous, in-place FLUSH path.
+            R 0 multi
+            R 0 flushall sync
+            R 0 exec
+
+            # The old background trim must still be outstanding after the histogram
+            # reset. Otherwise the stale callback did not span the reset and this run
+            # would not exercise the bug.
+            assert {
+                [CI 0 cluster_slot_migration_background_trim_running] > 0
+            }
+
+            # Add a fresh group in the same PEL bin that the stale delta would
+            # decrement.
+            set keep [slot_key 101 strm]
+            for {set i 1} {$i <= 3} {incr i} {
+                R 0 xadd $keep $i-1 f v
+            }
+            R 0 xgroup create $keep g 0
+            R 0 xreadgroup group g c count 1 streams $keep >
+            assert_equal "1=1" [stream_pel_hist 0]
+
+            # Wait for the exact completion callback that performs the epoch check.
+            # bg_trim_running is decremented only after that callback has handled the
+            # histogram delta, so once it reaches zero no stale subtraction can still
+            # arrive. Not wait_for_asm_done(): that only covers active_trim_jobs, so it
+            # can return while a background trim's callback is still queued.
+            wait_for_condition 1000 10 {
+                [CI 0 cluster_slot_migration_background_trim_running] == 0
+            } else {
+                fail "background trim completion callback did not run"
+            }
+
+            assert_equal "1=1" [stream_pel_hist 0]
+            # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
+            # strings row (20000 migrated values of 512 bytes) must stay absent and the
+            # streams row must still hold the fresh sample, bin "2" for 3 entries.
+            assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_strings_sizes]
+            assert_equal "2=1" [getInfoProperty [R 0 info keysizes] db0_distrib_streams_items]
+
+            # Cleanup: flush and migrate the slots back to R 0.
+            R 0 flushall
+            R 1 flushall
+            R 0 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+            R 0 config set stream-stats no
         }
-
-        # Force the synchronous, in-place FLUSH path.
-        R 0 multi
-        R 0 flushall sync
-        R 0 exec
-
-        # The old background trim must still be outstanding after the histogram
-        # reset. Otherwise the stale callback did not span the reset and this run
-        # would not exercise the bug.
-        assert {
-            [CI 0 cluster_slot_migration_background_trim_running] > 0
-        }
-
-        # Add a fresh group in the same PEL bin that the stale delta would
-        # decrement.
-        set keep [slot_key 101 strm]
-        for {set i 1} {$i <= 3} {incr i} {
-            R 0 xadd $keep $i-1 f v
-        }
-        R 0 xgroup create $keep g 0
-        R 0 xreadgroup group g c count 1 streams $keep >
-        assert_equal "1=1" [stream_pel_hist 0]
-
-        # Wait for the exact completion callback that performs the epoch check.
-        # bg_trim_running is decremented only after that callback has handled the
-        # histogram delta, so once it reaches zero no stale subtraction can still
-        # arrive. Not wait_for_asm_done(): that only covers active_trim_jobs, so it
-        # can return while a background trim's callback is still queued.
-        wait_for_condition 1000 10 {
-            [CI 0 cluster_slot_migration_background_trim_running] == 0
-        } else {
-            fail "background trim completion callback did not run"
-        }
-
-        assert_equal "1=1" [stream_pel_hist 0]
-        # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
-        # strings row (20000 migrated values of 512 bytes) must stay absent and the
-        # streams row must still hold the fresh sample, bin "2" for 3 entries.
-        assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_strings_sizes]
-        assert_equal "2=1" [getInfoProperty [R 0 info keysizes] db0_distrib_streams_items]
-
-        # Cleanup: flush and migrate the slots back to R 0.
-        R 0 flushall
-        R 1 flushall
-        R 0 CLUSTER MIGRATION IMPORT 0 100
-        wait_for_asm_done
-        R 0 config set stream-stats no
     }
 
 }
