@@ -4238,3 +4238,29 @@ start_server {tags {"repl external:skip"} overrides {enable-debug-command yes}} 
         }
     }
 }
+
+start_server {tags {"stream"} overrides {appendonly yes appendfsync always}} {
+    test "XADD IDMP appends after expiry survive an AOF restart" {
+        r XADD mystream 1000-0 field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        # Snapshot the mapping into the AOF, then let it expire and retry:
+        # the retry appends a new entry that is recorded in the AOF with an
+        # explicit ID.
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        after 3000
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+
+        # On restart the stale mapping is restored with a fresh window: the
+        # replayed append must not be deduplicated away. All three entries
+        # must be present after the restart.
+        restart_server 0 true false
+
+        assert_equal 3 [r XLEN mystream]
+        # The live mapping points at the new ID.
+        assert_equal $id2 [r XADD mystream IDMP p1 "req-1" * field "v3"]
+    }
+}

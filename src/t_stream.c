@@ -2601,15 +2601,15 @@ void xaddCommand(client *c) {
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
 
         /* Check if IID already exists and reply if found. This must not run
-         * for a command applied from a master with an explicit ID: the
-         * master already decided the append is not a duplicate, and a
-         * mapping that has not expired on this replica yet (insert_time is
-         * stamped at apply time, so it lags behind the master) would
-         * wrongly skip the replicated append. A command applied from a
-         * master with a wildcard ID is a duplicate that the master did not
-         * append: it is propagated with the ID unmodified, and the replica
-         * still filters it out here. */
-        if (!(c->flags & CLIENT_MASTER && parsed_args.id_given) &&
+         * for a command with an explicit ID applied from a master or while
+         * loading an AOF: such a command is an append the master actually
+         * made (duplicates are propagated with the wildcard ID), and a
+         * mapping that has not expired on this node yet — insert_time is
+         * stamped at apply time on a replica, and restored from a snapshot
+         * or stamped during replay when loading an AOF — would wrongly skip
+         * it. A wildcard-ID command from such a client is a duplicate the
+         * master did not append: it is still filtered out here. */
+        if (!(mustObeyClient(c) && parsed_args.id_given) &&
             idmpLookupAndReply(s, producer, entry, c))
         {
             /* IID already exists, free the entry and return */
@@ -3900,12 +3900,11 @@ void xidmprecordCommand(client *c) {
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
     int found = idmpLookup(producer, entry, &id);
-    if (found == 1 ||
-        (found == -1 && !(c->flags & CLIENT_MASTER)))
+    if (found == 1 || (found == -1 && !mustObeyClient(c)))
     {
-        /* Same stream ID: nothing to record. A different stream ID on a
-         * real client (or while loading an AOF): the tracked mapping is
-         * still valid there, so this is an error. */
+        /* Same stream ID: nothing to record. A different stream ID from a
+         * real client: the tracked mapping is still valid there, so this is
+         * an error. */
         idmpEntryFree(entry, &s->alloc_size);
         if (found == 1)
             addReply(c, shared.ok);
@@ -3916,10 +3915,11 @@ void xidmprecordCommand(client *c) {
         return;
     }
 
-    /* found == -1 on a replica: the master had already expired the previous
-     * mapping when it recorded this one, while our copy (stamped at apply
-     * time) has not expired yet. The propagated record is authoritative and
-     * replaces the stale mapping. */
+    /* found == -1 from a master link or while loading an AOF: the master
+     * had already expired the previous mapping when it recorded the new
+     * one, while our copy (stamped at apply time, or restored from a
+     * snapshot) has not expired yet. The recorded mapping is authoritative
+     * and replaces the stale one. */
 
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
