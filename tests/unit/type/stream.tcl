@@ -4191,5 +4191,50 @@ start_server {tags {"repl external:skip"} overrides {enable-debug-command yes}} 
             }
             assert_equal 1 [dict get [$replica XINFO STREAM mystream] iids-tracked]
         }
+
+        test "XADD IDMP duplicate request is not appended on the replica" {
+            r DEL mystream
+
+            # Record a mapping on both nodes, then retry the same request:
+            # the master detects the duplicate and replies with the recorded
+            # ID without appending, and propagates the original command with
+            # a wildcard ID. The replica must filter it out with its own copy
+            # of the mapping, not append it.
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert_equal $id1 $id2
+
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 1
+            } else {
+                fail "Replica appended a duplicated XADD: XLEN is [$replica XLEN mystream]"
+            }
+        }
+
+        test "XIDMPRECORD replaces a stale mapping on the replica" {
+            r DEL mystream
+
+            # Record a mapping, then freeze the replica so its copy of the
+            # mapping outlives the master's, and record the same IID against
+            # a new stream ID on the master.
+            $master XADD mystream 1000-0 field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+            $master XADD mystream IDMP p1 "req-1" * field "v1"
+
+            $replica DEBUG SLEEP 4
+            # The explicit ID must be above the stream's last ID.
+            $master XADD mystream 9999999999999-0 field "new"
+            $master XIDMPRECORD mystream p1 "req-1" 9999999999999-0
+
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 3
+            } else {
+                fail "Replica did not catch up"
+            }
+            # The replica must still be tracking exactly one mapping for the
+            # producer, and stay consistent with the master.
+            assert_equal 1 [dict get [$replica XINFO STREAM mystream] iids-tracked]
+            assert_equal 1 [dict get [$master XINFO STREAM mystream] iids-tracked]
+        }
     }
 }

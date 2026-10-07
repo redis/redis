@@ -2601,11 +2601,15 @@ void xaddCommand(client *c) {
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
 
         /* Check if IID already exists and reply if found. This must not run
-         * for a command applied from a master: the master already decided
-         * the append is not a duplicate, and a mapping that has not expired
-         * on this replica yet (insert_time is stamped at apply time, so it
-         * lags behind the master) would wrongly skip the replicated append. */
-        if (!(c->flags & CLIENT_MASTER) &&
+         * for a command applied from a master with an explicit ID: the
+         * master already decided the append is not a duplicate, and a
+         * mapping that has not expired on this replica yet (insert_time is
+         * stamped at apply time, so it lags behind the master) would
+         * wrongly skip the replicated append. A command applied from a
+         * master with a wildcard ID is a duplicate that the master did not
+         * append: it is propagated with the ID unmodified, and the replica
+         * still filters it out here. */
+        if (!(c->flags & CLIENT_MASTER && parsed_args.id_given) &&
             idmpLookupAndReply(s, producer, entry, c))
         {
             /* IID already exists, free the entry and return */
@@ -3896,7 +3900,12 @@ void xidmprecordCommand(client *c) {
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
     int found = idmpLookup(producer, entry, &id);
-    if (found) {
+    if (found == 1 ||
+        (found == -1 && !(c->flags & CLIENT_MASTER)))
+    {
+        /* Same stream ID: nothing to record. A different stream ID on a
+         * real client (or while loading an AOF): the tracked mapping is
+         * still valid there, so this is an error. */
         idmpEntryFree(entry, &s->alloc_size);
         if (found == 1)
             addReply(c, shared.ok);
@@ -3906,6 +3915,11 @@ void xidmprecordCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
         return;
     }
+
+    /* found == -1 on a replica: the master had already expired the previous
+     * mapping when it recorded this one, while our copy (stamped at apply
+     * time) has not expired yet. The propagated record is authoritative and
+     * replaces the stale mapping. */
 
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
