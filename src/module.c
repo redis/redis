@@ -5048,7 +5048,7 @@ RedisModuleString *RM_ListGet(RedisModuleKey *key, long index) {
  */
 int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
     size_t oldsize = 0;
-    if (!value) {
+    if (!key || !value) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -5091,19 +5091,19 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
  */
 int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
     size_t oldsize = 0;
-    if (!value) {
+    if (!key || !value) {
         errno = EINVAL;
         return REDISMODULE_ERR;
-    } else if (key != NULL && key->kv == NULL &&
+    } else if (key->kv == NULL &&
                (index == 0 || index == -1)) {
         /* Insert in empty key => push. */
         return RM_ListPush(key, REDISMODULE_LIST_TAIL, value);
-    } else if (key != NULL && key->kv != NULL &&
+    } else if (key->kv != NULL &&
                key->kv->type == OBJ_LIST &&
                (index == (long)listTypeLength(key->kv) || index == -1)) {
         /* Insert after the last element => push tail. */
         return RM_ListPush(key, REDISMODULE_LIST_TAIL, value);
-    } else if (key != NULL && key->kv != NULL &&
+    } else if (key->kv != NULL &&
                key->kv->type == OBJ_LIST &&
                (index == 0 || index == -(long)listTypeLength(key->kv) - 1)) {
         /* Insert before the first element => push head. */
