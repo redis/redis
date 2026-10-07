@@ -7,6 +7,12 @@
 # GNU Affero General Public License v3 (AGPLv3).
 #
 
+# These tests configure repl-compression, which is only registered in builds
+# with BUILD_COMPRESSION=yes. The compression CI job runs them with --compression.
+if {!$::compression} {
+    return
+}
+
 proc compression_client_io_thread {info} {
     assert {[regexp {io-thread=(\d+)} $info - tid]}
     return $tid
@@ -30,8 +36,8 @@ start_server {tags {repl iothreads external:skip} overrides {io-threads 1 repl-c
     }
 }
 
-# Omit io-threads to exercise the default count. A disabled compression level
-# must not create a worker, including when the build lacks compression support.
+# Omit io-threads to exercise the default count. Disabled and enabled compression
+# levels must preserve the expected worker count across config rewrite/restart.
 foreach level {0 1} {
     start_server [list tags {repl iothreads external:skip} \
         overrides [list repl-compression-io-thread yes repl-compression $level] omit {io-threads}] {
@@ -54,15 +60,11 @@ foreach level {0 1} {
     }
 }
 
-set compression_levels {0}
-if {$::compression} {
-    # Matching and rejected compression requests in addition to no request.
-    set compression_levels {0 1 2}
-}
+# Cover no compression request, matching level 1, and rejected level 2.
 foreach io_threads {1 4} {
-    foreach replica_compression $compression_levels {
+    foreach replica_compression {0 1 2} {
         foreach rdb_channel {no yes} {
-            set master_compression [expr {$::compression ? 1 : 0}]
+            set master_compression 1
             set compressed [expr {$replica_compression == 1}]
             set threaded [expr {$io_threads > 1 || $compressed}]
             set overrides [list io-threads $io_threads repl-compression-io-thread yes \
@@ -111,7 +113,7 @@ foreach io_threads {1 4} {
 
                         if {$io_threads == 1} {
                             # Only the compressed replication link may use the worker.
-                            assert_equal [expr {$master_compression > 0 ? $compressed : -1}] [get_io_thread_clients 1 $master]
+                            assert_equal $compressed [get_io_thread_clients 1 $master]
                             assert_equal [expr {$replica_compression > 0 ? $compressed : -1}] [get_io_thread_clients 1 $replica]
                             assert_equal 0 [compression_client_io_thread [$master client info]]
                             assert_equal 0 [compression_client_io_thread [$replica client info]]
@@ -142,93 +144,91 @@ foreach io_threads {1 4} {
     }
 }
 
-if {$::compression} {
-    set overrides {io-threads 1 repl-compression-io-thread yes repl-compression 1 repl-compression-max-latency 10 save ""}
-    start_server [list tags {repl iothreads external:skip} overrides $overrides] {
+set overrides {io-threads 1 repl-compression-io-thread yes repl-compression 1 repl-compression-max-latency 10 save ""}
+start_server [list tags {repl iothreads external:skip} overrides $overrides] {
+    start_server [list overrides $overrides] {
         start_server [list overrides $overrides] {
-            start_server [list overrides $overrides] {
+            start_server [list overrides [concat $overrides {repl-compression 0}]] {
                 start_server [list overrides [concat $overrides {repl-compression 0}]] {
-                    start_server [list overrides [concat $overrides {repl-compression 0}]] {
-                        test {Dedicated compression IO thread with two compressed replicas, two uncompressed replicas and two normal clients} {
-                            set master [srv -4 client]
-                            set compressed_replicas [list [srv -3 client] [srv -2 client]]
-                            set plain_replicas [list [srv -1 client] [srv 0 client]]
-                            set replicas [concat $compressed_replicas $plain_replicas]
-                            set replica_ports [list [srv -3 port] [srv -2 port] [srv -1 port] [srv 0 port]]
-                            set normal_clients [list [redis_client -4] [redis_client -4]]
+                    test {Dedicated compression IO thread with two compressed replicas, two uncompressed replicas and two normal clients} {
+                        set master [srv -4 client]
+                        set compressed_replicas [list [srv -3 client] [srv -2 client]]
+                        set plain_replicas [list [srv -1 client] [srv 0 client]]
+                        set replicas [concat $compressed_replicas $plain_replicas]
+                        set replica_ports [list [srv -3 port] [srv -2 port] [srv -1 port] [srv 0 port]]
+                        set normal_clients [list [redis_client -4] [redis_client -4]]
 
-                            $master set initial [string repeat initial 1000]
-                            foreach replica $replicas {
-                                $replica replicaof [srv -4 host] [srv -4 port]
-                            }
-                            foreach replica $replicas {
-                                wait_for_sync $replica
-                            }
-                            for {set i 0} {$i < 4} {incr i} {
-                                wait_replica_online $master $i
-                            }
+                        $master set initial [string repeat initial 1000]
+                        foreach replica $replicas {
+                            $replica replicaof [srv -4 host] [srv -4 port]
+                        }
+                        foreach replica $replicas {
+                            wait_for_sync $replica
+                        }
+                        for {set i 0} {$i < 4} {incr i} {
+                            wait_replica_online $master $i
+                        }
 
-                            # Both normal clients produce traffic while all four
-                            # replication connections are active.
-                            for {set i 0} {$i < 20} {incr i} {
-                                set client [lindex $normal_clients [expr {$i % 2}]]
-                                $client set streamed:$i [string repeat "value:$i" 1000]
-                            }
-                            foreach client $normal_clients {
-                                # All four replicas must acknowledge this client's writes.
-                                assert_equal 4 [$client wait 4 5000]
-                            }
-                            foreach replica $replicas {
-                                wait_for_ofs_sync $master $replica
-                                # Each replica must contain the same data as the master.
-                                assert_equal [$master debug digest] [$replica debug digest]
-                            }
+                        # Both normal clients produce traffic while all four
+                        # replication connections are active.
+                        for {set i 0} {$i < 20} {incr i} {
+                            set client [lindex $normal_clients [expr {$i % 2}]]
+                            $client set streamed:$i [string repeat "value:$i" 1000]
+                        }
+                        foreach client $normal_clients {
+                            # All four replicas must acknowledge this client's writes.
+                            assert_equal 4 [$client wait 4 5000]
+                        }
+                        foreach replica $replicas {
+                            wait_for_ofs_sync $master $replica
+                            # Each replica must contain the same data as the master.
+                            assert_equal [$master debug digest] [$replica debug digest]
+                        }
 
-                            # Match each connection by port, independently of
-                            # connection order, and verify both ends of the link.
-                            # Compressed links use thread 1; uncompressed links use thread 0.
-                            foreach replica $replicas port $replica_ports tid {1 1 0 0} {
-                                wait_for_condition 50 100 {
-                                    [compression_replica_io_thread $master $port] == $tid &&
-                                    [compression_client_io_thread [$replica client list type master]] == $tid
-                                } else {
-                                    fail "Replica on port $port was not assigned to IO thread $tid"
-                                }
+                        # Match each connection by port, independently of
+                        # connection order, and verify both ends of the link.
+                        # Compressed links use thread 1; uncompressed links use thread 0.
+                        foreach replica $replicas port $replica_ports tid {1 1 0 0} {
+                            wait_for_condition 50 100 {
+                                [compression_replica_io_thread $master $port] == $tid &&
+                                [compression_client_io_thread [$replica client list type master]] == $tid
+                            } else {
+                                fail "Replica on port $port was not assigned to IO thread $tid"
                             }
-                            # All four replicas must remain connected during these checks.
-                            assert_equal 4 [status $master connected_slaves]
-                            # Only the two compressed replica connections use the master's worker.
-                            assert_equal 2 [get_io_thread_clients 1 $master]
-                            # There is no second worker: -1 means thread 2 does not exist.
-                            assert_equal -1 [get_io_thread_clients 2 $master]
-                            foreach client $normal_clients {
-                                # Both additional normal client connections stay on the main thread.
-                                assert_equal 0 [compression_client_io_thread [$client client info]]
-                            }
-                            foreach client [concat [list $master] $replicas] {
-                                # The existing test-harness connections on all five servers
-                                # also stay on their respective main threads.
-                                assert_equal 0 [compression_client_io_thread [$client client info]]
-                            }
+                        }
+                        # All four replicas must remain connected during these checks.
+                        assert_equal 4 [status $master connected_slaves]
+                        # Only the two compressed replica connections use the master's worker.
+                        assert_equal 2 [get_io_thread_clients 1 $master]
+                        # There is no second worker: -1 means thread 2 does not exist.
+                        assert_equal -1 [get_io_thread_clients 2 $master]
+                        foreach client $normal_clients {
+                            # Both additional normal client connections stay on the main thread.
+                            assert_equal 0 [compression_client_io_thread [$client client info]]
+                        }
+                        foreach client [concat [list $master] $replicas] {
+                            # The existing test-harness connections on all five servers
+                            # also stay on their respective main threads.
+                            assert_equal 0 [compression_client_io_thread [$client client info]]
+                        }
 
-                            # The master actually compressed replication data; this counter
-                            # measures the bytes fed into the compressor before compression.
-                            assert {[status $master total_net_repl_uncompressed_bytes] > 0}
-                            foreach replica $compressed_replicas {
-                                # Each compressed replica's worker serves its upstream master connection.
-                                assert_equal 1 [get_io_thread_clients 1 $replica]
-                                # Each compressed replica actually decompressed replication data.
-                                assert {[status $replica total_net_repl_decompressed_bytes] > 0}
-                            }
-                            foreach replica $plain_replicas {
-                                # Compression is disabled, so these replicas have no IO worker.
-                                assert_equal -1 [get_io_thread_clients 1 $replica]
-                                # No bytes were decompressed; INFO omits the counter when it is zero.
-                                assert_equal {} [status $replica total_net_repl_decompressed_bytes]
-                            }
-                            foreach client $normal_clients {
-                                $client close
-                            }
+                        # The master actually compressed replication data; this counter
+                        # measures the bytes fed into the compressor before compression.
+                        assert {[status $master total_net_repl_uncompressed_bytes] > 0}
+                        foreach replica $compressed_replicas {
+                            # Each compressed replica's worker serves its upstream master connection.
+                            assert_equal 1 [get_io_thread_clients 1 $replica]
+                            # Each compressed replica actually decompressed replication data.
+                            assert {[status $replica total_net_repl_decompressed_bytes] > 0}
+                        }
+                        foreach replica $plain_replicas {
+                            # Compression is disabled, so these replicas have no IO worker.
+                            assert_equal -1 [get_io_thread_clients 1 $replica]
+                            # No bytes were decompressed; INFO omits the counter when it is zero.
+                            assert_equal {} [status $replica total_net_repl_decompressed_bytes]
+                        }
+                        foreach client $normal_clients {
+                            $client close
                         }
                     }
                 }
