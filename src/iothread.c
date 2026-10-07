@@ -290,6 +290,17 @@ void fetchClientFromIOThread(client *c) {
  *   that may overlap with CLIENT_MASTER/SLAVE - CLOSE_ASAP, MONITOR,
  *   (UN)BLOCKED, TRACKING. */
 int isClientMustHandledByMainThread(client *c) {
+    /* With only a dedicated compression thread, normal clients and replication
+     * links that did not negotiate compression must stay in the main thread.
+     * Negotiation alone is not enough: the client must also be a master/replica
+     * and pass the replication state checks below. */
+    if (server.repl_compression_io_thread && server.io_threads_num_config == 1 &&
+        !((c->flags & CLIENT_SLAVE && c->compression_level > 0) ||
+          (c->flags & CLIENT_MASTER && server.repl_master_compression_level > 0)))
+    {
+        return 1;
+    }
+
     if (c->flags & (CLIENT_CLOSE_ASAP |
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
