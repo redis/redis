@@ -3091,6 +3091,10 @@ void initServer(void) {
     server.memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
     resetReplicationBuffer();
 
+    /* Force replication compression off if this build has no compression
+     * support. repl-compression is immutable, so this only needs to run once. */
+    setReplCompression(server.repl_compression);
+
     /* Make sure the locale is set on startup based on the config file. */
     if (setlocale(LC_COLLATE,server.locale_collate) == NULL) {
         serverLog(LL_WARNING, "Failed to configure LOCALE for invalid locale name.");
@@ -8478,20 +8482,6 @@ int main(int argc, char **argv) {
         sdsfree(options);
     }
     if (server.sentinel_mode) sentinelCheckConfigFile();
-
-    /* Resolve compression support before deciding whether to start its worker.
-     * Builds without compression support force the configured level to zero. */
-    setReplCompression(server.repl_compression);
-
-    /* Keep the configured count separate so CONFIG GET/REWRITE preserve the
-     * compression-only mode across restarts. Resolve the runtime count before
-     * reserving allocator slots or initializing any threads. */
-    server.io_threads_num = server.io_threads_num_config;
-    if (server.io_threads_num == 1 && server.repl_compression_io_thread &&
-        server.repl_compression > 0)
-    {
-        server.io_threads_num = 2;
-    }
 
     /* Reserve dedicated used_memory slots for main + IO threads (single-writer
      * fast path). See zmalloc_reserve_thread_slots(). */

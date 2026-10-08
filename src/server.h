@@ -2182,8 +2182,8 @@ struct redisServer {
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
-    int io_threads_num;         /* Runtime number of IO threads, including the main thread. */
-    int io_threads_num_config;  /* Configured io-threads, before adding a compression-only thread. */
+    int io_threads_num;         /* Number of IO threads, including the main thread. */
+    int io_threads_repl_compression_only; /* Restrict IO threads to compressed replication connections. */
     int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
@@ -2544,7 +2544,6 @@ struct redisServer {
     long long master_initial_offset;           /* Master PSYNC offset. */
     int repl_slave_lazy_flush;          /* Lazy FLUSHALL before loading DB? */
     int repl_compression;               /* Should slave attempt compressed replication link */
-    int repl_compression_io_thread;     /* Use one IO thread only for compressed replication if io-threads is 1. */
     int repl_master_compression_level;  /* Compression level agreed with master */
     /* Synchronous replication. */
     list *clients_waiting_acks;         /* Clients waiting in WAIT or WAITAOF. */

@@ -28,46 +28,34 @@ proc compression_replica_io_thread {master port} {
     return -1
 }
 
-start_server {tags {repl iothreads external:skip} overrides {io-threads 1 repl-compression 0} omit {repl-compression-io-thread}} {
-    test {Replication compression IO thread is disabled by default and immutable} {
-        assert_equal {repl-compression-io-thread no} [r config get repl-compression-io-thread]
-        assert_equal -1 [get_io_thread_clients 1]
-        assert_error {*immutable config*} {r config set repl-compression-io-thread yes}
+start_server {tags {repl iothreads external:skip} overrides {io-threads 4 repl-compression 0} omit {io-threads-repl-compression-only}} {
+    test {Compression-only IO threads are disabled by default and immutable} {
+        assert_equal {io-threads-repl-compression-only no} [r config get io-threads-repl-compression-only]
+        assert {[compression_client_io_thread [r client info]] > 0}
+        assert_error {*immutable config*} {r config set io-threads-repl-compression-only yes}
     }
-}
 
-# Omit io-threads to exercise the default count. Disabled and enabled compression
-# levels must preserve the expected worker count across config rewrite/restart.
-foreach level {0 1} {
-    start_server [list tags {repl iothreads external:skip} \
-        overrides [list repl-compression-io-thread yes repl-compression $level] omit {io-threads}] {
-        test "Replication compression IO thread startup and CONFIG REWRITE: compression=$level" {
-            set compression_enabled [expr {[lindex [r config get repl-compression] 1] > 0}]
-            set worker_clients [expr {$compression_enabled ? 0 : -1}]
-            assert_equal {io-threads 1} [r config get io-threads]
-            assert_equal $compression_enabled [s io_threads_active]
-            assert_equal $worker_clients [get_io_thread_clients 1]
-            assert_equal -1 [get_io_thread_clients 2]
-            r config rewrite
-            restart_server 0 true false
-            assert_equal {io-threads 1} [r config get io-threads]
-            assert_equal {repl-compression-io-thread yes} [r config get repl-compression-io-thread]
-            assert_equal $compression_enabled [s io_threads_active]
-            assert_equal 0 [compression_client_io_thread [r client info]]
-            assert_equal $worker_clients [get_io_thread_clients 1]
-            assert_equal -1 [get_io_thread_clients 2]
+    test {Compression-only IO threads require replication compression} {
+        foreach io_threads {1 4} {
+            foreach options {
+                {--io-threads-repl-compression-only yes}
+                {--io-threads-repl-compression-only yes --repl-compression 0}
+                {--repl-compression 0 --io-threads-repl-compression-only yes}
+            } {
+                catch {exec src/redis-server --port 0 --io-threads $io_threads {*}$options} err
+                assert_match {*io-threads-repl-compression-only requires repl-compression to be greater than 0*} $err
+            }
         }
     }
 }
 
-# Cover no compression request, matching level 1, and rejected level 2.
+# Cover matching level 1, rejected level 2, and compression without IO workers.
 foreach io_threads {1 4} {
-    foreach replica_compression {0 1 2} {
+    foreach replica_compression {1 2} {
         foreach rdb_channel {no yes} {
             set master_compression 1
-            set compressed [expr {$replica_compression == 1}]
-            set threaded [expr {$io_threads > 1 || $compressed}]
-            set overrides [list io-threads $io_threads repl-compression-io-thread yes \
+            set compressed [expr {$io_threads > 1 && $replica_compression == 1}]
+            set overrides [list io-threads $io_threads io-threads-repl-compression-only yes \
                 repl-rdb-channel $rdb_channel repl-compression $master_compression \
                 repl-compression-max-latency 10 save ""]
             set context "io-threads=$io_threads compression=$replica_compression rdb-channel=$rdb_channel"
@@ -79,15 +67,12 @@ foreach io_threads {1 4} {
 
                     test "Replication compression thread assignment: $context" {
                         assert_equal $io_threads [lindex [$master config get io-threads] 1]
-                        foreach client [list $master $replica] level [list $master_compression $replica_compression] {
-                            set runtime_threads [expr {$io_threads == 1 && $level > 0 ? 2 : $io_threads}]
-                            assert_equal -1 [get_io_thread_clients $runtime_threads $client]
-                            assert {[get_io_thread_clients [expr {$runtime_threads - 1}] $client] >= 0}
-                        }
-
                         foreach client [list $master $replica] {
-                            set tid [compression_client_io_thread [$client client info]]
-                            assert_equal [expr {$io_threads > 1}] [expr {$tid > 0}]
+                            assert_equal -1 [get_io_thread_clients $io_threads $client]
+                            for {set tid 1} {$tid < $io_threads} {incr tid} {
+                                assert_equal 0 [get_io_thread_clients $tid $client]
+                            }
+                            assert_equal 0 [compression_client_io_thread [$client client info]]
                         }
 
                         # Include data in the initial RDB as well as in the stream.
@@ -103,20 +88,20 @@ foreach io_threads {1 4} {
                         assert_equal [$master debug digest] [$replica debug digest]
 
                         wait_for_condition 50 100 {
-                            ([compression_client_io_thread [$master client list type replica]] > 0) == $threaded &&
-                            ([compression_client_io_thread [$replica client list type master]] > 0) == $threaded
+                            ([compression_client_io_thread [$master client list type replica]] > 0) == $compressed &&
+                            ([compression_client_io_thread [$replica client list type master]] > 0) == $compressed
                         } else {
                             fail "Unexpected replication thread assignment: $context"
                         }
                         assert_equal $compressed [expr {[status $master total_net_repl_uncompressed_bytes] > 0}]
                         assert_equal $compressed [expr {[status $replica total_net_repl_decompressed_bytes] > 0}]
 
-                        if {$io_threads == 1} {
-                            # Only the compressed replication link may use the worker.
-                            assert_equal $compressed [get_io_thread_clients 1 $master]
-                            assert_equal [expr {$replica_compression > 0 ? $compressed : -1}] [get_io_thread_clients 1 $replica]
-                            assert_equal 0 [compression_client_io_thread [$master client info]]
-                            assert_equal 0 [compression_client_io_thread [$replica client info]]
+                        foreach client [list $master $replica] {
+                            # Only the compressed replication link may use a worker.
+                            for {set tid 1} {$tid < $io_threads} {incr tid} {
+                                assert_equal [expr {$tid == 1 ? $compressed : 0}] [get_io_thread_clients $tid $client]
+                            }
+                            assert_equal 0 [compression_client_io_thread [$client client info]]
                         }
                     }
 
@@ -132,8 +117,8 @@ foreach io_threads {1 4} {
                         }
                         assert_equal 1 [$master wait 1 5000]
                         wait_for_condition 50 100 {
-                            ([compression_client_io_thread [$master client list type replica]] > 0) == $threaded &&
-                            ([compression_client_io_thread [$replica client list type master]] > 0) == $threaded
+                            ([compression_client_io_thread [$master client list type replica]] > 0) == $compressed &&
+                            ([compression_client_io_thread [$replica client list type master]] > 0) == $compressed
                         } else {
                             fail "Unexpected replication thread assignment after partial sync: $context"
                         }
@@ -144,13 +129,13 @@ foreach io_threads {1 4} {
     }
 }
 
-set overrides {io-threads 1 repl-compression-io-thread yes repl-compression 1 repl-compression-max-latency 10 save ""}
+set overrides {io-threads 4 io-threads-repl-compression-only yes repl-compression 1 repl-compression-max-latency 10 save ""}
 start_server [list tags {repl iothreads external:skip} overrides $overrides] {
     start_server [list overrides $overrides] {
         start_server [list overrides $overrides] {
-            start_server [list overrides [concat $overrides {repl-compression 0}]] {
-                start_server [list overrides [concat $overrides {repl-compression 0}]] {
-                    test {Dedicated compression IO thread with two compressed replicas, two uncompressed replicas and two normal clients} {
+            start_server [list overrides [concat $overrides {io-threads 1 io-threads-repl-compression-only no repl-compression 0}]] {
+                start_server [list overrides [concat $overrides {io-threads 1 io-threads-repl-compression-only no repl-compression 0}]] {
+                    test {Compression-only IO threads with two compressed replicas, two uncompressed replicas and two normal clients} {
                         set master [srv -4 client]
                         set compressed_replicas [list [srv -3 client] [srv -2 client]]
                         set plain_replicas [list [srv -1 client] [srv 0 client]]
@@ -187,21 +172,24 @@ start_server [list tags {repl iothreads external:skip} overrides $overrides] {
 
                         # Match each connection by port, independently of
                         # connection order, and verify both ends of the link.
-                        # Compressed links use thread 1; uncompressed links use thread 0.
-                        foreach replica $replicas port $replica_ports tid {1 1 0 0} {
+                        # Compressed links use workers; uncompressed links use thread 0.
+                        foreach replica $replicas port $replica_ports compressed {1 1 0 0} {
                             wait_for_condition 50 100 {
-                                [compression_replica_io_thread $master $port] == $tid &&
-                                [compression_client_io_thread [$replica client list type master]] == $tid
+                                ([compression_replica_io_thread $master $port] > 0) == $compressed &&
+                                ([compression_client_io_thread [$replica client list type master]] > 0) == $compressed
                             } else {
-                                fail "Replica on port $port was not assigned to IO thread $tid"
+                                fail "Unexpected thread assignment for replica on port $port: compression=$compressed"
                             }
                         }
                         # All four replicas must remain connected during these checks.
                         assert_equal 4 [status $master connected_slaves]
-                        # Only the two compressed replica connections use the master's worker.
-                        assert_equal 2 [get_io_thread_clients 1 $master]
-                        # There is no second worker: -1 means thread 2 does not exist.
-                        assert_equal -1 [get_io_thread_clients 2 $master]
+                        # The two compressed replica connections use separate workers.
+                        assert_equal 1 [get_io_thread_clients 1 $master]
+                        assert_equal 1 [get_io_thread_clients 2 $master]
+                        # The remaining worker cannot accept any of the uncompressed clients.
+                        assert_equal 0 [get_io_thread_clients 3 $master]
+                        # The mode creates no worker beyond the configured thread count.
+                        assert_equal -1 [get_io_thread_clients 4 $master]
                         foreach client $normal_clients {
                             # Both additional normal client connections stay on the main thread.
                             assert_equal 0 [compression_client_io_thread [$client client info]]
@@ -218,11 +206,14 @@ start_server [list tags {repl iothreads external:skip} overrides $overrides] {
                         foreach replica $compressed_replicas {
                             # Each compressed replica's worker serves its upstream master connection.
                             assert_equal 1 [get_io_thread_clients 1 $replica]
+                            # The other workers have no eligible connections.
+                            assert_equal 0 [get_io_thread_clients 2 $replica]
+                            assert_equal 0 [get_io_thread_clients 3 $replica]
                             # Each compressed replica actually decompressed replication data.
                             assert {[status $replica total_net_repl_decompressed_bytes] > 0}
                         }
                         foreach replica $plain_replicas {
-                            # Compression is disabled, so these replicas have no IO worker.
+                            # The uncompressed replicas were configured without IO workers.
                             assert_equal -1 [get_io_thread_clients 1 $replica]
                             # No bytes were decompressed; INFO omits the counter when it is zero.
                             assert_equal {} [status $replica total_net_repl_decompressed_bytes]
