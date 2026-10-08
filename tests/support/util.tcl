@@ -358,6 +358,7 @@ proc findKeyWithType {r type} {
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
+    set usesexpire [expr {[lsearch -exact $opt usesexpire] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
@@ -471,6 +472,16 @@ proc createComplexDataset {r ops {opt {}}} {
                                 }
                             }
                         }
+
+                if {$usesexpire && rand() < 0.5} {
+                    randpath {
+                        catch {{*}$r sexpire $k 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r saddex $k EX 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r spersist $k MEMBERS 1 $v}
+                    }
+                }
             }
             {zset} {
                 randpath {{*}$r zadd $k $d $v} \
