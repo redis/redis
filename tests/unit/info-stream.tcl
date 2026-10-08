@@ -548,7 +548,7 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}}
     }
 }
 
-# The section is everything-only (in `all`/`everything`, not `default`) and is
+# The section is in `all`/`everything` and by name, not in `default`, and is
 # gated on the stream-stats directive.
 start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} {
     r select 0
