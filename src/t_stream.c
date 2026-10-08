@@ -126,59 +126,27 @@ unsigned long streamLength(const robj *subject) {
 }
 
 /* ----------------------------------------------------------------------------
- * INFO `Streams` statistics
+ * INFO Streams statistics
  *
- * Per-database base-2 logarithmic histograms of stream properties, reported by
- * the INFO `Streams` section: one sample per stream for its consumer-group
- * count (stream_distrib_streams_cgroups; a stream with no groups counts in bin
- * 0), and one sample per consumer group for its PEL size
- * (stream_distrib_cgroups_pel) and its consumer count
- * (stream_distrib_cgroups_consumers). They are maintained directly from the
- * stream commands and module APIs that change the tracked property, from the
- * stream key lifecycle hooks (streamKeyLoaded / streamKeyRemoved), and from the
- * async slot-trim delta path (cluster_asm.c).
+ * Per-db base-2 histograms of stream properties, one row per
+ * streamDistribMetric: groups per stream (every stream counts, bin 0 for no
+ * groups), and PEL size and consumer count per group. Rows are updated by the
+ * commands and module APIs that change the property, by the key lifecycle hooks
+ * (streamKeyLoaded / streamKeyRemoved) and by the slot-trim delta in
+ * cluster_asm.c. Only properties stored on the stream or group itself are
+ * tracked, so a write updates one object; a stream-wide derived value such as
+ * lag would cost O(groups) per XADD.
  *
- * Every metric tracked here is a value materialized on the object it describes
- * -- the stream or the consumer group -- so a write only has to update the one
- * object it touches. That is a deliberate constraint: a metric derived from
- * stream-wide state -- a group's lag, which is entries_added minus
- * entries_read -- would move for every group on every XADD, making each write
- * O(groups).
- *
- * An update moves one sample from the bin for the property's old value to the
- * bin for its new value; the caller passes both (either may be -1, meaning "no
- * sample" -- e.g. a stream or consumer group being created or destroyed). A
- * single function serves every metric: the streamDistribMetric selector
- * resolves the per-db histogram row, so adding a metric is one enumerator (see
- * stream.h) plus one case in each of the per-metric switches below.
- *
- * Collection is lazy: it only runs while the `stream-stats` directive is
- * enabled. The gauges are exact when the directive is set at startup or after
- * an RDB reload (the load path registers every stream and its groups). Enabling
- * at runtime deliberately does not rescan the keyspace -- that would block the
- * server for roughly half a second per million stream keys -- so streams and
- * groups that already exist are not counted until a group command next
- * touches them. A metric whose hook fires on ordinary traffic re-enters on its
- * own (the PEL size, on every read and ack). The two that change only on
- * XGROUP commands or on a consumer's first read -- groups per stream and
- * consumers per group -- are re-entered by streamStatsReenterStructural() from
- * every group command, so a stream with live groups converges on its ordinary
- * traffic, while an idle one stays unreported until a reload. The gauges
- * under-count until then, never over-count.
- *
- * What makes that safe is a per-object stamp: a generation epoch plus one bit
- * per metric of the object's unit. Each db's rows carry an epoch
- * (kvstoreMetadata.stream_stats_epoch) that streamStatsResetMeta() bumps
- * whenever it zeroes them; a stream's or group's sample is in a row iff its
- * distrib_epoch equals its db's epoch and that row's bit is set in
- * distrib_counted. Bins are anonymous counts, so without the stamp any
- * decrement on behalf of a sample that was never entered -- an object's first
- * update after enable, its removal, a slot-trim delta -- would take some other
- * object's tally, and since a bin is only touched when a value changes bin, the
- * loss would never heal. With it, a row that does not yet hold the object's
- * sample receives it at the NEW value on the first update of that metric, no
- * untrusted old value is ever decremented, and removing a sample that was
- * never entered removes nothing. See streamUpdateStat().
+ * streamUpdateStat() moves one sample from the bin of the old value to the bin
+ * of the new one; -1 on either side means "no sample" (object created or
+ * destroyed). Collection runs only while stream-stats is on, and enabling at
+ * runtime does not rescan the keyspace: existing objects are entered when a
+ * group command next touches them (streamStatsReenterStructural() covers the
+ * two metrics whose own hooks are rare), so the rows under-count until then
+ * and never over-count. That is safe because every stream and group carries a
+ * stamp, its db's stream_stats_epoch plus one bit per metric, saying which
+ * rows hold its sample: a sample not held is entered at the new value, and
+ * never decremented at an untrusted old one.
  * -------------------------------------------------------------------------- */
 
 /* The INFO field name of each metric, indexed by streamDistribMetric, so a
