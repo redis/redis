@@ -1809,3 +1809,85 @@ start_server {tags {"external:skip needs:debug"}} {
     }
     r config set set-max-listpack-entries 128
 }
+
+# Active defrag of the sets with member expirations. The members that have an
+# expiration are reached through the ebuckets of the set, and the registered
+# sets through db->subexpires.
+start_server {tags {"external:skip needs:debug defrag"} overrides {save ""}} {
+    if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
+        proc sme_wait_defrag_stop {maxtries delay {expect_frag 0}} {
+            wait_for_condition $maxtries $delay {
+                [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
+            } else {
+                fail "defrag didn't stop or failed to achieve the expected frag ratio ([s allocator_frag_ratio] > $expect_frag)"
+            }
+        }
+
+        # members per set: 4 is a listpackex, 20 is a small hashtable (defragged
+        # at once), 200 is a big one (defragged incrementally, with the limit below)
+        foreach {name members n limit} {listpackex 4 8000 128 small_hashtable 20 3000 0 big_hashtable 200 400 0} {
+        test "Active defrag of sets with member expirations: $name" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            sme_wait_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 7
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1000kb
+            r config set active-defrag-max-scan-fields 50
+            r config set maxmemory 0
+            r config set set-max-listpack-value 512
+            r config set set-max-listpack-entries $limit
+
+            # Interleave the sets to keep, with the sets to delete
+            set dummy [string repeat x 400]
+            set rd [redis_deferring_client]
+            for {set i 0} {$i < $n} {incr i} {
+                foreach key [list s$i k$i] {
+                    for {set j 0} {$j < $members} {incr j} {
+                        $rd sadd $key $dummy$j
+                        $rd saddex $key EX 9999999 MEMBERS 1 $dummy$j
+                    }
+                    $rd sadd $key plain
+                    $rd expire $key 9999999
+                }
+                for {set j 0} {$j < $members * 4 + 4} {incr j} {
+                    $rd read
+                }
+            }
+            $rd close
+            assert_encoding [expr {$name eq "listpackex" ? "listpackex" : "hashtable"}] s0
+            after 120
+            assert_lessthan [s allocator_frag_ratio] 1.07
+
+            for {set i 0} {$i < $n} {incr i} {r del k$i}
+            set digest [r debug digest]
+            after 120
+            assert_morethan [s allocator_frag_ratio] 1.35
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    fail "defrag not started."
+                }
+                sme_wait_defrag_stop 500 100 1.07
+                assert_morethan [s active_defrag_hits] 0
+            }
+            # Nothing was lost, and the sets still work and are registered
+            assert_equal [r debug digest] $digest
+            assert_equal [sme_subexpiry r] $n
+            assert {[r sttl s1 MEMBERS 1 ${dummy}0] > 9000000}
+            r sexpire s1 100 MEMBERS 1 ${dummy}0
+            assert {[r sttl s1 MEMBERS 1 ${dummy}0] <= 100}
+            assert {[r ttl s1] > 9000000}
+            r config set activedefrag no
+            r config set set-max-listpack-entries 128
+            r config set set-max-listpack-value 64
+        }
+        }
+    }
+}
