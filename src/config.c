@@ -3443,7 +3443,7 @@ static int applyClientMaxMemoryUsage(const char **err) {
 }
 
 /* Disabling stream-stats stops the bookkeeping and hides the section; the
- * per-db INFO `Streams` rows are kept. Re-enabling keeps them if no stream
+ * per-db INFO Streams rows are kept. Re-enabling keeps them if no stream
  * changed meanwhile (stream_stats_needs_reset is clear) and otherwise starts a
  * new generation, filling in lazily. Apply hooks run only on runtime CONFIG
  * SET, so the dbs are always initialized here. */
@@ -3451,11 +3451,8 @@ static int applyStreamStats(const char **err) {
     UNUSED(err);
     if (!server.stream_stats) {
         /* Nothing to do: the hooks stop updating and INFO stops printing the
-         * rows. They keep their last content on purpose. A failed multi-setting
-         * CONFIG SET re-applies `yes` during its rollback before anything else
-         * can run, and then finds them exact and keeps them. Whether they are
-         * still exact when tracking is next enabled is what
-         * server.stream_stats_needs_reset tracks. */
+         * rows, which keep their content so that a failed multi-setting CONFIG
+         * SET re-applying `yes` during its rollback finds them exact. */
         return 1;
     }
     if (server.stream_stats_needs_reset) {
@@ -3470,9 +3467,9 @@ static int applyStreamStats(const char **err) {
     }
     if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
         /* Enabling at runtime deliberately does not rescan, so the gauges are
-         * legitimately behind until each group is next touched -- which
-         * DEBUG STREAM-STATS-ASSERT would report as corruption on this very
-         * command. Re-prime an exact baseline while the assertion is armed. */
+         * legitimately behind until each group is next touched, which DEBUG
+         * STREAM-STATS-ASSERT would report as corruption on this very command.
+         * Re-prime an exact baseline while the assertion is armed. */
         streamStatsRebuild();
     }
     return 1;

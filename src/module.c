@@ -758,7 +758,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
 
     key->kv = dbAdd(key->db, key->key, &obj);
     if (type == REDISMODULE_KEYTYPE_STREAM)
-        streamKeyLoaded(key->db, key->key, key->kv); /* a new stream key: enter its INFO `Streams` samples */
+        streamKeyLoaded(key->db, key->key, key->kv);
     moduleInitKeyTypeSpecific(key);
     return REDISMODULE_OK;
 }

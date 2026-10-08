@@ -100,17 +100,14 @@ typedef struct asmBgTrimState {
     kvstore *target_kvstore;
     keysizesHist delta_keysizes_hist;
     keysizesHist delta_allocsizes_hist;
-    streamStatsHist delta_stream_hist; /* INFO `Streams`; tallied on the BIO thread */
+    streamStatsHist delta_stream_hist; /* INFO Streams, tallied on BIO */
     uint32_t keysizes_stats_epoch; /* db0's value captured at schedule; the
                                       delta is applied only if it still matches
                                       (no in-place empty happened meanwhile). */
-    int track_stream_stats;      /* stream-stats state captured when the trim job was
-                                    scheduled; the BIO thread reads this instead of the
-                                    live config, and the stream delta is applied only if it
-                                    was set. */
-    uint32_t stream_stats_epoch; /* db0's stream_stats_epoch captured at schedule; the stream
-                                    delta is applied only if it still matches (no stream reset
-                                    since), and only objects stamped with it are tallied. */
+    int track_stream_stats;      /* stream-stats at schedule; the BIO thread reads
+                                    this instead of the live config. */
+    uint32_t stream_stats_epoch; /* db0's value at schedule; objects are tallied,
+                                    and the delta applied, only if it matches. */
 } asmBgTrimState;
 
 typedef struct asmTrimJob {
@@ -3103,7 +3100,7 @@ static void asmTrimJobPopulateDeltaHistograms(kvstore *kvs, void *userdata) {
         kvobj *kv = dictGetKV(de);
         if (!kv) continue;
 
-        /* INFO `Streams` rows (bg trim frees streams without streamKeyRemoved).
+        /* INFO Streams rows (bg trim frees streams without streamKeyRemoved).
          * Safe to read here: the trimmed slots are in a detached kvstore this
          * thread owns. Gated on the state captured at schedule, not the live
          * config, and only samples stamped with the captured generation are
@@ -3150,7 +3147,7 @@ static void asmBackgroundTrimDoneCB(uint64_t client_id, void *userdata) {
                 meta->allocsizes_hist[row][bin] -= job->bg->delta_allocsizes_hist[row][bin];
             }
         }
-        /* The INFO `Streams` rows have a generation of their own, which a
+        /* The INFO Streams rows have a generation of their own, which a
          * stale re-enable and a rebuild also advance, and were tallied only
          * if tracking was on at schedule. The tally counted only samples that
          * are in these rows, so the subtraction cannot go below zero. */
@@ -3191,7 +3188,7 @@ static void asmTriggerBackgroundTrim(asmTrimJob *job) {
     job->bg->target_kvstore = db->keys;
     /* Capture the histogram generations now, on the main thread: the completion
      * applies a delta only if its generation still matches (see
-     * asmBackgroundTrimDoneCB). For the INFO `Streams` rows also capture the
+     * asmBackgroundTrimDoneCB). For the INFO Streams rows also capture the
      * tracking state, which the BIO thread reads instead of the live config. */
     kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
     job->bg->keysizes_stats_epoch = meta ? meta->keysizes_stats_epoch : 0;

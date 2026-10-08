@@ -1,7 +1,7 @@
 start_server {
     tags {"stream"}
 } {
-    # Verify the INFO `Streams` histograms against a keyspace rebuild after every
+    # Verify the INFO Streams histograms against a keyspace rebuild after every
     # command, so this whole suite doubles as coverage for their bookkeeping. It
     # drives XREADGROUP, XCLAIM/XAUTOCLAIM and XGROUP CREATECONSUMER/DELCONSUMER
     # hardest, i.e. every site that creates or removes a consumer.

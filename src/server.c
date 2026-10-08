@@ -546,14 +546,11 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
 
 static void kvstoreOnEmpty(kvstore *kvs) {
     kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
-    serverAssert(meta); /* installed only for kvstore types that carry metadata */
+    serverAssert(meta); /* installed only for kvstores that carry metadata */
 
-    /* An emptied kvstore holds no samples for any histogram in here, so clear
-     * them all and start a new generation: an async slot-trim delta tallied
-     * against the old contents must be discarded, not subtracted (see
-     * asmBackgroundTrimDoneCB). The stream rows go through
-     * streamStatsResetMeta(), which also advances their own generation so that
-     * every stream's and group's stamp goes stale. */
+    /* Nothing in an emptied kvstore holds a sample, so clear every histogram
+     * and start a new generation: a slot-trim delta tallied against the old
+     * contents is then discarded, not subtracted (asmBackgroundTrimDoneCB). */
     memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
     memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
     meta->keysizes_stats_epoch++;
