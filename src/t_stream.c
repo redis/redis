@@ -222,7 +222,6 @@ static int streamDistribBin(int64_t value) {
     return bin;
 }
 
-
 /* First per-group metric: [0, this) are per-stream, [this, MAX) per-group. */
 #define STREAM_DISTRIB_FIRST_CGROUP_METRIC STREAM_DISTRIB_CGROUPS_PEL
 
