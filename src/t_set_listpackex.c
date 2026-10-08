@@ -348,6 +348,13 @@ static void *lpexConvertFrom(robj *set, unsigned long cap, int panic) {
     return lpexCreateWrapper(lp);
 }
 
+/* Creates an empty set object encoded as a listpack with expirations. */
+robj *createSetListpackExObject(void) {
+    robj *o = createObject(OBJ_SET, lpexCreateWrapper(lpNew(0)));
+    o->encoding = OBJ_ENCODING_LISTPACK_EX;
+    return o;
+}
+
 /* Returns the wrapper of a listpack-with-expiration set, for the code that
  * registers the set in db->subexpires. */
 ExpireMeta *setListpackExGetExpireMeta(const robj *set) {

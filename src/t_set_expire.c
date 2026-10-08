@@ -177,8 +177,231 @@ static inline int setMemberIsGone(int exists, uint64_t expire) {
 /* Replies to a command that is not allowed to touch a set which cannot hold
  * member expirations yet. Temporary, until the hashtable with expirations
  * exists. */
-static void addReplyErrorSetEncodingNotSupported(client *c) {
+void addReplyErrorSetEncodingNotSupported(client *c) {
     addReplyError(c, "member expiration is not supported yet for sets of this encoding or size");
+}
+
+/*-----------------------------------------------------------------------------
+ * Lazy expiry
+ *
+ * Like for hash fields, there is no sweep before a command: a command that
+ * touches a member checks whether it expired, and a command that samples
+ * members removes all the expired ones first.
+ *----------------------------------------------------------------------------*/
+
+/* Returns 1 if this node must not remove expired members itself right now: a
+ * replica waits for the SREM of its master, nothing is removed while loading or
+ * while the expiration actions are paused, and a master link is trusted. *deletable
+ * is set to 0 if the expired member must be reported as missing but kept, and
+ * *trusted to 1 if it must be reported as present (the master link applying
+ * commands the master already decided on). */
+static void setLazyExpiryGuard(int *deletable, int *trusted) {
+    *deletable = 1;
+    *trusted = 0;
+    if (server.masterhost || server.cluster_enabled) {
+        /* If CLIENT_MASTER, assume valid as long as it was not deleted. In
+         * cluster mode, also while importing data from the source (a fake master
+         * client with the CLIENT_MASTER flag), to not delete members still in use. */
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) {
+            *trusted = 1;
+            return;
+        }
+        /* For a replica, if a user client, act as if expired but do not delete. */
+        if (server.masterhost) {
+            *deletable = 0;
+            return;
+        }
+    }
+    if (server.loading || isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE))
+        *deletable = 0;
+}
+
+/* Removes a member that was found logically expired: removes it, propagates the
+ * SREM, and does the bookkeeping, as per the flags. Deletes the key if the set
+ * became empty, unless SET_LAZY_AVOID_SET_DEL. Returns 1 if the key was deleted. */
+static int setLazyDeleteExpiredMember(redisDb *db, kvobj *set, sds member, int flags) {
+    size_t oldsize = 0;
+    sds key = kvobjGetKey(set);
+    int64_t oldlen = (int64_t)setTypeSize(set);
+
+    if (server.memory_tracking_enabled && !(flags & SET_LAZY_NO_UPDATE_ALLOCSIZES))
+        oldsize = kvobjAllocSize(set);
+    serverAssert(setTypeRemove(set, member) == 1);
+    if (server.memory_tracking_enabled && !(flags & SET_LAZY_NO_UPDATE_ALLOCSIZES))
+        updateSlotAllocSize(db, getKeySlot(key), set, oldsize, kvobjAllocSize(set));
+    propagateSetMemberDeletion(db, key, member, sdslen(member));
+    server.stat_expired_subkeys++;
+
+    if (!(flags & SET_LAZY_NO_UPDATE_KEYSIZES))
+        updateKeysizesHist(db, OBJ_SET, oldlen, oldlen - 1);
+
+    int deleted = 0;
+    robj *keyObj = createStringObject(key, sdslen(key));
+    unsigned long length = setTypeSize(set);
+    if (length != 0 && !(flags & SET_LAZY_NO_NOTIFICATION)) {
+        robj mobj, *marr[1] = {&mobj};
+        initStaticStringObject(mobj, member);
+        notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "sexpired", keyObj, db->id, marr, 1);
+    }
+    if (length == 0 && !(flags & SET_LAZY_AVOID_SET_DEL)) {
+        if (!(flags & SET_LAZY_NO_NOTIFICATION))
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
+        dbDelete(db, keyObj);
+        set = NULL;
+        deleted = 1;
+    }
+    keyModified(NULL, db, keyObj, set, !(flags & SET_LAZY_NO_SIGNAL));
+    decrRefCount(keyObj);
+    return deleted;
+}
+
+/* Checks whether a member is in the set, removing it if it is logically expired
+ * and this node is allowed to. Returns 1 if the member is in the set, 0 if it is
+ * not or is expired. *setDeleted (if not NULL) is set to 1 if the whole key got
+ * deleted, because the expired member was the last one; the set must not be used
+ * afterwards. This function also updates the allocation size accounting (a read
+ * can move memory, for example by rehashing) unless suppressed. */
+int setTypeIsMemberLazy(redisDb *db, kvobj *set, sds member, int flags, int *setDeleted) {
+    size_t oldsize = 0;
+    const int track = server.memory_tracking_enabled && !(flags & SET_LAZY_NO_UPDATE_ALLOCSIZES);
+    if (setDeleted) *setDeleted = 0;
+    if (track) oldsize = kvobjAllocSize(set);
+
+    uint64_t expire = EB_EXPIRE_TIME_INVALID;
+    int res = setTypeGetExpire(set, member, &expire);
+    int remove = 0;
+
+    if (res && setTypeExpireTimeElapsed(expire)) {
+        int deletable, trusted;
+        setLazyExpiryGuard(&deletable, &trusted);
+        if (trusted) {
+            res = 1;
+        } else {
+            res = 0;
+            remove = deletable;
+        }
+    }
+
+    if (remove) {
+        int deleted = setLazyDeleteExpiredMember(db, set, member,
+                                                 flags | SET_LAZY_NO_UPDATE_ALLOCSIZES);
+        /* The accounting is updated before the key is deleted, if it is. */
+        if (track && !deleted)
+            updateSlotAllocSize(db, getKeySlot(kvobjGetKey(set)), set, oldsize, kvobjAllocSize(set));
+        if (setDeleted) *setDeleted = deleted;
+        return 0;
+    }
+
+    if (track)
+        updateSlotAllocSize(db, getKeySlot(kvobjGetKey(set)), set, oldsize, kvobjAllocSize(set));
+    return res;
+}
+
+/* Callback of the expire() op: propagates the removal of a member and collects
+ * it for the keyspace event. */
+typedef struct SetExpireCtx {
+    redisDb *db;
+    sds key;
+    vec *vexpired;     /* Collects the expired members, NULL if not needed */
+    int activeEx;      /* The expiration is done by the active expire cycle */
+} SetExpireCtx;
+
+static void setExpireMemberCb(void *c, char *str, size_t len, int64_t llval) {
+    SetExpireCtx *ctx = c;
+    char buf[LONG_STR_SIZE];
+    if (str == NULL) {
+        len = ll2string(buf, sizeof(buf), llval);
+        str = buf;
+    }
+    if (ctx->vexpired)
+        vecPush(ctx->vexpired, createStringObject(str, len));
+    propagateSetMemberDeletion(ctx->db, ctx->key, str, len);
+    server.stat_expired_subkeys++;
+    if (ctx->activeEx) server.stat_expired_subkeys_active++;
+}
+
+/* Deletes the expired members of the set, up to the quota, and deletes the set
+ * if it is left empty.
+ *
+ * Returns the next expiration time of the set:
+ * - 0 if the set was deleted
+ * - EB_EXPIRE_TIME_INVALID if no more members have an expiration */
+uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubexpires, int activeEx) {
+    UNUSED(updateSubexpires); /* The subexpires registration is not implemented yet. */
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    serverAssert(ops->expire != NULL);
+    sds keystr = kvobjGetKey(set);
+
+    /* Collect the expired members for a batched subkey notification, unless the
+     * subkey notifications are disabled. */
+    memvec mvexpired;
+    vec *vexpired = isSubkeyNotifyEnabled(NOTIFY_SET) ?
+                        memvecInit(&mvexpired, SME_STACK_SIZE) : NULL;
+    SetExpireCtx ctx = {.db = db, .key = keystr, .vexpired = vexpired, .activeEx = activeEx};
+
+    size_t oldsize = 0;
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
+    int64_t oldlen = (int64_t)setTypeSize(set);
+
+    unsigned long expired = ops->expire(set, (uint64_t)commandTimeSnapshot(), *quota,
+                                        setExpireMemberCb, &ctx);
+    *quota -= expired;
+
+    uint64_t res = EB_EXPIRE_TIME_INVALID;
+    if (expired) {
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(db, getKeySlot(keystr), set, oldsize, kvobjAllocSize(set));
+        int64_t newlen = (int64_t)setTypeSize(set);
+        updateKeysizesHist(db, OBJ_SET, oldlen, newlen);
+
+        robj *key = createStringObject(keystr, sdslen(keystr));
+        notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "sexpired", key, db->id,
+            vexpired ? (robj**)vecData(vexpired) : NULL, vexpired ? vecSize(vexpired) : 0);
+
+        int deleted = 0;
+        if (newlen == 0) {
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, db->id);
+            dbDelete(db, key);
+            res = 0;
+            deleted = 1;
+        }
+        keyModified(NULL, db, key, deleted ? NULL : set, 1);
+        decrRefCount(key);
+        if (!deleted)
+            res = ops->minExpire(set, 1);
+    } else {
+        res = ops->minExpire(set, 1);
+    }
+
+    if (vexpired) {
+        for (size_t i = 0; i < vecSize(vexpired); i++)
+            decrRefCount(vecGet(vexpired, i));
+        vecRelease(vexpired);
+    }
+    return res;
+}
+
+/* Deletes all the expired members of the set (and the set itself if it is left
+ * empty) unless this node must not delete expired data right now. This is a
+ * sweep, used by the commands that sample members, to not pick among many
+ * expired members. Returns 1 if the whole set was deleted. */
+int setTypeExpireIfNeeded(redisDb *db, kvobj *set) {
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    if (ops->minExpire == NULL) return 0;
+
+    uint64_t minExpire = ops->minExpire(set, 1);
+    /* Nothing to expire */
+    if (minExpire == EB_EXPIRE_TIME_INVALID || (mstime_t)minExpire >= commandTimeSnapshot())
+        return 0;
+
+    /* Follow the conditions of when not to lazy-expire a key. */
+    if (server.loading || server.allow_access_expired || server.masterhost ||
+        isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE))
+        return 0;
+
+    uint32_t quota = UINT32_MAX;
+    return setTypeExpire(db, set, &quota, 0, 0) == 0;
 }
 
 /*-----------------------------------------------------------------------------
