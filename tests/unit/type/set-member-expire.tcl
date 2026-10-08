@@ -1603,3 +1603,158 @@ start_server {tags {"external:skip needs:debug"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 }
+
+# Stage 9: persistence. RDB (DEBUG RELOAD, DUMP/RESTORE, full sync), AOF rewrite
+# and DEBUG DIGEST.
+start_server {tags {"external:skip needs:debug"} overrides {sanitize-dump-payload no}} {
+    r debug keysizes-hist-assert 1
+    r debug allocsize-slots-assert 1
+
+    foreach enc $::sme_encodings {
+    sme_force_encoding r $enc
+
+    test "DEBUG RELOAD keeps the members and their expirations ($enc)" {
+        r flushall
+        r sadd s a b c 10 20
+        r sexpire s 1000 MEMBERS 2 a 10
+        r spexpire s 500000 MEMBERS 1 b
+        r sadd plain x y z
+        r sadd withttl_none x y z
+        r sexpire withttl_none 1000 MEMBERS 1 x
+        r spersist withttl_none MEMBERS 1 x
+        set before [r debug digest]
+        set d1 [r debug digest-value s]
+        r debug reload
+        assert_equal [r debug digest] $before
+        assert_equal [r debug digest-value s] $d1
+        assert_equal [lsort [r smembers s]] [lsort {a b c 10 20}]
+        assert {[r sttl s MEMBERS 1 a] > 900 && [r sttl s MEMBERS 1 a] <= 1000}
+        assert {[r sttl s MEMBERS 1 10] > 900}
+        assert {[r spttl s MEMBERS 1 b] > 400000}
+        assert_equal [r sttl s MEMBERS 2 c 20] [list $E_NO_TTL $E_NO_TTL]
+        assert_equal [r sttl plain MEMBERS 1 x] $E_NO_TTL
+        assert_equal [sme_subexpiry r] 1
+        assert_equal [r scard s] 5
+    }
+
+    test "The digest changes when an expiration is set or removed ($enc)" {
+        r flushall
+        r sadd s a b c
+        set d0 [r debug digest-value s]
+        r sexpire s 1000 MEMBERS 1 a
+        set d1 [r debug digest-value s]
+        assert {$d0 ne $d1}
+        r spersist s MEMBERS 1 a
+        assert_equal [r debug digest-value s] $d0
+    }
+
+    test "Sets with expirations expire after a reload, and are registered ($enc)" {
+        r flushall
+        r sadd s a b
+        r spexpire s 300 MEMBERS 1 a
+        r debug reload
+        wait_for_condition 50 100 {[r smembers s] eq {b}} else {fail "member did not expire after reload"}
+    }
+
+    test "DUMP and RESTORE keep the expirations ($enc)" {
+        r flushall
+        r sadd s a b c
+        r sexpire s 1000 MEMBERS 2 a c
+        set payload [r dump s]
+        r del s
+        r restore s 0 $payload
+        assert {[r sttl s MEMBERS 1 a] > 900}
+        assert_equal [r sttl s MEMBERS 1 b] $E_NO_TTL
+        assert_equal [sme_subexpiry r] 1
+        assert_equal [r scard s] 3
+    }
+
+    test "RESTORE with deep sanitization accepts a valid payload ($enc)" {
+        r flushall
+        r sadd s a b c d
+        r sexpire s 1000 MEMBERS 1 a
+        r sexpire s 2000 MEMBERS 1 c
+        set payload [r dump s]
+        r del s
+        r config set sanitize-dump-payload yes
+        r restore s 0 $payload
+        r config set sanitize-dump-payload no
+        assert_equal [r scard s] 4
+        assert {[r sttl s MEMBERS 1 c] > 1900}
+    }
+
+    test "A big set with expirations survives a reload ($enc)" {
+        r flushall
+        for {set i 0} {$i < 300} {incr i} {r sadd s m$i}
+        r sexpire s 1000 MEMBERS 3 m1 m150 m299
+        r spexpire s 7000 MEMBERS 1 m7
+        r debug reload
+        assert_equal [r scard s] 300
+        assert_encoding hashtable s
+        assert {[r sttl s MEMBERS 1 m299] > 900}
+        assert_equal [r sttl s MEMBERS 1 m2] $E_NO_TTL
+        assert_equal [sme_subexpiry r] 1
+    }
+
+    test "AOF rewrite keeps the members and their expirations ($enc)" {
+        r flushall
+        r sadd s a b c 1 2
+        r sexpire s 1000 MEMBERS 2 a 1
+        r sadd t x y
+        set before [r debug digest]
+        r config set aof-use-rdb-preamble no
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r debug loadaof
+        assert_equal [r debug digest] $before
+        assert {[r sttl s MEMBERS 1 a] > 900}
+        assert_equal [r sttl s MEMBERS 1 b] $E_NO_TTL
+        assert_equal [sme_subexpiry r] 1
+        r config set appendonly no
+        r config set aof-use-rdb-preamble yes
+    }
+    }
+    r config set set-max-listpack-entries 128
+}
+
+start_server {tags {"external:skip needs:debug"} overrides {sanitize-dump-payload yes}} {
+    test "RESTORE with deep sanitization: a valid payload is accepted, a truncated one is not" {
+        r flushall
+        r sadd s a b c
+        r sexpire s 1000 MEMBERS 1 a
+        r sexpire s 2000 MEMBERS 1 b
+        set payload [r dump s]
+        r del s
+        r restore s 0 $payload
+        assert_equal [r scard s] 3
+        r del s
+        catch {r restore s 0 [string range $payload 0 end-12]} e
+        assert_match {*ERR*} $e
+    }
+}
+
+start_server {tags {"external:skip needs:repl"}} {
+    set replica [srv 0 client]
+    set replica_host [srv 0 host]
+    set replica_port [srv 0 port]
+    start_server {} {
+        set master [srv 0 client]
+        foreach enc $::sme_encodings {
+            test "Full sync sends the sets with expirations ($enc)" {
+                $replica replicaof no one
+                sme_force_encoding $master $enc
+                $master flushall
+                $master sadd s a b c
+                $master sexpire s 1000 MEMBERS 2 a b
+                $master sadd big m1 m2 m3
+                $master spexpire big 800000 MEMBERS 1 m1
+                $replica replicaof [srv 0 host] [srv 0 port]
+                wait_for_condition 100 100 {[s -1 master_link_status] eq {up}} else {fail "no sync"}
+                assert {[$replica sttl s MEMBERS 1 a] > 900}
+                assert_equal [$replica sttl s MEMBERS 1 c] $E_NO_TTL
+                assert_equal [$master debug digest] [$replica debug digest]
+            }
+        }
+        $master config set set-max-listpack-entries 128
+    }
+}
