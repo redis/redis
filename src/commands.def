@@ -9522,6 +9522,54 @@ struct COMMAND_ARG SADD_Args[] = {
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
+/********** SADDEX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SADDEX history */
+#define SADDEX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SADDEX tips */
+#define SADDEX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SADDEX key specs */
+keySpec SADDEX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SADDEX condition argument table */
+struct COMMAND_ARG SADDEX_condition_Subargs[] = {
+{MAKE_ARG("mnx",ARG_TYPE_PURE_TOKEN,-1,"MNX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("mxx",ARG_TYPE_PURE_TOKEN,-1,"MXX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SADDEX expiration argument table */
+struct COMMAND_ARG SADDEX_expiration_Subargs[] = {
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SADDEX members argument table */
+struct COMMAND_ARG SADDEX_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SADDEX argument table */
+struct COMMAND_ARG SADDEX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=SADDEX_condition_Subargs},
+{MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=SADDEX_expiration_Subargs},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SADDEX_members_Subargs},
+};
+
 /********** SCARD ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -9621,6 +9669,119 @@ keySpec SDIFFSTORE_Keyspecs[2] = {
 struct COMMAND_ARG SDIFFSTORE_Args[] = {
 {MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** SEXPIRE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SEXPIRE history */
+#define SEXPIRE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SEXPIRE tips */
+#define SEXPIRE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SEXPIRE key specs */
+keySpec SEXPIRE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SEXPIRE condition argument table */
+struct COMMAND_ARG SEXPIRE_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SEXPIRE members argument table */
+struct COMMAND_ARG SEXPIRE_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SEXPIRE argument table */
+struct COMMAND_ARG SEXPIRE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=SEXPIRE_condition_Subargs},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SEXPIRE_members_Subargs},
+};
+
+/********** SEXPIREAT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SEXPIREAT history */
+#define SEXPIREAT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SEXPIREAT tips */
+#define SEXPIREAT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SEXPIREAT key specs */
+keySpec SEXPIREAT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SEXPIREAT condition argument table */
+struct COMMAND_ARG SEXPIREAT_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SEXPIREAT members argument table */
+struct COMMAND_ARG SEXPIREAT_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SEXPIREAT argument table */
+struct COMMAND_ARG SEXPIREAT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=SEXPIREAT_condition_Subargs},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SEXPIREAT_members_Subargs},
+};
+
+/********** SEXPIRETIME ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SEXPIRETIME history */
+#define SEXPIRETIME_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SEXPIRETIME tips */
+#define SEXPIRETIME_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SEXPIRETIME key specs */
+keySpec SEXPIRETIME_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SEXPIRETIME members argument table */
+struct COMMAND_ARG SEXPIRETIME_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SEXPIRETIME argument table */
+struct COMMAND_ARG SEXPIRETIME_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SEXPIRETIME_members_Subargs},
 };
 
 /********** SINTER ********************/
@@ -9802,6 +9963,150 @@ struct COMMAND_ARG SMOVE_Args[] = {
 {MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** SPERSIST ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SPERSIST history */
+#define SPERSIST_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SPERSIST tips */
+#define SPERSIST_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SPERSIST key specs */
+keySpec SPERSIST_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SPERSIST members argument table */
+struct COMMAND_ARG SPERSIST_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SPERSIST argument table */
+struct COMMAND_ARG SPERSIST_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SPERSIST_members_Subargs},
+};
+
+/********** SPEXPIRE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SPEXPIRE history */
+#define SPEXPIRE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SPEXPIRE tips */
+#define SPEXPIRE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SPEXPIRE key specs */
+keySpec SPEXPIRE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SPEXPIRE condition argument table */
+struct COMMAND_ARG SPEXPIRE_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SPEXPIRE members argument table */
+struct COMMAND_ARG SPEXPIRE_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SPEXPIRE argument table */
+struct COMMAND_ARG SPEXPIRE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=SPEXPIRE_condition_Subargs},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SPEXPIRE_members_Subargs},
+};
+
+/********** SPEXPIREAT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SPEXPIREAT history */
+#define SPEXPIREAT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SPEXPIREAT tips */
+#define SPEXPIREAT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SPEXPIREAT key specs */
+keySpec SPEXPIREAT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SPEXPIREAT condition argument table */
+struct COMMAND_ARG SPEXPIREAT_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* SPEXPIREAT members argument table */
+struct COMMAND_ARG SPEXPIREAT_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SPEXPIREAT argument table */
+struct COMMAND_ARG SPEXPIREAT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=SPEXPIREAT_condition_Subargs},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SPEXPIREAT_members_Subargs},
+};
+
+/********** SPEXPIRETIME ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SPEXPIRETIME history */
+#define SPEXPIRETIME_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SPEXPIRETIME tips */
+#define SPEXPIRETIME_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SPEXPIRETIME key specs */
+keySpec SPEXPIRETIME_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SPEXPIRETIME members argument table */
+struct COMMAND_ARG SPEXPIRETIME_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SPEXPIRETIME argument table */
+struct COMMAND_ARG SPEXPIRETIME_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SPEXPIRETIME_members_Subargs},
+};
+
 /********** SPOP ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -9829,6 +10134,39 @@ keySpec SPOP_Keyspecs[1] = {
 struct COMMAND_ARG SPOP_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,NULL,NULL,"3.2.0",CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/********** SPTTL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* SPTTL history */
+#define SPTTL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* SPTTL tips */
+const char *SPTTL_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* SPTTL key specs */
+keySpec SPTTL_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* SPTTL members argument table */
+struct COMMAND_ARG SPTTL_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* SPTTL argument table */
+struct COMMAND_ARG SPTTL_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=SPTTL_members_Subargs},
 };
 
 /********** SRANDMEMBER ********************/
@@ -9914,6 +10252,39 @@ struct COMMAND_ARG SSCAN_Args[] = {
 {MAKE_ARG("cursor",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("pattern",ARG_TYPE_PATTERN,-1,"MATCH",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("count",ARG_TYPE_INTEGER,-1,"COUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/********** STTL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* STTL history */
+#define STTL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* STTL tips */
+const char *STTL_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* STTL key specs */
+keySpec STTL_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* STTL members argument table */
+struct COMMAND_ARG STTL_members_Subargs[] = {
+{MAKE_ARG("nummembers",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("member",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* STTL argument table */
+struct COMMAND_ARG STTL_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("members",ARG_TYPE_BLOCK,-1,"MEMBERS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=STTL_members_Subargs},
 };
 
 /********** SUNION ********************/
@@ -13124,10 +13495,14 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("trimslots","Trim the keys that belong to specified slots.","O(N) where N is the total number of keys in all databases","8.4.0",CMD_DOC_NONE,NULL,NULL,"server",COMMAND_GROUP_SERVER,TRIMSLOTS_History,0,TRIMSLOTS_Tips,0,trimslotsCommand,-5,CMD_WRITE,ACL_CATEGORY_KEYSPACE|ACL_CATEGORY_DANGEROUS,TRIMSLOTS_Keyspecs,0,NULL,1),.args=TRIMSLOTS_Args},
 /* set */
 {MAKE_CMD("sadd","Adds one or more members to a set. Creates the key if it doesn't exist.","O(1) for each element added, so O(N) to add N elements when the command is called with multiple arguments.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SADD_History,1,SADD_Tips,0,saddCommand,-3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SET,SADD_Keyspecs,1,NULL,2),.args=SADD_Args},
+{MAKE_CMD("saddex","Add one or more members to a given set key, and optionally set their expiration.","O(N) where N is the number of members being added.","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SADDEX_History,0,SADDEX_Tips,0,saddexCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_SET,SADDEX_Keyspecs,1,NULL,4),.args=SADDEX_Args},
 {MAKE_CMD("scard","Returns the number of members in a set.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SCARD_History,0,SCARD_Tips,0,scardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SCARD_Keyspecs,1,NULL,1),.args=SCARD_Args},
 {MAKE_CMD("sdiff","Returns the difference of multiple sets.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFF_History,0,SDIFF_Tips,1,sdiffCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SDIFF_Keyspecs,1,NULL,1),.args=SDIFF_Args},
 {MAKE_CMD("sdiffcard","Returns the number of members of the difference between the first set and all successive sets.","O(N) where N is the total number of elements in all given sets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFFCARD_History,0,SDIFFCARD_Tips,0,sdiffcardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SDIFFCARD_Keyspecs,1,sdiffcardGetKeys,3),.args=SDIFFCARD_Args},
 {MAKE_CMD("sdiffstore","Stores the difference of multiple sets in a key.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SDIFFSTORE_History,0,SDIFFSTORE_Tips,0,sdiffstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SDIFFSTORE_Keyspecs,2,NULL,2),.args=SDIFFSTORE_Args},
+{MAKE_CMD("sexpire","Set expiry for set member using relative time to expire (seconds)","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SEXPIRE_History,0,SEXPIRE_Tips,0,sexpireCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SEXPIRE_Keyspecs,1,NULL,4),.args=SEXPIRE_Args},
+{MAKE_CMD("sexpireat","Set expiry for set member using an absolute Unix timestamp (seconds)","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SEXPIREAT_History,0,SEXPIREAT_Tips,0,sexpireatCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SEXPIREAT_Keyspecs,1,NULL,4),.args=SEXPIREAT_Args},
+{MAKE_CMD("sexpiretime","Returns the expiration time of a set member as a Unix timestamp, in seconds.","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SEXPIRETIME_History,0,SEXPIRETIME_Tips,0,sexpiretimeCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SEXPIRETIME_Keyspecs,1,NULL,2),.args=SEXPIRETIME_Args},
 {MAKE_CMD("sinter","Returns the intersect of multiple sets.","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SINTER_History,0,SINTER_Tips,1,sinterCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SINTER_Keyspecs,1,NULL,1),.args=SINTER_Args},
 {MAKE_CMD("sintercard","Returns the number of members of the intersect of multiple sets.","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","7.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SINTERCARD_History,0,SINTERCARD_Tips,0,sinterCardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SINTERCARD_Keyspecs,1,sintercardGetKeys,3),.args=SINTERCARD_Args},
 {MAKE_CMD("sinterstore","Stores the intersect of multiple sets in a key.","O(N*M) worst case where N is the cardinality of the smallest set and M is the number of sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SINTERSTORE_History,0,SINTERSTORE_Tips,0,sinterstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SINTERSTORE_Keyspecs,2,NULL,2),.args=SINTERSTORE_Args},
@@ -13135,10 +13510,16 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("smembers","Returns all members of a set.","O(N) where N is the set cardinality.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SMEMBERS_History,0,SMEMBERS_Tips,1,smembersCommand,2,CMD_READONLY,ACL_CATEGORY_SET,SMEMBERS_Keyspecs,1,NULL,1),.args=SMEMBERS_Args},
 {MAKE_CMD("smismember","Determines whether multiple members belong to a set.","O(N) where N is the number of elements being checked for membership","6.2.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SMISMEMBER_History,0,SMISMEMBER_Tips,0,smismemberCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SMISMEMBER_Keyspecs,1,NULL,2),.args=SMISMEMBER_Args},
 {MAKE_CMD("smove","Moves a member from one set to another.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SMOVE_History,0,SMOVE_Tips,0,smoveCommand,4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SMOVE_Keyspecs,2,NULL,3),.args=SMOVE_Args},
+{MAKE_CMD("spersist","Removes the expiration time for each specified member","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SPERSIST_History,0,SPERSIST_Tips,0,spersistCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SPERSIST_Keyspecs,1,NULL,2),.args=SPERSIST_Args},
+{MAKE_CMD("spexpire","Set expiry for set member using relative time to expire (milliseconds)","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SPEXPIRE_History,0,SPEXPIRE_Tips,0,spexpireCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SPEXPIRE_Keyspecs,1,NULL,4),.args=SPEXPIRE_Args},
+{MAKE_CMD("spexpireat","Set expiry for set member using an absolute Unix timestamp (milliseconds)","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SPEXPIREAT_History,0,SPEXPIREAT_Tips,0,spexpireatCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SPEXPIREAT_Keyspecs,1,NULL,4),.args=SPEXPIREAT_Args},
+{MAKE_CMD("spexpiretime","Returns the expiration time of a set member as a Unix timestamp, in msec.","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SPEXPIRETIME_History,0,SPEXPIRETIME_Tips,0,spexpiretimeCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SPEXPIRETIME_Keyspecs,1,NULL,2),.args=SPEXPIRETIME_Args},
 {MAKE_CMD("spop","Returns one or more random members from a set after removing them. Deletes the set if the last member was popped.","Without the count argument O(1), otherwise O(N) where N is the value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SPOP_History,1,SPOP_Tips,1,spopCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SPOP_Keyspecs,1,NULL,2),.args=SPOP_Args},
+{MAKE_CMD("spttl","Returns the TTL in milliseconds of a set member.","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SPTTL_History,0,SPTTL_Tips,1,spttlCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,SPTTL_Keyspecs,1,NULL,2),.args=SPTTL_Args},
 {MAKE_CMD("srandmember","Get one or multiple random members from a set","Without the count argument O(1), otherwise O(N) where N is the absolute value of the passed count.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SRANDMEMBER_History,1,SRANDMEMBER_Tips,1,srandmemberCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SRANDMEMBER_Keyspecs,1,NULL,2),.args=SRANDMEMBER_Args},
 {MAKE_CMD("srem","Removes one or more members from a set. Deletes the set if the last member was removed.","O(N) where N is the number of members to be removed.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SREM_History,1,SREM_Tips,0,sremCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_SET,SREM_Keyspecs,1,NULL,2),.args=SREM_Args},
 {MAKE_CMD("sscan","Iterates over members of a set.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SSCAN_History,0,SSCAN_Tips,1,sscanCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SSCAN_Keyspecs,1,NULL,4),.args=SSCAN_Args},
+{MAKE_CMD("sttl","Returns the TTL in seconds of a set member.","O(N) where N is the number of specified members","8.12.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,STTL_History,0,STTL_Tips,1,sttlCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_SET,STTL_Keyspecs,1,NULL,2),.args=STTL_Args},
 {MAKE_CMD("sunion","Returns the union of multiple sets.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNION_History,0,SUNION_Tips,1,sunionCommand,-2,CMD_READONLY,ACL_CATEGORY_SET,SUNION_Keyspecs,1,NULL,1),.args=SUNION_Args},
 {MAKE_CMD("sunioncard","Returns the number of members of the union of multiple sets.","O(N) where N is the total number of elements in all given sets.","8.10.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNIONCARD_History,0,SUNIONCARD_Tips,0,sunioncardCommand,-3,CMD_READONLY,ACL_CATEGORY_SET,SUNIONCARD_Keyspecs,1,sunioncardGetKeys,4),.args=SUNIONCARD_Args},
 {MAKE_CMD("sunionstore","Stores the union of multiple sets in a key.","O(N) where N is the total number of elements in all given sets.","1.0.0",CMD_DOC_NONE,NULL,NULL,"set",COMMAND_GROUP_SET,SUNIONSTORE_History,0,SUNIONSTORE_Tips,0,sunionstoreCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_SET,SUNIONSTORE_Keyspecs,2,NULL,2),.args=SUNIONSTORE_Args},

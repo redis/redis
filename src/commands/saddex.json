@@ -1,0 +1,122 @@
+{
+    "SADDEX": {
+        "summary": "Add one or more members to a given set key, and optionally set their expiration.",
+        "complexity": "O(N) where N is the number of members being added.",
+        "group": "set",
+        "since": "8.12.0",
+        "arity": -5,
+        "function": "saddexCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "SET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "No member was added or updated (due to MXX or MNX flags).",
+                    "const": 0
+                },
+                {
+                    "description": "All the members were added or updated.",
+                    "const": 1
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "condition",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "mnx",
+                        "type": "pure-token",
+                        "token": "MNX"
+                    },
+                    {
+                        "name": "mxx",
+                        "type": "pure-token",
+                        "token": "MXX"
+                    }
+                ]
+            },
+            {
+                "name": "expiration",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "seconds",
+                        "type": "integer",
+                        "token": "EX"
+                    },
+                    {
+                        "name": "milliseconds",
+                        "type": "integer",
+                        "token": "PX"
+                    },
+                    {
+                        "name": "unix-time-seconds",
+                        "type": "unix-time",
+                        "token": "EXAT"
+                    },
+                    {
+                        "name": "unix-time-milliseconds",
+                        "type": "unix-time",
+                        "token": "PXAT"
+                    },
+                    {
+                        "name": "keepttl",
+                        "type": "pure-token",
+                        "token": "KEEPTTL"
+                    }
+                ]
+            },
+            {
+                "name": "members",
+                "token": "MEMBERS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "nummembers",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "member",
+                        "type": "string",
+                        "multiple": true
+                    }
+                ]
+            }
+        ]
+    }
+}
