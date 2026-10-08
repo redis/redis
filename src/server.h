@@ -3201,6 +3201,7 @@ typedef struct {
     robj *subject;
     int encoding;
     const setTypeOps *typeOps; /* encoding-specific ops struct, to avoid re-fetching it for every next call */
+    int mode; /* SET_ITER_RAW or SET_ITER_SKIP_EXPIRED */
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
@@ -3999,7 +4000,15 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-void setTypeInitIterator(setTypeIterator *si, robj *subject);
+/* Iterator modes. Raw iteration returns every member that is physically in the
+ * set, including members that are logically expired but not yet reclaimed. It is
+ * used by everything that must preserve the stored state exactly (persistence,
+ * copy, conversion, digest). Skip-expired iteration never returns a logically
+ * expired member and never deletes anything; it is used by everything that
+ * returns members to a client or a module. */
+#define SET_ITER_RAW 0
+#define SET_ITER_SKIP_EXPIRED 1
+void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode);
 void setTypeResetIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);

@@ -2307,7 +2307,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
     char *str;
     size_t len;
     int64_t llval;
-    setTypeInitIterator(&si, o);
+    setTypeInitIterator(&si, o, SET_ITER_RAW);
     while (setTypeNext(&si, &str, &len, &llval) != -1) {
         if (count == 0) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?

@@ -106,7 +106,7 @@ static void maybeConvertToIntset(robj *set) {
     size_t len = 0;
     int64_t llval = 0;
     setTypeIterator si;
-    setTypeInitIterator(&si, set);
+    setTypeInitIterator(&si, set, SET_ITER_RAW);
     while (setTypeNext(&si, &str, &len, &llval) != -1) {
         if (str) {
             /* If the element is returned as a string, we may be able to convert
@@ -211,8 +211,9 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     return setTypeGetOps(set->encoding)->isMember(set, str, len, llval, str_is_sds);
 }
 
-void setTypeInitIterator(setTypeIterator *si, robj *subject) {
+void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode) {
     si->subject = subject;
+    si->mode = mode;
     si->encoding = subject->encoding;
     si->typeOps = setTypeGetOps(si->encoding);
     si->typeOps->iterInit(si);
@@ -759,7 +760,7 @@ void spopWithCountCommand(client *c) {
 
         /* Transfer the old set to the client. */
         setTypeIterator si;
-        setTypeInitIterator(&si, set);
+        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
@@ -953,7 +954,7 @@ void srandmemberWithCountCommand(client *c) {
     if (count >= size) {
         setTypeIterator si;
         addReplyArrayLen(c,size);
-        setTypeInitIterator(&si, set);
+        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
@@ -1011,7 +1012,7 @@ void srandmemberWithCountCommand(client *c) {
         setTypeIterator si;
 
         /* Add all the elements into the temporary dictionary. */
-        setTypeInitIterator(&si, set);
+        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
         dictExpand(d, size);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             int retval = DICT_ERR;
@@ -1229,7 +1230,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
     int only_integers = 1;
-    setTypeInitIterator(&si, sets[0].set);
+    setTypeInitIterator(&si, sets[0].set, SET_ITER_SKIP_EXPIRED);
     while((encoding = setTypeNext(&si, &str, &len, &intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
             if (sets[j].set == sets[0].set) continue;
@@ -1341,7 +1342,7 @@ void smembersCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(setobj);
     /* Iterate through the elements of the set. */
-    setTypeInitIterator(&si, setobj);
+    setTypeInitIterator(&si, setobj, SET_ITER_SKIP_EXPIRED);
 
     while (setTypeNext(&si, &str, &len, &intobj) != -1) {
         if (str != NULL)
@@ -1507,7 +1508,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 0; j < setnum && !early_exit; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            setTypeInitIterator(&si, sets[j].set);
+            setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (!approx) {
                     cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
@@ -1558,7 +1559,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          *
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
-        setTypeInitIterator(&si, sets[0].set);
+        setTypeInitIterator(&si, sets[0].set, SET_ITER_SKIP_EXPIRED);
         while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j].set) continue; /* no key is an empty set. */
@@ -1590,13 +1591,13 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 1; j < setnum; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            setTypeInitIterator(&si, sets[j].set);
+            setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1)
                 setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             setTypeResetIterator(&si);
         }
 
-        setTypeInitIterator(&si, sets[0].set);
+        setTypeInitIterator(&si, sets[0].set, SET_ITER_SKIP_EXPIRED);
         while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
             if (!setTypeIsMemberAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT)) {
                 cardinality++;
@@ -1615,7 +1616,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 0; j < setnum; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            setTypeInitIterator(&si, sets[j].set);
+            setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (j == 0) {
                     cardinality += setTypeAddAux(dstset, str, len, llval,
@@ -1654,7 +1655,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                                           decrRefCount(dstset);
     } else if (!dstkey) {
         addReplySetLen(c,cardinality);
-        setTypeInitIterator(&si, dstset);
+        setTypeInitIterator(&si, dstset, SET_ITER_SKIP_EXPIRED);
         while (setTypeNext(&si, &str, &len, &llval) != -1) {
             if (str)
                 addReplyBulkCBuffer(c, str, len);

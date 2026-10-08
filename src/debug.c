@@ -163,7 +163,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_SET) {
         setTypeIterator si;
         sds sdsele;
-        setTypeInitIterator(&si, o);
+        setTypeInitIterator(&si, o, SET_ITER_RAW);
         while((sdsele = setTypeNextObject(&si)) != NULL) {
             xorDigest(digest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);

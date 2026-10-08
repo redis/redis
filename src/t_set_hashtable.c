@@ -90,7 +90,7 @@ static robj *htDup(robj *o) {
     dict *d = o->ptr;
     dictExpand(set->ptr, dictSize(d));
     setTypeIterator si;
-    setTypeInitIterator(&si, o);
+    setTypeInitIterator(&si, o, SET_ITER_RAW);
     char *str;
     size_t len = 0;
     int64_t intobj = 0;
@@ -121,7 +121,7 @@ static void *htConvertFrom(robj *set, unsigned long cap, int panic) {
     /* To add the elements we extract integers and create redis objects */
     size_t *alloc_size = htGetMetadataSize(d);
     setTypeIterator si;
-    setTypeInitIterator(&si, set);
+    setTypeInitIterator(&si, set, SET_ITER_RAW);
     sds element;
     while ((element = setTypeNextObject(&si)) != NULL) {
         serverAssert(dictAdd(d, element, NULL) == DICT_OK);

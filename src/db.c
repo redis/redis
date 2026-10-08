@@ -1991,7 +1991,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 
         setTypeIterator si;
         unsigned long cur_length = 0;
-        setTypeInitIterator(&si, o);
+        setTypeInitIterator(&si, o, SET_ITER_SKIP_EXPIRED);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 len = ll2string(buf, sizeof(buf), llele);

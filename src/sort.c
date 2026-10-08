@@ -428,7 +428,7 @@ void sortCommandGeneric(client *c, int readonly) {
             oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
         sds sdsele;
-        setTypeInitIterator(&si, sortval);
+        setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
         while((sdsele = setTypeNextObject(&si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
