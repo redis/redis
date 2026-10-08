@@ -302,18 +302,10 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
     *counted |= bit;
 }
 
-/* Re-enter the two samples that ordinary traffic would never bring back after
- * a lazy enable: the group count of stream 's' changes only on XGROUP CREATE
- * and DESTROY, the consumer count of group 'cg' only on a consumer's first
- * read or on XGROUP CREATECONSUMER and DELCONSUMER. An update with equal values
- * is a same-bin no-op when the row already holds the sample and enters the
- * current value when it does not (see streamUpdateStat()), so this is
- * idempotent and cheap. The PEL sample needs no such help: its own hook fires
- * on every read and ack. Every group command calls this for the group it
- * touches, as the last thing it does for that group: it registers at the
- * current values, so an update of the same command running after it would
- * move a sample this call just entered. A future metric belongs here only if
- * its own hooks are too rare to re-enter it. */
+/* After a lazy enable, re-enter the two samples whose own hooks fire rarely:
+ * the stream's group count and the group's consumer count. An equal-value
+ * update is a no-op when the row holds the sample and enters it otherwise.
+ * Called by every group command, after its own updates for that group. */
 static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
     if (!server.stream_stats) return;
     int64_t cgroups = streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS);
