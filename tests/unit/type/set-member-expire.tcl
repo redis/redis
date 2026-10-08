@@ -13,7 +13,7 @@
 
 # Encodings the behavior tests run over. Entries are added as the encodings are
 # implemented (listpackex first, then hashtable).
-set ::sme_encodings {}
+set ::sme_encodings {listpackex}
 
 # Reply codes shared by the SEXPIRE family, STTL family and SPERSIST.
 set E_NO_MEMBER   -2
@@ -301,79 +301,314 @@ start_server {tags {"external:skip needs:debug"}} {
             assert {[lsearch -exact $cmds $cmd] >= 0}
         }
     }
+}
 
-    # ----------------------------------------------------------------------
-    # SCAFFOLDING: tests that read the stub log lines. They are deleted when the
-    # stubs are replaced by the real implementation (Stage 4).
-    # ----------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Stage 4: the listpack with expirations encoding. Written as a matrix over
+# ::sme_encodings, so every encoding added later runs the same tests.
+# ---------------------------------------------------------------------------
 
-    test "SCAFFOLDING - SEXPIRE family passes members, time and condition to the stub" {
+start_server {tags {"external:skip needs:debug"}} {
+    foreach enc $::sme_encodings {
+        sme_force_encoding r $enc
+        # Members are not numeric, so the sets start as listpacks.
+
+        test "SEXPIRE family - Set the expiration of members, the set gets the expiration encoding ($enc)" {
+            sme_create_set r myset {a b c}
+            assert_encoding listpack myset
+            assert_equal [r sexpire myset 1000 MEMBERS 2 a b] [list $E_OK $E_OK]
+            assert_encoding $enc myset
+            assert_equal [lsort [r smembers myset]] {a b c}
+            assert_equal [r scard myset] 3
+        }
+
+        test "SEXPIRE family - All forms set the same kind of expiration ($enc)" {
+            sme_create_set r myset {a b c d}
+            set now_ms [clock milliseconds]
+            assert_equal [r sexpire myset 1000 MEMBERS 1 a] [list $E_OK]
+            assert_equal [r spexpire myset 1000000 MEMBERS 1 b] [list $E_OK]
+            assert_equal [r sexpireat myset [expr {[clock seconds] + 1000}] MEMBERS 1 c] [list $E_OK]
+            assert_equal [r spexpireat myset [expr {$now_ms + 1000000}] MEMBERS 1 d] [list $E_OK]
+            foreach m {a b c d} {
+                set ms [r spexpiretime myset MEMBERS 1 $m]
+                assert {$ms >= $now_ms + 990000 && $ms <= $now_ms + 1010000}
+                set sec [r sexpiretime myset MEMBERS 1 $m]
+                assert {$sec >= $now_ms/1000 + 990 && $sec <= $now_ms/1000 + 1010}
+                set pttl [r spttl myset MEMBERS 1 $m]
+                assert {$pttl > 900000 && $pttl <= 1000000}
+                set ttl [r sttl myset MEMBERS 1 $m]
+                assert {$ttl > 900 && $ttl <= 1000}
+            }
+        }
+
+        test "SEXPIRE family and the getters - Missing members and members without expiration ($enc)" {
+            sme_create_set r myset {a b c}
+            r sexpire myset 1000 MEMBERS 1 a
+            assert_equal [r sexpire myset 1000 MEMBERS 3 nosuch b nosuch2] [list $E_NO_MEMBER $E_OK $E_NO_MEMBER]
+            assert_equal [r sttl myset MEMBERS 3 c nosuch a] [list $E_NO_TTL $E_NO_MEMBER [r sttl myset MEMBERS 1 a]]
+            foreach cmd $::sme_ttl_cmds {
+                set res [r $cmd myset MEMBERS 3 c nosuch a]
+                assert_equal [lrange $res 0 1] [list $E_NO_TTL $E_NO_MEMBER]
+                assert {[lindex $res 2] > 0}
+            }
+        }
+
+        test "SEXPIRE family - NX, XX, GT and LT are evaluated per member ($enc)" {
+            sme_create_set r myset {a b c}
+            set base [expr {[clock milliseconds] + 100000000}]
+            r spexpireat myset $base MEMBERS 1 b
+            # NX: only members without an expiration.
+            assert_equal [r spexpireat myset [expr {$base + 5}] NX MEMBERS 3 a b nosuch] [list $E_OK $E_FAIL $E_NO_MEMBER]
+            assert_equal [r spexpiretime myset MEMBERS 2 a b] [list [expr {$base + 5}] $base]
+            # XX: only members that have an expiration.
+            sme_create_set r myset {a b c}
+            r spexpireat myset $base MEMBERS 1 b
+            assert_equal [r spexpireat myset [expr {$base + 5}] XX MEMBERS 2 a b] [list $E_FAIL $E_OK]
+            assert_equal [r spexpiretime myset MEMBERS 2 a b] [list $E_NO_TTL [expr {$base + 5}]]
+            # GT: the new expiration is greater. No expiration counts as infinite, so it never is.
+            sme_create_set r myset {a b c}
+            r spexpireat myset $base MEMBERS 1 b
+            assert_equal [r spexpireat myset [expr {$base + 1}] GT MEMBERS 2 a b] [list $E_FAIL $E_OK]
+            assert_equal [r spexpireat myset [expr {$base + 1}] GT MEMBERS 1 b] [list $E_FAIL]
+            assert_equal [r spexpireat myset [expr {$base - 1}] GT MEMBERS 1 b] [list $E_FAIL]
+            # LT: the new expiration is less. No expiration counts as infinite, so it always is.
+            sme_create_set r myset {a b c}
+            r spexpireat myset $base MEMBERS 1 b
+            assert_equal [r spexpireat myset [expr {$base - 1}] LT MEMBERS 2 a b] [list $E_OK $E_OK]
+            assert_equal [r spexpireat myset [expr {$base - 1}] LT MEMBERS 1 b] [list $E_FAIL]
+            assert_equal [r spexpireat myset [expr {$base + 1}] LT MEMBERS 1 b] [list $E_FAIL]
+        }
+
+        test "SEXPIRE family - An expiration in the past deletes the members ($enc)" {
+            sme_create_set r myset {a b c}
+            r sexpire myset 1000 MEMBERS 1 a
+            assert_equal [r sexpireat myset 1 MEMBERS 2 a nosuch] [list $E_DELETED $E_NO_MEMBER]
+            assert_equal [lsort [r smembers myset]] {b c}
+            assert_equal [r spexpireat myset 1 MEMBERS 2 b c] [list $E_DELETED $E_DELETED]
+            assert_equal [r exists myset] 0
+        }
+
+        test "SEXPIRE family - The set keeps its own key expiration ($enc)" {
+            sme_create_set r myset {a b}
+            r expire myset 1000
+            r sexpire myset 100 MEMBERS 1 a
+            assert {[r ttl myset] > 900}
+            assert {[r ttl myset] <= 1000}
+            r persist myset
+            assert_equal [r ttl myset] -1
+            assert {[r sttl myset MEMBERS 1 a] > 0}
+        }
+
+        test "SPERSIST - Removes the expiration of members ($enc)" {
+            sme_create_set r myset {a b c}
+            r sexpire myset 1000 MEMBERS 2 a b
+            assert_equal [r spersist myset MEMBERS 4 a c nosuch b] [list $E_OK $E_NO_TTL $E_NO_MEMBER $E_OK]
+            assert_equal [r sttl myset MEMBERS 3 a b c] [list $E_NO_TTL $E_NO_TTL $E_NO_TTL]
+            # The set stays in the expiration encoding.
+            assert_encoding $enc myset
+            assert_equal [lsort [r smembers myset]] {a b c}
+        }
+
+        test "Members that are logically expired are treated as missing by the TTL commands ($enc)" {
+            r debug set-active-expire 0
+            sme_create_set r myset {a b c}
+            r sexpire myset 1000 MEMBERS 1 c
+            sme_make_expired r myset {a}
+            # The expired member is still stored, and counted by SCARD.
+            assert_equal [r scard myset] 3
+            assert_equal [r sttl myset MEMBERS 1 a] [list $E_NO_MEMBER]
+            assert_equal [r spexpiretime myset MEMBERS 1 a] [list $E_NO_MEMBER]
+            assert_equal [r spersist myset MEMBERS 1 a] [list $E_NO_MEMBER]
+            assert_equal [r sexpire myset 1000 MEMBERS 1 a] [list $E_NO_MEMBER]
+            assert_equal [r sexpire myset 1000 NX MEMBERS 1 a] [list $E_NO_MEMBER]
+            # It was not renewed.
+            assert_equal [r sttl myset MEMBERS 1 a] [list $E_NO_MEMBER]
+            r debug set-active-expire 1
+        }
+
+        test "Members are ordered by expiration, whatever the order they were set in ($enc)" {
+            sme_create_set r myset {a b c d e}
+            set base [expr {[clock milliseconds] + 100000000}]
+            r spexpireat myset [expr {$base + 50}] MEMBERS 1 c
+            r spexpireat myset [expr {$base + 10}] MEMBERS 1 a
+            r spexpireat myset [expr {$base + 30}] MEMBERS 1 e
+            r spexpireat myset [expr {$base + 20}] MEMBERS 1 b
+            assert_equal [r spexpiretime myset MEMBERS 5 a b c d e] \
+                [list [expr {$base + 10}] [expr {$base + 20}] [expr {$base + 50}] $E_NO_TTL [expr {$base + 30}]]
+            # Changing an expiration moves the member.
+            r spexpireat myset [expr {$base + 5}] MEMBERS 1 c
+            assert_equal [r spexpiretime myset MEMBERS 1 c] [expr {$base + 5}]
+            r spersist myset MEMBERS 1 a
+            assert_equal [lsort [r smembers myset]] {a b c d e}
+        }
+
+        test "SADDEX - Adds members with an expiration ($enc)" {
+            r del myset
+            assert_equal [r saddex myset EX 1000 MEMBERS 3 a b c] 1
+            assert_encoding $enc myset
+            assert_equal [lsort [r smembers myset]] {a b c}
+            foreach m {a b c} {
+                assert {[r sttl myset MEMBERS 1 $m] > 900}
+            }
+            # PX, EXAT and PXAT.
+            r del myset
+            r saddex myset PX 1000000 MEMBERS 1 a
+            r saddex myset EXAT [expr {[clock seconds] + 1000}] MEMBERS 1 b
+            r saddex myset PXAT [expr {[clock milliseconds] + 1000000}] MEMBERS 1 c
+            foreach m {a b c} {
+                assert {[r sttl myset MEMBERS 1 $m] > 900}
+            }
+        }
+
+        test "SADDEX - An existing member gets the new expiration, or loses it without an option ($enc)" {
+            sme_create_set r myset {a b c}
+            r sexpire myset 1000 MEMBERS 3 a b c
+            assert_equal [r saddex myset EX 5000 MEMBERS 1 a] 1
+            assert {[r sttl myset MEMBERS 1 a] > 4000}
+            # No expiration option discards the expiration...
+            assert_equal [r saddex myset MEMBERS 1 b] 1
+            assert_equal [r sttl myset MEMBERS 1 b] [list $E_NO_TTL]
+            # ...unless KEEPTTL is given.
+            assert_equal [r saddex myset KEEPTTL MEMBERS 2 c newone] 1
+            assert {[r sttl myset MEMBERS 1 c] > 900}
+            assert_equal [r sttl myset MEMBERS 1 newone] [list $E_NO_TTL]
+        }
+
+        test "SADDEX - MNX and MXX apply to the whole command ($enc)" {
+            sme_create_set r myset {a b}
+            assert_equal [r saddex myset MNX EX 1000 MEMBERS 2 a x] 0
+            assert_equal [r sismember myset x] 0
+            assert_equal [r saddex myset MNX EX 1000 MEMBERS 2 x y] 1
+            assert_equal [lsort [r smembers myset]] {a b x y}
+            assert_equal [r saddex myset MXX EX 1000 MEMBERS 2 a nosuch] 0
+            assert_equal [r sismember myset nosuch] 0
+            assert_equal [r saddex myset MXX EX 1000 MEMBERS 2 a b] 1
+            assert {[r sttl myset MEMBERS 1 b] > 900}
+        }
+
+        test "SADDEX - An expiration in the past deletes existing members and adds none ($enc)" {
+            sme_create_set r myset {a b c}
+            assert_equal [r saddex myset PXAT 1 MEMBERS 2 a new] 1
+            assert_equal [lsort [r smembers myset]] {b c}
+            # A missing key is not created.
+            r del myset
+            assert_equal [r saddex myset PXAT 1 MEMBERS 2 a b] 1
+            assert_equal [r exists myset] 0
+            # Deleting every member deletes the key.
+            sme_create_set r myset {a b}
+            assert_equal [r saddex myset EXAT 1 MEMBERS 2 a b] 1
+            assert_equal [r exists myset] 0
+        }
+
+        test "SADDEX - Without an expiration option it is SADD for sets that do not expire ($enc)" {
+            r del myset
+            assert_equal [r saddex myset MEMBERS 3 a b c] 1
+            assert_equal [lsort [r smembers myset]] {a b c}
+            assert_encoding listpack myset
+        }
+
+        test "A logically expired member is treated as new by SADDEX ($enc)" {
+            r debug set-active-expire 0
+            sme_create_set r myset {a b}
+            r sexpire myset 1000 MEMBERS 1 b
+            sme_make_expired r myset {a}
+            assert_equal [r saddex myset MXX MEMBERS 2 a b] 0
+            assert_equal [r saddex myset MNX MEMBERS 1 a] 1
+            assert_equal [r sttl myset MEMBERS 1 a] [list $E_NO_TTL]
+            r debug set-active-expire 1
+        }
+
+        test "Sets that would need a hashtable with expirations are not supported yet ($enc)" {
+            sme_create_set r bigset {}
+            for {set i 0} {$i < 200} {incr i} {r sadd bigset m$i}
+            assert_encoding hashtable bigset
+            assert_error {*not supported yet*} {r sexpire bigset 100 MEMBERS 1 m1}
+            assert_error {*not supported yet*} {r saddex bigset EX 100 MEMBERS 1 new}
+            # The set was not changed.
+            assert_equal [r scard bigset] 200
+            assert_encoding hashtable bigset
+        }
+    }
+}
+
+# Intset-encoded sets convert to the expiration encoding on their first expiration.
+start_server {tags {"external:skip needs:debug"}} {
+    test "An intset converts to the listpack with expirations on the first expiration" {
+        r del myset
+        r sadd myset 1 2 3 40
+        assert_encoding intset myset
+        assert_equal [r sexpire myset 1000 MEMBERS 2 2 40] [list $E_OK $E_OK]
+        assert_encoding listpackex myset
+        assert_equal [lsort -integer [r smembers myset]] {1 2 3 40}
+        assert_equal [r sttl myset MEMBERS 2 1 40] [list $E_NO_TTL [r sttl myset MEMBERS 1 40]]
+        assert {[r sttl myset MEMBERS 1 40] > 900}
+    }
+
+    test "A first expiration in the past or one that is not set does not convert the set" {
         r del myset
         r sadd myset a b c
-        set from [count_log_lines 0]
-        set before [clock milliseconds]
-        r sexpire myset 100 NX MEMBERS 2 b a
-        set after [clock milliseconds]
-        wait_for_log_messages 0 {"*SME-STUB setExpire key=myset member=b *flags=1*" "*SME-STUB setExpire key=myset member=a *flags=1*"} $from 10 100
-        # The time is absolute, in milliseconds.
-        set lines [exec grep "SME-STUB setExpire key=myset member=b " [srv 0 stdout]]
-        regexp {expire_ms=(\d+)} [lindex [split $lines "\n"] end] -> ms
-        assert {$ms >= $before + 100000 && $ms <= $after + 100000}
+        assert_equal [r sexpire myset 1000 XX MEMBERS 1 a] [list $E_FAIL]
+        assert_equal [r sexpire myset 1000 MEMBERS 1 nosuch] [list $E_NO_MEMBER]
+        assert_encoding listpack myset
+        assert_equal [r sexpireat myset 1 MEMBERS 1 a] [list $E_DELETED]
+        assert_encoding listpack myset
     }
+}
 
-    test "SCAFFOLDING - SEXPIREAT and SPEXPIREAT pass the absolute time unchanged" {
+start_server {tags {"external:skip needs:debug"}} {
+    test "Keyspace notifications of the SME commands" {
+        set db 9
+        r config set notify-keyspace-events Ksg
         r del myset
-        r sadd myset a
-        set from [count_log_lines 0]
-        r sexpireat myset 2000000000 MEMBERS 1 a
-        r spexpireat myset 2000000000123 XX MEMBERS 1 a
-        wait_for_log_messages 0 {"*SME-STUB setExpire key=myset member=a expire_ms=2000000000000 flags=0*" "*SME-STUB setExpire key=myset member=a expire_ms=2000000000123 flags=2*"} $from 10 100
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        r sadd myset a b c d
+        r sexpire myset 1000 MEMBERS 2 a b
+        r sexpire myset 1000 NX MEMBERS 1 a         ;# no member set: no event
+        r spersist myset MEMBERS 2 a b
+        r spersist myset MEMBERS 1 c                ;# nothing persisted: no event
+        r sttl myset MEMBERS 1 a                    ;# reads fire nothing
+        r sexpireat myset 1 MEMBERS 2 a b           ;# deleted by the command
+        r saddex myset EX 1000 MEMBERS 1 x
+        r saddex myset PXAT 1 MEMBERS 3 c d x       ;# deletes them all
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sexpire" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset spersist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset srem" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sexpire" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset srem" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset del" [$rd1 read]
+        $rd1 close
     }
+}
 
-    test "SCAFFOLDING - Conditions are passed as flags" {
-        r del myset
-        r sadd myset a
-        set from [count_log_lines 0]
-        r spexpireat myset 2000000000000 GT MEMBERS 1 a
-        r spexpireat myset 2000000000000 LT MEMBERS 1 a
-        wait_for_log_messages 0 {"*SME-STUB setExpire key=myset member=a expire_ms=2000000000000 flags=4*" "*SME-STUB setExpire key=myset member=a expire_ms=2000000000000 flags=8*"} $from 10 100
-    }
-
-    test "SCAFFOLDING - STTL family and SPERSIST reach the stub once per member, in order" {
-        r del myset
-        r sadd myset a b
-        set from [count_log_lines 0]
-        r sttl myset MEMBERS 2 a b
-        r spexpiretime myset MEMBERS 1 b
-        r spersist myset MEMBERS 2 b a
-        wait_for_log_messages 0 {
-            "*SME-STUB getTtlSeconds key=myset member=a *"
-            "*SME-STUB getTtlSeconds key=myset member=b *"
-            "*SME-STUB getExpireTimeMilliseconds key=myset member=b *"
-            "*SME-STUB persist key=myset member=b *"
-            "*SME-STUB persist key=myset member=a *"
-        } $from 10 100
-    }
-
-    test "SCAFFOLDING - SADDEX passes members, time and option flags to the stub" {
-        r del myset
-        r sadd myset a
-        set from [count_log_lines 0]
-        r saddex myset MNX PXAT 2000000000000 MEMBERS 2 x y
-        wait_for_log_messages 0 {"*SME-STUB add key=myset member=x expire_ms=2000000000000 flags=72*" "*SME-STUB add key=myset member=y expire_ms=2000000000000 flags=72*"} $from 10 100
-    }
-
-    test "SCAFFOLDING - Nothing reaches the stub for missing keys or parse errors" {
-        r del myset
-        set from [count_log_lines 0]
-        set stubs_before [count_message_lines [srv 0 stdout] "SME-STUB.*key=myset member=a"]
-        r sexpire myset 100 MEMBERS 1 a
-        catch {r sexpire myset 100 MEMBERS 2 a}
-        r saddex myset MXX MEMBERS 1 a
-        # Sentinel: a later stub line proves the log was flushed up to here.
-        r sadd other x
-        r sttl other MEMBERS 1 x
-        wait_for_log_messages 0 {"*SME-STUB getTtlSeconds key=other*"} $from 10 100
-        assert_equal [count_message_lines [srv 0 stdout] "SME-STUB.*key=myset member=a"] $stubs_before
-    }
+start_server {tags {"external:skip needs:repl needs:debug"}} {
+    test "SME commands propagate in canonical form" {
+        set repl [attach_to_replication_stream]
+        r sadd s1 a b c
+        r sexpire s1 100 MEMBERS 2 a b
+        r spexpireat s1 [expr {[clock milliseconds] + 100000}] NX MEMBERS 1 c
+        r spersist s1 MEMBERS 2 a nosuch
+        r spersist s1 MEMBERS 1 nosuch              ;# nothing changed: not propagated
+        r sexpire s1 100 MEMBERS 3 a nosuch b       ;# only the members that were set
+        r sexpireat s1 1 MEMBERS 1 c                ;# deleted: propagated as SREM
+        r saddex s1 EX 100 MEMBERS 2 x y
+        r saddex s1 PXAT [expr {[clock milliseconds] + 100000}] MEMBERS 1 z
+        r saddex s1 PXAT 1 MEMBERS 2 x nosuch       ;# deletes: propagated as SREM
+        r saddex s1 MNX MEMBERS 1 a                 ;# condition not met: nothing changes
+        assert_replication_stream $repl {
+            {select *}
+            {sadd s1 a b c}
+            {spexpireat s1 * MEMBERS 2 a b}
+            {spexpireat s1 * NX MEMBERS 1 c}
+            {spersist s1 MEMBERS 2 a nosuch}
+            {spexpireat s1 * MEMBERS 2 a b}
+            {srem s1 c}
+            {saddex s1 PXAT * MEMBERS 2 x y}
+            {saddex s1 PXAT * MEMBERS 1 z}
+            {srem s1 x}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
 }
