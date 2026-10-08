@@ -13,14 +13,13 @@
  * no set carries an expiration yet, so they must never be reached with a
  * registered set.
  *
- * STAGE 2 STUBS: the commands parse and validate their arguments for real, and
- * reply for missing keys and wrong types for real. For an existing set they
- * only log what they would do ("SME-STUB ..." at notice level) and reply with
- * a fixed placeholder, until the per-member primitives exist. Everything marked
- * "STUB" below is removed when the real implementation lands. */
+ * Until the hashtable encoding supports member expirations, the commands that
+ * need to attach an expiration to a set that would have to be a hashtable reply
+ * with an error (see addReplyErrorSetEncodingNotSupported()). */
 
 #include "server.h"
 #include "t_set_encoding.h"
+#include "vector.h"
 
 /* Retrieve the ExpireMeta associated with the set, used by db->subexpires.
  * The caller is responsible for ensuring that it is indeed attached. */
@@ -77,21 +76,29 @@ int setTypeGetExpire(robj *set, sds member, uint64_t *expire) {
     return ops->getExpire(set, member, sdslen(member), 0, 1, expire);
 }
 
-/* Converts a set that cannot hold member expirations (an intset or a listpack)
- * to the listpack with expirations encoding, so that members can get an
- * expiration. Returns 1 if the set can hold member expirations afterwards, and 0
- * if it cannot, because it needs an encoding that is not implemented yet (a
- * hashtable with expirations). */
-int setTypeConvertToExpireEncoding(robj *set) {
+/* Returns 1 if the set can hold member expirations now or after being converted
+ * to the listpack with expirations encoding, and 0 if it cannot, because it
+ * would need an encoding that is not implemented yet (a hashtable with
+ * expirations). */
+int setTypeCanHoldExpire(const robj *set) {
     if (setTypeHasExpireSupport(set)) return 1;
     if (set->encoding == OBJ_ENCODING_HT) return 0;
 
     /* The listpack limits apply: members count, not listpack elements. */
     if (setTypeSize(set) > server.set_max_listpack_entries) return 0;
-    if (set->encoding == OBJ_ENCODING_INTSET) {
-        /* An intset member is at most 20 characters long. */
-        if (server.set_max_listpack_value < 20) return 0;
-    }
+    /* An intset member is at most 20 characters long. */
+    if (set->encoding == OBJ_ENCODING_INTSET && server.set_max_listpack_value < 20)
+        return 0;
+    return 1;
+}
+
+/* Converts a set that cannot hold member expirations (an intset or a listpack)
+ * to the listpack with expirations encoding, so that members can get an
+ * expiration. Returns 1 if the set can hold member expirations afterwards, and
+ * 0 if it cannot (see setTypeCanHoldExpire()). */
+int setTypeConvertToExpireEncoding(robj *set) {
+    if (setTypeHasExpireSupport(set)) return 1;
+    if (!setTypeCanHoldExpire(set)) return 0;
     setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK_EX, setTypeSize(set), 1);
     return 1;
 }
@@ -118,14 +125,60 @@ int setTypeConvertToExpireEncoding(robj *set) {
 /* Reply codes per member, the same as the hash field expiration commands. */
 #define SME_NO_MEMBER   (-2) /* The member does not exist */
 #define SME_NO_TTL      (-1) /* The member exists but has no expiration */
+#define SME_COND_NOT_MET 0   /* The condition (NX, XX, GT, LT) was not met */
+#define SME_UPDATED      1   /* The expiration was set or updated */
+#define SME_DELETED      2   /* The member was deleted: the time is in the past */
+#define SME_PERSISTED    1   /* The expiration was removed */
 
 /*-----------------------------------------------------------------------------
- * STUB: per-member work, logged instead of performed
+ * Helpers
  *----------------------------------------------------------------------------*/
 
-static void smeStubLog(const char *what, client *c, robj *member, long long expire, int flags) {
-    serverLog(LL_NOTICE, "SME-STUB %s key=%s member=%s expire_ms=%lld flags=%d",
-              what, (char *)c->argv[1]->ptr, (char *)member->ptr, expire, flags);
+#define SME_STACK_SIZE 64
+
+/* A vec with an embedded stack buffer, used to collect the member robj pointers
+ * for subkey notifications without heap allocation in the common case. */
+typedef struct memvec { vec v; void *buf[SME_STACK_SIZE]; } memvec;
+
+static inline vec *memvecInit(memvec *mv, size_t cap) {
+    vecInit(&mv->v, mv->buf, SME_STACK_SIZE);
+    vecReserve(&mv->v, cap);
+    return &mv->v;
+}
+
+/* Propagates the removal of a member as an explicit SREM, whatever the reason
+ * for the removal is (an expiration time in the past, lazy or active expiry). A
+ * replica never decides on its own that a member expired, it only applies the
+ * SREM of its master. */
+static void propagateSetMemberDeletion(redisDb *db, sds key, char *member, size_t len) {
+    robj *argv[] = {
+        shared.srem,
+        createStringObject((char*) key, sdslen(key)),
+        createStringObject(member, len)
+    };
+
+    enterExecutionUnit(1, 0);
+    /* The expiration is decided by the server, so it must be propagated even if
+     * the command that triggered it asked not to propagate. */
+    alsoPropagateForced(db->id, argv, 3, PROPAGATE_AOF|PROPAGATE_REPL);
+    exitExecutionUnit();
+    postExecutionUnitOperations();
+
+    decrRefCount(argv[1]);
+    decrRefCount(argv[2]);
+}
+
+/* The reply for a member that is logically expired but was not removed yet:
+ * treated as if the member did not exist. */
+static inline int setMemberIsGone(int exists, uint64_t expire) {
+    return !exists || (expire != EB_EXPIRE_TIME_INVALID && (long long)expire < commandTimeSnapshot());
+}
+
+/* Replies to a command that is not allowed to touch a set which cannot hold
+ * member expirations yet. Temporary, until the hashtable with expirations
+ * exists. */
+static void addReplyErrorSetEncodingNotSupported(client *c) {
+    addReplyError(c, "member expiration is not supported yet for sets of this encoding or size");
 }
 
 /*-----------------------------------------------------------------------------
@@ -223,8 +276,11 @@ static int parseSetExpireArgs(client *c, SetExpireArgs *args, long long basetime
 
 static void sexpireGenericCommand(client *c, long long basetime, int unit) {
     SetExpireArgs args;
+    int64_t oldlen, newlen;
+    size_t oldsize = 0;
+    robj *keyArg = c->argv[1];
 
-    kvobj *set = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *set = lookupKeyWrite(c->db, keyArg);
     if (checkType(c, set, OBJ_SET))
         return;
 
@@ -240,13 +296,119 @@ static void sexpireGenericCommand(client *c, long long basetime, int unit) {
         return;
     }
 
-    /* STUB: log every member and reply "condition not met". */
+    if (!setTypeCanHoldExpire(set)) {
+        addReplyErrorSetEncodingNotSupported(c);
+        return;
+    }
+
+    oldlen = (int64_t)setTypeSize(set);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
+
+    /* Members are collected per outcome, for the subkey notifications. */
+    memvec mvupdated, mvdeleted;
+    vec *vupdated = memvecInit(&mvupdated, args.memberCount);
+    vec *vdeleted = memvecInit(&mvdeleted, args.memberCount);
+    /* Positions of the members that were not set, to remove them from the
+     * propagated command. */
+    int *notSet = NULL;
+    int notSetCount = 0;
+
+    long long now = commandTimeSnapshot();
     addReplyArrayLen(c, args.memberCount);
     for (int i = 0; i < args.memberCount; i++) {
-        smeStubLog("setExpire", c, c->argv[args.firstMemberPos + i],
-                   args.expireTime, args.expireCondition);
-        addReplyLongLong(c, 0);
+        int pos = args.firstMemberPos + i;
+        sds member = c->argv[pos]->ptr;
+        uint64_t cur;
+        int res;
+
+        int exists = setTypeGetExpire(set, member, &cur);
+        if (setMemberIsGone(exists, cur)) {
+            res = SME_NO_MEMBER;
+        } else if (((args.expireCondition & SME_NX) && cur != EB_EXPIRE_TIME_INVALID) ||
+                   ((args.expireCondition & SME_XX) && cur == EB_EXPIRE_TIME_INVALID) ||
+                   /* A member without an expiration counts as an infinite one. */
+                   ((args.expireCondition & SME_GT) &&
+                    (cur == EB_EXPIRE_TIME_INVALID || (uint64_t)args.expireTime <= cur)) ||
+                   ((args.expireCondition & SME_LT) &&
+                    (cur != EB_EXPIRE_TIME_INVALID && (uint64_t)args.expireTime >= cur)))
+        {
+            res = SME_COND_NOT_MET;
+        } else if (args.expireTime < now) {
+            /* The new expiration is in the past: the member is deleted. */
+            setTypeRemove(set, member);
+            propagateSetMemberDeletion(c->db, keyArg->ptr, member, sdslen(member));
+            vecPush(vdeleted, c->argv[pos]);
+            res = SME_DELETED;
+        } else {
+            if (!setTypeHasExpireSupport(set)) {
+                int converted = setTypeConvertToExpireEncoding(set);
+                serverAssert(converted);
+            }
+            const setTypeOps *ops = setTypeGetOps(set->encoding);
+            serverAssert(ops->setExpire(set, member, sdslen(member), 0, 1, (uint64_t)args.expireTime));
+            vecPush(vupdated, c->argv[pos]);
+            res = SME_UPDATED;
+        }
+
+        if (res != SME_UPDATED) {
+            if (notSet == NULL)
+                notSet = zmalloc(sizeof(int) * args.memberCount);
+            notSet[notSetCount++] = pos;
+        }
+        addReplyLongLong(c, res);
     }
+
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), set, oldsize, kvobjAllocSize(set));
+
+    if (vecSize(vdeleted) + vecSize(vupdated) > 0) {
+        server.dirty += vecSize(vdeleted) + vecSize(vupdated);
+        keyModified(c, c->db, keyArg, set, 1);
+        if (vecSize(vdeleted))
+            notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "srem", keyArg, c->db->id,
+                                           (robj**)vecData(vdeleted), vecSize(vdeleted));
+        if (vecSize(vupdated))
+            notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "sexpire", keyArg, c->db->id,
+                                           (robj**)vecData(vupdated), vecSize(vupdated));
+    }
+
+    newlen = (int64_t)setTypeSize(set);
+    if (newlen == 0) {
+        newlen = -1;
+        /* Delete the key without updating the keysizes, which is done below. */
+        dbDeleteSkipKeysizesUpdate(c->db, keyArg);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyArg, c->db->id);
+    }
+    if (oldlen != newlen)
+        updateKeysizesHist(c->db, OBJ_SET, oldlen, newlen);
+
+    /* If no member was set (the time is in the past and the SREMs were
+     * already propagated, or the conditions were not met), propagating the
+     * command is useless, and invalid with no members. */
+    if (vecSize(vupdated) == 0) {
+        preventCommandPropagation(c);
+    } else {
+        /* Rewrite to the canonical SPEXPIREAT command. */
+        if (c->cmd->proc != spexpireatCommand) {
+            rewriteClientCommandArgument(c, 0, shared.spexpireat);
+            robj *expireTimeObj = createStringObjectFromLongLong(args.expireTime);
+            rewriteClientCommandArgument(c, args.expireTimePos, expireTimeObj);
+            decrRefCount(expireTimeObj);
+        }
+        /* For a partial result, remove the members that were not set. */
+        if (notSetCount) {
+            for (int i = notSetCount - 1; i >= 0; i--)
+                rewriteClientCommandArgument(c, notSet[i], NULL);
+            robj *count = createStringObjectFromLongLong(vecSize(vupdated));
+            rewriteClientCommandArgument(c, args.membersPos + 1, count);
+            decrRefCount(count);
+        }
+    }
+
+    zfree(notSet);
+    vecRelease(vupdated);
+    vecRelease(vdeleted);
 }
 
 /* SEXPIRE key seconds [NX | XX | GT | LT] MEMBERS nummembers member [member ...] */
@@ -299,9 +461,7 @@ static int parseSetMembersBlock(client *c, long *numMembers) {
     return C_OK;
 }
 
-static void sttlGenericCommand(client *c, const char *name, long long basetime, int unit) {
-    UNUSED(basetime);
-    UNUSED(unit);
+static void sttlGenericCommand(client *c, long long basetime, int unit) {
     long numMembers = 0;
 
     kvobj *set = lookupKeyRead(c->db, c->argv[1]);
@@ -312,62 +472,110 @@ static void sttlGenericCommand(client *c, const char *name, long long basetime, 
         return;
 
     addReplyArrayLen(c, numMembers);
-    if (!set) {
-        for (long i = 0; i < numMembers; i++)
-            addReplyLongLong(c, SME_NO_MEMBER);
-        return;
-    }
-
-    /* STUB: log every member and reply "no expiration". */
     for (long i = 0; i < numMembers; i++) {
-        smeStubLog(name, c, c->argv[4 + i], 0, 0);
-        addReplyLongLong(c, SME_NO_TTL);
+        sds member = c->argv[4 + i]->ptr;
+        uint64_t expire = EB_EXPIRE_TIME_INVALID;
+        /* Non-existing keys and empty sets are the same thing. This command only
+         * reads: a member that is logically expired but not removed yet is
+         * reported as missing, and nothing is deleted. */
+        int exists = set ? setTypeGetExpire(set, member, &expire) : 0;
+        if (!exists) {
+            addReplyLongLong(c, SME_NO_MEMBER);
+        } else if (expire == EB_EXPIRE_TIME_INVALID) {
+            addReplyLongLong(c, SME_NO_TTL);
+        } else if ((long long)expire < commandTimeSnapshot()) {
+            addReplyLongLong(c, SME_NO_MEMBER);
+        } else if (unit == UNIT_SECONDS) {
+            addReplyLongLong(c, (expire + 999 - basetime) / 1000);
+        } else {
+            addReplyLongLong(c, expire - basetime);
+        }
     }
 }
 
 /* STTL key MEMBERS nummembers member [member ...] */
 void sttlCommand(client *c) {
-    sttlGenericCommand(c, "getTtlSeconds", commandTimeSnapshot(), UNIT_SECONDS);
+    sttlGenericCommand(c, commandTimeSnapshot(), UNIT_SECONDS);
 }
 
 /* SPTTL key MEMBERS nummembers member [member ...] */
 void spttlCommand(client *c) {
-    sttlGenericCommand(c, "getTtlMilliseconds", commandTimeSnapshot(), UNIT_MILLISECONDS);
+    sttlGenericCommand(c, commandTimeSnapshot(), UNIT_MILLISECONDS);
 }
 
 /* SEXPIRETIME key MEMBERS nummembers member [member ...] */
 void sexpiretimeCommand(client *c) {
-    sttlGenericCommand(c, "getExpireTimeSeconds", 0, UNIT_SECONDS);
+    sttlGenericCommand(c, 0, UNIT_SECONDS);
 }
 
 /* SPEXPIRETIME key MEMBERS nummembers member [member ...] */
 void spexpiretimeCommand(client *c) {
-    sttlGenericCommand(c, "getExpireTimeMilliseconds", 0, UNIT_MILLISECONDS);
+    sttlGenericCommand(c, 0, UNIT_MILLISECONDS);
 }
 
 /* SPERSIST key MEMBERS nummembers member [member ...] */
 void spersistCommand(client *c) {
     long numMembers = 0;
+    size_t oldsize = 0;
+    robj *keyArg = c->argv[1];
 
-    kvobj *set = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *set = lookupKeyWrite(c->db, keyArg);
     if (checkType(c, set, OBJ_SET))
         return;
 
     if (parseSetMembersBlock(c, &numMembers) != C_OK)
         return;
 
-    addReplyArrayLen(c, numMembers);
+    /* Non-existing keys and empty sets are the same thing. It also means the
+     * members in the command don't exist in the set. */
     if (!set) {
+        addReplyArrayLen(c, numMembers);
         for (long i = 0; i < numMembers; i++)
             addReplyLongLong(c, SME_NO_MEMBER);
         return;
     }
 
-    /* STUB: log every member and reply "no expiration". */
+    /* Track which members were successfully persisted, for the notification. */
+    memvec mvpersisted;
+    vec *vpersisted = memvecInit(&mvpersisted, numMembers);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
+
+    addReplyArrayLen(c, numMembers);
     for (long i = 0; i < numMembers; i++) {
-        smeStubLog("persist", c, c->argv[4 + i], 0, 0);
-        addReplyLongLong(c, SME_NO_TTL);
+        robj *memberObj = c->argv[4 + i];
+        sds member = memberObj->ptr;
+        uint64_t expire = EB_EXPIRE_TIME_INVALID;
+
+        int exists = setTypeGetExpire(set, member, &expire);
+        if (!exists) {
+            addReplyLongLong(c, SME_NO_MEMBER);
+        } else if (expire == EB_EXPIRE_TIME_INVALID) {
+            addReplyLongLong(c, SME_NO_TTL);
+        } else if ((long long)expire < commandTimeSnapshot()) {
+            /* Already expired. Pretend there is no such member. */
+            addReplyLongLong(c, SME_NO_MEMBER);
+        } else {
+            serverAssert(setTypeGetOps(set->encoding)->setExpire(set, member, sdslen(member), 0, 1,
+                                                                 EB_EXPIRE_TIME_INVALID));
+            vecPush(vpersisted, memberObj);
+            addReplyLongLong(c, SME_PERSISTED);
+        }
     }
+
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), set, oldsize, kvobjAllocSize(set));
+
+    if (vecSize(vpersisted)) {
+        server.dirty += vecSize(vpersisted);
+        keyModified(c, c->db, keyArg, set, 1);
+        notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "spersist", keyArg, c->db->id,
+                                       (robj**)vecData(vpersisted), vecSize(vpersisted));
+    } else {
+        /* Nothing changed: nothing to propagate. */
+        preventCommandPropagation(c);
+    }
+    vecRelease(vpersisted);
 }
 
 /*-----------------------------------------------------------------------------
@@ -482,11 +690,15 @@ static int parseSaddexArgs(client *c, int *flags, long long *expireTime, int *ex
 void saddexCommand(client *c) {
     int flags = 0, firstMemberPos = 0, memberCount = 0, expireTimePos = -1;
     long long expireTime = EB_EXPIRE_TIME_INVALID;
+    int64_t oldlen, newlen;
+    size_t oldsize = 0;
+    dictEntryLink link;
+    robj *keyArg = c->argv[1];
 
     if (parseSaddexArgs(c, &flags, &expireTime, &expireTimePos, &firstMemberPos, &memberCount) != C_OK)
         return;
 
-    kvobj *set = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *set = lookupKeyWriteWithLink(c->db, keyArg, &link);
     if (checkType(c, set, OBJ_SET))
         return;
 
@@ -496,8 +708,148 @@ void saddexCommand(client *c) {
         return;
     }
 
-    /* STUB: log every member, change nothing, and reply "nothing was added". */
-    for (int i = 0; i < memberCount; i++)
-        smeStubLog("add", c, c->argv[firstMemberPos + i], expireTime, flags);
-    addReplyLongLong(c, 0);
+    const int setsExpire = (flags & (SME_EX | SME_PX | SME_EXAT | SME_PXAT)) != 0;
+    long long now = commandTimeSnapshot();
+    /* An expiration in the past deletes the members instead of adding them. */
+    const int pastTime = setsExpire && expireTime < now;
+
+    /* The conditions are all or nothing: check them before changing anything. A
+     * member that is logically expired but not removed yet does not exist. */
+    if (set && (flags & (SME_MXX | SME_MNX))) {
+        int found = 0;
+        for (int i = 0; i < memberCount; i++) {
+            uint64_t cur;
+            int exists = setTypeGetExpire(set, c->argv[firstMemberPos + i]->ptr, &cur);
+            found += !setMemberIsGone(exists, cur);
+        }
+        if (((flags & SME_MNX) && found != 0) || ((flags & SME_MXX) && found != memberCount)) {
+            addReplyLongLong(c, 0);
+            return;
+        }
+    }
+
+    /* Expirations need an encoding that can hold them. Until the hashtable with
+     * expirations exists, a set that would need it is not supported. */
+    if (setsExpire && !pastTime) {
+        size_t projected = (set ? setTypeSize(set) : 0) + memberCount;
+        int supported = projected <= server.set_max_listpack_entries &&
+                        (!set || setTypeCanHoldExpire(set));
+        for (int i = 0; supported && i < memberCount; i++)
+            supported = sdslen(c->argv[firstMemberPos + i]->ptr) <= server.set_max_listpack_value;
+        if (!supported) {
+            addReplyErrorSetEncodingNotSupported(c);
+            return;
+        }
+    }
+
+    memvec mvset, mvupdated, mvdeleted;
+    vec *vset = memvecInit(&mvset, memberCount);
+    vec *vupdated = memvecInit(&mvupdated, memberCount);
+    vec *vdeleted = memvecInit(&mvdeleted, memberCount);
+
+    if (pastTime) {
+        /* The members that exist are deleted, and the ones that do not exist
+         * are not added, so a missing key is not even created. */
+        if (set) {
+            oldlen = (int64_t)setTypeSize(set);
+            if (server.memory_tracking_enabled)
+                oldsize = kvobjAllocSize(set);
+            for (int i = 0; i < memberCount; i++) {
+                robj *memberObj = c->argv[firstMemberPos + i];
+                sds member = memberObj->ptr;
+                if (setTypeRemove(set, member)) {
+                    propagateSetMemberDeletion(c->db, keyArg->ptr, member, sdslen(member));
+                    vecPush(vdeleted, memberObj);
+                }
+            }
+        } else {
+            oldlen = 0;
+        }
+    } else {
+        if (!set) {
+            set = setTypeCreate(c->argv[firstMemberPos]->ptr, memberCount);
+            dbAddByLink(c->db, keyArg, &set, &link);
+        }
+        oldlen = (int64_t)setTypeSize(set);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(set);
+
+        if (setsExpire) {
+            int converted = setTypeConvertToExpireEncoding(set);
+            serverAssert(converted);
+        }
+
+        for (int i = 0; i < memberCount; i++) {
+            robj *memberObj = c->argv[firstMemberPos + i];
+            sds member = memberObj->ptr;
+            const setTypeOps *ops = setTypeGetOps(set->encoding);
+
+            if (setsExpire) {
+                /* Add or update the member, and set its expiration. */
+                int target_enc;
+                int added = ops->rawAddEx(set, member, sdslen(member), NULL, 1, 0,
+                                          &target_enc, (uint64_t)expireTime);
+                if (added == 0) {
+                    /* A live member that already exists: update its expiration. */
+                    serverAssert(ops->setExpire(set, member, sdslen(member), 0, 1,
+                                                (uint64_t)expireTime));
+                }
+                serverAssert(added != -1);
+                vecPush(vupdated, memberObj);
+            } else if (!setTypeAdd(set, member) && setTypeHasExpireSupport(set) &&
+                       !(flags & SME_KEEPTTL))
+            {
+                /* The member exists: without KEEPTTL, its expiration is discarded. */
+                setTypeGetOps(set->encoding)->setExpire(set, member, sdslen(member), 0, 1,
+                                                        EB_EXPIRE_TIME_INVALID);
+            }
+            vecPush(vset, memberObj);
+        }
+    }
+
+    if (server.memory_tracking_enabled && set)
+        updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), set, oldsize, kvobjAllocSize(set));
+
+    if (vecSize(vset) + vecSize(vdeleted) > 0) {
+        server.dirty += vecSize(vset) + vecSize(vdeleted);
+        keyModified(c, c->db, keyArg, set, 1);
+        if (vecSize(vset))
+            notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "sadd", keyArg, c->db->id,
+                                           (robj**)vecData(vset), vecSize(vset));
+        if (vecSize(vdeleted))
+            notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "srem", keyArg, c->db->id,
+                                           (robj**)vecData(vdeleted), vecSize(vdeleted));
+        if (vecSize(vupdated))
+            notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "sexpire", keyArg, c->db->id,
+                                           (robj**)vecData(vupdated), vecSize(vupdated));
+    }
+
+    if (set) {
+        newlen = (int64_t)setTypeSize(set);
+        if (newlen == 0) {
+            newlen = -1;
+            /* Delete the key without updating the keysizes, which is done below. */
+            dbDeleteSkipKeysizesUpdate(c->db, keyArg);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyArg, c->db->id);
+        }
+        if (oldlen != newlen)
+            updateKeysizesHist(c->db, OBJ_SET, oldlen, newlen);
+    }
+
+    if (pastTime) {
+        /* The SREMs of the deleted members were already propagated. */
+        preventCommandPropagation(c);
+    } else if (setsExpire && !(flags & SME_PXAT)) {
+        /* Propagate with an absolute time in milliseconds: PXAT. */
+        rewriteClientCommandArgument(c, expireTimePos - 1, shared.pxat);
+        robj *expire = createStringObjectFromLongLong(expireTime);
+        rewriteClientCommandArgument(c, expireTimePos, expire);
+        decrRefCount(expire);
+    }
+
+    addReplyLongLong(c, 1);
+
+    vecRelease(vset);
+    vecRelease(vupdated);
+    vecRelease(vdeleted);
 }
