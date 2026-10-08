@@ -286,6 +286,67 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
     return newEntry;
 }
 
+/* Defrag a set member: a plain sds or a SetEntry (an sds with an ExpireMeta in
+ * front of it). Returns the new pointer, or NULL if the allocation wasn't moved,
+ * in which case nothing was released. */
+static void *activeDefragSetEntry(void *ptr) {
+    void *alloc = setEntryGetAllocPtr(ptr);
+    void *newalloc = activeDefragAlloc(alloc);
+    if (!newalloc) return NULL;
+    return (char *)newalloc + ((char *)ptr - (char *)alloc);
+}
+
+/* Like activeDefragHfieldAndUpdateRef(), for the members that have an
+ * expiration, which are reached through the ebuckets of the set. */
+static void *activeDefragSetEntryAndUpdateRef(void *ptr, void *privdata) {
+    dict *d = privdata;
+    dictEntryLink link = dictFindLink(d, ptr, NULL);
+    serverAssert(link);
+    void *newptr = activeDefragSetEntry(ptr);
+    if (newptr)
+        dictSetKeyAtLink(d, newptr, &link, 0);
+    return newptr;
+}
+
+/* Scan callback for the dict of a set that can hold member expirations. The
+ * members that have an expiration are skipped here and defragmented later,
+ * through the ebuckets of the set, as it holds pointers to them. */
+static void activeDefragSetDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    dict *d = privdata;
+    void *member = dictGetKey(de);
+    if (setEntryHasExpiry(member)) return;
+    void *newptr = activeDefragSds(member);
+    if (newptr) dictSetKeyAtLink(d, newptr, &plink, 0);
+}
+
+/* Defrag the members that have an expiration of a set, through its ebuckets.
+ * One step; returns the cursor, 0 when done. */
+static unsigned long activeDefragSetExpireBuckets(dict *d, unsigned long cursor) {
+    ebDefragFunctions eb_defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragItem = activeDefragSetEntryAndUpdateRef
+    };
+    ebuckets *eb = &htGetMetadataEx(d)->hfe;
+    ebScanDefrag(eb, &setMemberExpireBucketsType, &cursor, &eb_defragfns, d);
+    return cursor;
+}
+
+/* Defrag a dict of a set that can hold member expirations, completely. */
+static void activeDefragSetExDict(dict *d) {
+    unsigned long cursor = 0;
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = NULL, /* Done in activeDefragSetDictCallback. */
+        .defragVal = NULL
+    };
+    do {
+        cursor = dictScanDefrag(d, cursor, activeDefragSetDictCallback, &defragfns, d);
+    } while (cursor != 0);
+    do {
+        cursor = activeDefragSetExpireBuckets(d, cursor);
+    } while (cursor != 0);
+}
+
 /* Defrag helper for robj and/or string objects with expected refcount.
  *
  * Like activeDefragStringOb, but it requires the caller to pass in the expected
@@ -634,6 +695,31 @@ void scanCallbackCountScanned(void *privdata, const dictEntry *de, dictEntryLink
 void scanLaterSet(robj *ob, unsigned long *cursor) {
     serverAssert(ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT);
     dict *d = ob->ptr;
+
+    if (setHashtableHasExpire(ob)) {
+        /* As for hashes: first the dict, without the members that have an
+         * expiration, then the ebuckets and those members. */
+        typedef enum { SET_DEFRAG_NONE = 0, SET_DEFRAG_DICT, SET_DEFRAG_EBUCKETS } setDefragPhase;
+        static setDefragPhase phase = SET_DEFRAG_NONE;
+
+        if (!*cursor || phase == SET_DEFRAG_NONE)
+            phase = SET_DEFRAG_DICT;
+
+        if (phase == SET_DEFRAG_DICT) {
+            dictDefragFunctions fns = {
+                .defragAlloc = activeDefragAlloc,
+                .defragKey = NULL,
+                .defragVal = NULL
+            };
+            *cursor = dictScanDefrag(d, *cursor, activeDefragSetDictCallback, &fns, d);
+            if (!*cursor) phase = SET_DEFRAG_EBUCKETS;
+        }
+        if (phase == SET_DEFRAG_EBUCKETS) {
+            *cursor = activeDefragSetExpireBuckets(d, *cursor);
+            if (!*cursor) phase = SET_DEFRAG_NONE;
+        }
+        return;
+    }
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
         .defragKey = (dictDefragAllocFunction *)activeDefragSds
@@ -747,6 +833,8 @@ void defragSet(defragKeysCtx *ctx, kvobj *ob) {
     d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
+    else if (setHashtableHasExpire(ob))
+        activeDefragSetExDict(d);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
     /* defrag the dict struct and tables */
@@ -1145,11 +1233,6 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     int slot = ctx->kvstate.slot;
     unsigned char *newzl;
 
-    /* Sets with member expirations are not defragmented yet: they are registered in
-     * db->subexpires, which holds the key, and their members have a different layout. */
-    if (ob->type == OBJ_SET && setTypeHasExpireSupport(ob))
-        return;
-
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(ob);
 
@@ -1164,7 +1247,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
 
     /* Try to defrag robj. For hash objects with HFEs,
      * defer defragmentation until processing db's subexpires. */
-    if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
+    if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID) &&
+        !(ob->type == OBJ_SET && setIsRegisteredInSubexpires(ob))) {
         /* If the dict doesn't have metadata, we directly defrag it. */
         kvnew = activeDefragKvobj(ob, 0);
     }
@@ -1202,6 +1286,13 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
             void *newptr, *ptr = ob->ptr;
             if ((newptr = activeDefragAlloc(ptr)))
                 ob->ptr = newptr;
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            /* The wrapper holds the ExpireMeta and the listpack. */
+            listpackEx *newlpt, *lpt = (listpackEx*)ob->ptr;
+            if ((newlpt = activeDefragAlloc(lpt)))
+                ob->ptr = lpt = newlpt;
+            if ((newzl = activeDefragAlloc(lpt->lp)))
+                lpt->lp = newzl;
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -1631,7 +1722,7 @@ void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
     sds keystr = kvobjGetKey(kv);
     unsigned int slot = calculateKeySlot(keystr);
 
-    serverAssert(kv->type == OBJ_HASH); /* Currently relevant only for hashes */
+    serverAssert(kv->type == OBJ_HASH || kv->type == OBJ_SET); /* Relevant only for hashes and sets */
 
     long long expire = kvobjGetExpire(kv);
     /* We can't search in db->expires for that KV after we've released

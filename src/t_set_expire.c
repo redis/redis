@@ -49,6 +49,13 @@ int setHasSubexpiry(const kvobj *o) {
            (o->encoding == OBJ_ENCODING_HT && setHashtableHasExpire(o));
 }
 
+/* Returns 1 if the set is registered in db->subexpires, which then holds a
+ * pointer to the key object (the active defrag must update it when it moves). */
+int setIsRegisteredInSubexpires(const kvobj *set) {
+    return setHasSubexpiry(set) &&
+           ebGetExpireTime(&subexpiresBucketsType, (kvobj *)set) != EB_EXPIRE_TIME_INVALID;
+}
+
 /* Returns 1 if the set can hold member expirations as it is: it is a listpack
  * with expirations, or a hashtable that has the metadata of the expirations. */
 int setTypeHasExpireSupport(const robj *set) {
