@@ -651,6 +651,7 @@ void smoveCommand(client *c) {
         updateKeysizesHist(c->db, OBJ_SET, dstLen - 1, dstLen);
     }
     if (added || expireChanged || persisted) {
+        if (expireChanged || persisted) setTypeUpdateSubexpiry(c->db, dstset);
         server.dirty++;
         keyModified(c,c->db,c->argv[2],dstset,1);
         if (added)
@@ -936,6 +937,8 @@ void spopWithCountCommand(client *c) {
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
         set = newset;
+        /* The new object is not registered in subexpires yet. */
+        if (setTypeHasExpireSupport(set)) setTypeUpdateSubexpiry(c->db, set);
     }
 
     /* Replicate/AOF the remaining elements as an SREM operation */

@@ -327,7 +327,6 @@ static void setExpireMemberCb(void *c, char *str, size_t len, int64_t llval) {
  * - 0 if the set was deleted
  * - EB_EXPIRE_TIME_INVALID if no more members have an expiration */
 uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubexpires, int activeEx) {
-    UNUSED(updateSubexpires); /* The subexpires registration is not implemented yet. */
     const setTypeOps *ops = setTypeGetOps(set->encoding);
     serverAssert(ops->expire != NULL);
     sds keystr = kvobjGetKey(set);
@@ -368,8 +367,12 @@ uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubex
         }
         keyModified(NULL, db, key, deleted ? NULL : set, 1);
         decrRefCount(key);
-        if (!deleted)
+        if (!deleted) {
             res = ops->minExpire(set, 1);
+            /* Not for the active expiry cycle: it updates the registration itself,
+             * with the time that this function returns. */
+            if (updateSubexpires) setTypeUpdateSubexpiry(db, set);
+        }
     } else {
         res = ops->minExpire(set, 1);
     }
@@ -401,7 +404,33 @@ int setTypeExpireIfNeeded(redisDb *db, kvobj *set) {
         return 0;
 
     uint32_t quota = UINT32_MAX;
-    return setTypeExpire(db, set, &quota, 0, 0) == 0;
+    return setTypeExpire(db, set, &quota, 1, 0) == 0;
+}
+
+/* Registers the set in db->subexpires with its earliest member expiration, or
+ * updates or removes the registration, to match the set as it is now. Call it
+ * after a change that can make a member expire earlier than the registered time,
+ * and when the set may not be registered yet (a new TTL, a new object).
+ *
+ * Changes that can only make the earliest expiration later (removing a member,
+ * lazy expiry) do not need it: the active expiry cycle visits the set at the
+ * registered time, finds nothing to expire or less than expected, and registers
+ * the right time. */
+void setTypeUpdateSubexpiry(redisDb *db, kvobj *set) {
+    uint64_t current = setTypeGetMinExpire(set, 1);
+    uint64_t registered = EB_EXPIRE_TIME_INVALID;
+    int slot = getKeySlot(kvobjGetKey(set));
+
+    if (setHasSubexpiry(set))
+        registered = ebGetExpireTime(&subexpiresBucketsType, set);
+    if (current == registered) return;
+
+    if (registered == EB_EXPIRE_TIME_INVALID)
+        estoreAdd(db->subexpires, slot, set, current);
+    else if (current == EB_EXPIRE_TIME_INVALID)
+        estoreRemove(db->subexpires, slot, set);
+    else
+        estoreUpdate(db->subexpires, slot, set, current);
 }
 
 /*-----------------------------------------------------------------------------
@@ -602,6 +631,8 @@ static void sexpireGenericCommand(client *c, long long basetime, int unit) {
         /* Delete the key without updating the keysizes, which is done below. */
         dbDeleteSkipKeysizesUpdate(c->db, keyArg);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyArg, c->db->id);
+    } else if (vecSize(vupdated)) {
+        setTypeUpdateSubexpiry(c->db, set);
     }
     if (oldlen != newlen)
         updateKeysizesHist(c->db, OBJ_SET, oldlen, newlen);
@@ -790,6 +821,7 @@ void spersistCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), set, oldsize, kvobjAllocSize(set));
 
     if (vecSize(vpersisted)) {
+        setTypeUpdateSubexpiry(c->db, set);
         server.dirty += vecSize(vpersisted);
         keyModified(c, c->db, keyArg, set, 1);
         notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "spersist", keyArg, c->db->id,
@@ -1054,6 +1086,8 @@ void saddexCommand(client *c) {
             /* Delete the key without updating the keysizes, which is done below. */
             dbDeleteSkipKeysizesUpdate(c->db, keyArg);
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyArg, c->db->id);
+        } else if (setTypeHasExpireSupport(set)) {
+            setTypeUpdateSubexpiry(c->db, set);
         }
         if (oldlen != newlen)
             updateKeysizesHist(c->db, OBJ_SET, oldlen, newlen);

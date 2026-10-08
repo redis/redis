@@ -4025,6 +4025,7 @@ int setTypeExpireTimeElapsed(uint64_t expire);
 int setTypeGetExpire(robj *set, sds member, uint64_t *expire);
 int setTypeConvertToExpireEncoding(robj *set);
 int setTypeCanHoldExpire(const robj *set);
+void setTypeUpdateSubexpiry(redisDb *db, kvobj *set);
 void addReplyErrorSetEncodingNotSupported(client *c);
 int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t *expire);
 int setTypeAddExAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t expire);

@@ -182,8 +182,8 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
         nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
         break;
     case OBJ_SET:
-        /* No set is registered in db->subexpires yet. */
-        serverPanic("Active expiration of set members is not implemented yet");
+        nextExpTime = setTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
+        break;
     default:
         serverPanic("Unexpected type in subexpires: %d", kv->type);
     }
