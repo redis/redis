@@ -1556,8 +1556,7 @@ static void bitopCommandBitmap(client *c, bitroarOp op, robj *targetkey,
     }
 
     if (maxlen)
-        res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen,
-                                    bitopUseTryAlloc(c));
+        res_bitmap = bitroarApplyOp(op, objects, numkeys, maxlen, bitopUseTryAlloc(c));
     if (maxlen && res_bitmap == NULL) {
         addReplyError(c, "BITOP failed allocating the result, out of memory");
         return;
