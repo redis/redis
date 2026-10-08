@@ -1758,3 +1758,54 @@ start_server {tags {"external:skip needs:repl"}} {
         $master config set set-max-listpack-entries 128
     }
 }
+
+# Stage 9: the other paths that read sets.
+start_server {tags {"external:skip needs:debug"}} {
+    foreach enc $::sme_encodings {
+    sme_force_encoding r $enc
+
+    test "BGSAVE of big sets with expirations (the child dismisses the memory) ($enc)" {
+        r flushall
+        r config set set-max-listpack-value 100000
+        r config set set-max-listpack-entries [expr {$enc eq "hashtable" ? 0 : 128}]
+        set big [string repeat x 9000]
+        for {set i 0} {$i < 20} {incr i} {r sadd s $big$i}
+        r sexpire s 1000 MEMBERS 5 ${big}1 ${big}2 ${big}3 ${big}4 ${big}5
+        assert_encoding $enc s
+        r bgsave
+        waitForBgsave r
+        assert_equal [s rdb_last_bgsave_status] ok
+        r debug reload
+        assert_equal [r scard s] 20
+        assert {[r sttl s MEMBERS 1 ${big}1] > 900}
+        r config set set-max-listpack-value 64
+        r config set set-max-listpack-entries 128
+    }
+
+    test "Sorted set commands refuse a set with member expirations as input ($enc)" {
+        r flushall
+        r sadd s a b c
+        r zadd z 1 a
+        r sadd plain a b
+        assert_equal [r zunionstore dst 2 z plain] 2
+        r sexpire s 1000 MEMBERS 1 a
+        foreach cmd {{zunion 2 z s} {zinter 2 z s} {zdiff 2 z s} {zinterstore dst 2 z s}
+                     {zunionstore dst 2 z s} {zdiffstore dst 2 z s} {zintercard 2 z s}} {
+            assert_error {*member expirations*} {r {*}$cmd}
+        }
+        # no expiration left: it is a normal input again
+        r spersist s MEMBERS 1 a
+        assert_equal [r zunionstore dst 2 z s] 3
+    }
+
+    test "SORT of a set skips the expired members ($enc)" {
+        r debug set-active-expire 0
+        r flushall
+        r sadd s 3 1 2
+        sme_make_expired r s {1}
+        assert_equal [r sort s] {2 3}
+        r debug set-active-expire 1
+    }
+    }
+    r config set set-max-listpack-entries 128
+}
