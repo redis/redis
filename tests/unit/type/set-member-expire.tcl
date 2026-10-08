@@ -13,7 +13,7 @@
 
 # Encodings the behavior tests run over. Entries are added as the encodings are
 # implemented (listpackex first, then hashtable).
-set ::sme_encodings {listpackex}
+set ::sme_encodings {listpackex hashtable}
 
 # Reply codes shared by the SEXPIRE family, STTL family and SPERSIST.
 set E_NO_MEMBER   -2
@@ -312,11 +312,13 @@ start_server {tags {"external:skip needs:debug"}} {
     r debug keysizes-hist-assert 1
     foreach enc $::sme_encodings {
         sme_force_encoding r $enc
-        # Members are not numeric, so the sets start as listpacks.
+        # Members are not numeric, so the sets start as listpacks, or as hashtables
+        # when the listpack limit is zero.
+        set plain_enc [expr {$enc eq "hashtable" ? "hashtable" : "listpack"}]
 
         test "SEXPIRE family - Set the expiration of members, the set gets the expiration encoding ($enc)" {
             sme_create_set r myset {a b c}
-            assert_encoding listpack myset
+            assert_encoding $plain_enc myset
             assert_equal [r sexpire myset 1000 MEMBERS 2 a b] [list $E_OK $E_OK]
             assert_encoding $enc myset
             assert_equal [lsort [r smembers myset]] {a b c}
@@ -505,7 +507,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r del myset
             assert_equal [r saddex myset MEMBERS 3 a b c] 1
             assert_equal [lsort [r smembers myset]] {a b c}
-            assert_encoding listpack myset
+            assert_encoding $plain_enc myset
         }
 
         test "A logically expired member is treated as new by SADDEX ($enc)" {
@@ -517,17 +519,6 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r saddex myset MNX MEMBERS 1 a] 1
             assert_equal [r sttl myset MEMBERS 1 a] [list $E_NO_TTL]
             r debug set-active-expire 1
-        }
-
-        test "Sets that would need a hashtable with expirations are not supported yet ($enc)" {
-            sme_create_set r bigset {}
-            for {set i 0} {$i < 200} {incr i} {r sadd bigset m$i}
-            assert_encoding hashtable bigset
-            assert_error {*not supported yet*} {r sexpire bigset 100 MEMBERS 1 m1}
-            assert_error {*not supported yet*} {r saddex bigset EX 100 MEMBERS 1 new}
-            # The set was not changed.
-            assert_equal [r scard bigset] 200
-            assert_encoding hashtable bigset
         }
     }
 }
@@ -871,17 +862,6 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [moveEvents r $rd1 {smove src dst z}] {{src srem}}
             $rd1 close
         }
-
-        test "Sets that cannot hold expirations yet are refused by SMOVE with an expiration ($enc)" {
-            r del src big
-            r sadd src a
-            r sexpire src 1000 MEMBERS 1 a
-            for {set i 0} {$i < 200} {incr i} {r sadd big m$i}
-            assert_equal [r object encoding big] hashtable
-            assert_error {*not supported yet*} {r smove src big a}
-            assert_equal [r sismember src a] 1
-            assert_equal [r sismember big a] 0
-        }
     }
 }
 
@@ -933,7 +913,9 @@ start_server {tags {"external:skip needs:debug"} overrides {key-memory-histogram
     r debug keysizes-hist-assert 1
     r debug allocsize-slots-assert 1
 
-    test "SME commands keep the allocation size accounting exact" {
+    foreach enc $::sme_encodings {
+    sme_force_encoding r $enc
+    test "SME commands keep the allocation size accounting exact ($enc)" {
         r debug set-active-expire 0
         r flushall
         r sadd s1 a b c d e f
@@ -955,6 +937,7 @@ start_server {tags {"external:skip needs:debug"} overrides {key-memory-histogram
         r del s1 s2 src
         assert_equal [r dbsize] 0
         r debug set-active-expire 1
+    }
     }
 }
 
@@ -1253,5 +1236,212 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
         for {set i 0} {$i < 50} {incr i} {
             assert_equal [R 0 smembers "{slot$i}set"] c
         }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Stage 6 and 7: the hashtable with expirations, and the conversions
+# ---------------------------------------------------------------------------
+
+start_server {tags {"external:skip needs:debug"}} {
+    r debug keysizes-hist-assert 1
+
+    test "A big hashtable set gets expirations: only the members that get one change" {
+        r flushall
+        r config set set-max-listpack-entries 128
+        set members {}
+        for {set i 0} {$i < 5000} {incr i} {lappend members member:$i}
+        r sadd big {*}$members
+        assert_encoding hashtable big
+        assert_equal [r sexpire big 1000 MEMBERS 3 member:7 member:4999 member:2500] [list $E_OK $E_OK $E_OK]
+        assert_encoding hashtable big
+        assert_equal [r scard big] 5000
+        assert_equal [lsort [r smembers big]] [lsort $members]
+        assert_equal [sme_subexpiry r] 1
+        assert {[r sttl big MEMBERS 1 member:7] > 900}
+        assert_equal [r sttl big MEMBERS 2 member:8 nosuch] [list $E_NO_TTL $E_NO_MEMBER]
+        # Removing the expirations keeps the encoding (a set does not give them up).
+        assert_equal [r spersist big MEMBERS 3 member:7 member:4999 member:2500] [list $E_OK $E_OK $E_OK]
+        assert_encoding hashtable big
+        assert_equal [sme_subexpiry r] 0
+        assert_equal [lsort [r smembers big]] [lsort $members]
+    }
+
+    test "Hashtable members of every length keep their content and expiration" {
+        r flushall
+        r config set set-max-listpack-entries 0
+        set lens {1 5 30 31 32 100 254 255 256 1000 65535 65536 70000}
+        set members {}
+        foreach len $lens {lappend members [string repeat x $len]:[expr {$len % 7}]}
+        # Binary safe members too.
+        lappend members "a\x00b" "\xff\xfe\x00" ""
+        r sadd myset {*}$members
+        assert_encoding hashtable myset
+        set with {}
+        set i 0
+        foreach m $members {
+            if {$i % 2 == 0} {lappend with $m}
+            incr i
+        }
+        set base [expr {[clock milliseconds] + 100000000}]
+        set n 0
+        foreach m $with {
+            r spexpireat myset [expr {$base + $n}] MEMBERS 1 $m
+            incr n
+        }
+        assert_equal [lsort [r smembers myset]] [lsort $members]
+        set n 0
+        foreach m $with {
+            assert_equal [r spexpiretime myset MEMBERS 1 $m] [expr {$base + $n}]
+            incr n
+        }
+        foreach m $members {
+            assert_equal [r sismember myset $m] 1
+        }
+        # Remove and add expirations in a different order.
+        foreach m $with {r spersist myset MEMBERS 1 $m}
+        foreach m [lreverse $members] {r spexpireat myset [expr {$base + 5}] MEMBERS 1 $m}
+        assert_equal [lsort [r smembers myset]] [lsort $members]
+        foreach m $members {
+            assert_equal [r spexpiretime myset MEMBERS 1 $m] [expr {$base + 5}]
+        }
+        assert_equal [r srem myset {*}$members] [llength $members]
+        assert_equal [r exists myset] 0
+        assert_equal [sme_subexpiry r] 0
+        r config set set-max-listpack-entries 128
+    }
+
+    test "Hashtable with many expirations in random order expire completely" {
+        r flushall
+        r config set set-max-listpack-entries 0
+        r debug set-active-expire 0
+        set members {}
+        for {set i 0} {$i < 2000} {incr i} {lappend members m$i}
+        r sadd myset {*}$members
+        set now [clock milliseconds]
+        foreach m [lshuffle $members] {
+            r spexpireat myset [expr {$now + 3000 + int(rand() * 2000)}] MEMBERS 1 $m
+        }
+        # Add more members while the dict grows (it rehashes).
+        for {set i 2000} {$i < 6000} {incr i} {r sadd myset m$i}
+        assert_equal [r scard myset] 6000
+        for {set i 0} {$i < 100} {incr i} {
+            assert {[r sttl myset MEMBERS 1 m$i] > 0}
+        }
+        r debug set-active-expire 1
+        wait_for_condition 300 50 {[r scard myset] == 4000} else {fail "the members did not expire"}
+        assert_equal [r scard myset] 4000
+        assert_equal [sme_subexpiry r] 0
+        assert_equal [r sismember myset m5] 0
+        assert_equal [r sismember myset m5000] 1
+        r config set set-max-listpack-entries 128
+    }
+
+    test "A set that grows past the listpack limits converts to a hashtable and keeps the expirations" {
+        r flushall
+        r config set set-max-listpack-entries 128
+        r debug set-active-expire 0
+        set base [expr {[clock milliseconds] + 100000000}]
+        for {set i 0} {$i < 128} {incr i} {r sadd myset m$i}
+        for {set i 0} {$i < 128} {incr i 2} {r spexpireat myset [expr {$base + $i}] MEMBERS 1 m$i}
+        # Exactly at the limit: a listpack with expirations (the limit counts members).
+        assert_encoding listpackex myset
+        assert_equal [sme_subexpiry r] 1
+        assert_equal [r sadd myset one-more] 1
+        assert_encoding hashtable myset
+        assert_equal [r scard myset] 129
+        assert_equal [sme_subexpiry r] 1
+        for {set i 0} {$i < 128} {incr i} {
+            if {$i % 2 == 0} {
+                assert_equal [r spexpiretime myset MEMBERS 1 m$i] [expr {$base + $i}]
+            } else {
+                assert_equal [r sttl myset MEMBERS 1 m$i] $E_NO_TTL
+            }
+        }
+        assert_equal [r sttl myset MEMBERS 1 one-more] $E_NO_TTL
+        # The registration moved with the set: it still expires.
+        r spexpire myset 50 MEMBERS 1 one-more
+        r debug set-active-expire 1
+        wait_for_condition 100 20 {[r scard myset] == 128} else {fail "did not expire after the conversion"}
+        assert_equal [sme_subexpiry r] 1
+    }
+
+    test "A member longer than the listpack value limit converts a set with expirations" {
+        r flushall
+        r config set set-max-listpack-value 64
+        r sadd myset a b c
+        r sexpire myset 1000 MEMBERS 2 a b
+        assert_encoding listpackex myset
+        r sadd myset [string repeat x 65]
+        assert_encoding hashtable myset
+        assert {[r sttl myset MEMBERS 1 a] > 900}
+        assert_equal [sme_subexpiry r] 1
+    }
+
+    test "SADDEX and the first expiration on big sets use a hashtable" {
+        r flushall
+        r config set set-max-listpack-entries 128
+        set members {}
+        for {set i 0} {$i < 300} {incr i} {lappend members n$i}
+        assert_equal [r saddex fresh EX 1000 MEMBERS 300 {*}$members] 1
+        assert_encoding hashtable fresh
+        assert {[r sttl fresh MEMBERS 1 n299] > 900}
+        # An existing intset that is too big for a listpack.
+        set ints {}
+        for {set i 0} {$i < 200} {incr i} {lappend ints $i}
+        r sadd ints {*}$ints
+        assert_encoding intset ints
+        assert_equal [r sexpire ints 1000 MEMBERS 2 5 150] [list $E_OK $E_OK]
+        assert_encoding hashtable ints
+        assert_equal [lsort -integer [r smembers ints]] $ints
+        assert_equal [r sttl ints MEMBERS 2 6 5] [list $E_NO_TTL [r sttl ints MEMBERS 1 5]]
+        # A small one becomes a listpack with expirations.
+        r sadd smallints 1 2 3
+        r sexpire smallints 1000 MEMBERS 1 2
+        assert_encoding listpackex smallints
+        assert_equal [lsort -integer [r smembers smallints]] {1 2 3}
+    }
+
+    test "SMOVE into a full listpack with expirations converts the destination" {
+        r flushall
+        r config set set-max-listpack-entries 4
+        r sadd dst a b c d
+        r sexpire dst 1000 MEMBERS 1 a
+        assert_encoding listpackex dst
+        r sadd src x y
+        r sexpire src 1000 MEMBERS 1 x
+        assert_equal [r smove src dst x] 1
+        assert_encoding hashtable dst
+        assert {[r sttl dst MEMBERS 1 a] > 900}
+        assert {[r sttl dst MEMBERS 1 x] > 900}
+        assert_equal [sme_subexpiry r] 2
+        r config set set-max-listpack-entries 128
+    }
+
+    test "Changing the limits does not convert the sets that exist" {
+        r flushall
+        r sadd myset a b c
+        r sexpire myset 1000 MEMBERS 1 a
+        r config set set-max-listpack-entries 1
+        assert_encoding listpackex myset
+        r config set set-max-listpack-entries 128
+    }
+
+    test "A copy of a hashtable with expirations keeps them, and is independent of the original" {
+        r flushall
+        r config set set-max-listpack-entries 0
+        r sadd myset a b c
+        r sexpire myset 1000 MEMBERS 2 a b
+        r copy myset copied
+        assert_encoding hashtable copied
+        assert {[r sttl copied MEMBERS 1 a] > 900}
+        assert_equal [r sttl copied MEMBERS 1 c] $E_NO_TTL
+        assert_equal [sme_subexpiry r] 2
+        r spersist myset MEMBERS 1 a
+        assert {[r sttl copied MEMBERS 1 a] > 900}
+        r del myset
+        assert {[r sttl copied MEMBERS 1 a] > 900}
+        assert_equal [sme_subexpiry r] 1
+        r config set set-max-listpack-entries 128
     }
 }
