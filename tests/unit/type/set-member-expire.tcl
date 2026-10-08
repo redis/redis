@@ -1158,7 +1158,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [sme_subexpiry r] 3
             r set s3 string
             assert_equal [sme_subexpiry r] 2
-            r sunionstore s4 s5      ;# overwritten by a result without expirations
+            r sadd plain x
+        r sunionstore s4 plain   ;# overwritten by a result without expirations
             assert_equal [sme_subexpiry r] 1
             r flushdb
             assert_equal [sme_subexpiry r] 0
@@ -1444,4 +1445,161 @@ start_server {tags {"external:skip needs:debug"}} {
         assert_equal [sme_subexpiry r] 1
         r config set set-max-listpack-entries 128
     }
+}
+
+# Stage 8: the STORE variants. The stored member gets the nearest expiration of
+# the sources that have it; a source without an expiration counts as infinite.
+start_server {tags {"external:skip needs:debug"}} {
+    r debug keysizes-hist-assert 1
+    r debug allocsize-slots-assert 1
+
+    foreach enc $::sme_encodings {
+    sme_force_encoding r $enc
+
+    test "SUNIONSTORE - The nearest expiration wins, none counts as infinite ($enc)" {
+        r flushall
+        r sadd a m1 m2 m3 m4
+        r sadd b m2 m3 m5
+        r sexpire a 1000 MEMBERS 2 m1 m2
+        r sexpire a 5000 MEMBERS 1 m3
+        r sexpire b 3000 MEMBERS 1 m2
+        r sexpire b 100 MEMBERS 1 m3
+        assert_equal [r sunionstore d a b] 5
+        assert {[r sttl d MEMBERS 1 m1] > 900 && [r sttl d MEMBERS 1 m1] <= 1000}
+        assert {[r sttl d MEMBERS 1 m2] > 900 && [r sttl d MEMBERS 1 m2] <= 1000}
+        assert {[r sttl d MEMBERS 1 m3] > 50 && [r sttl d MEMBERS 1 m3] <= 100}
+        assert_equal [r sttl d MEMBERS 2 m4 m5] [list $E_NO_TTL $E_NO_TTL]
+        assert_equal [sme_subexpiry r] 3
+    }
+
+    test "SUNIONSTORE - A member with an expiration in one source and none in the other ($enc)" {
+        r flushall
+        r sadd a x
+        r sadd b x
+        r sexpire b 1000 MEMBERS 1 x
+        r sunionstore d a b
+        assert {[r sttl d MEMBERS 1 x] > 900}
+        r sunionstore d b a
+        assert {[r sttl d MEMBERS 1 x] > 900}
+    }
+
+    test "SINTERSTORE - The nearest expiration of all the sources ($enc)" {
+        r flushall
+        r sadd a m1 m2 m3
+        r sadd b m1 m2 m4
+        r sadd c m1 m2
+        r sexpire a 3000 MEMBERS 1 m1
+        r sexpire b 1000 MEMBERS 2 m1 m2
+        r sexpire c 2000 MEMBERS 1 m1
+        assert_equal [r sinterstore d a b c] 2
+        assert {[r sttl d MEMBERS 1 m1] > 900 && [r sttl d MEMBERS 1 m1] <= 1000}
+        assert {[r sttl d MEMBERS 1 m2] > 900 && [r sttl d MEMBERS 1 m2] <= 1000}
+        r sexpire a 100 MEMBERS 1 m2
+        r sinterstore d b a
+        assert {[r sttl d MEMBERS 1 m2] <= 100}
+        assert_equal [sme_subexpiry r] 4  ;# a, b, c and d
+    }
+
+    test "SINTERSTORE - Members that are integers keep their expiration ($enc)" {
+        r flushall
+        r sadd a 1 2 3
+        r sadd b 1 2 4
+        r sexpire a 1000 MEMBERS 1 1
+        r sinterstore d a b
+        assert {[r sttl d MEMBERS 1 1] > 900}
+        assert_equal [r sttl d MEMBERS 1 2] $E_NO_TTL
+        assert_equal [lsort [r smembers d]] {1 2}
+    }
+
+    test "SDIFFSTORE - The members keep the expiration of the first set ($enc)" {
+        r flushall
+        r sadd a m1 m2 m3
+        r sadd b m3 m4
+        r sexpire a 1000 MEMBERS 1 m1
+        r sexpire b 50 MEMBERS 1 m4
+        assert_equal [r sdiffstore d a b] 2
+        assert {[r sttl d MEMBERS 1 m1] > 900}
+        assert_equal [r sttl d MEMBERS 1 m2] $E_NO_TTL
+        assert_equal [sme_subexpiry r] 3  ;# a, b and d
+        # many sources and a big first set exercise the other algorithm
+        r sadd e m1 m2 m3 m4 m5 m6 m7 m8
+        r sexpire e 1000 MEMBERS 1 m5
+        r sadd f m1
+        r sadd g m2
+        r sdiffstore d e f g
+        assert {[r sttl d MEMBERS 1 m5] > 900}
+        assert_equal [r sttl d MEMBERS 1 m1] $E_NO_MEMBER
+    }
+
+    test "STORE variants - Expired members are not stored, and the sources are unchanged ($enc)" {
+        r debug set-active-expire 0
+        r flushall
+        r sadd a m1 m2 m3
+        r sadd b m2 m3
+        sme_make_expired r a {m2}
+        assert_equal [r sunionstore d a b] 3
+        assert_equal [r sinterstore d a b] 1
+        assert_equal [r sdiffstore d a b] 1
+        assert_equal [lsort [r smembers d]] {m1}
+        assert_equal [r sttl a MEMBERS 1 m2] $E_NO_MEMBER
+        r debug set-active-expire 1
+    }
+
+    test "STORE variants - The destination replaces its previous expirations and unregisters ($enc)" {
+        r flushall
+        r sadd d x y
+        r sexpire d 1000 MEMBERS 2 x y
+        r sadd a p q
+        r sunionstore d a
+        assert_equal [r sttl d MEMBERS 1 p] $E_NO_TTL
+        assert_equal [sme_subexpiry r] 0
+        r sexpire a 1000 MEMBERS 1 p
+        r sunionstore d a
+        assert_equal [sme_subexpiry r] 2  ;# a and d
+        r sinterstore d a nosuchkey
+        assert_equal [r exists d] 0
+        assert_equal [sme_subexpiry r] 1
+    }
+
+    test "STORE variants - The stored members expire actively and propagate ($enc)" {
+        r flushall
+        r sadd a m1 m2
+        r spexpire a 100 MEMBERS 1 m1
+        r sunionstore d a
+        wait_for_condition 50 100 {[r smembers d] eq {m2}} else {fail "member did not expire"}
+        r sdiffstore d a a
+        assert_equal [r exists d] 0
+    }
+
+    test "STORE variants - Big sets over the listpack limit ($enc)" {
+        r flushall
+        for {set i 0} {$i < 300} {incr i} {r sadd a m$i; r sadd b m$i}
+        r sexpire a 1000 MEMBERS 2 m1 m299
+        r sexpire b 500 MEMBERS 1 m299
+        r sinterstore d a b
+        assert_equal [r scard d] 300
+        assert_encoding hashtable d
+        assert {[r sttl d MEMBERS 1 m299] <= 500}
+        assert {[r sttl d MEMBERS 1 m1] > 900}
+        r sunionstore d a b
+        assert_equal [r scard d] 300
+    }
+    }
+    r config set set-max-listpack-entries 128
+
+    test "STORE variants replicate the command and the replica gets the same expirations" {
+        set repl [attach_to_replication_stream]
+        r flushall
+        r sadd a m1 m2
+        r sexpire a 1000 MEMBERS 1 m1
+        r sunionstore d a
+        assert_replication_stream $repl {
+            {select *}
+            {flushall}
+            {sadd a m1 m2}
+            {spexpireat a * MEMBERS 1 m1}
+            {sunionstore d a}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
 }
