@@ -355,6 +355,46 @@ robj *createSetListpackExObject(void) {
     return o;
 }
 
+/* Returns the listpack of a listpack-with-expiration set, as saved in the RDB. */
+unsigned char *setListpackExGetLp(const robj *set) {
+    return lpexOf(set)->lp;
+}
+
+/* Makes 'set' (a new object, without a value) a listpack with expirations that
+ * owns 'lp'. */
+void setListpackExAttach(robj *set, unsigned char *lp) {
+    set->type = OBJ_SET;
+    set->encoding = OBJ_ENCODING_LISTPACK_EX;
+    set->ptr = lpexCreateWrapper(lp);
+}
+
+/* Validates a listpack loaded from an RDB file or a DUMP payload. In the deep
+ * mode every element is checked and the order of the expirations too: the
+ * members that have one come first, by increasing expiration, then the ones
+ * that do not. The other code relies on this order. */
+int setListpackExValidate(unsigned char *lp, size_t size, int deep) {
+    if (!lpValidateIntegrityAndDups(lp, size, deep, 2)) return 0;
+    if (!deep) return 1;
+
+    uint64_t prev = 0;
+    int no_ttl_seen = 0;
+    unsigned char *p = lpFirst(lp);
+    while (p) {
+        unsigned char *t = lpNext(lp, p);
+        long long ttl;
+        if (t == NULL || !lpGetIntegerValue(t, &ttl)) return 0;
+        if (ttl < 0 || (uint64_t)ttl > EB_EXPIRE_TIME_MAX) return 0;
+        if (ttl == LPEX_NO_TTL) {
+            no_ttl_seen = 1;
+        } else {
+            if (no_ttl_seen || (uint64_t)ttl < prev) return 0;
+            prev = ttl;
+        }
+        p = lpNext(lp, t);
+    }
+    return 1;
+}
+
 /* Returns the wrapper of a listpack-with-expiration set, for the code that
  * registers the set in db->subexpires. */
 ExpireMeta *setListpackExGetExpireMeta(const robj *set) {

@@ -703,10 +703,16 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_SET:
         if (o->encoding == OBJ_ENCODING_INTSET)
             return rdbSaveType(rdb,RDB_TYPE_SET_INTSET);
-        else if (o->encoding == OBJ_ENCODING_HT)
-            return rdbSaveType(rdb,RDB_TYPE_SET);
+        else if (o->encoding == OBJ_ENCODING_HT) {
+            if (setTypeGetMinExpire(o, /*accurate*/ 1) == EB_EXPIRE_TIME_INVALID)
+                return rdbSaveType(rdb,RDB_TYPE_SET);
+            else
+                return rdbSaveType(rdb,RDB_TYPE_SET_METADATA);
+        }
         else if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+            return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK_EX);
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
@@ -1187,6 +1193,14 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             dictIterator di;
             dictEntry *de;
 
+            /* As for hashes, a set with member expirations (RDB_TYPE_SET_METADATA)
+             * saves the earliest expiration, and every member with its
+             * expiration relative to it. */
+            uint64_t minExpire = setTypeGetMinExpire(o, 1);
+            int setWithMeta = (minExpire != EB_EXPIRE_TIME_INVALID);
+            if (setWithMeta && rdbSaveMillisecondTime(rdb, minExpire) == -1)
+                return -1;
+
             if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) {
                 return -1;
             }
@@ -1195,6 +1209,19 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             dictInitIterator(&di, set);
             while((de = dictNext(&di)) != NULL) {
                 sds ele = dictGetKey(de);
+                if (setWithMeta) {
+                    SetEntry *entry = (SetEntry *)ele;
+                    uint64_t expiry = setEntryHasExpiry(entry) ?
+                                      setEntryGetExpiry(entry) : EB_EXPIRE_TIME_INVALID;
+                    /* 0 means no expiration, the others are relative to
+                     * minExpire (plus one, as the zero is taken). */
+                    uint64_t ttl = (expiry == EB_EXPIRE_TIME_INVALID) ? 0 : expiry - minExpire + 1;
+                    if ((n = rdbSaveLen(rdb, ttl)) == -1) {
+                        dictResetIterator(&di);
+                        return -1;
+                    }
+                    nwritten += n;
+                }
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
                     == -1)
                 {
@@ -1212,6 +1239,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
             size_t l = lpBytes((unsigned char *)o->ptr);
             if ((n = rdbSaveRawString(rdb, o->ptr, l)) == -1) return -1;
+            nwritten += n;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            uint64_t minExpire = setTypeGetMinExpire(o, 0);
+            if (minExpire == EB_EXPIRE_TIME_INVALID) minExpire = 0;
+            if (rdbSaveMillisecondTime(rdb, minExpire) == -1) return -1;
+            unsigned char *lp = setListpackExGetLp(o);
+            if ((n = rdbSaveRawString(rdb, lp, lpBytes(lp))) == -1) return -1;
             nwritten += n;
         } else {
             serverPanic("Unknown set encoding");
@@ -3043,6 +3077,56 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 sdsfree(sdsele);
             }
         }
+    } else if (rdbtype == RDB_TYPE_SET_METADATA) {
+        /* Read a set with member expirations: [minExpire][len]([ttl][member])... */
+        uint64_t minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
+        if (rioGetReadError(rdb)) {
+            rdbReportReadError("Set failed loading minExpire");
+            return NULL;
+        }
+        if (minExpire > EB_EXPIRE_TIME_MAX) {
+            rdbReportCorruptRDB("Set read invalid minExpire value");
+            return NULL;
+        }
+        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (len == 0) goto emptykey;
+
+        o = createSetObject();
+        setHashtableAddExpireSupport(o);
+        if (len > DICT_HT_INITIAL_SIZE && dictTryExpand(o->ptr, len) != DICT_OK) {
+            rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+            decrRefCount(o);
+            return NULL;
+        }
+
+        for (i = 0; i < len; i++) {
+            uint64_t ttl;
+            if (rdbLoadLenByRef(rdb, NULL, &ttl) == -1) {
+                rdbReportReadError("Set TTL loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+            /* 0 is no expiration, the others are relative to minExpire. */
+            uint64_t expireAt = (ttl != 0) ? (ttl + minExpire - 1) : EB_EXPIRE_TIME_INVALID;
+            if (ttl != 0 && (ttl > EB_EXPIRE_TIME_MAX || expireAt > EB_EXPIRE_TIME_MAX)) {
+                rdbReportCorruptRDB("Set read invalid expireAt time: %llu",
+                                    (unsigned long long) expireAt);
+                decrRefCount(o);
+                return NULL;
+            }
+            sds sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (sdsele == NULL) {
+                decrRefCount(o);
+                return NULL;
+            }
+            int added = setTypeAddExAux(o, sdsele, sdslen(sdsele), 0, 1, expireAt);
+            sdsfree(sdsele);
+            if (!added) {
+                rdbReportCorruptRDB("Duplicate set members detected");
+                decrRefCount(o);
+                return NULL;
+            }
+        }
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read sorted set value. */
         uint64_t zsetlen;
@@ -3592,6 +3676,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
                rdbtype == RDB_TYPE_SET_LISTPACK ||
+               rdbtype == RDB_TYPE_SET_LISTPACK_EX ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_ZSET_LISTPACK ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
@@ -3601,8 +3686,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     {
         size_t encoded_len;
 
-        /* If Hash TTLs, Load next/min expiration time before the `encoded` */
-        if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
+        /* If Hash or Set TTLs, Load next/min expiration time before the `encoded` */
+        if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX || rdbtype == RDB_TYPE_SET_LISTPACK_EX) {
             uint64_t minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
             /* This value was serialized for future use-case of streaming the object
              * directly to FLASH (while keeping in mem its next expiration time) */
@@ -3745,6 +3830,25 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     goto emptykey;
                 }
+                if (setTypeSize(o) > server.set_max_listpack_entries)
+                    setTypeConvert(o, OBJ_ENCODING_HT);
+                break;
+            case RDB_TYPE_SET_LISTPACK_EX:
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!setListpackExValidate(encoded, encoded_len, deep_integrity_validation)) {
+                    rdbReportCorruptRDB("Set listpack with expirations integrity check failed.");
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    return NULL;
+                }
+                setListpackExAttach(o, encoded);
+
+                if (setTypeSize(o) == 0) {
+                    decrRefCount(o);
+                    goto emptykey;
+                }
+                /* Not registered in the database yet, so no unregistering. */
                 if (setTypeSize(o) > server.set_max_listpack_entries)
                     setTypeConvert(o, OBJ_ENCODING_HT);
                 break;

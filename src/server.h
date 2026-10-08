@@ -4034,6 +4034,9 @@ void setTypeUpdateSubexpiry(redisDb *db, kvobj *set);
 int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t *expire);
 int setTypeAddExAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t expire);
 robj *createSetListpackExObject(void);
+unsigned char *setListpackExGetLp(const robj *set);
+void setListpackExAttach(robj *set, unsigned char *lp);
+int setListpackExValidate(unsigned char *lp, size_t size, int deep);
 
 /* Flags of the lazy expiry functions. A command that already does part of the
  * bookkeeping for the whole operation suppresses it in the inner calls. */

@@ -95,7 +95,11 @@ char *rdb_type_string[] = {
     "hash-tmpl-array-ref",
 #ifdef ENABLE_GCRA
     "gcra",
+#else
+    "unused",
 #endif
+    "set-listpack-md",
+    "set-hashtable-md",
 };
 
 /* Show a few stats collected into 'rdbstate' */
