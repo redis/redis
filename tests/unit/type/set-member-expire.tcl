@@ -4,12 +4,6 @@
 # once and run over an encoding matrix (see sme_encodings below), so a new
 # encoding only has to be added to that list.
 #
-# Tests are of two kinds:
-#  - permanent tests (errors, introspection, behavior);
-#  - scaffolding tests that depend on temporary stubs (log lines or the
-#    simulated-expired-member DEBUG switch). Scaffolding tests are marked with
-#    "SCAFFOLDING" in their name and are deleted together with the stub they
-#    cover (see the stub registry in the implementation plan).
 
 # Encodings the behavior tests run over. Entries are added as the encodings are
 # implemented (listpackex first, then hashtable).
@@ -52,9 +46,8 @@ proc sme_make_expired {r key members {ttl_ms 20}} {
 }
 
 # ---------------------------------------------------------------------------
-# Stage 2: the command layer. Parsing, validation and the replies that do not
-# depend on stored expirations are real; what happens to an existing set is
-# stubbed (see the SCAFFOLDING tests at the end).
+# The command layer: parsing, validation and the replies that do not depend on
+# stored expirations.
 # ---------------------------------------------------------------------------
 
 set ::sme_set_expire_cmds {SEXPIRE SPEXPIRE SEXPIREAT SPEXPIREAT}
