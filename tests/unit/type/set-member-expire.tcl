@@ -1007,3 +1007,251 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
         } {} {needs:repl}
     }
 }
+
+# ---------------------------------------------------------------------------
+# Stage 5: active expiration and the key lifecycle
+# ---------------------------------------------------------------------------
+
+# The number of objects (hashes and sets) registered in subexpires, in all the databases.
+proc sme_subexpiry {r} {
+    set total 0
+    foreach line [split [$r info keyspace] \n] {
+        if {[regexp {subexpiry=(\d+)} $line -> value]} {incr total $value}
+    }
+    return $total
+}
+
+start_server {tags {"external:skip needs:debug"}} {
+    r debug keysizes-hist-assert 1
+    foreach enc $::sme_encodings {
+        sme_force_encoding r $enc
+
+        test "Active expiration removes the expired members without any command touching the set ($enc)" {
+            r flushall
+            r debug set-active-expire 1
+            set before [s expired_subkeys_active]
+            sme_create_set r myset {a b c d}
+            r spexpire myset 50 MEMBERS 2 a b
+            assert_equal [sme_subexpiry r] 1
+            wait_for_condition 100 20 {[r scard myset] == 2} else {fail "the members did not expire"}
+            assert_equal [lsort [r smembers myset]] {c d}
+            assert_equal [expr {[s expired_subkeys_active] - $before}] 2
+            # There is nothing left to expire: the set is not registered anymore.
+            wait_for_condition 50 20 {[sme_subexpiry r] == 0} else {fail "still registered"}
+            assert_encoding $enc myset
+        }
+
+        test "Active expiration deletes the key when the last member expires ($enc)" {
+            r flushall
+            sme_create_set r myset {a b}
+            r spexpire myset 50 MEMBERS 2 a b
+            wait_for_condition 100 20 {[r exists myset] == 0} else {fail "the key did not expire"}
+            assert_equal [sme_subexpiry r] 0
+        }
+
+        test "The registration follows the earliest member expiration ($enc)" {
+            r flushall
+            r debug set-active-expire 0
+            sme_create_set r myset {a b c}
+            assert_equal [sme_subexpiry r] 0
+            r sexpire myset 1000 MEMBERS 1 a
+            assert_equal [sme_subexpiry r] 1
+            # An earlier expiration moves it earlier, and the set expires on time.
+            r spexpire myset 50 MEMBERS 1 b
+            assert_equal [sme_subexpiry r] 1
+            r debug set-active-expire 1
+            wait_for_condition 100 20 {[r scard myset] == 2} else {fail "b did not expire"}
+            assert_equal [lsort [r smembers myset]] {a c}
+            # Removing the last expiration unregisters the set.
+            r spersist myset MEMBERS 1 a
+            assert_equal [sme_subexpiry r] 0
+            r sexpire myset 1000 MEMBERS 1 a
+            assert_equal [sme_subexpiry r] 1
+            r saddex myset EX 1000 MEMBERS 1 z
+            assert_equal [sme_subexpiry r] 1
+        }
+
+        test "Active expiration sends the events and propagates one SREM per member ($enc)" {
+            r flushall
+            r config set notify-keyspace-events Ksg
+            set rd1 [redis_deferring_client]
+            assert_equal {1} [psubscribe $rd1 *]
+            set repl [attach_to_replication_stream]
+            r debug set-active-expire 1
+            r sadd myset a b c
+            r spexpire myset 50 MEMBERS 1 a
+            r spexpire myset 55 MEMBERS 1 b
+            r spexpire myset 60 MEMBERS 1 c
+            # sadd, sexpire (three times), then the members expire, and the key is deleted.
+            assert_equal "pmessage * __keyspace@9__:myset sadd" [$rd1 read]
+            assert_equal "pmessage * __keyspace@9__:myset sexpire" [$rd1 read]
+            assert_equal "pmessage * __keyspace@9__:myset sexpire" [$rd1 read]
+            assert_equal "pmessage * __keyspace@9__:myset sexpire" [$rd1 read]
+            assert_equal "pmessage * __keyspace@9__:myset sexpired" [$rd1 read]
+            set ev [$rd1 read]
+            if {[string match "*sexpired" $ev]} {set ev [$rd1 read]}
+            assert_equal "pmessage * __keyspace@9__:myset del" $ev
+            $rd1 close
+            assert_replication_stream $repl {
+                {select *}
+                {sadd myset a b c}
+                {spexpireat myset * MEMBERS 1 a}
+                {spexpireat myset * MEMBERS 1 b}
+                {spexpireat myset * MEMBERS 1 c}
+                {srem myset a}
+                {srem myset b}
+                {srem myset c}
+            }
+            close_replication_stream $repl
+        } {} {needs:repl}
+
+        test "Active expiration handles many sets, hashes and sets together ($enc)" {
+            r flushall
+            r debug set-active-expire 1
+            for {set i 0} {$i < 100} {incr i} {
+                r sadd set$i a b c
+                r spexpire set$i [expr {50 + $i}] MEMBERS 2 a b
+                r hset hash$i f1 v1 f2 v2
+                r hpexpire hash$i [expr {50 + $i}] FIELDS 1 f1
+            }
+            assert_equal [sme_subexpiry r] 200
+            wait_for_condition 200 20 {[sme_subexpiry r] == 0} else {fail "not all expired"}
+            for {set i 0} {$i < 100} {incr i} {
+                assert_equal [r smembers set$i] c
+                assert_equal [r hlen hash$i] 1
+            }
+        }
+
+        test "A set with a near and a far expiration only loses the near one ($enc)" {
+            r flushall
+            sme_create_set r myset {a b}
+            r spexpire myset 50 MEMBERS 1 a
+            r sexpire myset 1000 MEMBERS 1 b
+            wait_for_condition 100 20 {[r scard myset] == 1} else {fail "a did not expire"}
+            assert_equal [r smembers myset] b
+            assert_equal [sme_subexpiry r] 1
+        }
+
+        test "RENAME, MOVE and COPY keep the expirations of the members and the registration ($enc)" {
+            r flushall
+            r debug set-active-expire 0
+            sme_create_set r myset {a b}
+            r sexpire myset 1000 MEMBERS 1 a
+            assert_equal [sme_subexpiry r] 1
+            r rename myset renamed
+            assert_equal [sme_subexpiry r] 1
+            assert {[r sttl renamed MEMBERS 1 a] > 900}
+            r copy renamed copied
+            assert_equal [sme_subexpiry r] 2
+            assert {[r sttl copied MEMBERS 1 a] > 900}
+            assert_encoding $enc copied
+            r move renamed 10
+            assert_equal [sme_subexpiry r] 2
+            r select 10
+            assert {[r sttl renamed MEMBERS 1 a] > 900}
+            r select 9
+            # They all still expire, in both databases.
+            r select 10
+            r spexpire renamed 50 MEMBERS 1 a
+            r select 9
+            r spexpire copied 50 MEMBERS 1 a
+            r debug set-active-expire 1
+            wait_for_condition 100 20 {[r sismember copied a] == 0 && [r scard copied] == 1} else {fail "copied did not expire"}
+            r select 10
+            wait_for_condition 100 20 {[r scard renamed] == 1} else {fail "renamed did not expire"}
+            r select 9
+            wait_for_condition 50 20 {[sme_subexpiry r] == 0} else {fail "still registered"}
+        }
+
+        test "DEL, UNLINK, overwriting and flushing unregister the sets ($enc)" {
+            r flushall
+            foreach i {1 2 3 4 5} {
+                sme_create_set r s$i {a b}
+                r sexpire s$i 1000 MEMBERS 1 a
+            }
+            assert_equal [sme_subexpiry r] 5
+            r del s1
+            r unlink s2
+            assert_equal [sme_subexpiry r] 3
+            r set s3 string
+            assert_equal [sme_subexpiry r] 2
+            r sunionstore s4 s5      ;# overwritten by a result without expirations
+            assert_equal [sme_subexpiry r] 1
+            r flushdb
+            assert_equal [sme_subexpiry r] 0
+            sme_create_set r s1 {a}
+            r sexpire s1 1000 MEMBERS 1 a
+            r flushall async
+            assert_equal [sme_subexpiry r] 0
+            sme_create_set r s1 {a}
+            r sexpire s1 1000 MEMBERS 1 a
+            r select 10
+            sme_create_set r s2 {a}
+            r sexpire s2 1000 MEMBERS 1 a
+            r swapdb 9 10
+            assert_equal [sme_subexpiry r] 2
+            r select 9
+            assert {[r sttl s2 MEMBERS 1 a] > 900}
+            r flushall
+        }
+
+        test "The key expiration and the member expirations are independent ($enc)" {
+            r flushall
+            sme_create_set r myset {a b}
+            r sexpire myset 1000 MEMBERS 1 a
+            r expire myset 2000
+            assert_equal [sme_subexpiry r] 1
+            assert {[r sttl myset MEMBERS 1 a] > 900}
+            r persist myset
+            assert_equal [sme_subexpiry r] 1
+            r expire myset 1
+            r pexpire myset 50
+            wait_for_condition 100 20 {[r exists myset] == 0} else {fail "the key did not expire"}
+            assert_equal [sme_subexpiry r] 0
+        }
+
+        test "SADDEX, SMOVE and SPOP register the sets they create ($enc)" {
+            r flushall
+            r debug set-active-expire 0
+            r saddex s1 EX 1000 MEMBERS 2 a b
+            assert_equal [sme_subexpiry r] 1
+            r sadd src x y
+            r sexpire src 1000 MEMBERS 2 x y
+            r smove src s2 x              ;# creates the destination
+            assert_equal [sme_subexpiry r] 3
+            assert {[r sttl s2 MEMBERS 1 x] > 900}
+            # SPOP with a count that rebuilds the set (the move strategy) keeps it registered.
+            set members {}
+            for {set i 0} {$i < 30} {incr i} {lappend members m$i}
+            r sadd big {*}$members
+            r sexpire big 1000 MEMBERS 30 {*}$members
+            assert_equal [sme_subexpiry r] 4
+            assert_equal [llength [r spop big 28]] 28
+            assert_equal [sme_subexpiry r] 4
+            assert_equal [r scard big] 2
+            foreach m [r smembers big] {
+                assert {[r sttl big MEMBERS 1 $m] > 900}
+            }
+            assert_encoding $enc big
+            r debug set-active-expire 1
+        }
+    }
+}
+
+# Active expiration in a cluster node: the sets live in different slots.
+start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
+    test "Active expiration works for sets in different slots of a cluster node" {
+        R 0 debug set-active-expire 1
+        for {set i 0} {$i < 50} {incr i} {
+            R 0 sadd "{slot$i}set" a b c
+            R 0 spexpire "{slot$i}set" [expr {50 + $i}] MEMBERS 2 a b
+        }
+        assert_equal [sme_subexpiry [Rn 0]] 50
+        # The active expiration of a cluster node is slower: it goes over the slots (the
+        # same is true for hash fields).
+        wait_for_condition 750 20 {[sme_subexpiry [Rn 0]] == 0} else {fail "not all expired"}
+        for {set i 0} {$i < 50} {incr i} {
+            assert_equal [R 0 smembers "{slot$i}set"] c
+        }
+    }
+}
