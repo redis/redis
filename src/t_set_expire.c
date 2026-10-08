@@ -21,6 +21,15 @@ ExpireMeta *setGetExpireMeta(const eItem set) {
     serverPanic("Set member expiration is not implemented yet");
 }
 
+/* Returns the earliest member expiration time of the set, or
+ * EB_EXPIRE_TIME_INVALID if no member has one. 'accurate' requests an exact
+ * answer instead of the cached one. */
+uint64_t setTypeGetMinExpire(robj *o, int accurate) {
+    UNUSED(accurate);
+    serverAssert(o->type == OBJ_SET);
+    return EB_EXPIRE_TIME_INVALID;
+}
+
 /* Returns 1 if the set currently has an ExpireMeta attached and can be
  * registered in db->subexpires. */
 int setHasSubexpiry(const kvobj *o) {

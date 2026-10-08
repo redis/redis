@@ -2777,6 +2777,18 @@ int removeExpire(redisDb *db, robj *key) {
 }
 
 
+/* Returns the earliest expiration time of the members or fields of a hash or
+ * set object, or EB_EXPIRE_TIME_INVALID if none has one (or the type does not
+ * support member expiration). The accurate (scanned) value is used. This is
+ * the time an object is registered with in db->subexpires. */
+uint64_t kvobjGetMinSubexpiry(kvobj *kv) {
+    switch (kv->type) {
+        case OBJ_HASH: return hashTypeGetMinExpire(kv, 1);
+        case OBJ_SET:  return setTypeGetMinExpire(kv, 1);
+        default:       return EB_EXPIRE_TIME_INVALID;
+    }
+}
+
 /* Set an expire to the specified key. If the expire is set in the context
  * of an user calling a command 'c' is the client, otherwise 'c' is set
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds

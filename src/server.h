@@ -4000,6 +4000,7 @@ unsigned long setTypeSize(const robj *subject);
 size_t setTypeAllocSize(const robj *o);
 ExpireMeta *setGetExpireMeta(const eItem set);
 int setHasSubexpiry(const kvobj *o);
+uint64_t setTypeGetMinExpire(robj *o, int accurate);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
@@ -4192,6 +4193,7 @@ uint64_t hashTypeGetMinExpire(robj *o, int accurate);
 #define typeMaySubexpire(type) ((type) == OBJ_HASH || (type) == OBJ_SET)
 ExpireMeta *hashGetExpireMeta(const eItem hash);
 int hashHasSubexpiry(const kvobj *o);
+uint64_t kvobjGetMinSubexpiry(kvobj *kv);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
 void initDictExpireMetadata(robj *o);
 struct listpackEx *listpackExCreate(void);

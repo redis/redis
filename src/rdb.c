@@ -5027,12 +5027,12 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             /* Track few-key template keys for disassembly at the end of RDb load. */
             rdbLoadTemplateCtxRecord(rdb_load_tmpl_ctx, kv, db);
 
-            /* If minExpiredField was set, then the object is hash with expiration
-             * on fields and need to register it in global HFE DS */
-            if (kv->type == OBJ_HASH) {
-                uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
-                if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-                    estoreAdd(db->subexpires, getKeySlot(key), kv, minExpiredField);
+            /* If the object is a hash or set with expiration on its members or
+             * fields, register it in the global subexpires DS */
+            if (typeMaySubexpire(kv->type)) {
+                uint64_t minSubexpiry = kvobjGetMinSubexpiry(kv);
+                if (minSubexpiry != EB_EXPIRE_TIME_INVALID)
+                    estoreAdd(db->subexpires, getKeySlot(key), kv, minSubexpiry);
             }
 
             /* Register streams with IDMP producers for cron-based expiration. */
