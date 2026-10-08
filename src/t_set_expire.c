@@ -20,28 +20,80 @@
  * "STUB" below is removed when the real implementation lands. */
 
 #include "server.h"
+#include "t_set_encoding.h"
 
 /* Retrieve the ExpireMeta associated with the set, used by db->subexpires.
  * The caller is responsible for ensuring that it is indeed attached. */
 ExpireMeta *setGetExpireMeta(const eItem set) {
-    UNUSED(set);
-    serverPanic("Set member expiration is not implemented yet");
+    const robj *o = (const robj *)set;
+    if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+        return setListpackExGetExpireMeta(o);
+    serverPanic("Unexpected set encoding in subexpires: %d", o->encoding);
 }
 
 /* Returns the earliest member expiration time of the set, or
  * EB_EXPIRE_TIME_INVALID if no member has one. 'accurate' requests an exact
  * answer instead of the cached one. */
 uint64_t setTypeGetMinExpire(robj *o, int accurate) {
-    UNUSED(accurate);
     serverAssert(o->type == OBJ_SET);
-    return EB_EXPIRE_TIME_INVALID;
+    const setTypeOps *ops = setTypeGetOps(o->encoding);
+    if (ops->minExpire == NULL) return EB_EXPIRE_TIME_INVALID;
+    return ops->minExpire(o, accurate);
 }
 
 /* Returns 1 if the set currently has an ExpireMeta attached and can be
  * registered in db->subexpires. */
 int setHasSubexpiry(const kvobj *o) {
     serverAssert(o->type == OBJ_SET);
-    return 0;
+    return o->encoding == OBJ_ENCODING_LISTPACK_EX;
+}
+
+/* Returns 1 if the encoding of the set can hold member expirations. */
+int setTypeHasExpireSupport(const robj *set) {
+    return setTypeGetOps(set->encoding)->getExpire != NULL;
+}
+
+/* Returns 1 if an expiration time (absolute, in milliseconds) has passed and the
+ * member it belongs to must be treated as if it did not exist. Like for hash
+ * fields, the expiration time itself is not yet expired, and nothing is expired
+ * when access to expired data is allowed (a debug switch). */
+int setTypeExpireTimeElapsed(uint64_t expire) {
+    if (expire == EB_EXPIRE_TIME_INVALID) return 0;
+    if (server.allow_access_expired) return 0;
+    return expire < (uint64_t)commandTimeSnapshot();
+}
+
+/* Looks up a member. Returns 0 if it does not exist and 1 if it does, and then
+ * sets *expire to its expiration time, EB_EXPIRE_TIME_INVALID if it has none.
+ * A member that is logically expired but not removed yet is found. */
+int setTypeGetExpire(robj *set, sds member, uint64_t *expire) {
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    if (ops->getExpire == NULL) {
+        *expire = EB_EXPIRE_TIME_INVALID;
+        return setTypeIsMember(set, member);
+    }
+    char tmpbuf[LONG_STR_SIZE];
+    (void)tmpbuf;
+    return ops->getExpire(set, member, sdslen(member), 0, 1, expire);
+}
+
+/* Converts a set that cannot hold member expirations (an intset or a listpack)
+ * to the listpack with expirations encoding, so that members can get an
+ * expiration. Returns 1 if the set can hold member expirations afterwards, and 0
+ * if it cannot, because it needs an encoding that is not implemented yet (a
+ * hashtable with expirations). */
+int setTypeConvertToExpireEncoding(robj *set) {
+    if (setTypeHasExpireSupport(set)) return 1;
+    if (set->encoding == OBJ_ENCODING_HT) return 0;
+
+    /* The listpack limits apply: members count, not listpack elements. */
+    if (setTypeSize(set) > server.set_max_listpack_entries) return 0;
+    if (set->encoding == OBJ_ENCODING_INTSET) {
+        /* An intset member is at most 20 characters long. */
+        if (server.set_max_listpack_value < 20) return 0;
+    }
+    setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK_EX, setTypeSize(set), 1);
+    return 1;
 }
 
 /*-----------------------------------------------------------------------------

@@ -33,6 +33,9 @@
  * mean that the value can't be converted to an integer), and points to the integer
  * value if the value was received as an integer.
  */
+/* Called by the expire() op for each member it removes. */
+typedef void (*setTypeExpireCb)(void *ctx, char *str, size_t len, int64_t llval);
+
 struct _setTypeOps {
     /* return 0 if the member already exists, 1 if added, -1 if it cannot be added (due to encoding mismatch or size limits)*/
     int (*rawAdd)(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc);
@@ -66,11 +69,40 @@ struct _setTypeOps {
      * that setTypeConvertAndExpand() never targets (currently intset - see
      * maybeConvertToIntset() in t_set.c instead). */
     void *(*convertFrom)(robj *set, unsigned long cap, int panic);
+
+    /* Member expiration. The following are NULL for the encodings that cannot
+     * hold member expirations (every encoding but the "ex" variants), and
+     * setTypeHasExpireSupport() tells the two kinds apart. Expiration times
+     * are absolute UNIX times in milliseconds, and EB_EXPIRE_TIME_INVALID means
+     * "no expiration". The members are passed like in rawAdd(). */
+
+    /* Looks up a member. Returns 0 if it does not exist and 1 if it does, and
+     * then sets *expire to its expiration time. A member that is logically
+     * expired but not yet removed is still found. */
+    int (*getExpire)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t *expire);
+    /* Sets the expiration of an existing member, or clears it when 'expire' is
+     * EB_EXPIRE_TIME_INVALID. Returns 0 if the member does not exist, 1 if done. */
+    int (*setExpire)(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t expire);
+    /* Same as rawAdd(), and the new member gets the given expiration. An
+     * existing member that is logically expired is replaced, as in rawAdd(). */
+    int (*rawAddEx)(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc, uint64_t expire);
+    /* The earliest expiration among the members, EB_EXPIRE_TIME_INVALID if none
+     * has one. 'accurate' asks for an exact answer instead of a cached one. */
+    uint64_t (*minExpire)(robj *set, int accurate);
+    /* Removes up to 'max' members whose expiration is before 'now', the
+     * earliest first, calling 'cb' for each one right before removing it. A
+     * member is passed as a string (str, len) or, if str is NULL, as an integer
+     * (llval). Returns the number of removed members. */
+    unsigned long (*expire)(robj *set, uint64_t now, unsigned long max, setTypeExpireCb cb, void *ctx);
 };
+
+/* Returns the ops of the given set encoding (OBJ_ENCODING_*). */
+const setTypeOps *setTypeGetOps(int encoding);
 
 /* One instance per encoding, defined in the matching t_set_<encoding>.c file. */
 extern const setTypeOps setTypeOpsIntset;
 extern const setTypeOps setTypeOpsListpack;
+extern const setTypeOps setTypeOpsListpackEx;
 extern const setTypeOps setTypeOpsHT;
 
 #endif

@@ -29,10 +29,11 @@
  * the single place that maps a set's encoding to its backend implementation;
  * every other function below dispatches through it instead of switching on
  * robj->encoding itself. */
-static const setTypeOps *setTypeGetOps(int encoding) {
+const setTypeOps *setTypeGetOps(int encoding) {
     switch (encoding) {
     case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
     case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
+    case OBJ_ENCODING_LISTPACK_EX: return &setTypeOpsListpackEx;
     case OBJ_ENCODING_HT: return &setTypeOpsHT;
     default: serverPanic("Unknown set encoding");
     }
@@ -214,6 +215,7 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
 void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode) {
     si->subject = subject;
     si->mode = mode;
+    si->expire = EB_EXPIRE_TIME_INVALID;
     si->encoding = subject->encoding;
     si->typeOps = setTypeGetOps(si->encoding);
     si->typeOps->iterInit(si);
@@ -246,8 +248,16 @@ void setTypeResetIterator(setTypeIterator *si) {
  *
  * When there are no more elements -1 is returned. */
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
-    if (si->typeOps->iterNext(si, str, len, llele) == -1) return -1;
-    return si->encoding;
+    while (si->typeOps->iterNext(si, str, len, llele) != -1) {
+        /* In skip-expired mode, the members that are logically expired but not
+         * yet removed are not returned (and not removed either). */
+        if (si->expire != EB_EXPIRE_TIME_INVALID &&
+            si->mode == SET_ITER_SKIP_EXPIRED &&
+            setTypeExpireTimeElapsed(si->expire))
+            continue;
+        return si->encoding;
+    }
+    return -1;
 }
 
 /* The not copy on write friendly version but easy to use version
@@ -337,8 +347,17 @@ void setTypeConvert(robj *setobj, int enc) {
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
-    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK) {
+    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK &&
+        enc != OBJ_ENCODING_LISTPACK_EX)
+    {
         serverPanic("Unsupported set conversion");
+    }
+    /* A set with member expirations cannot be converted yet: the encodings it
+     * could be converted to do not exist (hashtable with expirations) or must
+     * never be targeted (a set does not give up its expirations). */
+    if (setobj->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        serverPanic("Converting a set with member expirations to encoding %d "
+                    "is not implemented yet", enc);
     }
 
     void *newptr = setTypeGetOps(enc)->convertFrom(setobj, cap, panic);
