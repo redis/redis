@@ -460,9 +460,10 @@ proc test_all_stream_stats { {replMode 0} } {
 
 start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats yes}} {
     r select 0
-    # Rebuild both histograms from the keyspace after every command and panic on
-    # any disagreement, so each test below also covers the bookkeeping: a missed
-    # update site, or one computed against mismatched state, fails immediately.
+    # Rebuild the stream histograms from the keyspace after every command and
+    # panic on any disagreement, so each test below also covers the bookkeeping:
+    # a missed update site, or one computed against mismatched state, fails
+    # immediately.
     r debug stream-stats-assert 1
 
     test_all_stream_stats 0
