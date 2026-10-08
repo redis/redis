@@ -74,7 +74,8 @@ robj *setTypeCreate(sds value, size_t size_hint) {
 /* Check if the existing set should be converted to another encoding based off the
  * the size hint. */
 void setTypeMaybeConvert(robj *set, size_t size_hint) {
-    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint > server.set_max_listpack_entries)
+    if (((set->encoding == OBJ_ENCODING_LISTPACK || set->encoding == OBJ_ENCODING_LISTPACK_EX) &&
+         size_hint > server.set_max_listpack_entries)
         || (set->encoding == OBJ_ENCODING_INTSET && size_hint > server.set_max_intset_entries))
     {
         setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
@@ -187,10 +188,13 @@ int setTypeAddExAux(robj *set, char *str, size_t len, int64_t llval, int str_is_
     int target_enc;
     int added = ops->rawAddEx(set, str, len, llvalp, str_is_sds, 0, &target_enc, expire);
     if (added == -1) {
-        /* The set cannot grow in this encoding, and there is no encoding with
-         * member expirations to convert it to yet. */
-        serverPanic("Growing a set with member expirations beyond the listpack "
-                    "limits is not implemented yet");
+        /* Doesn't fit under the current encoding: convert it, keeping the
+         * expirations, and retry there. */
+        serverAssert(str);
+        setTypeConvertAndExpand(set, target_enc, ops->size(set) + 1, 1);
+        added = setTypeGetOps(target_enc)->rawAddEx(set, str, len, NULL, str_is_sds, 1, &target_enc, expire);
+        serverAssert(added == 1);
+        return added;
     }
     if (added == 0)
         ops->setExpire(set, str, len, llval, str_is_sds, expire);
@@ -209,7 +213,7 @@ int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str
     }
 
     const setTypeOps *ops = setTypeGetOps(set->encoding);
-    if (!ops->getExpire) {
+    if (!setTypeHasExpireSupport(set)) {
         *expire = EB_EXPIRE_TIME_INVALID;
         return ops->isMember(set, str, len, llval, str_is_sds);
     }
@@ -260,7 +264,7 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     }
 
     const setTypeOps *ops = setTypeGetOps(set->encoding);
-    if (ops->getExpire) {
+    if (unlikely(setTypeHasExpireSupport(set))) {
         /* A member that is logically expired but not removed yet is not a member
          * for the callers of this function. It is not removed either. */
         uint64_t expire;
@@ -410,13 +414,8 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
     {
         serverPanic("Unsupported set conversion");
     }
-    /* A set with member expirations cannot be converted yet: the encodings it
-     * could be converted to do not exist (hashtable with expirations) or must
-     * never be targeted (a set does not give up its expirations). */
-    if (setobj->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        serverPanic("Converting a set with member expirations to encoding %d "
-                    "is not implemented yet", enc);
-    }
+    /* A set with member expirations keeps them: it can only grow to a hashtable. */
+    serverAssert(setobj->encoding != OBJ_ENCODING_LISTPACK_EX || enc == OBJ_ENCODING_HT);
 
     void *newptr = setTypeGetOps(enc)->convertFrom(setobj, cap, panic);
     if (newptr == NULL) {
@@ -424,9 +423,26 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         return C_ERR;
     }
 
+    /* The set is registered in db->subexpires through the ExpireMeta that lives in
+     * its encoding, which is freed here: unregister it, and register it again with
+     * the new one. Only sets that are in a database are registered, and the
+     * command that converts it is the one executing. */
+    uint64_t registered = EB_EXPIRE_TIME_INVALID;
+    redisDb *regdb = NULL;
+    if (setobj->encoding == OBJ_ENCODING_LISTPACK_EX || setobj->encoding == OBJ_ENCODING_HT) {
+        if (setHasSubexpiry(setobj))
+            registered = ebGetExpireTime(&subexpiresBucketsType, setobj);
+        if (registered != EB_EXPIRE_TIME_INVALID) {
+            serverAssert(server.executing_client && server.executing_client->db);
+            regdb = server.executing_client->db;
+            estoreRemove(regdb->subexpires, getKeySlot(kvobjGetKey(setobj)), setobj);
+        }
+    }
+
     setTypeFree(setobj); /* frees the internals but not setobj itself */
     setobj->encoding = enc;
     setobj->ptr = newptr;
+    if (regdb) setTypeUpdateSubexpiry(regdb, setobj);
     return C_OK;
 }
 
@@ -582,19 +598,6 @@ void smoveCommand(client *c) {
             setTypeGetExpire(dstset, ele->ptr, &dstExpire);
     }
 
-    /* Before changing anything: the destination must be able to hold the expiration. */
-    if (srcExpire != EB_EXPIRE_TIME_INVALID) {
-        int supported = sdslen(ele->ptr) <= server.set_max_listpack_value;
-        if (dstset) {
-            supported = supported && setTypeCanHoldExpire(dstset) &&
-                        (dstHadMember || setTypeSize(dstset) + 1 <= server.set_max_listpack_entries);
-        }
-        if (!supported) {
-            addReplyErrorSetEncodingNotSupported(c);
-            return;
-        }
-    }
-
     if (server.memory_tracking_enabled)
         oldSrcAllocSize = kvobjAllocSize(srcset);
     int deleted = setTypeRemove(srcset,ele->ptr);
@@ -631,8 +634,7 @@ void smoveCommand(client *c) {
         oldDstAllocSize = kvobjAllocSize(dstset);
     int added, expireChanged = 0, persisted = 0;
     if (srcExpire != EB_EXPIRE_TIME_INVALID) {
-        int converted = setTypeConvertToExpireEncoding(dstset);
-        serverAssert(converted);
+        setTypeConvertToExpireEncoding(dstset);
         added = setTypeAddExAux(dstset, ele->ptr, sdslen(ele->ptr), 0, 1, srcExpire);
         expireChanged = 1;
     } else {

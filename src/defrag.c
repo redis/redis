@@ -1145,6 +1145,11 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     int slot = ctx->kvstate.slot;
     unsigned char *newzl;
 
+    /* Sets with member expirations are not defragmented yet: they are registered in
+     * db->subexpires, which holds the key, and their members have a different layout. */
+    if (ob->type == OBJ_SET && setTypeHasExpireSupport(ob))
+        return;
+
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(ob);
 

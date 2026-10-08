@@ -1710,6 +1710,10 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         keyStr = zslGetNodeElement(znode);
     } else {
         keyStr = dictGetKey(de);
+        /* A set member that is logically expired is not returned. */
+        if (o->type == OBJ_SET && setEntryHasExpiry((SetEntry *)keyStr) &&
+            setTypeExpireTimeElapsed(setEntryGetExpiry((SetEntry *)keyStr)))
+            return;
     }
     
     /* Filter element if it does not match the pattern. */

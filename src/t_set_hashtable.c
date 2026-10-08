@@ -12,27 +12,183 @@
 #include "server.h"
 #include "t_set_encoding.h"
 
+/*-----------------------------------------------------------------------------
+ * Dict types of a hashtable set
+ *
+ * The members are the keys of the dict (it has no values). A member without an
+ * expiration is a plain sds, and a member that has one is a SetEntry (see
+ * set_entry.h), whose pointer is the member sds as well. Once a member gets an
+ * expiration, the dict (and its type) are replaced by one that has the metadata
+ * of the expirations: a private ebuckets tree of the members that have one and
+ * an ExpireMeta to register the whole set in db->subexpires.
+ *
+ * Both types must be the same in everything but the metadata and the release
+ * callback, since the dict is changed from one to the other in place. In
+ * particular, the destructor handles members of both forms.
+ *----------------------------------------------------------------------------*/
+
+static void setDictEntryDestructor(dict *d, void *entry);
+static size_t setDictMetadataBytes(dict *d);
+static size_t setDictWithExpireMetadataBytes(dict *d);
+static void setDictWithExpireOnRelease(dict *d);
+static ExpireMeta *setMemberGetExpireMeta(const eItem item);
+
+/* ebuckets type of the private tree of a set: the members that have an expiration. */
+EbucketsType setMemberExpireBucketsType = {
+    .onDeleteItem = NULL,
+    .getExpireMeta = setMemberGetExpireMeta, /* get ExpireMeta attached to each member */
+    .itemsAddrAreOdd = 1,                    /* Addresses of members (sds) are odd */
+};
+
+/* Set dictionary type. Keys are members, values are not used. */
+dictType setDictType = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    setDictEntryDestructor,    /* key destructor */
+    NULL,                      /* val destructor */
+    NULL,                      /* allow to expand */
+    .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
+    .dictMetadataBytes = setDictMetadataBytes,
+};
+
+/* The same, for sets that have members with an expiration. */
+dictType setDictTypeWithExpire = {
+    dictSdsHash,               /* hash function */
+    NULL,                      /* key dup */
+    NULL,                      /* val dup */
+    dictSdsKeyCompare,         /* key compare */
+    setDictEntryDestructor,    /* key destructor */
+    NULL,                      /* val destructor */
+    NULL,                      /* allow to expand */
+    .no_value = 1,             /* no values in this dict */
+    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
+    .dictMetadataBytes = setDictWithExpireMetadataBytes,
+    .onDictRelease = setDictWithExpireOnRelease,
+};
+
+static inline int htHasExpire(const dict *d) {
+    return d->type == &setDictTypeWithExpire;
+}
+
+static ExpireMeta *setMemberGetExpireMeta(const eItem item) {
+    return setEntryRefExpiryMeta((SetEntry *)item);
+}
+
+static void setDictEntryDestructor(dict *d, void *entry) {
+    size_t usable;
+    size_t *alloc_size = htGetMetadataSize(d);
+
+    /* If the member has an expiration, remove it from the private ebuckets. */
+    if (setEntryGetExpiry(entry) != EB_EXPIRE_TIME_INVALID) {
+        htMetadataEx *meta = htGetMetadataEx(d);
+        ebRemove(&meta->hfe, &setMemberExpireBucketsType, entry);
+    }
+
+    setEntryFree(entry, &usable);
+    *alloc_size -= usable;
+}
+
+static size_t setDictMetadataBytes(dict *d) {
+    UNUSED(d);
+    return sizeof(size_t);
+}
+
+static size_t setDictWithExpireMetadataBytes(dict *d) {
+    UNUSED(d);
+    /* The alloc size, the ExpireMeta of the set and the ref to the private ebuckets. */
+    return sizeof(htMetadataEx);
+}
+
+static void setDictWithExpireOnRelease(dict *d) {
+    /* Allocated with the metadata for sure. Otherwise this would not be registered. */
+    htMetadataEx *meta = htGetMetadataEx(d);
+    ebDestroy(&meta->hfe, &setMemberExpireBucketsType, NULL);
+}
+
+/* Returns 1 if the hashtable set has the metadata of the expirations. */
+int setHashtableHasExpire(const robj *set) {
+    return htHasExpire((const dict *)set->ptr);
+}
+
+/* Replaces the dict of a hashtable set by one with the metadata of the
+ * expirations, if it does not have it yet. */
+void setHashtableAddExpireSupport(robj *set) {
+    dict *d = set->ptr;
+    if (htHasExpire(d)) return;
+    dictTypeAddMeta(&d, &setDictTypeWithExpire); /* The dict may move. */
+    set->ptr = d;
+    htMetadataEx *meta = htGetMetadataEx(d);
+    meta->hfe = ebCreate();      /* Allocate the DS of the members with expiration */
+    meta->expireMeta.trash = 1;  /* Mark as trash, as long as it was not ebAdd()'ed */
+}
+
+ExpireMeta *setHashtableGetExpireMeta(const robj *set) {
+    dict *d = set->ptr;
+    serverAssert(htHasExpire(d));
+    return &htGetMetadataEx(d)->expireMeta;
+}
+
+/*-----------------------------------------------------------------------------
+ * Ops of the hashtable encoding
+ *----------------------------------------------------------------------------*/
+
+static int htRawAddCommon(robj *set, char *str, size_t len, int str_is_sds, uint64_t expire) {
+    /* Avoid duping the string if it is an sds string. */
+    sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
+    dict *ht = set->ptr;
+    const int hasExpire = htHasExpire(ht);
+    serverAssert(expire == EB_EXPIRE_TIME_INVALID || hasExpire);
+
+    dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
+    if (link != NULL) {
+        if (hasExpire) {
+            uint64_t prev = setEntryGetExpiry(dictGetKey(*link));
+            if (setTypeExpireTimeElapsed(prev)) {
+                /* The member is logically expired but not removed yet: replace it by
+                 * a new one, as if it was not there. */
+                serverAssert(dictDelete(ht, sdsval) == DICT_OK);
+                link = dictFindLink(ht, sdsval, &bucket);
+                serverAssert(link == NULL);
+            }
+        }
+        if (link != NULL) {
+            /* String is already a member. Free our temporary sds copy, if any. */
+            if (sdsval != str) sdsfree(sdsval);
+            return 0;
+        }
+    }
+
+    /* Key doesn't already exist in the set. Add it but dup the key. */
+    SetEntry *entry;
+    if (expire != EB_EXPIRE_TIME_INVALID) {
+        entry = setEntryCreate(sdsval, sdslen(sdsval), 1);
+        if (sdsval != str) sdsfree(sdsval);
+    } else {
+        if (sdsval == str) sdsval = sdsdup(sdsval);
+        entry = (SetEntry *)sdsval;
+    }
+    dictSetKeyAtLink(ht, entry, &bucket, 1);
+    *htGetMetadataSize(ht) += setEntryMemUsage(entry);
+    if (expire != EB_EXPIRE_TIME_INVALID)
+        ebAdd(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, entry, expire);
+    return 1;
+}
+
 static int htRawAdd(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc) {
     UNUSED(llvalp);
     UNUSED(after_convert);
     *target_enc = OBJ_ENCODING_HT; /* Hash table is the final encoding: no further conversion is possible. */
-    /* Avoid duping the string if it is an sds string. */
-    sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
-    dict *ht = set->ptr;
-    /* not skipping the search even if after_convert is true, since the bucket retrieved from the search
-     * is used later at insert. Skipping it would only call the same search from within insert, and would
-     * complicate the code here unnecessarily */
-    dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
-    if (link == NULL) {
-        /* Key doesn't already exist in the set. Add it but dup the key. */
-        if (sdsval == str) sdsval = sdsdup(sdsval);
-        dictSetKeyAtLink(ht, sdsval, &bucket, 1);
-        *htGetMetadataSize(ht) += sdsAllocSize(sdsval);
-        return 1;
-    }
-    /* String is already a member. Free our temporary sds copy, if any. */
-    if (sdsval != str) sdsfree(sdsval);
-    return 0;
+    return htRawAddCommon(set, str, len, str_is_sds, EB_EXPIRE_TIME_INVALID);
+}
+
+static int htRawAddEx(robj *set, char *str, size_t len, int64_t *llvalp, int str_is_sds, int after_convert, int *target_enc, uint64_t expire) {
+    UNUSED(llvalp);
+    UNUSED(after_convert);
+    *target_enc = OBJ_ENCODING_HT;
+    return htRawAddCommon(set, str, len, str_is_sds, expire);
 }
 
 static int htRawRemove(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
@@ -52,6 +208,97 @@ static int htIsMember(robj *set, char *str, size_t len, int64_t llval, int str_i
     return result;
 }
 
+static int htGetExpire(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t *expire) {
+    UNUSED(llval);
+    sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
+    dictEntry *de = dictFind(set->ptr, sdsval);
+    if (sdsval != str) sdsfree(sdsval);
+    if (de == NULL) return 0;
+    *expire = setEntryGetExpiry(dictGetKey(de));
+    return 1;
+}
+
+static int htSetExpire(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t expire) {
+    UNUSED(llval);
+    dict *ht = set->ptr;
+    sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
+    dictEntryLink link = dictFindLink(ht, sdsval, NULL);
+    if (sdsval != str) sdsfree(sdsval);
+    if (link == NULL) return 0;
+
+    SetEntry *old = dictGetKey(*link), *entry = old;
+    size_t *alloc_size = htGetMetadataSize(ht);
+
+    if (expire == EB_EXPIRE_TIME_INVALID) {
+        /* Remove the expiration. A plain member has none. */
+        if (!setEntryHasExpiry(old)) return 1;
+        /* Unlink from the private tree if it is there, then drop the prefix. */
+        if (setEntryGetExpiry(old) != EB_EXPIRE_TIME_INVALID)
+            ebRemove(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, old);
+        ssize_t usableDiff;
+        entry = setEntryRemoveExpiry(old, &usableDiff);
+        *alloc_size += usableDiff;
+        dictSetKeyAtLink(ht, entry, &link, 0);
+        return 1;
+    }
+
+    serverAssert(htHasExpire(ht));
+    if (!setEntryHasExpiry(old)) {
+        /* Reallocate the member with room for the expiration. */
+        ssize_t usableDiff;
+        entry = setEntryAddExpiry(old, &usableDiff);
+        *alloc_size += usableDiff;
+    } else {
+        uint64_t prev = setEntryGetExpiry(old);
+        if (prev == expire) return 1;
+        /* Remove from the private tree the old expiration time. */
+        if (prev != EB_EXPIRE_TIME_INVALID)
+            ebRemove(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, old);
+    }
+    dictSetKeyAtLink(ht, entry, &link, 0); /* newItem=0: update an existing entry */
+    ebAdd(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, entry, expire);
+    return 1;
+}
+
+static uint64_t htMinExpire(robj *set, int accurate) {
+    UNUSED(accurate);
+    dict *ht = set->ptr;
+    if (!htHasExpire(ht)) return EB_EXPIRE_TIME_INVALID;
+    return ebGetNextTimeToExpire(htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType);
+}
+
+typedef struct htExpireCtx {
+    dict *d;
+    setTypeExpireCb cb;
+    void *ctx;
+} htExpireCtx;
+
+/* Called by ebExpire() for each member that expired. */
+static ExpireAction htOnMemberExpire(eItem item, void *c) {
+    htExpireCtx *ctx = c;
+    sds member = setEntryGetMember((SetEntry *)item);
+    if (ctx->cb) ctx->cb(ctx->ctx, member, sdslen(member), 0);
+    /* ebExpire() already took the item out of the tree, so the destructor of the
+     * dict only frees it. */
+    serverAssert(dictDelete(ctx->d, member) == DICT_OK);
+    return ACT_REMOVE_EXP_ITEM;
+}
+
+static unsigned long htExpire(robj *set, uint64_t now, unsigned long max, setTypeExpireCb cb, void *ctx) {
+    dict *ht = set->ptr;
+    if (!htHasExpire(ht)) return 0;
+    htExpireCtx c = {.d = ht, .cb = cb, .ctx = ctx};
+    ExpireInfo info = {
+        .maxToExpire = max,
+        .now = now,
+        .onExpireItem = htOnMemberExpire,
+        .ctx = &c,
+        .itemsExpired = 0,
+    };
+    ebExpire(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, &info);
+    return info.itemsExpired;
+}
+
 static void htIterInit(setTypeIterator *si) {
     dictInitIterator(&si->di, si->subject->ptr);
 }
@@ -66,6 +313,8 @@ static int htIterNext(setTypeIterator *si, char **str, size_t *len, int64_t *lle
     *str = dictGetKey(de);
     *len = sdslen(*str);
     *llele = -123456789; /* Not needed. Defensive. */
+    if (htHasExpire((dict *)si->subject->ptr))
+        si->expire = setEntryGetExpiry((SetEntry *)*str);
     return 0;
 }
 
@@ -89,13 +338,15 @@ static robj *htDup(robj *o) {
     robj *set = createSetObject();
     dict *d = o->ptr;
     dictExpand(set->ptr, dictSize(d));
+    if (htHasExpire(d)) setHashtableAddExpireSupport(set);
     setTypeIterator si;
     setTypeInitIterator(&si, o, SET_ITER_RAW);
     char *str;
     size_t len = 0;
     int64_t intobj = 0;
     while (setTypeNext(&si, &str, &len, &intobj) != -1) {
-        setTypeAdd(set, (sds)str);
+        /* Expired members are copied as well, with their expiration. */
+        htRawAddCommon(set, str, len, 1, si.expire);
     }
     setTypeResetIterator(&si);
     return set;
@@ -118,14 +369,33 @@ static void *htConvertFrom(robj *set, unsigned long cap, int panic) {
         return NULL;
     }
 
+    /* The members of a listpack with expirations keep their expiration. */
+    const int withExpire = (set->encoding == OBJ_ENCODING_LISTPACK_EX);
+    robj holder = {0};
+    if (withExpire) {
+        /* Use a temporary object to build the dict with the expiration support. */
+        holder.type = OBJ_SET;
+        holder.encoding = OBJ_ENCODING_HT;
+        holder.ptr = d;
+        setHashtableAddExpireSupport(&holder);
+        d = holder.ptr;
+    }
+
     /* To add the elements we extract integers and create redis objects */
-    size_t *alloc_size = htGetMetadataSize(d);
     setTypeIterator si;
     setTypeInitIterator(&si, set, SET_ITER_RAW);
-    sds element;
-    while ((element = setTypeNextObject(&si)) != NULL) {
-        serverAssert(dictAdd(d, element, NULL) == DICT_OK);
-        *alloc_size += sdsAllocSize(element);
+    char *str;
+    size_t len = 0;
+    int64_t llele = 0;
+    while (setTypeNext(&si, &str, &len, &llele) != -1) {
+        sds element = str ? sdsnewlen(str, len) : sdsfromlonglong(llele);
+        if (withExpire) {
+            htRawAddCommon(&holder, element, sdslen(element), 1, si.expire);
+            sdsfree(element);
+        } else {
+            serverAssert(dictAdd(d, element, NULL) == DICT_OK);
+            *htGetMetadataSize(d) += sdsAllocSize(element);
+        }
     }
     setTypeResetIterator(&si);
     return d;
@@ -144,4 +414,9 @@ const setTypeOps setTypeOpsHT = {
     .free = htFree,
     .convertFrom = htConvertFrom,
     .dup = htDup,
+    .getExpire = htGetExpire,
+    .setExpire = htSetExpire,
+    .rawAddEx = htRawAddEx,
+    .minExpire = htMinExpire,
+    .expire = htExpire,
 };

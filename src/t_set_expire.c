@@ -13,9 +13,9 @@
  * no set carries an expiration yet, so they must never be reached with a
  * registered set.
  *
- * Until the hashtable encoding supports member expirations, the commands that
- * need to attach an expiration to a set that would have to be a hashtable reply
- * with an error (see addReplyErrorSetEncodingNotSupported()). */
+ * Every set can hold member expirations: a set that cannot as it is, is converted
+ * to the listpack with expirations or to a hashtable (see
+ * setTypeConvertToExpireEncoding()). */
 
 #include "server.h"
 #include "t_set_encoding.h"
@@ -27,6 +27,8 @@ ExpireMeta *setGetExpireMeta(const eItem set) {
     const robj *o = (const robj *)set;
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
         return setListpackExGetExpireMeta(o);
+    if (o->encoding == OBJ_ENCODING_HT)
+        return setHashtableGetExpireMeta(o);
     serverPanic("Unexpected set encoding in subexpires: %d", o->encoding);
 }
 
@@ -35,20 +37,23 @@ ExpireMeta *setGetExpireMeta(const eItem set) {
  * answer instead of the cached one. */
 uint64_t setTypeGetMinExpire(robj *o, int accurate) {
     serverAssert(o->type == OBJ_SET);
-    const setTypeOps *ops = setTypeGetOps(o->encoding);
-    if (ops->minExpire == NULL) return EB_EXPIRE_TIME_INVALID;
-    return ops->minExpire(o, accurate);
+    if (!setTypeHasExpireSupport(o)) return EB_EXPIRE_TIME_INVALID;
+    return setTypeGetOps(o->encoding)->minExpire(o, accurate);
 }
 
 /* Returns 1 if the set currently has an ExpireMeta attached and can be
  * registered in db->subexpires. */
 int setHasSubexpiry(const kvobj *o) {
     serverAssert(o->type == OBJ_SET);
-    return o->encoding == OBJ_ENCODING_LISTPACK_EX;
+    return o->encoding == OBJ_ENCODING_LISTPACK_EX ||
+           (o->encoding == OBJ_ENCODING_HT && setHashtableHasExpire(o));
 }
 
-/* Returns 1 if the encoding of the set can hold member expirations. */
+/* Returns 1 if the set can hold member expirations as it is: it is a listpack
+ * with expirations, or a hashtable that has the metadata of the expirations. */
 int setTypeHasExpireSupport(const robj *set) {
+    if (set->encoding == OBJ_ENCODING_HT)
+        return setHashtableHasExpire(set);
     return setTypeGetOps(set->encoding)->getExpire != NULL;
 }
 
@@ -66,41 +71,41 @@ int setTypeExpireTimeElapsed(uint64_t expire) {
  * sets *expire to its expiration time, EB_EXPIRE_TIME_INVALID if it has none.
  * A member that is logically expired but not removed yet is found. */
 int setTypeGetExpire(robj *set, sds member, uint64_t *expire) {
-    const setTypeOps *ops = setTypeGetOps(set->encoding);
-    if (ops->getExpire == NULL) {
+    if (!setTypeHasExpireSupport(set)) {
         *expire = EB_EXPIRE_TIME_INVALID;
         return setTypeIsMember(set, member);
     }
-    char tmpbuf[LONG_STR_SIZE];
-    (void)tmpbuf;
-    return ops->getExpire(set, member, sdslen(member), 0, 1, expire);
+    return setTypeGetOps(set->encoding)->getExpire(set, member, sdslen(member), 0, 1, expire);
 }
 
-/* Returns 1 if the set can hold member expirations now or after being converted
- * to the listpack with expirations encoding, and 0 if it cannot, because it
- * would need an encoding that is not implemented yet (a hashtable with
- * expirations). */
+/* Returns 1 if the set can hold member expirations now or after being converted.
+ * Every set can: a hashtable gets the metadata of the expirations, and a set that
+ * is too big for a listpack is converted to a hashtable. */
 int setTypeCanHoldExpire(const robj *set) {
-    if (setTypeHasExpireSupport(set)) return 1;
-    if (set->encoding == OBJ_ENCODING_HT) return 0;
-
-    /* The listpack limits apply: members count, not listpack elements. */
-    if (setTypeSize(set) > server.set_max_listpack_entries) return 0;
-    /* An intset member is at most 20 characters long. */
-    if (set->encoding == OBJ_ENCODING_INTSET && server.set_max_listpack_value < 20)
-        return 0;
+    UNUSED(set);
     return 1;
 }
 
-/* Converts a set that cannot hold member expirations (an intset or a listpack)
- * to the listpack with expirations encoding, so that members can get an
- * expiration. Returns 1 if the set can hold member expirations afterwards, and
- * 0 if it cannot (see setTypeCanHoldExpire()). */
-int setTypeConvertToExpireEncoding(robj *set) {
-    if (setTypeHasExpireSupport(set)) return 1;
-    if (!setTypeCanHoldExpire(set)) return 0;
-    setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK_EX, setTypeSize(set), 1);
-    return 1;
+/* Prepares a set to hold member expirations: a set that cannot hold them as it is
+ * (an intset or a listpack) is converted to the listpack with expirations
+ * encoding if its members fit in a listpack, or to a hashtable otherwise, and a
+ * hashtable gets the metadata of the expirations. */
+void setTypeConvertToExpireEncoding(robj *set) {
+    if (setTypeHasExpireSupport(set)) return;
+
+    if (set->encoding != OBJ_ENCODING_HT) {
+        /* The listpack limits apply: members count, not listpack elements. */
+        int fitsListpack = setTypeSize(set) <= server.set_max_listpack_entries;
+        /* An intset member is at most 20 characters long. */
+        if (set->encoding == OBJ_ENCODING_INTSET && server.set_max_listpack_value < 20)
+            fitsListpack = 0;
+        if (fitsListpack) {
+            setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK_EX, setTypeSize(set), 1);
+            return;
+        }
+        setTypeConvert(set, OBJ_ENCODING_HT);
+    }
+    setHashtableAddExpireSupport(set);
 }
 
 /*-----------------------------------------------------------------------------
@@ -172,13 +177,6 @@ static void propagateSetMemberDeletion(redisDb *db, sds key, char *member, size_
  * treated as if the member did not exist. */
 static inline int setMemberIsGone(int exists, uint64_t expire) {
     return !exists || (expire != EB_EXPIRE_TIME_INVALID && (long long)expire < commandTimeSnapshot());
-}
-
-/* Replies to a command that is not allowed to touch a set which cannot hold
- * member expirations yet. Temporary, until the hashtable with expirations
- * exists. */
-void addReplyErrorSetEncodingNotSupported(client *c) {
-    addReplyError(c, "member expiration is not supported yet for sets of this encoding or size");
 }
 
 /*-----------------------------------------------------------------------------
@@ -548,11 +546,6 @@ static void sexpireGenericCommand(client *c, long long basetime, int unit) {
         return;
     }
 
-    if (!setTypeCanHoldExpire(set)) {
-        addReplyErrorSetEncodingNotSupported(c);
-        return;
-    }
-
     oldlen = (int64_t)setTypeSize(set);
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
@@ -566,7 +559,6 @@ static void sexpireGenericCommand(client *c, long long basetime, int unit) {
     int *notSet = NULL;
     int notSetCount = 0;
 
-    long long now = commandTimeSnapshot();
     addReplyArrayLen(c, args.memberCount);
     for (int i = 0; i < args.memberCount; i++) {
         int pos = args.firstMemberPos + i;
@@ -586,17 +578,14 @@ static void sexpireGenericCommand(client *c, long long basetime, int unit) {
                     (cur != EB_EXPIRE_TIME_INVALID && (uint64_t)args.expireTime >= cur)))
         {
             res = SME_COND_NOT_MET;
-        } else if (args.expireTime < now) {
+        } else if (checkAlreadyExpired(args.expireTime)) {
             /* The new expiration is in the past: the member is deleted. */
             setTypeRemove(set, member);
             propagateSetMemberDeletion(c->db, keyArg->ptr, member, sdslen(member));
             vecPush(vdeleted, c->argv[pos]);
             res = SME_DELETED;
         } else {
-            if (!setTypeHasExpireSupport(set)) {
-                int converted = setTypeConvertToExpireEncoding(set);
-                serverAssert(converted);
-            }
+            setTypeConvertToExpireEncoding(set);
             const setTypeOps *ops = setTypeGetOps(set->encoding);
             serverAssert(ops->setExpire(set, member, sdslen(member), 0, 1, (uint64_t)args.expireTime));
             vecPush(vupdated, c->argv[pos]);
@@ -964,9 +953,8 @@ void saddexCommand(client *c) {
     }
 
     const int setsExpire = (flags & (SME_EX | SME_PX | SME_EXAT | SME_PXAT)) != 0;
-    long long now = commandTimeSnapshot();
     /* An expiration in the past deletes the members instead of adding them. */
-    const int pastTime = setsExpire && expireTime < now;
+    const int pastTime = setsExpire && checkAlreadyExpired(expireTime);
 
     /* The conditions are all or nothing: check them before changing anything. A
      * member that is logically expired but not removed yet does not exist. */
@@ -979,20 +967,6 @@ void saddexCommand(client *c) {
         }
         if (((flags & SME_MNX) && found != 0) || ((flags & SME_MXX) && found != memberCount)) {
             addReplyLongLong(c, 0);
-            return;
-        }
-    }
-
-    /* Expirations need an encoding that can hold them. Until the hashtable with
-     * expirations exists, a set that would need it is not supported. */
-    if (setsExpire && !pastTime) {
-        size_t projected = (set ? setTypeSize(set) : 0) + memberCount;
-        int supported = projected <= server.set_max_listpack_entries &&
-                        (!set || setTypeCanHoldExpire(set));
-        for (int i = 0; supported && i < memberCount; i++)
-            supported = sdslen(c->argv[firstMemberPos + i]->ptr) <= server.set_max_listpack_value;
-        if (!supported) {
-            addReplyErrorSetEncodingNotSupported(c);
             return;
         }
     }
@@ -1029,10 +1003,8 @@ void saddexCommand(client *c) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(set);
 
-        if (setsExpire) {
-            int converted = setTypeConvertToExpireEncoding(set);
-            serverAssert(converted);
-        }
+        if (setsExpire)
+            setTypeConvertToExpireEncoding(set);
 
         for (int i = 0; i < memberCount; i++) {
             robj *memberObj = c->argv[firstMemberPos + i];
