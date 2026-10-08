@@ -140,6 +140,17 @@ static void crashWatchdogSet(int seconds) {
 #endif
 }
 
+/* Arm the deadline unless it is already counting down. */
+static void crashWatchdogArmIfIdle(void) {
+#ifdef HAVE_CRASH_WATCHDOG
+    struct itimerspec cur;
+    if (!crash_watchdog_ok) return;
+    if (timer_gettime(crash_watchdog_timer, &cur) == 0 &&
+        (cur.it_value.tv_sec || cur.it_value.tv_nsec)) return;
+    crashWatchdogSet(server.crash_handler_timeout);
+#endif
+}
+
 /* Forward declarations */
 int bugReportStart(void);
 void printCrashReport(void);
@@ -1484,13 +1495,15 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 
 /* Start a bug report, returning 1 if this is the first time this function was called, 0 otherwise. */
 int bugReportStart(void) {
+    /* Signals, asserts and panics all start here. Arms on the first report,
+     * and again for a nested report while the deadline is paused (memtest).
+     * A running deadline is never extended. A second thread waiting on
+     * signal_handler_lock is covered by the first thread's deadline. */
+    crashWatchdogArmIfIdle();
+
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
         bug_report_start = 1;
-        /* Signals, asserts and panics all start here. Arming only on the first
-         * report means a crash inside the report can't extend the deadline. A
-         * second thread waiting on signal_handler_lock is covered by this one. */
-        crashWatchdogSet(server.crash_handler_timeout);
         serverLogRaw(LL_WARNING|LL_RAW,
         "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
         pthread_mutex_unlock(&bug_report_start_mutex);
