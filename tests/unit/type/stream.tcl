@@ -52,7 +52,7 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
-    # Verify the INFO `Streams` histograms against a keyspace rebuild after every
+    # Verify the INFO Streams histograms against a keyspace rebuild after every
     # command; this suite drives XADD/XTRIM/XDEL/XSETID hardest, i.e. the
     # cross-group PEL purges (DELREF) and stream creation by XADD, which enters
     # a stream in the groups-per-stream row.
