@@ -165,7 +165,16 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         sds sdsele;
         setTypeInitIterator(&si, o, SET_ITER_RAW);
         while((sdsele = setTypeNextObject(&si)) != NULL) {
-            xorDigest(digest,sdsele,sdslen(sdsele));
+            if (si.expire == EB_EXPIRE_TIME_INVALID) {
+                xorDigest(digest,sdsele,sdslen(sdsele));
+            } else {
+                /* A member with an expiration (SME) */
+                unsigned char eledigest[20];
+                memset(eledigest,0,20);
+                mixDigest(eledigest,sdsele,sdslen(sdsele));
+                xorDigest(eledigest,"!!sexpire!!",11);
+                xorDigest(digest,eledigest,20);
+            }
             sdsfree(sdsele);
         }
         setTypeResetIterator(&si);
