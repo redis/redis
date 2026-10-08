@@ -384,8 +384,9 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
         if (expiretime != -1) rdbstate.expires++;
-        /* If hash with HFEs then with expiration on fields then need to count it */
-        if ((val->type == OBJ_HASH) && (hashTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID))
+        /* If hash with HFEs, or set with member expirations, then need to count it */
+        if (((val->type == OBJ_HASH) && (hashTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID)) ||
+            ((val->type == OBJ_SET) && (setTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID)))
             rdbstate.subexpires++;
 
         rdbstate.key = NULL;
