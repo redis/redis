@@ -309,6 +309,7 @@ start_server {tags {"external:skip needs:debug"}} {
 # ---------------------------------------------------------------------------
 
 start_server {tags {"external:skip needs:debug"}} {
+    r debug keysizes-hist-assert 1
     foreach enc $::sme_encodings {
         sme_force_encoding r $enc
         # Members are not numeric, so the sets start as listpacks.
@@ -611,4 +612,398 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+}
+
+# ---------------------------------------------------------------------------
+# Stage 4: lazy expiration of the members, by the existing set commands
+# ---------------------------------------------------------------------------
+
+start_server {tags {"external:skip needs:debug"}} {
+    r debug keysizes-hist-assert 1
+    foreach enc $::sme_encodings {
+        sme_force_encoding r $enc
+        set db 9
+
+        # A set with members x1 x2 x3 (live, long expiration), e1 e2 (expired, not removed).
+        proc sme_mixed_set {r {live {x1 x2 x3}} {expired {e1 e2}}} {
+            $r debug set-active-expire 0
+            $r del myset
+            $r sadd myset {*}$live {*}$expired
+            $r sexpire myset 1000 MEMBERS [llength $live] {*}$live
+            sme_make_expired $r myset $expired
+        }
+
+        test "SISMEMBER and SMISMEMBER - A logically expired member is not a member, and is removed ($enc)" {
+            sme_mixed_set r
+            assert_equal [r scard myset] 5
+            assert_equal [r sismember myset x1] 1
+            assert_equal [r sismember myset e1] 0
+            assert_equal [r scard myset] 4
+            assert_equal [r smismember myset e2 x2 nosuch] {0 1 0}
+            assert_equal [r scard myset] 3
+            assert_equal [lsort [r smembers myset]] {x1 x2 x3}
+            r debug set-active-expire 1
+        }
+
+        test "SISMEMBER - Removing the last member, expired, deletes the key ($enc)" {
+            r debug set-active-expire 0
+            sme_create_set r myset {a}
+            sme_make_expired r myset {a}
+            assert_equal [r exists myset] 1
+            assert_equal [r sismember myset a] 0
+            assert_equal [r exists myset] 0
+            r debug set-active-expire 1
+        }
+
+        test "SMEMBERS and SSCAN - Skip the expired members and do not remove them ($enc)" {
+            sme_mixed_set r
+            assert_equal [lsort [r smembers myset]] {x1 x2 x3}
+            lassign [r sscan myset 0] cursor members
+            assert_equal $cursor 0
+            assert_equal [lsort $members] {x1 x2 x3}
+            lassign [r sscan myset 0 match e*] cursor members
+            assert_equal $members {}
+            lassign [r sscan myset 0 match x*] cursor members
+            assert_equal [lsort $members] {x1 x2 x3}
+            # Nothing was removed.
+            assert_equal [r scard myset] 5
+            r debug set-active-expire 1
+        }
+
+        test "SCARD is approximate: it counts the expired members that are not removed yet ($enc)" {
+            sme_mixed_set r
+            assert_equal [r scard myset] 5
+            r debug set-active-expire 1
+        }
+
+        test "SADD - A logically expired member is added as a new member ($enc)" {
+            sme_mixed_set r
+            assert_equal [r sadd myset e1 x1 new] 2
+            assert_equal [r sttl myset MEMBERS 3 e1 x1 new] [list $E_NO_TTL [r sttl myset MEMBERS 1 x1] $E_NO_TTL]
+            assert_equal [r scard myset] 6
+            r debug set-active-expire 1
+        }
+
+        test "SREM - Removes a logically expired member and counts it ($enc)" {
+            sme_mixed_set r
+            assert_equal [r srem myset e1 nosuch x1] 2
+            assert_equal [r scard myset] 3
+            r debug set-active-expire 1
+        }
+
+        test "SPOP - Never returns an expired member and removes them first ($enc)" {
+            foreach cmd {{spop myset} {spop myset 2} {spop myset 3} {spop myset 100}} {
+                sme_mixed_set r
+                set res [r {*}$cmd]
+                foreach m $res {
+                    assert {[lsearch {x1 x2 x3} $m] >= 0}
+                }
+                # The expired members are gone, whatever was popped.
+                assert_equal [llength [r sinter myset myset]] [expr {3 - [llength $res]}]
+                if {[r exists myset]} {assert {[r scard myset] <= 3}}
+            }
+            r debug set-active-expire 1
+        }
+
+        test "SPOP - A set with only expired members is deleted ($enc)" {
+            r debug set-active-expire 0
+            sme_create_set r myset {a b}
+            sme_make_expired r myset {a b}
+            assert_equal [r spop myset] {}
+            assert_equal [r exists myset] 0
+            sme_create_set r myset {a b}
+            sme_make_expired r myset {a b}
+            assert_equal [r spop myset 2] {}
+            assert_equal [r exists myset] 0
+            r debug set-active-expire 1
+        }
+
+        test "SPOP with a count keeps the expirations of the members that remain ($enc)" {
+            # CASE 3 (the move strategy) builds a new set with the remaining members.
+            r debug set-active-expire 0
+            r del myset
+            for {set i 0} {$i < 20} {incr i} {r sadd myset m$i}
+            for {set i 0} {$i < 20} {incr i} {r spexpireat myset [expr {[clock milliseconds] + 100000 + $i}] MEMBERS 1 m$i}
+            set popped [r spop myset 18]
+            assert_equal [llength $popped] 18
+            assert_equal [r scard myset] 2
+            foreach m [r smembers myset] {
+                assert {[r sttl myset MEMBERS 1 $m] > 0}
+            }
+            assert_encoding $enc myset
+            r debug set-active-expire 1
+        }
+
+        test "SRANDMEMBER - Never returns an expired member, in every form ($enc)" {
+            sme_mixed_set r
+            for {set i 0} {$i < 20} {incr i} {
+                foreach m [concat [r srandmember myset 3] [r srandmember myset -10] [r srandmember myset 100] [r srandmember myset 1] [list [r srandmember myset]]] {
+                    assert {[lsearch {x1 x2 x3} $m] >= 0}
+                }
+                sme_mixed_set r
+            }
+            r debug set-active-expire 1
+        }
+
+        test "SRANDMEMBER - A set with only expired members is deleted ($enc)" {
+            r debug set-active-expire 0
+            sme_create_set r myset {a b}
+            sme_make_expired r myset {a b}
+            assert_equal [r srandmember myset] {}
+            assert_equal [r exists myset] 0
+            sme_create_set r myset {a b}
+            sme_make_expired r myset {a b}
+            assert_equal [r srandmember myset 5] {}
+            assert_equal [r exists myset] 0
+            r debug set-active-expire 1
+        }
+
+        test "SINTER, SUNION, SDIFF and their variants - Ignore the expired members ($enc)" {
+            sme_mixed_set r
+            r del other
+            r sadd other x1 e1 e2 y
+            # e1 and e2 are expired in myset, so they are not members of it.
+            assert_equal [lsort [r sinter myset other]] {x1}
+            assert_equal [lsort [r sunion myset other]] {e1 e2 x1 x2 x3 y}
+            assert_equal [lsort [r sdiff myset other]] {x2 x3}
+            assert_equal [lsort [r sdiff other myset]] {e1 e2 y}
+            assert_equal [r sintercard 2 myset other] 1
+            assert_equal [r sunioncard 2 myset other] 6
+            assert_equal [r sdiffcard 2 myset other] 2
+            assert_equal [r sinterstore dst myset other] 1
+            assert_equal [r sunionstore dst myset other] 6
+            assert_equal [r sdiffstore dst myset other] 2
+            assert_equal [lsort [r smembers dst]] {x2 x3}
+            # The sources were not changed.
+            assert_equal [r scard myset] 5
+            r debug set-active-expire 1
+        }
+
+        test "SMOVE - The member moves with its expiration ($enc)" {
+            r del src dst
+            r sadd src a b
+            r sadd dst z
+            r sexpire src 1000 MEMBERS 1 a
+            assert_equal [r smove src dst a] 1
+            assert {[r sttl dst MEMBERS 1 a] > 900}
+            assert_equal [r sttl dst MEMBERS 1 z] $E_NO_TTL
+            assert_equal [r sismember src a] 0
+            # A member without an expiration overwrites the expiration of the one at the destination.
+            r sadd src c
+            r sexpire dst 1000 MEMBERS 1 z
+            r sadd src z
+            assert_equal [r smove src dst z] 1
+            assert_equal [r sttl dst MEMBERS 1 z] $E_NO_TTL
+            # A member with an expiration overwrites the expiration of the one at the destination.
+            r sadd src a
+            r sexpire src 5000 MEMBERS 1 a
+            assert_equal [r smove src dst a] 1
+            assert {[r sttl dst MEMBERS 1 a] > 4000}
+        }
+
+        test "SMOVE - A logically expired source member is not moved, and a destination one is replaced ($enc)" {
+            r debug set-active-expire 0
+            r del src dst
+            sme_create_set r src {a b}
+            sme_create_set r dst {a z}
+            sme_make_expired r src {a}
+            assert_equal [r smove src dst a] 0
+            assert_equal [r sismember dst a] 1
+            assert_equal [r scard src] 1
+            # An expired destination member is treated as new.
+            sme_create_set r src {a b}
+            r sexpire src 1000 MEMBERS 1 a
+            sme_create_set r dst {a z}
+            sme_make_expired r dst {a}
+            assert_equal [r smove src dst a] 1
+            assert {[r sttl dst MEMBERS 1 a] > 900}
+            r debug set-active-expire 1
+        }
+
+        test "SMOVE - Events for the expiration of the moved member ($enc)" {
+            r config set notify-keyspace-events Ksg
+            set rd1 [redis_deferring_client]
+            assert_equal {1} [psubscribe $rd1 *]
+            # Reads the events of one move: the ones of the keys src and dst, up to a
+            # sentinel event that is fired right after the move.
+            proc drainEvents {r rd} {
+                $r sadd sentinel x
+                while {1} {
+                    set ev [$rd read]
+                    if {[string match "*:sentinel *" $ev]} break
+                }
+                $r del sentinel
+                $rd read ;# the del of the sentinel
+            }
+            proc moveEvents {r rd cmd} {
+                drainEvents $r $rd
+                $r {*}$cmd
+                $r sadd sentinel x
+                set events {}
+                while {1} {
+                    set ev [$rd read]   ;# pmessage pattern __keyspace@9__:key event
+                    set key [lindex [split [lindex $ev 2] :] 1]
+                    set e [lindex $ev 3]
+                    if {$key eq "sentinel"} break
+                    lappend events "$key $e"
+                }
+                $r del sentinel
+                $rd read ;# the del of the sentinel
+                return $events
+            }
+            r del src dst
+            r sadd src a b c d
+            r sadd dst z y
+            r sexpire src 1000 MEMBERS 2 a b
+            r sexpire dst 1000 MEMBERS 1 y
+            assert_equal [moveEvents r $rd1 {smove src dst a}] {{src srem} {dst sadd} {dst sexpire}}
+            assert_equal [moveEvents r $rd1 {smove src dst c}] {{src srem} {dst sadd}}
+            # Existing at the destination: the expiration of the source member replaces it.
+            r sadd src y z
+            r sexpire src 3000 MEMBERS 1 y
+            assert_equal [moveEvents r $rd1 {smove src dst y}] {{src srem} {dst sexpire}}
+            # Existing at the destination with an expiration, and none at the source: spersist.
+            r sadd dst w
+            r sexpire dst 2000 MEMBERS 1 w
+            r sadd src w
+            assert_equal [moveEvents r $rd1 {smove src dst w}] {{src srem} {dst spersist}}
+            # Existing at the destination, with no expiration anywhere: nothing.
+            assert_equal [moveEvents r $rd1 {smove src dst z}] {{src srem}}
+            $rd1 close
+        }
+
+        test "Sets that cannot hold expirations yet are refused by SMOVE with an expiration ($enc)" {
+            r del src big
+            r sadd src a
+            r sexpire src 1000 MEMBERS 1 a
+            for {set i 0} {$i < 200} {incr i} {r sadd big m$i}
+            assert_equal [r object encoding big] hashtable
+            assert_error {*not supported yet*} {r smove src big a}
+            assert_equal [r sismember src a] 1
+            assert_equal [r sismember big a] 0
+        }
+    }
+}
+
+# A replica reports the expired members as missing and never removes them itself.
+start_server {tags {"external:skip needs:repl needs:debug"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set replica [srv 0 client]
+        $replica replicaof $master_host $master_port
+        wait_for_condition 50 100 {[lindex [$replica role] 0] eq {slave} && [string match {*connected*} [$replica role]]} else {fail "no sync"}
+
+        test "A replica hides the expired members but only the master removes them" {
+            $master debug set-active-expire 0
+            $replica debug set-active-expire 0
+            $master del myset
+            $master sadd myset a b c d
+            $master sexpire myset 1000 MEMBERS 2 c d
+            $master spexpire myset 30 MEMBERS 2 a b
+            wait_for_ofs_sync $master $replica
+            after 100
+            # The expiration is decided by the master: the replica only hides them.
+            assert_equal [$replica sismember myset a] 0
+            assert_equal [$replica smismember myset a c] {0 1}
+            assert_equal [lsort [$replica smembers myset]] {c d}
+            assert_equal [$replica scard myset] 4
+            for {set i 0} {$i < 30} {incr i} {
+                foreach m [concat [$replica srandmember myset 2] [$replica srandmember myset -5] [list [$replica srandmember myset]]] {
+                    assert {$m eq "c" || $m eq "d"}
+                }
+            }
+            assert_equal [lsort [$replica srandmember myset 10]] {c d}
+            assert_equal [$replica sttl myset MEMBERS 2 a c] [list $E_NO_MEMBER [$replica sttl myset MEMBERS 1 c]]
+            # Still there.
+            assert_equal [$replica scard myset] 4
+            # The master removes the member when it finds it, and the replica follows.
+            assert_equal [$master sismember myset a] 0
+            wait_for_ofs_sync $master $replica
+            assert_equal [$replica scard myset] 3
+            $master debug set-active-expire 1
+            $replica debug set-active-expire 1
+        }
+    }
+}
+
+# The allocation size accounting must be exact (this run enables its assertion).
+start_server {tags {"external:skip needs:debug"} overrides {key-memory-histograms yes}} {
+    r debug keysizes-hist-assert 1
+    r debug allocsize-slots-assert 1
+
+    test "SME commands keep the allocation size accounting exact" {
+        r debug set-active-expire 0
+        r flushall
+        r sadd s1 a b c d e f
+        r sexpire s1 1000 MEMBERS 3 a b c
+        r spersist s1 MEMBERS 1 a
+        r saddex s1 EX 1000 MEMBERS 2 g h
+        r saddex s1 MEMBERS 1 g
+        r sexpireat s1 1 MEMBERS 1 h
+        sme_make_expired r s1 {b}
+        r sismember s1 b
+        r sadd s1 c
+        r sadd src x y z
+        r sexpire src 1000 MEMBERS 1 x
+        r smove src s1 x
+        r spop s1 2
+        r srandmember s1 3
+        r sadd s2 1 2 3
+        r sexpire s2 1000 MEMBERS 1 2
+        r del s1 s2 src
+        assert_equal [r dbsize] 0
+        r debug set-active-expire 1
+    }
+}
+
+start_server {tags {"external:skip needs:repl needs:debug"}} {
+    r debug keysizes-hist-assert 1
+    foreach enc $::sme_encodings {
+        sme_force_encoding r $enc
+
+        test "Lazy expiration propagates an explicit SREM and counts the expired members ($enc)" {
+            r debug set-active-expire 0
+            r del myset other
+            set before [s expired_subkeys]
+            # The stream is attached before the sets exist: the sets with expirations
+            # cannot be saved to the RDB of the full sync yet.
+            set repl [attach_to_replication_stream]
+            r sadd myset a b c d
+            r sadd other x y
+            r sexpire myset 1000 MEMBERS 1 d
+            r sexpire other 1000 MEMBERS 1 y
+            r spexpire myset 10 MEMBERS 1 a
+            r spexpire myset 20 MEMBERS 1 b
+            r spexpire myset 30 MEMBERS 1 c
+            r spexpire other 10 MEMBERS 1 x
+            r debug sleep 0.1
+            r sismember myset a                 ;# lazy removal of a single member
+            r spop myset                        ;# removes b and c first, then pops d
+            r srandmember other                 ;# removes x
+            assert_replication_stream $repl {
+                {select *}
+                {sadd myset a b c d}
+                {sadd other x y}
+                {spexpireat myset * MEMBERS 1 d}
+                {spexpireat other * MEMBERS 1 y}
+                {spexpireat myset * MEMBERS 1 a}
+                {spexpireat myset * MEMBERS 1 b}
+                {spexpireat myset * MEMBERS 1 c}
+                {spexpireat other * MEMBERS 1 x}
+                {srem myset a}
+                {multi}
+                {srem myset b}
+                {srem myset c}
+                {srem myset d}
+                {exec}
+                {srem other x}
+            }
+            r debug set-active-expire 1
+            assert_equal [expr {[s expired_subkeys] - $before}] 4
+            assert_equal [r exists myset] 0
+            close_replication_stream $repl
+        } {} {needs:repl}
+    }
 }
