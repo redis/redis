@@ -4187,6 +4187,9 @@ size_t himportFieldsetsMemOverhead(client *c);
 
 unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o, int accurate);
+/* Types whose objects may be registered in db->subexpires (an object that
+ * has members or fields with an expiration time). */
+#define typeMaySubexpire(type) ((type) == OBJ_HASH || (type) == OBJ_SET)
 ExpireMeta *hashGetExpireMeta(const eItem hash);
 int hashHasSubexpiry(const kvobj *o);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
