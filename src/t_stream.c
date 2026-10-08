@@ -4008,6 +4008,10 @@ NULL
 
         streamUpdateCGroupLastId(s, cg, &id);
         cg->entries_read = entries_read;
+        streamStatsReenterStructural(c->db, s, cg);
+        /* No PEL hook in this command: enter the group's PEL sample too. */
+        streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL,
+                           streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_PEL));
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
@@ -4041,6 +4045,10 @@ NULL
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
         streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers); /* no-op if it already existed */
+        streamStatsReenterStructural(c->db, s, cg);
+        /* No PEL hook in this command: enter the group's PEL sample too. */
+        streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL,
+                           streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_PEL));
         keyModified(c,c->db,c->argv[2],o,0);
         if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
@@ -4059,6 +4067,7 @@ NULL
             streamDelConsumer(s,cg,consumer);
             streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_PEL, old_pel); /* consumer's PEL entries removed */
             streamUpdateCGStat(c->db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, old_consumers); /* consumer removed */
+            streamStatsReenterStructural(c->db, s, cg);
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),o,old_alloc,kvobjAllocSize(o));
             server.dirty++;
@@ -4449,6 +4458,7 @@ void xnackCommand(client *c) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     streamUpdateCGStat(c->db, group, STREAM_DISTRIB_CGROUPS_PEL, old_pel); /* FORCE may add PEL entries */
+    streamStatsReenterStructural(c->db, s, group);
 
     addReplyLongLong(c,nacked);
 

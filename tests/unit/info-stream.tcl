@@ -685,6 +685,65 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
     }
 
+    test "STREAM-STATS - lazy enable: XGROUP CREATECONSUMER registers every row, backlog included" {
+        # The group has a backlog nobody reads; administering it must still
+        # enter its PEL sample, or the row would read as "no backlog".
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r s 4
+        r xgroup create s g 0
+        r xreadgroup group g c count 3 streams s >
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        r xgroup createconsumer s g c2
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - lazy enable: XGROUP DELCONSUMER registers every row" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r s 4
+        r xgroup create s g 0
+        r xreadgroup group g c1 count 1 streams s >
+        r xreadgroup group g c2 count 2 streams s >
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        r xgroup delconsumer s g c1
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - lazy enable: XGROUP SETID registers every row" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r s 4
+        r xgroup create s g 0
+        r xreadgroup group g c count 2 streams s >
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        r xgroup setid s g 0
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
+    test "STREAM-STATS - lazy enable: XNACK registers every row" {
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r s 4
+        r xgroup create s g 0
+        r xreadgroup group g c count 2 streams s >
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        r xnack s g SILENT IDS 2 1-1 2-1
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
     test "STREAM-STATS - FLUSHDB of one database leaves another's counts intact" {
         r config set stream-stats yes
         r FLUSHALL
