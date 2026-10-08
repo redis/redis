@@ -220,6 +220,25 @@ int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str
     return ops->getExpire(set, str, len, llval, str_is_sds, expire);
 }
 
+/* Adds a member to the destination set of a STORE command, merging the
+ * expiration: the nearest one wins, and a member without expiration counts as
+ * an infinite one. So an existing expiration is kept unless the new one is
+ * earlier, and a member that has none gets the new one. Returns 1 if the member
+ * was added, 0 if it was there. */
+static int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
+                                 int str_is_sds, uint64_t expire)
+{
+    if (expire == EB_EXPIRE_TIME_INVALID)
+        return setTypeAddAux(dst, str, len, llval, str_is_sds);
+
+    if (!setTypeHasExpireSupport(dst)) setTypeConvertToExpireEncoding(dst);
+    uint64_t cur;
+    if (setTypeGetExpireAux(dst, str, len, llval, str_is_sds, &cur) &&
+        cur != EB_EXPIRE_TIME_INVALID && cur <= expire)
+        return 0;
+    return setTypeAddExAux(dst, str, len, llval, str_is_sds, expire);
+}
+
 /* Deletes a value provided as an sds string from the set. Returns 1 if the
  * value was deleted and 0 if it was not a member of the set. */
 int setTypeRemove(robj *setobj, sds value) {
@@ -1482,6 +1501,19 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
+            /* The stored member gets the nearest expiration of all the sets. */
+            uint64_t expire = EB_EXPIRE_TIME_INVALID;
+            if (dstkey && !cardinality_only) {
+                for (j = 0; j < setnum; j++) {
+                    uint64_t e = si.expire;
+                    if (j > 0 && sets[j].set != sets[0].set) {
+                        if (!setTypeHasExpireSupport(sets[j].set)) continue;
+                        setTypeGetExpireAux(sets[j].set, str, len, intobj,
+                                            encoding == OBJ_ENCODING_HT, &e);
+                    } else if (j > 0) continue;
+                    if (e != EB_EXPIRE_TIME_INVALID && e < expire) expire = e;
+                }
+            }
             if (cardinality_only) {
                 cardinality++;
 
@@ -1511,7 +1543,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
                         only_integers = 0;
                     }
                 }
-                setTypeAddAux(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT);
+                setTypeAddMergeExpire(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT, expire);
             }
         }
     }
@@ -1532,13 +1564,14 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* Store the resulting set into the target, if the intersection
          * is not an empty set. */
         if (setTypeSize(dstset) > 0) {
-            if (only_integers) maybeConvertToIntset(dstset);
+            if (only_integers && !setTypeHasExpireSupport(dstset)) maybeConvertToIntset(dstset);
             if (dstset->encoding == OBJ_ENCODING_LISTPACK) {
                 /* We allocated too much memory when we created it to avoid
                  * frequent reallocs. Therefore, we shrink it now. */
                 dstset->ptr = lpShrinkToFit(dstset->ptr);
             }
             setKey(c, c->db, dstkey, &dstset, 0);
+            if (setTypeHasExpireSupport(dstset)) setTypeUpdateSubexpiry(c->db, dstset);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
                 dstkey,c->db->id);
@@ -1762,7 +1795,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (!approx) {
-                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                    cardinality += setTypeAddMergeExpire(dstset, str, len, llval, encoding == OBJ_ENCODING_HT,
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
                     if (cardinality_only && limit > 0 && cardinality >= limit) {
                         early_exit = 1;
                         break;
@@ -1827,7 +1861,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                         break; /* We reached the limit, break from the while loop iterating sets[0] */
                     }
                 } else {
-                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                    cardinality += setTypeAddMergeExpire(dstset, str, len, llval, encoding == OBJ_ENCODING_HT,
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
                 }
             }
         }
@@ -1870,8 +1905,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (j == 0) {
-                    cardinality += setTypeAddAux(dstset, str, len, llval,
-                                                 encoding == OBJ_ENCODING_HT);
+                    cardinality += setTypeAddMergeExpire(dstset, str, len, llval,
+                                                         encoding == OBJ_ENCODING_HT,
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
                 } else {
                     cardinality -= setTypeRemoveAux(dstset, str, len, llval,
                                                     encoding == OBJ_ENCODING_HT);
@@ -1921,6 +1957,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * create this key with the result set inside */
         if (setTypeSize(dstset) > 0) {
             setKey(c, c->db, dstkey, &dstset, 0);
+            if (setTypeHasExpireSupport(dstset)) setTypeUpdateSubexpiry(c->db, dstset);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,
                 op == SET_OP_UNION ? "sunionstore" : "sdiffstore",
