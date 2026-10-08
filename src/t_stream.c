@@ -158,17 +158,10 @@ const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX] = {
     [STREAM_DISTRIB_CGROUPS_CONSUMERS] = "stream_distrib_cgroups_consumers",
 };
 
-/* Zero the stream histograms in 'meta' and start a new generation of samples.
- * Every path that resets the gauges (a stale re-enable, an emptied kvstore, a
- * rebuild) goes through this, so the generation bump lives in exactly one
- * place. Advancing the epoch is what makes a reset safe: every stream and group
- * stamped with the old generation is now "not counted", so its next change
- * registers it afresh instead of decrementing a bin it is no longer in, and an
- * async slot-trim delta captured against the old generation is discarded on
- * completion (asmBackgroundTrimDoneCB). The epoch only ever moves forward,
- * never back to 0, so a delta that captured epoch 0 cannot match again after a
- * sync flush; the never-counted sentinel is skipped so no live epoch can equal
- * it. */
+/* Zero the stream histograms in 'meta' and start a new generation: every
+ * stream and group stamped with the old one is uncounted again, and a slot-trim
+ * delta captured against it is discarded on completion. The epoch wraps,
+ * skipping the never-counted sentinel. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
     if (++meta->stream_stats_epoch == STREAM_DISTRIB_NEVER_COUNTED) meta->stream_stats_epoch = 0;
     memset(meta->stream_hist, 0, sizeof(meta->stream_hist));
