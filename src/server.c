@@ -1214,8 +1214,10 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
-    /* Refresh unshared reply memory once per second for every client. */
-    int unshared_refreshed = c->last_unshared_refresh + 1000 <= now;
+    /* Refresh unshared reply memory roughly once per second for every client.
+     * Allow one cron tick of slack so that small jitter in the visiting
+     * interval doesn't make us skip a whole round (refresh every ~2s). */
+    int unshared_refreshed = c->last_unshared_refresh + 1000 - 1000/server.hz <= now;
     if (unshared_refreshed) {
         c->last_unshared_refresh = now;
         updateClientUnsharedReplyBytes(c);
