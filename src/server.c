@@ -6576,21 +6576,21 @@ static sds sdscatHistogramRow(sds info, int dbnum, const char *field, const int6
     };
 
     char buf[10000];
-    int cnt = 0, buflen = 0;
+    int printed = 0, buflen = 0;
 
     buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, field);
 
     for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
         if (row[i] == 0) continue;
         int res = snprintf(buf + buflen, sizeof(buf) - buflen,
-                           (cnt == 0) ? "%s=%llu" : ",%s=%llu",
+                           printed ? ",%s=%llu" : "%s=%llu",
                            expSizeLabels[i], (unsigned long long) row[i]);
         if (res < 0) break;
         buflen += res;
-        cnt += row[i];
+        printed = 1;
     }
 
-    if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
+    if (printed) info = sdscatprintf(info, "%s\r\n", buf);
     return info;
 }
 
