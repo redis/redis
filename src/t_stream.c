@@ -237,7 +237,7 @@ static inline streamDistribStamp *streamCGStamp(streamCG *cg) {
     return (streamDistribStamp *) cg->pel->metadata;
 }
 
-static int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric);
+static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric);
 static int64_t streamStreamSample(stream *s, streamDistribMetric metric);
 
 /* The metric ranges of the two units, and the width of the per-metric bits. */
@@ -318,7 +318,7 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
 static void streamStatsReenterStructural(redisDb *db, stream *s, streamCG *cg) {
     if (!server.stream_stats) return;
     int64_t cgroups = streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS);
-    int64_t consumers = streamCGroupSample(s, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS);
+    int64_t consumers = streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_CONSUMERS);
     streamUpdateStat(db, &s->distrib_epoch, &s->distrib_counted, STREAM_DISTRIB_STREAMS_CGROUPS, cgroups, cgroups);
     streamUpdateStat(db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS, consumers, consumers);
 }
@@ -357,7 +357,7 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
         streamCG *cg = ri.data;
         for (int m = STREAM_DISTRIB_FIRST_CGROUP_METRIC; m < STREAM_DISTRIB_MAX; m++) {
             streamDistribMetric metric = (streamDistribMetric) m;
-            int64_t sample = streamCGroupSample(s, cg, metric);
+            int64_t sample = streamCGroupSample(cg, metric);
             if (adding)
                 streamUpdateStat(db, &streamCGStamp(cg)->epoch, &streamCGStamp(cg)->counted, metric, -1, sample);
             else
@@ -2039,42 +2039,26 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     }
 }
 
-/* The histogram sample for one consumer group under a per-group 'metric': its
- * PEL size or its consumer count. A single accessor so the live path, the key
- * lifecycle hooks, the async slot-trim delta (cluster_asm.c) and the debug
- * assertion all bin the same value. Returns -1 for "no sample" (a group
- * entering or leaving the histogram), which streamDistribBin() also maps to
- * -1. Asking it about a per-stream metric is a caller bug -- the walkers keep
- * to their unit's range -- so debug builds assert and release builds answer
- * "no sample". */
-static int64_t streamCGroupSample(stream *s, streamCG *cg, streamDistribMetric metric) {
-    UNUSED(s);
+/* A group's sample under a per-group metric. */
+static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric) {
     switch (metric) {
-    case STREAM_DISTRIB_STREAMS_CGROUPS: /* per-stream: see streamStreamSample() */
-        debugServerAssert(metric >= STREAM_DISTRIB_FIRST_CGROUP_METRIC);
-        break;
     case STREAM_DISTRIB_CGROUPS_PEL: return (int64_t) raxSize(cg->pel);
     case STREAM_DISTRIB_CGROUPS_CONSUMERS: return (int64_t) raxSize(cg->consumers);
-    case STREAM_DISTRIB_MAX: break; /* not a real metric */
+    case STREAM_DISTRIB_STREAMS_CGROUPS: /* per-stream: streamStreamSample() */
+    case STREAM_DISTRIB_MAX: break;
     }
-    return -1; /* unreachable: every metric has a case above */
+    serverAssert(0 && "not a per-group metric");
 }
 
-/* The histogram sample for one stream under a per-stream 'metric': its consumer
- * group count -- 0 for a stream that never had a group, since s->cgroups is
- * allocated lazily. Same single-accessor role as streamCGroupSample(), and the
- * same rule for a metric of the other unit: a caller bug, asserted in debug
- * builds, "no sample" in release. */
+/* A stream's sample under a per-stream metric; cgroups is allocated lazily. */
 static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
     switch (metric) {
     case STREAM_DISTRIB_STREAMS_CGROUPS: return s->cgroups ? (int64_t) raxSize(s->cgroups) : 0;
     case STREAM_DISTRIB_CGROUPS_PEL:
-    case STREAM_DISTRIB_CGROUPS_CONSUMERS: /* per-group: see streamCGroupSample() */
-        debugServerAssert(metric < STREAM_DISTRIB_FIRST_CGROUP_METRIC);
-        break;
-    case STREAM_DISTRIB_MAX: break; /* not a real metric */
+    case STREAM_DISTRIB_CGROUPS_CONSUMERS: /* per-group: streamCGroupSample() */
+    case STREAM_DISTRIB_MAX: break;
     }
-    return -1; /* unreachable: every metric has a case above */
+    serverAssert(0 && "not a per-stream metric");
 }
 
 /* Bin every histogram sample stream 's' holds -- one per per-stream metric, and
@@ -2113,7 +2097,7 @@ void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_ep
         for (int m = STREAM_DISTRIB_FIRST_CGROUP_METRIC; m < STREAM_DISTRIB_MAX; m++) {
             if (!all && !(streamCGStamp(cg)->counted & (1u << m))) continue;
             streamDistribMetric metric = (streamDistribMetric) m;
-            int bin = streamDistribBin(streamCGroupSample(s, cg, metric));
+            int bin = streamDistribBin(streamCGroupSample(cg, metric));
             if (bin >= 0) tally[m][bin]++;
         }
     }
