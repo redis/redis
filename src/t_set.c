@@ -17,15 +17,6 @@
 #include "hyperloglog.h"
 #include "t_set_encoding.h"
 
-/* Keep the per-element iterator hot path inline in the command loops.
- * It helps a lot with certain targets, up to ~30-50% speed regression
- * without forcing the inlining. */
-#if defined(__GNUC__) || defined(__clang__)
-#define ALWAYS_INLINE __attribute__((always_inline)) inline
-#else
-#define ALWAYS_INLINE inline
-#endif
-
 /*-----------------------------------------------------------------------------
  * Set Commands
  *----------------------------------------------------------------------------*/
@@ -38,7 +29,7 @@
  * the single place that maps a set's encoding to its backend implementation;
  * every other function below dispatches through it instead of switching on
  * robj->encoding itself. */
-static ALWAYS_INLINE const setTypeOps *setTypeGetOps(int encoding) {
+static const setTypeOps *setTypeGetOps(int encoding) {
     switch (encoding) {
     case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
     case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
@@ -199,7 +190,7 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
 
 /* Check if an sds string is a member of the set. Returns 1 if the value is a
  * member of the set and 0 if it isn't. */
-ALWAYS_INLINE int setTypeIsMember(robj *subject, sds value) {
+int setTypeIsMember(robj *subject, sds value) {
     return setTypeIsMemberAux(subject, value, sdslen(value), 0, 1);
 }
 
@@ -209,7 +200,7 @@ ALWAYS_INLINE int setTypeIsMember(robj *subject, sds value) {
  * and llval is provided instead.
  *
  * Returns 1 if the value is a member of the set and 0 if it isn't. */
-ALWAYS_INLINE int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
+int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
     if (!str && set->encoding != OBJ_ENCODING_INTSET) {
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
@@ -253,7 +244,7 @@ void setTypeResetIterator(setTypeIterator *si) {
  * used field with values which are easy to trap if misused.
  *
  * When there are no more elements -1 is returned. */
-ALWAYS_INLINE int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
+int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
     if (si->typeOps->iterNext(si, str, len, llele) == -1) return -1;
     return si->encoding;
 }
@@ -265,7 +256,7 @@ ALWAYS_INLINE int setTypeNext(setTypeIterator *si, char **str, size_t *len, int6
  *
  * This function is the way to go for write operations where COW is not
  * an issue. */
-ALWAYS_INLINE sds setTypeNextObject(setTypeIterator *si) {
+sds setTypeNextObject(setTypeIterator *si) {
     int64_t intele = 0;
     char *str;
     size_t len = 0;
