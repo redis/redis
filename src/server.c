@@ -7949,12 +7949,7 @@ void loadDataFromDisk(void) {
         }
     }
 
-    if (loaded && server.aof_state == AOF_ON) {
-        /* On database upgrades, we store an rdb file on shutdown, and then start from it with preload-file.
-         * but we still need to convert the old AOF file (exact same content), otherwise,
-         * we'll end up doing a foreground AOFRW on startup. */
-        upgradeAofIfNeeded(server.aof_manifest);
-    } else if (!loaded && server.aof_state == AOF_ON) {
+    if (!loaded && server.aof_state == AOF_ON) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
