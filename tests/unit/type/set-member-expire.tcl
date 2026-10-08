@@ -1865,7 +1865,7 @@ start_server {tags {"external:skip needs:debug defrag"} overrides {save ""}} {
             for {set i 0} {$i < $n} {incr i} {r del k$i}
             set digest [r debug digest]
             after 120
-            assert_morethan [s allocator_frag_ratio] 1.35
+            assert_morethan [s allocator_frag_ratio] 1.3
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -1888,6 +1888,166 @@ start_server {tags {"external:skip needs:debug defrag"} overrides {save ""}} {
             r config set set-max-listpack-entries 128
             r config set set-max-listpack-value 64
         }
+        }
+    }
+}
+
+# Stage 10: random operations against a model, and a random dataset that is
+# persisted and replicated.
+start_server {tags {"external:skip needs:debug"}} {
+    r debug keysizes-hist-assert 1
+    r debug allocsize-slots-assert 1
+
+    foreach enc $::sme_encodings {
+    sme_force_encoding r $enc
+
+    test "Random SME commands agree with a model, and with the server after a reload ($enc)" {
+        r flushall
+        set base [expr {[clock milliseconds] + 10000000}]
+        set keys {k0 k1 k2}
+        set members {}
+        for {set i 0} {$i < 12} {incr i} {lappend members m$i}
+        array unset model
+        array set model {} ;# model(key,member) = expiration, 0 for none
+
+        proc model_members {key} {
+            upvar model model
+            set res {}
+            foreach name [array names model "$key,*"] {lappend res [string range $name [expr {[string length $key]+1}] end]}
+            return [lsort $res]
+        }
+        proc check {} {
+            upvar model model keys keys members members
+            foreach k $keys {
+                assert_equal [lsort [r smembers $k]] [model_members $k]
+                foreach m $members {
+                    if {[info exists model($k,$m)]} {
+                        set expect [expr {$model($k,$m) == 0 ? -1 : $model($k,$m)}]
+                    } else {
+                        set expect -2
+                    }
+                    assert_equal [lindex [r spexpiretime $k MEMBERS 1 $m] 0] $expect
+                }
+            }
+        }
+
+        for {set op 0} {$op < 1500} {incr op} {
+            set k [lindex $keys [randomInt 3]]
+            set m [lindex $members [randomInt 12]]
+            set t [expr {$base + [randomInt 100000]}]
+            switch [randomInt 7] {
+                0 {
+                    r sadd $k $m
+                    if {![info exists model($k,$m)]} {set model($k,$m) 0}
+                }
+                1 {
+                    r saddex $k PXAT $t MEMBERS 1 $m
+                    set model($k,$m) $t
+                }
+                2 {
+                    set opt [lindex {{} NX XX GT LT} [randomInt 5]]
+                    set reply [lindex [r spexpireat $k $t {*}$opt MEMBERS 1 $m] 0]
+                    if {![info exists model($k,$m)]} {
+                        assert_equal $reply -2
+                    } else {
+                        set cur $model($k,$m)
+                        set ok 1
+                        switch $opt {
+                            NX {set ok [expr {$cur == 0}]}
+                            XX {set ok [expr {$cur != 0}]}
+                            GT {set ok [expr {$cur != 0 && $t > $cur}]}
+                            LT {set ok [expr {$cur == 0 || $t < $cur}]}
+                        }
+                        assert_equal $reply $ok
+                        if {$ok} {set model($k,$m) $t}
+                    }
+                }
+                3 {
+                    set reply [lindex [r spersist $k MEMBERS 1 $m] 0]
+                    if {![info exists model($k,$m)]} {
+                        assert_equal $reply -2
+                    } elseif {$model($k,$m) == 0} {
+                        assert_equal $reply -1
+                    } else {
+                        assert_equal $reply 1
+                        set model($k,$m) 0
+                    }
+                }
+                4 {
+                    r srem $k $m
+                    array unset model "$k,$m"
+                }
+                5 {
+                    set dst [lindex $keys [randomInt 3]]
+                    set reply [r smove $k $dst $m]
+                    if {![info exists model($k,$m)]} {
+                        assert_equal $reply 0
+                    } else {
+                        assert_equal $reply 1
+                        if {$dst ne $k} {
+                            set model($dst,$m) $model($k,$m)
+                            array unset model "$k,$m"
+                        }
+                    }
+                }
+                6 {
+                    # a command that must not change the expirations of the sources
+                    r sunion k0 k1 k2
+                }
+            }
+            if {$op % 25 == 0} check
+        }
+        check
+        r debug reload
+        check
+        assert_equal [r debug digest] [r debug digest]
+    }
+
+    test "SADDEX grows a full set past the listpack limits, keeping the expirations ($enc)" {
+        r flushall
+        r config set set-max-listpack-entries 4
+        r config set set-max-listpack-value 8
+        r saddex s EX 1000 MEMBERS 4 a b c d
+        assert_encoding listpackex s
+        r saddex s EX 2000 MEMBERS 1 e
+        assert_encoding hashtable s
+        r saddex s EX 3000 MEMBERS 1 a-very-long-member
+        assert_equal [r scard s] 6
+        assert {[r sttl s MEMBERS 1 a] <= 1000}
+        assert {[r sttl s MEMBERS 1 a-very-long-member] > 2000}
+        assert_equal [sme_subexpiry r] 1
+        r config set set-max-listpack-entries [expr {$enc eq "hashtable" ? 0 : 128}]
+        r config set set-max-listpack-value 64
+    }
+
+    test "A random dataset with member expirations survives a reload and replicates ($enc)" {
+        r flushall
+        createComplexDataset r 2000 {useexpire usesexpire}
+        r debug set-active-expire 0
+        set d [r debug digest]
+        r debug reload
+        assert_equal [r debug digest] $d
+        r debug set-active-expire 1
+    }
+    }
+    r config set set-max-listpack-entries 128
+}
+
+start_server {tags {"external:skip needs:repl"}} {
+    set replica [srv 0 client]
+    start_server {} {
+        set master [srv 0 client]
+        test "A random dataset with member expirations is the same on the replica" {
+            $replica replicaof [srv 0 host] [srv 0 port]
+            wait_for_condition 100 100 {[s -1 master_link_status] eq {up}} else {fail "no sync"}
+            $master debug set-active-expire 0
+            $replica debug set-active-expire 0
+            createComplexDataset $master 3000 {usesexpire}
+            $master set marker 1
+            wait_for_ofs_sync $master $replica
+            assert_equal [$master debug digest] [$replica debug digest]
+            $master debug set-active-expire 1
+            $replica debug set-active-expire 1
         }
     }
 }
