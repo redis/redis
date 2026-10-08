@@ -30,10 +30,10 @@
  * Redis will also need to expose kind of HEXPIRESCAN and HEXPIRECOUNT for this
  * idea. Yet to be better defined.
  *
- * HFE_MAX_ABS_TIME_MSEC constraint must be enforced only at API level. Internally,
- * the expiration time can be up to EB_EXPIRE_TIME_MAX for future readiness.
+ * The SUBKEY_MAX_ABS_TIME_MSEC constraint (see server.h) must be enforced only at API
+ * level. Internally, the expiration time can be up to EB_EXPIRE_TIME_MAX for future
+ * readiness.
  */
-#define HFE_MAX_ABS_TIME_MSEC (EB_EXPIRE_TIME_MAX >> 2)
 
 typedef enum GetFieldRes {
     /* common (Used by hashTypeGet* value family) */
@@ -4638,38 +4638,6 @@ void himportDiscardallCommand(client *c) {
     addReplyLongLong(c, himportFieldsetsFree(c));
 }
 
-/* Parse expire time from argument and do boundary checks. */
-static int parseExpireTime(client *c, robj *o, int unit, long long basetime,
-                           long long *expire)
-{
-    long long val;
-
-    /* Read the expiry time from command */
-    if (getLongLongFromObjectOrReply(c, o, &val, NULL) != C_OK)
-        return C_ERR;
-
-    if (val < 0) {
-        addReplyError(c,"invalid expire time, must be >= 0");
-        return C_ERR;
-    }
-
-    if (unit == UNIT_SECONDS) {
-        if (val > (long long) HFE_MAX_ABS_TIME_MSEC / 1000) {
-            addReplyErrorExpireTime(c);
-            return C_ERR;
-        }
-        val *= 1000;
-    }
-
-    if (val > (long long) HFE_MAX_ABS_TIME_MSEC - basetime) {
-        addReplyErrorExpireTime(c);
-        return C_ERR;
-    }
-    val += basetime;
-    *expire = val;
-    return C_OK;
-}
-
 /* Flags that are used as part of HGETEX and HSETEX commands. */
 #define HFE_EX       (1<<0) /* Expiration time in seconds */
 #define HFE_PX       (1<<1) /* Expiration time in milliseconds */
@@ -4742,7 +4710,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_EX;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_SECONDS,
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_SECONDS,
                                 commandTimeSnapshot(), expire_time) != C_OK)
                 return C_ERR;
 
@@ -4756,7 +4724,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_PX;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_MILLISECONDS,
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_MILLISECONDS,
                                 commandTimeSnapshot(), expire_time) != C_OK)
                 return C_ERR;
 
@@ -4770,7 +4738,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_EXAT;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_SECONDS, 0, expire_time) != C_OK)
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_SECONDS, 0, expire_time) != C_OK)
                 return C_ERR;
 
             *expire_time_pos = i;
@@ -4783,7 +4751,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_PXAT;
             i++;
-            if (parseExpireTime(c, c->argv[i], UNIT_MILLISECONDS, 0,
+            if (parseSubkeyExpireTime(c, c->argv[i], UNIT_MILLISECONDS, 0,
                                 expire_time) != C_OK)
                 return C_ERR;
 
@@ -6332,7 +6300,7 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
     args->fieldsPos = -1;
     args->expireTimePos = 2;
 
-    if (parseExpireTime(c, c->argv[2], unit, basetime, &args->expireTime) != C_OK) {
+    if (parseSubkeyExpireTime(c, c->argv[2], unit, basetime, &args->expireTime) != C_OK) {
         return C_ERR;
     }
 

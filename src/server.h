@@ -3414,6 +3414,13 @@ void addReplyErrorSdsSafe(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyErrorArity(client *c);
 void addReplyErrorExpireTime(client *c);
+
+/* The absolute expiration time of a hash field or set member given by a user
+ * is capped to this value (the top bits of the 48-bit ebuckets range stay
+ * reserved). Enforced only by parseSubkeyExpireTime(); internally the time can
+ * be up to EB_EXPIRE_TIME_MAX. */
+#define SUBKEY_MAX_ABS_TIME_MSEC (EB_EXPIRE_TIME_MAX >> 2)
+int parseSubkeyExpireTime(client *c, robj *o, int unit, long long basetime, long long *expire);
 void addReplyStatus(client *c, const char *status);
 void addReplyStatusSafe(client *c, const char *s);
 void addReplyDouble(client *c, double d);

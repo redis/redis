@@ -948,3 +948,37 @@ void touchCommand(client *c) {
         if (lookupKeyRead(c->db,c->argv[j]) != NULL) touched++;
     addReplyLongLong(c,touched);
 }
+
+/* Parse the expire time of a hash field or set member from a command argument
+ * and do boundary checks. Shared by the hash field and set member expiration
+ * commands, so the numeric rules are identical. */
+int parseSubkeyExpireTime(client *c, robj *o, int unit, long long basetime,
+                           long long *expire)
+{
+    long long val;
+
+    /* Read the expiry time from command */
+    if (getLongLongFromObjectOrReply(c, o, &val, NULL) != C_OK)
+        return C_ERR;
+
+    if (val < 0) {
+        addReplyError(c,"invalid expire time, must be >= 0");
+        return C_ERR;
+    }
+
+    if (unit == UNIT_SECONDS) {
+        if (val > (long long) SUBKEY_MAX_ABS_TIME_MSEC / 1000) {
+            addReplyErrorExpireTime(c);
+            return C_ERR;
+        }
+        val *= 1000;
+    }
+
+    if (val > (long long) SUBKEY_MAX_ABS_TIME_MSEC - basetime) {
+        addReplyErrorExpireTime(c);
+        return C_ERR;
+    }
+    val += basetime;
+    *expire = val;
+    return C_OK;
+}
