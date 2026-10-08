@@ -7338,7 +7338,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         }
     }
 
-    /* Stream statistics: everything-only, populated when stream-stats is on. */
+    /* Streams: not in INFO default; rows only while stream-stats is on. */
     if (all_sections || (dictFind(section_dict,"streams") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Streams\r\n");
