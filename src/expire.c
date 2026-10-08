@@ -176,9 +176,17 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 
     kvobj *kv = (kvobj *) item;
 
-    /* currently we only support hash type sub-expire */
-    assert(kv->type == OBJ_HASH);
-    uint64_t nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
+    uint64_t nextExpTime;
+    switch (kv->type) {
+    case OBJ_HASH:
+        nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
+        break;
+    case OBJ_SET:
+        /* No set is registered in db->subexpires yet. */
+        serverPanic("Active expiration of set members is not implemented yet");
+    default:
+        serverPanic("Unexpected type in subexpires: %d", kv->type);
+    }
 
     /* If hash has no more fields to expire or got deleted, indicate
      * to remove it from HFE DB to the caller ebExpire() */
@@ -187,7 +195,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
          * and indicate to add it back to global HFE DS */
-        ebSetMetaExpTime(hashGetExpireMeta(item), nextExpTime);
+        ebSetMetaExpTime(subexpiresBucketsType.getExpireMeta(item), nextExpTime);
         return ACT_UPDATE_EXP_ITEM;
     }
 }
