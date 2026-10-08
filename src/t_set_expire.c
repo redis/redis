@@ -1016,19 +1016,10 @@ void saddexCommand(client *c) {
         for (int i = 0; i < memberCount; i++) {
             robj *memberObj = c->argv[firstMemberPos + i];
             sds member = memberObj->ptr;
-            const setTypeOps *ops = setTypeGetOps(set->encoding);
-
             if (setsExpire) {
-                /* Add or update the member, and set its expiration. */
-                int target_enc;
-                int added = ops->rawAddEx(set, member, sdslen(member), NULL, 1, 0,
-                                          &target_enc, (uint64_t)expireTime);
-                if (added == 0) {
-                    /* A live member that already exists: update its expiration. */
-                    serverAssert(ops->setExpire(set, member, sdslen(member), 0, 1,
-                                                (uint64_t)expireTime));
-                }
-                serverAssert(added != -1);
+                /* Add or update the member, and set its expiration. The set
+                 * grows to a bigger encoding, keeping the expirations, if needed. */
+                setTypeAddExAux(set, member, sdslen(member), 0, 1, (uint64_t)expireTime);
                 vecPush(vupdated, memberObj);
             } else if (!setTypeAdd(set, member) && setTypeHasExpireSupport(set) &&
                        !(flags & SME_KEEPTTL))
