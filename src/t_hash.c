@@ -121,11 +121,6 @@ dictType entryHashDictTypeWithHFE = {
  * triggered from activeExpireCycle() function and in turn will invoke "local"
  * HFE Active sub-expiration for each hash instance that has expired fields.
  *----------------------------------------------------------------------------*/
-EbucketsType subexpiresBucketsType = {
-    .onDeleteItem = NULL,
-    .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
-    .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
-};
 
 /* htExpireMetadata - ebuckets-type for hash fields with time-Expiration. ebuckets
  * instance Will be attached to each hash that has at least one field with expiry
@@ -6286,6 +6281,16 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     if (expCtx->activeEx)
         server.stat_expired_subkeys_active++;
     return ACT_REMOVE_EXP_ITEM;
+}
+
+/* Returns 1 if the hash currently has an ExpireMeta attached, i.e. it is
+ * encoded as LISTPACK_EX or as a hashtable with the HFE dict type. Only such
+ * hashes can be registered in db->subexpires. */
+int hashHasSubexpiry(const kvobj *o) {
+    serverAssert(o->type == OBJ_HASH);
+    return o->encoding == OBJ_ENCODING_LISTPACK_EX ||
+           (o->encoding == OBJ_ENCODING_HT &&
+            ((dict *)o->ptr)->type == &entryHashDictTypeWithHFE);
 }
 
 /* Retrieve the ExpireMeta associated with the hash.
