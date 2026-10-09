@@ -1777,10 +1777,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         R 1 CLUSTER MIGRATION IMPORT 0 100
 
-        # Wait until the background trim has actually been scheduled and its
-        # completion callback is still outstanding.
+        # Wait until the background trim has been handed to the BIO thread:
+        # lazyfree_pending_objects is raised on the main thread at schedule and
+        # drops back to zero once the detached slot has been freed.
         wait_for_condition 1000 1 {
-            [CI 0 cluster_slot_migration_background_trim_running] > 0
+            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0
         } else {
             fail "background trim did not start; race window not exercised"
         }
@@ -1790,12 +1791,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall sync
         R 0 exec
 
-        # The old background trim must still be outstanding after the histogram
-        # reset. Otherwise the stale callback did not span the reset and this run
-        # would not exercise the bug.
-        assert {
-            [CI 0 cluster_slot_migration_background_trim_running] > 0
-        }
+        # The BIO thread must still be freeing the trimmed slot after the
+        # histogram reset. Otherwise the completion callback did not span the
+        # reset and this run would not exercise the bug.
+        assert {[getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0}
 
         # Add a fresh group in the same PEL bin that the stale delta would
         # decrement.
@@ -1807,16 +1806,16 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 xreadgroup group g c count 1 streams $keep >
         assert_equal "1=1" [stream_pel_hist 0]
 
-        # Wait for the exact completion callback that performs the epoch check.
-        # bg_trim_running is decremented only after that callback has handled the
-        # histogram delta, so once it reaches zero no stale subtraction can still
-        # arrive. Not wait_for_asm_done(): that only covers active_trim_jobs, so it
-        # can return while a background trim's callback is still queued.
+        # Wait for the BIO thread to finish freeing the trimmed slot, then give
+        # the main thread time to run the completion callback that performs the
+        # epoch check. There is no observable for the callback itself; a late
+        # callback could only hide the bug, never fail a correct build.
         wait_for_condition 1000 10 {
-            [CI 0 cluster_slot_migration_background_trim_running] == 0
+            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] == 0
         } else {
-            fail "background trim completion callback did not run"
+            fail "background trim did not finish"
         }
+        after 100
 
         assert_equal "1=1" [stream_pel_hist 0]
         # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
