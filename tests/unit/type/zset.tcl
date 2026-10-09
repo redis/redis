@@ -634,6 +634,48 @@ start_server {tags {"zset"}} {
             assert_error "*not*float*" {r zrangebyscore fooz 1 NaN}
         }
 
+        test "ZRANGEBYSCORE with malformed min or max - $encoding" {
+            assert_error "*not*float*" {r zrangebyscore fooz ( +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz -inf (}
+            assert_error "*not*float*" {r zrangebyscore fooz ( (}
+            assert_error "*not*float*" {r zrangebyscore fooz "" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz -inf ""}
+            assert_error "*not*float*" {r zrangebyscore fooz "" ""}
+            assert_error "*not*float*" {r zrangebyscore fooz "1\x00junk" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz -inf "1\x00junk"}
+            assert_error "*not*float*" {r zrangebyscore fooz "(1\x00junk" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz " 1.5" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz -inf " 1.5"}
+            assert_error "*not*float*" {r zrangebyscore fooz "( 1.5" +inf}
+            assert_error "*not*float*" {r zrangebyscore fooz "\t1" +inf}
+        }
+
+        test "ZREVRANGEBYSCORE with malformed min or max - $encoding" {
+            assert_error "*not*float*" {r zrevrangebyscore fooz +inf (}
+            assert_error "*not*float*" {r zrevrangebyscore fooz ( -inf}
+            assert_error "*not*float*" {r zrevrangebyscore fooz "" -inf}
+        }
+
+        test "ZCOUNT with malformed min or max - $encoding" {
+            assert_error "*not*float*" {r zcount fooz ( +inf}
+            assert_error "*not*float*" {r zcount fooz -inf (}
+            assert_error "*not*float*" {r zcount fooz "" +inf}
+        }
+
+        test "ZREMRANGEBYSCORE with malformed min or max - $encoding" {
+            create_default_zset
+            assert_error "*not*float*" {r zremrangebyscore zset ( +inf}
+            assert_error "*not*float*" {r zremrangebyscore zset -inf (}
+            assert_error "*not*float*" {r zremrangebyscore zset "" +inf}
+            assert_equal 7 [r zcard zset]
+        }
+
+        test "ZRANGESTORE BYSCORE with malformed min or max - $encoding" {
+            assert_error "*not*float*" {r zrangestore dst fooz ( +inf BYSCORE}
+            assert_error "*not*float*" {r zrangestore dst fooz -inf ( BYSCORE}
+            assert_error "*not*float*" {r zrangestore dst fooz "" +inf BYSCORE}
+        } {} {cluster:skip}
+
         proc create_default_lex_zset {} {
             create_zset zset {0 alpha 0 bar 0 cool 0 down
                               0 elephant 0 foo 0 great 0 hill
