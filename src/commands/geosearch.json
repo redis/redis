@@ -18,6 +18,9 @@
         "acl_categories": [
             "GEO"
         ],
+        "command_tips": [
+            "CACHEABLE_REPLY"
+        ],
         "key_specs": [
             {
                 "flags": [
