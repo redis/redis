@@ -264,14 +264,11 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         assert {$omem_shared >= $val_size}
         assert_equal 0 $omem_unshared
 
-        # mem_clients_normal_shared is incremented at write time, before the reply is sent
+        # mem_clients_normal_shared is updated incrementally, so it doesn't reflect the reply yet;
+        # normal.unshared is 0 since the key is still in keyspace
         set info_mem [lindex $res 2]
-        assert {[getInfoProperty $info_mem mem_clients_normal_shared] >= $val_size}
         assert_equal 0 [getInfoProperty $info_mem mem_clients_normal_unshared]
-
-        # MEMORY STATS exposes the same shared bytes; normal.unshared is 0 since the key is still in keyspace
         set mem_stats [lindex $res 3]
-        assert {[dict get $mem_stats clients.normal.shared] >= $val_size}
         assert_equal 0 [dict get $mem_stats clients.normal.unshared] ;# key still in keyspace
 
         # After the reply is fully sent, the global counter must return to 0

@@ -237,6 +237,8 @@ client *createClient(connection *conn) {
     c->io_last_repl_cron = 0;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
+    c->last_memory_shared = 0;
+    c->last_memory_unshared = 0;
     c->module_blocked_client = NULL;
     c->module_auth_ctx = NULL;
     c->auth_callback = NULL;
@@ -2097,23 +2099,6 @@ void updateClientUnsharedReplyBytes(client *c) {
     }
 }
 
-/* Compute shared reply memory: total shared reply bytes and the unshared subset where the key
- * has been deleted and the client buffer is the sole holder. */
-void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
-    listNode *ln;
-    listIter li;
-    listRewind(server.clients_with_pending_ref_reply, &li);
-    while ((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
-
-        /* Total shared reply bytes (logical size, shared with keyspace). */
-        *shared_mem += c->reply_bytes_shared;
-
-        /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
-        *unshared_mem += c->reply_bytes_unshared;
-    }
-}
-
 /* Drop all of the client's Pub/Sub state: unsubscribe every channel, shard
  * channel and pattern — without notifying the client — and clear the Pub/Sub
  * client flags (including the provenance re-auth hint). */
@@ -2388,9 +2373,12 @@ void freeClient(client *c) {
      * was already detached by replicationCacheMaster(), so gating on c->conn
      * alone would skip the subtraction and leak its size from
      * mem_clients_normal on every discarded partial resync. */
-    if (c->conn || c == server.cached_master)
+    if (c->conn || c == server.cached_master) {
         server.stat_clients_type_memory[c->last_memory_type] -=
             c->last_memory_usage;
+        server.stat_clients_shared_memory -= c->last_memory_shared;
+        server.stat_clients_unshared_memory -= c->last_memory_unshared;
+    }
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different

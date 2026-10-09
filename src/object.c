@@ -1491,7 +1491,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->clients_slaves;
 
     /* Compute shared/unshared reply memory. */
-    getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
+    mh->clients_normal_shared = server.stat_clients_shared_memory;
+    mh->clients_normal_unshared = server.stat_clients_unshared_memory;
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
