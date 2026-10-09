@@ -1674,10 +1674,22 @@ int dictExpandIfNeeded(dict *d) {
     return DICT_ERR;
 }
 
+/* Returns 1 if the dict may be resized automatically on add/delete.
+ *
+ * Besides an explicit pause, a dict whose type forces a full rehash on resize
+ * must not be resized while rehashing is paused (e.g. by a safe iterator): the
+ * full rehash ignores the pause and moves every entry into a new table under
+ * the iterator, which then skips entries or stops early. */
+static int dictAutoResizeAllowed(dict *d) {
+    if (d->pauseAutoResize > 0) return 0;
+    if (d->type->force_full_rehash && dictIsRehashingPaused(d)) return 0;
+    return 1;
+}
+
 /* Expand the hash table if needed (OK=Expanded, ERR=Not expanded) */
 static int _dictExpandIfNeeded(dict *d) {
     /* Automatic resizing is disallowed. Return */
-    if (d->pauseAutoResize > 0) return DICT_ERR;
+    if (!dictAutoResizeAllowed(d)) return DICT_ERR;
     
     return dictExpandIfNeeded(d);
 }
@@ -1712,7 +1724,7 @@ int dictShrinkIfNeeded(dict *d) {
 static void _dictShrinkIfNeeded(dict *d) 
 {
     /* Automatic resizing is disallowed. Return */
-    if (d->pauseAutoResize > 0) return;
+    if (!dictAutoResizeAllowed(d)) return;
 
     dictShrinkIfNeeded(d);
 }
@@ -2169,6 +2181,40 @@ int dictTest(int argc, char **argv, int flags) {
     TEST("Restore to original state") {
         dictEmpty(d, NULL);
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+    }
+
+    TEST("Delete all entries under a safe iterator of a force_full_rehash dict") {
+        /* Deleting under a safe iterator may trigger a shrink. With
+         * force_full_rehash that shrink used to rehash all entries into the
+         * new table under the iterator, so some entries were never visited. */
+        dictType forceRehashType = BenchmarkDictType;
+        forceRehashType.force_full_rehash = 1;
+        dict *fd = dictCreate(&forceRehashType);
+        for (j = 0; j < 1000; j++) {
+            retval = dictAdd(fd, stringFromLongLong(j), (void*)j);
+            assert(retval == DICT_OK);
+        }
+        assert(!dictIsRehashing(fd));
+        unsigned long buckets_before = dictBuckets(fd);
+
+        long visited = 0;
+        dictIterator iter;
+        dictInitSafeIterator(&iter, fd);
+        while ((de = dictNext(&iter)) != NULL) {
+            retval = dictDelete(fd, dictGetKey(de));
+            assert(retval == DICT_OK);
+            visited++;
+        }
+        dictResetIterator(&iter);
+        assert(visited == 1000);
+        assert(dictSize(fd) == 0);
+        assert(dictBuckets(fd) == buckets_before);
+
+        /* Resizing is allowed again once the iterator is released. */
+        assert(dictShrinkIfNeeded(fd) == DICT_OK);
+        assert(!dictIsRehashing(fd));
+        assert(dictBuckets(fd) < buckets_before);
+        dictRelease(fd);
     }
 
     TEST("dictMemUsage sizes no_value entries by dictEntryNoValue (not dictEntry)") {
