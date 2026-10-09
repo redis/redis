@@ -437,7 +437,7 @@ JSON attributes are converted in this way:
 - Booleans to 0 or 1 number.
 - Arrays to tuples (for "in" operator), but only if composed of just numbers and strings.
 
-Any other type is ignored, and accessig it will make the expression evaluate to false.
+Any other type is ignored, and accessing it will make the expression evaluate to false.
 
 ### The IN operator
 
