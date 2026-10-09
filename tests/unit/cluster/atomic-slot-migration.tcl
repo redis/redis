@@ -1733,31 +1733,16 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
     }
 
-    # An async slot-trim delta is computed on the BIO thread against the live
-    # histogram generation it was scheduled for. Two things can invalidate it
-    # before the subtraction lands: the kvstore being replaced (caught by the
-    # target_kvstore pointer) and the histogram being reset while the pointer stays
-    # the same.
-    #
-    # A synchronous FLUSH does the latter: emptyDbStructure() calls kvstoreEmpty()
-    # in place, so kvstoreOnEmpty() zeroes the histograms without changing the
-    # kvstore identity. A background trim already handed to BIO is not cancelled,
-    # so the histogram epoch must change on that reset or its stale delta can be
-    # subtracted from samples created after the FLUSH.
-    #
-    # FLUSHALL SYNC is normally optimized into a blocking async flush. MULTI puts
-    # the client in CLIENT_AVOID_BLOCKING_ASYNC_FLUSH -- that mask includes
-    # CLIENT_MULTI and CLIENT_DENY_BLOCKING -- which skips the optimization and
-    # forces the synchronous in-place path. SYNC is spelled out below because plain
-    # FLUSHALL is only synchronous while lazyfree-lazy-user-flush defaults to no.
-    #
-    # The replacement group is deliberately put in the same PEL bin as the
-    # migrated group so that, without the generation check, the stale subtraction
-    # removes the fresh sample instead of merely driving an empty bin negative.
-    # The keysizes rows share the check: the migrated slot's strings and stream
-    # must not be subtracted from the fresh keyspace either.
-    # Timing-dependent by design: the background trim must still be in flight
-    # when the synchronous FLUSH lands.
+    # A background trim tallies its histogram delta on the BIO thread against
+    # the generation it was scheduled for. A synchronous FLUSH empties the
+    # kvstore in place, zeroing the histograms without changing the kvstore
+    # identity, and does not cancel a trim already handed to BIO. Without the
+    # generation check that trim's stale delta would be subtracted from samples
+    # created after the FLUSH. The replacement group is put in the same PEL bin
+    # as the trimmed one so a stale subtraction removes the fresh sample rather
+    # than merely driving an empty bin negative; the keysizes rows are checked
+    # the same way. Timing-dependent by design: the trim must still be in flight
+    # when the FLUSH lands.
     test "Slot bg-trim delta is dropped when a sync FLUSH resets the histogram" {
         R 0 debug asm-trim-method bg
         R 0 flushall
@@ -1786,7 +1771,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "background trim did not start; race window not exercised"
         }
 
-        # Force the synchronous, in-place FLUSH path.
+        # MULTI forces FLUSHALL SYNC to run synchronously, in place.
         R 0 multi
         R 0 flushall sync
         R 0 exec
