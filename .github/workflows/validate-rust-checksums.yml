@@ -1,0 +1,150 @@
+name: Validate Rust Checksums
+
+on:
+  push:
+    paths:
+      - 'modules/Makefile'
+      - '.github/workflows/validate-rust-checksums.yml'
+  pull_request:
+    paths:
+      - 'modules/Makefile'
+      - '.github/workflows/validate-rust-checksums.yml'
+
+permissions:
+  pull-requests: write
+
+jobs:
+  validate-rust-checksums:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract Rust version and checksums from Makefile
+        id: extract-checksums
+        run: |
+          # Extract Rust version from Makefile
+          RUST_VERSION=$(grep -o 'RUST_VERSION=[0-9.]*' modules/Makefile | cut -d'=' -f2)
+          echo "rust_version=$RUST_VERSION" >> $GITHUB_OUTPUT
+          echo "Found Rust version: $RUST_VERSION"
+          
+          # Extract checksums from Makefile
+          X86_64_GNU_SHA=$(grep -A1 'x86_64-unknown-linux-gnu' modules/Makefile | grep 'RUST_SHA256=' | cut -d'"' -f2)
+          X86_64_MUSL_SHA=$(grep -A1 'x86_64-unknown-linux-musl' modules/Makefile | grep 'RUST_SHA256=' | cut -d'"' -f2)
+          AARCH64_GNU_SHA=$(grep -A1 'aarch64-unknown-linux-gnu' modules/Makefile | grep 'RUST_SHA256=' | cut -d'"' -f2)
+          AARCH64_MUSL_SHA=$(grep -A1 'aarch64-unknown-linux-musl' modules/Makefile | grep 'RUST_SHA256=' | cut -d'"' -f2)
+          
+          echo "x86_64_gnu_sha=$X86_64_GNU_SHA" >> $GITHUB_OUTPUT
+          echo "x86_64_musl_sha=$X86_64_MUSL_SHA" >> $GITHUB_OUTPUT
+          echo "aarch64_gnu_sha=$AARCH64_GNU_SHA" >> $GITHUB_OUTPUT
+          echo "aarch64_musl_sha=$AARCH64_MUSL_SHA" >> $GITHUB_OUTPUT
+          
+          echo "Extracted checksums:"
+          echo "  x86_64-unknown-linux-gnu: $X86_64_GNU_SHA"
+          echo "  x86_64-unknown-linux-musl: $X86_64_MUSL_SHA"
+          echo "  aarch64-unknown-linux-gnu: $AARCH64_GNU_SHA"
+          echo "  aarch64-unknown-linux-musl: $AARCH64_MUSL_SHA"
+
+      - name: Fetch official Rust checksums
+        id: fetch-official
+        run: |
+          RUST_VERSION="${{ steps.extract-checksums.outputs.rust_version }}"
+          
+          # Fetch official checksums from Rust distribution
+          echo "Fetching official checksums for Rust $RUST_VERSION..."
+          
+          X86_64_GNU_OFFICIAL=$(curl -s "https://static.rust-lang.org/dist/rust-${RUST_VERSION}-x86_64-unknown-linux-gnu.tar.xz.sha256" | cut -d' ' -f1)
+          X86_64_MUSL_OFFICIAL=$(curl -s "https://static.rust-lang.org/dist/rust-${RUST_VERSION}-x86_64-unknown-linux-musl.tar.xz.sha256" | cut -d' ' -f1)
+          AARCH64_GNU_OFFICIAL=$(curl -s "https://static.rust-lang.org/dist/rust-${RUST_VERSION}-aarch64-unknown-linux-gnu.tar.xz.sha256" | cut -d' ' -f1)
+          AARCH64_MUSL_OFFICIAL=$(curl -s "https://static.rust-lang.org/dist/rust-${RUST_VERSION}-aarch64-unknown-linux-musl.tar.xz.sha256" | cut -d' ' -f1)
+          
+          echo "x86_64_gnu_official=$X86_64_GNU_OFFICIAL" >> $GITHUB_OUTPUT
+          echo "x86_64_musl_official=$X86_64_MUSL_OFFICIAL" >> $GITHUB_OUTPUT
+          echo "aarch64_gnu_official=$AARCH64_GNU_OFFICIAL" >> $GITHUB_OUTPUT
+          echo "aarch64_musl_official=$AARCH64_MUSL_OFFICIAL" >> $GITHUB_OUTPUT
+          
+          echo "Official checksums:"
+          echo "  x86_64-unknown-linux-gnu: $X86_64_GNU_OFFICIAL"
+          echo "  x86_64-unknown-linux-musl: $X86_64_MUSL_OFFICIAL"
+          echo "  aarch64-unknown-linux-gnu: $AARCH64_GNU_OFFICIAL"
+          echo "  aarch64-unknown-linux-musl: $AARCH64_MUSL_OFFICIAL"
+
+      - name: Validate checksums
+        run: |
+          echo "Validating Rust checksums..."
+          
+          # Compare checksums
+          ERRORS=0
+          
+          if [ "${{ steps.extract-checksums.outputs.x86_64_gnu_sha }}" != "${{ steps.fetch-official.outputs.x86_64_gnu_official }}" ]; then
+            echo "❌ ERROR: x86_64-unknown-linux-gnu checksum mismatch!"
+            echo "  Makefile: ${{ steps.extract-checksums.outputs.x86_64_gnu_sha }}"
+            echo "  Official: ${{ steps.fetch-official.outputs.x86_64_gnu_official }}"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ x86_64-unknown-linux-gnu checksum is correct"
+          fi
+          
+          if [ "${{ steps.extract-checksums.outputs.x86_64_musl_sha }}" != "${{ steps.fetch-official.outputs.x86_64_musl_official }}" ]; then
+            echo "❌ ERROR: x86_64-unknown-linux-musl checksum mismatch!"
+            echo "  Makefile: ${{ steps.extract-checksums.outputs.x86_64_musl_sha }}"
+            echo "  Official: ${{ steps.fetch-official.outputs.x86_64_musl_official }}"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ x86_64-unknown-linux-musl checksum is correct"
+          fi
+          
+          if [ "${{ steps.extract-checksums.outputs.aarch64_gnu_sha }}" != "${{ steps.fetch-official.outputs.aarch64_gnu_official }}" ]; then
+            echo "❌ ERROR: aarch64-unknown-linux-gnu checksum mismatch!"
+            echo "  Makefile: ${{ steps.extract-checksums.outputs.aarch64_gnu_sha }}"
+            echo "  Official: ${{ steps.fetch-official.outputs.aarch64_gnu_official }}"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ aarch64-unknown-linux-gnu checksum is correct"
+          fi
+          
+          if [ "${{ steps.extract-checksums.outputs.aarch64_musl_sha }}" != "${{ steps.fetch-official.outputs.aarch64_musl_official }}" ]; then
+            echo "❌ ERROR: aarch64-unknown-linux-musl checksum mismatch!"
+            echo "  Makefile: ${{ steps.extract-checksums.outputs.aarch64_musl_sha }}"
+            echo "  Official: ${{ steps.fetch-official.outputs.aarch64_musl_official }}"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ aarch64-unknown-linux-musl checksum is correct"
+          fi
+          
+          if [ $ERRORS -gt 0 ]; then
+            echo ""
+            echo "❌ Validation failed with $ERRORS error(s)!"
+            echo "Please update the Rust checksums in modules/Makefile with the correct official values."
+            exit 1
+          else
+            echo ""
+            echo "✅ All Rust checksums are valid!"
+          fi
+
+      - name: Comment on PR (if validation fails)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = `## ❌ Rust Checksum Validation Failed
+            
+            The Rust SHA256 checksums in \`modules/Makefile\` do not match the official checksums from rust-lang.org.
+            
+            Please update the checksums with the correct values shown in the workflow logs.
+            
+            You can get the correct checksums by running:
+            \`\`\`bash
+            RUST_VERSION=\$(grep -o 'RUST_VERSION=[0-9.]*' modules/Makefile | cut -d'=' -f2)
+            curl -s "https://static.rust-lang.org/dist/rust-\${RUST_VERSION}-x86_64-unknown-linux-gnu.tar.xz.sha256"
+            curl -s "https://static.rust-lang.org/dist/rust-\${RUST_VERSION}-x86_64-unknown-linux-musl.tar.xz.sha256"
+            curl -s "https://static.rust-lang.org/dist/rust-\${RUST_VERSION}-aarch64-unknown-linux-gnu.tar.xz.sha256"
+            curl -s "https://static.rust-lang.org/dist/rust-\${RUST_VERSION}-aarch64-unknown-linux-musl.tar.xz.sha256"
+            \`\`\``;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
