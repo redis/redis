@@ -7,15 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "sb.h"
+#include "bloom.h"
 
-#include "../../src/redismodule.h"
+#include "zmalloc.h"
 
-#define BLOOM_TRYCALLOC(...)                                                                       \
-    RedisModule_TryCalloc ? RedisModule_TryCalloc(__VA_ARGS__) : RedisModule_Calloc(__VA_ARGS__)
-#define BLOOM_FREE RedisModule_Free
+#define BLOOM_TRYCALLOC(n, size) ztrycalloc((n) * (size))
+#define BLOOM_FREE zfree
 
-#include "bloomalgo.h"
+#include "bloom_filter.h"
 
 #include <string.h>
 #include <limits.h>
@@ -31,17 +30,14 @@ bloom_hashval bloom_calc_hash64(const void *buffer, int len);
 #define ERROR_TIGHTENING_RATIO 0.5
 #define CUR_FILTER(sb) ((sb)->filters + ((sb)->nfilters - 1))
 static int SBChain_AddLink(SBChain *chain, uint64_t size, double error_rate) {
-    chain->filters =
-        RedisModule_Realloc(chain->filters, sizeof(*chain->filters) * (chain->nfilters + 1));
-
-    SBLink *newlink = chain->filters + chain->nfilters;
-    *newlink = (SBLink){
-        .size = 0,
-    };
-    int rc = bloom_init(&newlink->inner, size, error_rate, chain->options);
+    SBLink newlink = {0};
+    int rc = bloom_init(&newlink.inner, size, error_rate, chain->options);
     if (rc != 0) {
         return rc == 1 ? SB_INVALID : SB_OOM;
     }
+    chain->filters =
+        zrealloc(chain->filters, sizeof(*chain->filters) * (chain->nfilters + 1));
+    chain->filters[chain->nfilters] = newlink;
     chain->nfilters++;
 
     return SB_SUCCESS;
@@ -55,13 +51,13 @@ void SBChain_Free(SBChain *sb) {
     if (sb->filters) {
         for (size_t ii = 0; ii < sb->nfilters; ++ii) {
             if (sb->filters[ii].inner.bf) {
-                RedisModule_Free(sb->filters[ii].inner.bf);
+                zfree(sb->filters[ii].inner.bf);
             }
         }
-        RedisModule_Free(sb->filters);
+        zfree(sb->filters);
     }
 
-    RedisModule_Free(sb);
+    zfree(sb);
 }
 
 static int SBChain_AddToLink(SBLink *lb, bloom_hashval hash) {
@@ -90,6 +86,8 @@ int SBChain_Add(SBChain *sb, const void *data, size_t len) {
             return 0;
         }
     }
+
+    if (sb->size == SIZE_MAX) return -1;
 
     // Determine if we need to add more items?
     SBLink *cur = CUR_FILTER(sb);
@@ -134,7 +132,7 @@ SBChain *SB_NewChain(uint64_t initsize, double error_rate, unsigned options, uns
         *err = SB_INVALID;
         return NULL;
     }
-    SBChain *sb = RedisModule_Calloc(1, sizeof(*sb));
+    SBChain *sb = zcalloc_num(1, sizeof(*sb));
     sb->growth = growth;
     sb->options = options;
     double tightening = (options & BLOOM_OPT_NO_SCALING) ? 1 : ERROR_TIGHTENING_RATIO;
@@ -228,7 +226,7 @@ const char *SBChain_GetEncodedChunk(const SBChain *sb, long long *curIter, size_
 
 char *SBChain_GetEncodedHeader(const SBChain *sb, size_t *hdrlen) {
     *hdrlen = sizeof(dumpedChainHeader) + (sizeof(dumpedChainLink) * sb->nfilters);
-    dumpedChainHeader *hdr = RedisModule_Calloc(1, *hdrlen);
+    dumpedChainHeader *hdr = zcalloc_num(1, *hdrlen);
     hdr->size = sb->size;
     hdr->nfilters = sb->nfilters;
     hdr->options = sb->options;
@@ -245,7 +243,7 @@ char *SBChain_GetEncodedHeader(const SBChain *sb, size_t *hdrlen) {
     return (char *)hdr;
 }
 
-void SB_FreeEncodedHeader(char *s) { RedisModule_Free(s); }
+void SB_FreeEncodedHeader(char *s) { zfree(s); }
 
 // Returns 0 on success
 int SB_ValidateIntegrity(const SBChain *sb) {
@@ -289,8 +287,8 @@ SBChain *SB_NewChainFromHeader(const char *buf, size_t bufLen, const char **errm
         goto err;
     }
 
-    sb = RedisModule_Calloc(1, sizeof(*sb));
-    sb->filters = RedisModule_TryCalloc(header->nfilters, sizeof(*sb->filters));
+    sb = zcalloc_num(1, sizeof(*sb));
+    sb->filters = ztrycalloc(header->nfilters * sizeof(*sb->filters));
     if (!sb->filters) goto err;
     sb->nfilters = header->nfilters;
     sb->options = header->options;

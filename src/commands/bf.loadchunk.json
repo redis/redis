@@ -1,0 +1,52 @@
+{
+    "BF.LOADCHUNK": {
+        "summary": "Restore a serialized Bloom filter chunk.",
+        "complexity": "O(n), where n is the chunk size.",
+        "group": "bloom",
+        "since": "8.8.0",
+        "arity": 4,
+        "function": "bfLoadChunkCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BLOOM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "iterator",
+                "type": "integer"
+            },
+            {
+                "name": "data",
+                "type": "string"
+            }
+        ]
+    }
+}

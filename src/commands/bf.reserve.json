@@ -1,0 +1,64 @@
+{
+    "BF.RESERVE": {
+        "summary": "Create a Bloom filter.",
+        "complexity": "O(1)",
+        "group": "bloom",
+        "since": "8.8.0",
+        "arity": -4,
+        "function": "bfReserveCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BLOOM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "error-rate",
+                "type": "double"
+            },
+            {
+                "name": "capacity",
+                "type": "integer"
+            },
+            {
+                "name": "expansion",
+                "type": "integer",
+                "token": "EXPANSION",
+                "optional": true
+            },
+            {
+                "name": "nonscaling",
+                "type": "pure-token",
+                "token": "NONSCALING",
+                "optional": true
+            }
+        ]
+    }
+}

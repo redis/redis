@@ -363,8 +363,7 @@ ifneq ($(SKIP_VEC_SETS),yes)
 endif
 
 ifeq ($(BUILD_BLOOM),yes)
-	vpath %.c ../modules/bloom
-	REDIS_BLOOM_OBJ=bf.o sb.o bloomalgo.o murmurhash2.o
+	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o
 	FINAL_CFLAGS+=-DINCLUDE_BLOOM=1
 endif
 

@@ -174,6 +174,43 @@ class BloomTests(unittest.TestCase):
             for i in range(500):
                 self.assertEqual(1, self.r("BF.EXISTS", key, i))
 
+    def test_native_object_lifecycle(self):
+        self.r("BF.RESERVE", "bf", 0.000001, 2)
+        for i in range(100):
+            self.r("BF.ADD", "bf", i)
+        self.assertEqual(b"bloom", self.r("TYPE", "bf"))
+        self.assertNotIn(b"module", self.r("COMMAND", "INFO", "BF.ADD")[0][2])
+        self.assertFalse(any(b"bf" in entry for entry in self.r("MODULE", "LIST")))
+        self.assertEqual([b"bf"], self.r("SCAN", 0, "TYPE", "bloom")[1])
+        digest = self.r("DEBUG", "DIGEST-VALUE", "bf")
+        self.assertEqual(1, self.r("COPY", "bf", "copy"))
+        self.assertEqual(digest, self.r("DEBUG", "DIGEST-VALUE", "copy"))
+        # Bloom membership is probabilistic: choose an item absent before COPY.
+        item = next((f"copy-only-{i}" for i in range(1000)
+                     if not self.r("BF.EXISTS", "bf", f"copy-only-{i}")), None)
+        self.assertIsNotNone(item)
+        self.assertEqual(1, self.r("BF.ADD", "copy", item))
+        self.assertEqual(0, self.r("BF.EXISTS", "bf", item))
+        self.assertEqual(digest, self.r("DEBUG", "DIGEST-VALUE", "bf"))
+        self.assertNotEqual(digest, self.r("DEBUG", "DIGEST-VALUE", "copy"))
+        self.assertEqual(b"OK", self.r("RENAME", "copy", "renamed"))
+        self.assertEqual(1, self.r("UNLINK", "renamed"))
+        self.assertEqual(1, self.r("EXPIRE", "bf", 0))
+        self.assertEqual(0, self.r("DBSIZE"))
+        # Option-like key names are not options.
+        self.r("BF.RESERVE", "EXPANSION", 0.001, 2)
+        self.assertEqual(b"bloom", self.r("TYPE", "EXPANSION"))
+
+    def test_native_notifications(self):
+        self.r("CONFIG", "SET", "notify-keyspace-events", "EA")
+        listener = Client(self.server.path)
+        try:
+            listener.command("SUBSCRIBE", "__keyevent@0__:bf.add")
+            self.r("BF.ADD", "bf", "a")
+            self.assertEqual([b"message", b"__keyevent@0__:bf.add", b"bf"], listener.read())
+        finally:
+            listener.close()
+
     def test_nonscaling_and_invalid_arguments(self):
         for args in (("NONSCALING",), ("EXPANSION", 0)):
             self.r("DEL", "bf")

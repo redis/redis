@@ -3009,6 +3009,10 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
 #endif
     } else if (o->type == OBJ_ARRAY) {
         if (rewriteArrayObject(r,key,o) == 0) return C_ERR;
+#ifdef INCLUDE_BLOOM
+    } else if (o->type == OBJ_BLOOM) {
+        if (!bloomRewriteAof(r, key, o)) return C_ERR;
+#endif
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {

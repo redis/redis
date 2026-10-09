@@ -1781,8 +1781,9 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "stream",
     "array",
 #ifdef ENABLE_GCRA
-    "gcra"
+    "gcra",
 #endif
+    [OBJ_BLOOM] = "bloom",
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2519,6 +2520,9 @@ void copyCommand(client *c) {
             if (!newobj) return;
             break;
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
+#ifdef INCLUDE_BLOOM
+        case OBJ_BLOOM: newobj = bloomDup(o); break;
+#endif
         default:
             addReplyError(c, "unknown type object");
             return;

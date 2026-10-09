@@ -2,7 +2,7 @@
  *  Copyright (c) 2012-2017, Jyri J. Virkki
  *  All rights reserved.
  *
- *  This file is under BSD license. See LICENSE file.
+ *  This file is under BSD license. See bloom.LICENSE.
  */
 
 /*
@@ -21,19 +21,15 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "bloomalgo.h"
-#include "murmurhash2.h"
+#include "bloom_filter.h"
+#include "bloom_murmur.h"
 
 #define MAKESTRING(n) STRING(n)
 #define STRING(n) #n
 
-extern void (*RedisModule_Free)(void *ptr);
-extern void *(*RedisModule_Calloc)(size_t nmemb, size_t size);
-extern void *(*RedisModule_TryCalloc)(size_t nmemb, size_t size);
-
-#define BLOOM_TRYCALLOC(...)                                                                       \
-    RedisModule_TryCalloc ? RedisModule_TryCalloc(__VA_ARGS__) : RedisModule_Calloc(__VA_ARGS__)
-#define BLOOM_FREE RedisModule_Free
+#include "zmalloc.h"
+#define BLOOM_TRYCALLOC(n, size) ztrycalloc((n) * (size))
+#define BLOOM_FREE zfree
 
 /*
 #ifndef BLOOM_CALLOC

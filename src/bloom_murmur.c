@@ -13,7 +13,7 @@
 // 2. It will not produce the same results on little-endian and big-endian
 //    machines.
 
-#include "murmurhash2.h"
+#include "bloom_murmur.h"
 #define BIG_CONSTANT(x) (x##LLU)
 
 //-----------------------------------------------------------------------------

@@ -63,6 +63,9 @@
                                     "const": "array"
                                 },
                                 {
+                                    "const": "bloom"
+                                },
+                                {
                                     "const": "list"
                                 },
                                 {

@@ -269,6 +269,10 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_GCRA) {
         mixGCRAObjectDigest(digest, o);
 #endif
+#ifdef INCLUDE_BLOOM
+    } else if (o->type == OBJ_BLOOM) {
+        bloomDigest(digest, o);
+#endif
     } else if (o->type == OBJ_MODULE) {
         RedisModuleDigest md = {{0},{0},keyobj,db->id};
         moduleValue *mv = o->ptr;
@@ -1353,6 +1357,10 @@ void serverLogObjectDebugInfo(const robj *o) {
             serverLog(LL_WARNING,"Skiplist level: %d", (int) ((const zset*)o->ptr)->zsl->level);
     } else if (o->type == OBJ_STREAM) {
         serverLog(LL_WARNING,"Stream size: %d", (int) streamLength(o));
+#ifdef INCLUDE_BLOOM
+    } else if (o->type == OBJ_BLOOM) {
+        serverLog(LL_WARNING,"Bloom size: %zu", bloomObjectLength((robj *)o));
+#endif
 #ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {
 #if UINTPTR_MAX == 0xffffffffffffffff

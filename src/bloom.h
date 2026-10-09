@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "bloomalgo.h"
+#include "bloom_filter.h"
 #include <stdlib.h>
 
 #ifdef __cplusplus
@@ -49,19 +49,12 @@ enum sb_rc {
 SBChain *SB_NewChain(uint64_t initsize, double error_rate, unsigned options, unsigned growth,
                      int *err);
 
-/**
- * Create a new chain from a 'template'. This template will copy an existing
- * chain, but not its internal data - which is reset from scratch. This is
- * used when 'migrating' filters
- */
-SBChain *SB_NewChainFromTemplate(const SBChain *template);
-
 /** Free a created chain */
 void SBChain_Free(SBChain *sb);
 
 /**
  * Add an item to the chain
- * Returns 0 if newly added, nonzero if new.
+ * Returns 1 if newly added, 0 if probably present, or a negative sb_rc on error.
  */
 int SBChain_Add(SBChain *sb, const void *data, size_t len);
 

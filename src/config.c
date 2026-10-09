@@ -3498,6 +3498,11 @@ standardConfig static_configs[] = {
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
 
     /* String Configs */
+#ifdef INCLUDE_BLOOM
+    createLongLongConfig("bf-initial-size", NULL, MODIFIABLE_CONFIG, 1, 1LL<<30, server.bloom_capacity, 100, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("bf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.bloom_expansion, 2, INTEGER_CONFIG, NULL, NULL),
+    createSDSConfig("bf-error-rate", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.bloom_error_rate, "0.01", bloomValidateErrorRate, bloomUpdateErrorRate),
+#endif
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
     createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL, NULL, NULL),
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),

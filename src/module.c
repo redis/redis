@@ -4296,6 +4296,9 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
+#ifdef INCLUDE_BLOOM
+    case OBJ_BLOOM: return REDISMODULE_KEYTYPE_BLOOM;
+#endif
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }
@@ -13497,16 +13500,11 @@ void moduleRemoveCateogires(RedisModule *module) {
 }
 
 int VectorSets_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
-int Bloom_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 /* Load internal data types that bundled as modules */
 void moduleLoadInternalModules(void) {
 #ifdef INCLUDE_VEC_SETS
     int retval = moduleOnLoad((int (*)(void *, void **, int)) VectorSets_OnLoad, NULL, NULL, NULL, 0, 0);
     serverAssert(retval == C_OK);
-#endif
-#ifdef INCLUDE_BLOOM
-    int bloom_retval = moduleOnLoad((int (*)(void *, void **, int)) Bloom_OnLoad, NULL, NULL, NULL, 0, 0);
-    serverAssert(bloom_retval == C_OK);
 #endif
 }
 
