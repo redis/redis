@@ -1,0 +1,25 @@
+{
+    "HELP": {
+        "summary": "Returns helpful text about the different subcommands.",
+        "complexity": "O(1)",
+        "group": "hash",
+        "since": "8.10.0",
+        "arity": 2,
+        "container": "HIMPORT",
+        "function": "himportHelpCommand",
+        "command_flags": [
+            "LOADING",
+            "STALE"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Helpful text about subcommands.",
+            "items": {
+                "type": "string"
+            }
+        }
+    }
+}

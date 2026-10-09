@@ -265,7 +265,20 @@ static void blessScanCommand(client *c) {
  * count is exposed via INFO's blessed_keys field, not a command.) */
 void blessCommand(client *c) {
     const char *sub = c->argv[1]->ptr;
-    if (!strcasecmp(sub, "set")) {
+    if (!strcasecmp(sub, "help")) {
+        const char *help[] = {
+            "SET <key> NO-EVICT",
+            "    Adds protection flags to a key against memory pressure.",
+            "CLEAR <key> NO-EVICT",
+            "    Removes protection flags from a key.",
+            "GET <key>",
+            "    Returns the active protection flags of a key.",
+            "SCAN <cursor> NO-EVICT [COUNT <count>]",
+            "    Incrementally iterates blessed keys carrying the given flag.",
+            NULL
+        };
+        addReplyHelp(c, help);
+    } else if (!strcasecmp(sub, "set")) {
         blessGenericCommand(c, 1);          /* BLESS SET <key> NO-EVICT - enable protection */
     } else if (!strcasecmp(sub, "clear")) {
         blessGenericCommand(c, 0);          /* BLESS CLEAR <key> NO-EVICT - disable protection */
