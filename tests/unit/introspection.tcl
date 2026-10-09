@@ -745,6 +745,15 @@ start_server {tags {"introspection"}} {
         }
     } {} {external:skip}
 
+    test {CONFIG REWRITE preserves existing config file permissions} {
+        set config_file [srv 0 config_file]
+        file attributes $config_file -permissions 00600
+        assert_equal 00600 [file attributes $config_file -permissions]
+
+        r config rewrite
+        assert_equal 00600 [file attributes $config_file -permissions]
+    } {} {external:skip}
+
     test {CONFIG REWRITE handles save and shutdown properly} {
         r config set save "3600 1 300 100 60 10000"
         r config set shutdown-on-sigterm "nosave now"
