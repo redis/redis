@@ -1506,7 +1506,6 @@ int ACLCheckUserCredentials(robj *username, robj *password) {
 /* If `err` is provided, this is added as an error reply to the client.
  * Otherwise, the standard Auth error is added as a reply. */
 void addAuthErrReply(client *c, robj *err) {
-    if (clientHasPendingReplies(c)) return;
     if (!err) {
         addReplyError(c, "-WRONGPASS invalid username-password pair or user is disabled.");
         return;
@@ -3401,12 +3400,15 @@ void authCommand(client *c) {
         }
     }
 
+    size_t prev_bufpos = c->bufpos;
+    unsigned long long prev_reply_bytes = c->reply_bytes;
     robj *err = NULL;
     int result = ACLAuthenticateUser(c, username, password, &err);
     if (result == AUTH_OK) {
         addReply(c, shared.ok);
     } else if (result == AUTH_ERR) {
-        addAuthErrReply(c, err);
+        if (c->bufpos == prev_bufpos && c->reply_bytes == prev_reply_bytes)
+            addAuthErrReply(c, err);
     }
     if (err) decrRefCount(err);
 }
