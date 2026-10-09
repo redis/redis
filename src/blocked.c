@@ -65,6 +65,7 @@ void initClientBlockingState(client *c) {
     c->bstate.numreplicas = 0;
     c->bstate.reploffset = 0;
     c->bstate.unblock_on_nokey = 0;
+    c->bstate.xread_group = NULL;
     c->bstate.async_rm_call_handle = NULL;
 }
 
@@ -211,6 +212,10 @@ void unblockClient(client *c, int queue_for_reprocessing) {
     c->flags &= ~CLIENT_BLOCKED;
     c->bstate.btype = BLOCKED_NONE;
     c->bstate.unblock_on_nokey = 0;
+    if (c->bstate.xread_group) {
+        decrRefCount(c->bstate.xread_group);
+        c->bstate.xread_group = NULL;
+    }
     removeClientFromTimeoutTable(c);
     if (queue_for_reprocessing) queueClientForReprocessing(c);
 }
@@ -660,6 +665,11 @@ static void handleClientsBlockedOnKey(readyList *rl) {
                 (receiver->bstate.btype == obtype ||
                  (obtype == BLOCKED_LIST &&
                   receiver->bstate.btype == BLOCKED_LIST_NONEMPTY));
+            /* A consumer with nothing new to read stays blocked where the
+             * rotation left it, which is where re-blocking would put it. */
+            if (native_match && receiver->bstate.xread_group &&
+                !streamBlockedReaderMayBeServed(receiver, o))
+                continue;
             if (native_match ||
                 (o != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
                 (receiver->bstate.unblock_on_nokey))

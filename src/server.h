@@ -1333,12 +1333,14 @@ typedef struct multiState {
 typedef struct blockingState {
     /* Generic fields. */
     blocking_type btype;                  /* Type of blocking op if CLIENT_BLOCKED. */
-    uint64_t timeout;           /* Monotonic deadline in milliseconds, or 0 for no timeout.
-                                 * The operation times out when monotonic time > timeout. */
     int unblock_on_nokey;       /* Whether to unblock the client when at least one of the keys
                                    is deleted or does not exist anymore */
+    uint64_t timeout;           /* Monotonic deadline in milliseconds, or 0 for no timeout.
+                                 * The operation times out when monotonic time > timeout. */
     /* BLOCKED_LIST, BLOCKED_ZSET and BLOCKED_STREAM or any other Keys related blocking */
     dict *keys;                 /* The keys we are blocked on */
+    robj *xread_group;          /* BLOCKED_STREAM: group of an XREADGROUP on a single
+                                   stream that only new entries can serve, else NULL. */
 
     /* BLOCKED_WAIT and BLOCKED_WAITAOF */
     int numreplicas;        /* Number of replicas we are waiting for ACK. */
@@ -4539,6 +4541,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms);
 
 /* t_stream.c -- Handling of stream data structures */
 void handleClaimableStreamEntries(void);
+int streamBlockedReaderMayBeServed(client *c, kvobj *o);
 void handleExpiredIdmpEntries(void);
 
 /* expire.c -- Handling of expired keys */

@@ -740,7 +740,8 @@ start_server {
         $rd2 xreadgroup GROUP mygroup myuser BLOCK 1000 STREAMS mystream >
         wait_for_blocked_clients_count 2
 
-        # After a while call xadd and let rd2 re-process the command.
+        # After a while call xadd: rd1 takes the entry and rd2, left with
+        # nothing to read, must still time out at its original deadline.
         after 200
         r xadd mystream * field value
         assert_equal {} [$rd2 read]
@@ -750,6 +751,225 @@ start_server {
         # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
         assert_range [expr $end-$start] 1000 1150
 
+        $rd1 close
+        $rd2 close
+    }
+
+    test {Blocking XREADGROUP: XADD re-executes only the consumer it serves} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rds {}
+        for {set j 0} {$j < 5} {incr j} {
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP mygroup consumer$j BLOCK 0 STREAMS mystream >
+            wait_for_blocked_clients_count [expr {$j+1}]
+            lappend rds $rd
+        }
+        after 200
+        set hits [s keyspace_hits]
+        r XADD mystream 1-0 f v
+        assert_equal {{mystream {{1-0 {f v}}}}} [[lindex $rds 0] read]
+        assert_equal 4 [s blocked_clients]
+        # The other consumers have nothing to read: their command is not
+        # re-executed (each execution looks the stream up twice), so their
+        # seen-time still dates from when they blocked.
+        assert_equal 2 [expr {[s keyspace_hits] - $hits}]
+        foreach consumer [r XINFO CONSUMERS mystream mygroup] {
+            if {[dict get $consumer name] ne "consumer0"} {
+                assert_morethan_equal [dict get $consumer idle] 200
+            }
+        }
+        foreach rd $rds {$rd close}
+    }
+
+    test {Blocking XREADGROUP: XADD serves one consumer of each group} {
+        r DEL mystream
+        r XGROUP CREATE mystream g1 $ MKSTREAM
+        r XGROUP CREATE mystream g2 $
+        set rds {}
+        foreach {group consumer} {g1 a g2 b g1 c g2 d} {
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP $group $consumer BLOCK 0 STREAMS mystream >
+            wait_for_blocked_clients_count [expr {[llength $rds]+1}]
+            lappend rds $rd
+        }
+        r XADD mystream 1-0 f v
+        assert_equal {{mystream {{1-0 {f v}}}}} [[lindex $rds 0] read]
+        assert_equal {{mystream {{1-0 {f v}}}}} [[lindex $rds 1] read]
+        assert_equal 2 [s blocked_clients]
+        r XADD mystream 2-0 f v
+        assert_equal {{mystream {{2-0 {f v}}}}} [[lindex $rds 2] read]
+        assert_equal {{mystream {{2-0 {f v}}}}} [[lindex $rds 3] read]
+        assert_equal 0 [s blocked_clients]
+        foreach rd $rds {$rd close}
+    }
+
+    test {Blocking XREADGROUP: entries added in one transaction go to as many consumers} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rds {}
+        for {set j 0} {$j < 3} {incr j} {
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP mygroup consumer$j COUNT 1 BLOCK 0 STREAMS mystream >
+            wait_for_blocked_clients_count [expr {$j+1}]
+            lappend rds $rd
+        }
+        r MULTI
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r EXEC
+        assert_equal {{mystream {{1-0 {f v}}}}} [[lindex $rds 0] read]
+        assert_equal {{mystream {{2-0 {f v}}}}} [[lindex $rds 1] read]
+        assert_equal 1 [s blocked_clients]
+        r XADD mystream 3-0 f v
+        assert_equal {{mystream {{3-0 {f v}}}}} [[lindex $rds 2] read]
+        foreach rd $rds {$rd close}
+    }
+
+    test {Blocking XREADGROUP: XNACK wakes a CLAIM consumer, not one waiting for new entries} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 1-0 f v
+        r XREADGROUP GROUP mygroup owner STREAMS mystream >
+        set rd1 [redis_deferring_client]
+        $rd1 XREADGROUP GROUP mygroup plain BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+        set rd2 [redis_deferring_client]
+        $rd2 XREADGROUP GROUP mygroup claimer CLAIM 100000 BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 2
+        set hits [s keyspace_hits]
+        # XNACK makes 1-0 claimable at once and signals the stream.
+        r XNACK mystream mygroup SILENT IDS 1 1-0
+        set res [$rd2 read]
+        assert_equal mystream [lindex $res 0 0]
+        assert_equal 1-0 [lindex $res 0 1 0 0]
+        assert_equal 1 [s blocked_clients]
+        # Only the CLAIM consumer was re-executed.
+        assert_equal 2 [expr {[s keyspace_hits] - $hits}]
+        r XADD mystream 2-0 f v
+        assert_equal {{mystream {{2-0 {f v}}}}} [$rd1 read]
+        $rd1 close
+        $rd2 close
+    }
+
+    test {Blocking XREADGROUP on two streams is re-executed and queued again on both} {
+        r DEL mystream{t}1 mystream{t}2
+        r XGROUP CREATE mystream{t}1 mygroup $ MKSTREAM
+        r XGROUP CREATE mystream{t}2 mygroup $ MKSTREAM
+        set rd1 [redis_deferring_client]
+        $rd1 XREADGROUP GROUP mygroup a BLOCK 0 STREAMS mystream{t}1 >
+        wait_for_blocked_clients_count 1
+        set rd2 [redis_deferring_client]
+        $rd2 XREADGROUP GROUP mygroup b BLOCK 0 STREAMS mystream{t}1 mystream{t}2 > >
+        wait_for_blocked_clients_count 2
+        set rd3 [redis_deferring_client]
+        $rd3 XREADGROUP GROUP mygroup c BLOCK 0 STREAMS mystream{t}2 >
+        wait_for_blocked_clients_count 3
+        r XADD mystream{t}1 1-0 f v
+        assert_equal {{mystream{t}1 {{1-0 {f v}}}}} [$rd1 read]
+        # Blocking again put b behind c in the mystream{t}2 queue as well.
+        r XADD mystream{t}2 1-0 f v
+        assert_equal {{mystream{t}2 {{1-0 {f v}}}}} [$rd3 read]
+        assert_equal 1 [s blocked_clients]
+        r XADD mystream{t}2 2-0 f v
+        assert_equal {{mystream{t}2 {{2-0 {f v}}}}} [$rd2 read]
+        $rd1 close
+        $rd2 close
+        $rd3 close
+    }
+
+    test {Blocking XREADGROUP: a stream that ran dry before delivery does not wake the consumer} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd [redis_deferring_client]
+        set start [clock milliseconds]
+        $rd XREADGROUP GROUP mygroup c BLOCK 1000 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+        set hits [s keyspace_hits]
+        r MULTI
+        r XADD mystream 1-0 f v
+        r XDEL mystream 1-0
+        r EXEC
+        # Nothing is left to read: the consumer stays blocked, without
+        # re-executing its command, until its original deadline.
+        assert_equal 1 [s blocked_clients]
+        assert_equal 0 [expr {[s keyspace_hits] - $hits}]
+        assert_equal {} [$rd read]
+        assert_range [expr {[clock milliseconds]-$start}] 1000 1150
+        $rd close
+    }
+
+    test {Blocking XREADGROUP: newest entries deleted before delivery leave the consumer blocked} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        r XADD mystream 1-0 f v
+        r XREADGROUP GROUP mygroup a STREAMS mystream >
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup b BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+        # The stream still holds 1-0, already delivered to the group: the
+        # consumer is re-executed, finds nothing and blocks again.
+        r MULTI
+        r XADD mystream 2-0 f v
+        r XDEL mystream 2-0
+        r EXEC
+        assert_equal 1 [s blocked_clients]
+        r XADD mystream 3-0 f v
+        assert_equal {{mystream {{3-0 {f v}}}}} [$rd read]
+        $rd close
+    }
+
+    test {Blocking XREADGROUP: a CLAIM consumer re-executed by XADD keeps its timeout} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd1 [redis_deferring_client]
+        $rd1 XREADGROUP GROUP mygroup a BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+        set rd2 [redis_deferring_client]
+        set start [clock milliseconds]
+        $rd2 XREADGROUP GROUP mygroup b CLAIM 100000 BLOCK 1000 STREAMS mystream >
+        wait_for_blocked_clients_count 2
+        after 200
+        # A CLAIM consumer may be served from the PEL, so it is re-executed;
+        # finding nothing claimable it blocks again with its original deadline.
+        r XADD mystream 1-0 f v
+        assert_equal {{mystream {{1-0 {f v}}}}} [$rd1 read]
+        assert_equal {} [$rd2 read]
+        assert_range [expr {[clock milliseconds]-$start}] 1000 1150
+        $rd1 close
+        $rd2 close
+    }
+
+    test {Blocking XREAD: XADD still serves every reader} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        set rds {}
+        for {set j 0} {$j < 3} {incr j} {
+            set rd [redis_deferring_client]
+            $rd XREAD BLOCK 0 STREAMS mystream $
+            wait_for_blocked_clients_count [expr {$j+1}]
+            lappend rds $rd
+        }
+        r XADD mystream 2-0 f v
+        foreach rd $rds {
+            assert_equal {{mystream {{2-0 {f v}}}}} [$rd read]
+            $rd close
+        }
+    }
+
+    test {XGROUP DESTROY unblocks every consumer of the group with -NOGROUP} {
+        r DEL mystream
+        r XGROUP CREATE mystream mygroup $ MKSTREAM
+        set rd1 [redis_deferring_client]
+        $rd1 XREADGROUP GROUP mygroup a BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 1
+        set rd2 [redis_deferring_client]
+        $rd2 XREADGROUP GROUP mygroup b BLOCK 0 STREAMS mystream >
+        wait_for_blocked_clients_count 2
+        r XGROUP DESTROY mystream mygroup
+        assert_error "NOGROUP*" {$rd1 read}
+        assert_error "NOGROUP*" {$rd2 read}
+        assert_equal 0 [s blocked_clients]
         $rd1 close
         $rd2 close
     }
