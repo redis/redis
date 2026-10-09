@@ -1504,9 +1504,8 @@ void bitopCommand(client *c) {
         }
 #endif /* !defined(USE_ALIGNED_ACCESS) */
 
-        /* Process complete machine words before the byte tail. This is useful
-         * after SIMD has handled its blocks as well as on platforms without
-         * SIMD support. memcpy keeps the loads valid for unaligned strings. */
+        /* Process complete machine words left by the SIMD path before the byte
+         * tail. memcpy permits unaligned source loads and result stores. */
         if (useAVX && (op == BITOP_AND || op == BITOP_OR || op == BITOP_XOR)) {
             while (minlen >= sizeof(unsigned long)) {
                 unsigned long word, next;
