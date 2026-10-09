@@ -29,7 +29,9 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE. */
 
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "crc64.h"
 #include "crcspeed.h"
 #include "redisassert.h"
@@ -137,6 +139,49 @@ uint64_t _crc64(uint_fast64_t crc, const void *in_data, const uint64_t len) {
 
 /******************** END GENERATED PYCRC FUNCTIONS ********************/
 
+/* RISC-V accelerated CRC64 implementations. */
+extern uint64_t crc64_riscv_zbc(uint64_t, const unsigned char *, uint64_t);
+extern uint64_t crc64_riscv_zvbc(uint64_t, const unsigned char *, uint64_t);
+
+enum crc64_riscv_mode {
+    CRC64_RISCV_NONE,
+    CRC64_RISCV_ZBC,
+    CRC64_RISCV_ZVBC,
+};
+
+/* This probe must stay in a translation unit compiled for the baseline ISA.
+ * Otherwise the compiler may emit the instructions that are being probed. */
+static enum crc64_riscv_mode crc64_riscv_available(void) {
+#if defined(__riscv_xlen) && (__riscv_xlen == 64)
+    static int cached = -1;
+    if (cached >= 0) return (enum crc64_riscv_mode)cached;
+
+    FILE *f = fopen("/proc/cpuinfo", "r");
+    if (!f) {
+        cached = CRC64_RISCV_NONE;
+        return (enum crc64_riscv_mode)cached;
+    }
+
+    char line[1024];
+    int saw_isa = 0;
+    int all_zbc = 1;
+    int all_zvbc = 1;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "isa", 3) != 0) continue;
+        saw_isa = 1;
+        all_zbc &= strstr(line, "zbc") != NULL;
+        all_zvbc &= strstr(line, "zvbc") != NULL;
+    }
+    fclose(f);
+
+    cached = !saw_isa || !all_zbc ? CRC64_RISCV_NONE :
+             all_zvbc ? CRC64_RISCV_ZVBC : CRC64_RISCV_ZBC;
+    return (enum crc64_riscv_mode)cached;
+#else
+    return CRC64_RISCV_NONE;
+#endif
+}
+
 /* Initializes the 16KB lookup tables. */
 void crc64_init(void) {
     crcspeed64native_init(_crc64, crc64_table);
@@ -144,8 +189,14 @@ void crc64_init(void) {
 
 /* Compute crc64 */
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l) {
+    enum crc64_riscv_mode mode = crc64_riscv_available();
+    if (mode == CRC64_RISCV_ZVBC)
+        return crc64_riscv_zvbc(crc, s, l);
+    if (mode == CRC64_RISCV_ZBC)
+        return crc64_riscv_zbc(crc, s, l);
     return crcspeed64native(crc64_table, crc, (void *) s, l);
 }
+
 
 /* Test main */
 #ifdef REDIS_TEST
