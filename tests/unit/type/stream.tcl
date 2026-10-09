@@ -360,6 +360,28 @@ start_server {
         assert_equal "USD" [dict get $fields currency]
     }
 
+    test {XADD IDMP failure does not leave an empty producer} {
+        r DEL mystream
+
+        # A rejected XADD on a stream with no IDMP state allocates nothing.
+        r XADD mystream 18446744073709551615-18446744073709551615 f v
+        assert_error "*The stream has exhausted the last possible ID*" {r XADD mystream IDMP p1 i0 * f v}
+        assert_error "*The stream has exhausted the last possible ID*" {r XADD mystream IDMP p2 i0 * f v}
+        assert_equal 1 [r XLEN mystream]
+        assert_equal 0 [dict get [r XINFO STREAM mystream] pids-tracked]
+
+        # A later rejection does not add a producer next to an existing one,
+        # and the IID already stored still resolves.
+        r DEL mystream
+        set id [r XADD mystream IDMP p1 i0 * f v]
+        r XADD mystream 18446744073709551615-18446744073709551615 f v
+        assert_error "*The stream has exhausted the last possible ID*" {r XADD mystream IDMP p2 i1 * f v}
+        assert_equal $id [r XADD mystream IDMP p1 i0 * other v]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] pids-tracked]
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+        assert_equal 2 [r XLEN mystream]
+    }
+
     test {XADD IDMP multiple different IIDs create multiple entries} {
         r DEL mystream
         
