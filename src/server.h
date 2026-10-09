@@ -2112,6 +2112,7 @@ struct redisServer {
     int always_show_logo;       /* Show logo even for non-stdout logging. */
     int in_exec;                /* Are we inside EXEC? */
     int busy_module_yield_flags;         /* Are we inside a busy module? (triggered by RM_Yield). see BUSY_MODULE_YIELD_ flags. */
+    redisAtomic int busy_module_yielding; /* Snapshot for IO threads. */
     const char *busy_module_yield_reply; /* When non-null, we are inside RM_Yield. */
     char *ignore_warnings;      /* Config: warnings that should be ignored. */
     int client_pause_in_transaction; /* Was a client pause executed during this Exec? */
@@ -2128,6 +2129,7 @@ struct redisServer {
     pid_t child_pid;            /* PID of current child */
     int child_type;             /* Type of current child */
     redisAtomic int module_gil_acquiring; /* Indicates whether the GIL is being acquiring by the main thread. */
+    redisAtomic int script_timedout;
     /* Networking */
     int port;                   /* TCP listening port */
     int tls_port;               /* TLS listening port */
@@ -3607,6 +3609,7 @@ void freeReplicaReferencedReplBuffer(client *replica);
 void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
+void replicationResumeMasterClient(void);
 void setReplCompression(int level);
 void enableMasterClientDecompressionIfNeeded(client *c);
 void replicationStartPendingFork(void);
@@ -4493,6 +4496,7 @@ unsigned long evalScriptsMemoryEngine(void);
 uint64_t evalGetCommandFlags(client *c, uint64_t orig_flags);
 uint64_t fcallGetCommandFlags(client *c, uint64_t orig_flags);
 int isInsideYieldingLongCommand(void);
+int isInsideYieldingLongCommandFromIOThread(void);
 
 typedef struct luaScript {
     uint64_t flags;
