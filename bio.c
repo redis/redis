@@ -12,6 +12,7 @@
  * we'll switch to libeio. However there are probably long term uses for this
  * file as we may want to put Redis specific background tasks here.
  *
+ *
  * DESIGN
  * ------
  *
@@ -53,6 +54,7 @@ static char* bio_worker_title[] = {
     "bio_aof",
     "bio_lazy_free",
 };
+
 
 #define BIO_WORKER_NUM (sizeof(bio_worker_title) / sizeof(*bio_worker_title))
 
@@ -176,10 +178,6 @@ void bioInit(void) {
         }
         bio_threads[j] = thread;
     }
-}
-
-int bioIsLazyfreeWorker(void) {
-    return pthread_equal(pthread_self(), bio_threads[BIO_WORKER_LAZY_FREE]);
 }
 
 void bioSubmitJob(int type, bio_job *job) {
