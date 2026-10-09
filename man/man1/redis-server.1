@@ -1,0 +1,117 @@
+.TH REDIS-SERVER 1 "2016" "Redis" "User commands"
+.SH NAME
+redis\-server, redis\-sentinel \- Redis server
+
+.SH SYNOPSIS
+.B redis\-server
+[
+.IR configuration_file
+] [ options ] [ \-\-sentinel ]
+.LP
+.B redis\-sentinel
+[
+.IR configuration_file
+] [ options ]
+
+
+.SH DESCRIPTION
+\fBRedis\fP is an open source (BSD licensed), in-memory data structure store,
+used as database, cache and message broker, found at
+.B http://redis.io/
+.LP
+The \fBredis\-server\fP command is a command line to launch a Redis server.
+.LP
+The \fBredis\-sentinel\fP command is a symbolic link to the \fBredis\-server\fP
+command and implies the \fB\-\-sentionel\fP option.
+
+.SH OPTIONS
+.TP 15
+.B \-
+Read configuration from stdin.
+.TP
+.TP 15
+.B \-\-sentinel
+Run in sentinel mode
+.TP
+.B \-\-test-memory \fImegabytes\fP
+Run a memory check and exit.
+.TP
+.PD 0
+.B \-\-help
+.TP
+.PD 1
+.B \-h
+Output this help and exit.
+.TP
+.PD 0
+.B \-\-version
+.TP
+.PD 1
+.B \-v
+Output version and exit.
+.P
+All parameters described in \fBredis.conf\fR file can be passed as
+command line option, e.g.
+.B \-\-port
+.IR port
+.
+
+.SH EXAMPLES
+.TP 5
+Run the server with default conf
+redis-server
+.TP
+Run the server with a configuration file
+redis-server /etc/redis/6379.conf
+.TP
+Run the server changing some default options
+redis-server --port 7777 --slaveof 127.0.0.1 8888
+.TP
+Run the server with a configuration file and changing some options
+redis-server /etc/myredis.conf --loglevel verbose
+.TP
+Run in sentinel mode
+redis-server /etc/sentinel.conf --sentinel
+
+.SH "SEE ALSO"
+.PP
+\fBredis.conf\fR(5)
+
+.SH BUGS
+See:
+.PD 0
+.B http://redis.io/support
+and
+.B https://github.com/antirez/redis/issues
+
+.SH COPYRIGHT
+Copyright \(co 2006\-2016
+Salvatore Sanfilippo
+.P
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+.TP 2
+*
+Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+.TP
+*
+Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+.TP
+*
+Neither the name of Redis nor the names of its contributors may be used
+to endorse or promote products derived from this software without specific
+prior written permission.
+.P
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
