@@ -4275,6 +4275,7 @@ void initConfigValues(void);
 void removeConfig(sds name);
 sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
+int allowProtectedActionIsLocal(int config, int is_local);
 void initServerClientMemUsageBuckets(void);
 void freeServerClientMemUsageBuckets(void);
 static inline int clusterSlotStatsEnabled(int stat) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & stat); }
