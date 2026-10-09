@@ -637,6 +637,26 @@ static void handleClientsBlockedOnKey(readyList *rl) {
             listNode *ln = listFirst(clients);
             serverAssert(ln);
 
+            kvobj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
+            /* The key is gone and no client waits for its deletion: nobody
+             * left can be served, and since nothing runs nothing can bring the
+             * key back. The remaining iterations would only rotate the list
+             * once each, so rotate it by that much and stop. This is a no-op
+             * unless earlier iterations left clients at the tail (blocked on
+             * another type, or blocked again). */
+            if (o == NULL &&
+                dictFind(rl->db->blocking_keys_unblock_on_nokey, rl->key) == NULL)
+            {
+                unsigned long len = listLength(clients);
+                unsigned long rot = (unsigned long)(count + 1) % len;
+                if (rot > len / 2) {
+                    for (rot = len - rot; rot > 0; rot--) listRotateTailToHead(clients);
+                } else {
+                    for (; rot > 0; rot--) listRotateHeadToTail(clients);
+                }
+                break;
+            }
+
             /* Rotate before reprocessing because unblocking may remove this
              * client, and command reprocessing may evict other blocked clients
              * and free the list. If the client remains blocked or blocks again,
@@ -645,7 +665,6 @@ static void handleClientsBlockedOnKey(readyList *rl) {
             listRotateHeadToTail(clients);
 
             client *receiver = listNodeValue(ln);
-            kvobj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
              *    blocked type, since we might process the wrong key type.
              * 2. We want to serve clients blocked on module keys
