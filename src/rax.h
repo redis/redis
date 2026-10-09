@@ -26,13 +26,13 @@
  *                  \
  *                  (o) "fo"
  *                    \
- *                  [t   b] "foo"
+ *                  [b   t] "foo"
  *                  /     \
- *         "foot" (e)     (a) "foob"
+ *         "foob" (a)     (e) "foot"
  *                /         \
- *      "foote" (r)         (r) "fooba"
+ *      "fooba" (r)         (r) "foote"
  *              /             \
- *    "footer" []             [] "foobar"
+ *    "foobar" []             [] "footer"
  *
  * However, this implementation implements a very common optimization where
  * successive nodes having a single child are "compressed" into the node
@@ -41,13 +41,13 @@
  * provided inside the representation. So the above representation is turned
  * into:
  *
- *                  ["foo"] ""
+ *                  ("foo") ""
  *                     |
- *                  [t   b] "foo"
+ *                  [b   t] "foo"
  *                  /     \
- *        "foot" ("er")    ("ar") "foob"
+ *        "foob" ("ar")    ("er") "foot"
  *                 /          \
- *       "footer" []          [] "foobar"
+ *       "foobar" []          [] "footer"
  *
  * However this optimization makes the implementation a bit more complex.
  * For instance if a key "first" is added in the above radix tree, a
@@ -62,11 +62,11 @@
  *                 /   \
  *    "firs"  ("rst")  (o) "fo"
  *              /        \
- *    "first" []       [t   b] "foo"
+ *    "first" []       [b   t] "foo"
  *                     /     \
- *           "foot" ("er")    ("ar") "foob"
+ *           "foob" ("ar")    ("er") "foot"
  *                    /          \
- *          "footer" []          [] "foobar"
+ *          "foobar" []          [] "footer"
  *
  * Similarly after deletion, if a new chain of nodes having a single child
  * is created (the chain must also not include nodes that represent keys),
