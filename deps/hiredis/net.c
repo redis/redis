@@ -314,11 +314,11 @@ static int redisContextTimeoutMsec(redisContext *c, long *result)
     return REDIS_OK;
 }
 
-static long redisPollMillis(void) {
+static long long redisPollMillis(void) {
 #ifndef _MSC_VER
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
-    return (now.tv_sec * 1000) + now.tv_nsec / 1000000;
+    return ((long long)now.tv_sec * 1000) + now.tv_nsec / 1000000;
 #else
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
@@ -328,7 +328,7 @@ static long redisPollMillis(void) {
 
 static int redisContextWaitReady(redisContext *c, long msec) {
     struct pollfd wfd;
-    long end;
+    long long end;
     int res;
 
     if (errno != EINPROGRESS) {
@@ -368,7 +368,7 @@ static int redisContextWaitReady(redisContext *c, long msec) {
         }
 
         if (msec >= 0) {
-            long now = redisPollMillis();
+            long long now = redisPollMillis();
 
             if (now >= end) {
                 errno = ETIMEDOUT;
@@ -376,7 +376,7 @@ static int redisContextWaitReady(redisContext *c, long msec) {
                 redisNetClose(c);
                 return REDIS_ERR;
             }
-            msec = end - now;
+            msec = (long)(end - now);
         }
     }
 }
