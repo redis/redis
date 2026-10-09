@@ -1991,7 +1991,9 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     }
 }
 
-/* A group's sample under a per-group metric. */
+/* A group's sample under a per-group metric. Every enumerator is listed, with
+ * the per-stream ones falling through to the assert, so that -Wswitch flags a
+ * new metric that has no sampler case. */
 static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric) {
     switch (metric) {
     case STREAM_DISTRIB_CGROUPS_PEL: return (int64_t) raxSize(cg->pel);
@@ -2002,7 +2004,8 @@ static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric) {
     serverAssert(0 && "not a per-group metric");
 }
 
-/* A stream's sample under a per-stream metric; cgroups is allocated lazily. */
+/* A stream's sample under a per-stream metric; cgroups is allocated lazily.
+ * Same switch shape as streamCGroupSample(). */
 static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
     switch (metric) {
     case STREAM_DISTRIB_STREAMS_CGROUPS: return s->cgroups ? (int64_t) raxSize(s->cgroups) : 0;
