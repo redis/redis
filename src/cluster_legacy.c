@@ -1296,7 +1296,8 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         connEnableTcpNoDelay(conn);
-        connKeepAlive(conn,server.cluster_node_timeout / 1000 * 2);
+        if (server.tcpkeepalive)
+            connKeepAlive(conn,server.tcpkeepalive);
 
         /* When tls-expected-peer-name is configured, verify the connecting peer's
          * certificate SAN/CN against it before completing the TLS handshake. This
