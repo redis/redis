@@ -116,8 +116,10 @@ void hotkeyStatsUpdateCurrentCmd(hotkeyStats *hotkeys, hotkeyMetrics metrics) {
 
     int numkeys = hotkeys->keys_result.numkeys;
     uint64_t duration_per_key = metrics.cpu_time_usec / numkeys;
+    uint64_t duration_rem = metrics.cpu_time_usec % numkeys;
     uint64_t total_bytes = metrics.net_bytes;
     uint64_t bytes_per_key = total_bytes / numkeys;
+    uint64_t bytes_rem = total_bytes % numkeys;
 
     /* Update statistics counters */
     hotkeys->time_all_commands_all_slots += metrics.cpu_time_usec;
@@ -146,17 +148,22 @@ void hotkeyStatsUpdateCurrentCmd(hotkeyStats *hotkeys, hotkeyMetrics metrics) {
     client *c = hotkeys->current_client;
     robj **argv = c->original_argv ? c->original_argv : c->argv;
 
-    /* Add all keys to topK structure */
+    /* Add all keys to topK structure. The remainder of the division is spread
+     * one unit per key, starting at a random key so no key is favoured. */
+    int first = rand() % numkeys;
     for (int i = 0; i < numkeys; ++i) {
         int pos = hotkeys->keys_result.keys[i].pos;
+        uint64_t shift = (i - first + numkeys) % numkeys;
 
         if (hotkeys->tracked_metrics & HOTKEYS_TRACK_CPU) {
-            sds ret = chkTopKUpdate(hotkeys->cpu, argv[pos]->ptr, sdslen(argv[pos]->ptr), duration_per_key);
+            sds ret = chkTopKUpdate(hotkeys->cpu, argv[pos]->ptr, sdslen(argv[pos]->ptr),
+                                    duration_per_key + (shift < duration_rem));
             if (ret) sdsfree(ret);
         }
 
         if (hotkeys->tracked_metrics & HOTKEYS_TRACK_NET) {
-            sds ret = chkTopKUpdate(hotkeys->net, argv[pos]->ptr, sdslen(argv[pos]->ptr), bytes_per_key);
+            sds ret = chkTopKUpdate(hotkeys->net, argv[pos]->ptr, sdslen(argv[pos]->ptr),
+                                    bytes_per_key + (shift < bytes_rem));
             if (ret) sdsfree(ret);
         }
     }
