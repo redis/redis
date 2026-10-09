@@ -322,7 +322,7 @@ static long long redisPollMillis(void) {
 #else
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
-    return (((long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 10;
+    return (((long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 10000;
 #endif
 }
 
