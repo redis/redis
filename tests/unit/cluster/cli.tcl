@@ -165,6 +165,14 @@ start_multiple_servers 3 [list overrides $base_conf] {
 
 } ;# stop servers
 
+start_cluster 3 0 {tags {cluster ipv6} overrides {bind {127.0.0.1 ::1}}} {
+    test {redis-cli --cluster check accepts bracketed IPv6 address} {
+        set endpoint [format {[::1]:%s} [srv 0 port]]
+        set result [exec src/redis-cli --cluster check $endpoint]
+        assert_match {*All 16384 slots covered*} $result
+    }
+}
+
 # Test redis-cli -- cluster create, add-node, call.
 # Test that functions are propagated on add-node
 start_multiple_servers 5 [list overrides $base_conf] {
