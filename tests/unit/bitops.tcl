@@ -64,6 +64,27 @@ proc simulate_bit_op {op args} {
 }
 
 start_server {tags {"bitops"}} {
+    test {BITOP word tail and SIMD boundaries} {
+        foreach length {0 1 7 8 9 15 16 17 31 32 33 50 1023 1024 1025 2048} {
+            set a [string repeat "\x55" $length]
+            set b [string repeat "\xaa" $length]
+            r set boundary-a $a
+            r set boundary-b $b
+            foreach op {and or xor} {
+                r bitop $op boundary-out boundary-a boundary-b
+                assert_equal [simulate_bit_op $op $a $b] [r get boundary-out]
+
+                # Unequal source lengths exercise the zero-padding tail too.
+                set bshort [expr {$length ? [string range $b 0 end-1] : ""}]
+                r set boundary-b $bshort
+                r bitop $op boundary-out boundary-a boundary-b
+                assert_equal [simulate_bit_op $op $a $bshort] [r get boundary-out]
+                r set boundary-b $b
+            }
+        }
+        r del boundary-a boundary-b boundary-out
+    }
+
     test {BITCOUNT against wrong type} {
         r del mylist
         r lpush mylist a b c
