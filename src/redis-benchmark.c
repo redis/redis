@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <limits.h>
 #include <time.h>
 #include <sys/time.h>
 #include <signal.h>
@@ -78,6 +79,9 @@ static struct config {
     int randomkeys_keyspacelen;
     int keepalive;
     int pipeline;
+    int rate;               /* Maximum benchmark requests per second. */
+    double rate_tokens;     /* Shared across all clients and threads. */
+    monotime rate_last_us;
     long long start;
     long long totlatency;
     const char *title;
@@ -127,7 +131,11 @@ typedef struct _client {
     int thread_id;
     struct clusterNode *cluster_node;
     int slots_last_update;
+    int rate_reserved;      /* This pipeline was counted in requests_issued. */
+    long long rate_timer_id;
 } *client;
+
+static pthread_mutex_t rate_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* Threads. */
 
@@ -165,6 +173,10 @@ typedef struct redisConfig {
 
 /* Prototypes */
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+static int rateLimitTimer(aeEventLoop *el, long long id, void *clientData);
+static void rateWaitReadHandler(aeEventLoop *el, int fd, void *privdata, int mask);
+static client createClient(char *cmd, size_t len, client from, int thread_id,
+                           clusterNode *target_node);
 static void createMissingClients(client c);
 static benchmarkThread *createBenchmarkThread(int index);
 static void freeBenchmarkThread(benchmarkThread *thread);
@@ -333,6 +345,8 @@ static void freeRedisConfig(redisConfig *cfg) {
 static void freeClient(client c) {
     aeEventLoop *el = CLIENT_GET_EVENTLOOP(c);
     listNode *ln;
+    if (c->rate_timer_id != -1)
+        aeDeleteTimeEvent(el,c->rate_timer_id);
     aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(el,c->context->fd,AE_READABLE);
     if (c->thread_id >= 0) {
@@ -372,6 +386,77 @@ static void resetClient(client c) {
     aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
     c->written = 0;
     c->pending = config.pipeline;
+    c->rate_reserved = 0;
+}
+
+static void replaceClient(client c) {
+    /* A running worker must register its replacement on its own event loop,
+     * and keep the same cluster node. */
+    if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
+    createClient(NULL,0,c,c->thread_id,c->cluster_node);
+    if (config.num_threads) pthread_mutex_unlock(&(config.liveclients_mutex));
+    freeClient(c);
+}
+
+/* Return the time to wait before sending a pipeline, consume its tokens and
+ * reserve its requests, or return -1 when the request limit has been reached.
+ * Start with an empty bucket so even a short benchmark respects the target
+ * average rate. Keep only a small amount of credit after a stall, while
+ * allowing enough headroom to recover from millisecond timer jitter. */
+static long long rateLimitDelay(void) {
+    pthread_mutex_lock(&rate_mutex);
+    int requests_issued = 0;
+    atomicGet(config.requests_issued, requests_issued);
+    if (requests_issued >= config.requests) {
+        pthread_mutex_unlock(&rate_mutex);
+        return -1;
+    }
+
+    monotime now = getMonotonicUs();
+    double capacity = ceil((double)config.rate / 1000.0) + 1;
+    if (capacity < config.pipeline) capacity = config.pipeline;
+    if (now > config.rate_last_us) {
+        config.rate_tokens += (double)(now - config.rate_last_us) * config.rate / 1000000.0;
+        if (config.rate_tokens > capacity) config.rate_tokens = capacity;
+        config.rate_last_us = now;
+    }
+
+    /* ae time events have millisecond resolution. Allow at most half a
+     * millisecond (and no more than half a request) of timing debt so rates
+     * just below 1000 RPS do not get rounded down to about 500 RPS. */
+    double slack = (double)config.rate / 2000.0;
+    if (slack > 0.5) slack = 0.5;
+    long long delay = 0;
+    if (config.rate_tokens + slack >= config.pipeline) {
+        config.rate_tokens -= config.pipeline;
+        atomicIncr(config.requests_issued, config.pipeline);
+    } else {
+        delay = (long long)ceil((config.pipeline - config.rate_tokens - slack) * 1000.0 / config.rate);
+        if (delay < 1) delay = 1;
+    }
+    pthread_mutex_unlock(&rate_mutex);
+    return delay;
+}
+
+static int rateLimitTimer(aeEventLoop *el, long long id, void *clientData) {
+    client c = clientData;
+    UNUSED(id);
+    c->rate_timer_id = -1;
+    aeDeleteFileEvent(el,c->context->fd,AE_READABLE);
+    aeCreateFileEvent(el,c->context->fd,AE_WRITABLE,writeHandler,c);
+    return AE_NOMORE;
+}
+
+/* Notice a disconnect even if the next rate-limited write is far away. */
+static void rateWaitReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    client c = privdata;
+    UNUSED(el);
+    UNUSED(fd);
+    UNUSED(mask);
+    if (redisBufferRead(c->context) != REDIS_OK) {
+        fprintf(stderr,"Error: %s\n",c->context->errstr);
+        replaceClient(c);
+    }
 }
 
 static void randomizeClientKey(client c) {
@@ -428,13 +513,7 @@ static void clientDone(client c) {
     if (config.keepalive) {
         resetClient(c);
     } else {
-        if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
-        config.liveclients--;
-        createMissingClients(c);
-        config.liveclients++;
-        if (config.num_threads)
-            pthread_mutex_unlock(&(config.liveclients_mutex));
-        freeClient(c);
+        replaceClient(c);
     }
 }
 
@@ -560,11 +639,30 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* Initialize request when nothing was written. */
     if (c->written == 0) {
-        /* Enforce upper bound to number of requests. */
-        int requests_issued = 0;
-        atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
-        if (requests_issued >= config.requests) {
-            return;
+        if (!c->rate_reserved) {
+            if (config.rate) {
+                /* Count the requests only when they are ready to be sent. A
+                 * client disconnected during the wait has no quota to lose. */
+                long long delay = rateLimitDelay();
+                if (delay < 0) {
+                    freeClient(c);
+                    return;
+                }
+                if (delay) {
+                    aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
+                    aeCreateFileEvent(el,c->context->fd,AE_READABLE,rateWaitReadHandler,c);
+                    c->rate_timer_id = aeCreateTimeEvent(el,delay,rateLimitTimer,c,NULL);
+                    return;
+                }
+            } else {
+                int requests_issued = 0;
+                atomicGetIncr(config.requests_issued, requests_issued, config.pipeline);
+                if (requests_issued >= config.requests) {
+                    freeClient(c);
+                    return;
+                }
+            }
+            c->rate_reserved = 1;
         }
 
         /* Really initialize: randomize keys and set start time. */
@@ -621,8 +719,10 @@ static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
  * 2) The offsets of the __rand_int__ elements inside the command line, used
  *    for arguments randomization.
  *
- * Even when cloning another client, prefix commands are applied if needed.*/
-static client createClient(char *cmd, size_t len, client from, int thread_id) {
+ * Even when cloning another client, prefix commands are applied if needed.
+ * target_node keeps a replacement on the same cluster node. */
+static client createClient(char *cmd, size_t len, client from, int thread_id,
+                           clusterNode *target_node) {
     int j;
     int is_cluster_client = (config.cluster_mode && thread_id >= 0);
     client c = zmalloc(sizeof(struct _client));
@@ -635,12 +735,15 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             ip = config.conn_info.hostip;
             port = config.conn_info.hostport;
         } else {
-            int node_idx = 0;
-            if (config.num_threads < config.cluster_node_count)
-                node_idx = config.liveclients % config.cluster_node_count;
-            else
-                node_idx = thread_id % config.cluster_node_count;
-            clusterNode *node = config.cluster_nodes[node_idx];
+            clusterNode *node = target_node;
+            if (node == NULL) {
+                int node_idx = 0;
+                if (config.num_threads < config.cluster_node_count)
+                    node_idx = config.liveclients % config.cluster_node_count;
+                else
+                    node_idx = thread_id % config.cluster_node_count;
+                node = config.cluster_nodes[node_idx];
+            }
             assert(node != NULL);
             ip = (const char *) node->ip;
             port = node->port;
@@ -729,6 +832,8 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
 
     c->written = 0;
     c->pending = config.pipeline+c->prefix_pending;
+    c->rate_reserved = 0;
+    c->rate_timer_id = -1;
     c->randptr = NULL;
     c->randlen = 0;
     c->stagptr = NULL;
@@ -817,7 +922,7 @@ static void createMissingClients(client c) {
         int thread_id = -1;
         if (config.num_threads)
             thread_id = config.liveclients % config.num_threads;
-        createClient(NULL,0,c,thread_id);
+        createClient(NULL,0,c,thread_id,NULL);
 
         /* Listen backlog is quite limited on most systems */
         if (++n > 64) {
@@ -858,6 +963,8 @@ static void showLatencyReport(void) {
         printf("  %d parallel clients\n", config.numclients);
         printf("  %d bytes payload\n", config.datasize);
         printf("  keep alive: %d\n", config.keepalive);
+        if (config.rate)
+            printf("  rate limit: %d requests per second\n", config.rate);
         if (config.cluster_mode) {
             printf("  cluster mode: yes (%d masters)\n",
                    config.cluster_node_count);
@@ -964,6 +1071,7 @@ static void benchmark(const char *title, char *cmd, int len) {
     config.requests_finished = 0;
     config.previous_requests_finished = 0;
     config.last_printed_bytes = 0;
+    config.rate_tokens = 0;
     hdr_init(
         CONFIG_LATENCY_HISTOGRAM_MIN_VALUE,  // Minimum value
         CONFIG_LATENCY_HISTOGRAM_MAX_VALUE,  // Maximum value
@@ -978,9 +1086,10 @@ static void benchmark(const char *title, char *cmd, int len) {
     if (config.num_threads) initBenchmarkThreads();
 
     int thread_id = config.num_threads > 0 ? 0 : -1;
-    c = createClient(cmd,len,NULL,thread_id);
+    c = createClient(cmd,len,NULL,thread_id,NULL);
     createMissingClients(c);
 
+    config.rate_last_us = getMonotonicUs();
     config.start = mstime();
     if (!config.num_threads) aeMain(config.el);
     else startBenchmarkThreads();
@@ -1403,6 +1512,17 @@ int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-n")) {
             if (lastarg) goto invalid;
             config.requests = atoi(argv[++i]);
+        } else if (!strcmp(argv[i],"--rate")) {
+            if (lastarg) goto invalid;
+            char *end;
+            errno = 0;
+            long rate = strtol(argv[++i], &end, 10);
+            if (errno == ERANGE || end == argv[i] || *end != '\0' ||
+                rate <= 0 || rate > INT_MAX) {
+                fprintf(stderr, "Invalid --rate value: %s (expected a positive requests/second limit)\n", argv[i]);
+                exit(1);
+            }
+            config.rate = (int)rate;
         } else if (!strcmp(argv[i],"-k")) {
             if (lastarg) goto invalid;
             config.keepalive = atoi(argv[++i]);
@@ -1603,6 +1723,9 @@ usage:
 "                    Note: If --cluster is used then number of clients has to be\n"
 "                    the same or higher than the number of nodes.\n"
 " -n <requests>      Total number of requests (default 100000)\n"
+" --rate <rps>       Limit benchmark requests per second across all clients\n"
+"                    and threads. Short bursts are possible; pipelined\n"
+"                    requests are sent together.\n"
 " -d <size>          Data size of SET/GET value in bytes (default 3)\n"
 " --dbnum <db>       SELECT the specified db number (default 0)\n"
 " -3                 Start session in RESP3 protocol mode.\n"
@@ -1769,6 +1892,11 @@ int main(int argc, char **argv) {
     argc -= i;
     argv += i;
 
+    if (config.idlemode && config.rate) {
+        fprintf(stderr, "--rate cannot be used with idle mode (-I).\n");
+        return 1;
+    }
+
     tag = "";
 
 #ifdef USE_OPENSSL
@@ -1849,7 +1977,7 @@ int main(int argc, char **argv) {
             thread_id = 0;
             initBenchmarkThreads();
         }
-        c = createClient("",0,NULL,thread_id); /* will never receive a reply */
+        c = createClient("",0,NULL,thread_id,NULL); /* will never receive a reply */
         createMissingClients(c);
         if (use_threads) startBenchmarkThreads();
         else aeMain(config.el);
