@@ -1743,7 +1743,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     # than merely driving an empty bin negative; the keysizes rows are checked
     # the same way. Timing-dependent by design: the trim must still be in flight
     # when the FLUSH lands.
-    test "Slot bg-trim delta is dropped when a sync FLUSH resets the histogram" {
+    test "Slot bg-trim delta is not applied when a sync FLUSH resets the histogram" {
         R 0 debug asm-trim-method bg
         R 0 flushall
         R 1 flushall
