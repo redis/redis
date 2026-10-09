@@ -31,7 +31,8 @@ int asmImportInProgress(void);
 void asmFeedMigrationClient(robj **argv, int argc);
 int asmDebugSetFailPoint(char * channel, char *state);
 int asmDebugSetTrimMethod(const char *method, int active_trim_delay);
-
+unsigned long long asmGetTaskTotalKeys(struct asmTask *task);
+void asmImportIncrReceivedBytes(struct asmTask *task, size_t bytes);
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
 size_t asmGetPeakSyncBufferSize(void);
