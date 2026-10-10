@@ -8231,6 +8231,7 @@ struct redisTest {
     {"zset", zsetTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
+    {"rio", rioTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
