@@ -7,6 +7,7 @@
 
 #ifndef _BLOOM_H
 #define _BLOOM_H
+#include <float.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -74,6 +75,12 @@ struct bloom {
 
 // Disable auto-scaling. Saves memory
 #define BLOOM_OPT_NO_SCALING 8
+
+// For binary doubles, the smallest positive value is
+// 2^(DBL_MIN_EXP - DBL_MANT_DIG). Therefore, the largest hash count derived
+// from an error rate is DBL_MANT_DIG - DBL_MIN_EXP, plus one for ceil rounding
+// with the approximate LN2 constants (1075 for IEEE-754 binary64).
+#define BLOOM_MAX_HASHES ((uint32_t)(DBL_MANT_DIG - DBL_MIN_EXP + 1))
 
 int bloom_init(struct bloom *bloom, uint64_t entries, double error, unsigned options);
 
