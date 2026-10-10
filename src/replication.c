@@ -4235,7 +4235,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
         !(c->flags & CLIENT_ASM_IMPORTING) &&
         (server.repl_master_compression_level > 0);
     if (compressed_stream)
-        serverAssert(server.master->compression_state);
+        serverAssert(c->compression_state);
 
     blockingOperationStarts();
     while ((n = listFirst(buf->blocks))) {
@@ -4258,7 +4258,13 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                                                               c->querybuf + qblen,
                                                               avail,
                                                               &consumed);
-                serverAssert(decompressed >= 0);
+                if (decompressed < 0 || (decompressed == 0 && consumed == 0)) {
+                    c->flags |= CLIENT_PROTOCOL_ERROR;
+                    serverLog(LL_WARNING,
+                              "MASTER <-> REPLICA sync: Failed to decompress master stream, aborting sync");
+                    ret = C_ERR;
+                    break;
+                }
                 sdsIncrLen(c->querybuf, decompressed);
                 c->read_reploff += (long long) decompressed;
                 c->io_read_reploff += (long long int) decompressed;
