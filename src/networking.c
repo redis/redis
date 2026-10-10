@@ -2213,6 +2213,16 @@ static void resetReusableQueryBuf(client *c) {
     thread_reusable_qb_used = 0;
 }
 
+/* Drop released bytes from the client's shared reply bytes. The cached
+ * unshared bytes are only refreshed periodically, so clamp them to keep
+ * the invariant unshared <= shared, otherwise stale unshared bytes would
+ * linger in the client's memory usage after its replies were sent. */
+static inline void decrClientReplyBytesShared(client *c, size_t len) {
+    c->reply_bytes_shared -= len;
+    if (c->reply_bytes_unshared > c->reply_bytes_shared)
+        c->reply_bytes_unshared = c->reply_bytes_shared;
+}
+
 /* Release references to string objects inside an encoded buffer.
  * If running in IO thread, defer the free to main thread via io_deferred_objects. */
 static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
@@ -2226,7 +2236,7 @@ static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
             bulkStrRef *str_ref = (bulkStrRef *)ptr;
             /* Only release if not already released. */
             if (str_ref->obj != NULL) {
-                c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
+                decrClientReplyBytesShared(c, sdslen(str_ref->obj->ptr));
                 if (in_io_thread)
                     ioDeferFreeRobj(c, str_ref->obj);
                 else
@@ -2651,7 +2661,7 @@ static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr,
                 return head;
             }
             *remaining -= (written_len - *sentlen);
-            c->reply_bytes_shared -= sdslen(str_ref->obj->ptr);
+            decrClientReplyBytesShared(c, sdslen(str_ref->obj->ptr));
             if (in_io_thread) {
                 ioDeferFreeRobj(c, str_ref->obj);
             } else {
