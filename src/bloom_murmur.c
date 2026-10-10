@@ -52,8 +52,10 @@ uint32_t MurmurHash2(const void *key, int len, uint32_t seed) {
     switch (len) {
     case 3:
         h ^= data[2] << 16;
+        /* fall through */
     case 2:
         h ^= data[1] << 8;
+        /* fall through */
     case 1:
         h ^= data[0];
         h *= m;
@@ -102,16 +104,22 @@ uint64_t MurmurHash64A_Bloom(const void *key, int len, uint64_t seed) {
     switch (len & 7) {
     case 7:
         h ^= ((uint64_t)data2[6]) << 48;
+        /* fall through */
     case 6:
         h ^= ((uint64_t)data2[5]) << 40;
+        /* fall through */
     case 5:
         h ^= ((uint64_t)data2[4]) << 32;
+        /* fall through */
     case 4:
         h ^= ((uint64_t)data2[3]) << 24;
+        /* fall through */
     case 3:
         h ^= ((uint64_t)data2[2]) << 16;
+        /* fall through */
     case 2:
         h ^= ((uint64_t)data2[1]) << 8;
+        /* fall through */
     case 1:
         h ^= ((uint64_t)data2[0]);
         h *= m;
@@ -166,8 +174,10 @@ uint64_t MurmurHash64B(const void *key, int len, uint64_t seed) {
     switch (len) {
     case 3:
         h2 ^= ((unsigned char *)data)[2] << 16;
+        /* fall through */
     case 2:
         h2 ^= ((unsigned char *)data)[1] << 8;
+        /* fall through */
     case 1:
         h2 ^= ((unsigned char *)data)[0];
         h2 *= m;
