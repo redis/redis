@@ -986,6 +986,23 @@ start_server {tags {"cli external:skip"}} {
         r ACL DELUSER uu2
     }
 
+    test "redis-cli help with --user and a wrong password should succeed" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~* +@all
+
+        foreach command {help ? HeLp {"help"}} {
+            set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+                -h $host -p $port -n $::dbnum --user uu2 -a wrong \
+                --quoted-input $command]
+            set output [exec {*}$cmd 2>@1]
+
+            assert_match "*WRONGPASS*" $output
+            assert_match "*To get help about Redis commands type:*" $output
+        }
+
+        r ACL DELUSER uu2
+    }
+
     test "redis-cli start with --user with a wrong password should exit" {
         r ACL SETUSER default on nopass
         r ACL SETUSER uu2 reset on >secret ~* +@all
