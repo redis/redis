@@ -27,7 +27,7 @@ Notification class `M` is included in `A`; existing classes are unchanged.
 Native memory usage intentionally excludes module-wrapper overhead.
 
 The temporary `BUILD_BLOOM=yes` build switch also enables CMS during this stack.
-`BUILD_BLOOM=no` retains the external-module fallback until the final migration.
+`BUILD_BLOOM=no` disables the native probabilistic family. RedisBloom is no longer bundled.
 Do not load RedisBloom alongside native commands with the same names.
 
 ## Validation

@@ -1,0 +1,45 @@
+{
+    "TDIGEST.RESET": {
+        "summary": "Resets a t-digest sketch: empty the sketch and re-initializes it.",
+        "complexity": "O(1)",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ],
+        "since": "8.8.0",
+        "group": "tdigest",
+        "function": "tdigestResetCommand",
+        "arity": 2,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "TDIGEST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

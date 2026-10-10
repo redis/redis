@@ -46,11 +46,11 @@ load_flags=""
 for name in $selected; do
   if ! module_load_enabled "$name"; then
     if [ "$explicit" = "1" ]; then
-      echo "ERROR: redisbloom cannot be loaded with native Bloom enabled."
-      echo "       Use the native BF.* commands, or rebuild and run with BUILD_BLOOM=no."
+      echo "ERROR: RedisBloom is no longer a bundled module."
+      echo "       Use the native BF.*, CMS.*, CF.*, TOPK.* and TDIGEST.* commands."
       exit 1
     fi
-    echo "==> Skipping redisbloom: native Bloom is enabled"
+    echo "==> Skipping redisbloom: probabilistic types are native"
     continue
   fi
   # Resolve the .so basename from modules.yaml. Prefer `target_module:`

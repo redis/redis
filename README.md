@@ -216,12 +216,13 @@ This section refers to building Redis from source. If you want to get up and run
 
 ### Install dependencies and build
 
-Bloom (`BF.*`) is now native and enabled by default, with no additional build
-dependencies. Run/config-generation/deployment scripts do not auto-load
-`redisbloom.so`. Count-Min Sketch is also native (see [CMS](docs/native-cms.md)).
-Cuckoo is native too (see [Cuckoo](docs/native-cuckoo.md)). Top-K is native (see [Top-K](docs/native-topk.md)). t-digest is not yet migrated
-and are unavailable in this default configuration. To use external RedisBloom
-instead, build and run with `BUILD_BLOOM=no`. See [native Bloom](docs/native-bloom.md).
+All five RedisBloom families are native and enabled by default, with no extra
+build dependencies: [Bloom](docs/native-bloom.md), [CMS](docs/native-cms.md),
+[Cuckoo](docs/native-cuckoo.md), [Top-K](docs/native-topk.md) and
+[t-digest](docs/native-tdigest.md). RedisBloom is no longer fetched, built or
+loaded as a bundled module. The compatibility build switch `BUILD_BLOOM`
+controls the entire family. Read the [existing-key upgrade procedure](docs/probabilistic-upgrade.md)
+before replacing a server that loads RedisBloom.
 
 Building Redis with all data structures (JSON, time series, Bloom / cuckoo / count-min / top-k, t-digest, and the Query Engine) needs a build toolchain plus a few version-sensitive dependencies — GCC/Clang, **LLVM 21**, **CMake 3.25–3.31.6**, **Rust 1.94**, OpenSSL, Python 3, and assorted `-dev` libraries. Instead of a per-OS package list, the repo installs them for you with **`make bootstrap`**, which detects your OS and installs each bundled module's prerequisites.
 

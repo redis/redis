@@ -1,0 +1,51 @@
+{
+    "TDIGEST.CREATE": {
+        "summary": "Allocates memory and initializes a new t-digest sketch",
+        "complexity": "O(1)",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "compression",
+                "type": "integer",
+                "token": "COMPRESSION",
+                "optional": true
+            }
+        ],
+        "since": "8.8.0",
+        "group": "tdigest",
+        "function": "tdigestCreateCommand",
+        "arity": -2,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "TDIGEST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

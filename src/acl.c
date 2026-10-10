@@ -63,6 +63,7 @@ struct ACLCategoryItem {
     {"cms", ACL_CATEGORY_CMS},
     {"cuckoo", ACL_CATEGORY_CUCKOO},
     {"topk", ACL_CATEGORY_TOPK},
+    {"tdigest", ACL_CATEGORY_TDIGEST},
 #endif
     {"bitmap", ACL_CATEGORY_BITMAP},
     {"hyperloglog", ACL_CATEGORY_HYPERLOGLOG},

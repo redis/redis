@@ -1,0 +1,48 @@
+{
+    "TDIGEST.QUANTILE": {
+        "summary": "Returns, for each input fraction, an estimation of the value (floating point) that is smaller than the given fraction of observations",
+        "complexity": "O(N) where N is the number of quantiles specified.",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "quantile",
+                "type": "double",
+                "multiple": true
+            }
+        ],
+        "since": "8.8.0",
+        "group": "tdigest",
+        "function": "tdigestQueryCommand",
+        "arity": -3,
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "TDIGEST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

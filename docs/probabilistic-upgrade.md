@@ -34,4 +34,12 @@ server and module, then run the relevant make test target.
 
 Current local validation uses RedisBloom v8.11.81 on the same architecture.
 Other historical releases and cross-architecture upgrades are not yet claimed
-as validated. The final t-digest stack change must satisfy the same tests.
+as validated. All five families, including t-digest, pass the same local tests.
+
+`make test-probabilistic-upgrade` loads checked-in old-module dataset fixtures
+in all three persistence modes without requiring an external module. Event CI
+and the Ubuntu nightly run this check unconditionally. The fixture producer is
+`tests/probabilistic/upgrade.py --generate`; source provenance is recorded in
+the fixture JSON. Native t-digest writes encoding version 1 to preserve buffered
+nodes and exact integer weights, while loading legacy version 0. An old module
+cannot load new version-1 snapshots; use the pre-upgrade backup for rollback.

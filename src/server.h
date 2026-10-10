@@ -312,6 +312,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_CMS (1ULL<<24)
 #define ACL_CATEGORY_CUCKOO (1ULL<<25)
 #define ACL_CATEGORY_TOPK (1ULL<<26)
+#define ACL_CATEGORY_TDIGEST (1ULL<<27)
 #ifdef ENABLE_GCRA
 #define ACL_CATEGORY_RATE_LIMIT (1ULL<<22)
 #endif
@@ -856,10 +857,11 @@ typedef enum {
 #define NOTIFY_CMS (1<<26)               /* M, Count-Min Sketch notification */
 #define NOTIFY_CUCKOO (1<<27)            /* C, Cuckoo notification */
 #define NOTIFY_TOPK (1<<28) /* k, Top-K notification */
+#define NOTIFY_TDIGEST (1<<29) /* q, t-digest notification */
 #ifdef ENABLE_GCRA
 #define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #endif
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM | NOTIFY_CMS | NOTIFY_CUCKOO | NOTIFY_TOPK) /* A flag */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM | NOTIFY_CMS | NOTIFY_CUCKOO | NOTIFY_TOPK | NOTIFY_TDIGEST) /* A flag */
 
 #define _run_with_period(_cronloops_, _ms_, _hz_) if (((_ms_) <= 1000/(_hz_)) || !((_cronloops_)%((_ms_)/(1000/(_hz_)))))
 
@@ -935,7 +937,8 @@ typedef enum {
 #define OBJ_CMS 10      /* Native Count-Min Sketch. */
 #define OBJ_CUCKOO 11
 #define OBJ_TOPK 12
-#define OBJ_TYPE_MAX 13 /* Maximum number of object types */
+#define OBJ_TDIGEST 13
+#define OBJ_TYPE_MAX 14 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)
@@ -3013,6 +3016,7 @@ typedef enum {
     COMMAND_GROUP_CMS,
     COMMAND_GROUP_CUCKOO,
     COMMAND_GROUP_TOPK,
+    COMMAND_GROUP_TDIGEST,
     COMMAND_GROUP_MODULE,
 #ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
@@ -4208,6 +4212,26 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
 robj *arrayTypeDup(robj *o);
 
 /* Native Top-K operations. */
+robj *createTdigestObject(void *value);
+void freeTdigestObject(robj *o);
+size_t tdigestObjectLength(robj *o);
+size_t tdigestAllocSize(robj *o);
+size_t tdigestFreeEffort(robj *o);
+void tdigestDismiss(robj *o);
+robj *tdigestDup(robj *o);
+void tdigestDefrag(robj *o, void *(*defrag)(void *));
+void tdigestDigest(unsigned char *digest, robj *o);
+uint64_t tdigestRdbId(void);
+ssize_t tdigestRdbSave(rio *rdb, robj *o);
+robj *tdigestRdbLoad(rio *rdb, int version);
+int tdigestRewriteAof(rio *rdb, robj *key, robj *o, int dbid);
+void tdigestCreateCommand(client *c);
+void tdigestResetCommand(client *c);
+void tdigestAddCommand(client *c);
+void tdigestMergeCommand(client *c);
+void tdigestInfoCommand(client *c);
+void tdigestQueryCommand(client *c);
+
 robj *createTopkObject(void *value);
 void freeTopkObject(robj *o);
 size_t topkObjectLength(robj *o);

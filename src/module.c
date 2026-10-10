@@ -4301,6 +4301,7 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_CMS: return REDISMODULE_KEYTYPE_CMS;
     case OBJ_CUCKOO: return REDISMODULE_KEYTYPE_CUCKOO;
     case OBJ_TOPK: return REDISMODULE_KEYTYPE_TOPK;
+    case OBJ_TDIGEST: return REDISMODULE_KEYTYPE_TDIGEST;
 #endif
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }

@@ -43,6 +43,8 @@ seeked = "seeked"
 [default.extend-identifiers]
 # POSIX glob struct field; not a typo.
 gl_pathc = "gl_pathc"
+# macOS mach_timebase_info field, including its use in headers.
+numer = "numer"
 
 [type.c]
 extend-ignore-re = [
@@ -51,6 +53,8 @@ extend-ignore-re = [
 ]
 
 [type.c.extend-identifiers]
+# NumPy API in upstream test comments.
+arange = "arange"
 clen = "clen"
 fle = "fle"
 nd = "nd"

@@ -78,6 +78,12 @@ class Expectation:
 
 
 class Env(unittest.TestCase):
+    def assertAlmostEqual(self, first, second, places=7, msg=None, delta=None):
+        # RLTest also permits an absolute floating-point tolerance as argument 3.
+        if isinstance(places, float) and delta is None:
+            delta, places = places, None
+        return super().assertAlmostEqual(first, second, places=places, msg=msg, delta=delta)
+
     def __init__(self, decodeResponses=False, protocol=2, extra=(), useSlaves=False, freshEnv=False):
         super().__init__()
         self.replica = None

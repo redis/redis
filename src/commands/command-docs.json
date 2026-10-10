@@ -75,6 +75,9 @@
                                     "const": "topk"
                                 },
                                 {
+                                    "const": "tdigest"
+                                },
+                                {
                                     "const": "list"
                                 },
                                 {

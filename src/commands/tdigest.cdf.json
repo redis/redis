@@ -1,0 +1,48 @@
+{
+    "TDIGEST.CDF": {
+        "summary": "Returns, for each input value, an estimation of the fraction (floating-point) of (observations smaller than the given value + half the observations equal to the given value)",
+        "complexity": "O(1)",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "value",
+                "type": "double",
+                "multiple": true
+            }
+        ],
+        "since": "8.8.0",
+        "group": "tdigest",
+        "function": "tdigestQueryCommand",
+        "arity": -3,
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "TDIGEST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

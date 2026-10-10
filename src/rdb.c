@@ -753,6 +753,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_BLOOM: /* Preserve RedisBloom's wire format during migration. */
     case OBJ_CMS:
     case OBJ_TOPK:
+    case OBJ_TDIGEST:
     case OBJ_CUCKOO:
 #endif
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
@@ -1605,6 +1606,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         return cuckooRdbSave(rdb, o);
     } else if (o->type == OBJ_TOPK) {
         return topkRdbSave(rdb, o);
+    } else if (o->type == OBJ_TDIGEST) {
+        return tdigestRdbSave(rdb, o);
 #endif
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
@@ -4350,9 +4353,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
 #ifdef INCLUDE_BLOOM
         if ((moduleid >> 10) == (topkRdbId() >> 10) && !rdbCheckMode) {
-            robj *cf = topkRdbLoad(rdb, moduleid & 1023);
-            if (!cf) rdbReportCorruptRDB("Invalid Topk filter payload");
-            return cf;
+            robj *t = topkRdbLoad(rdb, moduleid & 1023);
+            if (!t) rdbReportCorruptRDB("Invalid Top-K payload");
+            return t;
+        }
+        if ((moduleid >> 10) == (tdigestRdbId() >> 10) && !rdbCheckMode) {
+            robj *t = tdigestRdbLoad(rdb, moduleid & 1023);
+            if (!t) rdbReportCorruptRDB("Invalid t-digest payload");
+            return t;
         }
         if ((moduleid >> 10) == (cuckooRdbId() >> 10) && !rdbCheckMode) {
             robj *cf = cuckooRdbLoad(rdb, moduleid & 1023);

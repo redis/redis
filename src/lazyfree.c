@@ -194,6 +194,8 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         return cuckooFreeEffort(obj);
     } else if (obj->type == OBJ_TOPK) {
         return topkFreeEffort(obj);
+    } else if (obj->type == OBJ_TDIGEST) {
+        return tdigestFreeEffort(obj);
 #endif
     } else {
         return 1; /* Everything else is a single allocation. */
