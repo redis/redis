@@ -95,7 +95,10 @@ char *rdb_type_string[] = {
     "hash-tmpl-array-ref",
 #ifdef ENABLE_GCRA
     "gcra",
+#else
+    "", /* opcode 33 reserved for gcra */
 #endif
+    "hll",
 };
 
 /* Show a few stats collected into 'rdbstate' */

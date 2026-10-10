@@ -4,7 +4,7 @@
         "complexity": "N/A",
         "group": "hyperloglog",
         "since": "2.8.9",
-        "arity": 1,
+        "arity": -1,
         "function": "pfselftestCommand",
         "doc_flags": [
             "SYSCMD"
