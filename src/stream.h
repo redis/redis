@@ -243,4 +243,15 @@ idmpProducer *idmpProducerCreate(size_t *alloc_size);
 void idmpProducerFree(idmpProducer *producer, size_t *alloc_size);
 void streamFreeIdmpProducerGeneric(void *producer, void *strm);
 
+/* IDMP entries expire by the wall clock: an entry falls outside the stream's
+ * deduplication window once it was recorded more than idmp_duration seconds
+ * ago. The stream ID cannot be used for this, because a producer may set it
+ * explicitly to any value, including one far in the future.
+ *
+ * idmpExpireTime() returns the threshold: an entry with an insert_time at or
+ * before it is expired. Callers that need a stable threshold across a longer
+ * operation (e.g. serializing a whole stream) resolve it once and compare the
+ * entries against it. */
+uint64_t idmpExpireTime(stream *s);
+
 #endif

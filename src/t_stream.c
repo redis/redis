@@ -6099,13 +6099,19 @@ dictType idmpDictType = {
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) {
     size_t usable;
     idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry) + iid_len, &usable);
-    
+
+    /* Entries are also used as throwaway lookup keys, so initialize every
+     * field: leaving the stream ID or the recording time uninitialized would
+     * make the struct compare or hash inconsistently under memory checkers. */
     entry->next = NULL;
+    entry->id.ms = 0;
+    entry->id.seq = 0;
+    entry->insert_time = 0;
     entry->iid_len = iid_len;
     memcpy(entry->iid, iid, iid_len);
-    
+
     *alloc_size += usable;
-    
+
     return entry;
 }
 
@@ -6117,6 +6123,12 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     size_t usable;
     zfree_usable(entry, &usable);
     *alloc_size -= usable;
+}
+
+/* Wall-clock threshold (ms) before which IDMP entries count as expired:
+ * entries recorded at or before it are outside the deduplication window. */
+uint64_t idmpExpireTime(stream *s) {
+    return server.mstime - (s->idmp_duration * 1000);
 }
 
 /* Create a new idmpProducer with an empty dict and linked list.
@@ -6330,13 +6342,16 @@ void handleExpiredIdmpEntries(void) {
             serverAssert(kv && kv->type == OBJ_STREAM);
 
             stream *s = kv->ptr;
-            uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
             
             /* Skip if no producers */
             if (s->idmp_producers == NULL) {
                 dictDelete(db->stream_idmp_keys, key);
                 continue;
             }
+
+            /* Resolve the expiration threshold once, so that every entry of
+             * this stream is judged against the same instant. */
+            uint64_t expire_time = idmpExpireTime(s);
 
             /* Iterate through all producers and remove expired entries */
             int modified = 0;

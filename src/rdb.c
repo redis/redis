@@ -830,7 +830,10 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
 
     if (num_producers == 0) return nwritten;
 
-    uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
+    /* Resolve the expiration threshold once: the number of entries written
+     * for a producer is computed before the entries themselves, so both
+     * passes must judge them against the same instant. */
+    uint64_t expire_time = idmpExpireTime(s);
 
     /* Iterate through all producers. */
     raxIterator ri;
@@ -846,17 +849,16 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
         }
         nwritten += n;
 
-        /* Find the first non-expired entry. The linked list is ordered by
-         * timestamp, so all entries after the first valid one are also valid. */
-        idmpEntry *first_valid = producer->idmp_head;
-        size_t expired = 0;
-        while (first_valid && first_valid->insert_time <= expire_time) {
-            first_valid = first_valid->next;
-            expired++;
+        /* Count the entries that are still within their deduplication window.
+         * The linked list is in insertion order, so expired entries are
+         * normally a prefix, but a wall clock that steps backwards can break
+         * that ordering: count all of them instead of assuming a prefix. */
+        size_t count = 0;
+        for (idmpEntry *entry = producer->idmp_head; entry; entry = entry->next) {
+            if (entry->insert_time > expire_time) count++;
         }
 
         /* Save the number of entries for this producer. */
-        size_t count = dictSize(producer->idmp_dict) - expired;
         if ((n = rdbSaveLen(rdb, count)) == -1) {
             raxStop(&ri);
             return -1;
@@ -864,8 +866,9 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
         nwritten += n;
 
         /* Save each non-expired entry in insertion order. */
-        idmpEntry *entry = first_valid;
-        while (entry != NULL) {
+        for (idmpEntry *entry = producer->idmp_head; entry; entry = entry->next) {
+            if (entry->insert_time <= expire_time) continue;
+
             /* Save the IID string (length + data). */
             if ((n = rdbSaveRawString(rdb,(unsigned char *)entry->iid,entry->iid_len)) == -1) {
                 raxStop(&ri);
@@ -884,8 +887,6 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
                 return -1;
             }
             nwritten += n;
-
-            entry = entry->next;
         }
     }
     raxStop(&ri);
