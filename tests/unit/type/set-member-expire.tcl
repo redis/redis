@@ -1083,7 +1083,9 @@ start_server {tags {"external:skip needs:debug"}} {
 
         test "Active expiration handles many sets, hashes and sets together ($enc)" {
             r flushall
-            r debug set-active-expire 1
+            # Active expiry stays off while the data is created, so that a slow
+            # machine does not expire the first members before the count below.
+            r debug set-active-expire 0
             for {set i 0} {$i < 100} {incr i} {
                 r sadd set$i a b c
                 r spexpire set$i [expr {50 + $i}] MEMBERS 2 a b
@@ -1091,6 +1093,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hpexpire hash$i [expr {50 + $i}] FIELDS 1 f1
             }
             assert_equal [sme_subexpiry r] 200
+            r debug set-active-expire 1
             wait_for_condition 200 20 {[sme_subexpiry r] == 0} else {fail "not all expired"}
             for {set i 0} {$i < 100} {incr i} {
                 assert_equal [r smembers set$i] c
@@ -2015,7 +2018,8 @@ start_server {tags {"external:skip needs:debug"}} {
 
     test "A random dataset with member expirations survives a reload and replicates ($enc)" {
         r flushall
-        createComplexDataset r 2000 {useexpire usesexpire}
+        # no useexpire: a key that expires between the digest and the reload would differ
+        createComplexDataset r 2000 {usesexpire}
         r debug set-active-expire 0
         set d [r debug digest]
         r debug reload
