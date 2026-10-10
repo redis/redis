@@ -133,6 +133,7 @@
 #define CLUSTER_MANAGER_LOG_LVL_SUCCESS 4
 
 #define CLUSTER_JOIN_CHECK_AFTER        20
+#define CLUSTER_JOIN_TIMEOUT            120000 /* milliseconds */
 
 #define LOG_COLOR_BOLD      "29;1m"
 #define LOG_COLOR_RED       "31;1m"
@@ -3971,7 +3972,7 @@ static sds clusterManagerNodeInfo(clusterManagerNode *node, int indent);
 static void clusterManagerShowNodes(void);
 static void clusterManagerShowClusterInfo(void);
 static int clusterManagerFlushNodeConfig(clusterManagerNode *node, char **err);
-static void clusterManagerWaitForClusterJoin(void);
+static int clusterManagerWaitForClusterJoin(void);
 static int clusterManagerCheckCluster(int quiet);
 static void clusterManagerLog(int level, const char* fmt, ...);
 static int clusterManagerIsConfigConsistent(void);
@@ -4011,7 +4012,7 @@ typedef struct clusterManagerCommandDef {
 
 clusterManagerCommandDef clusterManagerCommands[] = {
     {"create", clusterManagerCommandCreate, -1, "host1:port1 ... hostN:portN",
-     "replicas <arg>"},
+     "replicas <arg>,timeout <ms>"},
     {"check", clusterManagerCommandCheck, -1, "<host:port> or <host> <port> - separated by either colon or space",
      "search-multiple-owners"},
     {"info", clusterManagerCommandInfo, -1, "<host:port> or <host> <port> - separated by either colon or space", NULL},
@@ -4024,7 +4025,7 @@ clusterManagerCommandDef clusterManagerCommands[] = {
      "weight <node1=w1...nodeN=wN>,use-empty-masters,"
      "timeout <ms>,simulate,pipeline <arg>,threshold <arg>,replace"},
     {"add-node", clusterManagerCommandAddNode, 2,
-     "new_host:new_port existing_host:existing_port", "slave,master-id <arg>"},
+     "new_host:new_port existing_host:existing_port", "slave,master-id <arg>,timeout <ms>"},
     {"del-node", clusterManagerCommandDeleteNode, 2, "host:port node_id",NULL},
     {"call", clusterManagerCommandCall, -2,
         "host:port command arg arg .. arg", "only-masters,only-replicas"},
@@ -5695,9 +5696,14 @@ cleanup:
     return success;
 }
 
-/* Wait until the cluster configuration is consistent. */
-static void clusterManagerWaitForClusterJoin(void) {
+/* Wait until the cluster configuration is consistent. A join that cannot
+ * complete (for example, because a cluster bus port is blocked) must not
+ * leave redis-cli running indefinitely. */
+static int clusterManagerWaitForClusterJoin(void) {
     printf("Waiting for the cluster to join\n");
+    long long start = mstime();
+    int timeout = (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_TIMEOUT) ?
+                  config.cluster_manager_command.timeout : CLUSTER_JOIN_TIMEOUT;
     int counter = 0,
         check_after = CLUSTER_JOIN_CHECK_AFTER +
                       (int)(listLength(cluster_manager.nodes) * 0.15f);
@@ -5705,9 +5711,12 @@ static void clusterManagerWaitForClusterJoin(void) {
         printf(".");
         fflush(stdout);
         sleep(1);
-        if (++counter > check_after) {
+        int timed_out = timeout > 0 && mstime() - start >= timeout;
+        if (timed_out && clusterManagerIsConfigConsistent()) break;
+        if (++counter > check_after || timed_out) {
             dict *status = clusterManagerGetLinkStatus();
-            if (status != NULL && dictSize(status) > 0) {
+            int has_disconnected_links = status != NULL && dictSize(status) > 0;
+            if (has_disconnected_links) {
                 printf("\n");
                 clusterManagerLogErr("Warning: %d node(s) may "
                                      "be unreachable\n", dictSize(status));
@@ -5745,10 +5754,18 @@ static void clusterManagerWaitForClusterJoin(void) {
                 dictResetIterator(&iter);
             }
             if (status != NULL) dictRelease(status);
+            if (timed_out) {
+                if (!has_disconnected_links) printf("\n");
+                clusterManagerLogErr("[ERR] Cluster join timed out after %d ms. "
+                                     "Check that all cluster bus ports are reachable.\n",
+                                     timeout);
+                return 0;
+            }
             counter = 0;
         }
     }
     printf("\n");
+    return 1;
 }
 
 /* Load node's cluster configuration by calling "CLUSTER NODES" command.
@@ -7583,7 +7600,10 @@ assign_replicas:
          * waiting for cluster join will find all the nodes agree about
          * the config as they are still empty with unassigned slots. */
         sleep(1);
-        clusterManagerWaitForClusterJoin();
+        if (!clusterManagerWaitForClusterJoin()) {
+            success = 0;
+            goto cleanup;
+        }
         /* Useful for the replicas */
         listRewind(cluster_manager.nodes, &li);
         while ((ln = listNext(&li)) != NULL) {
@@ -7766,7 +7786,7 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
     /* Additional configuration is needed if the node is added as a slave. */
     if (master_node) {
         sleep(1);
-        clusterManagerWaitForClusterJoin();
+        if (!(success = clusterManagerWaitForClusterJoin())) goto cleanup;
         clusterManagerLogInfo(">>> Configure node as replica of %s:%d.\n",
                               master_node->ip, master_node->port);
         freeReplyObject(reply);
