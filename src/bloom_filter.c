@@ -246,7 +246,7 @@ int bloom_validate_integrity(struct bloom *bloom) {
     }
 
     const double expected_hashes = ceil(LN2 * bloom->bpe);
-    if (!isfinite(expected_hashes) || expected_hashes < 1 || expected_hashes > INT_MAX ||
+    if (!isfinite(expected_hashes) || expected_hashes < 1 || expected_hashes > BLOOM_MAX_HASHES ||
         bloom->hashes != (uint32_t)expected_hashes) {
         return 1;
     }
