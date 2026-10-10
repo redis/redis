@@ -1001,6 +1001,28 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
+/* Comparator function to find Integer item */
+static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p,
+                                   void *user, unsigned char *s, long long ll) {
+    (void) lp;
+    (void) p;
+    if (s != NULL) return 1;  /* Skip if current entry is a string */
+	return (ll == *(long long *)user) ? 0 : 1;
+}
+
+/* Search for a specific long long integer value in the listpack.
+ *
+ * 'lp' is the pointer to the listpack.
+ * 'p' is the starting position within the listpack (if NULL, search starts from the first entry).
+ * 'value' is the target integer value to search for.
+ * 'skip' specifies the number of entries to skip between each comparison.
+ *
+ * Returns a pointer to the matching entry if found, otherwise NULL. */
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
+                             long long value, unsigned int skip) {
+    return lpFindCbInternal(lp, p, &value, lpFindIntegerCmp, skip);
+}
+
 /* Insert, delete or replace the specified string element 'elestr' of length
  * 'size' or integer element 'eleint' at the specified position 'p', with 'p'
  * being a listpack element pointer obtained with lpFirst(), lpLast(), lpNext(),
@@ -3347,6 +3369,51 @@ int listpackTest(int argc, char *argv[], int flags) {
         assert(lpFind(lp, lpFirst(lp), (unsigned char*)"abc", 3, 0) == NULL);
         verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"hello", 5, 0), (unsigned char*)"hello", 5);
         verifyEntry(lpFind(lp, lpFirst(lp), (unsigned char*)"1024", 4, 0), (unsigned char*)"1024", 4);
+        lpFree(lp);
+    }
+
+    TEST("Test lpFindInteger") {
+        /* Create a listpack with a mix of integers and strings */
+        unsigned char *lp = lpNew(0);
+        lp = lpAppendInteger(lp, 100);
+        lp = lpAppend(lp, (unsigned char*)"hello", 5);
+        lp = lpAppendInteger(lp, -50);
+        lp = lpAppend(lp, (unsigned char*)"1024", 4);
+        unsigned char *p;
+        long long val;
+
+        /* Test: Find an existing integer (100) */
+        p = lpFindInteger(lp, NULL, 100, 0);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == 100);
+
+        /* Test: Find an existing integer (-50) */
+        p = lpFindInteger(lp, NULL, -50, 0);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == -50);
+
+        /* Test: Find an existing integer (100) with skip=1 */
+        p = lpFindInteger(lp, NULL, 100, 1);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == 100);
+
+        /* Test: Find an existing integer (-50) with skip=1 */
+        p = lpFindInteger(lp, NULL, -50, 1);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == -50);
+
+        /* Test: Find an existing integer (-50) with skip=2 */
+        p = lpFindInteger(lp, NULL, -50, 2);
+        assert(p == NULL);
+
+        /* Test: Find a non-existent integer (200) */
+        p = lpFindInteger(lp, NULL, 200, 0);
+        assert(p == NULL);
+
         lpFree(lp);
     }
 
