@@ -1002,7 +1002,7 @@ start_server {
         r DEL mystream
 
         # A mapping recorded now, but pointing at an old stream ID: expiration
-        # is driven by the recording time (which is not persisted), so the
+        # is driven by the recording time, not by the stream ID, so the
         # mapping must survive a save/load round trip and stay resolvable.
         r XADD mystream 1000-0 field "value"
         r XCFGSET mystream IDMP-DURATION 60
@@ -1015,6 +1015,37 @@ start_server {
         # The mapping is still tracked and deduplicates after the restart
         assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
         assert_equal "1000-0" [r XADD mystream IDMP p1 "req-1" * field "dup"]
+    } {} {external:skip}
+
+    test {XADD IDMP remaining duration is preserved across RDB load} {
+        r DEL mystream
+
+        # Consume most of the deduplication window before snapshotting, so the
+        # entry is still within its window when the RDB is written but only
+        # barely: the load must not restart the window from scratch.
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XCFGSET mystream IDMP-DURATION 6
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+        after 3500
+
+        r SAVE
+        restart_server 0 true false
+        assert_equal 1 [dict get [r XINFO STREAM mystream] iids-tracked]
+
+        # The recording time is persisted, so only the remainder of the
+        # original window is left. A load that stamped the entries with the
+        # current time instead would keep the mapping alive for a full extra
+        # duration, well past this budget.
+        wait_for_condition 45 100 {
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "the IDMP recording time was not preserved across the RDB load"
+        }
+
+        # The IID is re-addable as a new entry now that it expired.
+        set new_id [r XADD mystream IDMP p1 "req-1" * field "new"]
+        assert {$new_id ne ""}
     } {} {external:skip}
 
     test {XADD IDMP tracking survives SWAPDB} {
