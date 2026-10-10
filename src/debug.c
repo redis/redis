@@ -276,6 +276,8 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         cmsDigest(digest, o);
     } else if (o->type == OBJ_CUCKOO) {
         cuckooDigest(digest, o);
+    } else if (o->type == OBJ_TOPK) {
+        topkDigest(digest, o);
 #endif
     } else if (o->type == OBJ_MODULE) {
         RedisModuleDigest md = {{0},{0},keyobj,db->id};
@@ -1368,6 +1370,8 @@ void serverLogObjectDebugInfo(const robj *o) {
         serverLog(LL_WARNING,"CMS count: %zu", cmsObjectLength((robj *)o));
     } else if (o->type == OBJ_CUCKOO) {
         serverLog(LL_WARNING,"Cuckoo count: %zu", cuckooObjectLength((robj *)o));
+    } else if (o->type == OBJ_TOPK) {
+        serverLog(LL_WARNING,"Topk count: %zu", topkObjectLength((robj *)o));
 #endif
 #ifdef ENABLE_GCRA
     } else if (o->type == OBJ_GCRA) {

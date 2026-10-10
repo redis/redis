@@ -1,0 +1,50 @@
+{
+    "TOPK.ADD": {
+        "summary": "Adds an item to a Top-k sketch. Multiple items can be added at the same time.",
+        "complexity": "O(n * k) where n is the number of items and k is the depth",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "items",
+                "type": "string",
+                "multiple": true
+            }
+        ],
+        "since": "8.8.0",
+        "group": "topk",
+        "function": "topkAddCommand",
+        "arity": -3,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "TOPK"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

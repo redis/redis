@@ -219,7 +219,7 @@ This section refers to building Redis from source. If you want to get up and run
 Bloom (`BF.*`) is now native and enabled by default, with no additional build
 dependencies. Run/config-generation/deployment scripts do not auto-load
 `redisbloom.so`. Count-Min Sketch is also native (see [CMS](docs/native-cms.md)).
-Cuckoo is native too (see [Cuckoo](docs/native-cuckoo.md)). Top-K and t-digest are not yet migrated
+Cuckoo is native too (see [Cuckoo](docs/native-cuckoo.md)). Top-K is native (see [Top-K](docs/native-topk.md)). t-digest is not yet migrated
 and are unavailable in this default configuration. To use external RedisBloom
 instead, build and run with `BUILD_BLOOM=no`. See [native Bloom](docs/native-bloom.md).
 

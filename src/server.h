@@ -311,6 +311,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_BLOOM (1ULL<<23)
 #define ACL_CATEGORY_CMS (1ULL<<24)
 #define ACL_CATEGORY_CUCKOO (1ULL<<25)
+#define ACL_CATEGORY_TOPK (1ULL<<26)
 #ifdef ENABLE_GCRA
 #define ACL_CATEGORY_RATE_LIMIT (1ULL<<22)
 #endif
@@ -854,10 +855,11 @@ typedef enum {
 #define NOTIFY_BLOOM (1<<25)             /* b, Bloom filter notification */
 #define NOTIFY_CMS (1<<26)               /* M, Count-Min Sketch notification */
 #define NOTIFY_CUCKOO (1<<27)            /* C, Cuckoo notification */
+#define NOTIFY_TOPK (1<<28) /* k, Top-K notification */
 #ifdef ENABLE_GCRA
 #define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #endif
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM | NOTIFY_CMS | NOTIFY_CUCKOO) /* A flag */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM | NOTIFY_CMS | NOTIFY_CUCKOO | NOTIFY_TOPK) /* A flag */
 
 #define _run_with_period(_cronloops_, _ms_, _hz_) if (((_ms_) <= 1000/(_hz_)) || !((_cronloops_)%((_ms_)/(1000/(_hz_)))))
 
@@ -932,7 +934,8 @@ typedef enum {
 #define OBJ_BLOOM 9     /* Native Bloom filter. Slot 8 is reserved for GCRA. */
 #define OBJ_CMS 10      /* Native Count-Min Sketch. */
 #define OBJ_CUCKOO 11
-#define OBJ_TYPE_MAX 12 /* Maximum number of object types */
+#define OBJ_TOPK 12
+#define OBJ_TYPE_MAX 13 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)
@@ -3009,6 +3012,7 @@ typedef enum {
     COMMAND_GROUP_BLOOM,
     COMMAND_GROUP_CMS,
     COMMAND_GROUP_CUCKOO,
+    COMMAND_GROUP_TOPK,
     COMMAND_GROUP_MODULE,
 #ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
@@ -4202,6 +4206,26 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
 
 /* Array data type. */
 robj *arrayTypeDup(robj *o);
+
+/* Native Top-K operations. */
+robj *createTopkObject(void *value);
+void freeTopkObject(robj *o);
+size_t topkObjectLength(robj *o);
+size_t topkAllocSize(robj *o);
+size_t topkFreeEffort(robj *o);
+void topkDismiss(robj *o);
+robj *topkDup(robj *o);
+void topkDefrag(robj *o, void *(*defrag)(void *));
+void topkDigest(unsigned char *digest, robj *o);
+uint64_t topkRdbId(void);
+ssize_t topkRdbSave(rio *rdb, robj *o);
+robj *topkRdbLoad(rio *rdb, int version);
+int topkRewriteAof(rio *rdb, robj *key, robj *o, int dbid);
+void topkReserveCommand(client *c);
+void topkAddCommand(client *c);
+void topkQueryCommand(client *c);
+void topkListCommand(client *c);
+void topkInfoCommand(client *c);
 
 /* Native Cuckoo filter operations. */
 robj *createCuckooObject(void *value);

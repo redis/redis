@@ -47,6 +47,7 @@ redis.code-workspace
 src/bloom-unit
 src/cms-unit
 src/cuckoo-unit
+src/topk-unit
 src/bloom-perf
 __pycache__/
 

@@ -52,6 +52,8 @@ class Client:
             return value
         if kind == b":":
             return int(value)
+        if kind == b",":
+            return float(value)
         if kind == b"#":
             return value == b"t"
         if kind == b"_":
