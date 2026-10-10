@@ -4634,6 +4634,21 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
         return;
     }
 
+    /* Outside cluster mode only the lookahead prefetch needs the keys this
+     * early, so on the main thread they are extracted when a prefetch batch
+     * asks for them (see addCommandToBatch()), and a command that is not
+     * pipelined doesn't pay for it. In an IO thread they are extracted here,
+     * since the work is offloaded from the main thread. */
+    if (!server.cluster_enabled && c->running_tid == IOTHREAD_MAIN_THREAD_ID)
+        return;
+
+    preprocessCommandKeys(pcmd);
+}
+
+/* Extract the keys and the slot of a command that passed preprocessCommand(),
+ * and cache them in 'pcmd' for the cluster redirection, the ACL check and the
+ * prefetch. */
+void preprocessCommandKeys(pendingCommand *pcmd) {
     int num_keys = extractKeysAndSlot(pcmd->cmd, pcmd->argv, pcmd->argc,
                                       &pcmd->keys_result, &pcmd->slot);
     if (num_keys < 0) {
