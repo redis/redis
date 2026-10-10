@@ -84,6 +84,129 @@ test "Active defrag handles equal fragmentation thresholds" {
     }
 } {} {defrag external:skip tsan:skip standalone}
 
+if {$::debug_defrag} {
+    start_server {tags {"defrag bitmap bitmap-roaring needs:debug external:skip cluster:skip"} overrides {save ""}} {
+        test {forced active defrag relocates Roaring BITSET storage with known and unknown allocation sizes} {
+            r flushdb
+            set old_bitmap_default_roaring [config_get_set bitmap-default-roaring no]
+            set old_activedefrag [config_get_set activedefrag no]
+            wait_for_condition 500 10 {
+                [s active_defrag_running] eq 0
+            } else {
+                fail "bitmap defrag did not stop"
+            }
+            r config resetstat
+
+            # Alternating bits exceed ARRAY capacity and cannot be compressed
+            # usefully as runs, forcing a BITSET container with an independently
+            # aligned words allocation.
+            set dense [string repeat [binary format H* aa] 8192]
+            r set bitmap:defrag:dense $dense
+            convert_string_bitmap_to_roaring r bitmap:defrag:dense
+            r set bitmap:defrag:lazy $dense
+            convert_string_bitmap_to_roaring r bitmap:defrag:lazy
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_morethan [r memory usage bitmap:defrag:dense] 8192
+            # Leave this object's allocation cache unmaterialized until after
+            # defrag to cover relocation of an unknown cached size.
+            assert_equal bitmap [r type bitmap:defrag:lazy]
+            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
+
+            set old_hz [config_get_set hz 100]
+            set old_threshold [config_get_set active-defrag-threshold-lower 1]
+            set old_cycle_min [config_get_set active-defrag-cycle-min 65]
+            set old_cycle_max [config_get_set active-defrag-cycle-max 75]
+            set old_ignore_bytes [config_get_set active-defrag-ignore-bytes 1]
+            r config set activedefrag yes
+
+            # DEBUG_DEFRAG=force moves every eligible allocation, so two key
+            # hits prove both BITSET-backed fixtures and their cache states
+            # were exercised without depending on jemalloc fragmentation.
+            wait_for_condition 500 10 {
+                [s active_defrag_key_hits] >= 2
+            } else {
+                puts [r info memory]
+                puts [r info stats]
+                fail "forced defrag did not relocate both dense bitmaps"
+            }
+
+            r config set activedefrag no
+            wait_for_condition 500 10 {
+                [s active_defrag_running] eq 0
+            } else {
+                fail "bitmap defrag did not stop"
+            }
+            r config set hz $old_hz
+            r config set active-defrag-threshold-lower $old_threshold
+            # Lower min first so restoring an old max below the test's min
+            # cannot transiently violate the min <= max constraint.
+            r config set active-defrag-cycle-min 1
+            r config set active-defrag-cycle-max $old_cycle_max
+            r config set active-defrag-cycle-min $old_cycle_min
+            r config set active-defrag-ignore-bytes $old_ignore_bytes
+            assert_equal bitmap [r type bitmap:defrag:dense]
+            assert_equal 32768 [r bitcount bitmap:defrag:dense]
+            assert_equal $dense [r debug bitmap-raw bitmap:defrag:dense]
+            assert_morethan [r memory usage bitmap:defrag:lazy] 8192
+            assert_equal 32768 [r bitcount bitmap:defrag:lazy]
+            assert_equal $dense [r debug bitmap-raw bitmap:defrag:lazy]
+            assert_equal 2 [r del bitmap:defrag:dense bitmap:defrag:lazy]
+            r config set bitmap-default-roaring $old_bitmap_default_roaring
+            assert_equal OK [r config set activedefrag $old_activedefrag]
+        } {} {needs:config-resetstat}
+
+        test {forced active defrag walks a large Roaring bitmap incrementally} {
+            r flushall
+            set old_bitmap_default_roaring [config_get_set bitmap-default-roaring yes]
+            set old_activedefrag [config_get_set activedefrag no]
+            wait_for_condition 500 10 {
+                [s active_defrag_running] eq 0
+            } else {
+                fail "bitmap defrag did not stop"
+            }
+            r config resetstat
+
+            # One set bit per 2^16-bit chunk makes one sparse ARRAY container
+            # per chunk. More containers than active-defrag-max-scan-fields
+            # send the key to defragLater(), and more than two batches of 128
+            # make bitroarDefragIncremental() resume its cursor in every walk.
+            set containers 300
+            for {set j 0} {$j < $containers} {incr j} {
+                r setbit bitmap:defrag:sparse [expr {$j * 65536 + $j % 97}] 1
+            }
+            assert_equal bitmap-roaring [r object encoding bitmap:defrag:sparse]
+            set digest [debug_digest_value bitmap:defrag:sparse]
+            set old_max_scan_fields [config_get_set active-defrag-max-scan-fields 100]
+            # With jemalloc, serverCron's cached allocator stats rather than the
+            # forced 99% decide whether a cycle starts, so start on any
+            # fragmentation.
+            set old_threshold [config_get_set active-defrag-threshold-lower 0]
+            set old_ignore_bytes [config_get_set active-defrag-ignore-bytes 1]
+
+            set cycles [run_complete_defrag_cycles]
+            assert_morethan $cycles 0
+            # DEBUG_DEFRAG=force moves every allocation, so each walk step is a
+            # key hit: the main scan that queues the key, then one defragLater()
+            # step per batch of up to 128 containers. Every walk also moves
+            # each container and its value array.
+            set batches [expr {($containers + 127) / 128}]
+            assert_equal 0 [s active_defrag_key_misses]
+            assert_equal [expr {$cycles * (1 + $batches)}] [s active_defrag_key_hits]
+            assert_morethan_equal [s active_defrag_hits] [expr {$cycles * 2 * $containers}]
+
+            r config set active-defrag-max-scan-fields $old_max_scan_fields
+            r config set active-defrag-threshold-lower $old_threshold
+            r config set active-defrag-ignore-bytes $old_ignore_bytes
+            assert_equal $containers [r bitcount bitmap:defrag:sparse]
+            assert_equal $digest [debug_digest_value bitmap:defrag:sparse]
+            assert_equal 1 [r del bitmap:defrag:sparse]
+            r config set bitmap-default-roaring $old_bitmap_default_roaring
+            assert_equal OK [r config set activedefrag $old_activedefrag]
+        } {} {needs:config-resetstat}
+    }
+}
+
 run_solo {defrag} {
     proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
@@ -1234,6 +1357,244 @@ run_solo {defrag} {
             assert_equal OK [r save] ;# Iterates all pointers again after defrag.
             expr 1
         } {1}
+
+        test "Active defrag Roaring bitmaps: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-max-scan-fields 100
+            r config set active-defrag-threshold-lower 1
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 512kb
+            r config set maxmemory 0
+
+            # Build a template bitmap with array, bitset, and run containers,
+            # then COPY it under many names. Every copy creates fresh container
+            # allocations, so consecutive keys interleave inside the same
+            # jemalloc size classes and deleting every other key later produces
+            # real fragmentation there.
+            r config set bitmap-default-roaring yes
+            set rd [redis_deferring_client]
+            # This counter spans all three construction batches. Each drain at
+            # a 1000-command boundary consumes any remainder from the prior batch.
+            set count 0
+            for {set j 0} {$j < 50} {incr j} {
+                for {set b 0} {$b < 64} {incr b} {
+                    $rd setbit bitmap:template [expr {$j * 65536 + $b * 97}] 1
+                    incr count
+                    discard_replies_every $rd $count 1000 1000
+                }
+            }
+
+            # More than 4096 alternating values force a BITSET container.
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bitmap:template [expr {50 * 65536 + $b * 2}] 1
+                incr count
+                discard_replies_every $rd $count 1000 1000
+            }
+
+            # SETBIT keeps these consecutive bits in a second BITSET container.
+            # The DUMP/RESTORE below goes through RDB loading, which turns it
+            # into a compact RUN container.
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bitmap:template [expr {51 * 65536 + $b}] 1
+                incr count
+                discard_replies_every $rd $count 1000 1000
+            }
+            for {set j 0} {$j < [expr {$count % 1000}]} {incr j} {
+                $rd read
+            }
+            $rd ping
+            assert_equal PONG [$rd read] ;# Proves no SETBIT replies remain queued.
+            r config set bitmap-default-roaring no
+            assert_equal bitmap [r type bitmap:template]
+            assert_equal 11400 [r bitcount bitmap:template]
+            set template_usage [r memory usage bitmap:template]
+
+            set template_payload [r dump bitmap:template]
+            r restore bitmap:template 0 $template_payload replace
+            assert_equal 11400 [r bitcount bitmap:template]
+            # Replacing the 8 KiB BITSET with a RUN container is the only
+            # load-time change that frees more than 8 KiB here (trimming the
+            # container index frees less), so the copies below hold all three
+            # container types.
+            set restored_usage [r memory usage bitmap:template]
+            assert_lessthan $restored_usage [expr {$template_usage - 8192}] \
+                "restored_usage=$restored_usage template_usage=$template_usage"
+            # GET returns WRONGTYPE on a native bitmap, so snapshot the baseline
+            # bytes with DEBUG BITMAP-RAW for the post-defrag content checks.
+            set template_raw [r debug bitmap-raw bitmap:template]
+
+            set frag_keys 400
+            for {set k 0} {$k < $frag_keys} {incr k} {
+                $rd copy bitmap:template bitmap:frag:$k
+                incr count
+                discard_replies_every $rd $count 100 100
+            }
+            for {set j 0} {$j < [expr {$count % 100}]} {incr j} {
+                $rd read
+            }
+
+            # Build the big bitmap that exercises the incremental defrag path.
+            # Its first two containers are BITSET and RUN, followed by 2000
+            # ARRAY containers, so its first incremental batch covers every
+            # container type. The 52-container frag keys defrag in one shot.
+            set containers 2000
+            set bigcount 0
+
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bigbitmap1 [expr {$b * 2}] 1
+                incr bigcount
+                discard_replies_every $rd $bigcount 1000 1000
+            }
+            for {set b 0} {$b < 4100} {incr b} {
+                $rd setbit bigbitmap1 [expr {65536 + $b}] 1
+                incr bigcount
+                discard_replies_every $rd $bigcount 1000 1000
+            }
+            for {set j 0} {$j < $containers} {incr j} {
+                for {set b 0} {$b < 16} {incr b} {
+                    $rd setbit bigbitmap1 [expr {($j + 2) * 65536 + $b * 97}] 1
+                    incr bigcount
+                    discard_replies_every $rd $bigcount 1000 1000
+                }
+            }
+            for {set j 0} {$j < [expr {$bigcount % 1000}]} {incr j} {
+                $rd read
+            }
+
+            set expected_bits [expr {$containers * 16 + 8200}]
+            assert_equal $expected_bits [r bitcount bigbitmap1]
+            set expected_raw [r get bigbitmap1]
+
+            convert_string_bitmap_to_roaring r bigbitmap1
+            assert_equal bitmap [r type bigbitmap1]
+
+            # Free every other copied bitmap to punch holes into the
+            # container size classes.
+            for {set k 1} {$k < $frag_keys} {incr k 2} {
+                $rd del bitmap:frag:$k
+                incr count
+                discard_replies_every $rd $count 100 100
+            }
+            for {set j 0} {$j < [expr {$count % 100}]} {incr j} {
+                $rd read
+            }
+
+            after 120 ;# serverCron only updates the info once in 100ms
+            r config set latency-monitor-threshold 5
+            r latency reset
+
+            set digest [debug_digest]
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # This test only needs to verify that active defrag walked the
+                # bitmap containers without corrupting the value. We do not
+                # require the allocator to fully converge to a
+                # no-fragmentation state on every platform.
+                # The initial scan can queue the large key without walking its
+                # containers. A second attempt guarantees either a mixed key's
+                # one-shot walk or the large key's first incremental batch.
+                wait_for_condition 500 100 {
+                    [s active_defrag_key_hits] + [s active_defrag_key_misses] > 1
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "bitmap defrag did not touch the key."
+                }
+
+                r config set activedefrag no
+                wait_for_defrag_stop 500 100
+            }
+
+            # Verify the bitmaps stayed intact after active defrag touched
+            # them using representation-independent content checks.
+            assert_equal bitmap [r type bigbitmap1]
+            assert_equal bitmap-roaring [r object encoding bigbitmap1]
+            assert_equal $expected_raw [r debug bitmap-raw bigbitmap1]
+            assert_equal bitmap [r type bitmap:frag:0]
+            assert_equal $template_raw [r debug bitmap-raw bitmap:frag:0]
+            assert_equal $digest [debug_digest]
+            assert_equal OK [r save] ;# Iterates all pointers again after defrag.
+        }
+
+        test "Active defrag walks a large Roaring bitmap incrementally: $type" {
+            r flushall
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-max-scan-fields 100
+            r config set active-defrag-threshold-lower 1
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1
+            r config set maxmemory 0
+
+            # Interleave the containers of two bitmaps, with one set bit per
+            # 2^16-bit chunk and so one sparse ARRAY container per chunk, then
+            # delete one of them to leave holes around the other's containers.
+            r config set bitmap-default-roaring yes
+            set containers 1000
+            set rd [redis_deferring_client]
+            set count 0
+            for {set j 0} {$j < $containers} {incr j} {
+                set offset [expr {$j * 65536 + $j % 97}]
+                $rd setbit bigbitmap1 $offset 1
+                $rd setbit bigbitmap2 $offset 1
+                incr count
+                discard_replies_every $rd $count 500 1000
+            }
+            set remaining [expr {($count % 500) * 2}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
+            }
+            $rd close
+            r config set bitmap-default-roaring no
+            assert_equal 1 [r del bigbitmap2]
+            # Return the freed containers from the thread cache to their slabs.
+            r debug mallctl-str thread.tcache.flush VOID
+            assert_equal bitmap-roaring [r object encoding bigbitmap1]
+            assert_equal $containers [r bitcount bigbitmap1]
+            set digest [debug_digest_value bigbitmap1]
+
+            set cycles [run_complete_defrag_cycles]
+            if {$cycles > 0} {
+                # bigbitmap1 has more containers than active-defrag-max-scan-fields,
+                # so every cycle counts one key step for the main scan that queues
+                # it, then one defragLater() step per batch of up to 128 containers
+                # walked by bitroarDefragIncremental(). Each walk checks every
+                # container and its value array. Whether jemalloc moves one depends
+                # on its bin's average utilization, so count checks (a hit or a
+                # miss each) rather than relocations.
+                set batches [expr {($containers + 127) / 128}]
+                assert_equal [expr {$cycles * (1 + $batches)}] \
+                    [expr {[s active_defrag_key_hits] + [s active_defrag_key_misses]}]
+                assert_morethan_equal \
+                    [expr {[s active_defrag_hits] + [s active_defrag_misses]}] \
+                    [expr {$cycles * 2 * $containers}]
+            }
+
+            assert_equal bitmap-roaring [r object encoding bigbitmap1]
+            assert_equal $containers [r bitcount bigbitmap1]
+            assert_equal $digest [debug_digest_value bigbitmap1]
+            assert_equal OK [r save] ;# Iterates all pointers again after defrag.
+        }
 
         test "Active defrag check-cache: skip path when below threshold: $type" {
             # threshold-lower=99 and ignore-bytes=1gb guarantee the cached
