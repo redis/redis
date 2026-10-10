@@ -1237,8 +1237,12 @@ void syncCommand(client *c) {
         }
     }
 
-    /* Don't let replicas sync with us while we're failing over */
-    if (server.failover_state != NO_FAILOVER) {
+    /* Don't let replicas sync with us while we're failing over. While we are
+     * still waiting for a replica to catch up (FAILOVER_WAIT_FOR_SYNC) we are
+     * still a master though, and the replicas must be able to resync after a
+     * link drop, or the target could never catch up and the failover, with
+     * writes paused, would never end. */
+    if (server.failover_state == FAILOVER_IN_PROGRESS) {
         addReplyError(c,"-NOMASTERLINK Can't SYNC while failing over");
         return;
     }

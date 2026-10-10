@@ -301,6 +301,39 @@ start_server {overrides {save {}}} {
         assert_equal [count_log_message 0 "Failover target rejected psync request"] 1
         assert_digests_match $node_0 $node_1 $node_2
     }
+
+    test {failover target can resync while the master waits for it to catch up} {
+        set initial_syncs [s 0 sync_full]
+
+        # Node 1 is paused, so it doesn't ack this write before the failover
+        # starts waiting for it.
+        pause_process $node_1_pid
+        $node_0 set case 4
+        $node_0 failover to $node_1_host $node_1_port
+        assert_equal [s 0 master_failover_state] "waiting-for-sync"
+
+        # The replication links drop (e.g. a network glitch or repl-timeout).
+        # The replicas must be able to resync, otherwise node 1 never acks
+        # the write and the failover, with writes paused, never ends.
+        $node_0 client kill type replica
+        resume_process $node_1_pid
+
+        wait_for_condition 100 100 {
+            [s 0 master_failover_state] == "no-failover"
+        } else {
+            $node_0 failover abort
+            fail "Failover from node 0 to node 1 did not finish"
+        }
+
+        assert_match *slave* [$node_0 role]
+        assert_match *master* [$node_1 role]
+        assert_equal [s 0 sync_full] $initial_syncs
+
+        $node_2 replicaof $node_1_host $node_1_port
+        wait_for_sync $node_0
+        wait_for_sync $node_2
+        assert_digests_match $node_0 $node_1 $node_2
+    }
 }
 }
 }
