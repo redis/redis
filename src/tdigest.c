@@ -754,6 +754,9 @@ int td_compress(td_histogram_t *h) {
     if (h->unmerged_nodes == 0) {
         return 0;
     }
+    if (!_tdigest_long_long_add_safe(h->merged_weight, h->unmerged_weight) ||
+        h->total_compressions == LLONG_MAX) return EDOM;
+    const long long exact_weight = h->merged_weight + h->unmerged_weight;
     int N = h->merged_nodes + h->unmerged_nodes;
     td_qsort(h->nodes_mean, h->nodes_weight, 0, N - 1);
     const double total_weight = (double)h->merged_weight + (double)h->unmerged_weight;
@@ -765,7 +768,7 @@ int td_compress(td_histogram_t *h) {
         // Only move data if there are unmerged nodes to move
         if (h->unmerged_nodes > 0) {
             h->merged_nodes = h->merged_nodes + h->unmerged_nodes;
-            h->merged_weight = total_weight;
+            h->merged_weight = exact_weight;
             h->unmerged_nodes = 0;
             h->unmerged_weight = 0;
             h->total_compressions++;
@@ -811,7 +814,7 @@ int td_compress(td_histogram_t *h) {
         }
     }
     h->merged_nodes = cur + 1;
-    h->merged_weight = total_weight;
+    h->merged_weight = exact_weight;
     h->unmerged_nodes = 0;
     h->unmerged_weight = 0;
     h->total_compressions++;

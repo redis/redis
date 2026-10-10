@@ -30,7 +30,7 @@ keys and builds a destination before replacing the existing value.
 
 ## Tests and review
 
-`make test-tdigest` runs 28 upstream algorithm tests, capacity and adversarial
+`make test-tdigest` runs 28 upstream algorithm tests plus an exact-weight regression, capacity and adversarial
 sort regressions, migrated flow cases and native integration tests.
 `make test-probabilistic-upgrade` loads checked-in old-module datasets for all
 five types without requiring an external module. Both targets run under

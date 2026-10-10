@@ -809,7 +809,18 @@ MU_TEST(test_td_init_large_success_is_usable) {
     td_free(t);
 }
 
+MU_TEST(test_integer_weight_precision) {
+    td_histogram_t *t = td_new(100);
+    long long weight = (1LL << 53) + 1;
+    mu_assert(td_add(t, 1, weight) == 0, "large integral weight accepted");
+    mu_assert(td_compress(t) == 0, "large integral weight compressed");
+    mu_assert_long_eq(weight, td_size(t));
+    mu_assert_long_eq(weight, t->nodes_weight[0]);
+    td_free(t);
+}
+
 MU_TEST_SUITE(test_suite) {
+    MU_RUN_TEST(test_integer_weight_precision);
     MU_RUN_TEST(test_basic);
     MU_RUN_TEST(test_td_init);
     MU_RUN_TEST(test_td_free_null);
