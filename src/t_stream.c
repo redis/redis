@@ -5974,6 +5974,7 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
         if (db_watch_entry != NULL) {
             dictSetUnsignedIntegerVal(db_watch_entry, expire_time);
             incrRefCount(keys[j]);
+            server.stream_claim_pending_keys_count++;
         } else {
             old_expire_time = dictGetUnsignedIntegerVal(db_watch_existing_entry);
             if (expire_time < old_expire_time) {
@@ -6001,6 +6002,9 @@ void handleClaimableStreamEntries(void) {
     int dbs_per_call = CRON_DBS_PER_CALL;
     int j;
 
+    /* No key is being watched in any DB: skip the scan of the DBs. */
+    if (server.stream_claim_pending_keys_count == 0) return;
+
     if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
     for (j = 0; j < dbs_per_call; j++) {
@@ -6020,12 +6024,14 @@ void handleClaimableStreamEntries(void) {
 
             if (!kv || kv->type != OBJ_STREAM) {
                 dictDelete(db->stream_claim_pending_keys, key);
+                server.stream_claim_pending_keys_count--;
                 continue;
             }
 
             if (expire_time < (uint64_t)server.mstime) {
                 signalKeyAsReady(db, key, kv->type);
                 dictDelete(db->stream_claim_pending_keys, key);
+                server.stream_claim_pending_keys_count--;
             }
         }
         dictResetIterator(&di);
