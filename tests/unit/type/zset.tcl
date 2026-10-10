@@ -1678,6 +1678,24 @@ start_server {tags {"zset"}} {
         assert_match {*ERR*wrong*number*arg*} $e
     }
 
+    test {ZMSCORE with duplicate members in request} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+
+        # Same member requested multiple times should return its score each time
+        r zmscore zmscoretest x x y x
+    } {10 10 20 10}
+
+    test {ZMSCORE all members missing} {
+        r del zmscoretest
+        r zadd zmscoretest 10 x
+        r zadd zmscoretest 20 y
+
+        # None of the requested members exist in the zset
+        r zmscore zmscoretest a b c
+    } {{} {} {}}
+
     test "ZSET commands don't accept the empty strings as valid score" {
         assert_error "*not*float*" {r zadd myzset "" abc}
     }
@@ -1731,16 +1749,21 @@ start_server {tags {"zset"}} {
         test "ZMSCORE - $encoding" {
             r del zscoretest
             set aux {}
+            set members {}
             for {set i 0} {$i < $elements} {incr i} {
                 set score [expr rand()]
                 lappend aux $score
+                lappend members $i
                 r zadd zscoretest $score $i
             }
 
             assert_encoding $encoding zscoretest
+
+            # Retrieve all scores in a single ZMSCORE call and verify each one.
+            # See ZSCORE test above for IEEE 754 double-precision notes.
+            set results [r zmscore zscoretest {*}$members]
             for {set i 0} {$i < $elements} {incr i} {
-                # Check above notes on IEEE 754 double-precision comparison
-                assert_equal [expr [lindex $aux $i]] [expr [r zscore zscoretest $i]]
+                assert_equal [expr [lindex $aux $i]] [expr [lindex $results $i]]
             }
         }
 
