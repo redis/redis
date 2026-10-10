@@ -199,6 +199,15 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:2M=1}               
     }
 
+    test "KEYSIZES - Overwrite a string with a shorter and a longer value $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET x abcdefghij} {db0_STR:8=1}
+        run_cmd_verify_hist {$server SET x ab} {db0_STR:2=1}
+        run_cmd_verify_hist {$server SET x abcd EX 1000} {db0_STR:4=1}
+        run_cmd_verify_hist {$server SET x a KEEPTTL} {db0_STR:1=1}
+        run_cmd_verify_hist {$server SET x abcdefgh EX 1000} {db0_STR:8=1}
+    }
+
     # It is difficult to predict the actual string length of hyperloglog. To address
     # this, we will create expected output by indicating __EVAL_DB_HIST__ to read
     # all keys & lengths from server. Based on it, generate the expected output.

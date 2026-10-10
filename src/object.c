@@ -284,6 +284,15 @@ kvobj *kvobjSetExpire(kvobj *kv, long long expire) {
     return kv;
 }
 
+/* Embed when the sum is less than a cache line (Metadata is discarded
+ * since we don't have to be accurate and it is placed before the object) */
+static inline int kvobjCanEmbedString(const sds key, size_t len) {
+    size_t size = sizeof(kvobj) + sizeof(kvBits);
+    size += (key != NULL) * (sdslen(key) + 2); /* sds hdr (1) + nullterm (1) */
+    size += 4 + len; /* embstr header (3) + nullterm (1) */
+    return size <= CACHE_LINE_SIZE;
+}
+
 /* This functions may reallocate the value. The new allocation is returned and
  * the old object's reference counter is decremented and possibly freed. Use the
  * returned object instead of 'val' after calling this function. */
@@ -291,13 +300,7 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
     kvobj *kv;
     if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_EMBSTR) {
         size_t len = sdslen(val->ptr);
-
-        /* Embed when the sum is less than a cache line (Metadata is discarded 
-         * since we don't have to be accurate and it is placed before the object) */
-        size_t size = sizeof(kvobj) + sizeof(kvBits);
-        size += (key != NULL) * (sdslen(key) + 2); /* sds hdr (1) + nullterm (1) */
-        size += 4 + len; /* embstr header (3) + nullterm (1) */
-        if (size <= CACHE_LINE_SIZE) {
+        if (kvobjCanEmbedString(key, len)) {
             kv = kvobjCreateEmbedString(val->ptr, len, key, keyMetaBits);
         } else {
             kv = kvobjCreate(OBJ_STRING, key, sdsnewlen(val->ptr, len), keyMetaBits);
@@ -335,6 +338,41 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
     
     decrRefCount(val);
     return kv;
+}
+
+/* Overwrite the value of the embedded string 'kv' in place with the 'len' bytes
+ * at 'val', if kvobjSet() would build for the new value, with the same key and
+ * metadata, an embedded string of the same allocation size. The result is the
+ * object kvobjSet() would build, without allocating it or copying the key; LRU,
+ * no_evict and the metadata values are kept. Returns 1 if the value was set, or
+ * 0 if 'kv' was not modified. */
+int kvobjSetEmbeddedValueInPlace(kvobj *kv, const char *val, size_t len) {
+    debugServerAssert(kv->iskvobj && kv->type == OBJ_STRING &&
+                      kv->encoding == OBJ_ENCODING_EMBSTR);
+#if defined(USE_JEMALLOC)
+    if (!kvobjCanEmbedString(kvobjGetKey(kv), len)) return 0;
+
+    /* kvobjCreateEmbedString() asked for the bytes up to the value plus the
+     * value and its terminator, and gave the rest of the allocation to the
+     * value: compare what it would ask now with what it got then. */
+    char *alloc = kvobjGetAllocPtr(kv);
+    size_t valoffset = (char *) kv->ptr - alloc;
+    size_t bufsize = valoffset + sdsalloc(kv->ptr) + 1;
+    debugServerAssert(bufsize == zmalloc_size(alloc));
+    if (je_nallocx(valoffset + len + 1, 0) != bufsize) return 0;
+
+    memcpy(kv->ptr, val, len);
+    ((char *) kv->ptr)[len] = '\0';
+    sdssetlen(kv->ptr, len);
+    return 1;
+#else
+    /* Without jemalloc the allocation size of a request is not known in
+     * advance (see sdsMakeRoomFor()), so let kvobjSet() allocate. */
+    UNUSED(kv);
+    UNUSED(val);
+    UNUSED(len);
+    return 0;
+#endif
 }
 
 /* Create a string object with EMBSTR encoding if it is smaller than
