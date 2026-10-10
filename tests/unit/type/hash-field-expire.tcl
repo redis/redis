@@ -56,6 +56,80 @@ proc dumpAllHashes {client} {
 
 ############################### TESTS #########################################
 
+start_server {tags {"hash external:skip"}} {
+    test "Listpack field expiry updates preserve ordering and values" {
+        r config set hash-max-listpack-entries 512
+        r config set hash-max-listpack-value 4096
+        set base 4102444800000
+        set large "[string repeat x 513]\x00tail"
+        set values [list a 0 b $large c -9223372036854775808 d 007 e tail]
+        r hset ordered {*}$values
+        assert_equal {1} [r hpexpireat ordered [expr {$base - 1000}] FIELDS 1 a]
+        assert_equal {1} [r hpexpireat ordered $base FIELDS 1 b]
+        assert_equal {1} [r hpexpireat ordered [expr {$base + 1000}] FIELDS 1 c]
+        set expected [dict create a [expr {$base - 1000}] b $base \
+                                  c [expr {$base + 1000}] d -1 e -1]
+        assert_encoding listpackex ordered
+
+        # Exercise equal TTLs, movement in both directions, and transitions
+        # between volatile and persistent fields, including duplicate fields.
+        set updates [list \
+            [list HPEXPIREAT ordered $base FIELDS 2 b b] \
+            [list HPEXPIREAT ordered [expr {$base + 500}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base - 500}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base + 2000}] FIELDS 1 b] \
+            [list HPEXPIREAT ordered [expr {$base - 2000}] FIELDS 1 b] \
+            [list HPERSIST ordered FIELDS 2 b b] \
+            [list HPEXPIREAT ordered $base FIELDS 1 d] \
+            [list HPEXPIREAT ordered [expr {$base + 3000}] FIELDS 1 e] \
+            [list HPERSIST ordered FIELDS 1 e] \
+            [list HPEXPIREAT ordered $base FIELDS 5 e d c b a] \
+            [list HPEXPIREAT ordered [expr {$base + 1}] FIELDS 5 a b c d e] \
+            [list HPERSIST ordered FIELDS 5 c a e b d]]
+
+        foreach update $updates {
+            set replies {}
+            if {[lindex $update 0] eq "HPEXPIREAT"} {
+                foreach field [lrange $update 5 end] {
+                    dict set expected $field [lindex $update 2]
+                    lappend replies 1
+                }
+            } else {
+                foreach field [lrange $update 4 end] {
+                    lappend replies [expr {[dict get $expected $field] == -1 ? -1 : 1}]
+                    dict set expected $field -1
+                }
+            }
+            assert_equal $replies [r {*}$update]
+            assert_equal [dict values $expected] \
+                         [r hpexpiretime ordered FIELDS 5 {*}[dict keys $expected]]
+            set fields [r hkeys ordered]
+            set expiries [r hpexpiretime ordered FIELDS 5 {*}$fields]
+            set previous 0
+            foreach expiry $expiries {
+                # Persistent fields sort after all volatile fields.
+                if {$expiry == -1} { set expiry 9223372036854775807 }
+                assert {$expiry >= $previous}
+                set previous $expiry
+            }
+            foreach {field value} $values {
+                assert_equal $value [r hget ordered $field]
+            }
+            assert_encoding listpackex ordered
+        }
+
+        # Restore must preserve both the listpack and its field expiries.
+        assert_equal {1 1 1} [r hpexpireat ordered $base FIELDS 3 c a b]
+        assert_equal [list $base $base $base -1 -1] \
+                     [r hpexpiretime ordered FIELDS 5 a b c d e]
+        r restore restored 0 [r dump ordered]
+        assert_encoding listpackex restored
+        assert_equal [r hgetall ordered] [r hgetall restored]
+        assert_equal [r hpexpiretime ordered FIELDS 5 a b c d e] \
+                     [r hpexpiretime restored FIELDS 5 a b c d e]
+    }
+}
+
 start_server {tags {"external:skip needs:debug"}} {
     foreach type {listpackex hashtable} {
         if {$type eq "hashtable"} {
@@ -1961,7 +2035,10 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset h1 f1 v1
             r hexpireat h1 [expr [clock seconds]+100] NX FIELDS 1 f1
             r hset h2 f2 v2
-            r hpexpireat h2 [expr [clock seconds]*1000+100000] NX FIELDS 1 f2
+            set absolute_expire [expr {[clock milliseconds] + 100000}]
+            assert_equal {1} [r hpexpireat h2 $absolute_expire NX FIELDS 1 f2]
+            # An unchanged TTL still succeeds and propagates, including duplicates.
+            assert_equal {1 1} [r hpexpireat h2 $absolute_expire FIELDS 2 f2 f2]
             r hset h3 f3 v3 f4 v4 f5 v5
             # hpersist does nothing here. Verify it is not propagated.
             r hpersist h3 FIELDS 1 f5
@@ -1974,6 +2051,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 {hpexpireat h1 * NX FIELDS 1 f1}
                 {hset h2 f2 v2}
                 {hpexpireat h2 * NX FIELDS 1 f2}
+                {hpexpireat h2 * FIELDS 2 f2 f2}
                 {hset h3 f3 v3 f4 v4 f5 v5}
                 {hpexpireat h3 * FIELDS 2 f3 f4}
                 {hpersist h3 FIELDS 1 f3}
