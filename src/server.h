@@ -2158,6 +2158,8 @@ struct redisServer {
     clientMemUsageBucket* client_mem_usage_buckets;
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
+    uint64_t clients_timeout_next; /* Never later than the earliest timeout
+                                    * in clients_timeout_table. */
     int execution_nesting;      /* Execution nesting level.
                                  * e.g. call(), async module stuff (timers, events, etc.),
                                  * cron stuff (active expire, eviction) */
@@ -2568,6 +2570,8 @@ struct redisServer {
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
+    size_t stream_claim_pending_keys_count; /* Keys in stream_claim_pending_keys,
+                                             * summed over all the DBs. */
     list *unblocked_clients; /* list of clients to unblock before next loop */
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
     /* Client side caching. */

@@ -3062,6 +3062,8 @@ void initServer(void) {
     /* clients_timeout_table key = 8 bytes BE mstime + 8 bytes client ID
      * (see CLIENT_ST_KEYLEN / encodeTimeoutKey in timeout.c). */
     server.clients_timeout_table = raxNewEx(0, NULL, sizeof(uint64_t) * 2);
+    server.clients_timeout_next = UINT64_MAX;
+    server.stream_claim_pending_keys_count = 0;
     server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
     server.unblocked_clients = listCreate();
