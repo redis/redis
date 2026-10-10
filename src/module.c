@@ -4299,6 +4299,7 @@ int RM_KeyType(RedisModuleKey *key) {
 #ifdef INCLUDE_BLOOM
     case OBJ_BLOOM: return REDISMODULE_KEYTYPE_BLOOM;
     case OBJ_CMS: return REDISMODULE_KEYTYPE_CMS;
+    case OBJ_CUCKOO: return REDISMODULE_KEYTYPE_CUCKOO;
 #endif
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }

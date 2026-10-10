@@ -134,7 +134,11 @@ class Server:
                 pass
             except RedisError:
                 self.process.terminate()
-            self.process.wait(timeout=10)
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=10)
         if self.client:
             self.client.close()
         self.log.close()

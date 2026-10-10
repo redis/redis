@@ -310,6 +310,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_ARRAY (1ULL<<21)
 #define ACL_CATEGORY_BLOOM (1ULL<<23)
 #define ACL_CATEGORY_CMS (1ULL<<24)
+#define ACL_CATEGORY_CUCKOO (1ULL<<25)
 #ifdef ENABLE_GCRA
 #define ACL_CATEGORY_RATE_LIMIT (1ULL<<22)
 #endif
@@ -852,10 +853,11 @@ typedef enum {
 #define NOTIFY_ARRAY (1<<23)             /* a, array notification */
 #define NOTIFY_BLOOM (1<<25)             /* b, Bloom filter notification */
 #define NOTIFY_CMS (1<<26)               /* M, Count-Min Sketch notification */
+#define NOTIFY_CUCKOO (1<<27)            /* C, Cuckoo notification */
 #ifdef ENABLE_GCRA
 #define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #endif
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM | NOTIFY_CMS) /* A flag */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM | NOTIFY_CMS | NOTIFY_CUCKOO) /* A flag */
 
 #define _run_with_period(_cronloops_, _ms_, _hz_) if (((_ms_) <= 1000/(_hz_)) || !((_cronloops_)%((_ms_)/(1000/(_hz_)))))
 
@@ -929,7 +931,8 @@ typedef enum {
 #endif
 #define OBJ_BLOOM 9     /* Native Bloom filter. Slot 8 is reserved for GCRA. */
 #define OBJ_CMS 10      /* Native Count-Min Sketch. */
-#define OBJ_TYPE_MAX 11 /* Maximum number of object types */
+#define OBJ_CUCKOO 11
+#define OBJ_TYPE_MAX 12 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)
@@ -2092,6 +2095,7 @@ struct redisServer {
                                    is enabled. */
     mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz */
+    long long cf_capacity, cf_bucket, cf_iterations, cf_expansion, cf_max_expansions;
     long long bloom_capacity;
     long long bloom_expansion;
     sds bloom_error_rate;
@@ -3004,6 +3008,7 @@ typedef enum {
     COMMAND_GROUP_ARRAY,
     COMMAND_GROUP_BLOOM,
     COMMAND_GROUP_CMS,
+    COMMAND_GROUP_CUCKOO,
     COMMAND_GROUP_MODULE,
 #ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
@@ -4197,6 +4202,30 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
 
 /* Array data type. */
 robj *arrayTypeDup(robj *o);
+
+/* Native Cuckoo filter operations. */
+robj *createCuckooObject(void *value);
+void freeCuckooObject(robj *o);
+size_t cuckooObjectLength(robj *o);
+size_t cuckooAllocSize(robj *o);
+size_t cuckooFreeEffort(robj *o);
+void cuckooDismiss(robj *o);
+robj *cuckooDup(robj *o);
+void cuckooDefrag(robj *o, void *(*defrag)(void *));
+void cuckooDigest(unsigned char *digest, robj *o);
+uint64_t cuckooRdbId(void);
+ssize_t cuckooRdbSave(rio *rdb, robj *o);
+robj *cuckooRdbLoad(rio *rdb, int version);
+int cuckooRewriteAof(rio *rdb, robj *key, robj *o, int dbid);
+void cfReserveCommand(client *c);
+void cfInsertCommand(client *c);
+void cfCheckCommand(client *c);
+void cfDelCommand(client *c);
+void cfCompactCommand(client *c);
+void cfInfoCommand(client *c);
+void cfDebugCommand(client *c);
+void cfScandumpCommand(client *c);
+void cfLoadchunkCommand(client *c);
 
 /* Native Count-Min Sketch operations; algorithm interface is in cms.h. */
 void cmsCreateCommand(client *c);

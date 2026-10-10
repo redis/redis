@@ -1,0 +1,44 @@
+{
+    "CF.COMPACT": {
+        "summary": "Compacts a Cuckoo Filter by moving items into earlier sub-filters",
+        "complexity": "O(n * k), where n is the total number of slots and k is the number of sub-filters",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ],
+        "group": "cuckoo",
+        "since": "8.8.0",
+        "function": "cfCompactCommand",
+        "arity": 2,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CUCKOO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

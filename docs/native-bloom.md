@@ -30,8 +30,9 @@ Bloom is enabled by default (`BUILD_BLOOM=yes`). Only the Redis C toolchain and 
 are required. Termux still requires the separate local core portability patches.
 Do not load external RedisBloom in a Bloom-enabled server: the commands conflict.
 The run, generated-configuration, and deployment flows omit `redisbloom.so` and
-its module-only settings. Its sources and artifact remain available; Cuckoo,
-Top-K, and t-digest are unavailable in the default configuration.
+its module-only settings. Its sources and artifact remain available;
+Top-K and t-digest are unavailable in the default configuration.
+Cuckoo is now native; see [its migration guide](native-cuckoo.md).
 Count-Min Sketch is now native too; see [its migration guide](native-cms.md).
 To use the external module instead, build with `BUILD_BLOOM=no` and pass the same
 setting to `make run`, `make sync-redis-conf`, or `make deploy`. Existing manually

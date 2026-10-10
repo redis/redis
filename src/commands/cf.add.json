@@ -1,0 +1,48 @@
+{
+    "CF.ADD": {
+        "summary": "Adds an item to a Cuckoo Filter",
+        "complexity": "O(k + i), where k is the number of sub-filters and i is maxIterations",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string"
+            }
+        ],
+        "since": "8.8.0",
+        "group": "cuckoo",
+        "function": "cfInsertCommand",
+        "arity": 3,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CUCKOO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

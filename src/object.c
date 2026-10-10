@@ -693,6 +693,7 @@ void decrRefCount(robj *o) {
 #ifdef INCLUDE_BLOOM
             case OBJ_BLOOM: freeBloomObject(o); break;
             case OBJ_CMS: freeCmsObject(o); break;
+            case OBJ_CUCKOO: freeCuckooObject(o); break;
 #endif
             default: serverPanic("Unknown object type"); break;
             }
@@ -903,6 +904,7 @@ void dismissObject(robj *o, size_t size_hint) {
 #ifdef INCLUDE_BLOOM
         case OBJ_BLOOM: bloomDismiss(o); break;
         case OBJ_CMS: cmsDismiss(o); break;
+        case OBJ_CUCKOO: cuckooDismiss(o); break;
 #endif
         default: break;
     }
@@ -1032,6 +1034,7 @@ size_t getObjectLength(robj *o) {
 #ifdef INCLUDE_BLOOM
         case OBJ_BLOOM: return bloomObjectLength(o);
         case OBJ_CMS: return cmsObjectLength(o);
+        case OBJ_CUCKOO: return cuckooObjectLength(o);
 #endif
         default: return 0;
     }
@@ -1356,7 +1359,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
 #ifdef ENABLE_GCRA
         o->type == OBJ_GCRA ||
 #endif
-        o->type == OBJ_ARRAY || o->type == OBJ_BLOOM || o->type == OBJ_CMS)
+        o->type == OBJ_ARRAY || o->type == OBJ_BLOOM || o->type == OBJ_CMS || o->type == OBJ_CUCKOO)
     {
         return kvobjAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
@@ -1409,6 +1412,8 @@ size_t kvobjAllocSize(kvobj *o) {
         asize += bloomAllocSize(o);
     } else if (o->type == OBJ_CMS) {
         asize += cmsAllocSize(o);
+    } else if (o->type == OBJ_CUCKOO) {
+        asize += cuckooAllocSize(o);
 #endif
     }
     return asize;

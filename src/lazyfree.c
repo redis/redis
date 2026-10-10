@@ -190,6 +190,8 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
         return bloomFreeEffort(obj);
     } else if (obj->type == OBJ_CMS) {
         return cmsFreeEffort(obj);
+    } else if (obj->type == OBJ_CUCKOO) {
+        return cuckooFreeEffort(obj);
 #endif
     } else {
         return 1; /* Everything else is a single allocation. */

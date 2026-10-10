@@ -3014,6 +3014,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (!bloomRewriteAof(r, key, o)) return C_ERR;
     } else if (o->type == OBJ_CMS) {
         if (!cmsRewriteAof(r, key, o, dbid)) return C_ERR;
+    } else if (o->type == OBJ_CUCKOO) {
+        if (!cuckooRewriteAof(r, key, o, dbid)) return C_ERR;
 #endif
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
