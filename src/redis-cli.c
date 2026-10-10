@@ -11541,12 +11541,8 @@ int main(int argc, char **argv) {
         redisFree(context);
         return res;
     } else {
-        if (cliConnect(CC_QUIET) != REDIS_OK) {
-            /* Do not reuse a connection if AUTH or another setup step failed. */
-            redisFree(context);
-            context = NULL;
-        }
-        /* Try to serve commands even when not connected, e.g. help. */
+        if (cliConnect(0) != REDIS_OK)
+            exit(1);
         int res = noninteractive(argc,argv);
         redisFree(context);
         return res;
