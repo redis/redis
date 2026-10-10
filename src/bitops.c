@@ -1504,95 +1504,107 @@ void bitopCommand(client *c) {
         }
 #endif /* !defined(USE_ALIGNED_ACCESS) */
 
-        /* j is set to the next byte to process by the previous loop. */
-        for (; j < maxlen; j++) {
-            output = (len[0] <= j) ? 0 : src[0][j];
-            if (op == BITOP_NOT) output = ~output;
-            disjunction = 0;
-            common_bits = 0;
+        /* Process complete machine words left by the SIMD path before the byte
+         * tail. memcpy permits unaligned source loads and result stores. */
+        if (useAVX && (op == BITOP_AND || op == BITOP_OR || op == BITOP_XOR)) {
+            while (minlen >= sizeof(unsigned long)) {
+                unsigned long word, next;
+                memcpy(&word, src[0] + j, sizeof(word));
+                for (i = 1; i < numkeys; i++) {
+                    memcpy(&next, src[i] + j, sizeof(next));
+                    if (op == BITOP_AND) word &= next;
+                    else if (op == BITOP_OR) word |= next;
+                    else word ^= next;
+                }
+                memcpy(res + j, &word, sizeof(word));
+                j += sizeof(word);
+                minlen -= sizeof(word);
+            }
+        }
 
-            for (i = 1; i < numkeys; i++) {
-                int skip = 0;
-                byte = (len[i] <= j) ? 0 : src[i][j];
+        /* Keep the legacy operations in a separate loop. The newer operations
+         * need extra per-byte state; sharing their switch with AND/OR/XOR/NOT
+         * makes short tails substantially more expensive. */
+        if (op == BITOP_AND || op == BITOP_OR || op == BITOP_XOR || op == BITOP_NOT) {
+            for (; j < maxlen; j++) {
+                output = (len[0] <= j) ? 0 : src[0][j];
+                if (op == BITOP_NOT) output = ~output;
+
+                for (i = 1; i < numkeys; i++) {
+                    int skip = 0;
+                    byte = (len[i] <= j) ? 0 : src[i][j];
+                    switch(op) {
+                    case BITOP_AND:
+                        output &= byte;
+                        skip = (output == 0);
+                        break;
+                    case BITOP_OR:
+                        output |= byte;
+                        skip = (output == 0xff);
+                        break;
+                    case BITOP_XOR:
+                        output ^= byte;
+                        break;
+                    default:
+                        break;
+                    }
+
+                    if (skip) break;
+                }
+                res[j] = output;
+            }
+        } else {
+            /* j is set to the next byte to process by the previous loop. */
+            for (; j < maxlen; j++) {
+                output = (len[0] <= j) ? 0 : src[0][j];
+                disjunction = 0;
+                common_bits = 0;
+
+                for (i = 1; i < numkeys; i++) {
+                    int skip = 0;
+                    byte = (len[i] <= j) ? 0 : src[i][j];
+                    switch(op) {
+                    /* For DIFF, DIFF1 and ANDOR we compute the disjunction of
+                     * all key arguments except the first one. After that we do
+                     * the respective operation on the first argument. */
+                    case BITOP_DIFF:
+                    case BITOP_DIFF1:
+                    case BITOP_ANDOR:
+                        disjunction |= byte;
+                        skip = (disjunction == 0xff);
+                        break;
+
+                    /* BITOP ONE keeps track of bits seen in more than one
+                     * source and clears those bits from the XOR result. The
+                     * helper can be updated after every source because a bit
+                     * seen twice must remain cleared for all later sources. */
+                    case BITOP_ONE:
+                        common_bits |= (output & byte);
+                        output ^= byte;
+                        output &= ~common_bits;
+                        skip = (common_bits == 0xff);
+                        break;
+                    default:
+                        break;
+                    }
+
+                    if (skip) break;
+                }
+
                 switch(op) {
-                case BITOP_AND:
-                    output &= byte;
-                    skip = (output == 0);
-                    break;
-                case BITOP_OR:
-                    output |= byte;
-                    skip = (output == 0xff);
-                    break;
-                case BITOP_XOR: output ^= byte; break;
-
-                /* For DIFF, DIFF1 and ANDOR we compute the disjunction of all
-                 * key arguments except the first one. After that we do their
-                 * respective bit op on said first arg and that disjunction.
-                 * */
                 case BITOP_DIFF:
-                case BITOP_DIFF1:
-                case BITOP_ANDOR:
-                    disjunction |= byte;
-                    skip = (disjunction == 0xff);
+                    res[j] = (output & ~disjunction);
                     break;
-
-                /* BITOP ONE dest key_1 [key_2...]
-                 * If dest[i] is the i-th bit of dest then:
-                 * dest[i] == 1 if and only if there is j such that key_j[i] == 1
-                 * and key_n[i] == 0 for all n != j.
-                 *
-                 * In order to compute that on each step we track which bits
-                 * were seen in more than one key and store that in a helper
-                 * variable. Then the operation is just XOR but on each step we
-                 * nullify the bits that are set in the helper.
-                 * Logically, this operation is the same as nullifying the
-                 * helper bits only once at the end, but performance-wise it had
-                 * no significant benefit and makes the code only more unclear.
-                 *
-                 * e.g:
-                 * 0001 0111 # key1
-                 * 0010 0110 # key2
-                 *
-                 * 0011 0001 # intermediate1
-                 * 0000 0110 # helper
-                 * 0011 0001 # intermediate1 & ~helper
-                 *
-                 * 0100 1101 # key3
-                 *
-                 * 0111 1100 # intermediate2
-                 * 0000 0111 # helper
-                 * 0111 1000 # intermediate2 & ~helper
-                 * ---------
-                 * 0111 1000 # result
-                 * */
-                case BITOP_ONE:
-                    common_bits |= (output & byte);
-                    output ^= byte;
-                    output &= ~common_bits;
-                    skip = (common_bits == 0xff);
+                case BITOP_DIFF1:
+                    res[j] = (~output & disjunction);
+                    break;
+                case BITOP_ANDOR:
+                    res[j] = (output & disjunction);
                     break;
                 default:
+                    res[j] = output;
                     break;
                 }
-
-                if (skip) {
-                    break;
-                }
-            }
-
-            switch(op) {
-            case BITOP_DIFF:
-                res[j] = (output & ~disjunction);
-                break;
-            case BITOP_DIFF1:
-                res[j] = (~output & disjunction);
-                break;
-            case BITOP_ANDOR:
-                res[j] = (output & disjunction);
-                break;
-            default:
-                res[j] = output;
-                break;
             }
         }
     }
