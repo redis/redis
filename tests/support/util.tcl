@@ -915,6 +915,7 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set bloom_commands {BF.RESERVE BF.ADD BF.MADD BF.INSERT BF.EXISTS BF.MEXISTS BF.INFO BF.CARD BF.DEBUG BF.SCANDUMP BF.LOADCHUNK}
     set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands array $array_commands]
     dict set commands bloom $bloom_commands
+    dict set commands cms {CMS.INITBYDIM CMS.INITBYPROB CMS.INCRBY CMS.QUERY CMS.MERGE CMS.INFO}
 if 0 {
     set gcra_commands {GCRA}
     dict set commands gcra $gcra_commands

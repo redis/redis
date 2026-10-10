@@ -1247,6 +1247,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
 #ifdef INCLUDE_BLOOM
     } else if (ob->type == OBJ_BLOOM) {
         bloomDefrag(ob, activeDefragAlloc);
+    } else if (ob->type == OBJ_CMS) {
+        cmsDefrag(ob, activeDefragAlloc);
 #endif
     } else {
         serverPanic("Unknown object type");

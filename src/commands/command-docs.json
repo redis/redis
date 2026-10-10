@@ -66,6 +66,9 @@
                                     "const": "bloom"
                                 },
                                 {
+                                    "const": "cms"
+                                },
+                                {
                                     "const": "list"
                                 },
                                 {

@@ -188,6 +188,8 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
 #ifdef INCLUDE_BLOOM
     } else if (obj->type == OBJ_BLOOM) {
         return bloomFreeEffort(obj);
+    } else if (obj->type == OBJ_CMS) {
+        return cmsFreeEffort(obj);
 #endif
     } else {
         return 1; /* Everything else is a single allocation. */

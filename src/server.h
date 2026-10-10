@@ -309,6 +309,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
 #define ACL_CATEGORY_ARRAY (1ULL<<21)
 #define ACL_CATEGORY_BLOOM (1ULL<<23)
+#define ACL_CATEGORY_CMS (1ULL<<24)
 #ifdef ENABLE_GCRA
 #define ACL_CATEGORY_RATE_LIMIT (1ULL<<22)
 #endif
@@ -850,10 +851,11 @@ typedef enum {
 #define NOTIFY_SUBKEYSPACEEVENT (1<<22)  /* V, subkey-level notification: channel=event|key */
 #define NOTIFY_ARRAY (1<<23)             /* a, array notification */
 #define NOTIFY_BLOOM (1<<25)             /* b, Bloom filter notification */
+#define NOTIFY_CMS (1<<26)               /* M, Count-Min Sketch notification */
 #ifdef ENABLE_GCRA
 #define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #endif
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM) /* A flag */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM | NOTIFY_CMS) /* A flag */
 
 #define _run_with_period(_cronloops_, _ms_, _hz_) if (((_ms_) <= 1000/(_hz_)) || !((_cronloops_)%((_ms_)/(1000/(_hz_)))))
 
@@ -926,7 +928,8 @@ typedef enum {
 #define OBJ_GCRA 8      /* GCRA object. */
 #endif
 #define OBJ_BLOOM 9     /* Native Bloom filter. Slot 8 is reserved for GCRA. */
-#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
+#define OBJ_CMS 10      /* Native Count-Min Sketch. */
+#define OBJ_TYPE_MAX 11 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)
@@ -3000,6 +3003,7 @@ typedef enum {
     COMMAND_GROUP_BITMAP,
     COMMAND_GROUP_ARRAY,
     COMMAND_GROUP_BLOOM,
+    COMMAND_GROUP_CMS,
     COMMAND_GROUP_MODULE,
 #ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
@@ -4193,6 +4197,26 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
 
 /* Array data type. */
 robj *arrayTypeDup(robj *o);
+
+/* Native Count-Min Sketch operations; algorithm interface is in cms.h. */
+void cmsCreateCommand(client *c);
+void cmsIncrbyCommand(client *c);
+void cmsQueryCommand(client *c);
+void cmsMergeCommand(client *c);
+void cmsInfoCommand(client *c);
+robj *createCmsObject(void *value);
+void freeCmsObject(robj *o);
+size_t cmsObjectLength(robj *o);
+size_t cmsAllocSize(robj *o);
+size_t cmsFreeEffort(robj *o);
+void cmsDismiss(robj *o);
+robj *cmsDup(robj *o);
+void cmsDefrag(robj *o, void *(*defrag)(void *));
+void cmsDigest(unsigned char *digest, robj *o);
+uint64_t cmsRdbId(void);
+ssize_t cmsRdbSave(rio *rdb, robj *o);
+robj *cmsRdbLoad(rio *rdb, int version);
+int cmsRewriteAof(rio *rdb, robj *key, robj *o, int dbid);
 
 /* Native Bloom filter operations; algorithm interface is in bloom.h. */
 robj *createBloomObject(void *chain);

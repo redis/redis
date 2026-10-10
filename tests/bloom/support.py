@@ -112,8 +112,12 @@ class Env(unittest.TestCase):
     def assertOk(self, value):
         self.assertIn(value, (b"OK", "OK", True))
 
-    def assertResponseError(self):
-        return self.assertRaises(ResponseError)
+    def assertResponseError(self, value=None, contained=None):
+        if value is None:
+            return self.assertRaises(ResponseError)
+        self.assertIsInstance(value, ResponseError)
+        if contained is not None:
+            self.assertIn(contained, str(value))
 
     def dumpAndReload(self):
         self.cmd("SAVE")

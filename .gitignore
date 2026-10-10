@@ -45,6 +45,7 @@ redis.code-workspace
 
 # Native Bloom test binaries and Python bytecode.
 src/bloom-unit
+src/cms-unit
 src/bloom-perf
 __pycache__/
 

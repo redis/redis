@@ -26,6 +26,7 @@ const char *COMMAND_GROUP_STR[] = {
     "bitmap",
     "array",
     "bloom",
+    "cms",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
@@ -2038,6 +2039,197 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 #define READWRITE_Keyspecs NULL
 #endif
 
+#ifdef INCLUDE_BLOOM
+/********** CMS_INCRBY ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CMS_INCRBY history */
+#define CMS_INCRBY_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CMS_INCRBY tips */
+#define CMS_INCRBY_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CMS_INCRBY key specs */
+keySpec CMS_INCRBY_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CMS_INCRBY items argument table */
+struct COMMAND_ARG CMS_INCRBY_items_Subargs[] = {
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CMS_INCRBY argument table */
+struct COMMAND_ARG CMS_INCRBY_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("items",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CMS_INCRBY_items_Subargs},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CMS_INFO ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CMS_INFO history */
+#define CMS_INFO_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CMS_INFO tips */
+#define CMS_INFO_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CMS_INFO key specs */
+keySpec CMS_INFO_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CMS_INFO argument table */
+struct COMMAND_ARG CMS_INFO_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CMS_INITBYDIM ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CMS_INITBYDIM history */
+#define CMS_INITBYDIM_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CMS_INITBYDIM tips */
+#define CMS_INITBYDIM_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CMS_INITBYDIM key specs */
+keySpec CMS_INITBYDIM_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CMS_INITBYDIM cellsize argument table */
+struct COMMAND_ARG CMS_INITBYDIM_cellsize_Subargs[] = {
+{MAKE_ARG("cell-size",ARG_TYPE_PURE_TOKEN,-1,"CELL_SIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("size",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CMS_INITBYDIM argument table */
+struct COMMAND_ARG CMS_INITBYDIM_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("width",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("depth",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("cellsize",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CMS_INITBYDIM_cellsize_Subargs},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CMS_INITBYPROB ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CMS_INITBYPROB history */
+#define CMS_INITBYPROB_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CMS_INITBYPROB tips */
+#define CMS_INITBYPROB_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CMS_INITBYPROB key specs */
+keySpec CMS_INITBYPROB_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CMS_INITBYPROB cellsize argument table */
+struct COMMAND_ARG CMS_INITBYPROB_cellsize_Subargs[] = {
+{MAKE_ARG("cell-size",ARG_TYPE_PURE_TOKEN,-1,"CELL_SIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("size",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CMS_INITBYPROB argument table */
+struct COMMAND_ARG CMS_INITBYPROB_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("error",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("probability",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("cellsize",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CMS_INITBYPROB_cellsize_Subargs},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CMS_MERGE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CMS_MERGE history */
+#define CMS_MERGE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CMS_MERGE tips */
+#define CMS_MERGE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CMS_MERGE key specs */
+keySpec CMS_MERGE_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
+};
+#endif
+
+/* CMS_MERGE weight argument table */
+struct COMMAND_ARG CMS_MERGE_weight_Subargs[] = {
+{MAKE_ARG("weights",ARG_TYPE_PURE_TOKEN,-1,"WEIGHTS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("weight",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* CMS_MERGE argument table */
+struct COMMAND_ARG CMS_MERGE_Args[] = {
+{MAKE_ARG("destination",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("source",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("weight",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CMS_MERGE_weight_Subargs},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CMS_QUERY ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CMS_QUERY history */
+#define CMS_QUERY_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CMS_QUERY tips */
+#define CMS_QUERY_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CMS_QUERY key specs */
+keySpec CMS_QUERY_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CMS_QUERY argument table */
+struct COMMAND_ARG CMS_QUERY_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
 /********** AUTH ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -13305,6 +13497,25 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("cluster","A container for Redis Cluster commands.","Depends on subcommand.","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_History,0,CLUSTER_Tips,0,NULL,-2,0,0,CLUSTER_Keyspecs,0,NULL,0),.subcommands=CLUSTER_Subcommands},
 {MAKE_CMD("readonly","Enables read-only queries for a connection to a Redis Cluster replica node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,READONLY_History,0,READONLY_Tips,0,readonlyCommand,1,CMD_FAST|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,READONLY_Keyspecs,0,NULL,0)},
 {MAKE_CMD("readwrite","Enables read-write queries for a connection to a Redis Cluster replica node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,READWRITE_History,0,READWRITE_Tips,0,readwriteCommand,1,CMD_FAST|CMD_LOADING|CMD_STALE,ACL_CATEGORY_CONNECTION,READWRITE_Keyspecs,0,NULL,0)},
+/* cms */
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cms.incrby","Increases the count of one or more items by increment, which may be negative","O(n) where n is the number of items","8.8.0",CMD_DOC_NONE,NULL,NULL,"cms",COMMAND_GROUP_CMS,CMS_INCRBY_History,0,CMS_INCRBY_Tips,0,cmsIncrbyCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CMS,CMS_INCRBY_Keyspecs,1,NULL,2),.args=CMS_INCRBY_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cms.info","Returns information about a sketch","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cms",COMMAND_GROUP_CMS,CMS_INFO_History,0,CMS_INFO_Tips,0,cmsInfoCommand,2,CMD_READONLY,ACL_CATEGORY_CMS,CMS_INFO_Keyspecs,1,NULL,1),.args=CMS_INFO_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cms.initbydim","Initializes a Count-Min Sketch to dimensions specified by user","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cms",COMMAND_GROUP_CMS,CMS_INITBYDIM_History,0,CMS_INITBYDIM_Tips,0,cmsCreateCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CMS,CMS_INITBYDIM_Keyspecs,1,NULL,4),.args=CMS_INITBYDIM_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cms.initbyprob","Initializes a Count-Min Sketch to accommodate requested tolerances.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cms",COMMAND_GROUP_CMS,CMS_INITBYPROB_History,0,CMS_INITBYPROB_Tips,0,cmsCreateCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CMS,CMS_INITBYPROB_Keyspecs,1,NULL,4),.args=CMS_INITBYPROB_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cms.merge","Merges several sketches into one sketch","O(n) where n is the number of sketches","8.8.0",CMD_DOC_NONE,NULL,NULL,"cms",COMMAND_GROUP_CMS,CMS_MERGE_History,0,CMS_MERGE_Tips,0,cmsMergeCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CMS,CMS_MERGE_Keyspecs,2,NULL,4),.args=CMS_MERGE_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cms.query","Returns the count for one or more items in a sketch","O(n) where n is the number of items","8.8.0",CMD_DOC_NONE,NULL,NULL,"cms",COMMAND_GROUP_CMS,CMS_QUERY_History,0,CMS_QUERY_Tips,0,cmsQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_CMS,CMS_QUERY_Keyspecs,1,NULL,2),.args=CMS_QUERY_Args},
+#endif
 /* connection */
 {MAKE_CMD("auth","Authenticates the connection.","O(N) where N is the number of passwords defined for the user","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,AUTH_History,1,AUTH_Tips,0,authCommand,-2,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_SENTINEL|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,AUTH_Keyspecs,0,NULL,2),.args=AUTH_Args},
 {MAKE_CMD("client","A container for client connection commands.","Depends on subcommand.","2.4.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,CLIENT_History,0,CLIENT_Tips,0,NULL,-2,CMD_SENTINEL,0,CLIENT_Keyspecs,0,NULL,0),.subcommands=CLIENT_Subcommands},

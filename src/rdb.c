@@ -751,6 +751,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_MODULE:
 #ifdef INCLUDE_BLOOM
     case OBJ_BLOOM: /* Preserve RedisBloom's wire format during migration. */
+    case OBJ_CMS:
 #endif
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     case OBJ_ARRAY:
@@ -1596,6 +1597,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 #ifdef INCLUDE_BLOOM
     } else if (o->type == OBJ_BLOOM) {
         return bloomRdbSave(rdb, o);
+    } else if (o->type == OBJ_CMS) {
+        return cmsRdbSave(rdb, o);
 #endif
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
@@ -4340,6 +4343,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 #ifdef INCLUDE_BLOOM
+        if ((moduleid >> 10) == (cmsRdbId() >> 10) && !rdbCheckMode) {
+            robj *cms = cmsRdbLoad(rdb, moduleid & 1023);
+            if (!cms) rdbReportCorruptRDB("Invalid Count-Min Sketch payload");
+            return cms;
+        }
         if ((moduleid >> 10) == (bloomRdbId() >> 10) && !rdbCheckMode) {
             robj *bloom = bloomRdbLoad(rdb, moduleid & 1023);
             if (!bloom) rdbReportCorruptRDB("Invalid Bloom filter payload");
