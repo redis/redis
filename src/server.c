@@ -1091,9 +1091,15 @@ void updateClientMemoryUsage(client *c) {
      * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
+    server.stat_clients_shared_memory -= c->last_memory_shared;
+    server.stat_clients_shared_memory += c->reply_bytes_shared;
+    server.stat_clients_unshared_memory -= c->last_memory_unshared;
+    server.stat_clients_unshared_memory += c->reply_bytes_unshared;
     /* Remember what we added and where, to remove it next time. */
     c->last_memory_type = type;
     c->last_memory_usage = mem;
+    c->last_memory_shared = c->reply_bytes_shared;
+    c->last_memory_unshared = c->reply_bytes_unshared;
 }
 
 int clientEvictionAllowed(client *c) {
@@ -1136,7 +1142,7 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
-int updateClientMemUsageAndBucket(client *c) {
+static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refreshed) {
     /* The unlikely case this function was called from a thread different
      * than the main one is a module call from a spawned thread. This is safe
      * since this call must have been made after calling
@@ -1158,14 +1164,16 @@ int updateClientMemUsageAndBucket(client *c) {
      * Walking the reply buffer is costly, so skip the scan when its outcome
      * cannot affect bucket placement: since 0 <= unshared <= shared, if both
      * endpoints map to the same bucket the cached value is reused. */
-    if (c->reply_bytes_shared > 0) {
-        size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
-        size_t upper_bound = lower_bound + c->reply_bytes_shared;
-        if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
-            updateClientUnsharedReplyBytes(c);
-    } else {
-        /* No shared bytes: clear any stale cached unshared. */
-        c->reply_bytes_unshared = 0;
+    if (!unshared_refreshed) {
+        if (c->reply_bytes_shared == 0) {
+            /* No shared bytes: clear any stale cached unshared. */
+            c->reply_bytes_unshared = 0;
+        } else {
+            size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
+            size_t upper_bound = lower_bound + c->reply_bytes_shared;
+            if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
+                updateClientUnsharedReplyBytes(c);
+        }
     }
 
     /* Update client memory usage. */
@@ -1183,6 +1191,10 @@ int updateClientMemUsageAndBucket(client *c) {
         c->mem_usage_bucket_node = listLast(bucket->clients);
     }
     return 1;
+}
+
+int updateClientMemUsageAndBucket(client *c) {
+    return updateClientMemUsageAndBucketInternal(c, 0);
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -1210,13 +1222,23 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
+    /* Refresh unshared reply memory roughly once per second for every client.
+     * Allow one cron tick of slack, otherwise a client visited slightly less
+     * than a second after its last refresh would wait for the next round,
+     * delaying the refresh to ~2s. */
+    int unshared_refreshed = c->last_unshared_refresh + 1000 - 1000/server.hz <= now;
+    if (unshared_refreshed) {
+        c->last_unshared_refresh = now;
+        updateClientUnsharedReplyBytes(c);
+    }
+
     /* Iterating all the clients in getMemoryOverheadData() is too slow and
      * in turn would make the INFO command too slow. So we perform this
      * computation incrementally and track the (not instantaneous but updated
      * to the second) total memory used by clients using clientsCron() in
      * a more incremental way (depending on server.hz).
      * If client eviction is enabled, update the bucket as well. */
-    if (!updateClientMemUsageAndBucket(c))
+    if (!updateClientMemUsageAndBucketInternal(c, unshared_refreshed))
         updateClientMemoryUsage(c);
 
     if (closeClientOnOutputBufferLimitReached(c, 0)) return 1;
@@ -3191,6 +3213,8 @@ void initServer(void) {
     server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
+    server.stat_clients_shared_memory = 0;
+    server.stat_clients_unshared_memory = 0;
     server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
