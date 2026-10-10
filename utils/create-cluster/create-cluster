@@ -10,6 +10,8 @@ TIMEOUT=2000
 NODES=6
 REPLICAS=1
 PROTECTED_MODE=yes
+STARTUP_RETRIES=50
+STARTUP_RETRY_DELAY=0.1
 # The nodes talk over an unauthenticated cluster bus on loopback, which a cluster
 # node refuses to do by default, so protection has to be waived explicitly.
 BUS_PROTECTED_MODE=no
@@ -34,6 +36,35 @@ then
         $BIN_PATH/redis-server --port $PORT --protected-mode $PROTECTED_MODE --cluster-enabled yes --cluster-bus-port-protected-mode $BUS_PROTECTED_MODE --cluster-config-file nodes-${PORT}.conf --cluster-node-timeout $TIMEOUT --appendonly yes --appendfilename appendonly-${PORT}.aof --appenddirname appendonlydir-${PORT} --dbfilename dump-${PORT}.rdb --logfile ${PORT}.log --daemonize yes ${ADDITIONAL_OPTIONS}
     done
     exit 0
+fi
+
+if [ "$1" == "start-and-create" ]
+then
+    "$SCRIPT_DIR/create-cluster" start || exit $?
+
+    WAIT_PORT=$PORT
+    while [ $((WAIT_PORT < ENDPORT)) != "0" ]; do
+        WAIT_PORT=$((WAIT_PORT+1))
+        RETRIES=$STARTUP_RETRIES
+
+        while ! "$BIN_PATH/redis-cli" -h "$CLUSTER_HOST" -p "$WAIT_PORT" PING >/dev/null 2>&1; do
+            RETRIES=$((RETRIES-1))
+
+            if [ "$RETRIES" == "0" ]; then
+                echo "Redis instance on port $WAIT_PORT failed to start."
+                exit 1
+            fi
+
+            sleep "$STARTUP_RETRY_DELAY"
+        done
+    done
+
+    if [ "$2" == "-f" ]; then
+        "$SCRIPT_DIR/create-cluster" create -f
+    else
+        "$SCRIPT_DIR/create-cluster" create
+    fi
+    exit $?
 fi
 
 if [ "$1" == "create" ]
@@ -133,14 +164,15 @@ then
     exit 0
 fi
 
-echo "Usage: $0 [start|create|stop|restart|watch|tail|tailall|clean|clean-logs|call]"
-echo "start       -- Launch Redis Cluster instances."
-echo "create [-f] -- Create a cluster using redis-cli --cluster create."
-echo "stop        -- Stop Redis Cluster instances."
-echo "restart     -- Restart Redis Cluster instances."
-echo "watch       -- Show CLUSTER NODES output (first 30 lines) of first node."
-echo "tail <id>   -- Run tail -f of instance at base port + ID."
-echo "tailall     -- Run tail -f for all the log files at once."
-echo "clean       -- Remove all instances data, logs, configs."
-echo "clean-logs  -- Remove just instances logs."
-echo "call <cmd>  -- Call a command (up to 7 arguments) on all nodes."
+echo "Usage: $0 [start|start-and-create|create|stop|restart|watch|tail|tailall|clean|clean-logs|call]"
+echo "start                  -- Launch Redis Cluster instances."
+echo "start-and-create [-f]  -- Launch Redis Cluster instances and create the cluster."
+echo "create [-f]            -- Create a cluster using redis-cli --cluster create."
+echo "stop                   -- Stop Redis Cluster instances."
+echo "restart                -- Restart Redis Cluster instances."
+echo "watch                  -- Show CLUSTER NODES output (first 30 lines) of first node."
+echo "tail <id>              -- Run tail -f of instance at base port + ID."
+echo "tailall                -- Run tail -f for all the log files at once."
+echo "clean                  -- Remove all instances data, logs, configs."
+echo "clean-logs             -- Remove just instances logs."
+echo "call <cmd>             -- Call a command (up to 7 arguments) on all nodes."
