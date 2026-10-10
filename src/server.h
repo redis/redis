@@ -1060,6 +1060,7 @@ struct RedisModule {
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
     int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
+    size_t reply_buffers;        /* Owned reply buffers keep the module loaded. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
     RedisModuleDefragFunc2 defrag_cb_2; /* Version 2 callback for global data defrag. */
@@ -3389,6 +3390,7 @@ void addReplyBool(client *c, int b);
 void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext);
 void addReplyProto(client *c, const char *s, size_t len);
 void AddReplyFromClient(client *c, client *src);
+void AddReplyFromModuleClient(client *dst, client *src);
 void addReplyBulk(client *c, robj *obj);
 void addReplyBulkWithFlag(client *c, robj *obj, int avoid_copy);
 void addReplyBulkCString(client *c, const char *s);
