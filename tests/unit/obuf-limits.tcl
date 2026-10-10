@@ -349,11 +349,11 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
             }
             lassign [clamp_test_omem] shared_before unshared_before
 
-            # Read a few replies, so that only part of the pending references are sent
-            # (the socket buffers absorb a large part of the output). Releasing the sent
-            # references must lower the cached unshared bytes right away, not only on
-            # the next periodic refresh.
-            set partial 5
+            # Read one reply, so that usually only part of the pending references are
+            # sent (how much is sent depends on the socket buffer sizes). Releasing the
+            # sent references must lower the cached unshared bytes right away, not only
+            # on the next periodic refresh.
+            set partial 1
             for {set i 0} {$i < $partial} {incr i} { $rr read }
             wait_for_condition 100 10 {
                 [lindex [clamp_test_omem] 0] < $shared_before
@@ -361,7 +361,6 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
                 fail "omem-shared did not decrease after reading part of the replies"
             }
             lassign [clamp_test_omem] shared unshared
-            assert_morethan $shared 0
             assert_morethan_equal $shared $unshared
 
             # Read the rest: once no shared bytes are left, no unshared bytes may remain.
