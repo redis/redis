@@ -280,7 +280,7 @@ class testTDigest:
         # merge to a t-digest with max compression of all inputs which is 200
         self.assertOk(self.cmd("tdigest.merge", "to-tdigest-100{1}", "2", "from-1{1}", "from-2{1}"))
         to_info = parse_tdigest_info(self.cmd("tdigest.info", "to-tdigest-100{1}"))
-        # ensure tha the destination t-digest has the largest compression of all input t-digests
+        # ensure that the destination t-digest has the largest compression of all input t-digests
         compression = int(to_info["Compression"])
         self.assertEqual(200, compression)
         # assert we have same merged weight on both histograms ( given the to-histogram was empty )
@@ -293,27 +293,27 @@ class testTDigest:
         # merge to a t-digest that already exists so we will preserve its compression
         self.assertOk(self.cmd("tdigest.merge", "to-1{1}", "2", "from-1{1}", "from-2{1}"))
         to_info = parse_tdigest_info(self.cmd("tdigest.info", "to-1{1}"))
-        # ensure tha the destination t-digest has the largest compression of all input t-digests
+        # ensure that the destination t-digest has the largest compression of all input t-digests
         compression = int(to_info["Compression"])
         self.assertEqual(55, compression)
 
         # merge to a t-digest with non-default compression
         self.assertOk(self.cmd("tdigest.merge", "to-tdigest-50{1}", "2","from-1{1}", "from-2{1}", "COMPRESSION", "50"))
-        # ensure tha the destination t-digest has the passed compression
+        # ensure that the destination t-digest has the passed compression
         to_info = parse_tdigest_info(self.cmd("tdigest.info", "to-tdigest-50{1}"))
         compression = int(to_info["Compression"])
         self.assertEqual(50, compression)
 
         # merge to a t-digest that already exists with non-default compression
         self.assertOk(self.cmd("tdigest.merge", "to-tdigest-50{1}", "2","from-1{1}", "from-2{1}", "COMPRESSION", "500"))
-        # ensure tha the destination t-digest has the passed compression
+        # ensure that the destination t-digest has the passed compression
         to_info = parse_tdigest_info(self.cmd("tdigest.info", "to-tdigest-50{1}"))
         compression = int(to_info["Compression"])
         self.assertEqual(500, compression)
 
         # merge to a t-digest that already exists but given we specify override it will use the max compression of all inputs
         self.assertOk(self.cmd("tdigest.merge", "to-tdigest-50{1}", "2","from-1{1}", "from-2{1}", "OVERRIDE"))
-        # ensure tha the destination t-digest has the passed compression
+        # ensure that the destination t-digest has the passed compression
         to_info = parse_tdigest_info(self.cmd("tdigest.info", "to-tdigest-50{1}"))
         compression = int(to_info["Compression"])
         self.assertEqual(200, compression)

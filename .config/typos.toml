@@ -51,6 +51,9 @@ extend-ignore-re = [
 ]
 
 [type.c.extend-identifiers]
+# macOS mach_timebase_info fields and a NumPy API in upstream test comments.
+numer = "numer"
+arange = "arange"
 clen = "clen"
 fle = "fle"
 nd = "nd"
