@@ -1,8 +1,9 @@
 # Native Bloom filter migration
 
 This implementation makes Bloom a native Redis object (`OBJ_BLOOM`),
-without module APIs or additional build dependencies. It is not yet a replacement
-for the complete RedisBloom module.
+without module APIs or additional build dependencies. The full stack migrates
+all five RedisBloom families; see [upstream provenance](probabilistic-upstream.md)
+for the audited RedisBloom master revision.
 
 ## Organization
 
