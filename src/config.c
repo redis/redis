@@ -703,6 +703,11 @@ void loadServerConfigFromString(char *config) {
             goto loaderr;
         }
 
+        if (server.io_threads_repl_compression_only && server.repl_compression == 0) {
+            err = "io-threads-repl-compression-only requires repl-compression to be greater than 0";
+            goto loaderr;
+        }
+
         /* in case cluster mode is enabled dbnum must be 1 */
         if (server.cluster_enabled && server.dbnum > 1) {
             serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
@@ -3592,6 +3597,7 @@ standardConfig static_configs[] = {
     createIntConfig("lookahead", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.lookahead, REDIS_DEFAULT_LOOKAHEAD, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("slowlog-entry-max-argc", NULL, MODIFIABLE_CONFIG, 2, INT_MAX, server.slowlog_max_argc, 32, INTEGER_CONFIG, NULL, NULL),
 #ifdef USE_COMPRESSION
+    createBoolConfig("io-threads-repl-compression-only", NULL, IMMUTABLE_CONFIG, server.io_threads_repl_compression_only, 0, NULL, NULL),
     createIntConfig("repl-compression", NULL, IMMUTABLE_CONFIG, 0, 22, server.repl_compression, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-compression-max-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.compression_max_latency, 100, INTEGER_CONFIG, NULL, NULL), /* 100ms */
 #endif

@@ -674,6 +674,7 @@ start_server {tags {"introspection"}} {
             client-default-resp
             vset-force-single-threaded-execution
             repl-compression
+            io-threads-repl-compression-only
         }
 
         if {!$::tls} {
