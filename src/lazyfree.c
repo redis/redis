@@ -185,6 +185,10 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     } else if (obj->type == OBJ_ARRAY) {
         redisArray *ar = obj->ptr;
         return arCount(ar);
+#ifdef INCLUDE_BLOOM
+    } else if (obj->type == OBJ_BLOOM) {
+        return bloomFreeEffort(obj);
+#endif
     } else {
         return 1; /* Everything else is a single allocation. */
     }

@@ -749,6 +749,9 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_GCRA);
 #endif
     case OBJ_MODULE:
+#ifdef INCLUDE_BLOOM
+    case OBJ_BLOOM: /* Preserve RedisBloom's wire format during migration. */
+#endif
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     case OBJ_ARRAY:
         return rdbSaveType(rdb,RDB_TYPE_ARRAY);
@@ -1589,6 +1592,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         getLongLongFromGCRAObject(o, &t);
         if ((n = rdbSaveLen(rdb,t)) == -1) return -1;
         nwritten += n;
+#endif
+#ifdef INCLUDE_BLOOM
+    } else if (o->type == OBJ_BLOOM) {
+        return bloomRdbSave(rdb, o);
 #endif
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
@@ -4332,6 +4339,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             rdbReportReadError("Short read module id");
             return NULL;
         }
+#ifdef INCLUDE_BLOOM
+        if ((moduleid >> 10) == (bloomRdbId() >> 10) && !rdbCheckMode) {
+            robj *bloom = bloomRdbLoad(rdb, moduleid & 1023);
+            if (!bloom) rdbReportCorruptRDB("Invalid Bloom filter payload");
+            return bloom;
+        }
+#endif
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
 
         if (rdbCheckMode) {

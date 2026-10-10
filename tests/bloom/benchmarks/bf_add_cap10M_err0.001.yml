@@ -1,0 +1,18 @@
+version: 0.2
+name: "bf_add_cap10M_err0.001"
+description: "Benchmarking adding an item to the Bloom Filter,
+              with an desired false positive rate of 0.1%, and
+              an initial capacity of 10M items"
+dbconfig:
+  - init_commands:
+    - 'BF.RESERVE largebloom 0.001 10000000'
+clientconfig:
+  - tool: redis-benchmark
+  - min-tool-version: "6.2.0"
+  - parameters:
+    - clients: 16
+    - requests: 10000000
+    - threads: 2
+    - pipeline: 1
+    - keyspacelen: 10000000
+    - command: 'BF.ADD largebloom __rand_int__'

@@ -308,6 +308,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define ACL_CATEGORY_TRANSACTION (1ULL<<19)
 #define ACL_CATEGORY_SCRIPTING (1ULL<<20)
 #define ACL_CATEGORY_ARRAY (1ULL<<21)
+#define ACL_CATEGORY_BLOOM (1ULL<<23)
 #ifdef ENABLE_GCRA
 #define ACL_CATEGORY_RATE_LIMIT (1ULL<<22)
 #endif
@@ -848,10 +849,11 @@ typedef enum {
 #define NOTIFY_SUBKEYSPACEITEM (1<<21)   /* I, subkey-level notification per item: channel=key\nsubkey */
 #define NOTIFY_SUBKEYSPACEEVENT (1<<22)  /* V, subkey-level notification: channel=event|key */
 #define NOTIFY_ARRAY (1<<23)             /* a, array notification */
+#define NOTIFY_BLOOM (1<<25)             /* b, Bloom filter notification */
 #ifdef ENABLE_GCRA
 #define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #endif
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY) /* A flag */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY | NOTIFY_BLOOM) /* A flag */
 
 #define _run_with_period(_cronloops_, _ms_, _hz_) if (((_ms_) <= 1000/(_hz_)) || !((_cronloops_)%((_ms_)/(1000/(_hz_)))))
 
@@ -922,10 +924,9 @@ typedef enum {
 #define OBJ_ARRAY 7     /* Array object. */
 #ifdef ENABLE_GCRA
 #define OBJ_GCRA 8      /* GCRA object. */
-#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
-#else
-#define OBJ_TYPE_MAX 8  /* Maximum number of object types */
 #endif
+#define OBJ_BLOOM 9     /* Native Bloom filter. Slot 8 is reserved for GCRA. */
+#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)
@@ -2088,6 +2089,9 @@ struct redisServer {
                                    is enabled. */
     mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz */
+    long long bloom_capacity;
+    long long bloom_expansion;
+    sds bloom_error_rate;
     int in_fork_child;          /* indication that this is a fork child */
     redisDb *db;
     dict *commands;             /* Command table */
@@ -2995,6 +2999,7 @@ typedef enum {
     COMMAND_GROUP_STREAM,
     COMMAND_GROUP_BITMAP,
     COMMAND_GROUP_ARRAY,
+    COMMAND_GROUP_BLOOM,
     COMMAND_GROUP_MODULE,
 #ifdef ENABLE_GCRA
     COMMAND_GROUP_RATE_LIMIT,
@@ -4188,6 +4193,34 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
 
 /* Array data type. */
 robj *arrayTypeDup(robj *o);
+
+/* Native Bloom filter operations; algorithm interface is in bloom.h. */
+robj *createBloomObject(void *chain);
+void freeBloomObject(robj *o);
+size_t bloomObjectLength(robj *o);
+size_t bloomAllocSize(robj *o);
+size_t bloomFreeEffort(robj *o);
+void bloomDismiss(robj *o);
+robj *bloomDup(robj *o);
+void bloomDefrag(robj *o, void *(*defrag)(void *));
+void bloomDigest(unsigned char *digest, robj *o);
+uint64_t bloomRdbId(void);
+ssize_t bloomRdbSave(rio *rdb, robj *o);
+robj *bloomRdbLoad(rio *rdb, int version);
+int bloomRewriteAof(rio *rdb, robj *key, robj *o);
+int bloomValidateErrorRate(char *value, const char **err);
+int bloomUpdateErrorRate(const char **err);
+void bfReserveCommand(client *c);
+void bfAddCommand(client *c);
+void bfMAddCommand(client *c);
+void bfInsertCommand(client *c);
+void bfMExistsCommand(client *c);
+void bfInfoCommand(client *c);
+void bfCardCommand(client *c);
+void bfDebugCommand(client *c);
+void bfExistsCommand(client *c);
+void bfScanDumpCommand(client *c);
+void bfLoadChunkCommand(client *c);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);

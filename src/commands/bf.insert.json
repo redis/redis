@@ -1,0 +1,84 @@
+{
+    "BF.INSERT": {
+        "summary": "Adds items to a Bloom filter, optionally configuring its creation.",
+        "complexity": "O(k * n), where k is the number of hash functions across filters and n is the number of items.",
+        "group": "bloom",
+        "since": "8.8.0",
+        "arity": -4,
+        "function": "bfInsertCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BLOOM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "capacity",
+                "type": "integer",
+                "token": "CAPACITY",
+                "optional": true
+            },
+            {
+                "name": "error",
+                "type": "double",
+                "token": "ERROR",
+                "optional": true
+            },
+            {
+                "name": "expansion",
+                "type": "integer",
+                "token": "EXPANSION",
+                "optional": true
+            },
+            {
+                "name": "nocreate",
+                "type": "pure-token",
+                "token": "NOCREATE",
+                "optional": true
+            },
+            {
+                "name": "nonscaling",
+                "type": "pure-token",
+                "token": "NONSCALING",
+                "optional": true
+            },
+            {
+                "name": "items",
+                "type": "pure-token",
+                "token": "ITEMS"
+            },
+            {
+                "name": "item",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -141,8 +141,9 @@ fi
 
 # ---------------------------------------------------------------------------
 # Phase 3: rewrite the loadmodule paths in redis-full.conf and redis.conf
-# in-place. Only the LOADMODULE_BEGIN/END block is replaced — the rest of
-# each file is untouched. Runs even when some modules failed to copy so that
+# in-place. The loadmodule block is replaced when modules were installed;
+# native Bloom also removes the obsolete managed RedisBloom config block.
+# Runs even when some modules failed to copy so that
 # the successfully-installed ones get correct absolute paths.
 # ---------------------------------------------------------------------------
 REDIS_FULL_CONF="${REDIS_GEN_CONF:-redis-full.conf}"
@@ -158,9 +159,12 @@ for name in $modules; do
 done
 installed_modules="${installed_modules# }"
 
-if [ -n "$installed_modules" ]; then
+replace_loads=0
+[ -n "$installed_modules" ] && replace_loads=1
+if [ "$replace_loads" = "1" ] || [ "${BUILD_BLOOM:-yes}" = "yes" ]; then
   new_lines=""
   for name in $installed_modules; do
+    module_load_enabled "$name" || continue
     target="$(manifest_field "$name" target_module)"
     [ -z "$target" ] && continue
     so_basename="$(basename "$target")"
@@ -184,14 +188,23 @@ if [ -n "$installed_modules" ]; then
     # under `sudo` — onto a conf the user still has to write.
     cp -p "$conf" "$tmp"
     trap 'rm -f "$tmp" "$new_lines_file"' EXIT
-    awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v newfile="$new_lines_file" '
+    awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v newfile="$new_lines_file" \
+        -v native_bloom="${BUILD_BLOOM:-yes}" -v replace_loads="$replace_loads" '
+      native_bloom == "yes" && $0 == "# >>> BEGIN module: redisbloom <<<" { skip_bloom=1; next }
+      skip_bloom && $0 == "# <<< END module: redisbloom <<<" { skip_bloom=0; next }
+      skip_bloom { next }
       $0 == begin {
         print
-        while ((getline line < newfile) > 0) print line
-        close(newfile)
-        skip=1; next
+        in_load_block=1
+        if (replace_loads) {
+          while ((getline line < newfile) > 0) print line
+          close(newfile)
+          skip=1
+        }
+        next
       }
-      $0 == end   { skip=0 }
+      native_bloom == "yes" && in_load_block && $1 == "loadmodule" && $2 ~ /(^|\/)redisbloom\.so$/ { next }
+      $0 == end   { skip=0; in_load_block=0 }
       !skip        { print }
     ' "$conf" > "$tmp"
     mv "$tmp" "$conf"

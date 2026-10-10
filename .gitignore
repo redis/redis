@@ -43,6 +43,11 @@ Makefile.dep
 compile_commands.json
 redis.code-workspace
 
+# Native Bloom test binaries and Python bytecode.
+src/bloom-unit
+src/bloom-perf
+__pycache__/
+
 # External bundled modules — cloned (not git submodules) into modules/<name>/src/
 # by `make modules-update`. See modules/modules.yaml + modules/MODULES.md.
 modules/redisbloom/src/
