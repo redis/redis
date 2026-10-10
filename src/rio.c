@@ -111,7 +111,7 @@ static size_t rioFileWrite(rio *r, const void *buf, size_t len) {
         r->io.file.buffered += towrite;
 
         if (r->io.file.buffered >= r->io.file.autosync) {
-            fflush(r->io.file.fp);
+            if (fflush(r->io.file.fp) == EOF) return 0;
 
             size_t processed = r->processed_bytes + nwritten;
             serverAssert(processed % r->io.file.autosync == 0);
