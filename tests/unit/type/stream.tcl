@@ -4239,7 +4239,7 @@ start_server {tags {"repl external:skip"} overrides {enable-debug-command yes}} 
     }
 }
 
-start_server {tags {"stream"} overrides {appendonly yes appendfsync always}} {
+start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsync always}} {
     test "XADD IDMP appends after expiry survive an AOF restart" {
         r XADD mystream 1000-0 field "init"
         r XCFGSET mystream IDMP-DURATION 2
