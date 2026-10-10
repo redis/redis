@@ -184,7 +184,7 @@ void cfCheckCommand(client *c) {
         if (o && o->type == OBJ_CUCKOO) {
             sds item = c->argv[i]->ptr;
             CuckooHash hash = CUCKOO_GEN_HASH(item, sdslen(item));
-            result = count ? CuckooFilter_Count(o->ptr, hash) : CuckooFilter_Check(o->ptr, hash);
+            result = count ? CuckooFilter_Count(o->ptr, hash) : (uint64_t)CuckooFilter_Check(o->ptr, hash);
         }
         if (count) addReplyLongLong(c, result); else cfBool(c, result);
     }

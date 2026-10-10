@@ -131,8 +131,8 @@ static size_t countColls(CuckooFilter *ck) {
     return ret;
 }
 
-TEST_F(cuckoo, testFPR) {
-    // We should never expect > 3% FPR (False positive rate) on a single filter.
+TEST_F(cuckoo, testFalsePositiveRate) {
+    // We should never expect > 3% false positives on a single filter.
     // The basic idea is that the false positive rate doubles with each
     CuckooFilter ck;
     CuckooFilter_Init(&ck, NUM_BULK, DEFAULT_BUCKETSIZE, 500, 1);
