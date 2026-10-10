@@ -30,6 +30,15 @@ Set `BLOOM_ORACLE_SERVER` and `BLOOM_ORACLE_MODULE` to compare all commands in
 RESP2/RESP3 against external RedisBloom, compare serialized chunks, and exercise
 bidirectional DUMP/RESTORE. Without these settings only the oracle cases skip.
 
+## CI coverage
+
+The push/PR workflow (`.github/workflows/ci.yml`) runs `make test-bloom` in
+the Ubuntu and AddressSanitizer test jobs, preserving each job's build flags.
+The scheduled Daily workflow runs it in `test-ubuntu-jemalloc` with
+`BLOOM_LARGE_TESTS=1`. Its manual `skiptests=redis` setting also skips Bloom.
+These steps install Python 3 and require no pip packages or external module.
+Oracle comparisons remain opt-in and are not run by these workflows.
+
 ## Migration inventory
 
 | Upstream source | Native destination and adaptations |

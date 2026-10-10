@@ -18,8 +18,10 @@ jobs:
       run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: test
       run: |
-        sudo apt-get install tcl8.6 tclx
+        sudo apt-get install tcl8.6 tclx python3
         ./runtest --verbose --tags -slow --dump-logs
+    - name: Bloom unit and flow tests
+      run: make test-bloom REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: validate commands.def up to date
       run: |
         touch src/commands/ping.json
@@ -35,9 +37,11 @@ jobs:
         # build with TLS module just for compilation coverage
         run: make SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS -DREDIS_TEST' BUILD_TLS=module
       - name: testprep
-        run: sudo apt-get install tcl8.6 tclx -y
+        run: sudo apt-get install tcl8.6 tclx python3 -y
       - name: test
         run: ./runtest --verbose --tags -slow --dump-logs
+      - name: Bloom unit and flow tests
+        run: make test-bloom SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS -DREDIS_TEST' BUILD_TLS=module
 
   build-debian-old:
     runs-on: ubuntu-latest

@@ -54,10 +54,15 @@ jobs:
     - name: make
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
     - name: testprep
-      run: sudo apt-get install tcl8.6 tclx
+      run: sudo apt-get install tcl8.6 tclx python3
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
+    - name: Bloom unit and flow tests (including large-memory cases)
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      env:
+        BLOOM_LARGE_TESTS: '1'
+      run: make test-bloom REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
