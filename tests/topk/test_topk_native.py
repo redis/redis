@@ -4,6 +4,14 @@ import time
 from support import *
 
 class testNativeTopK:
+    def test_zero_count_empty_item_survives_reload(self):
+        env=Env()
+        env.cmd('TOPK.RESERVE','t',3)
+        env.cmd('TOPK.INCRBY','t','',0)
+        env.assertEqual([1],env.cmd('TOPK.QUERY','t',''))
+        env.dumpAndReload()
+        env.assertEqual([1],env.cmd('TOPK.QUERY','t',''))
+
     def test_lifecycle_binary(self):
         env=Env()
         r=env.cmd

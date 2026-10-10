@@ -182,6 +182,9 @@ ssize_t topkRdbSave(rio *rdb, robj *o) {
     HeapBucket *heap=zcalloc_num(t->k,sizeof(*heap));
     for (uint32_t i=0; i<t->k; i++) {
         heap[i].fp=t->heap[i].fp; heap[i].count=t->heap[i].count; heap[i].itemlen=t->heap[i].itemlen;
+        /* The legacy blob includes a pointer field. Store only a presence marker,
+         * so an empty-string item with count zero is distinct from an unused slot. */
+        heap[i].item=t->heap[i].item ? (char *)(uintptr_t)1 : NULL;
     }
     saveString(&io,(char *)heap,(size_t)t->k*sizeof(*heap)); zfree(heap);
     for (uint32_t i=0; i<t->k; i++)
@@ -199,6 +202,7 @@ robj *topkRdbLoad(rio *rdb, int version) {
         !isfinite(decay) || decay<=0 || decay>1 || d>SIZE_MAX/w ||
         w*d>SIZE_MAX/sizeof(Bucket) || k>SIZE_MAX/sizeof(HeapBucket)) return NULL;
     TopK *t=zcalloc(sizeof(*t));
+    unsigned char *present=NULL;
     t->k=k; t->width=w; t->depth=d; t->decay=decay;
     size_t len=0;
     t->data=loadString(&io,&len);
@@ -207,19 +211,24 @@ robj *topkRdbLoad(rio *rdb, int version) {
     if (io.error || len!=k*sizeof(HeapBucket)) {
         zfree(t->heap); t->heap=NULL; goto error;
     }
-    for (uint32_t i=0; i<k; i++) t->heap[i].item=NULL;
+    present=zmalloc(k);
+    for (uint32_t i=0; i<k; i++) {
+        present[i]=t->heap[i].item!=NULL;
+        t->heap[i].item=NULL;
+    }
     for (uint32_t i=0; i<k; i++) {
         char *item=loadString(&io,&len);
         if (io.error || !len || len-1>UINT32_MAX || item[len-1]) { zfree(item); goto error; }
         t->heap[i].itemlen=len-1;
-        if (len==1 && !t->heap[i].count) zfree(item);
+        if (len==1 && !t->heap[i].count && !present[i]) zfree(item);
         else t->heap[i].item=item;
     }
     for (unsigned i=0; i<TOPK_DECAY_LOOKUP_TABLE; i++) t->lookupTable[i]=pow(decay,i);
     if (!loadOpcode(&io,RDB_MODULE_OPCODE_EOF)) goto error;
+    zfree(present);
     return createTopkObject(t);
 error:
-    TopK_Destroy(t); return NULL;
+    zfree(present); TopK_Destroy(t); return NULL;
 }
 int topkRewriteAof(rio *rdb, robj *key, robj *o, int dbid) {
     return probRewriteAof(rdb,key,o,dbid);
