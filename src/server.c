@@ -1164,14 +1164,16 @@ static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refresh
      * Walking the reply buffer is costly, so skip the scan when its outcome
      * cannot affect bucket placement: since 0 <= unshared <= shared, if both
      * endpoints map to the same bucket the cached value is reused. */
-    if (!unshared_refreshed && c->reply_bytes_shared > 0) {
-        size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
-        size_t upper_bound = lower_bound + c->reply_bytes_shared;
-        if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
-            updateClientUnsharedReplyBytes(c);
-    } else if (!unshared_refreshed) {
-        /* No shared bytes: clear any stale cached unshared. */
-        c->reply_bytes_unshared = 0;
+    if (!unshared_refreshed) {
+        if (c->reply_bytes_shared == 0) {
+            /* No shared bytes: clear any stale cached unshared. */
+            c->reply_bytes_unshared = 0;
+        } else {
+            size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
+            size_t upper_bound = lower_bound + c->reply_bytes_shared;
+            if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
+                updateClientUnsharedReplyBytes(c);
+        }
     }
 
     /* Update client memory usage. */
