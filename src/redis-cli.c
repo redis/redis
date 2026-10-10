@@ -1609,7 +1609,8 @@ static void cliPressAnyKeyTTY(void) {
 /* Send AUTH command to the server */
 static int cliAuth(redisContext *ctx, char *user, char *auth) {
     redisReply *reply;
-    if (auth == NULL) return REDIS_OK;
+    if (auth == NULL && user == NULL) return REDIS_OK;
+    if (auth == NULL) auth = "";
 
     if (user == NULL)
         reply = redisCommand(ctx,"AUTH %s",auth);
@@ -1709,8 +1710,11 @@ static int cliSetName(void) {
 /* Connect to the server. It is possible to pass certain flags to the function:
  *      CC_FORCE: The connection is performed even if there is already
  *                a connected socket.
- *      CC_QUIET: Don't print errors if connection fails. */
-static int cliConnect(int flags) {
+ *      CC_QUIET: Don't print errors if connection fails.
+ * If auth_failed is not NULL, set it to 1 if AUTH fails, or 0 otherwise. */
+static int cliConnectWithAuthResult(int flags, int *auth_failed) {
+    if (auth_failed) *auth_failed = 0;
+
     if (context == NULL || flags & CC_FORCE) {
         if (context != NULL) {
             redisFree(context);
@@ -1768,8 +1772,10 @@ static int cliConnect(int flags) {
         config.current_resp3 = 0;
 
         /* Do AUTH, select the right DB, switch to RESP3 if needed. */
-        if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK)
+        if (cliAuth(context, config.conn_info.user, config.conn_info.auth) != REDIS_OK) {
+            if (auth_failed) *auth_failed = 1;
             return REDIS_ERR;
+        }
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
         if (cliSwitchProto() != REDIS_OK)
@@ -1784,6 +1790,10 @@ static int cliConnect(int flags) {
     }
 
     return REDIS_OK;
+}
+
+static int cliConnect(int flags) {
+    return cliConnectWithAuthResult(flags, NULL);
 }
 
 /* In cluster, if server replies ASK, we will redirect to a different node.
@@ -3372,6 +3382,11 @@ static int confirmWithYes(char *msg, int ignore_force) {
     return (nread != 0 && !strcmp("yes", buf));
 }
 
+static int cliIsHelpCommand(int argc, char **argv) {
+    return argc > 0 && !config.eval_ldb &&
+           (!strcasecmp(argv[0], "help") || !strcasecmp(argv[0], "?"));
+}
+
 static int issueCommandRepeat(int argc, char **argv, long repeat) {
     /* In Lua debugging mode, we want to pass the "help" to Redis to get
      * it's own HELP message, rather than handle it by the CLI, see ldbRepl.
@@ -3723,7 +3738,7 @@ static void repl(void) {
     exit(0);
 }
 
-static int noninteractive(int argc, char **argv) {
+static int noninteractive(int argc, char **argv, int auth_failed) {
     int retval = 0;
     sds *sds_args = getSdsArrayFromArgv(argc, argv, config.quoted_input);
 
@@ -3753,6 +3768,12 @@ static int noninteractive(int argc, char **argv) {
             fprintf(stderr, "Using -X option but stdin tag not match.\n");
             return 1;
         }
+    }
+
+    /* Don't run commands as the default user if AUTH for --user fails. */
+    if (auth_failed && !cliIsHelpCommand(argc, sds_args)) {
+        sdsfreesplitres(sds_args, argc);
+        return 1;
     }
 
     retval = issueCommand(argc, sds_args);
@@ -11559,8 +11580,10 @@ int main(int argc, char **argv) {
         redisFree(context);
         return res;
     } else {
-        cliConnect(CC_QUIET);
-        int res = noninteractive(argc,argv);
+        int auth_failed;
+        cliConnectWithAuthResult(CC_QUIET, &auth_failed);
+        /* Try to serve commands even when not connected, e.g. help. */
+        int res = noninteractive(argc, argv, auth_failed && config.conn_info.user != NULL);
         redisFree(context);
         return res;
     }

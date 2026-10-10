@@ -1063,6 +1063,76 @@ start_server {tags {"cli external:skip"}} {
         assert_match "*NOAUTH*" $e
     }
 
+    test_interactive_nontty_cli "AUTH failure keeps the current connection" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~allowed:* +get +select +ping
+        assert_match "*WRONGPASS*" [run_command $fd "AUTH uu2 wrong"]
+        assert_equal "OK" [run_command $fd "AUTH uu2 secret"]
+        assert_equal "PONG" [run_command $fd "PING"]
+        r ACL DELUSER uu2
+    }
+
+    test "redis-cli help with --user and a wrong password should succeed" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~* +@all
+
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -h $host -p $port -n $::dbnum --user uu2 -a wrong help]
+        set output [exec {*}$cmd 2>@1]
+
+        assert_match "*WRONGPASS*" $output
+        assert_equal 1 [regexp -all {AUTH failed:} $output]
+        assert_equal 0 [regexp -line {^Error:} $output]
+        assert_match "*To get help about Redis commands type:*" $output
+
+        r ACL DELUSER uu2
+    }
+
+    test "redis-cli start with --user with a wrong password should exit" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~* +@all
+        # AUTH fails before SELECT, so a leaked command would run in DB 0.
+        r SELECT 0
+        r SET foo:abc original
+
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -h $host -p $port -n $::dbnum --user uu2 -a wrong SET foo:abc changed]
+        assert_equal 1 [catch {exec {*}$cmd 2>@1} result options]
+        assert_equal 1 [regexp -all {AUTH failed: WRONGPASS} $result]
+        assert_equal 0 [regexp -line {^Error:} $result]
+
+        # exec waits for redis-cli and reports its process exit status.
+        set errorcode [dict get $options -errorcode]
+        assert_equal "CHILDSTATUS" [lindex $errorcode 0]
+        assert_equal 1 [lindex $errorcode 2]
+
+        assert_equal "original" [r GET foo:abc]
+        r SELECT $::dbnum
+        r ACL DELUSER uu2
+    }
+
+    test "redis-cli start with --user without password should exit" {
+        r ACL SETUSER default on nopass
+        r ACL SETUSER uu2 reset on >secret ~* +@all
+        r SELECT 0
+        r SET foo:abc original
+
+        set cmd [list src/redis-cli --no-auth-warning {*}$tls_args \
+            -h $host -p $port -n $::dbnum --user uu2 SET foo:abc changed]
+        assert_equal 1 [catch {exec {*}$cmd 2>@1} result options]
+        assert_equal 1 [regexp -all {AUTH failed: WRONGPASS} $result]
+        assert_equal 0 [regexp -line {^Error:} $result]
+
+        # exec waits for redis-cli and reports its process exit status.
+        set errorcode [dict get $options -errorcode]
+        assert_equal "CHILDSTATUS" [lindex $errorcode 0]
+        assert_equal 1 [lindex $errorcode 2]
+
+        assert_equal "original" [r GET foo:abc]
+        r SELECT $::dbnum
+        r ACL DELUSER uu2
+    }
+
     r config set requirepass ""
 }
 
