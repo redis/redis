@@ -59,7 +59,7 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       env:
         BLOOM_LARGE_TESTS: '1'
-      run: make test-bloom test-cms test-cuckoo REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
+      run: make test-bloom test-cms test-cuckoo test-topk REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}

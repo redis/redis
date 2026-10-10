@@ -72,6 +72,9 @@
                                     "const": "cuckoo"
                                 },
                                 {
+                                    "const": "topk"
+                                },
+                                {
                                     "const": "list"
                                 },
                                 {

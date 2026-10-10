@@ -28,6 +28,7 @@ const char *COMMAND_GROUP_STR[] = {
     "bloom",
     "cms",
     "cuckoo",
+    "topk",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
@@ -13723,6 +13724,208 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 {MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+#ifdef INCLUDE_BLOOM
+/********** TOPK_ADD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK_ADD history */
+#define TOPK_ADD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK_ADD tips */
+#define TOPK_ADD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK_ADD key specs */
+keySpec TOPK_ADD_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK_ADD argument table */
+struct COMMAND_ARG TOPK_ADD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("items",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TOPK_COUNT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK_COUNT history */
+#define TOPK_COUNT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK_COUNT tips */
+#define TOPK_COUNT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK_COUNT key specs */
+keySpec TOPK_COUNT_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK_COUNT argument table */
+struct COMMAND_ARG TOPK_COUNT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TOPK_INCRBY ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK_INCRBY history */
+#define TOPK_INCRBY_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK_INCRBY tips */
+#define TOPK_INCRBY_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK_INCRBY key specs */
+keySpec TOPK_INCRBY_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK_INCRBY items argument table */
+struct COMMAND_ARG TOPK_INCRBY_items_Subargs[] = {
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("increment",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* TOPK_INCRBY argument table */
+struct COMMAND_ARG TOPK_INCRBY_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("items",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=TOPK_INCRBY_items_Subargs},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TOPK_INFO ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK_INFO history */
+#define TOPK_INFO_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK_INFO tips */
+#define TOPK_INFO_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK_INFO key specs */
+keySpec TOPK_INFO_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK_INFO argument table */
+struct COMMAND_ARG TOPK_INFO_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TOPK_LIST ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK_LIST history */
+#define TOPK_LIST_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK_LIST tips */
+#define TOPK_LIST_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK_LIST key specs */
+keySpec TOPK_LIST_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK_LIST argument table */
+struct COMMAND_ARG TOPK_LIST_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("withcount",ARG_TYPE_PURE_TOKEN,-1,"WITHCOUNT",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TOPK_QUERY ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK_QUERY history */
+#define TOPK_QUERY_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK_QUERY tips */
+#define TOPK_QUERY_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK_QUERY key specs */
+keySpec TOPK_QUERY_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK_QUERY argument table */
+struct COMMAND_ARG TOPK_QUERY_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TOPK_RESERVE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK_RESERVE history */
+#define TOPK_RESERVE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK_RESERVE tips */
+#define TOPK_RESERVE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK_RESERVE key specs */
+keySpec TOPK_RESERVE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK_RESERVE params argument table */
+struct COMMAND_ARG TOPK_RESERVE_params_Subargs[] = {
+{MAKE_ARG("width",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("depth",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("decay",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* TOPK_RESERVE argument table */
+struct COMMAND_ARG TOPK_RESERVE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("topk",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("params",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=TOPK_RESERVE_params_Subargs},
+};
+
+#endif
 /********** DISCARD ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -14215,6 +14418,28 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("setrange","Overwrites a part of a string value with another by an offset. Creates the key if it doesn't exist.","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SETRANGE_History,0,SETRANGE_Tips,0,setrangeCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETRANGE_Keyspecs,1,NULL,3),.args=SETRANGE_Args},
 {MAKE_CMD("strlen","Returns the length of a string value.","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,STRLEN_History,0,STRLEN_Tips,0,strlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,STRLEN_Keyspecs,1,NULL,1),.args=STRLEN_Args},
 {MAKE_CMD("substr","Returns a substring from a string value.","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","1.0.0",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0","string",COMMAND_GROUP_STRING,SUBSTR_History,0,SUBSTR_Tips,0,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,SUBSTR_Keyspecs,1,NULL,3),.args=SUBSTR_Args},
+/* topk */
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("topk.add","Adds an item to a Top-k sketch. Multiple items can be added at the same time.","O(n * k) where n is the number of items and k is the depth","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_ADD_History,0,TOPK_ADD_Tips,0,topkAddCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TOPK,TOPK_ADD_Keyspecs,1,NULL,2),.args=TOPK_ADD_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("topk.count","Return the count for one or more items are in a sketch","O(n) where n is the number of items","8.8.0",CMD_DOC_NONE,NULL,"2.4","topk",COMMAND_GROUP_TOPK,TOPK_COUNT_History,0,TOPK_COUNT_Tips,0,topkQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TOPK,TOPK_COUNT_Keyspecs,1,NULL,2),.args=TOPK_COUNT_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("topk.incrby","Increases the count of one or more items by increment","O(n * k * incr) where n is the number of items, k is the depth and incr is the increment","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_INCRBY_History,0,TOPK_INCRBY_Tips,0,topkAddCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TOPK,TOPK_INCRBY_Keyspecs,1,NULL,2),.args=TOPK_INCRBY_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("topk.info","Returns information about a sketch","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_INFO_History,0,TOPK_INFO_Tips,0,topkInfoCommand,2,CMD_READONLY,ACL_CATEGORY_TOPK,TOPK_INFO_Keyspecs,1,NULL,1),.args=TOPK_INFO_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("topk.list","Return the full list of items in Top-K sketch.","O(k*log(k)) where k is the value of top-k","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_LIST_History,0,TOPK_LIST_Tips,0,topkListCommand,-2,CMD_READONLY,ACL_CATEGORY_TOPK,TOPK_LIST_Keyspecs,1,NULL,2),.args=TOPK_LIST_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("topk.query","Checks whether one or more items are in a sketch","O(n) where n is the number of items","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_QUERY_History,0,TOPK_QUERY_Tips,0,topkQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TOPK,TOPK_QUERY_Keyspecs,1,NULL,2),.args=TOPK_QUERY_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("topk.reserve","Initializes a Top-K sketch with specified parameters","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_RESERVE_History,0,TOPK_RESERVE_Tips,0,topkReserveCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TOPK,TOPK_RESERVE_Keyspecs,1,NULL,3),.args=TOPK_RESERVE_Args},
+#endif
 /* transactions */
 {MAKE_CMD("discard","Discards a transaction.","O(N), when N is the number of queued commands","2.0.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,DISCARD_History,0,DISCARD_Tips,0,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,DISCARD_Keyspecs,0,NULL,0)},
 {MAKE_CMD("exec","Executes all commands in a transaction.","Depends on commands in the transaction","1.2.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,EXEC_History,0,EXEC_Tips,0,execCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_SKIP_SLOWLOG,ACL_CATEGORY_TRANSACTION,EXEC_Keyspecs,0,NULL,0)},

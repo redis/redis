@@ -62,6 +62,7 @@ struct ACLCategoryItem {
     {"bloom", ACL_CATEGORY_BLOOM},
     {"cms", ACL_CATEGORY_CMS},
     {"cuckoo", ACL_CATEGORY_CUCKOO},
+    {"topk", ACL_CATEGORY_TOPK},
 #endif
     {"bitmap", ACL_CATEGORY_BITMAP},
     {"hyperloglog", ACL_CATEGORY_HYPERLOGLOG},
