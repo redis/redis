@@ -1,6 +1,6 @@
 # Native Bloom filter migration
 
-This experimental, opt-in implementation makes Bloom a native Redis object (`OBJ_BLOOM`),
+This implementation makes Bloom a native Redis object (`OBJ_BLOOM`),
 without module APIs or additional build dependencies. It is not yet a replacement
 for the complete RedisBloom module.
 
@@ -21,15 +21,20 @@ does not change ownership: the data types team can maintain this code in `src/`.
 ## Build and run
 
 ```sh
-make -C src -j4 redis-server redis-cli BUILD_BLOOM=yes
+make -C src -j4 redis-server redis-cli
 ./src/redis-server
-make -C src test-bloom BUILD_BLOOM=yes
+make -C src test-bloom
 ```
 
-Bloom is disabled by default. Only the Redis C toolchain and bundled dependencies
+Bloom is enabled by default (`BUILD_BLOOM=yes`). Only the Redis C toolchain and bundled dependencies
 are required. Termux still requires the separate local core portability patches.
 Do not load external RedisBloom in a Bloom-enabled server: the commands conflict.
-In particular, do not use a configuration that loads `redisbloom.so`.
+The run, generated-configuration, and deployment flows omit `redisbloom.so` and
+its module-only settings. Its sources and artifact remain available; Cuckoo,
+Count-Min Sketch, Top-K, and t-digest are unavailable in the default configuration.
+To use the external module instead, build with `BUILD_BLOOM=no` and pass the same
+setting to `make run`, `make sync-redis-conf`, or `make deploy`. Existing manually
+maintained configs must also remove any external RedisBloom `loadmodule` directive.
 
 ## Supported surface and compatibility
 
@@ -56,8 +61,8 @@ DUMP/RESTORE. `REDIS_SERVER` overrides the tested executable.
 
 ## Remaining work
 
-Complete historical fixtures and broader CI coverage before enabling this by
-default. Defragmentation hooks need jemalloc validation;
+Historical fixtures and broader CI coverage remain follow-up work.
+Defragmentation hooks need jemalloc validation;
 large-chain incremental defragmentation remains follow-up work.
 
 Algorithms derive from RedisBloom v8.11.81. The filter retains its BSD notice and

@@ -6,6 +6,9 @@ are required. The original external module checkout is left intact for compariso
 
 ## Run
 
+Native Bloom and its tests are enabled by default; `BUILD_BLOOM=yes` below is
+explicit but optional. `BUILD_BLOOM=no` disables native Bloom and this suite.
+
 ```sh
 make -C src test-bloom BUILD_BLOOM=yes
 BLOOM_LARGE_TESTS=1 make -C src test-bloom BUILD_BLOOM=yes
@@ -46,6 +49,8 @@ bidirectional DUMP/RESTORE. Without these settings only the oracle cases skip.
 AOF replay, RESP3 error arrays, and differential command checks.
 `../integration/bloom.py` supplies replication, AOF rewrite, lifecycle, and migration
 tests. Unit and flow failures make the runner exit nonzero.
+`test_build_defaults.py` checks config generation, run selection, and deployment
+in disposable fixtures so external RedisBloom is not auto-loaded by default.
 
 Native-specific adaptations are intentional: module overhead is not part of
 `MEMORY USAGE`, command docs use the native `bloom` group, and legacy module-load

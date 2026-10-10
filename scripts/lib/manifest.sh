@@ -84,6 +84,12 @@ else
 fi
 MODULES_MANIFEST_FILE="${MODULES_MANIFEST_FILE:-$REPO_ROOT/modules/modules.yaml}"
 
+# The external RedisBloom module owns the same BF.* commands as native Bloom.
+# Keep its sources/artifact available, but never auto-load it in a native build.
+module_load_enabled() {
+  [ "$1" != "redisbloom" ] || [ "${BUILD_BLOOM:-yes}" != "yes" ]
+}
+
 manifest_join_words() {
   awk '
     {

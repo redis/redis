@@ -44,6 +44,15 @@ host_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 
 load_flags=""
 for name in $selected; do
+  if ! module_load_enabled "$name"; then
+    if [ "$explicit" = "1" ]; then
+      echo "ERROR: redisbloom cannot be loaded with native Bloom enabled."
+      echo "       Use the native BF.* commands, or rebuild and run with BUILD_BLOOM=no."
+      exit 1
+    fi
+    echo "==> Skipping redisbloom: native Bloom is enabled"
+    continue
+  fi
   # Resolve the .so basename from modules.yaml. Prefer `target_module:`
   # (just-the-artifact), fall back to basename of `loadmodule:`, finally
   # to `<name>.so` so we still try something even if both fields are empty.

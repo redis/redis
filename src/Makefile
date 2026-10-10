@@ -362,6 +362,7 @@ ifneq ($(SKIP_VEC_SETS),yes)
 	FINAL_CFLAGS+=-DINCLUDE_VEC_SETS=1
 endif
 
+BUILD_BLOOM ?= yes
 ifeq ($(BUILD_BLOOM),yes)
 	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o
 	FINAL_CFLAGS+=-DINCLUDE_BLOOM=1
