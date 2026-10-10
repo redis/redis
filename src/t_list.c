@@ -660,12 +660,12 @@ void lsetCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(o);
-    listTypeTryConversionAppend(o,c->argv,3,3,NULL,NULL);
+
     if (listTypeReplaceAtIndex(o,index,value)) {
-        /* We might replace a big item with a small one or vice versa, but we've
-         * already handled the growing case in listTypeTryConversionAppend()
-         * above, so here we just need to try the conversion for shrinking. */
-        listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
+        /* We might replace a big item with a small one or vice versa, 
+           so here we handle both growing case as well as shrinking case */
+        if (o->encoding == OBJ_ENCODING_QUICKLIST) listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK) listTypeTryConversion(o,LIST_CONV_GROWING,NULL,NULL);
         addReply(c,shared.ok);
         keyModified(c,c->db,c->argv[1],o,1);
         notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
