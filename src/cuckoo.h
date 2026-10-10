@@ -30,8 +30,8 @@ typedef uint8_t MyCuckooBucket;
 #define CF_MAX_NUM_BUCKETS (0x00FFFFFFFFFFFFFFULL) // 56 bits, see struct SubCF
 
 typedef struct {
-    uint64_t numBuckets : 56;
-    uint64_t bucketSize : 8;
+    __extension__ uint64_t numBuckets : 56;
+    __extension__ uint64_t bucketSize : 8;
     MyCuckooBucket *data;
 } SubCF;
 
