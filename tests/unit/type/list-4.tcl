@@ -265,6 +265,33 @@ foreach {type large} [array get largevalue] {
         $rd close
     }
 
+    test {BLMOVEM EXACTLY keeps its turn when a BLPOP behind it empties the source} {
+        r del src{t} dst{t}
+        set rd [redis_deferring_client]
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        $rd blmovem src{t} dst{t} left right 0 exactly 2 bulk
+        wait_for_blocked_clients_count 1
+        $rd1 blpop src{t} 0
+        wait_for_blocked_clients_count 2
+        $rd2 blpop src{t} 0
+        wait_for_blocked_clients_count 3
+
+        # One element: BLMOVEM blocks again, the first BLPOP takes it.
+        r rpush src{t} a
+        assert_equal {src{t} a} [$rd1 read]
+        # BLMOVEM is still ahead of the second BLPOP.
+        r rpush src{t} b c
+        wait_for_blocked_clients_count 1
+        assert_equal {b c} [r lrange dst{t} 0 -1]
+        assert_equal {b c} [$rd read]
+        r rpush src{t} d
+        assert_equal {src{t} d} [$rd2 read]
+        $rd close
+        $rd1 close
+        $rd2 close
+    }
+
     test {BLMOVEM EXACTLY is woken by SORT STORE overwriting the source} {
         r del src{t} dst{t} feed{t}
         r rpush src{t} 1
