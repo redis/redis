@@ -60,6 +60,97 @@ static pthread_mutexattr_t bug_report_start_attr;
 static pthread_mutex_t signal_handler_lock;
 static pthread_mutexattr_t signal_handler_lock_attr;
 static volatile int signal_handler_lock_initialized = 0;
+
+/* Crash watchdog: bounds a bug report so a stuck backtrace() or module info
+ * callback still exits. */
+#ifdef HAVE_CRASH_WATCHDOG
+/* SIGRTMIN+4: glibc reserves +0..+2, and SIGALRM is the software watchdog. */
+#define CRASH_WATCHDOG_SIG (SIGRTMIN + 4)
+static timer_t crash_watchdog_timer;
+static int crash_watchdog_ok = 0;   /* the timer was created */
+
+/* The bug report missed its deadline. Not kill(): when Redis is PID 1 of its
+ * namespace, a default-action signal it sends itself is dropped (kill() still
+ * returns 0), and unlike a real crash there is no faulting instruction to
+ * return to. abort() dies there too: glibc falls back to a fault. */
+static void crashWatchdogHandler(int sig) {
+    UNUSED(sig);
+    struct sigaction act;
+
+    /* No bug report running: a stray signal must not kill the server. */
+    if (!bug_report_start) return;
+
+    serverLogRawFromHandler(LL_WARNING|LL_RAW,
+"\n=== CRASH WATCHDOG: crash report exceeded crash-handler-timeout ===\n"
+"    The bug report above is incomplete. Aborting so the process can be\n"
+"    restarted and a core dump produced.\n\n");
+
+    /* All of them, not only SIGABRT: glibc's fallback fault must not land
+     * back in sigsegvHandler(). */
+    sigemptyset(&act.sa_mask);
+    act.sa_flags = 0;
+    act.sa_handler = SIG_DFL;
+    sigaction(SIGSEGV, &act, NULL);
+    sigaction(SIGBUS, &act, NULL);
+    sigaction(SIGFPE, &act, NULL);
+    sigaction(SIGILL, &act, NULL);
+    sigaction(SIGABRT, &act, NULL);
+    abort();
+}
+#endif
+
+/* Called at startup and in fork children (POSIX timers are not inherited). */
+void crashWatchdogInit(void) {
+#ifdef HAVE_CRASH_WATCHDOG
+    struct sigaction act;
+    struct sigevent sev;
+    sigset_t set;
+
+    /* Threads inherit the mask, and we may have been started with it blocked. */
+    sigemptyset(&set);
+    sigaddset(&set, CRASH_WATCHDOG_SIG);
+    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
+
+    sigemptyset(&act.sa_mask);
+    /* A stray delivery must not return EINTR from unrelated syscalls. */
+    act.sa_flags = SA_RESTART;
+    act.sa_handler = crashWatchdogHandler;
+
+    memset(&sev, 0, sizeof(sev));
+    sev.sigev_notify = SIGEV_SIGNAL;
+    sev.sigev_signo = CRASH_WATCHDOG_SIG;
+
+    /* Without the flag, crashWatchdogSet() would use an unset timer_t, which
+     * can name a timer someone else created. */
+    crash_watchdog_ok = sigaction(CRASH_WATCHDOG_SIG, &act, NULL) == 0 &&
+                        timer_create(CLOCK_MONOTONIC, &sev, &crash_watchdog_timer) == 0;
+    if (!crash_watchdog_ok)
+        serverLog(LL_WARNING, "Crash watchdog disabled: %s", strerror(errno));
+#endif
+}
+
+/* Arm the deadline, or disarm it with 0. */
+static void crashWatchdogSet(int seconds) {
+#ifdef HAVE_CRASH_WATCHDOG
+    if (!crash_watchdog_ok) return;
+    struct itimerspec its = {{0, 0}, {seconds, 0}};
+    timer_settime(crash_watchdog_timer, 0, &its, NULL);
+#else
+    UNUSED(seconds);
+#endif
+}
+
+/* Arm the deadline unless it is already counting down. */
+static void crashWatchdogArmIfIdle(void) {
+#ifdef HAVE_CRASH_WATCHDOG
+    struct itimerspec cur;
+    if (!crash_watchdog_ok) return;
+    if (timer_gettime(crash_watchdog_timer, &cur) == 0 &&
+        (cur.it_value.tv_sec || cur.it_value.tv_nsec)) return;
+    crashWatchdogSet(server.crash_handler_timeout);
+#endif
+}
+
 /* Forward declarations */
 int bugReportStart(void);
 void printCrashReport(void);
@@ -1404,6 +1495,12 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 
 /* Start a bug report, returning 1 if this is the first time this function was called, 0 otherwise. */
 int bugReportStart(void) {
+    /* Signals, asserts and panics all start here. Arms on the first report,
+     * and again for a nested report while the deadline is paused (memtest).
+     * A running deadline is never extended. A second thread waiting on
+     * signal_handler_lock is covered by the first thread's deadline. */
+    crashWatchdogArmIfIdle();
+
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
         bug_report_start = 1;
@@ -2430,12 +2527,19 @@ int memtest_test_linux_anonymous_maps(void) {
         regions++;
     }
 
+    /* This loop's time grows with memory size, but it takes no locks (the
+     * memtest functions print only in --test-memory mode), so it can be slow
+     * without being stuck. Pause the crash watchdog for it only, so the
+     * timeout doesn't depend on instance size. killThreads() and the fopen()
+     * above, and dumpCodeAroundEIP() later, can block and stay covered. */
+    crashWatchdogSet(0);
     int errors = 0;
     for (j = 0; j < regions; j++) {
         if (write(fd,".",1) == -1) { /* Nothing to do. */ }
         errors += memtest_preserving_test((void*)start_vect[j],size_vect[j],1);
         if (write(fd, errors ? "E" : "O",1) == -1) { /* Nothing to do. */ }
     }
+    crashWatchdogSet(server.crash_handler_timeout);
     if (write(fd,"\n",1) == -1) { /* Nothing to do. */ }
 
     /* NOTE: It is very important to close the file descriptor only now
@@ -2618,6 +2722,8 @@ void setupDebugSigHandlers(void) {
     setupStacktracePipe();
 
     setupSigSegvHandler();
+
+    crashWatchdogInit();
 
     struct sigaction act;
 
@@ -2907,9 +3013,14 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     snprintf_async_signal_safe(path_buff, PATH_MAX, "/proc/%d/task", getpid());
 
     int dir;
-    if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) return 0;
+    if (-1 == (dir = open(path_buff,  O_RDONLY | O_DIRECTORY))) {
+        serverLogFromHandler(LL_WARNING,
+            "get_ready_to_signal_threads_tids(): Failed to open %s, errno=%d", path_buff, errno);
+        return 0;
+    }
 
     size_t tids_count = 0;
+    size_t threads_seen = 0;
     pid_t calling_tid = syscall(SYS_gettid);
     int current_thread_index = -1;
     long nread;
@@ -2934,6 +3045,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
            long tid;
            string2l(entry->d_name, strlen(entry->d_name), &tid);
 
+            ++threads_seen;
             if(!is_thread_ready_to_signal(path_buff, entry->d_name, sig_num)) continue;
 
             if(tid == calling_tid) {
@@ -2962,6 +3074,13 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     }
 
     close(dir);
+
+    /* 0 ready threads is either a failed scan or every thread blocking the signal. */
+    if (tids_count == 0) {
+        serverLogFromHandler(LL_WARNING,
+            "get_ready_to_signal_threads_tids(): %lu threads found, none can receive signal %d",
+            (unsigned long)threads_seen, sig_num);
+    }
 
     return tids_count;
 }

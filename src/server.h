@@ -2458,6 +2458,8 @@ struct redisServer {
     int memcheck_enabled;           /* Enable memory check on crash. */
     int use_exit_on_panic;          /* Use exit() on panic and assert rather than
                                      * abort(). useful for Valgrind. */
+    int crash_handler_timeout;      /* Seconds the fatal signal handler may take
+                                     * before it is forced to terminate. */
     /* Shutdown */
     int shutdown_timeout;           /* Graceful shutdown time limit in seconds. */
     int shutdown_on_sigint;         /* Shutdown flags configured for SIGINT. */
@@ -4931,6 +4933,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...);
 void serverLogObjectDebugInfo(const robj *o);
 void setupDebugSigHandlers(void);
 void setupSigSegvHandler(void);
+void crashWatchdogInit(void);
 void removeSigSegvHandlers(void);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
 dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything);
