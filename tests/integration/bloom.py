@@ -99,11 +99,16 @@ class Server:
 
     def start(self):
         self.log = open(self.directory / "log", "ab")
+        # Match the core Tcl harness: allocation-failure tests need NULL,
+        # not ASan/MSan's default fatal error for oversized allocations.
+        server_env = os.environ.copy()
+        for option in ("ASAN_OPTIONS", "MSAN_OPTIONS"):
+            server_env[option] = server_env.get(option, "") + ":allocator_may_return_null=1"
         self.process = subprocess.Popen([
             str(self.binary), "--port", "0", "--unixsocket", str(self.path),
             "--dir", str(self.directory), "--save", "", "--enable-debug-command", "yes",
             *self.extra,
-        ], stdout=self.log, stderr=subprocess.STDOUT)
+        ], stdout=self.log, stderr=subprocess.STDOUT, env=server_env)
         for _ in range(200):
             if self.process.poll() is not None:
                 raise AssertionError((self.directory / "log").read_text())
@@ -133,10 +138,16 @@ class Server:
         if self.client:
             self.client.close()
         self.log.close()
+        if self.process is not None and self.process.returncode != 0:
+            raise AssertionError(
+                f"Redis exited with status {self.process.returncode}:\n"
+                + (self.directory / "log").read_text(errors="replace"))
 
     def close(self):
-        self.stop()
-        self.temp.cleanup()
+        try:
+            self.stop()
+        finally:
+            self.temp.cleanup()
 
 
 def snapshot(client, key):
