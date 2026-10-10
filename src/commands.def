@@ -9296,7 +9296,7 @@ struct COMMAND_ARG SLAVEOF_Args[] = {
 /* SLOWLOG GET history */
 commandHistory SLOWLOG_GET_History[] = {
 {"4.0.0","Added client IP address, port and name to the reply."},
-{"8.10.0","Added original command argument count to the reply."},
+{"8.10.0","Added original command argument count and estimated CPU time to the reply."},
 };
 #endif
 

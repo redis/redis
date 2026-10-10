@@ -25,7 +25,8 @@
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
  * this function. */
-slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long duration) {
+slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long duration,
+                                  long long cpu_duration) {
     slowlogEntry *se = zmalloc(sizeof(*se));
     int j, slargc = argc;
 
@@ -68,6 +69,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
     }
     se->time = time(NULL);
     se->duration = duration;
+    se->cpu_duration = cpu_duration;
     se->id = server.slowlog_entry_id++;
     se->peerid = sdsnew(getClientPeerId(c));
     se->cname = c->name ? sdsnew(c->name->ptr) : sdsempty();
@@ -98,15 +100,21 @@ void slowlogInit(void) {
     listSetFreeMethod(server.slowlog,slowlogFreeEntry);
 }
 
+/* Returns 1 if a command that took 'duration' microseconds would be logged. */
+int slowlogWouldLog(long long duration) {
+    if (server.slowlog_log_slower_than < 0 || server.slowlog_max_len == 0) return 0;
+    return duration >= server.slowlog_log_slower_than;
+}
+
 /* Push a new entry into the slow log.
  * This function will make sure to trim the slow log accordingly to the
  * configured max length.
  * Returns 1 if an entry was added, 0 otherwise. */
-int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration) {
-    if (server.slowlog_log_slower_than < 0 || server.slowlog_max_len == 0) return 0;
-    if (duration >= server.slowlog_log_slower_than) {
+int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration,
+                              long long cpu_duration) {
+    if (slowlogWouldLog(duration)) {
         listAddNodeHead(server.slowlog,
-                        slowlogCreateEntry(c,argv,argc,duration));
+                        slowlogCreateEntry(c,argv,argc,duration,cpu_duration));
 
         /* Remove old entries if needed. */
         while (listLength(server.slowlog) > server.slowlog_max_len)
@@ -131,7 +139,9 @@ void slowlogCommand(client *c) {
 "    Return top <count> entries from the slowlog (default: 10, -1 mean all).",
 "    Entries are made of:",
 "    id, timestamp, time in microseconds, arguments array, client IP and port,",
-"    client name",
+"    client name, total argument count, upper-bound estimate of CPU time in",
+"    microseconds",
+"    (0 when not measured)",
 "LEN",
 "    Return the length of the slowlog.",
 "RESET",
@@ -175,7 +185,7 @@ NULL
 
             ln = listNext(&li);
             se = ln->value;
-            addReplyArrayLen(c,7);
+            addReplyArrayLen(c,8);
             addReplyLongLong(c,se->id);
             addReplyLongLong(c,se->time);
             addReplyLongLong(c,se->duration);
@@ -185,6 +195,7 @@ NULL
             addReplyBulkCBuffer(c,se->peerid,sdslen(se->peerid));
             addReplyBulkCBuffer(c,se->cname,sdslen(se->cname));
             addReplyLongLong(c,se->cmd_argc);
+            addReplyLongLong(c,se->cpu_duration);
         }
     } else {
         addReplySubcommandSyntaxError(c);

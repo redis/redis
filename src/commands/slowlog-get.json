@@ -14,7 +14,7 @@
             ],
             [
                 "8.10.0",
-                "Added original command argument count to the reply."
+                "Added original command argument count and estimated CPU time to the reply."
             ]
         ],
         "command_flags": [
@@ -32,8 +32,8 @@
             "uniqueItems": true,
             "items": {
                 "type": "array",
-                "minItems": 7,
-                "maxItems": 7,
+                "minItems": 8,
+                "maxItems": 8,
                 "items": [
                     {
                         "type": "integer",
@@ -67,6 +67,11 @@
                     {
                         "type": "integer",
                         "description": "Total number of arguments in the command."
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Upper-bound estimate of the executing thread's CPU time (user and system) for the command, in microseconds: the duration minus the off-CPU time that provably happened during it. 0 when not measured (for example, a command that was blocked).",
+                        "minimum": 0
                     }
                 ]
             }

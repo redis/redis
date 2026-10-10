@@ -20,10 +20,13 @@ typedef struct slowlogEntry {
     sds cname;          /* Client name. */
     sds peerid;         /* Client network address. */
     int cmd_argc;       /* Total argument count of the command. */
+    long long cpu_duration; /* Upper-bound estimate of CPU time (usec); 0 if not measured. */
 } slowlogEntry;
 
 /* Exported API */
 void slowlogInit(void);
-int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration);
+int slowlogWouldLog(long long duration);
+int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration,
+                              long long cpu_duration);
 
 #endif /* __SLOWLOG_H__ */
