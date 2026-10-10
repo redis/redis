@@ -18,8 +18,8 @@ jobs:
       run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx python3
-    - name: Bloom and CMS unit and flow tests
-      run: make test-bloom test-cms REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+    - name: Native probabilistic unit and flow tests
+      run: make test-bloom test-cms test-cuckoo REDIS_CFLAGS='-Werror' BUILD_TLS=yes
     - name: test
       run: ./runtest --verbose --tags -slow --dump-logs
     - name: validate commands.def up to date
@@ -38,8 +38,8 @@ jobs:
         run: make SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS -DREDIS_TEST' BUILD_TLS=module
       - name: testprep
         run: sudo apt-get install tcl8.6 tclx python3 -y
-      - name: Bloom and CMS unit and flow tests
-        run: make test-bloom test-cms SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS -DREDIS_TEST' BUILD_TLS=module
+      - name: Native probabilistic unit and flow tests
+        run: make test-bloom test-cms test-cuckoo SANITIZER=address REDIS_CFLAGS='-Werror -DDEBUG_ASSERTIONS -DREDIS_TEST' BUILD_TLS=module
       - name: test
         run: ./runtest --verbose --tags -slow --dump-logs
 

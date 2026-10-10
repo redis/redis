@@ -92,6 +92,7 @@ typedef long long ustime_t;
 #define REDISMODULE_KEYTYPE_ARRAY 8
 #define REDISMODULE_KEYTYPE_BLOOM 10
 #define REDISMODULE_KEYTYPE_CMS 11
+#define REDISMODULE_KEYTYPE_CUCKOO 12
 
 /* Reply types. */
 #define REDISMODULE_REPLY_UNKNOWN -1
@@ -258,6 +259,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_ARRAY (1<<23)     /* a, array key space notification */
 #define REDISMODULE_NOTIFY_BLOOM (1<<25)     /* b, Bloom filter notification */
 #define REDISMODULE_NOTIFY_CMS (1<<26)       /* M, Count-Min Sketch notification */
+#define REDISMODULE_NOTIFY_CUCKOO (1<<27)    /* C, Cuckoo notification */
 #ifdef ENABLE_GCRA
 #define REDISMODULE_NOTIFY_RATE_LIMIT (1<<24) /* r, rate limit event */
 #endif
@@ -272,7 +274,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
 #define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
 
-#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE | REDISMODULE_NOTIFY_ARRAY | REDISMODULE_NOTIFY_BLOOM | REDISMODULE_NOTIFY_CMS)      /* A */
+#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE | REDISMODULE_NOTIFY_ARRAY | REDISMODULE_NOTIFY_BLOOM | REDISMODULE_NOTIFY_CMS | REDISMODULE_NOTIFY_CUCKOO)      /* A */
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */

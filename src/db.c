@@ -1785,6 +1785,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
 #endif
     [OBJ_BLOOM] = "bloom",
     [OBJ_CMS] = "cms",
+    [OBJ_CUCKOO] = "cuckoo",
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2524,6 +2525,7 @@ void copyCommand(client *c) {
 #ifdef INCLUDE_BLOOM
         case OBJ_BLOOM: newobj = bloomDup(o); break;
         case OBJ_CMS: newobj = cmsDup(o); break;
+        case OBJ_CUCKOO: newobj = cuckooDup(o); break;
 #endif
         default:
             addReplyError(c, "unknown type object");

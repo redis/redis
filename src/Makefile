@@ -364,7 +364,7 @@ endif
 
 BUILD_BLOOM ?= yes
 ifeq ($(BUILD_BLOOM),yes)
-	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o t_cms.o cms.o
+	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o t_cms.o cms.o t_cuckoo.o cuckoo.o cf.o
 	FINAL_CFLAGS+=-DINCLUDE_BLOOM=1
 endif
 
@@ -543,6 +543,16 @@ test-modules: $(REDIS_SERVER_NAME)
 ifeq ($(BUILD_BLOOM),yes)
 test: test-bloom
 test: test-cms
+test: test-cuckoo
+
+cuckoo-unit: ../tests/cuckoo/unit.c cuckoo.o bloom_murmur.o zmalloc.o
+	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/cuckoo/unit.c cuckoo.o bloom_murmur.o zmalloc.o $(FINAL_LIBS)
+
+test-cuckoo: $(REDIS_SERVER_NAME) cuckoo-unit
+	./cuckoo-unit
+	$(PYTHON) ../tests/cuckoo/run.py
+
+.PHONY: test-cuckoo
 
 cms-unit: ../tests/cms/unit.c cms.o bloom_murmur.o zmalloc.o
 	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/cms/unit.c cms.o bloom_murmur.o zmalloc.o $(FINAL_LIBS)

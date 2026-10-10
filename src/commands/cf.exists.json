@@ -1,0 +1,47 @@
+{
+    "CF.EXISTS": {
+        "summary": "Checks whether one or more items exist in a Cuckoo Filter",
+        "complexity": "O(k), where k is the number of sub-filters",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string"
+            }
+        ],
+        "since": "8.8.0",
+        "group": "cuckoo",
+        "function": "cfCheckCommand",
+        "arity": 3,
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "CUCKOO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

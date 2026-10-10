@@ -7,7 +7,10 @@ import functools
 import os
 from pathlib import Path
 import shlex
+import socket
 import sys
+import time
+from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "integration"))
@@ -75,12 +78,27 @@ class Expectation:
 
 
 class Env(unittest.TestCase):
-    def __init__(self, decodeResponses=False, protocol=2, extra=()):
+    def __init__(self, decodeResponses=False, protocol=2, extra=(), useSlaves=False, freshEnv=False):
         super().__init__()
+        self.replica = None
+        if useSlaves:
+            with socket.socket() as probe:
+                probe.bind(('127.0.0.1', 0))
+                port = probe.getsockname()[1]
+            extra = (*extra, '--bind', '127.0.0.1', '--port', str(port))
         self.server = Server(extra=extra)
         self.decode_responses = decodeResponses
         self.protocol = protocol
         environments.append(self)
+        if useSlaves:
+            self.replica = Server()
+            self.replica.client.command('REPLICAOF', '127.0.0.1', port)
+            for _ in range(600):
+                if b'master_link_status:up' in self.replica.client.command('INFO', 'replication'):
+                    break
+                time.sleep(.025)
+            else:
+                self.fail('Replication startup timed out')
         if protocol == 3:
             self.server.client.command("HELLO", 3)
 
@@ -114,7 +132,7 @@ class Env(unittest.TestCase):
 
     def assertResponseError(self, value=None, contained=None):
         if value is None:
-            return self.assertRaises(ResponseError)
+            return self.assertRaisesRegex(ResponseError, contained) if contained else self.assertRaises(ResponseError)
         self.assertIsInstance(value, ResponseError)
         if contained is not None:
             self.assertIn(contained, str(value))
@@ -128,6 +146,23 @@ class Env(unittest.TestCase):
 
     def skip(self, reason="Skipped upstream (capacity exceeds supported limit)"):
         raise unittest.SkipTest(reason)
+
+    restartAndReload = dumpAndReload
+
+    def skipOnSlave(self):
+        pass  # This harness always runs commands on its own primary.
+
+    def isCluster(self):
+        return False
+
+    def getConnection(self):
+        return SimpleNamespace(execute_command=self.cmd)
+
+    def getSlaveConnection(self):
+        def command(*args):
+            value = self.replica.client.command(*args)
+            return decode(value) if self.decode_responses else value
+        return SimpleNamespace(execute_command=command)
 
     def skipOnVersionSmaller(self, version):
         if not server_version_at_least(self, version):
@@ -148,8 +183,16 @@ def server_version_less_than(env, version):
 
 
 def close_environments():
+    errors = []
     try:
         for env in reversed(environments):
-            env.server.close()
+            for server in (env.replica, env.server):
+                if server:
+                    try:
+                        server.close()
+                    except Exception as error:
+                        errors.append(error)
     finally:
         environments.clear()
+    if errors:
+        raise errors[0]

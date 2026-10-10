@@ -37,6 +37,7 @@ GROUPS = {
     "array": "COMMAND_GROUP_ARRAY",
     "bloom": "COMMAND_GROUP_BLOOM",
     "cms": "COMMAND_GROUP_CMS",
+    "cuckoo": "COMMAND_GROUP_CUCKOO",
     "rate_limit": "COMMAND_GROUP_RATE_LIMIT",
 }
 
@@ -609,6 +610,7 @@ const char *COMMAND_GROUP_STR[] = {
     "array",
     "bloom",
     "cms",
+    "cuckoo",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
@@ -623,10 +625,10 @@ const char *commandGroupStr(int index) {
 
     command_list = sorted(commands.values(), key=lambda cmd: (cmd.group, cmd.name))
     for command in command_list:
-        if command.group in ("bloom", "cms"):
+        if command.group in ("bloom", "cms", "cuckoo"):
             f.write("#ifdef INCLUDE_BLOOM\n")
         command.write_internal_structs(f)
-        if command.group in ("bloom", "cms"):
+        if command.group in ("bloom", "cms", "cuckoo"):
             f.write("#endif\n")
 
     f.write("/* Main command table */\n")
@@ -636,10 +638,10 @@ const char *commandGroupStr(int index) {
         if curr_group != command.group:
             curr_group = command.group
             f.write("/* %s */\n" % curr_group)
-        if command.group in ("bloom", "cms"):
+        if command.group in ("bloom", "cms", "cuckoo"):
             f.write("#ifdef INCLUDE_BLOOM\n")
         f.write("{%s},\n" % command.struct_code())
-        if command.group in ("bloom", "cms"):
+        if command.group in ("bloom", "cms", "cuckoo"):
             f.write("#endif\n")
     f.write("{0}\n")
     f.write("};\n")

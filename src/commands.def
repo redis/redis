@@ -27,6 +27,7 @@ const char *COMMAND_GROUP_STR[] = {
     "array",
     "bloom",
     "cms",
+    "cuckoo",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
@@ -2923,6 +2924,391 @@ struct COMMAND_ARG SELECT_Args[] = {
 {MAKE_ARG("index",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+#ifdef INCLUDE_BLOOM
+/********** CF_ADD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_ADD history */
+#define CF_ADD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_ADD tips */
+#define CF_ADD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_ADD key specs */
+keySpec CF_ADD_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_ADD argument table */
+struct COMMAND_ARG CF_ADD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_ADDNX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_ADDNX history */
+#define CF_ADDNX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_ADDNX tips */
+#define CF_ADDNX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_ADDNX key specs */
+keySpec CF_ADDNX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_ADDNX argument table */
+struct COMMAND_ARG CF_ADDNX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_COMPACT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_COMPACT history */
+#define CF_COMPACT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_COMPACT tips */
+#define CF_COMPACT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_COMPACT key specs */
+keySpec CF_COMPACT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_COMPACT argument table */
+struct COMMAND_ARG CF_COMPACT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_COUNT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_COUNT history */
+#define CF_COUNT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_COUNT tips */
+#define CF_COUNT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_COUNT key specs */
+keySpec CF_COUNT_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_COUNT argument table */
+struct COMMAND_ARG CF_COUNT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_DEBUG ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_DEBUG history */
+#define CF_DEBUG_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_DEBUG tips */
+#define CF_DEBUG_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_DEBUG key specs */
+keySpec CF_DEBUG_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_DEBUG argument table */
+struct COMMAND_ARG CF_DEBUG_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_DEL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_DEL history */
+#define CF_DEL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_DEL tips */
+#define CF_DEL_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_DEL key specs */
+keySpec CF_DEL_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_DEL argument table */
+struct COMMAND_ARG CF_DEL_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_EXISTS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_EXISTS history */
+#define CF_EXISTS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_EXISTS tips */
+#define CF_EXISTS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_EXISTS key specs */
+keySpec CF_EXISTS_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_EXISTS argument table */
+struct COMMAND_ARG CF_EXISTS_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_INFO ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_INFO history */
+#define CF_INFO_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_INFO tips */
+#define CF_INFO_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_INFO key specs */
+keySpec CF_INFO_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_INFO argument table */
+struct COMMAND_ARG CF_INFO_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_INSERT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_INSERT history */
+#define CF_INSERT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_INSERT tips */
+#define CF_INSERT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_INSERT key specs */
+keySpec CF_INSERT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_INSERT argument table */
+struct COMMAND_ARG CF_INSERT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("capacity",ARG_TYPE_INTEGER,-1,"CAPACITY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("nocreate",ARG_TYPE_PURE_TOKEN,-1,"NOCREATE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("items",ARG_TYPE_PURE_TOKEN,-1,"ITEMS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_INSERTNX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_INSERTNX history */
+#define CF_INSERTNX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_INSERTNX tips */
+#define CF_INSERTNX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_INSERTNX key specs */
+keySpec CF_INSERTNX_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_INSERTNX argument table */
+struct COMMAND_ARG CF_INSERTNX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("capacity",ARG_TYPE_INTEGER,-1,"CAPACITY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("nocreate",ARG_TYPE_PURE_TOKEN,-1,"NOCREATE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("items",ARG_TYPE_PURE_TOKEN,-1,"ITEMS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_LOADCHUNK ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_LOADCHUNK history */
+#define CF_LOADCHUNK_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_LOADCHUNK tips */
+#define CF_LOADCHUNK_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_LOADCHUNK key specs */
+keySpec CF_LOADCHUNK_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_LOADCHUNK argument table */
+struct COMMAND_ARG CF_LOADCHUNK_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("iterator",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("data",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_MEXISTS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_MEXISTS history */
+#define CF_MEXISTS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_MEXISTS tips */
+#define CF_MEXISTS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_MEXISTS key specs */
+keySpec CF_MEXISTS_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_MEXISTS argument table */
+struct COMMAND_ARG CF_MEXISTS_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_RESERVE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_RESERVE history */
+#define CF_RESERVE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_RESERVE tips */
+#define CF_RESERVE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_RESERVE key specs */
+keySpec CF_RESERVE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_RESERVE argument table */
+struct COMMAND_ARG CF_RESERVE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("capacity",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("bucketsize",ARG_TYPE_INTEGER,-1,"BUCKETSIZE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxiterations",ARG_TYPE_INTEGER,-1,"MAXITERATIONS",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("expansion",ARG_TYPE_INTEGER,-1,"EXPANSION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** CF_SCANDUMP ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CF_SCANDUMP history */
+#define CF_SCANDUMP_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CF_SCANDUMP tips */
+#define CF_SCANDUMP_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CF_SCANDUMP key specs */
+keySpec CF_SCANDUMP_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* CF_SCANDUMP argument table */
+struct COMMAND_ARG CF_SCANDUMP_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("iterator",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
 /********** BLESS CLEAR ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -13525,6 +13911,49 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("quit","Closes the connection.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"just closing the connection","7.2.0","connection",COMMAND_GROUP_CONNECTION,QUIT_History,0,QUIT_Tips,0,quitCommand,-1,CMD_ALLOW_BUSY|CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH,ACL_CATEGORY_CONNECTION,QUIT_Keyspecs,0,NULL,0)},
 {MAKE_CMD("reset","Resets the connection.","O(1)","6.2.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,RESET_History,0,RESET_Tips,0,resetCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_NO_AUTH|CMD_ALLOW_BUSY,ACL_CATEGORY_CONNECTION,RESET_Keyspecs,0,NULL,0)},
 {MAKE_CMD("select","Changes the selected database.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"connection",COMMAND_GROUP_CONNECTION,SELECT_History,0,SELECT_Tips,0,selectCommand,2,CMD_LOADING|CMD_STALE|CMD_FAST,ACL_CATEGORY_CONNECTION,SELECT_Keyspecs,0,NULL,1),.args=SELECT_Args},
+/* cuckoo */
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.add","Adds an item to a Cuckoo Filter","O(k + i), where k is the number of sub-filters and i is maxIterations","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_ADD_History,0,CF_ADD_Tips,0,cfInsertCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_ADD_Keyspecs,1,NULL,2),.args=CF_ADD_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.addnx","Adds an item to a Cuckoo Filter if the item did not exist previously.","O(k + i), where k is the number of sub-filters and i is maxIterations","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_ADDNX_History,0,CF_ADDNX_Tips,0,cfInsertCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_ADDNX_Keyspecs,1,NULL,2),.args=CF_ADDNX_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.compact","Inspect Cuckoo filter internals.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_COMPACT_History,0,CF_COMPACT_Tips,0,cfCompactCommand,2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_COMPACT_Keyspecs,1,NULL,1),.args=CF_COMPACT_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.count","Return the number of times an item might be in a Cuckoo Filter","O(k), where k is the number of sub-filters","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_COUNT_History,0,CF_COUNT_Tips,0,cfCheckCommand,3,CMD_READONLY,ACL_CATEGORY_CUCKOO,CF_COUNT_Keyspecs,1,NULL,2),.args=CF_COUNT_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.debug","Inspect Cuckoo filter internals.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_DEBUG_History,0,CF_DEBUG_Tips,0,cfDebugCommand,2,CMD_READONLY,ACL_CATEGORY_CUCKOO,CF_DEBUG_Keyspecs,1,NULL,1),.args=CF_DEBUG_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.del","Deletes an item from a Cuckoo Filter","O(k), where k is the number of sub-filters","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_DEL_History,0,CF_DEL_Tips,0,cfDelCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_DEL_Keyspecs,1,NULL,2),.args=CF_DEL_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.exists","Checks whether one or more items exist in a Cuckoo Filter","O(k), where k is the number of sub-filters","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_EXISTS_History,0,CF_EXISTS_Tips,0,cfCheckCommand,3,CMD_READONLY,ACL_CATEGORY_CUCKOO,CF_EXISTS_Keyspecs,1,NULL,2),.args=CF_EXISTS_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.info","Returns information about a Cuckoo Filter","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_INFO_History,0,CF_INFO_Tips,0,cfInfoCommand,2,CMD_READONLY,ACL_CATEGORY_CUCKOO,CF_INFO_Keyspecs,1,NULL,1),.args=CF_INFO_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.insert","Adds one or more items to a Cuckoo Filter. A filter will be created if it does not exist","O(n * (k + i)), where n is the number of items, k is the number of sub-filters and i is maxIterations","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_INSERT_History,0,CF_INSERT_Tips,0,cfInsertCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_INSERT_Keyspecs,1,NULL,5),.args=CF_INSERT_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.insertnx","Adds one or more items to a Cuckoo Filter if the items did not exist previously. A filter will be created if it does not exist","O(n * (k + i)), where n is the number of items, k is the number of sub-filters and i is maxIterations","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_INSERTNX_History,0,CF_INSERTNX_Tips,0,cfInsertCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_INSERTNX_Keyspecs,1,NULL,5),.args=CF_INSERTNX_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.loadchunk","Restores a filter previously saved using SCANDUMP","O(n), where n is the capacity","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_LOADCHUNK_History,0,CF_LOADCHUNK_Tips,0,cfLoadchunkCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_LOADCHUNK_Keyspecs,1,NULL,3),.args=CF_LOADCHUNK_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.mexists","Checks whether one or more items exist in a Cuckoo Filter","O(k * n), where k is the number of sub-filters and n is the number of items","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_MEXISTS_History,0,CF_MEXISTS_Tips,0,cfCheckCommand,-3,CMD_READONLY,ACL_CATEGORY_CUCKOO,CF_MEXISTS_Keyspecs,1,NULL,2),.args=CF_MEXISTS_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.reserve","Creates a new Cuckoo Filter","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_RESERVE_History,0,CF_RESERVE_Tips,0,cfReserveCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_RESERVE_Keyspecs,1,NULL,5),.args=CF_RESERVE_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("cf.scandump","Begins an incremental save of the bloom filter","O(n), where n is the capacity","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_SCANDUMP_History,0,CF_SCANDUMP_Tips,0,cfScandumpCommand,3,CMD_READONLY,ACL_CATEGORY_CUCKOO,CF_SCANDUMP_Keyspecs,1,NULL,2),.args=CF_SCANDUMP_Args},
+#endif
 /* generic */
 {MAKE_CMD("bless","A container for key-blessing commands.","Depends on subcommand.","8.12.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,BLESS_History,0,BLESS_Tips,0,NULL,-2,0,0,BLESS_Keyspecs,0,NULL,0),.subcommands=BLESS_Subcommands},
 {MAKE_CMD("copy","Copies the value of a key to a new key.","O(N) worst case for collections, where N is the number of nested items. O(1) for string values.","6.2.0",CMD_DOC_NONE,NULL,NULL,"generic",COMMAND_GROUP_GENERIC,COPY_History,0,COPY_Tips,0,copyCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_KEYSPACE,COPY_Keyspecs,2,NULL,4),.args=COPY_Args},

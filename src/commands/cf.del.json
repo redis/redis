@@ -1,0 +1,48 @@
+{
+    "CF.DEL": {
+        "summary": "Deletes an item from a Cuckoo Filter",
+        "complexity": "O(k), where k is the number of sub-filters",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string"
+            }
+        ],
+        "since": "8.8.0",
+        "group": "cuckoo",
+        "function": "cfDelCommand",
+        "arity": 3,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CUCKOO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

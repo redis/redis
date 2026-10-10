@@ -1249,6 +1249,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         bloomDefrag(ob, activeDefragAlloc);
     } else if (ob->type == OBJ_CMS) {
         cmsDefrag(ob, activeDefragAlloc);
+    } else if (ob->type == OBJ_CUCKOO) {
+        cuckooDefrag(ob, activeDefragAlloc);
 #endif
     } else {
         serverPanic("Unknown object type");
