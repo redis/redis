@@ -92,7 +92,7 @@ bloom_hashval bloom_calc_hash(const void *buffer, int len);
 
 /** ***************************************************************************
  * Check if the given element is in the bloom filter. Remember this may
- * return false positive if a collision occured.
+ * return false positive if a collision occurred.
  *
  * Parameters:
  * -----------

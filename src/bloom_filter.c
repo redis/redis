@@ -83,7 +83,7 @@ bloom_hashval bloom_calc_hash64(const void *buffer, int len) {
 #define CHECK_ADD_FUNC(T, modExp)                                                                  \
     T i;                                                                                           \
     int found_unset = 0;                                                                           \
-    const register T mod = modExp;                                                                 \
+    const T mod = modExp;                                                                          \
     for (i = 0; i < bloom->hashes; i++) {                                                          \
         T x = ((hashval.a + i * hashval.b)) % mod;                                                 \
         if (!test_bit_set_bit(bloom->bf, x, mode)) {                                               \

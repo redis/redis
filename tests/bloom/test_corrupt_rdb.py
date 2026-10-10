@@ -141,11 +141,11 @@ def _corrupt_dump_set_nth_double(dump_payload: bytes, n: int, new_value: float) 
             else:
                 if enc != RDB_ENC_LZF:
                     raise RuntimeError(f"Unsupported encoded string type: {enc}")
-                clen, is_enc3, pos, _ = _load_len(value, pos)
+                compressed_len, is_enc3, pos, _ = _load_len(value, pos)
                 _, is_enc4, pos, _ = _load_len(value, pos)
                 if is_enc3 or is_enc4:
                     raise RuntimeError("Unexpected encoded compressed/uncompressed length")
-                pos += clen
+                pos += compressed_len
             continue
         raise RuntimeError(f"Unknown module opcode {opcode} at pos={pos}")
 
@@ -198,11 +198,11 @@ def _corrupt_dump_set_nth_uint(dump_payload: bytes, n: int, new_value: int) -> b
             else:
                 if enc != RDB_ENC_LZF:
                     raise RuntimeError(f"Unsupported encoded string type: {enc}")
-                clen, is_enc3, pos, _ = _load_len(value, pos)
+                compressed_len, is_enc3, pos, _ = _load_len(value, pos)
                 ulen, is_enc4, pos, _ = _load_len(value, pos)
                 if is_enc3 or is_enc4:
                     raise RuntimeError("Unexpected encoded compressed/uncompressed length")
-                pos += clen
+                pos += compressed_len
             continue
         raise RuntimeError(f"Unknown module opcode {opcode} at pos={pos}")
 
@@ -254,14 +254,14 @@ def _corrupt_dump_shrink_largest_module_string(dump_payload: bytes) -> bytes:
             else:
                 if enc != RDB_ENC_LZF:
                     raise RuntimeError(f"Unsupported encoded string type: {enc}")
-                clen, is_enc3, pos, _ = _load_len(value, pos)
+                compressed_len, is_enc3, pos, _ = _load_len(value, pos)
                 if is_enc3:
                     raise RuntimeError("Unexpected encoded compressed length")
                 ulen, is_enc4, pos, _ = _load_len(value, pos)
                 if is_enc4:
                     raise RuntimeError("Unexpected encoded uncompressed length")
                 comp_start = pos
-                comp_end = pos + clen
+                comp_end = pos + compressed_len
                 if comp_end > len(value):
                     raise RuntimeError("Compressed string overruns buffer while parsing")
                 comp = value[comp_start:comp_end]

@@ -30,7 +30,8 @@ bloom_hashval bloom_calc_hash64(const void *buffer, int len);
 #define ERROR_TIGHTENING_RATIO 0.5
 #define CUR_FILTER(sb) ((sb)->filters + ((sb)->nfilters - 1))
 static int SBChain_AddLink(SBChain *chain, uint64_t size, double error_rate) {
-    SBLink newlink = {0};
+    SBLink newlink;
+    memset(&newlink, 0, sizeof(newlink));
     int rc = bloom_init(&newlink.inner, size, error_rate, chain->options);
     if (rc != 0) {
         return rc == 1 ? SB_INVALID : SB_OOM;
