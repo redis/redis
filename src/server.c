@@ -54,9 +54,11 @@
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
+#include <dirent.h>
 
 #ifdef __linux__
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #endif
 
 #if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
@@ -2580,7 +2582,7 @@ extern char **environ;
  * On success the function does not return, because the process turns into
  * a different process. On error C_ERR is returned. */
 int restartServer(int flags, mstime_t delay) {
-    int j;
+    rlim_t j;
 
     /* Check if we still have accesses to the executable that started this
      * server instance. */
@@ -2610,10 +2612,52 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) {
-        /* Test the descriptor validity before closing it, otherwise
-         * Valgrind issues a warning on close(). */
-        if (fcntl(j,F_GETFD) != -1) close(j);
+    int closed_all_fds = 0;
+#ifdef __linux__
+#ifdef SYS_close_range
+    if (syscall(SYS_close_range, 3, UINT_MAX, 0) == 0) closed_all_fds = 1;
+#endif
+#endif
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || \
+    defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+    if (!closed_all_fds) {
+#ifdef __linux__
+        DIR *dir = opendir("/proc/self/fd");
+#else
+        DIR *dir = opendir("/dev/fd");
+#endif
+        if (dir) {
+            int dirfd_num = dirfd(dir);
+            struct dirent *entry;
+            while ((entry = readdir(dir)) != NULL) {
+                char *end;
+                long fd = strtol(entry->d_name, &end, 10);
+                if (*end == '\0' && fd >= 3 && fd != dirfd_num) close((int)fd);
+            }
+            closedir(dir);
+            closed_all_fds = 1;
+        }
+    }
+#endif
+    if (!closed_all_fds) {
+        struct rlimit limit;
+        rlim_t max_fd = (rlim_t)server.maxclients + 1024;
+        rlim_t hard_cap = (rlim_t)server.maxclients + 1048576;
+
+        if (getrlimit(RLIMIT_NOFILE, &limit) == 0) {
+            if (limit.rlim_cur == RLIM_INFINITY) {
+                max_fd = hard_cap;
+            } else if (limit.rlim_cur > max_fd) {
+                max_fd = limit.rlim_cur;
+            }
+        }
+
+        if (max_fd > hard_cap) max_fd = hard_cap;
+        for (j = 3; j < max_fd; j++) {
+            /* Test the descriptor validity before closing it, otherwise
+             * Valgrind issues a warning on close(). */
+            if (fcntl((int)j,F_GETFD) != -1) close((int)j);
+        }
     }
 
     /* Execute the server with the original command line. */
