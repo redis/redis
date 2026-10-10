@@ -107,7 +107,7 @@ Examples:
 ```bash
 make modules-update                                    # every module
 make modules-update redistimeseries
-make modules-update redisbloom redisearch redisjson
+make modules-update redisearch redisjson
 make modules-update all                                # explicit synonym for no-args
 ```
 
@@ -138,7 +138,7 @@ To shrink an already-installed module back to a shallow clone:
 
 ```bash
 make modules-shallow redistimeseries
-make modules-shallow redisbloom redisearch
+make modules-shallow redisearch
 make modules-shallow all
 ```
 
@@ -273,7 +273,7 @@ Examples:
 ```bash
 make run                                              # all built modules, default port
 make run redistimeseries                              # single module
-make run redistimeseries redisbloom                   # subset
+make run redistimeseries redisjson                   # subset
 make run none                                         # bare redis-server
 make run ARGS="--port 6400 --loglevel debug"          # all modules + custom args
 make run redistimeseries ARGS="--port 6400"           # one module + custom args
@@ -416,7 +416,7 @@ not a Make one. The rule is:
 
 ### How test filtering is forwarded
 
-Every cloned module (redisbloom, redisearch, redisjson, redistimeseries)
+Every cloned module (redisearch, redisjson, redistimeseries)
 honors `TEST=<name>` in its own Makefile and forwards it to its test
 runner (typically RLTest or pytest). Our `make test` simply sets that
 variable on the sub-make invocation.
@@ -454,9 +454,9 @@ make bootstrap                                     # install per-module deps (pe
 make build                                    # build Redis, then every module
 
 # Iterate:
-make modules-update redisbloom                # bump to the current pin (re-runs are safe)
+make modules-update redisjson                # bump to the current pin (re-runs are safe)
 make build                                    # rebuild
-make run redistimeseries redisbloom           # start Redis with just these two
+make run redistimeseries redisjson           # start Redis with just these two
 
 # Verify:
 redis-cli MODULE LIST
@@ -524,7 +524,6 @@ redis-<tag>/
 │   modules-update,modules-shallow,sync-redis-conf,tarball}.sh,
 │   scripts/lib/manifest.sh, ...)
 └── modules/
-    ├── redisbloom/src/      (cloned, no .git)
     ├── redisearch/src/      (cloned + recursive submodules, no .git)
     ├── redisjson/src/       (cloned, no .git)
     └── redistimeseries/src/ (cloned, no .git)

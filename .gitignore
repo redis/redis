@@ -48,6 +48,9 @@ src/bloom-unit
 src/cms-unit
 src/cuckoo-unit
 src/topk-unit
+src/tdigest-unit
+src/tdigest-capacity-unit
+src/tdigest-sort-unit
 src/bloom-perf
 __pycache__/
 

@@ -7,7 +7,7 @@ No additional dependencies or module loading are required.
 
 `BUILD_BLOOM=yes` currently enables Bloom, CMS and Cuckoo together. Do not
 load external RedisBloom into this build: command names conflict. Top-K and
-t-digest follow in separate changes in the stack.
+t-digest are also native in the completed stack.
 
 ## Persistence and lifecycle
 

@@ -1,0 +1,95 @@
+{
+    "TDIGEST.MERGE": {
+        "summary": "Merges multiple t-digest sketches into a single sketch",
+        "complexity": "O(N*K), where N is the number of centroids and K being the number of input sketches",
+        "arguments": [
+            {
+                "name": "destination-key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "numkeys",
+                "type": "integer"
+            },
+            {
+                "name": "source-key",
+                "type": "key",
+                "multiple": true,
+                "key_spec_index": 1
+            },
+            {
+                "name": "config",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "compression-token",
+                        "token": "COMPRESSION",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "compression",
+                        "type": "integer"
+                    }
+                ]
+            },
+            {
+                "name": "override",
+                "type": "pure-token",
+                "token": "OVERRIDE",
+                "optional": true
+            }
+        ],
+        "since": "8.8.0",
+        "group": "tdigest",
+        "function": "tdigestMergeCommand",
+        "arity": -4,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "TDIGEST"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "keynum": {
+                        "keynumidx": 0,
+                        "firstkey": 1,
+                        "step": 1
+                    }
+                }
+            }
+        ]
+    }
+}

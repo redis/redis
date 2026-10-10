@@ -13,7 +13,6 @@ flow plus pointers upstream.
 
 | Module | Purpose | Upstream repo |
 |---|---|---|
-| [redisbloom](redisbloom/) | Probabilistic data structures (Bloom, Cuckoo, Count-Min, Top-K, t-digest) | https://github.com/redisbloom/redisbloom |
 | [redisearch](redisearch/) | Full-text search, secondary indexing, vector search | https://github.com/redisearch/redisearch |
 | [redisjson](redisjson/) | Native JSON data type and JSONPath queries | https://github.com/redisjson/redisjson |
 | [redistimeseries](redistimeseries/) | Time-series data type with downsampling and aggregation | https://github.com/redistimeseries/redistimeseries |
@@ -60,8 +59,8 @@ make modules-update    # clone all modules from modules.yaml
 make bootstrap         # install per-module deps for every cloned module
 ```
 
-Pass module names to either step to scope it: `make modules-update redisbloom redisjson` /
-`make bootstrap redisbloom redisjson`. Use `make bootstrap` on its own to re-run just
+Pass module names to either step to scope it: `make modules-update redisearch redisjson` /
+`make bootstrap redisearch redisjson`. Use `make bootstrap` on its own to re-run just
 the dependency install.
 
 > **Note:** `make bootstrap` provisions the dependencies for a **non-LTO
@@ -93,7 +92,7 @@ hardcoding platform paths.
 ./src/redis-server redis-full.conf          # all modules + redis configs
 ./src/redis-server redis.conf               # redis core only, no modules
 make run                                     # all built modules without configs
-make run redistimeseries redisbloom          # subset
+make run redistimeseries redisjson          # subset
 make run ARGS="--port 6400 --loglevel debug"
 ```
 
@@ -110,7 +109,7 @@ existing checkout to the current pin. Run after editing `ref:` in
 [modules.yaml](modules.yaml).
 
 ```bash
-make modules-update redisbloom     # bump one
+make modules-update redisjson     # bump one
 make modules-update                # refresh every module
 ```
 
@@ -136,9 +135,9 @@ make bootstrap
 make build
 
 # Day to day:
-make modules-update redisbloom        # after editing ref: in modules.yaml
+make modules-update redisjson        # after editing ref: in modules.yaml
 make build                            # rebuild
-make run redistimeseries redisbloom   # start with just these two
+make run redistimeseries redisjson   # start with just these two
 redis-cli MODULE LIST
 make test redistimeseries             # exercise the module
 ```
@@ -188,7 +187,6 @@ Create `redis.code-workspace` at the repo root with the following content, then 
 {
     "folders": [
         { "name": "redistimeseries", "path": "modules/redistimeseries/src" },
-        { "name": "redisbloom",      "path": "modules/redisbloom/src" },
         { "name": "redisjson",       "path": "modules/redisjson/src" },
         { "name": "redisearch",      "path": "modules/redisearch/src" },
         { "name": "modules",         "path": "modules" },

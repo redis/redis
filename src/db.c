@@ -1787,6 +1787,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     [OBJ_CMS] = "cms",
     [OBJ_CUCKOO] = "cuckoo",
     [OBJ_TOPK] = "topk",
+    [OBJ_TDIGEST] = "tdigest",
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2528,6 +2529,7 @@ void copyCommand(client *c) {
         case OBJ_CMS: newobj = cmsDup(o); break;
         case OBJ_CUCKOO: newobj = cuckooDup(o); break;
         case OBJ_TOPK: newobj = topkDup(o); break;
+        case OBJ_TDIGEST: newobj = tdigestDup(o); break;
 #endif
         default:
             addReplyError(c, "unknown type object");

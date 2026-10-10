@@ -1253,6 +1253,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         cuckooDefrag(ob, activeDefragAlloc);
     } else if (ob->type == OBJ_TOPK) {
         topkDefrag(ob, activeDefragAlloc);
+    } else if (ob->type == OBJ_TDIGEST) {
+        tdigestDefrag(ob, activeDefragAlloc);
 #endif
     } else {
         serverPanic("Unknown object type");

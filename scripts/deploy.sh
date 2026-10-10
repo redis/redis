@@ -189,7 +189,7 @@ if [ "$replace_loads" = "1" ] || [ "${BUILD_BLOOM:-yes}" = "yes" ]; then
     cp -p "$conf" "$tmp"
     trap 'rm -f "$tmp" "$new_lines_file"' EXIT
     awk -v begin="$LOADMODULE_BEGIN" -v end="$LOADMODULE_END" -v newfile="$new_lines_file" \
-        -v native_bloom="${BUILD_BLOOM:-yes}" -v replace_loads="$replace_loads" '
+        -v native_bloom="yes" -v replace_loads="$replace_loads" '
       native_bloom == "yes" && $0 == "# >>> BEGIN module: redisbloom <<<" { skip_bloom=1; next }
       skip_bloom && $0 == "# <<< END module: redisbloom <<<" { skip_bloom=0; next }
       skip_bloom { next }

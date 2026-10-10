@@ -364,7 +364,7 @@ endif
 
 BUILD_BLOOM ?= yes
 ifeq ($(BUILD_BLOOM),yes)
-	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o t_cms.o cms.o t_cuckoo.o cuckoo.o cf.o t_topk.o topk.o
+	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o t_cms.o cms.o t_cuckoo.o cuckoo.o cf.o t_topk.o topk.o t_tdigest.o tdigest.o
 	FINAL_CFLAGS+=-DINCLUDE_BLOOM=1
 endif
 
@@ -543,7 +543,29 @@ test-modules: $(REDIS_SERVER_NAME)
 ifeq ($(BUILD_BLOOM),yes)
 test: test-bloom
 test: test-cms
-test: test-cuckoo test-topk
+test: test-cuckoo test-topk test-tdigest test-probabilistic-upgrade
+
+test-probabilistic-upgrade: $(REDIS_SERVER_NAME)
+	$(PYTHON) ../tests/probabilistic/upgrade.py
+
+.PHONY: test-probabilistic-upgrade
+
+tdigest-unit: ../tests/tdigest/td_test.c ../tests/tdigest/minunit.h tdigest.o zmalloc.o
+	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/tdigest/td_test.c tdigest.o zmalloc.o $(FINAL_LIBS)
+
+tdigest-capacity-unit: ../tests/tdigest/td_capacity_test.c tdigest.c tdigest.h zmalloc.o
+	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/tdigest/td_capacity_test.c zmalloc.o $(FINAL_LIBS)
+
+tdigest-sort-unit: ../tests/tdigest/td_sort_complexity_test.c tdigest.c tdigest.h zmalloc.o
+	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/tdigest/td_sort_complexity_test.c zmalloc.o $(FINAL_LIBS)
+
+test-tdigest: $(REDIS_SERVER_NAME) tdigest-unit tdigest-capacity-unit tdigest-sort-unit
+	./tdigest-unit
+	./tdigest-capacity-unit
+	./tdigest-sort-unit
+	$(PYTHON) ../tests/tdigest/run.py
+
+.PHONY: test-tdigest
 
 topk-unit: ../tests/topk/unit.c topk.o bloom_murmur.o zmalloc.o
 	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/topk/unit.c topk.o bloom_murmur.o zmalloc.o $(FINAL_LIBS)

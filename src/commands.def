@@ -29,6 +29,7 @@ const char *COMMAND_GROUP_STR[] = {
     "cms",
     "cuckoo",
     "topk",
+    "tdigest",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
@@ -13725,6 +13726,390 @@ struct COMMAND_ARG SUBSTR_Args[] = {
 };
 
 #ifdef INCLUDE_BLOOM
+/********** TDIGEST_ADD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_ADD history */
+#define TDIGEST_ADD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_ADD tips */
+#define TDIGEST_ADD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_ADD key specs */
+keySpec TDIGEST_ADD_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_ADD argument table */
+struct COMMAND_ARG TDIGEST_ADD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_BYRANK ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_BYRANK history */
+#define TDIGEST_BYRANK_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_BYRANK tips */
+#define TDIGEST_BYRANK_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_BYRANK key specs */
+keySpec TDIGEST_BYRANK_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_BYRANK argument table */
+struct COMMAND_ARG TDIGEST_BYRANK_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("rank",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_BYREVRANK ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_BYREVRANK history */
+#define TDIGEST_BYREVRANK_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_BYREVRANK tips */
+#define TDIGEST_BYREVRANK_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_BYREVRANK key specs */
+keySpec TDIGEST_BYREVRANK_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_BYREVRANK argument table */
+struct COMMAND_ARG TDIGEST_BYREVRANK_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("reverse-rank",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_CDF ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_CDF history */
+#define TDIGEST_CDF_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_CDF tips */
+#define TDIGEST_CDF_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_CDF key specs */
+keySpec TDIGEST_CDF_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_CDF argument table */
+struct COMMAND_ARG TDIGEST_CDF_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_CREATE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_CREATE history */
+#define TDIGEST_CREATE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_CREATE tips */
+#define TDIGEST_CREATE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_CREATE key specs */
+keySpec TDIGEST_CREATE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_CREATE argument table */
+struct COMMAND_ARG TDIGEST_CREATE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("compression",ARG_TYPE_INTEGER,-1,"COMPRESSION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_INFO ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_INFO history */
+#define TDIGEST_INFO_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_INFO tips */
+#define TDIGEST_INFO_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_INFO key specs */
+keySpec TDIGEST_INFO_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_INFO argument table */
+struct COMMAND_ARG TDIGEST_INFO_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_MAX ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_MAX history */
+#define TDIGEST_MAX_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_MAX tips */
+#define TDIGEST_MAX_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_MAX key specs */
+keySpec TDIGEST_MAX_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_MAX argument table */
+struct COMMAND_ARG TDIGEST_MAX_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_MERGE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_MERGE history */
+#define TDIGEST_MERGE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_MERGE tips */
+#define TDIGEST_MERGE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_MERGE key specs */
+keySpec TDIGEST_MERGE_Keyspecs[2] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}},{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_KEYNUM,.fk.keynum={0,1,1}}
+};
+#endif
+
+/* TDIGEST_MERGE config argument table */
+struct COMMAND_ARG TDIGEST_MERGE_config_Subargs[] = {
+{MAKE_ARG("compression-token",ARG_TYPE_PURE_TOKEN,-1,"COMPRESSION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("compression",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* TDIGEST_MERGE argument table */
+struct COMMAND_ARG TDIGEST_MERGE_Args[] = {
+{MAKE_ARG("destination-key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numkeys",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("source-key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("config",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=TDIGEST_MERGE_config_Subargs},
+{MAKE_ARG("override",ARG_TYPE_PURE_TOKEN,-1,"OVERRIDE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_MIN ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_MIN history */
+#define TDIGEST_MIN_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_MIN tips */
+#define TDIGEST_MIN_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_MIN key specs */
+keySpec TDIGEST_MIN_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_MIN argument table */
+struct COMMAND_ARG TDIGEST_MIN_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_QUANTILE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_QUANTILE history */
+#define TDIGEST_QUANTILE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_QUANTILE tips */
+#define TDIGEST_QUANTILE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_QUANTILE key specs */
+keySpec TDIGEST_QUANTILE_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_QUANTILE argument table */
+struct COMMAND_ARG TDIGEST_QUANTILE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("quantile",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_RANK ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_RANK history */
+#define TDIGEST_RANK_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_RANK tips */
+#define TDIGEST_RANK_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_RANK key specs */
+keySpec TDIGEST_RANK_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_RANK argument table */
+struct COMMAND_ARG TDIGEST_RANK_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_RESET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_RESET history */
+#define TDIGEST_RESET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_RESET tips */
+#define TDIGEST_RESET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_RESET key specs */
+keySpec TDIGEST_RESET_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_RESET argument table */
+struct COMMAND_ARG TDIGEST_RESET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_REVRANK ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_REVRANK history */
+#define TDIGEST_REVRANK_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_REVRANK tips */
+#define TDIGEST_REVRANK_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_REVRANK key specs */
+keySpec TDIGEST_REVRANK_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_REVRANK argument table */
+struct COMMAND_ARG TDIGEST_REVRANK_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** TDIGEST_TRIMMED_MEAN ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TDIGEST_TRIMMED_MEAN history */
+#define TDIGEST_TRIMMED_MEAN_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TDIGEST_TRIMMED_MEAN tips */
+#define TDIGEST_TRIMMED_MEAN_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TDIGEST_TRIMMED_MEAN key specs */
+keySpec TDIGEST_TRIMMED_MEAN_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TDIGEST_TRIMMED_MEAN argument table */
+struct COMMAND_ARG TDIGEST_TRIMMED_MEAN_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("low-cut-quantile",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("high-cut-quantile",ARG_TYPE_DOUBLE,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
 /********** TOPK_ADD ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -14418,6 +14803,49 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("setrange","Overwrites a part of a string value with another by an offset. Creates the key if it doesn't exist.","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SETRANGE_History,0,SETRANGE_Tips,0,setrangeCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETRANGE_Keyspecs,1,NULL,3),.args=SETRANGE_Args},
 {MAKE_CMD("strlen","Returns the length of a string value.","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,STRLEN_History,0,STRLEN_Tips,0,strlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STRING,STRLEN_Keyspecs,1,NULL,1),.args=STRLEN_Args},
 {MAKE_CMD("substr","Returns a substring from a string value.","O(N) where N is the length of the returned string. The complexity is ultimately determined by the returned length, but because creating a substring from an existing string is very cheap, it can be considered O(1) for small strings.","1.0.0",CMD_DOC_DEPRECATED,"`GETRANGE`","2.0.0","string",COMMAND_GROUP_STRING,SUBSTR_History,0,SUBSTR_Tips,0,getrangeCommand,4,CMD_READONLY,ACL_CATEGORY_STRING,SUBSTR_Keyspecs,1,NULL,3),.args=SUBSTR_Args},
+/* tdigest */
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.add","Adds one or more observations to a t-digest sketch","O(N), where N is the number of samples to add","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_ADD_History,0,TDIGEST_ADD_Tips,0,tdigestAddCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TDIGEST,TDIGEST_ADD_Keyspecs,1,NULL,2),.args=TDIGEST_ADD_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.byrank","Returns, for each input rank, an estimation of the value (floating-point) with that rank","O(N) where N is the number of ranks specified","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_BYRANK_History,0,TDIGEST_BYRANK_Tips,0,tdigestQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_BYRANK_Keyspecs,1,NULL,2),.args=TDIGEST_BYRANK_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.byrevrank","Returns, for each input reverse rank, an estimation of the value (floating-point) with that reverse rank","O(N) where N is the number of reverse ranks specified.","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_BYREVRANK_History,0,TDIGEST_BYREVRANK_Tips,0,tdigestQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_BYREVRANK_Keyspecs,1,NULL,2),.args=TDIGEST_BYREVRANK_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.cdf","Returns, for each input value, an estimation of the fraction (floating-point) of (observations smaller than the given value + half the observations equal to the given value)","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_CDF_History,0,TDIGEST_CDF_Tips,0,tdigestQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_CDF_Keyspecs,1,NULL,2),.args=TDIGEST_CDF_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.create","Allocates memory and initializes a new t-digest sketch","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_CREATE_History,0,TDIGEST_CREATE_Tips,0,tdigestCreateCommand,-2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TDIGEST,TDIGEST_CREATE_Keyspecs,1,NULL,2),.args=TDIGEST_CREATE_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.info","Returns information and statistics about a t-digest sketch","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_INFO_History,0,TDIGEST_INFO_Tips,0,tdigestInfoCommand,2,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_INFO_Keyspecs,1,NULL,1),.args=TDIGEST_INFO_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.max","Returns the maximum observation value from a t-digest sketch","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_MAX_History,0,TDIGEST_MAX_Tips,0,tdigestQueryCommand,2,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_MAX_Keyspecs,1,NULL,1),.args=TDIGEST_MAX_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.merge","Merges multiple t-digest sketches into a single sketch","O(N*K), where N is the number of centroids and K being the number of input sketches","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_MERGE_History,0,TDIGEST_MERGE_Tips,0,tdigestMergeCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TDIGEST,TDIGEST_MERGE_Keyspecs,2,NULL,5),.args=TDIGEST_MERGE_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.min","Returns the minimum observation value from a t-digest sketch","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_MIN_History,0,TDIGEST_MIN_Tips,0,tdigestQueryCommand,2,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_MIN_Keyspecs,1,NULL,1),.args=TDIGEST_MIN_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.quantile","Returns, for each input fraction, an estimation of the value (floating point) that is smaller than the given fraction of observations","O(N) where N is the number of quantiles specified.","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_QUANTILE_History,0,TDIGEST_QUANTILE_Tips,0,tdigestQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_QUANTILE_Keyspecs,1,NULL,2),.args=TDIGEST_QUANTILE_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.rank","Returns, for each input value (floating-point), the estimated rank of the value (the number of observations in the sketch that are smaller than the value + half the number of observations that are equal to the value)","O(N) where N is the number of values specified.","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_RANK_History,0,TDIGEST_RANK_Tips,0,tdigestQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_RANK_Keyspecs,1,NULL,2),.args=TDIGEST_RANK_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.reset","Resets a t-digest sketch: empty the sketch and re-initializes it.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_RESET_History,0,TDIGEST_RESET_Tips,0,tdigestResetCommand,2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TDIGEST,TDIGEST_RESET_Keyspecs,1,NULL,1),.args=TDIGEST_RESET_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.revrank","Returns, for each input value (floating-point), the estimated reverse rank of the value (the number of observations in the sketch that are larger than the value + half the number of observations that are equal to the value)","O(N) where N is the number of values specified.","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_REVRANK_History,0,TDIGEST_REVRANK_Tips,0,tdigestQueryCommand,-3,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_REVRANK_Keyspecs,1,NULL,2),.args=TDIGEST_REVRANK_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("tdigest.trimmed_mean","Returns an estimation of the mean value from the sketch, excluding observation values outside the low and high cutoff quantiles","O(N) where N is the number of centroids","8.8.0",CMD_DOC_NONE,NULL,NULL,"tdigest",COMMAND_GROUP_TDIGEST,TDIGEST_TRIMMED_MEAN_History,0,TDIGEST_TRIMMED_MEAN_Tips,0,tdigestQueryCommand,4,CMD_READONLY,ACL_CATEGORY_TDIGEST,TDIGEST_TRIMMED_MEAN_Keyspecs,1,NULL,3),.args=TDIGEST_TRIMMED_MEAN_Args},
+#endif
 /* topk */
 #ifdef INCLUDE_BLOOM
 {MAKE_CMD("topk.add","Adds an item to a Top-k sketch. Multiple items can be added at the same time.","O(n * k) where n is the number of items and k is the depth","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_ADD_History,0,TOPK_ADD_Tips,0,topkAddCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TOPK,TOPK_ADD_Keyspecs,1,NULL,2),.args=TOPK_ADD_Args},

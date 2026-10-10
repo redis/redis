@@ -55,8 +55,8 @@ class testBuildDefaults(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stdout)
                 config = (root / 'redis-full.conf').read_text()
                 self.assertIn('loadmodule ./modules/other/other.so', config)
-                self.assertEqual(mode == 'no', '\nloadmodule ./modules/redisbloom/' in config)
-                self.assertEqual(mode == 'no', '\ncf-initial-size' in config)
+                self.assertNotIn('\nloadmodule ./modules/redisbloom/', config)
+                self.assertNotIn('\ncf-initial-size', config)
                 env['REDIS_CONF'] = 'redis-full.conf'
 
     def test_run_skips_module_and_rejects_explicit_conflict(self):
@@ -68,11 +68,11 @@ class testBuildDefaults(unittest.TestCase):
             self.assertNotIn('Loading redisbloom', result.stdout)
             result = script('run.sh', env, 'redisbloom')
             self.assertNotEqual(0, result.returncode)
-            self.assertIn('cannot be loaded with native Bloom', result.stdout)
+            self.assertIn('no longer a bundled module', result.stdout)
             env['BUILD_BLOOM'] = 'no'
             result = script('run.sh', env, 'redisbloom')
-            self.assertEqual(0, result.returncode, result.stdout)
-            self.assertIn('Loading redisbloom', result.stdout)
+            self.assertNotEqual(0, result.returncode)
+            self.assertNotIn('Loading redisbloom', result.stdout)
 
     def test_deploy_does_not_reintroduce_module(self):
         with fixture() as (root, env):
@@ -93,6 +93,9 @@ class testBuildDefaults(unittest.TestCase):
             env['BUILD_BLOOM'] = 'no'
             result = script('sync-redis-conf.sh', env)
             self.assertEqual(0, result.returncode, result.stdout)
+            config_path = root / 'redis-full.conf'
+            with config_path.open('a') as legacy:
+                legacy.write('\n# >>> BEGIN module: redisbloom <<<\ncf-initial-size 1024\n# <<< END module: redisbloom <<<\n')
             env['PREFIX'] = str(root / 'installed')
             env['BUILD_BLOOM'] = 'yes'
             result = script('deploy.sh', env, 'redis')
