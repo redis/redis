@@ -1941,12 +1941,14 @@ void streamPropagateGroupID(client *c, robj *key, streamCG *group, robj *groupna
     decrRefCount(argv[6]);
 }
 
-/* Propagate creation of a consumer that was implicitly created by XREADGROUP.
+/* Propagate creation of a consumer that was implicitly created by XREADGROUP,
+ * XCLAIM or XAUTOCLAIM.
  * Called only when no XCLAIM commands were propagated for this consumer,
  * since XCLAIM implicitly creates the consumer on the replica.  This covers
- * two cases:
+ * three cases:
  * (1) NOACK, where the PEL/XCLAIM path is skipped entirely.
  * (2) no messages were available to deliver (see #7140).
+ * (3) XCLAIM or XAUTOCLAIM claimed no entry.
  *
  * XGROUP CREATECONSUMER <key> <groupname> <consumername>
  */
@@ -4617,8 +4619,10 @@ void xclaimCommand(client *c) {
     stream *s = o->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
+    int consumer_created = 0;
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer_created = 1;
     }
     consumer->seen_time = commandTimeSnapshot();
 
@@ -4732,6 +4736,12 @@ void xclaimCommand(client *c) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
     }
+    /* Propagate consumer creation only when no entry was claimed, since
+     * the XCLAIM generated for a claimed entry implicitly creates the
+     * consumer on the replica. The XCLAIM generated for a deleted entry
+     * names its previous owner, so it does not. */
+    if (consumer_created && arraylen == 0)
+        streamPropagateConsumerCreation(c,c->argv[1],c->argv[2],consumer->name);
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
     keyModified(c,c->db,c->argv[1],o,0);
@@ -4876,8 +4886,10 @@ void xautoclaimCommand(client *c) {
     stream *s = o->ptr;
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
+    int consumer_created = 0;
     if (consumer == NULL) {
         consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer_created = 1;
     }
     consumer->seen_time = commandTimeSnapshot();
 
@@ -5029,6 +5041,10 @@ void xautoclaimCommand(client *c) {
     }
     zfree(deleted_ids);
 
+    /* Propagate consumer creation only when no entry was claimed, see
+     * xclaimCommand(). */
+    if (consumer_created && arraylen == 0)
+        streamPropagateConsumerCreation(c,c->argv[1],c->argv[2],consumer->name);
     preventCommandPropagation(c);
     /* Update LRM but don't signal. */
     keyModified(c,c->db,c->argv[1],o,0);
