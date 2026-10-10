@@ -743,7 +743,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_6);
 #ifdef ENABLE_GCRA
     case OBJ_GCRA:
         return rdbSaveType(rdb,RDB_TYPE_GCRA);
@@ -819,7 +819,10 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
  * This saves all the idempotent producer tracking entries (IID -> stream ID mappings).
  * Expired entries are filtered out. Producers whose entries all expired are still
  * written with count=0; the load side skips them.
- * Format: num_producers, then for each producer: pid, num_entries, entries... */
+ * Format: num_producers, then for each producer: pid, num_entries, entries...
+ * Each entry is [iid][stream ID][recording time]. The recording time is what
+ * drives expiration, so persisting it lets the remaining deduplication window
+ * survive a restart instead of being reset to a full duration. */
 ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
     ssize_t n, nwritten = 0;
 
@@ -830,7 +833,10 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
 
     if (num_producers == 0) return nwritten;
 
-    uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
+    /* Resolve the expiration threshold once: the number of entries written
+     * for a producer is computed before the entries themselves, so both
+     * passes must judge them against the same instant. */
+    uint64_t expire_time = idmpExpireTime(s);
 
     /* Iterate through all producers. */
     raxIterator ri;
@@ -846,17 +852,16 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
         }
         nwritten += n;
 
-        /* Find the first non-expired entry. The linked list is ordered by
-         * timestamp, so all entries after the first valid one are also valid. */
-        idmpEntry *first_valid = producer->idmp_head;
-        size_t expired = 0;
-        while (first_valid && first_valid->id.ms <= expire_time) {
-            first_valid = first_valid->next;
-            expired++;
+        /* Count the entries that are still within their deduplication window.
+         * The linked list is in insertion order, so expired entries are
+         * normally a prefix, but a wall clock that steps backwards can break
+         * that ordering: count all of them instead of assuming a prefix. */
+        size_t count = 0;
+        for (idmpEntry *entry = producer->idmp_head; entry; entry = entry->next) {
+            if (entry->insert_time > expire_time) count++;
         }
 
         /* Save the number of entries for this producer. */
-        size_t count = dictSize(producer->idmp_dict) - expired;
         if ((n = rdbSaveLen(rdb, count)) == -1) {
             raxStop(&ri);
             return -1;
@@ -864,8 +869,9 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
         nwritten += n;
 
         /* Save each non-expired entry in insertion order. */
-        idmpEntry *entry = first_valid;
-        while (entry != NULL) {
+        for (idmpEntry *entry = producer->idmp_head; entry; entry = entry->next) {
+            if (entry->insert_time <= expire_time) continue;
+
             /* Save the IID string (length + data). */
             if ((n = rdbSaveRawString(rdb,(unsigned char *)entry->iid,entry->iid_len)) == -1) {
                 raxStop(&ri);
@@ -885,7 +891,12 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
             }
             nwritten += n;
 
-            entry = entry->next;
+            /* Save the wall-clock recording time. */
+            if ((n = rdbSaveLen(rdb,entry->insert_time)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            nwritten += n;
         }
     }
     raxStop(&ri);
@@ -893,10 +904,20 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
 }
 
 /* Load IDMP entries for a stream from the RDB file.
- * This loads all the idempotent producer tracking entries (IID -> stream ID mappings)
- * and inserts them into the stream's idmp_producers rax tree.
+ * This loads all the idempotent producer tracking entries (IID -> stream ID
+ * mappings) and inserts them into the stream's idmp_producers rax tree.
+ * 'has_recording_time' tells whether the entries carry the wall-clock
+ * recording time (RDB_TYPE_STREAM_LISTPACKS_6 and above). When they do,
+ * entries whose deduplication window already elapsed while the server was
+ * down are dropped, exactly like an expired key: the mapping is only valid
+ * for idmp_duration seconds after it was recorded, and that clock keeps
+ * running while the server is offline.
+ * Older stream encodings do not carry the recording time, but only ever
+ * contain entries that were still within their window when the snapshot was
+ * written, so those are restored with a fresh window (which can only extend
+ * deduplication, never expire a mapping early).
  * Format: num_producers, then for each producer: pid, num_entries, entries... */
-int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
+int rdbLoadStreamIdmpEntries(rio *rdb, stream *s, int has_recording_time) {
     /* Load the number of producers. */
     uint64_t num_producers = rdbLoadLen(rdb, NULL);
     if (num_producers == RDB_LENERR) {
@@ -905,7 +926,9 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
 
     if (num_producers == 0) return 0;
 
-    uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
+    /* Resolve the expiration threshold once, so that every entry is judged
+     * against the same instant. */
+    uint64_t expire_time = idmpExpireTime(s);
 
     /* Create the producers rax tree. */
     s->idmp_producers = raxNewEx(0, &s->alloc_size, 0);
@@ -956,13 +979,22 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             streamID id;
             id.ms = rdbLoadLen(rdb, NULL);
             id.seq = rdbLoadLen(rdb, NULL);
+
+            /* Load the wall-clock recording time when the encoding carries it. */
+            uint64_t insert_time = 0;
+            if (has_recording_time) insert_time = rdbLoadLen(rdb, NULL);
+
             if (rioGetReadError(rdb)) {
                 sdsfree(iid);
                 goto cleanup;
             }
 
-            /* Skip entries that have already expired. */
-            if (id.ms <= expire_time) {
+            /* Older encodings do not persist the recording time: honor the
+             * entry for a fresh duration instead. */
+            if (!has_recording_time) insert_time = server.mstime;
+
+            /* Drop entries that expired while the server was down. */
+            if (insert_time <= expire_time) {
                 sdsfree(iid);
                 continue;
             }
@@ -971,8 +1003,10 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             idmpEntry *entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
             sdsfree(iid); /* idmpEntryCreate makes a copy */
 
-            /* Set the stream ID. */
+            /* Set the stream ID and the recording time the deduplication
+             * window is measured from. */
             entry->id = id;
+            entry->insert_time = insert_time;
             entry->next = NULL;
 
             /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
@@ -3873,7 +3907,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_4 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_5)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_5 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_6)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -4300,8 +4335,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* Load all IDMP entries. */
-            if (rdbLoadStreamIdmpEntries(rdb,s) == -1) {
+            /* Load all IDMP entries. Encodings of RDB_TYPE_STREAM_LISTPACKS_6
+             * and above also store the wall-clock recording time of each
+             * entry, which is what its expiration is measured from. */
+            if (rdbLoadStreamIdmpEntries(rdb,s,
+                    rdbtype >= RDB_TYPE_STREAM_LISTPACKS_6) == -1) {
                 rdbReportReadError("Stream IDMP entries loading failed.");
                 decrRefCount(o);
                 return NULL;

@@ -248,6 +248,7 @@ robj *streamDup(robj *o) {
                                                        src_entry->iid_len,
                                                        &new_s->alloc_size);
                 new_entry->id = src_entry->id;
+                new_entry->insert_time = src_entry->insert_time;
 
                 /* Append to tail of the new producer's linked list. */
                 if (new_prod->idmp_tail != NULL) {
@@ -2598,9 +2599,19 @@ void xaddCommand(client *c) {
         
         /* Create entry for lookup and potential insertion */
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
-        
-        /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, producer, entry, c)) {
+
+        /* Check if IID already exists and reply if found. This must not run
+         * for a command with an explicit ID applied from a master or while
+         * loading an AOF: such a command is an append the master actually
+         * made (duplicates are propagated with the wildcard ID), and a
+         * mapping that has not expired on this node yet — insert_time is
+         * stamped at apply time on a replica, and restored from a snapshot
+         * or stamped during replay when loading an AOF — would wrongly skip
+         * it. A wildcard-ID command from such a client is a duplicate the
+         * master did not append: it is still filtered out here. */
+        if (!(mustObeyClient(c) && parsed_args.id_given) &&
+            idmpLookupAndReply(s, producer, entry, c))
+        {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
             keyModified(c,c->db,c->argv[1],kv,0);
@@ -3889,7 +3900,11 @@ void xidmprecordCommand(client *c) {
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
     int found = idmpLookup(producer, entry, &id);
-    if (found) {
+    if (found == 1 || (found == -1 && !mustObeyClient(c)))
+    {
+        /* Same stream ID: nothing to record. A different stream ID from a
+         * real client: the tracked mapping is still valid there, so this is
+         * an error. */
         idmpEntryFree(entry, &s->alloc_size);
         if (found == 1)
             addReply(c, shared.ok);
@@ -3899,6 +3914,12 @@ void xidmprecordCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
         return;
     }
+
+    /* found == -1 from a master link or while loading an AOF: the master
+     * had already expired the previous mapping when it recorded the new
+     * one, while our copy (stamped at apply time, or restored from a
+     * snapshot) has not expired yet. The recorded mapping is authoritative
+     * and replaces the stale one. */
 
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
@@ -6078,13 +6099,19 @@ dictType idmpDictType = {
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) {
     size_t usable;
     idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry) + iid_len, &usable);
-    
+
+    /* Entries are also used as throwaway lookup keys, so initialize every
+     * field: leaving the stream ID or the recording time uninitialized would
+     * make the struct compare or hash inconsistently under memory checkers. */
     entry->next = NULL;
+    entry->id.ms = 0;
+    entry->id.seq = 0;
+    entry->insert_time = 0;
     entry->iid_len = iid_len;
     memcpy(entry->iid, iid, iid_len);
-    
+
     *alloc_size += usable;
-    
+
     return entry;
 }
 
@@ -6096,6 +6123,12 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     size_t usable;
     zfree_usable(entry, &usable);
     *alloc_size -= usable;
+}
+
+/* Wall-clock threshold (ms) before which IDMP entries count as expired:
+ * entries recorded at or before it are outside the deduplication window. */
+uint64_t idmpExpireTime(stream *s) {
+    return server.mstime - (s->idmp_duration * 1000);
 }
 
 /* Create a new idmpProducer with an empty dict and linked list.
@@ -6168,7 +6201,33 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
     entry->next = NULL;
     entry->id = *id;
 
-    /* Insert into dict (should always succeed since we already checked with lookup) */
+    /* Expiration is driven by the wall clock, not by the stream ID: stream
+     * IDs are monotonic within a stream and can be set explicitly to any
+     * value, including one far in the future. */
+    entry->insert_time = server.mstime;
+
+    /* A replica applying a propagated XADD can still track the same IID with
+     * an older stream ID: its copy had not expired yet because insert_time
+     * is stamped when the command is applied (see xaddCommand). The
+     * propagated append is authoritative, so replace the stale mapping. */
+    dictEntry *de = dictFind(producer->idmp_dict, entry);
+    if (de != NULL) {
+        idmpEntry *stale = dictGetKey(de);
+        idmpEntry *prev = NULL;
+        idmpEntry *it = producer->idmp_head;
+        while (it != stale) {
+            serverAssert(it != NULL);
+            prev = it;
+            it = it->next;
+        }
+        if (prev) prev->next = stale->next;
+        else producer->idmp_head = stale->next;
+        if (producer->idmp_tail == stale) producer->idmp_tail = prev;
+        dictDelete(producer->idmp_dict, stale);
+        idmpEntryFree(stale, &s->alloc_size);
+    }
+
+    /* Insert into dict (any stale mapping for this IID was just replaced) */
     serverAssert(dictAdd(producer->idmp_dict, entry, NULL) == DICT_OK);
     
     /* Add to linked list tail */
@@ -6253,9 +6312,10 @@ void streamKeyRemoved(redisDb *db, robj *key, robj *val) {
  * The function processes up to CRON_DBS_PER_CALL databases per call in a
  * round-robin fashion, cycling through all databases over multiple invocations.
  * For each database, it iterates through the stream_idmp_keys dictionary.
- * For each tracked stream, it compares the timestamp of entries in the stream's
- * idmp linked list against the expiration threshold (current time - idmp_duration).
- * Entries with timestamps older than the threshold are removed from the head
+ * For each tracked stream, it compares the wall-clock recording time of the
+ * entries in the stream's idmp linked list against the expiration threshold
+ * (current time - idmp_duration).
+ * Entries with a recording time older than the threshold are removed from the head
  * of the linked list. When all entries have been removed and the list becomes empty,
  * the stream key is removed from stream_idmp_keys to stop tracking it. */
 void handleExpiredIdmpEntries(void) {
@@ -6282,13 +6342,16 @@ void handleExpiredIdmpEntries(void) {
             serverAssert(kv && kv->type == OBJ_STREAM);
 
             stream *s = kv->ptr;
-            uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
             
             /* Skip if no producers */
             if (s->idmp_producers == NULL) {
                 dictDelete(db->stream_idmp_keys, key);
                 continue;
             }
+
+            /* Resolve the expiration threshold once, so that every entry of
+             * this stream is judged against the same instant. */
+            uint64_t expire_time = idmpExpireTime(s);
 
             /* Iterate through all producers and remove expired entries */
             int modified = 0;
@@ -6301,7 +6364,7 @@ void handleExpiredIdmpEntries(void) {
                 /* Remove expired entries from the head of this producer's linked list */
                 while (producer->idmp_head != NULL) {
                     idmpEntry *entry = producer->idmp_head;
-                    if (entry->id.ms <= expire_time) {
+                    if (entry->insert_time <= expire_time) {
                         /* Remove from dict */
                         dictDelete(producer->idmp_dict, entry);
                         /* Remove from linked list head */

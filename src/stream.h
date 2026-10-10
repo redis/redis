@@ -19,6 +19,9 @@ typedef struct streamID {
 typedef struct idmpEntry {
     struct idmpEntry *next;  /* Pointer to next entry in insertion order (linked list) */
     streamID id;             /* Associated stream ID */
+    uint64_t insert_time;    /* Wall clock time (ms) when the entry was recorded.
+                                Entries expire by this time, not by the stream ID,
+                                which can be set explicitly to any value. */
     size_t iid_len;          /* Length of the IID */
     char iid[];              /* Flexible array member for inline IID storage */
 } idmpEntry;
@@ -239,5 +242,16 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
 idmpProducer *idmpProducerCreate(size_t *alloc_size);
 void idmpProducerFree(idmpProducer *producer, size_t *alloc_size);
 void streamFreeIdmpProducerGeneric(void *producer, void *strm);
+
+/* IDMP entries expire by the wall clock: an entry falls outside the stream's
+ * deduplication window once it was recorded more than idmp_duration seconds
+ * ago. The stream ID cannot be used for this, because a producer may set it
+ * explicitly to any value, including one far in the future.
+ *
+ * idmpExpireTime() returns the threshold: an entry with an insert_time at or
+ * before it is expired. Callers that need a stable threshold across a longer
+ * operation (e.g. serializing a whole stream) resolve it once and compare the
+ * entries against it. */
+uint64_t idmpExpireTime(stream *s);
 
 #endif

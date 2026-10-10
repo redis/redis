@@ -2790,8 +2790,13 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
     /* Emit XIDMPRECORD for each IDMP entry. Entries whose stream ID no
      * longer exists (removed by XDEL/trim) are skipped, since
      * xidmprecordCommand() rejects references to missing IDs and would
-     * cause AOF replay errors. */
+     * cause AOF replay errors. Entries outside their deduplication window
+     * are skipped as well: replaying them would resurrect a mapping that
+     * the server is about to forget, with a fresh duration on top of it.
+     * The RDB save path filters on the same condition. */
     if (s->idmp_producers) {
+        /* Resolve the expiration threshold once, like the RDB save path. */
+        uint64_t expire_time = idmpExpireTime(s);
         raxIterator ri_idmp;
         raxStart(&ri_idmp,s->idmp_producers);
         raxSeek(&ri_idmp,"^",NULL,0);
@@ -2799,6 +2804,7 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             idmpProducer *producer = ri_idmp.data;
             for (idmpEntry *entry = producer->idmp_head; entry != NULL; entry = entry->next) {
                 if (!streamEntryExists(s, &entry->id)) continue;
+                if (entry->insert_time <= expire_time) continue;
                 if (rioWriteStreamIdmpEntry(r,key,(char*)ri_idmp.key,
                                             ri_idmp.key_len,entry) == 0)
                 {
