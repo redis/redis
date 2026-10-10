@@ -39,6 +39,7 @@ int keyspaceEventsStringToFlags(char *classes) {
         case 'd': flags |= NOTIFY_MODULE; break;
         case 'a': flags |= NOTIFY_ARRAY; break;
         case 'b': flags |= NOTIFY_BLOOM; break;
+        case 'M': flags |= NOTIFY_CMS; break;
         case 'n': flags |= NOTIFY_NEW; break;
         case 'o': flags |= NOTIFY_OVERWRITTEN; break;
         case 'c': flags |= NOTIFY_TYPE_CHANGED; break;
@@ -78,6 +79,7 @@ sds keyspaceEventsFlagsToString(int flags) {
         if (flags & NOTIFY_MODULE) res = sdscatlen(res,"d",1);
         if (flags & NOTIFY_ARRAY) res = sdscatlen(res,"a",1);
         if (flags & NOTIFY_BLOOM) res = sdscatlen(res,"b",1);
+        if (flags & NOTIFY_CMS) res = sdscatlen(res,"M",1);
         if (flags & NOTIFY_NEW) res = sdscatlen(res,"n",1);
         if (flags & NOTIFY_OVERWRITTEN) res = sdscatlen(res,"o",1);
         if (flags & NOTIFY_TYPE_CHANGED) res = sdscatlen(res,"c",1);

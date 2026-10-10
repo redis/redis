@@ -1784,6 +1784,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "gcra",
 #endif
     [OBJ_BLOOM] = "bloom",
+    [OBJ_CMS] = "cms",
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2522,6 +2523,7 @@ void copyCommand(client *c) {
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
 #ifdef INCLUDE_BLOOM
         case OBJ_BLOOM: newobj = bloomDup(o); break;
+        case OBJ_CMS: newobj = cmsDup(o); break;
 #endif
         default:
             addReplyError(c, "unknown type object");

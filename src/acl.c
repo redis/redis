@@ -60,6 +60,7 @@ struct ACLCategoryItem {
     {"array", ACL_CATEGORY_ARRAY},
 #ifdef INCLUDE_BLOOM
     {"bloom", ACL_CATEGORY_BLOOM},
+    {"cms", ACL_CATEGORY_CMS},
 #endif
     {"bitmap", ACL_CATEGORY_BITMAP},
     {"hyperloglog", ACL_CATEGORY_HYPERLOGLOG},

@@ -36,6 +36,7 @@ GROUPS = {
     "bitmap": "COMMAND_GROUP_BITMAP",
     "array": "COMMAND_GROUP_ARRAY",
     "bloom": "COMMAND_GROUP_BLOOM",
+    "cms": "COMMAND_GROUP_CMS",
     "rate_limit": "COMMAND_GROUP_RATE_LIMIT",
 }
 
@@ -607,6 +608,7 @@ const char *COMMAND_GROUP_STR[] = {
     "bitmap",
     "array",
     "bloom",
+    "cms",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
@@ -621,10 +623,10 @@ const char *commandGroupStr(int index) {
 
     command_list = sorted(commands.values(), key=lambda cmd: (cmd.group, cmd.name))
     for command in command_list:
-        if command.group == "bloom":
+        if command.group in ("bloom", "cms"):
             f.write("#ifdef INCLUDE_BLOOM\n")
         command.write_internal_structs(f)
-        if command.group == "bloom":
+        if command.group in ("bloom", "cms"):
             f.write("#endif\n")
 
     f.write("/* Main command table */\n")
@@ -634,10 +636,10 @@ const char *commandGroupStr(int index) {
         if curr_group != command.group:
             curr_group = command.group
             f.write("/* %s */\n" % curr_group)
-        if command.group == "bloom":
+        if command.group in ("bloom", "cms"):
             f.write("#ifdef INCLUDE_BLOOM\n")
         f.write("{%s},\n" % command.struct_code())
-        if command.group == "bloom":
+        if command.group in ("bloom", "cms"):
             f.write("#endif\n")
     f.write("{0}\n")
     f.write("};\n")

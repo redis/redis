@@ -364,7 +364,7 @@ endif
 
 BUILD_BLOOM ?= yes
 ifeq ($(BUILD_BLOOM),yes)
-	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o
+	REDIS_BLOOM_OBJ=t_bloom.o bloom.o bloom_filter.o bloom_murmur.o bloom_rdb.o t_cms.o cms.o
 	FINAL_CFLAGS+=-DINCLUDE_BLOOM=1
 endif
 
@@ -542,6 +542,16 @@ test-modules: $(REDIS_SERVER_NAME)
 # Bloom tests are self-contained: no external modules or Python packages.
 ifeq ($(BUILD_BLOOM),yes)
 test: test-bloom
+test: test-cms
+
+cms-unit: ../tests/cms/unit.c cms.o bloom_murmur.o zmalloc.o
+	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/cms/unit.c cms.o bloom_murmur.o zmalloc.o $(FINAL_LIBS)
+
+test-cms: $(REDIS_SERVER_NAME) cms-unit
+	./cms-unit
+	$(PYTHON) ../tests/cms/run.py
+
+.PHONY: test-cms
 
 bloom-unit: ../tests/bloom/unit.c ../tests/bloom/unit_support.h bloom.o bloom_filter.o bloom_murmur.o zmalloc.o
 	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/bloom/unit.c bloom.o bloom_filter.o bloom_murmur.o zmalloc.o $(FINAL_LIBS)

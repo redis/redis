@@ -1,0 +1,59 @@
+{
+    "CMS.INCRBY": {
+        "summary": "Increases the count of one or more items by increment, which may be negative",
+        "complexity": "O(n) where n is the number of items",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "items",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "item",
+                        "type": "string"
+                    },
+                    {
+                        "name": "increment",
+                        "type": "integer"
+                    }
+                ]
+            }
+        ],
+        "since": "8.8.0",
+        "group": "cms",
+        "function": "cmsIncrbyCommand",
+        "arity": -4,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CMS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}
