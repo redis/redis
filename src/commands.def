@@ -868,6 +868,58 @@ struct COMMAND_ARG BF_ADD_Args[] = {
 
 #endif
 #ifdef INCLUDE_BLOOM
+/********** BF_CARD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BF_CARD history */
+#define BF_CARD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BF_CARD tips */
+#define BF_CARD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BF_CARD key specs */
+keySpec BF_CARD_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BF_CARD argument table */
+struct COMMAND_ARG BF_CARD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** BF_DEBUG ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BF_DEBUG history */
+#define BF_DEBUG_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BF_DEBUG tips */
+#define BF_DEBUG_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BF_DEBUG key specs */
+keySpec BF_DEBUG_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BF_DEBUG argument table */
+struct COMMAND_ARG BF_DEBUG_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
 /********** BF_EXISTS ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -891,6 +943,75 @@ keySpec BF_EXISTS_Keyspecs[1] = {
 struct COMMAND_ARG BF_EXISTS_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** BF_INFO ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BF_INFO history */
+#define BF_INFO_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BF_INFO tips */
+#define BF_INFO_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BF_INFO key specs */
+keySpec BF_INFO_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BF_INFO information argument table */
+struct COMMAND_ARG BF_INFO_information_Subargs[] = {
+{MAKE_ARG("capacity",ARG_TYPE_PURE_TOKEN,-1,"CAPACITY",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("size",ARG_TYPE_PURE_TOKEN,-1,"SIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("filters",ARG_TYPE_PURE_TOKEN,-1,"FILTERS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("items",ARG_TYPE_PURE_TOKEN,-1,"ITEMS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("expansion",ARG_TYPE_PURE_TOKEN,-1,"EXPANSION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BF_INFO argument table */
+struct COMMAND_ARG BF_INFO_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("information",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=BF_INFO_information_Subargs},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** BF_INSERT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BF_INSERT history */
+#define BF_INSERT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BF_INSERT tips */
+#define BF_INSERT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BF_INSERT key specs */
+keySpec BF_INSERT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BF_INSERT argument table */
+struct COMMAND_ARG BF_INSERT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("capacity",ARG_TYPE_INTEGER,-1,"CAPACITY",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("error",ARG_TYPE_DOUBLE,-1,"ERROR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("expansion",ARG_TYPE_INTEGER,-1,"EXPANSION",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("nocreate",ARG_TYPE_PURE_TOKEN,-1,"NOCREATE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("nonscaling",ARG_TYPE_PURE_TOKEN,-1,"NONSCALING",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("items",ARG_TYPE_PURE_TOKEN,-1,"ITEMS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 #endif
@@ -919,6 +1040,60 @@ struct COMMAND_ARG BF_LOADCHUNK_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("iterator",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("data",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** BF_MADD ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BF_MADD history */
+#define BF_MADD_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BF_MADD tips */
+#define BF_MADD_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BF_MADD key specs */
+keySpec BF_MADD_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BF_MADD argument table */
+struct COMMAND_ARG BF_MADD_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+#endif
+#ifdef INCLUDE_BLOOM
+/********** BF_MEXISTS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BF_MEXISTS history */
+#define BF_MEXISTS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BF_MEXISTS tips */
+#define BF_MEXISTS_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BF_MEXISTS key specs */
+keySpec BF_MEXISTS_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BF_MEXISTS argument table */
+struct COMMAND_ARG BF_MEXISTS_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("item",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
 };
 
 #endif
@@ -13096,10 +13271,28 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("bf.add","Add an item to a Bloom filter, creating it if needed.","O(k), where k is the number of hash functions across subfilters.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_ADD_History,0,BF_ADD_Tips,0,bfAddCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BLOOM,BF_ADD_Keyspecs,1,NULL,2),.args=BF_ADD_Args},
 #endif
 #ifdef INCLUDE_BLOOM
+{MAKE_CMD("bf.card","Returns the cardinality of a Bloom filter.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_CARD_History,0,BF_CARD_Tips,0,bfCardCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BLOOM,BF_CARD_Keyspecs,1,NULL,1),.args=BF_CARD_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("bf.debug","Returns internal Bloom filter diagnostics.","O(n), where n is the number of filters.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_DEBUG_History,0,BF_DEBUG_Tips,0,bfDebugCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BLOOM,BF_DEBUG_Keyspecs,1,NULL,1),.args=BF_DEBUG_Args},
+#endif
+#ifdef INCLUDE_BLOOM
 {MAKE_CMD("bf.exists","Test whether an item may be present in a Bloom filter.","O(k), where k is the number of hash functions across subfilters.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_EXISTS_History,0,BF_EXISTS_Tips,0,bfExistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BLOOM,BF_EXISTS_Keyspecs,1,NULL,2),.args=BF_EXISTS_Args},
 #endif
 #ifdef INCLUDE_BLOOM
+{MAKE_CMD("bf.info","Returns information about a Bloom filter.","O(n), where n is the number of filters.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_INFO_History,0,BF_INFO_Tips,0,bfInfoCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BLOOM,BF_INFO_Keyspecs,1,NULL,2),.args=BF_INFO_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("bf.insert","Adds items to a Bloom filter, optionally configuring its creation.","O(k * n), where k is the number of hash functions across filters and n is the number of items.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_INSERT_History,0,BF_INSERT_Tips,0,bfInsertCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BLOOM,BF_INSERT_Keyspecs,1,NULL,8),.args=BF_INSERT_Args},
+#endif
+#ifdef INCLUDE_BLOOM
 {MAKE_CMD("bf.loadchunk","Restore a serialized Bloom filter chunk.","O(n), where n is the chunk size.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_LOADCHUNK_History,0,BF_LOADCHUNK_Tips,0,bfLoadChunkCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BLOOM,BF_LOADCHUNK_Keyspecs,1,NULL,3),.args=BF_LOADCHUNK_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("bf.madd","Adds one or more items to a Bloom filter.","O(k * n), where k is the number of hash functions across filters and n is the number of items.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_MADD_History,0,BF_MADD_Tips,0,bfMAddCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BLOOM,BF_MADD_Keyspecs,1,NULL,2),.args=BF_MADD_Args},
+#endif
+#ifdef INCLUDE_BLOOM
+{MAKE_CMD("bf.mexists","Checks whether one or more items exist in a Bloom filter.","O(k * n), where k is the number of hash functions across filters and n is the number of items.","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_MEXISTS_History,0,BF_MEXISTS_Tips,0,bfMExistsCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BLOOM,BF_MEXISTS_Keyspecs,1,NULL,2),.args=BF_MEXISTS_Args},
 #endif
 #ifdef INCLUDE_BLOOM
 {MAKE_CMD("bf.reserve","Create a Bloom filter.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"bloom",COMMAND_GROUP_BLOOM,BF_RESERVE_History,0,BF_RESERVE_Tips,0,bfReserveCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BLOOM,BF_RESERVE_Keyspecs,1,NULL,5),.args=BF_RESERVE_Args},

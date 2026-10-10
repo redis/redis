@@ -5,6 +5,7 @@
 #include "server.h"
 #include "bloom.h"
 #include <math.h>
+#include <inttypes.h>
 
 int bloomValidateErrorRate(char *value, const char **err) {
     double rate;
@@ -139,36 +140,108 @@ void bfReserveCommand(client *c) {
     addReply(c, shared.ok);
 }
 
-void bfAddCommand(client *c) {
+typedef struct {
+    long long capacity, expansion;
+    double error;
+    int autocreate, nonscaling;
+} bloomInsertOptions;
+
+static bloomInsertOptions bloomDefaults(void) {
+    bloomInsertOptions options = {
+        .capacity = server.bloom_capacity,
+        .expansion = server.bloom_expansion,
+        .autocreate = 1,
+        .nonscaling = server.bloom_expansion == 0,
+    };
+    string2d(server.bloom_error_rate, sdslen(server.bloom_error_rate), &options.error);
+    if (options.error > 0.25) options.error = 0.25;
+    return options;
+}
+
+static int bloomArgEquals(robj *arg, const char *name) {
+    return sdslen(arg->ptr) == strlen(name) && !strcasecmp(arg->ptr, name);
+}
+
+static void bloomInsert(client *c, int first, int multi, const bloomInsertOptions *options) {
     robj *o = lookupKeyWrite(c->db, c->argv[1]);
     if (o && checkType(c, o, OBJ_BLOOM)) return;
     int created = o == NULL;
     if (!o) {
-        double error = 0.01;
-        string2d(server.bloom_error_rate, sdslen(server.bloom_error_rate), &error);
-        if (error > 0.25) error = 0.25;
-        unsigned options = BLOOM_OPT_FORCE64 | BLOOM_OPT_NOROUND;
-        if (!server.bloom_expansion) options |= BLOOM_OPT_NO_SCALING;
+        if (!options->autocreate) { addReplyError(c, "not found"); return; }
+        unsigned flags = BLOOM_OPT_FORCE64 | BLOOM_OPT_NOROUND;
+        if (options->nonscaling) flags |= BLOOM_OPT_NO_SCALING;
         int rc;
-        SBChain *chain = SB_NewChain(server.bloom_capacity, error, options, server.bloom_expansion, &rc);
-        if (!chain) { addReplyError(c, "could not create filter"); return; }
+        SBChain *chain = SB_NewChain(options->capacity, options->error, flags, options->expansion, &rc);
+        if (!chain) {
+            addReplyError(c, rc == SB_OOM ? "Insufficient memory to create filter" : "could not create filter");
+            return;
+        }
         o = createBloomObject(chain);
+        dbAdd(c->db, c->argv[1], &o);
     }
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     size_t oldcount = bloomObjectLength(o);
-    int result = SBChain_Add(o->ptr, c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
-    if (result < 0) {
-        if (created) decrRefCount(o);
-        addReplyError(c, result == SB_FULL ? "non scaling filter is full" : "problem inserting into filter");
-        return;
+    void *arraylen = multi ? addReplyDeferredLen(c) : NULL;
+    int replies = 0, modified = created;
+    for (int i = first; i < c->argc; i++) {
+        int result = SBChain_Add(o->ptr, c->argv[i]->ptr, sdslen(c->argv[i]->ptr));
+        replies++;
+        if (result < 0) {
+            addReplyError(c, result == SB_FULL ? "non scaling filter is full" : "problem inserting into filter");
+            /* RedisBloom stops at the first full-filter error, retaining the prefix. */
+            if (result == SB_FULL) break;
+        } else {
+            modified |= result;
+            bloomReplyBool(c, result);
+        }
     }
-    if (created) {
-        dbAdd(c->db, c->argv[1], &o);
-        oldsize = server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
-        oldcount = bloomObjectLength(o);
+    if (multi) setDeferredArrayLen(c, arraylen, replies);
+    if (modified) bloomModified(c, o, c->cmd->fullname, oldsize, oldcount);
+}
+
+void bfAddCommand(client *c) {
+    bloomInsertOptions options = bloomDefaults();
+    bloomInsert(c, 2, 0, &options);
+}
+
+void bfMAddCommand(client *c) {
+    bloomInsertOptions options = bloomDefaults();
+    bloomInsert(c, 2, 1, &options);
+}
+
+void bfInsertCommand(client *c) {
+    bloomInsertOptions options = bloomDefaults();
+    int i;
+    for (i = 2; i < c->argc; i++) {
+        if (bloomArgEquals(c->argv[i], "ITEMS")) { i++; break; }
+        if (bloomArgEquals(c->argv[i], "NOCREATE")) options.autocreate = 0;
+        else if (bloomArgEquals(c->argv[i], "NONSCALING")) options.nonscaling = 1;
+        else if (bloomArgEquals(c->argv[i], "ERROR")) {
+            if (++i == c->argc) { addReplyErrorArity(c); return; }
+            if (getDoubleFromObjectOrReply(c, c->argv[i], &options.error, "Bad error rate") != C_OK) return;
+            if (!isfinite(options.error) || options.error <= 0 || options.error >= 1) {
+                addReplyError(c, "Bad error rate"); return;
+            }
+            if (options.error > 0.25) options.error = 0.25;
+        } else if (bloomArgEquals(c->argv[i], "CAPACITY")) {
+            if (++i == c->argc) { addReplyErrorArity(c); return; }
+            if (getLongLongFromObjectOrReply(c, c->argv[i], &options.capacity, "Bad capacity") != C_OK) return;
+            if (options.capacity < 1 || options.capacity > (1LL << 30)) {
+                addReplyError(c, "Bad capacity"); return;
+            }
+        } else if (bloomArgEquals(c->argv[i], "EXPANSION")) {
+            if (++i == c->argc) { addReplyErrorArity(c); return; }
+            if (getLongLongFromObjectOrReply(c, c->argv[i], &options.expansion, "Bad expansion") != C_OK) return;
+            if (options.expansion < 0 || options.expansion > 32768) {
+                addReplyError(c, "Bad expansion"); return;
+            }
+        } else {
+            addReplyError(c, "Unknown argument received"); return;
+        }
     }
-    if (result) bloomModified(c, o, "bf.add", oldsize, oldcount);
-    bloomReplyBool(c, result);
+    if (i >= c->argc) { addReplyErrorArity(c); return; }
+    if (!options.expansion) options.nonscaling = 1;
+    bloomInsert(c, i, 1, &options);
 }
 
 void bfExistsCommand(client *c) {
@@ -176,6 +249,71 @@ void bfExistsCommand(client *c) {
     /* Preserve RedisBloom's false reply for keys of other types. */
     int found = o && o->type == OBJ_BLOOM && SBChain_Check(o->ptr, c->argv[2]->ptr, sdslen(c->argv[2]->ptr));
     bloomReplyBool(c, found);
+}
+
+void bfMExistsCommand(client *c) {
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    addReplyArrayLen(c, c->argc - 2);
+    for (int i = 2; i < c->argc; i++)
+        bloomReplyBool(c, o && o->type == OBJ_BLOOM &&
+            SBChain_Check(o->ptr, c->argv[i]->ptr, sdslen(c->argv[i]->ptr)));
+}
+
+void bfCardCommand(client *c) {
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    if (!o) { addReplyLongLong(c, 0); return; }
+    if (checkType(c, o, OBJ_BLOOM)) return;
+    addReplyLongLong(c, bloomObjectLength(o));
+}
+
+void bfInfoCommand(client *c) {
+    if (c->argc > 3) { addReplyErrorArity(c); return; }
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    if (!o) { addReplyError(c, "not found"); return; }
+    if (checkType(c, o, OBJ_BLOOM)) return;
+    SBChain *chain = o->ptr;
+    const char *options[] = {"CAPACITY", "SIZE", "FILTERS", "ITEMS", "EXPANSION"};
+    const char *labels[] = {"Capacity", "Size", "Number of filters", "Number of items inserted", "Expansion rate"};
+    uint64_t capacity = 0, bytes = sizeof(*chain) + sizeof(SBLink) * chain->nfilters;
+    for (size_t i = 0; i < chain->nfilters; i++) {
+        capacity += chain->filters[i].inner.entries;
+        bytes += chain->filters[i].inner.bytes;
+    }
+    uint64_t values[] = {capacity, bytes, chain->nfilters, chain->size, chain->growth};
+    int first = 0, end = 5;
+    if (c->argc == 3) {
+        while (first < 5 && !bloomArgEquals(c->argv[2], options[first])) first++;
+        if (first == 5) { addReplyError(c, "Invalid information value"); return; }
+        end = first + 1;
+    }
+    if (c->resp == 3) addReplyMapLen(c, end - first);
+    else addReplyArrayLen(c, c->argc == 3 ? 1 : 10);
+    for (int i = first; i < end; i++) {
+        if (c->resp == 3 || c->argc == 2) addReplyStatus(c, labels[i]);
+        if (i == 4 && (chain->options & BLOOM_OPT_NO_SCALING)) addReplyNull(c);
+        else addReplyLongLong(c, values[i]);
+    }
+}
+
+void bfDebugCommand(client *c) {
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    if (!o) { addReplyError(c, "not found"); return; }
+    if (checkType(c, o, OBJ_BLOOM)) return;
+    SBChain *chain = o->ptr;
+    addReplyArrayLen(c, chain->nfilters + 1);
+    char info[256];
+    int len = snprintf(info, sizeof(info), "size:%zu", chain->size);
+    addReplyBulkCBuffer(c, info, len);
+    for (size_t i = 0; i < chain->nfilters; i++) {
+        SBLink *link = &chain->filters[i];
+        len = snprintf(info, sizeof(info),
+            "bytes:%" PRIu64 " bits:%" PRIu64 " hashes:%u hashwidth:%u capacity:%" PRIu64
+            " size:%zu ratio:%g", link->inner.bytes,
+            link->inner.bits ? link->inner.bits : UINT64_C(1) << link->inner.n2,
+            link->inner.hashes, chain->options & BLOOM_OPT_FORCE64 ? 64 : 32,
+            link->inner.entries, link->size, link->inner.error);
+        addReplyBulkCBuffer(c, info, len);
+    }
 }
 
 void bfScanDumpCommand(client *c) {
@@ -209,13 +347,13 @@ void bfLoadChunkCommand(client *c) {
     if (!o) {
         if (iter != 1) { addReplyError(c, "not found"); return; }
         SBChain *chain = SB_NewChainFromHeader(c->argv[3]->ptr, sdslen(c->argv[3]->ptr), &error);
-        if (!chain) { addReplyError(c, error); return; }
+        if (!chain) { addReplyError(c, !strncmp(error, "ERR ", 4) ? error + 4 : error); return; }
         o = createBloomObject(chain);
         dbAdd(c->db, c->argv[1], &o);
     } else {
         if (iter == 1) { addReplyError(c, "item exists"); return; }
         if (SBChain_LoadEncodedChunk(o->ptr, iter, c->argv[3]->ptr, sdslen(c->argv[3]->ptr), &error)) {
-            addReplyError(c, error); return;
+            addReplyError(c, !strncmp(error, "ERR ", 4) ? error + 4 : error); return;
         }
     }
     bloomModified(c, o, "bf.loadchunk", server.memory_tracking_enabled ? kvobjAllocSize(o) : 0, bloomObjectLength(o));

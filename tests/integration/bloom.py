@@ -37,13 +37,17 @@ class Client:
         self.stream.close()
         self.socket.close()
 
-    def read(self):
+    def read(self, raise_errors=True):
         line = self.stream.readline()
         if not line:
             raise EOFError("Redis closed connection")
         kind, value = line[:1], line[1:-2]
         if kind == b"-":
-            raise RedisError(value.decode())
+            message = value.decode()
+            error = RedisError(message[4:] if message.startswith("ERR ") else message)
+            if raise_errors:
+                raise error
+            return error
         if kind == b"+":
             return value
         if kind == b":":
@@ -62,7 +66,7 @@ class Client:
         if kind == b"*":
             if int(value) == -1:
                 return None
-            return [self.read() for _ in range(int(value))]
+            return [self.read(False) for _ in range(int(value))]
         if kind == b"%":
             return {self.read(): self.read() for _ in range(int(value))}
         raise AssertionError(f"Unsupported response: {line!r}")
@@ -109,6 +113,12 @@ class Server:
                 return
             except (OSError, EOFError):
                 time.sleep(0.025)
+            except RedisError as error:
+                self.client.close()
+                self.client = None
+                if not str(error).startswith("LOADING"):
+                    raise
+                time.sleep(0.025)
         raise AssertionError("Redis startup timed out")
 
     def stop(self):
@@ -117,6 +127,8 @@ class Server:
                 self.client.command("SHUTDOWN", "NOSAVE")
             except (EOFError, OSError):
                 pass
+            except RedisError:
+                self.process.terminate()
             self.process.wait(timeout=10)
         if self.client:
             self.client.close()
@@ -309,9 +321,12 @@ class BloomTests(unittest.TestCase):
             else:
                 self.fail("Replica synchronization timed out")
             primary.client.command("BF.ADD", "bf", "after-sync")
+            primary.client.command("BF.MADD", "bf", "multi-one", "multi-two")
+            primary.client.command("BF.INSERT", "inserted", "CAPACITY", 2, "ITEMS", "x", "y", "z")
             self.assertEqual(1, primary.client.command("WAIT", 1, 5000))
-            for item in ("before-sync", "after-sync"):
+            for item in ("before-sync", "after-sync", "multi-one", "multi-two"):
                 self.assertEqual(1, replica.client.command("BF.EXISTS", "bf", item))
+            self.assertEqual([1, 1, 1], replica.client.command("BF.MEXISTS", "inserted", "x", "y", "z"))
         finally:
             replica.close()
             primary.close()

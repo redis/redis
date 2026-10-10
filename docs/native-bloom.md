@@ -1,6 +1,6 @@
 # Native Bloom filter migration
 
-This experimental, opt-in slice makes Bloom a native Redis object (`OBJ_BLOOM`),
+This experimental, opt-in implementation makes Bloom a native Redis object (`OBJ_BLOOM`),
 without module APIs or additional build dependencies. It is not yet a replacement
 for the complete RedisBloom module.
 
@@ -12,6 +12,7 @@ for the complete RedisBloom module.
 - `src/bloom_rdb.c`: persistence and compatibility with RedisBloom.
 - `src/commands/bf.*.json`: native command metadata.
 - `tests/integration/bloom.py`: dependency-free Python regression tests.
+- `tests/bloom/`: migrated Bloom unit and flow tests; see its README for provenance.
 
 Keeping commands separate from algorithms allows future core consumers to reuse
 the implementation without invoking commands or the module API. File placement
@@ -22,7 +23,7 @@ does not change ownership: the data types team can maintain this code in `src/`.
 ```sh
 make -C src -j4 redis-server redis-cli BUILD_BLOOM=yes
 ./src/redis-server
-python3 tests/integration/bloom.py
+make -C src test-bloom BUILD_BLOOM=yes
 ```
 
 Bloom is disabled by default. Only the Redis C toolchain and bundled dependencies
@@ -32,11 +33,17 @@ In particular, do not use a configuration that loads `redisbloom.so`.
 
 ## Supported surface and compatibility
 
-The first slice supports `BF.RESERVE`, `BF.ADD`, `BF.EXISTS`, `BF.SCANDUMP`, and
-`BF.LOADCHUNK`, plus `bf-initial-size`, `bf-error-rate`, and `bf-expansion-factor`.
+All eleven Bloom commands are supported: `BF.RESERVE`, `BF.ADD`, `BF.MADD`,
+`BF.INSERT`, `BF.EXISTS`, `BF.MEXISTS`, `BF.INFO`, `BF.CARD`, `BF.DEBUG`,
+`BF.SCANDUMP`, and `BF.LOADCHUNK`, plus `bf-initial-size`, `bf-error-rate`, and
+`bf-expansion-factor`. Other RedisBloom datatypes are not included.
 It preserves hashing, scaling, chunk format, and RESP2/RESP3 replies. `TYPE` now
 returns `bloom`; `SCAN TYPE bloom`, COPY, expiry, memory accounting, lazy freeing,
 digest, ACLs, notifications, and normal command propagation use core integration.
+Multi-item writes preserve partial results on a full non-scaling filter.
+`BF.INFO SIZE` retains the portable logical size used by RedisBloom, while
+`MEMORY USAGE` reports native allocator accounting. `BF.INSERT` requires complete,
+binary-safe option names rather than upstream's undocumented prefix matching.
 
 RDB deliberately retains the `MBbloom--` module wire ID and encoding version 4
 for bidirectional migration, despite using a native object in memory. The loader
@@ -49,8 +56,8 @@ DUMP/RESTORE. `REDIS_SERVER` overrides the tested executable.
 
 ## Remaining work
 
-Complete the remaining BF commands, historical fixtures, and broader CI coverage
-before enabling this by default. Defragmentation hooks need jemalloc validation;
+Complete historical fixtures and broader CI coverage before enabling this by
+default. Defragmentation hooks need jemalloc validation;
 large-chain incremental defragmentation remains follow-up work.
 
 Algorithms derive from RedisBloom v8.11.81. The filter retains its BSD notice and

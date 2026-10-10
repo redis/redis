@@ -517,6 +517,7 @@ endif
 commands.c: $(COMMANDS_DEF_FILENAME).def
 
 clean:
+	rm -f bloom-unit bloom-perf
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep *.so
 	rm -f $(DEP)
 	-(cd ../tests/modules && $(MAKE) clean)
@@ -536,6 +537,26 @@ test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BEN
 
 test-modules: $(REDIS_SERVER_NAME)
 	@(cd ..; ./runtest-moduleapi)
+
+# Bloom tests are self-contained: no external modules or Python packages.
+ifeq ($(BUILD_BLOOM),yes)
+test: test-bloom
+
+bloom-unit: ../tests/bloom/unit.c ../tests/bloom/unit_support.h bloom.o bloom_filter.o bloom_murmur.o zmalloc.o
+	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/bloom/unit.c bloom.o bloom_filter.o bloom_murmur.o zmalloc.o $(FINAL_LIBS)
+
+bloom-perf: ../tests/bloom/perf.c bloom.o bloom_filter.o bloom_murmur.o zmalloc.o
+	$(REDIS_CC) $(FINAL_LDFLAGS) -I. -o $@ ../tests/bloom/perf.c bloom.o bloom_filter.o bloom_murmur.o zmalloc.o $(FINAL_LIBS)
+
+test-bloom: $(REDIS_SERVER_NAME) bloom-unit
+	./bloom-unit
+	$(PYTHON) ../tests/bloom/run.py
+else
+test-bloom:
+	@echo 'Bloom tests require BUILD_BLOOM=yes'; exit 1
+endif
+
+.PHONY: test-bloom
 
 test-sentinel: $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME)
 	@(cd ..; ./runtest-sentinel)
