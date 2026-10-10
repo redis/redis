@@ -847,6 +847,12 @@ int processClientsFromMainThread(IOThread *t) {
 void IOThreadBeforeSleep(struct aeEventLoop *el) {
     IOThread *t = el->privdata[0];
 
+    /* Maintain this thread's pending command pool, since serverCron only gets to
+     * the main thread's. Sampled rarely, as we reach beforeSleep on every event
+     * loop pass and the pool needs time to drain between samples. */
+    static __thread unsigned int pool_cron_calls = 0;
+    if ((++pool_cron_calls & 0x3ff) == 0) pendingCommandPoolCron();
+
     /* Handle pending data(typical TLS). */
     connTypeProcessPendingData(el);
     /* Drain any buffered decompressed replication data (see client_comp.c). */
