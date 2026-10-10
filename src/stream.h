@@ -33,6 +33,10 @@ typedef struct idmpProducer {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
+/* Epoch of a stream or group never counted into the INFO Streams histograms.
+ * A db's epoch starts at 0 and never reaches this value. */
+#define STREAM_DISTRIB_NEVER_COUNTED UINT32_MAX
+
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -45,6 +49,8 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
+    uint8_t distrib_counted; /* INFO Streams: bit per metric with a sample. */
+    uint32_t distrib_epoch;  /* INFO Streams: generation of the bits above. */
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
     rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
@@ -219,11 +225,16 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 int streamDeleteItem(stream *s, streamID *id);
 void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
 long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
-int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
-int64_t streamTrimByID(stream *s, streamID minid, int approx);
+int64_t streamTrimByLength(redisDb *db, stream *s, long long maxlen, int approx);
+int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx);
 int streamEntryExists(stream *s, streamID *id);
 void streamKeyLoaded(redisDb *db, robj *key, robj *val);
 void streamKeyRemoved(redisDb *db, robj *key, robj *val);
+void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch);
+extern const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX];
+void streamStatsResetMeta(kvstoreMetadata *meta);
+void streamStatsRebuild(void);
+void dbgAssertStreamStats(redisDb *db);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 

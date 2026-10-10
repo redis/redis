@@ -1284,10 +1284,28 @@ enum {
 };
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
+/* INFO Streams histogram rows, one per metric, named stream_distrib_<unit>_
+ * <property>. Per-stream metrics come first, per-group metrics last. */
+typedef enum {
+    /* Per-stream metrics: one sample per stream key. */
+    STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
+    /* Per-group metrics: one sample per consumer group. Keep these last. */
+    STREAM_DISTRIB_CGROUPS_PEL,         /* stream_distrib_cgroups_pel */
+    STREAM_DISTRIB_CGROUPS_CONSUMERS,   /* stream_distrib_cgroups_consumers */
+    STREAM_DISTRIB_MAX
+} streamDistribMetric;
+/* Same bins as keysizesHist, and plain storage like it: zeroing resets it. */
+typedef int64_t streamStatsHist[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS];
+
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
 typedef struct {
     keysizesHist keysizes_hist;
     keysizesHist allocsizes_hist;
+    streamStatsHist stream_hist;   /* INFO Streams: one row per metric. */
+    uint32_t keysizes_stats_epoch; /* Bumped on an in-place empty; a pending
+                                      slot-trim delta is then discarded. */
+    uint32_t stream_stats_epoch;   /* Bumped on each reset of stream_hist; a
+                                      stamp counts only while it matches. */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -2627,6 +2645,8 @@ struct redisServer {
     /* Stream IDMP parameters */
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
+    int stream_stats;                   /* Enable stream stats for INFO Streams section. */
+    int stream_stats_needs_reset;       /* Streams changed while stream_stats was off. */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */
@@ -2755,6 +2775,7 @@ struct redisServer {
 /* Debug assertion flags for server.dbg_assert_flags */
 #define DBG_ASSERT_KEYSIZES    (1 << 0) /* Assert keysizes histogram */
 #define DBG_ASSERT_ALLOC_SLOT  (1 << 1) /* Assert per-slot alloc_size */
+#define DBG_ASSERT_STREAM_STATS (1 << 2) /* Assert INFO Streams histograms */
 
 /* we use 6 so that all getKeyResult fits a cacheline */
 #define MAX_KEYS_BUFFER 6
