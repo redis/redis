@@ -1,7 +1,7 @@
 {
     "CF.COMPACT": {
-        "summary": "Inspect Cuckoo filter internals.",
-        "complexity": "O(1)",
+        "summary": "Compacts a Cuckoo Filter by moving items into earlier sub-filters",
+        "complexity": "O(n * k), where n is the total number of slots and k is the number of sub-filters",
         "arguments": [
             {
                 "name": "key",
