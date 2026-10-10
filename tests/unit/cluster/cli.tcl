@@ -21,6 +21,23 @@ tags {tls:skip external:skip cluster} {
 # start three servers
 set base_conf [list cluster-enabled yes cluster-node-timeout 1000]
 start_multiple_servers 3 [list overrides $base_conf] {
+    test {Cluster create fails when the cluster bus is unreachable} {
+        # Announce a bus port that none of the nodes is listening on.
+        R 0 config set cluster-announce-bus-port 1
+        set failed [catch {
+            exec src/redis-cli --cluster-yes --cluster create \
+                127.0.0.1:[srv 0 port] \
+                127.0.0.1:[srv -1 port] \
+                127.0.0.1:[srv -2 port] \
+                --cluster-timeout 2000 2>@1
+        } output]
+        assert_equal 1 $failed
+        assert_match {*Cluster join timed out after 2000 ms*} $output
+        assert_match {*cluster bus ports are reachable*} $output
+    }
+}
+
+start_multiple_servers 3 [list overrides $base_conf] {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
