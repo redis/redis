@@ -112,9 +112,38 @@ void dictSetHashFunctionSeed(uint8_t *seed) {
 
 uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
+#if defined(__x86_64__) || defined(__i386__)
+void siphash_x8(const uint8_t *const in[8], const size_t inlen[8],
+                const uint8_t *k, uint64_t out[8]);
+#endif
 
 uint64_t dictGenHashFunction(const void *key, size_t len) {
     return siphash(key, len, dict_hash_function_seed);
+}
+
+/* Batch variant of dictGenHashFunction(): fills out[i] with the hash of the
+ * key at keys[i] of length lens[i]. On AMD Zen 5 / any AVX-512F CPU this uses
+ * the 8-wide lane-parallel SipHash (siphash_x8), processing the batch in groups
+ * of eight and the remainder scalar; otherwise it falls back to the scalar
+ * path. Results are identical to calling dictGenHashFunction() per key. */
+void dictGenHashFunctionBatch(const void **keys, const size_t *lens,
+                              uint64_t *out, unsigned int n) {
+#if defined(__x86_64__) || defined(__i386__)
+    static int have_avx512 = -1;
+    if (have_avx512 < 0)
+        have_avx512 = __builtin_cpu_supports("avx512f") ? 1 : 0;
+    if (have_avx512) {
+        unsigned int i = 0;
+        for (; i + 8 <= n; i += 8)
+            siphash_x8((const uint8_t *const *)&keys[i], &lens[i],
+                       dict_hash_function_seed, &out[i]);
+        for (; i < n; i++)
+            out[i] = siphash(keys[i], lens[i], dict_hash_function_seed);
+        return;
+    }
+#endif
+    for (unsigned int i = 0; i < n; i++)
+        out[i] = siphash(keys[i], lens[i], dict_hash_function_seed);
 }
 
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
