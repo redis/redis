@@ -2055,6 +2055,101 @@ start_server {
         }
     }
 
+    start_server {tags {"repl external:skip" "stream"}} {
+        # XCLAIM and XAUTOCLAIM create the consumer even when they claim no
+        # entry. The XCLAIM generated for a claimed entry implicitly creates
+        # the consumer on the replica, so explicit propagation is needed only
+        # when no entry is claimed, and only for a consumer that is new.
+        test "XCLAIM and XAUTOCLAIM propagate a new consumer that claims no entry" {
+            r DEL mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+            r XGROUP CREATE mystream grp 0
+            r XREADGROUP GROUP grp c0 STREAMS mystream >
+
+            set repl [attach_to_replication_stream]
+
+            # New consumers that claim nothing since no entry is idle for
+            # that long, then the same consumers again.
+            assert_equal {} [r XCLAIM mystream grp c1 3600000 1-0]
+            assert_equal {} [r XCLAIM mystream grp c1 3600000 1-0]
+            assert_equal {0-0 {} {}} [r XAUTOCLAIM mystream grp c2 3600000 0]
+            assert_equal {0-0 {} {}} [r XAUTOCLAIM mystream grp c2 3600000 0]
+
+            # New consumers that claim an entry.
+            assert_equal {1-0} [r XCLAIM mystream grp c3 0 1-0 JUSTID]
+            assert_equal {2-0 1-0 {}} [r XAUTOCLAIM mystream grp c4 0 0 COUNT 1 JUSTID]
+
+            # New consumers that only drop a deleted entry from the PEL: the
+            # XCLAIM generated for it names the previous owner of the entry.
+            r XDEL mystream 1-0 2-0
+            assert_equal {} [r XCLAIM mystream grp c5 0 1-0]
+            assert_equal {0-0 {} 2-0} [r XAUTOCLAIM mystream grp c6 0 0]
+
+            assert_replication_stream $repl {
+                {select *}
+                {xgroup CREATECONSUMER mystream grp c1}
+                {xgroup CREATECONSUMER mystream grp c2}
+                {xclaim mystream grp c3 0 1-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xclaim mystream grp c4 0 1-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xdel mystream 1-0 2-0}
+                {multi}
+                {xclaim mystream grp c4 0 1-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xgroup CREATECONSUMER mystream grp c5}
+                {exec}
+                {multi}
+                {xclaim mystream grp c0 0 2-0 TIME * RETRYCOUNT 1 FORCE JUSTID LASTID 2-0}
+                {xgroup CREATECONSUMER mystream grp c6}
+                {exec}
+            }
+            close_replication_stream $repl
+        }
+
+        # Same as above, as seen from a replica. Two cases are tested:
+        #   1. Nothing is pending, so nothing else is propagated.
+        #   2. The pending entries were deleted, so an XCLAIM that names
+        #      their previous owner is propagated.
+        test "XCLAIM and XAUTOCLAIM propagate new consumer to replica" {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            start_server {tags {"stream"}} {
+                set replica [srv 0 client]
+
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+
+                $master DEL mystream
+                $master XADD mystream 1-0 f v
+                $master XADD mystream 2-0 f v
+                $master XGROUP CREATE mystream grp 0
+
+                # Case 1: nothing is pending.
+                assert_equal {} [$master XCLAIM mystream grp c1 0 1-0]
+                assert_equal {0-0 {} {}} [$master XAUTOCLAIM mystream grp c2 0 0]
+
+                wait_for_ofs_sync $master $replica
+
+                set replica_consumers [$replica XINFO CONSUMERS mystream grp]
+                set replica_names [lmap c $replica_consumers {dict get $c name}]
+                assert_equal [lsort $replica_names] {c1 c2}
+
+                # Case 2: both entries are pending for c0, and deleted.
+                $master XREADGROUP GROUP grp c0 STREAMS mystream >
+                $master XDEL mystream 1-0 2-0
+                assert_equal {} [$master XCLAIM mystream grp c3 0 1-0]
+                assert_equal {0-0 {} 2-0} [$master XAUTOCLAIM mystream grp c4 0 0]
+
+                wait_for_ofs_sync $master $replica
+
+                set replica_consumers [$replica XINFO CONSUMERS mystream grp]
+                set replica_names [lmap c $replica_consumers {dict get $c name}]
+                assert_equal [lsort $replica_names] {c0 c1 c2 c3 c4}
+            }
+        }
+    }
+
     start_server {} {
         if {!$::force_resp3} {
         test "XREADGROUP CLAIM field types are correct" {
