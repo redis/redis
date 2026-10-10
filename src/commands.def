@@ -14507,7 +14507,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("cf.addnx","Adds an item to a Cuckoo Filter if the item did not exist previously.","O(k + i), where k is the number of sub-filters and i is maxIterations","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_ADDNX_History,0,CF_ADDNX_Tips,0,cfInsertCommand,3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_ADDNX_Keyspecs,1,NULL,2),.args=CF_ADDNX_Args},
 #endif
 #ifdef INCLUDE_BLOOM
-{MAKE_CMD("cf.compact","Inspect Cuckoo filter internals.","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_COMPACT_History,0,CF_COMPACT_Tips,0,cfCompactCommand,2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_COMPACT_Keyspecs,1,NULL,1),.args=CF_COMPACT_Args},
+{MAKE_CMD("cf.compact","Compacts a Cuckoo Filter by moving items into earlier sub-filters","O(n * k), where n is the total number of slots and k is the number of sub-filters","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_COMPACT_History,0,CF_COMPACT_Tips,0,cfCompactCommand,2,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_CUCKOO,CF_COMPACT_Keyspecs,1,NULL,1),.args=CF_COMPACT_Args},
 #endif
 #ifdef INCLUDE_BLOOM
 {MAKE_CMD("cf.count","Return the number of times an item might be in a Cuckoo Filter","O(k), where k is the number of sub-filters","8.8.0",CMD_DOC_NONE,NULL,NULL,"cuckoo",COMMAND_GROUP_CUCKOO,CF_COUNT_History,0,CF_COUNT_Tips,0,cfCheckCommand,3,CMD_READONLY,ACL_CATEGORY_CUCKOO,CF_COUNT_Keyspecs,1,NULL,2),.args=CF_COUNT_Args},
