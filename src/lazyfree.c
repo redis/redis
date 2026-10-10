@@ -226,7 +226,7 @@ static void protectClientReplyObjects(void) {
     /* Pause all IO threads to safely duplicate string objects. */
     int allpaused = 0;
     if (server.io_threads_num > 1) {
-        serverAssert(pthread_equal(server.main_thread_id, pthread_self()));
+        serverAssert(pthread_equal(server.main_thread_id, pthread_self()) || moduleThreadHoldsGIL());
         allpaused = 1;
         pauseAllIOThreads();
     }
