@@ -783,6 +783,212 @@ start_server {tags {"expire"}} {
         assert_equal [r EXPIRE none 100 LT] 0
     } {}
 
+    # === IFEQ / IFNE / IFDEQ / IFDNE value condition tests ===
+
+    test {PEXPIRE IFEQ with matching value sets TTL} {
+        r SET lock:1 "my-token"
+        assert_equal [r PEXPIRE lock:1 30000 IFEQ "my-token"] 1
+        assert_range [r PTTL lock:1] 20000 30000
+    } {}
+
+    test {PEXPIRE IFEQ with mismatching value does not set TTL} {
+        r SET lock:2 "my-token"
+        assert_equal [r PEXPIRE lock:2 30000 IFEQ "wrong-token"] 0
+        assert_equal [r PTTL lock:2] -1
+    } {}
+
+    test {PEXPIRE IFNE with mismatching value sets TTL} {
+        r SET lock:3 "my-token"
+        assert_equal [r PEXPIRE lock:3 30000 IFNE "wrong-token"] 1
+        assert_range [r PTTL lock:3] 20000 30000
+    } {}
+
+    test {PEXPIRE IFNE with matching value does not set TTL} {
+        r SET lock:4 "my-token"
+        assert_equal [r PEXPIRE lock:4 30000 IFNE "my-token"] 0
+        assert_equal [r PTTL lock:4] -1
+    } {}
+
+    test {PEXPIRE IFDEQ with matching digest sets TTL} {
+        r SET cache:1 "some-cache-value"
+        set digest [r DIGEST cache:1]
+        assert_equal [r PEXPIRE cache:1 60000 IFDEQ $digest] 1
+        assert_range [r PTTL cache:1] 50000 60000
+    } {}
+
+    test {PEXPIRE IFDEQ with mismatching digest does not set TTL} {
+        r SET cache:2 "some-cache-value"
+        assert_equal [r PEXPIRE cache:2 60000 IFDEQ "0000000000000000"] 0
+        assert_equal [r PTTL cache:2] -1
+    } {}
+
+    test {PEXPIRE IFDNE with mismatching digest sets TTL} {
+        r SET cache:3 "some-cache-value"
+        assert_equal [r PEXPIRE cache:3 60000 IFDNE "0000000000000000"] 1
+        assert_range [r PTTL cache:3] 50000 60000
+    } {}
+
+    test {PEXPIRE IFDNE with matching digest does not set TTL} {
+        r SET cache:4 "some-cache-value"
+        set digest [r DIGEST cache:4]
+        assert_equal [r PEXPIRE cache:4 60000 IFDNE $digest] 0
+        assert_equal [r PTTL cache:4] -1
+    } {}
+
+    test {EXPIRE IFEQ with matching value sets TTL} {
+        r SET lock:5 "token"
+        assert_equal [r EXPIRE lock:5 30 IFEQ "token"] 1
+        assert_range [r TTL lock:5] 20 30
+    } {}
+
+    test {EXPIREAT IFEQ with matching value sets TTL} {
+        r SET lock:6 "token"
+        set ts [expr [clock seconds] + 30]
+        assert_equal [r EXPIREAT lock:6 $ts IFEQ "token"] 1
+        assert_range [r TTL lock:6] 20 30
+    } {}
+
+    test {PEXPIREAT IFEQ with matching value sets TTL} {
+        r SET lock:7 "token"
+        set ts [expr [clock milliseconds] + 30000]
+        assert_equal [r PEXPIREAT lock:7 $ts IFEQ "token"] 1
+        assert_range [r PTTL lock:7] 20000 30000
+    } {}
+
+    test {PEXPIRE IFEQ on non-string type returns error} {
+        r DEL hash:1
+        r HSET hash:1 field1 val1
+        catch {r PEXPIRE hash:1 30000 IFEQ "val1"} e
+        set e
+    } {ERR Value conditions*}
+
+    test {PEXPIRE IFEQ on non-existent key returns 0} {
+        r DEL nonexistent
+        assert_equal [r PEXPIRE nonexistent 30000 IFEQ "anything"] 0
+    } {}
+
+    test {PEXPIRE IFEQ on lazily expired key returns 0} {
+        r SET lock:lazy "token" PX 1
+        wait_for_condition 50 100 {
+            [r GET lock:lazy] eq {}
+        } else {
+            fail "Key did not expire"
+        }
+        assert_equal [r PEXPIRE lock:lazy 30000 IFEQ "token"] 0
+    } {}
+
+    test {PEXPIRE IFEQ with NX - value matches, no existing TTL} {
+        r SET lock:8 "token"
+        assert_equal [r PEXPIRE lock:8 30000 NX IFEQ "token"] 1
+        assert_range [r PTTL lock:8] 20000 30000
+    } {}
+
+    test {PEXPIRE IFEQ with NX - value matches, existing TTL} {
+        r SET lock:9 "token" PX 5000
+        assert_equal [r PEXPIRE lock:9 30000 NX IFEQ "token"] 0
+        assert_range [r PTTL lock:9] 1 5000
+    } {}
+
+    test {PEXPIRE IFEQ with XX - value matches, existing TTL} {
+        r SET lock:10 "token" PX 5000
+        assert_equal [r PEXPIRE lock:10 30000 XX IFEQ "token"] 1
+        assert_range [r PTTL lock:10] 20000 30000
+    } {}
+
+    test {PEXPIRE IFEQ with XX - value matches, no existing TTL} {
+        r SET lock:11 "token"
+        assert_equal [r PEXPIRE lock:11 30000 XX IFEQ "token"] 0
+        assert_equal [r PTTL lock:11] -1
+    } {}
+
+    test {PEXPIRE IFEQ with GT - value matches, new TTL greater} {
+        r SET lock:12 "token" PX 5000
+        assert_equal [r PEXPIRE lock:12 30000 GT IFEQ "token"] 1
+        assert_range [r PTTL lock:12] 20000 30000
+    } {}
+
+    test {PEXPIRE IFEQ with GT - value matches, new TTL not greater} {
+        r SET lock:13 "token" PX 60000
+        assert_equal [r PEXPIRE lock:13 5000 GT IFEQ "token"] 0
+        assert_range [r PTTL lock:13] 50000 60000
+    } {}
+
+    test {PEXPIRE IFEQ with LT - value matches, new TTL lower} {
+        r SET lock:14 "token" PX 60000
+        assert_equal [r PEXPIRE lock:14 5000 LT IFEQ "token"] 1
+        assert_range [r PTTL lock:14] 1000 5000
+    } {}
+
+    test {PEXPIRE IFEQ with LT - value matches, new TTL not lower} {
+        r SET lock:15 "token" PX 5000
+        assert_equal [r PEXPIRE lock:15 30000 LT IFEQ "token"] 0
+        assert_range [r PTTL lock:15] 1 5000
+    } {}
+
+    test {PEXPIRE IFEQ value check short-circuits before NX} {
+        r SET lock:16 "token" PX 5000
+        # Value mismatch → 0, regardless of NX (key has TTL, NX would also fail)
+        assert_equal [r PEXPIRE lock:16 30000 NX IFEQ "wrong"] 0
+        assert_range [r PTTL lock:16] 1 5000
+    } {}
+
+    test {PEXPIRE missing value for IFEQ returns error} {
+        r SET lock:17 "token"
+        catch {r PEXPIRE lock:17 30000 IFEQ} e
+        set e
+    } {ERR Option IFEQ requires a value}
+
+    test {PEXPIRE missing value for IFDEQ returns error} {
+        r SET lock:18 "token"
+        catch {r PEXPIRE lock:18 30000 IFDEQ} e
+        set e
+    } {ERR Option IFDEQ requires a value}
+
+    test {PEXPIRE mutually exclusive value conditions} {
+        r SET lock:19 "token"
+        catch {r PEXPIRE lock:19 30000 IFEQ "a" IFNE "b"} e
+        set e
+    } {ERR IFEQ, IFNE, IFDEQ and IFDNE options are mutually exclusive}
+
+    test {PEXPIRE IFDEQ with invalid digest format} {
+        r SET cache:5 "value"
+        catch {r PEXPIRE cache:5 30000 IFDEQ "not-a-hex"} e
+        set e
+    } {ERR must be exactly 16 hexadecimal characters}
+
+    test {PEXPIRE IFDEQ is case-insensitive} {
+        r SET cache:6 "value"
+        set digest [r DIGEST cache:6]
+        set upper [string toupper $digest]
+        assert_equal [r PEXPIRE cache:6 30000 IFDEQ $upper] 1
+        assert_range [r PTTL cache:6] 20000 30000
+    } {}
+
+    test {Distributed lock renewal pattern} {
+        # Simulate: client acquires lock, then renews it only if still held
+        r SET "distributed:lock" "client-A-token" PX 5000
+        # Client A renews successfully
+        assert_equal [r PEXPIRE "distributed:lock" 30000 IFEQ "client-A-token"] 1
+        assert_range [r PTTL "distributed:lock"] 20000 30000
+        # Client B tries to renew - fails (wrong token)
+        assert_equal [r PEXPIRE "distributed:lock" 30000 IFEQ "client-B-token"] 0
+        assert_range [r PTTL "distributed:lock"] 20000 30000
+    } {}
+
+    test {Sliding expiration pattern with IFDEQ} {
+        # Simulate: cache hit extends TTL only if value hasn't been replaced
+        r SET "cache:item" "large-cached-data" PX 60000
+        set digest [r DIGEST "cache:item"]
+        # Cache hit: extend TTL if data unchanged
+        assert_equal [r PEXPIRE "cache:item" 120000 IFDEQ $digest] 1
+        assert_range [r PTTL "cache:item"] 100000 120000
+        # Another process replaces the value
+        r SET "cache:item" "new-data" PX 60000
+        # Old digest no longer matches → TTL not extended
+        assert_equal [r PEXPIRE "cache:item" 120000 IFDEQ $digest] 0
+        assert_range [r PTTL "cache:item"] 50000 60000
+    } {}
+
     test {Redis should not propagate the read command on lazy expire} {
         r debug set-active-expire 0
         r flushall ; # Clean up keyspace to avoid interference by keys from other tests
