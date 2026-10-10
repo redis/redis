@@ -2835,6 +2835,9 @@ enum {
     PENDING_CMD_KEYS_PREFETCHED = 1 << 3,     /* Command's keys were prefetched by the cross-command batch */
 };
 
+/* Max key hashes carried over from the prefetch batch per command */
+#define PENDING_CMD_MAX_CACHED_HASHES 4
+
 /* Parser state and parse result of a command from a client's input buffer. */
 struct pendingCommand {
     int argc;                 /* Num of arguments of current command. */
@@ -2844,6 +2847,10 @@ struct pendingCommand {
     unsigned long long input_bytes;
     struct redisCommand *cmd;
     getKeysResult keys_result;
+    uint64_t key_hashes[PENDING_CMD_MAX_CACHED_HASHES]; /* Hashes of the first keys, computed by
+                                                         * the prefetch batch. Only usable while
+                                                         * this is the client's current_pending_cmd */
+    uint8_t key_hashes_valid; /* Bitmask of the entries set in key_hashes */
     long long reploff;        /* c->reploff should be set to this value when the command is processed */
     int flags;
     int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT

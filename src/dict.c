@@ -76,6 +76,8 @@ static dictEntryLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
 static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
+static dictEntryLink dictFindLinkInternalHashed(dict *d, const void *key, dictEntryLink *bucket,
+                                                uint64_t known_hash);
 dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
 static dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link);
 
@@ -764,6 +766,13 @@ void dictRelease(dict *d)
  * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
  */
 static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
+    return dictFindLinkInternalHashed(d, key, bucket, DICT_HASH_NONE);
+}
+
+/* Same as dictFindLinkInternal(), yet takes the hash of 'key' from the caller.
+ * Pass DICT_HASH_NONE to compute it here. */
+static dictEntryLink dictFindLinkInternalHashed(dict *d, const void *key, dictEntryLink *bucket,
+                                                uint64_t known_hash) {
     dictCmpCache cmpCache = {0};
     dictEntryLink link;
     uint64_t idx;
@@ -776,7 +785,7 @@ static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLin
         if (dictSize(d) == 0) return NULL; 
     }
 
-    const uint64_t hash = dictGetHash(d, key);
+    const uint64_t hash = (known_hash == DICT_HASH_NONE) ? dictGetHash(d, key) : known_hash;
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
@@ -866,6 +875,19 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
         return NULL;
     
     return dictFindLinkInternal(d, key, bucket);
+}
+
+/* Finds a given key. Like dictFindLink(), yet takes the hash of 'key' from the
+ * caller instead of computing it.
+ *
+ * 'hash' must be the hash of 'key'. A wrong one still cannot return a wrong
+ * entry, yet the bucket it reports is then the wrong one to add at. */
+dictEntryLink dictFindLinkWithHash(dict *d, const void *key, dictEntryLink *bucket, uint64_t hash) {
+    if (bucket) *bucket = NULL;
+    if (unlikely(dictSize(d) == 0))
+        return NULL;
+
+    return dictFindLinkInternalHashed(d, key, bucket, hash);
 }
 
 /* Set the key with link 
