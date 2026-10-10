@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 
 #define BF_DEFAULT_GROWTH 2
@@ -23,6 +24,34 @@ TEST_F(basic, sbValidation) {
     ASSERT_EQ(NULL, SB_NewChain(1, 0, 0, BF_DEFAULT_GROWTH, &err));
     ASSERT_EQ(NULL, SB_NewChain(100, 1.1, 0, BF_DEFAULT_GROWTH, &err));
     ASSERT_EQ(NULL, SB_NewChain(100, -4.4, 0, BF_DEFAULT_GROWTH, &err));
+}
+
+TEST_F(basic, bloomValidationRejectsExcessiveHashes) {
+    struct bloom bloom = {
+        .error = 0.01,
+        .bpe = 3098164007.0,
+        .hashes = INT_MAX,
+        .bytes = 1,
+        .bits = 8,
+    };
+    ASSERT_NE(0, bloom_validate_integrity(&bloom));
+}
+
+TEST_F(basic, bloomValidationEnforcesHashLimit) {
+    struct bloom bloom = {
+        .error = 0.01,
+        .bytes = 1,
+        .bits = 8,
+    };
+
+    // Keep the calculated value away from a ceil boundary.
+    bloom.bpe = ((double)BLOOM_MAX_HASHES - 0.5) / log(2.0);
+    bloom.hashes = BLOOM_MAX_HASHES;
+    ASSERT_EQ(0, bloom_validate_integrity(&bloom));
+
+    bloom.bpe = ((double)BLOOM_MAX_HASHES + 0.5) / log(2.0);
+    bloom.hashes = BLOOM_MAX_HASHES + 1;
+    ASSERT_NE(0, bloom_validate_integrity(&bloom));
 }
 
 TEST_F(basic, sbBasic) {
