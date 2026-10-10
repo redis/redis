@@ -390,7 +390,7 @@ static RelocStatus CuckooFilter_CompactSingle(CuckooFilter *cf, uint16_t filterI
     RelocStatus rv = RELOC_OK;
 
     for (uint64_t bucketIx = 0; bucketIx < currentFilter->numBuckets; ++bucketIx) {
-        for (uint16_t slotIx = 0; slotIx < currentFilter->bucketSize; ++slotIx) {
+        for (uint64_t slotIx = 0; slotIx < currentFilter->bucketSize; ++slotIx) {
             RelocStatus status = relocateSlot(cf, &filter[bucketIx * currentFilter->bucketSize],
                                               filterIx, bucketIx, slotIx);
             if (status == RELOC_FAIL) {
