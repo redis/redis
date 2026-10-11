@@ -1732,6 +1732,15 @@ typedef struct client {
     void *himport_fieldsets;      /* Session-local HIMPORT fieldsets */
 } client;
 
+/* Clear the current command's timing, wall-clock and CPU, in one place so no
+ * field is missed. */
+static inline void resetClientCommandDuration(client *c) {
+    c->duration = 0;
+    c->cpu_duration = 0;
+    c->cpu_nvcsw = 0;
+    c->cpu_nivcsw = 0;
+}
+
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     uint8_t id;                                 /* The unique ID assigned, if IO_THREADS_MAX_NUM is more
                                                  * than 256, we should also promote the data type. */

@@ -4377,10 +4377,7 @@ void call(client *c, int flags) {
     /* The duration needs to be reset after each call except for a blocked command,
      * which is expected to record and reset the duration after unblocking. */
     if (!(c->flags & CLIENT_BLOCKED)) {
-        c->duration = 0;
-        c->cpu_duration = 0;
-        c->cpu_nvcsw = 0;
-        c->cpu_nivcsw = 0;
+        resetClientCommandDuration(c);
     }
 
     /* Propagate the command into the AOF and replication link.
@@ -4498,10 +4495,7 @@ void call(client *c, int flags) {
  * Note: 'reply' is expected to end with \r\n */
 void rejectCommand(client *c, robj *reply) {
     flagTransaction(c);
-    c->duration = 0;
-    c->cpu_duration = 0;
-    c->cpu_nvcsw = 0;
-    c->cpu_nivcsw = 0;
+    resetClientCommandDuration(c);
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, reply->ptr);
@@ -4513,10 +4507,7 @@ void rejectCommand(client *c, robj *reply) {
 
 void rejectCommandSds(client *c, sds s) {
     flagTransaction(c);
-    c->duration = 0;
-    c->cpu_duration = 0;
-    c->cpu_nvcsw = 0;
-    c->cpu_nivcsw = 0;
+    resetClientCommandDuration(c);
     if (c->cmd) c->cmd->rejected_calls++;
     if (c->cmd && c->cmd->proc == execCommand) {
         execCommandAbort(c, s);
@@ -4858,10 +4849,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
-            c->duration = 0;
-            c->cpu_duration = 0;
-            c->cpu_nvcsw = 0;
-            c->cpu_nivcsw = 0;
+            resetClientCommandDuration(c);
             c->cmd->rejected_calls++;
             return C_OK;
         }

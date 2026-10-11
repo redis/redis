@@ -192,10 +192,7 @@ client *createClient(connection *conn) {
     c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
     c->io_lastinteraction = 0;
-    c->duration = 0;
-    c->cpu_duration = 0;
-    c->cpu_nvcsw = 0;
-    c->cpu_nivcsw = 0;
+    resetClientCommandDuration(c);
     c->user = DefaultUser; /* Set a safe default value: clientSetDefaultAuth reads c->user. */
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
@@ -2357,10 +2354,7 @@ void freeClient(client *c) {
 
     /* Deallocate structures used to block on blocking ops. */
     /* If there is any in-flight command, we don't record their duration. */
-    c->duration = 0;
-    c->cpu_duration = 0;
-    c->cpu_nvcsw = 0;
-    c->cpu_nivcsw = 0;
+    resetClientCommandDuration(c);
     if (c->flags & CLIENT_BLOCKED) unblockClient(c, 1);
     dictRelease(c->bstate.keys);
 

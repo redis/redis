@@ -193,6 +193,12 @@ void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
     if (!sample_cpu) return;
 
     if (pthread_equal(pthread_self(), server.main_thread_id)) {
+        /* Shorter than the floor can never be reported (off_min <= measured),
+         * so don't pay for a sample: the field stays 0, "not measured". */
+        if (m->measured < CPU_STARVATION_MIN_OFFCPU_US) {
+            m->sampled = 0;
+            return;
+        }
         /* A top-level command measures from its own start, so it keeps the
          * off-CPU time of slow commands it called; nested commands measure
          * from the checkpoint, so siblings (MULTI/EXEC, script calls) don't
@@ -245,8 +251,10 @@ void slowlogReportOffCpu(const slowlogCpu *m) {
  * server.el_cpu_start, which commands don't move, so all numbers describe the
  * same window. */
 void offCpuCheckEventLoopCycle(ustime_t el_duration) {
+    /* A cycle shorter than the threshold or the floor can't be reported. */
     if (server.slowlog_log_slower_than < 0 ||
-        el_duration < server.slowlog_log_slower_than)
+        el_duration < server.slowlog_log_slower_than ||
+        el_duration < CPU_STARVATION_MIN_OFFCPU_US)
         return;
     cpuSample now;
     cpuSampleTake(&now);
