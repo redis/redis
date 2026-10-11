@@ -1,0 +1,60 @@
+{
+    "TOPK.INCRBY": {
+        "summary": "Increases the count of one or more items by increment",
+        "complexity": "O(n * k * incr) where n is the number of items, k is the depth and incr is the increment",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "items",
+                "type": "block",
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "item",
+                        "type": "string"
+                    },
+                    {
+                        "name": "increment",
+                        "type": "integer"
+                    }
+                ]
+            }
+        ],
+        "since": "8.8.0",
+        "group": "topk",
+        "function": "topkAddCommand",
+        "arity": -4,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "TOPK"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}
