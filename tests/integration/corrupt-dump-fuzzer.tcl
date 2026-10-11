@@ -174,6 +174,7 @@ foreach sanitize_dump {no yes} {
                         }
                     }
                 } else {
+                    # Check whether the server terminated after a successful RESTORE
                     if { [catch { r ping } err] } {
                         set msg "Server crashed after RESTORE with payload: $printable_dump"
                         write_log_line 0 $msg
