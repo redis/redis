@@ -1,0 +1,48 @@
+{
+    "BF.ADD": {
+        "summary": "Add an item to a Bloom filter, creating it if needed.",
+        "complexity": "O(k), where k is the number of hash functions across subfilters.",
+        "group": "bloom",
+        "since": "8.8.0",
+        "arity": 3,
+        "function": "bfAddCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BLOOM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string"
+            }
+        ]
+    }
+}
