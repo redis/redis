@@ -3648,6 +3648,112 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
     }
 }
 
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 100}} {
+    test {XTRIM with ~ MINID and DELREF can propagate correctly} {
+        # An approximate MINID trim with DELREF also deletes single entries inside
+        # the head node, leaving tombstones. Propagating the first entry of the
+        # stream would point at an entry the master already deleted, making
+        # replicas and the AOF keep entries the master removed. See #15934.
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        assert_equal 2 [r XTRIM mystream MINID ~ 3-0 DELREF]
+        assert_equal {{3-0 {f v}}} [r XRANGE mystream - +]
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        assert_equal {{3-0 {f v}}} [r XRANGE mystream - +]
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 100}} {
+    test {XTRIM with ~ MINID and ACKED can propagate correctly} {
+        # ACKED only deletes the acknowledged entries below the threshold and keeps
+        # the still referenced ones, so the removed entries are not a prefix of the
+        # stream and the first entry left can't be propagated. Here the trim reaches
+        # the threshold, so that is what gets propagated, and replicas / the AOF
+        # re-apply ACKED against the same pending entries. See #15934.
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XADD mystream 4-0 f v
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 3 STREAMS mystream >
+        r XACK mystream mygroup 2-0
+        assert_equal 1 [r XTRIM mystream MINID ~ 4-0 ACKED]
+        assert_equal {{1-0 {f v}} {3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        assert_equal {{1-0 {f v}} {3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 2 [lindex [r XPENDING mystream mygroup] 0]
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 2}} {
+    test {XTRIM with ~ MINID, ACKED and LIMIT can propagate correctly} {
+        # ACKED only deletes acknowledged entries, and LIMIT can stop the trim before
+        # it reaches the threshold. Replicas and the AOF re-apply the propagated
+        # command with LIMIT disabled, so the master propagates where it stopped (the
+        # first ID of the node it didn't get to) instead of the requested MINID.
+        # Otherwise they would also delete the acknowledged entries the master kept
+        # because of its budget. See #15934.
+        foreach id {1-0 2-0 3-0 4-0 5-0 6-0 7-0 8-0} {
+            r XADD mystream $id f v
+        }
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 8 STREAMS mystream >
+        r XACK mystream mygroup 1-0 2-0 3-0 4-0 5-0 6-0
+        # With stream-node-max-entries 2 a budget of 3 only covers the first node, so
+        # just 1-0 and 2-0 are removed even though 3-0..6-0 are acknowledged too.
+        assert_equal 2 [r XTRIM mystream MINID ~ 7-0 LIMIT 3 ACKED]
+        assert_equal {{3-0 {f v}} {4-0 {f v}} {5-0 {f v}} {6-0 {f v}} {7-0 {f v}} {8-0 {f v}}} [r XRANGE mystream - +]
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        assert_equal {{3-0 {f v}} {4-0 {f v}} {5-0 {f v}} {6-0 {f v}} {7-0 {f v}} {8-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 2 [lindex [r XPENDING mystream mygroup] 0]
+    }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 2}} {
+    test {XADD with ~ MINID, ACKED and LIMIT can propagate correctly} {
+        # The same through XADD. The head node keeps a tombstone (1-0) next to a
+        # pending entry (2-0), and LIMIT stops the trim before the acknowledged 5-0.
+        foreach id {1-0 2-0 3-0 4-0 5-0 6-0} {
+            r XADD mystream $id f v
+        }
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 6 STREAMS mystream >
+        r XACK mystream mygroup 1-0 3-0 4-0 5-0
+        r XADD mystream ACKED MINID ~ 6-0 LIMIT 3 7-0 f v
+        assert_equal {{2-0 {f v}} {5-0 {f v}} {6-0 {f v}} {7-0 {f v}}} [r XRANGE mystream - +]
+        r config set stream-node-max-entries 1
+        r debug loadaof
+        assert_equal {{2-0 {f v}} {5-0 {f v}} {6-0 {f v}} {7-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 2 [lindex [r XPENDING mystream mygroup] 0]
+    }
+}
+
+start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
+    test {XTRIM with ~ MINID, ACKED and LIMIT propagates the ID where the trim stopped} {
+        # 3-0..6-0 are still pending, so the next acknowledged entry is nowhere
+        # below the threshold. The master must not look for it (that would walk
+        # all of them, and so would replicas and the AOF): it propagates the first
+        # ID of the node LIMIT stopped at, which is all they need.
+        foreach id {1-0 2-0 3-0 4-0 5-0 6-0} {
+            r XADD mystream $id f v
+        }
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 6 STREAMS mystream >
+        r XACK mystream mygroup 1-0 2-0
+        set repl [attach_to_replication_stream]
+        assert_equal 2 [r XTRIM mystream MINID ~ 7-0 LIMIT 2 ACKED]
+        assert_replication_stream $repl {
+            {select *}
+            {xtrim mystream MINID = 3-0 LIMIT 2 ACKED}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+}
+
 start_server {tags {"stream"}} {
     test {XADD can CREATE an empty stream} {
         r XADD mystream MAXLEN 0 * a b
