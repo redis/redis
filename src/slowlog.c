@@ -21,6 +21,7 @@
 
 #include "server.h"
 #include "slowlog.h"
+#include <sys/resource.h>
 
 /* Create a new slowlog entry.
  * Incrementing the ref count of all the objects retained is up to
@@ -122,6 +123,140 @@ int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duratio
         return 1;
     }
     return 0;
+}
+
+/* ----------------------------- Off-CPU accounting -------------------------- */
+
+/* The thread running call(): the main thread, or a module thread via RM_Call. */
+#ifdef RUSAGE_THREAD
+#define COMMAND_RUSAGE_WHO RUSAGE_THREAD
+#else
+#define COMMAND_RUSAGE_WHO RUSAGE_SELF
+#endif
+
+/* Off-CPU time is reported when it reaches both slowlog-log-slower-than and
+ * this floor (user/sys time are truncated to whole microseconds, so a few us
+ * of "off-CPU" can be noise).
+ * More involuntary than voluntary switches is reported as starvation,
+ * otherwise blocked. Run-queue wait after a sleep adds no involuntary
+ * switch, so it shows as blocked. */
+#define CPU_STARVATION_MIN_OFFCPU_US 100
+
+/* Sample the current thread: wall clock, CPU time, context switches. */
+void cpuSampleTake(cpuSample *s) {
+    struct rusage ru;
+    getrusage(COMMAND_RUSAGE_WHO, &ru);
+    s->wall = getMonotonicUs();
+    s->cpu_us = (ustime_t)ru.ru_utime.tv_sec*1000000 + ru.ru_utime.tv_usec +
+                (ustime_t)ru.ru_stime.tv_sec*1000000 + ru.ru_stime.tv_usec;
+    s->nvcsw = ru.ru_nvcsw;
+    s->nivcsw = ru.ru_nivcsw;
+}
+
+/* Log an off-CPU warning, at most one line per second. The next line printed
+ * reports how many were suppressed; the INFO counters count every event. */
+static void offCpuLog(const char *fmt, ...) {
+    static mstime_t last_log_time_ms = 0;
+    static long long suppressed = 0;
+    if (server.mstime <= last_log_time_ms + 1000) {
+        suppressed++;
+        return;
+    }
+    char msg[LOG_MAX_LEN];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    if (suppressed)
+        serverLog(LL_WARNING, "%s (%lld more suppressed)", msg, suppressed);
+    else
+        serverLog(LL_WARNING, "%s", msg);
+    last_log_time_ms = server.mstime;
+    suppressed = 0;
+}
+
+/* CPU accounting for a command that is about to be logged.
+ * Main thread: off-CPU time is measured over the window since
+ * server.cpu_checkpoint (taken when the event loop wakes, moved by each
+ * top-level slow command), so fast commands pay no syscall. Only the part
+ * that must have happened inside this command is charged to it.
+ * Module thread: call() measured the command exactly into c->cpu_*.
+ * sample_cpu is 0 on the unblock path: c->duration is from an earlier iteration. */
+void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
+    memset(m, 0, sizeof(*m));
+    m->measured = c->duration; /* Execution time only, without blocked time. */
+    m->sampled = sample_cpu;
+    if (!sample_cpu) return;
+
+    if (pthread_equal(pthread_self(), server.main_thread_id)) {
+        cpuSample now;
+        cpuSampleTake(&now);
+        ustime_t window = (ustime_t)(now.wall - server.cpu_checkpoint.wall);
+        ustime_t gap = window - (now.cpu_us - server.cpu_checkpoint.cpu_us);
+        if (gap < 0) gap = 0;
+        /* Off-CPU outside the command can't exceed the window time outside it. */
+        ustime_t outside = window > m->measured ? window - m->measured : 0;
+        m->off_max = gap < m->measured ? gap : m->measured;
+        m->off_min = gap > outside ? gap - outside : 0;
+        if (m->off_min > m->off_max) m->off_min = m->off_max;
+        m->cpu = m->measured - m->off_min;
+        m->nvcsw = now.nvcsw - server.cpu_checkpoint.nvcsw;
+        m->nivcsw = now.nivcsw - server.cpu_checkpoint.nivcsw;
+        /* Only top-level commands move the checkpoint, so a script or module
+         * command keeps the off-CPU time of slow commands it calls. */
+        if (server.execution_nesting == 0) server.cpu_checkpoint = now;
+    } else {
+        m->cpu = c->cpu_duration;
+        m->off_max = m->measured > m->cpu ? m->measured - m->cpu : 0;
+        m->off_min = m->off_max;
+        m->nvcsw = c->cpu_nvcsw;
+        m->nivcsw = c->cpu_nivcsw;
+    }
+}
+
+/* Count and log a logged command whose guaranteed off-CPU time alone made it
+ * slow. Decides on off_min, so earlier off-CPU time isn't blamed on it. */
+void slowlogReportOffCpu(const slowlogCpu *m) {
+    if (!m->sampled || m->off_min < server.slowlog_log_slower_than ||
+        m->off_min < CPU_STARVATION_MIN_OFFCPU_US)
+        return;
+    int starvation = m->nivcsw > m->nvcsw;
+    if (starvation)
+        server.stat_cpu_starvation_events++;
+    else
+        server.stat_off_cpu_blocked_events++;
+    offCpuLog("Slow command off-CPU (%s): took %lldus, at least %lldus off-CPU "
+              "(up to %lldus), %ld involuntary / %ld voluntary context switches",
+              starvation ? "starvation" : "blocked", (long long)m->measured,
+              (long long)m->off_min, (long long)m->off_max, m->nivcsw, m->nvcsw);
+}
+
+/* Called from beforeSleep(), before the AOF flush: report the event-loop cycle
+ * if the main thread was off-CPU long enough to make it slow on that alone
+ * (starvation between fast commands never reaches the slowlog). Uses
+ * server.el_cpu_start, which commands don't move, so all numbers describe the
+ * same window. */
+void offCpuCheckEventLoopCycle(ustime_t el_duration) {
+    if (server.slowlog_log_slower_than < 0 ||
+        el_duration < server.slowlog_log_slower_than)
+        return;
+    cpuSample now;
+    cpuSampleTake(&now);
+    ustime_t took = (ustime_t)(now.wall - server.el_cpu_start.wall);
+    ustime_t off = took - (now.cpu_us - server.el_cpu_start.cpu_us);
+    if (off < server.slowlog_log_slower_than || off < CPU_STARVATION_MIN_OFFCPU_US)
+        return;
+    long nvcsw = now.nvcsw - server.el_cpu_start.nvcsw;
+    long nivcsw = now.nivcsw - server.el_cpu_start.nivcsw;
+    int starvation = nivcsw > nvcsw;
+    if (starvation)
+        server.stat_eventloop_cpu_starvation_events++;
+    else
+        server.stat_eventloop_off_cpu_blocked_events++;
+    offCpuLog("Event loop cycle off-CPU (%s): took %lldus, %lldus off-CPU, %lld commands, "
+              "%ld involuntary / %ld voluntary context switches",
+              starvation ? "starvation" : "blocked", (long long)took, (long long)off,
+              server.stat_numcommands - server.el_cmd_cnt_start, nivcsw, nvcsw);
 }
 
 /* Remove all the entries from the current slow log. */

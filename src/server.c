@@ -2056,6 +2056,12 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages(NULL);
 
+    /* Off-CPU check of the cycle so far, before the AOF write/fsync so disk
+     * waits aren't counted. Not reached while nested: ProcessingEventsWhileBlocked
+     * returns early above. */
+    if (server.el_start > 0)
+        offCpuCheckEventLoopCycle((ustime_t)(getMonotonicUs() - server.el_start));
+
     /* Record time consumption of AOF writing. */
     monotime aof_start_time = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
@@ -2144,8 +2150,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.el_start > 0) {
         monotime el_duration = getMonotonicUs() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
-        /* Not reached while nested: ProcessingEventsWhileBlocked returns early above. */
-        offCpuCheckEventLoopCycle((ustime_t)el_duration);
     }
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);
@@ -3926,68 +3930,8 @@ int getPropagateTargetsForCall(client *c, int flags) {
     return targets;
 }
 
-/* The thread running call(): the main thread, or a module thread via RM_Call. */
-#ifdef RUSAGE_THREAD
-#define COMMAND_RUSAGE_WHO RUSAGE_THREAD
-#else
-#define COMMAND_RUSAGE_WHO RUSAGE_SELF
-#endif
-
-/* user+sys CPU time in a struct rusage, in microseconds. */
-static inline ustime_t rusageCpuUs(const struct rusage *ru) {
-    return (ustime_t)ru->ru_utime.tv_sec*1000000 + ru->ru_utime.tv_usec +
-           (ustime_t)ru->ru_stime.tv_sec*1000000 + ru->ru_stime.tv_usec;
-}
-
-/* A slow command is reported when its guaranteed off-CPU time reaches both
- * slowlog-log-slower-than and this floor (user/sys time are truncated to
- * whole microseconds, so a few us of "off-CPU" can be noise).
- * More involuntary than voluntary switches is reported as starvation,
- * otherwise blocked. Run-queue wait after a sleep adds no involuntary
- * switch, so it shows as blocked. */
-#define CPU_STARVATION_MIN_OFFCPU_US 100
-
-/* Sample the current thread: wall clock, CPU time, context switches. */
-void cpuSampleTake(cpuSample *s) {
-    struct rusage ru;
-    getrusage(COMMAND_RUSAGE_WHO, &ru);
-    s->wall = getMonotonicUs();
-    s->cpu_us = rusageCpuUs(&ru);
-    s->nvcsw = ru.ru_nvcsw;
-    s->nivcsw = ru.ru_nivcsw;
-}
-
-/* Log an off-CPU warning, at most one line per second. The next line printed
- * reports how many were suppressed; the INFO counters count every event. */
-static void offCpuLog(const char *fmt, ...) {
-    static mstime_t last_log_time_ms = 0;
-    static long long suppressed = 0;
-    if (server.mstime <= last_log_time_ms + 1000) {
-        suppressed++;
-        return;
-    }
-    char msg[LOG_MAX_LEN];
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(msg, sizeof(msg), fmt, ap);
-    va_end(ap);
-    if (suppressed)
-        serverLog(LL_WARNING, "%s (%lld more suppressed)", msg, suppressed);
-    else
-        serverLog(LL_WARNING, "%s", msg);
-    last_log_time_ms = server.mstime;
-    suppressed = 0;
-}
-
-/* Log the last command a client executed into the slowlog, with its CPU time,
- * and warn if it was mostly off-CPU.
- *
- * Main thread: off-CPU time is measured over the window since
- * server.cpu_checkpoint (taken when the event loop wakes, moved by each slow
- * command), so fast commands pay no syscall. Only the part that must have
- * happened inside this command is charged to it.
- * Module thread: call() measured the command exactly into c->cpu_*.
- * sample_cpu is 0 on the unblock path: c->duration is from an earlier iteration. */
+/* Log the last command a client executed into the slowlog, with its CPU time
+ * (see slowlogMeasureCpu()), and warn if it was mostly off-CPU. */
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, int sample_cpu) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
     if (cmd->flags & CMD_SKIP_SLOWLOG)
@@ -3996,97 +3940,24 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
     if (!slowlogWouldLog(duration))
         return;
 
-    /* Execution time only; 'duration' may also include blocked/background time. */
-    ustime_t measured = c->duration;
-    ustime_t cpu_duration = 0;
-    /* off_min: off-CPU time that must be inside this command; off_max: at most. */
-    ustime_t off_min = 0, off_max = 0;
-    long cpu_nvcsw = 0, cpu_nivcsw = 0;
-    if (sample_cpu) {
-        if (pthread_equal(pthread_self(), server.main_thread_id)) {
-            cpuSample now;
-            cpuSampleTake(&now);
-            ustime_t window = (ustime_t)(now.wall - server.cpu_checkpoint.wall);
-            ustime_t gap = window - (now.cpu_us - server.cpu_checkpoint.cpu_us);
-            if (gap < 0) gap = 0;
-            /* Off-CPU outside the command can't exceed the window time outside it. */
-            ustime_t outside = window > measured ? window - measured : 0;
-            off_max = gap < measured ? gap : measured;
-            off_min = gap > outside ? gap - outside : 0;
-            if (off_min > off_max) off_min = off_max;
-            cpu_duration = measured - off_min;
-            cpu_nvcsw = now.nvcsw - server.cpu_checkpoint.nvcsw;
-            cpu_nivcsw = now.nivcsw - server.cpu_checkpoint.nivcsw;
-            /* Only top-level commands move the checkpoint, so a script or module
-             * command keeps the off-CPU time of slow commands it calls. */
-            if (server.execution_nesting == 0) server.cpu_checkpoint = now;
-        } else {
-            cpu_duration = c->cpu_duration;
-            off_max = measured > cpu_duration ? measured - cpu_duration : 0;
-            off_min = off_max;
-            cpu_nvcsw = c->cpu_nvcsw;
-            cpu_nivcsw = c->cpu_nivcsw;
-        }
-    }
+    slowlogCpu cpu;
+    slowlogMeasureCpu(c, sample_cpu, &cpu);
 
     /* If command argument vector was rewritten, use the original
      * arguments. */
     robj **argv = c->original_argv ? c->original_argv : c->argv;
     int argc = c->original_argv ? c->original_argc : c->argc;
-    if (!slowlogPushEntryIfNeeded(c,argv,argc,duration,cpu_duration))
-        return;
-    server.stat_slowlog_count++;
-    server.stat_slowlog_time_us_sum += duration;
-    if (duration > server.stat_slowlog_time_us_max)
-        server.stat_slowlog_time_us_max = duration;
-    cmd->slowlog_count++;
-    cmd->slowlog_time_us_sum += duration;
-    if (duration > cmd->slowlog_time_us_max)
-        cmd->slowlog_time_us_max = duration;
-
-    /* Decide on off_min, so earlier off-CPU time isn't blamed on this command. */
-    if (sample_cpu && off_min >= server.slowlog_log_slower_than &&
-        off_min >= CPU_STARVATION_MIN_OFFCPU_US)
-    {
-        int starvation = cpu_nivcsw > cpu_nvcsw;
-        const char *what = starvation ? "starvation" : "blocked";
-        if (starvation)
-            server.stat_cpu_starvation_events++;
-        else
-            server.stat_off_cpu_blocked_events++;
-
-        offCpuLog("Slow command off-CPU (%s): took %lldus, at least %lldus off-CPU "
-                  "(up to %lldus), %ld involuntary / %ld voluntary context switches",
-                  what, (long long)measured, (long long)off_min, (long long)off_max,
-                  cpu_nivcsw, cpu_nvcsw);
+    if (slowlogPushEntryIfNeeded(c,argv,argc,duration,cpu.cpu)) {
+        server.stat_slowlog_count++;
+        server.stat_slowlog_time_us_sum += duration;
+        if (duration > server.stat_slowlog_time_us_max)
+            server.stat_slowlog_time_us_max = duration;
+        cmd->slowlog_count++;
+        cmd->slowlog_time_us_sum += duration;
+        if (duration > cmd->slowlog_time_us_max)
+            cmd->slowlog_time_us_max = duration;
+        slowlogReportOffCpu(&cpu);
     }
-}
-
-/* Called from beforeSleep(): report the event-loop cycle if the main thread was
- * off-CPU long enough to make it slow on that alone (starvation between fast
- * commands never reaches the slowlog). Uses server.el_cpu_start, which commands
- * don't move, so all numbers describe the whole cycle. */
-void offCpuCheckEventLoopCycle(ustime_t el_duration) {
-    if (server.slowlog_log_slower_than < 0 ||
-        el_duration < server.slowlog_log_slower_than)
-        return;
-    cpuSample now;
-    cpuSampleTake(&now);
-    ustime_t took = (ustime_t)(now.wall - server.el_cpu_start.wall);
-    ustime_t off = took - (now.cpu_us - server.el_cpu_start.cpu_us);
-    if (off < server.slowlog_log_slower_than || off < CPU_STARVATION_MIN_OFFCPU_US)
-        return;
-    long nvcsw = now.nvcsw - server.el_cpu_start.nvcsw;
-    long nivcsw = now.nivcsw - server.el_cpu_start.nivcsw;
-    int starvation = nivcsw > nvcsw;
-    if (starvation)
-        server.stat_eventloop_cpu_starvation_events++;
-    else
-        server.stat_eventloop_off_cpu_blocked_events++;
-    offCpuLog("Event loop cycle off-CPU (%s): took %lldus, %lldus off-CPU, %lld commands, "
-              "%ld involuntary / %ld voluntary context switches",
-              starvation ? "starvation" : "blocked", (long long)took, (long long)off,
-              server.stat_numcommands - server.el_cmd_cnt_start, nivcsw, nvcsw);
 }
 
 /* This function is called in order to update the total command histogram duration.
@@ -4364,8 +4235,8 @@ void call(client *c, int flags) {
      * are estimated from server.cpu_checkpoint (no syscall per command). */
     const int sample_cpu = update_command_stats &&
                            !pthread_equal(pthread_self(), server.main_thread_id);
-    struct rusage ru_start;
-    if (sample_cpu) getrusage(COMMAND_RUSAGE_WHO, &ru_start);
+    cpuSample cpu_start;
+    if (sample_cpu) cpuSampleTake(&cpu_start);
 
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
      * sending client side caching message in the middle of a command reply.
@@ -4414,11 +4285,11 @@ void call(client *c, int flags) {
     ustime_t total_duration = c->duration;
 
     if (sample_cpu) {
-        struct rusage ru_end;
-        getrusage(COMMAND_RUSAGE_WHO, &ru_end);
-        c->cpu_duration += rusageCpuUs(&ru_end) - rusageCpuUs(&ru_start);
-        c->cpu_nvcsw += ru_end.ru_nvcsw - ru_start.ru_nvcsw;
-        c->cpu_nivcsw += ru_end.ru_nivcsw - ru_start.ru_nivcsw;
+        cpuSample cpu_end;
+        cpuSampleTake(&cpu_end);
+        c->cpu_duration += cpu_end.cpu_us - cpu_start.cpu_us;
+        c->cpu_nvcsw += cpu_end.nvcsw - cpu_start.nvcsw;
+        c->cpu_nivcsw += cpu_end.nivcsw - cpu_start.nivcsw;
     }
 
     dirty = server.dirty-dirty;
