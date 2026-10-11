@@ -1,0 +1,89 @@
+{
+    "CMS.MERGE": {
+        "summary": "Merges several sketches into one sketch",
+        "complexity": "O(n) where n is the number of sketches",
+        "arguments": [
+            {
+                "name": "destination",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "numKeys",
+                "type": "integer"
+            },
+            {
+                "name": "source",
+                "type": "key",
+                "multiple": true,
+                "key_spec_index": 1
+            },
+            {
+                "name": "weight",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "weights",
+                        "token": "WEIGHTS",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "weight",
+                        "type": "integer",
+                        "multiple": true
+                    }
+                ]
+            }
+        ],
+        "since": "8.8.0",
+        "group": "cms",
+        "function": "cmsMergeCommand",
+        "arity": -4,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CMS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            },
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "keynum": {
+                        "keynumidx": 0,
+                        "firstkey": 1,
+                        "step": 1
+                    }
+                }
+            }
+        ]
+    }
+}

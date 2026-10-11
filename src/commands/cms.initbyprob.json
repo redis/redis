@@ -1,0 +1,68 @@
+{
+    "CMS.INITBYPROB": {
+        "summary": "Initializes a Count-Min Sketch to accommodate requested tolerances.",
+        "complexity": "O(1)",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "error",
+                "type": "double"
+            },
+            {
+                "name": "probability",
+                "type": "double"
+            },
+            {
+                "name": "cellsize",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "cell-size",
+                        "token": "CELL_SIZE",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "size",
+                        "type": "integer"
+                    }
+                ]
+            }
+        ],
+        "since": "8.8.0",
+        "group": "cms",
+        "function": "cmsCreateCommand",
+        "arity": -4,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CMS"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}
