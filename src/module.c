@@ -4296,6 +4296,21 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
+#ifdef INCLUDE_BLOOM
+    case OBJ_BLOOM: return REDISMODULE_KEYTYPE_BLOOM;
+#endif
+#ifdef INCLUDE_CMS
+    case OBJ_CMS: return REDISMODULE_KEYTYPE_CMS;
+#endif
+#ifdef INCLUDE_CUCKOO
+    case OBJ_CUCKOO: return REDISMODULE_KEYTYPE_CUCKOO;
+#endif
+#ifdef INCLUDE_TOPK
+    case OBJ_TOPK: return REDISMODULE_KEYTYPE_TOPK;
+#endif
+#ifdef INCLUDE_TDIGEST
+    case OBJ_TDIGEST: return REDISMODULE_KEYTYPE_TDIGEST;
+#endif
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }

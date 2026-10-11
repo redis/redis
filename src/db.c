@@ -1781,8 +1781,13 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     "stream",
     "array",
 #ifdef ENABLE_GCRA
-    "gcra"
+    "gcra",
 #endif
+    [OBJ_BLOOM] = "bloom",
+    [OBJ_CMS] = "cms",
+    [OBJ_CUCKOO] = "cuckoo",
+    [OBJ_TOPK] = "topk",
+    [OBJ_TDIGEST] = "tdigest",
 };
 
 /* Helper function to get type from a string in scan commands */
@@ -2519,6 +2524,21 @@ void copyCommand(client *c) {
             if (!newobj) return;
             break;
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
+#ifdef INCLUDE_BLOOM
+        case OBJ_BLOOM: newobj = bloomDup(o); break;
+#endif
+#ifdef INCLUDE_CMS
+        case OBJ_CMS: newobj = cmsDup(o); break;
+#endif
+#ifdef INCLUDE_CUCKOO
+        case OBJ_CUCKOO: newobj = cuckooDup(o); break;
+#endif
+#ifdef INCLUDE_TOPK
+        case OBJ_TOPK: newobj = topkDup(o); break;
+#endif
+#ifdef INCLUDE_TDIGEST
+        case OBJ_TDIGEST: newobj = tdigestDup(o); break;
+#endif
         default:
             addReplyError(c, "unknown type object");
             return;

@@ -2683,6 +2683,16 @@ static int updateProcTitleTemplate(const char **err) {
     return 1;
 }
 
+#ifdef INCLUDE_CUCKOO
+static int updateCuckooDefaults(const char **err) {
+    if (server.cf_capacity < server.cf_bucket * 2) {
+        *err = "cf-initial-size must be at least twice cf-bucket-size";
+        return 0;
+    }
+    return 1;
+}
+#endif
+
 static int updateHZ(const char **err) {
     UNUSED(err);
     /* Hz is more a hint from the user, so we accept values out of range
@@ -3257,9 +3267,9 @@ static int setConfigNotifyKeyspaceEventsOption(standardConfig *config, sds *argv
     int flags = keyspaceEventsStringToFlags(argv[0]);
     if (flags == -1) {
 #ifdef ENABLE_GCRA
-        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdnocraSTIV'.";
+        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdnocrabMCkqSTIV'.";
 #else
-        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdnocaSTIV'.";
+        *err = "Invalid event class character. Use 'Ag$lshzxeKEtmdnocabMCkqSTIV'.";
 #endif
         return 0;
     }
@@ -3498,6 +3508,18 @@ standardConfig static_configs[] = {
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
 
     /* String Configs */
+#ifdef INCLUDE_CUCKOO
+    createLongLongConfig("cf-initial-size", NULL, MODIFIABLE_CONFIG, 2, 1LL<<30, server.cf_capacity, 1024, INTEGER_CONFIG, NULL, updateCuckooDefaults),
+    createLongLongConfig("cf-bucket-size", NULL, MODIFIABLE_CONFIG, 1, 255, server.cf_bucket, 2, INTEGER_CONFIG, NULL, updateCuckooDefaults),
+    createLongLongConfig("cf-max-iterations", NULL, MODIFIABLE_CONFIG, 1, 65535, server.cf_iterations, 20, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.cf_expansion, 1, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("cf-max-expansions", NULL, MODIFIABLE_CONFIG, 1, 65536, server.cf_max_expansions, 32, INTEGER_CONFIG, NULL, NULL),
+#endif
+#ifdef INCLUDE_BLOOM
+    createLongLongConfig("bf-initial-size", NULL, MODIFIABLE_CONFIG, 1, 1LL<<30, server.bloom_capacity, 100, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("bf-expansion-factor", NULL, MODIFIABLE_CONFIG, 0, 32768, server.bloom_expansion, 2, INTEGER_CONFIG, NULL, NULL),
+    createSDSConfig("bf-error-rate", NULL, MODIFIABLE_CONFIG, ALLOW_EMPTY_STRING, server.bloom_error_rate, "0.01", bloomValidateErrorRate, bloomUpdateErrorRate),
+#endif
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
     createStringConfig("unixsocket", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.unixsocket, NULL, NULL, NULL),
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),

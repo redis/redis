@@ -9,6 +9,10 @@
 # recipe shells (different PATH ordering than the user's interactive shell).
 export MAKE
 
+# Keep core builds and configuration/run scripts on the same Bloom setting.
+BUILD_BLOOM ?= yes
+export BUILD_BLOOM
+
 .DEFAULT_GOAL := build
 
 # Used only by .DEFAULT: below, for goals with no explicit rule in

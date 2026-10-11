@@ -63,6 +63,21 @@
                                     "const": "array"
                                 },
                                 {
+                                    "const": "bloom"
+                                },
+                                {
+                                    "const": "cms"
+                                },
+                                {
+                                    "const": "cuckoo"
+                                },
+                                {
+                                    "const": "topk"
+                                },
+                                {
+                                    "const": "tdigest"
+                                },
+                                {
                                     "const": "list"
                                 },
                                 {

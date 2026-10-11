@@ -58,6 +58,21 @@ struct ACLCategoryItem {
     {"hash", ACL_CATEGORY_HASH},
     {"string", ACL_CATEGORY_STRING},
     {"array", ACL_CATEGORY_ARRAY},
+#ifdef INCLUDE_BLOOM
+    {"bloom", ACL_CATEGORY_BLOOM},
+#endif
+#ifdef INCLUDE_CMS
+    {"cms", ACL_CATEGORY_CMS},
+#endif
+#ifdef INCLUDE_CUCKOO
+    {"cuckoo", ACL_CATEGORY_CUCKOO},
+#endif
+#ifdef INCLUDE_TOPK
+    {"topk", ACL_CATEGORY_TOPK},
+#endif
+#ifdef INCLUDE_TDIGEST
+    {"tdigest", ACL_CATEGORY_TDIGEST},
+#endif
     {"bitmap", ACL_CATEGORY_BITMAP},
     {"hyperloglog", ACL_CATEGORY_HYPERLOGLOG},
     {"geo", ACL_CATEGORY_GEO},
