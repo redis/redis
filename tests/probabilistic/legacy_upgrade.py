@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from support import Server
 
-def upgrade(env, create, snapshot, mutate):
+def upgrade(env, create, snapshot, mutate, native_extra=()):
     binary=os.environ.get('BLOOM_ORACLE_SERVER')
     module=os.environ.get('BLOOM_ORACLE_MODULE')
     if not binary or not module:
@@ -38,7 +38,7 @@ def upgrade(env, create, snapshot, mutate):
                 assert b'aof_last_bgrewrite_status:ok' in info
             s.stop()
             s.binary=native
-            s.extra=options
+            s.extra=(*options, *native_extra)
             s.start()
             r=s.client.command
             names=[dict(zip(m[::2],m[1::2]))[b'name'] for m in r('MODULE','LIST')]
