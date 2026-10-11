@@ -161,8 +161,7 @@ installed_modules="${installed_modules# }"
 
 replace_loads=0
 [ -n "$installed_modules" ] && replace_loads=1
-native_bloom=no
-native_probabilistic_enabled && native_bloom=yes
+native_bloom=yes
 if [ "$replace_loads" = "1" ] || [ "$native_bloom" = "yes" ]; then
   new_lines=""
   for name in $installed_modules; do
