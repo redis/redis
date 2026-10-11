@@ -43,7 +43,7 @@ Oracle comparisons remain opt-in and are not run by these workflows.
 
 | Upstream source | Native destination and adaptations |
 | --- | --- |
-| `tests/unit/test-basic.c`, `test.h` | `unit.c`, `unit_support.h`: all nine active algorithm cases, direct core allocation; large cases opt-in |
+| `tests/unit/test-basic.c`, `test.h` | `unit.c`, `../probabilistic/unit_support.h`: ten algorithm cases including master restore guards, direct core allocation; large cases opt-in |
 | `tests/unit/test-perf.c` | `perf.c`: standalone algorithm benchmark, built with `make -C src bloom-perf BUILD_BLOOM=yes` |
 | `tests/flow/test_overall.py` | `test_commands.py`: all Bloom cases, including both formerly duplicate large-filter methods |
 | Bloom class in `test_bf_restore_corrupt_rdb.py` | `test_corrupt_rdb.py`: all three Bloom corruption cases and their helper functions |

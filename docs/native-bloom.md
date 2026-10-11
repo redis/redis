@@ -14,7 +14,8 @@ without module APIs or additional build dependencies. This independent PR adds o
 - `src/probabilistic/bloom_filter.*`, `src/probabilistic/bloom_murmur.*`: filter and hashing internals.
 - `src/probabilistic/bloom_rdb.c`: persistence and compatibility with RedisBloom.
 - `src/commands/bf.*.json`: native command metadata.
-- `tests/integration/bloom.py`: dependency-free Python regression tests.
+- `tests/bloom/integration.py`: dependency-free Python regression tests.
+- `tests/probabilistic/`: shared server, flow and legacy-upgrade helpers.
 - `tests/bloom/`: migrated Bloom unit and flow tests; see its README for provenance.
 
 Keeping commands separate from algorithms allows future core consumers to reuse
