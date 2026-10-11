@@ -46,8 +46,8 @@ load_flags=""
 for name in $selected; do
   if ! module_load_enabled "$name"; then
     if [ "$explicit" = "1" ]; then
-      echo "ERROR: RedisBloom conflicts with enabled native probabilistic datatypes."
-      echo "       Use the native commands available in this build; do not load both implementations."
+      echo "ERROR: RedisBloom is no longer a bundled module."
+      echo "       Use the native BF.*, CMS.*, CF.*, TOPK.* and TDIGEST.* commands."
       exit 1
     fi
     echo "==> Skipping redisbloom: probabilistic types are native"

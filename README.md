@@ -216,6 +216,14 @@ This section refers to building Redis from source. If you want to get up and run
 
 ### Install dependencies and build
 
+All five RedisBloom families are native and enabled by default, with no extra
+build dependencies: [Bloom](docs/native-bloom.md), [CMS](docs/native-cms.md),
+[Cuckoo](docs/native-cuckoo.md), [Top-K](docs/native-topk.md) and
+[t-digest](docs/native-tdigest.md). RedisBloom is no longer fetched, built or
+loaded as a bundled module. The compatibility build switch `BUILD_BLOOM`
+controls the entire family. Read the [existing-key upgrade procedure](docs/probabilistic-upgrade.md)
+before replacing a server that loads RedisBloom.
+
 Building Redis with all data structures (JSON, time series, Bloom / cuckoo / count-min / top-k, t-digest, and the Query Engine) needs a build toolchain plus a few version-sensitive dependencies — GCC/Clang, **LLVM 21**, **CMake 3.25–3.31.6**, **Rust 1.94**, OpenSSL, Python 3, and assorted `-dev` libraries. Instead of a per-OS package list, the repo installs them for you with **`make bootstrap`**, which detects your OS and installs each bundled module's prerequisites.
 
 > **CMake version range matters.** The modules require **3.25 ≤ CMake ≤ 3.31.6** — CMake 4.x is *not* supported and the build will fail with it. On distros that ship CMake 4.x by default (e.g. Ubuntu 26.04), pin a supported version, e.g. `pip3 install 'cmake==3.31.6'`. Note `make bootstrap` only installs CMake when it's missing or too old; it won't downgrade a pre-installed 4.x, so remove/pin that yourself.

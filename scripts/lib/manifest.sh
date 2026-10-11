@@ -95,7 +95,8 @@ native_probabilistic_enabled() {
 }
 
 module_load_enabled() {
-  [ "$1" != "redisbloom" ] || ! native_probabilistic_enabled
+  # All five replacements must be integrated before this retirement PR lands.
+  [ "$1" != "redisbloom" ]
 }
 
 manifest_join_words() {
