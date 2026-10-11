@@ -1,0 +1,66 @@
+{
+    "CF.INSERTNX": {
+        "summary": "Adds one or more items to a Cuckoo Filter if the items did not exist previously. A filter will be created if it does not exist",
+        "complexity": "O(n * (k + i)), where n is the number of items, k is the number of sub-filters and i is maxIterations",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "capacity",
+                "type": "integer",
+                "token": "CAPACITY",
+                "optional": true
+            },
+            {
+                "name": "nocreate",
+                "token": "NOCREATE",
+                "type": "pure-token",
+                "optional": true
+            },
+            {
+                "name": "items",
+                "token": "ITEMS",
+                "type": "pure-token"
+            },
+            {
+                "name": "item",
+                "type": "string",
+                "multiple": true
+            }
+        ],
+        "since": "8.8.0",
+        "group": "cuckoo",
+        "function": "cfInsertCommand",
+        "arity": -4,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "CUCKOO"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}
