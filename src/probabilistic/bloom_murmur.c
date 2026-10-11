@@ -14,6 +14,7 @@
 //    machines.
 
 #include "bloom_murmur.h"
+#include <string.h>
 #define BIG_CONSTANT(x) (x##LLU)
 
 //-----------------------------------------------------------------------------
@@ -34,7 +35,9 @@ uint32_t MurmurHash2(const void *key, int len, uint32_t seed) {
     const unsigned char *data = (const unsigned char *)key;
 
     while (len >= 4) {
-        uint32_t k = *(uint32_t *)data;
+        /* Preserve the legacy native-endian hash without an unaligned C load. */
+        uint32_t k;
+        memcpy(&k, data, sizeof(k));
 
         k *= m;
         k ^= k >> r;

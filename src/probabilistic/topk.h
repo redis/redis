@@ -25,18 +25,18 @@
 
 #define TOPK_DECAY_LOOKUP_TABLE 256
 
-typedef uint32_t counter_t;
+typedef uint32_t topkCounter;
 
 typedef struct HeapBucket {
     uint32_t fp;
     uint32_t itemlen;
     char *item;
-    counter_t count;
+    topkCounter count;
 } HeapBucket;
 
 typedef struct Bucket {
     uint32_t fp; //  fingerprint
-    counter_t count;
+    topkCounter count;
 } Bucket;
 
 typedef struct topk {

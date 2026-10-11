@@ -25,6 +25,9 @@
 #define CHK_LUT_SIZE 256
 #define CHK_HEAVY_ENTRIES_PER_BUCKET 2
 #define CHK_NUM_TABLES 2
+/* Heap item hashes use a separate seed and full-width fingerprints. Part of
+ * the persisted native CHK format: changing it needs a format migration. */
+#define CHK_HEAP_SEED 1919
 
 typedef uint64_t counter_t;
 typedef uint16_t fingerprint_t;
@@ -77,9 +80,11 @@ typedef struct chkTopK {
 } chkTopK;
 
 chkTopK *chkTopKCreate(int k, int numbuckets, double decay);
+chkTopK *chkTopKTryCreate(int k, int numbuckets, double decay);
 void chkTopKRelease(chkTopK *topk);
 sds chkTopKUpdate(chkTopK *topk, char *item, int itemlen, counter_t weight);
 chkHeapBucket *chkTopKList(chkTopK *topk);
+counter_t chkTopKCount(chkTopK *topk, char *item, int itemlen);
 size_t chkTopKGetMemoryUsage(chkTopK *topk);
 
 #ifdef REDIS_TEST

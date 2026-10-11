@@ -17,6 +17,9 @@
 #include "cluster.h"
 #include "connection.h"
 #include "bio.h"
+#ifdef INCLUDE_TOPK
+#include "native_topk.h"
+#endif
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -35,6 +38,14 @@ typedef struct deprecatedConfig {
     const int argc_min;
     const int argc_max;
 } deprecatedConfig;
+
+#ifdef INCLUDE_TOPK
+static configEnum topk_algorithm_enum[] = {
+    {"heavykeeper", TOPK_HEAVYKEEPER},
+    {"cuckoo-heavykeeper", TOPK_CUCKOO_HEAVYKEEPER},
+    {NULL, 0}
+};
+#endif
 
 configEnum maxmemory_policy_enum[] = {
     {"volatile-lru", MAXMEMORY_VOLATILE_LRU},
@@ -3508,6 +3519,9 @@ standardConfig static_configs[] = {
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
 
     /* String Configs */
+#ifdef INCLUDE_TOPK
+    createEnumConfig("topk-default-algorithm", NULL, MODIFIABLE_CONFIG, topk_algorithm_enum, server.topk_default_algorithm, TOPK_HEAVYKEEPER, NULL, NULL),
+#endif
 #ifdef INCLUDE_CUCKOO
     createLongLongConfig("cf-initial-size", NULL, MODIFIABLE_CONFIG, 2, 1LL<<30, server.cf_capacity, 1024, INTEGER_CONFIG, NULL, updateCuckooDefaults),
     createLongLongConfig("cf-bucket-size", NULL, MODIFIABLE_CONFIG, 1, 255, server.cf_bucket, 2, INTEGER_CONFIG, NULL, updateCuckooDefaults),

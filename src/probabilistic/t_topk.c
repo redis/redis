@@ -1,32 +1,62 @@
 /* Native Top-K commands and object lifecycle.
  * Copyright (c) 2026-Present, Redis Ltd.; RSALv2/SSPLv1/AGPLv3. */
 #include "server.h"
-#include "topk.h"
-#include "probabilistic.h"
+#include "native_topk.h"
 #include <math.h>
 
-robj *createTopkObject(void *p) { return createObject(OBJ_TOPK, p); }
-void freeTopkObject(robj *o) { TopK_Destroy(o->ptr); }
+robj *createTopkObject(void *p) {
+    nativeTopK *t = zmalloc(sizeof(*t));
+    t->algorithm = TOPK_HEAVYKEEPER;
+    t->value.legacy = p;
+    return createObject(OBJ_TOPK, t);
+}
+robj *createTopkChkObject(chkTopK *p) {
+    nativeTopK *t = zmalloc(sizeof(*t));
+    t->algorithm = TOPK_CUCKOO_HEAVYKEEPER;
+    t->value.chk = p;
+    return createObject(OBJ_TOPK, t);
+}
+void freeTopkObject(robj *o) {
+    if (topkIsChk(o)) chkTopKRelease(topkChk(o));
+    else TopK_Destroy(topkLegacy(o));
+    zfree(o->ptr);
+}
 size_t topkObjectLength(robj *o) {
-    TopK *t=o->ptr;
     size_t n=0;
+    if (topkIsChk(o)) {
+        chkTopK *t = topkChk(o);
+        for (int i = 0; i < t->k; i++) n += t->heap[i].count != 0;
+        return n;
+    }
+    TopK *t=topkLegacy(o);
     for (uint32_t i=0; i<t->k; i++) n += t->heap[i].count != 0;
     return n;
 }
-size_t topkFreeEffort(robj *o) { return (size_t)((TopK *)o->ptr)->k + 3; }
+size_t topkFreeEffort(robj *o) {
+    return topkIsChk(o) ? (size_t)topkChk(o)->k + 5 : (size_t)topkLegacy(o)->k + 4;
+}
 size_t topkAllocSize(robj *o) {
-    TopK *t=o->ptr;
-    size_t n=zmalloc_size(t)+zmalloc_size(t->data)+zmalloc_size(t->heap);
+    if (topkIsChk(o)) return zmalloc_size(o->ptr) + chkTopKGetMemoryUsage(topkChk(o));
+    TopK *t=topkLegacy(o);
+    size_t n=zmalloc_size(o->ptr)+zmalloc_size(t)+zmalloc_size(t->data)+zmalloc_size(t->heap);
     for (uint32_t i=0; i<t->k; i++) if (t->heap[i].item) n+=zmalloc_size(t->heap[i].item);
     return n;
 }
 void topkDismiss(robj *o) {
-    TopK *t=o->ptr;
+    if (topkIsChk(o)) {
+        chkTopK *t = topkChk(o);
+        for (int i = 0; i < CHK_NUM_TABLES; i++)
+            dismissMemory(t->tables[i], (size_t)t->numbuckets * sizeof(chkBucket));
+        dismissMemory(t->heap, (size_t)t->k * sizeof(chkHeapBucket));
+        return;
+    }
+    TopK *t=topkLegacy(o);
     dismissMemory(t->data, (size_t)t->width*t->depth*sizeof(Bucket));
     dismissMemory(t->heap, (size_t)t->k*sizeof(HeapBucket));
 }
 robj *topkDup(robj *o) {
-    TopK *t=o->ptr, *copy=zmalloc(sizeof(*copy));
+    if (topkIsChk(o)) return createTopkChkObject(topkChkDup(topkChk(o)));
+    TopK *t=topkLegacy(o), *copy=zmalloc(sizeof(*copy));
     *copy=*t;
     size_t bytes=(size_t)t->width*t->depth*sizeof(Bucket);
     copy->data=zmalloc(bytes); memcpy(copy->data,t->data,bytes);
@@ -41,7 +71,14 @@ robj *topkDup(robj *o) {
 }
 void topkDefrag(robj *o, void *(*defrag)(void *)) {
     void *p=defrag(o->ptr); if (p) o->ptr=p;
-    TopK *t=o->ptr;
+    nativeTopK *wrapper = o->ptr;
+    if (topkIsChk(o)) {
+        p = defrag(wrapper->value.chk); if (p) wrapper->value.chk = p;
+        topkChkDefrag(wrapper->value.chk, defrag);
+        return;
+    }
+    p = defrag(wrapper->value.legacy); if (p) wrapper->value.legacy = p;
+    TopK *t=topkLegacy(o);
     p=defrag(t->data); if (p) t->data=p;
     p=defrag(t->heap); if (p) t->heap=p;
     for (uint32_t i=0; i<t->k; i++) if (t->heap[i].item) {
@@ -49,7 +86,11 @@ void topkDefrag(robj *o, void *(*defrag)(void *)) {
     }
 }
 void topkDigest(unsigned char *digest, robj *o) {
-    TopK *t=o->ptr;
+    if (topkIsChk(o)) {
+        topkChkDigest(digest, topkChk(o));
+        return;
+    }
+    TopK *t=topkLegacy(o);
     mixDigest(digest,&t->k,sizeof(t->k));
     mixDigest(digest,&t->width,sizeof(t->width));
     mixDigest(digest,&t->depth,sizeof(t->depth));
@@ -75,9 +116,48 @@ static void topkModified(client *c, robj *o, size_t oldsize, size_t oldcount) {
     notifyKeyspaceEvent(NOTIFY_TOPK,c->cmd->fullname,c->argv[1],c->db->id);
     server.dirty++;
 }
+static void topkPropagateState(client *c, robj *o) {
+    /* Engine selection and randomized decay must not depend on the receiver's
+     * config or RNG. Also propagate empty RESERVE keys as exact state. */
+    rio payload;
+    createDumpPayload(&payload,o,c->argv[1],c->db->id,DUMP_PAYLOAD_SKIP_KEY_META,0);
+    long long expire=getExpire(c->db,c->argv[1]->ptr,o);
+    robj *cmd=createStringObject("RESTORE",7);
+    robj *ttl=createStringObjectFromLongLong(expire<0 ? 0 : expire);
+    robj *data=createStringObject(payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr));
+    robj *replace=createStringObject("REPLACE",7), *absolute=createStringObject("ABSTTL",6);
+    rewriteClientCommandVector(c,6,cmd,c->argv[1],ttl,data,replace,absolute);
+    decrRefCount(cmd); decrRefCount(ttl); decrRefCount(data);
+    decrRefCount(replace); decrRefCount(absolute); sdsfree(payload.io.buffer.ptr);
+}
 void topkReserveCommand(client *c) {
     if (c->argc!=3 && c->argc!=6) { addReplyErrorArity(c); return; }
     if (lookupKeyWrite(c->db,c->argv[1])) { addReplyError(c,"TopK: key already exists"); return; }
+    /* Historical command AOFs and old primaries did not encode an engine.
+     * Their RESERVE commands always mean HeavyKeeper. New writers propagate
+     * RESTORE, including for empty keys, so they never need this inference. */
+    if (server.topk_default_algorithm == TOPK_CUCKOO_HEAVYKEEPER &&
+        !server.loading && !(c->flags & CLIENT_MASTER)) {
+        if (c->argc != 3) {
+            addReplyError(c,"TopK: width/depth/decay parameters are only supported by heavykeeper");
+            return;
+        }
+        long long k;
+        if (getLongLongFromObject(c->argv[2], &k) != C_OK || k < 1 || k > (1LL << 27)) {
+            addReplyError(c,"TopK: invalid k for cuckoo-heavykeeper (1..134217728)");
+            return;
+        }
+        int buckets = 1;
+        while (buckets < k * 8) buckets *= 2;
+        chkTopK *t = chkTopKTryCreate(k, buckets, TOPK_CHK_DECAY);
+        if (!t) { addReplyError(c,"Insufficient memory to create topk data structure"); return; }
+        robj *o = createTopkChkObject(t);
+        dbAdd(c->db,c->argv[1],&o);
+        topkModified(c,o,server.memory_tracking_enabled ? kvobjAllocSize(o) : 0,0);
+        addReply(c,shared.ok);
+        topkPropagateState(c,o);
+        return;
+    }
     long long dims[3]={0,8,7};
     const char *errors[]={"TopK: invalid k","TopK: invalid width","TopK: invalid depth"};
     for (int i=0; i<(c->argc==6 ? 3 : 1); i++) {
@@ -96,12 +176,12 @@ void topkReserveCommand(client *c) {
     dbAdd(c->db,c->argv[1],&o);
     topkModified(c,o,server.memory_tracking_enabled ? kvobjAllocSize(o) : 0,0);
     addReply(c,shared.ok);
+    topkPropagateState(c,o);
 }
 void topkAddCommand(client *c) {
     int incr=!strcasecmp(c->cmd->fullname,"topk.incrby"), step=incr ? 2 : 1;
     if (incr && c->argc%2) { addReplyErrorArity(c); return; }
     robj *o=topkLookup(c,1); if (!o) return;
-    TopK *t=o->ptr;
     size_t oldcount=topkObjectLength(o), oldsize=server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     int changed=0;
     addReplyArrayLen(c,(c->argc-2)/step);
@@ -111,27 +191,33 @@ void topkAddCommand(client *c) {
             addReplyError(c,"TopK: increment must be an integer greater or equal to 0 and smaller or equal to 100,000");
             continue;
         }
-        /* Capture the length before the minimum heap item is potentially evicted. */
-        size_t len=t->heap[0].itemlen;
-        char *evicted=TopK_Add(t,c->argv[i]->ptr,sdslen(c->argv[i]->ptr),n);
-        if (evicted) { addReplyBulkCBuffer(c,evicted,len); zfree(evicted); }
-        else addReplyNull(c);
+        if (topkIsChk(o)) {
+            chkTopK *t = topkChk(o);
+            size_t len = sdslen(c->argv[i]->ptr);
+            /* Restrict total to the RESP signed-integer range. Every heavy
+             * and heap counter is bounded by total, including after reload. */
+            if (len > INT_MAX || (uint64_t)n > (uint64_t)LLONG_MAX - t->total) {
+                addReplyError(c,"TopK: item length or total count exceeds supported range");
+                continue;
+            }
+            sds evicted = chkTopKUpdate(t,c->argv[i]->ptr,len,n);
+            if (evicted) { addReplyBulkCBuffer(c,evicted,sdslen(evicted)); sdsfree(evicted); }
+            else addReplyNull(c);
+        } else {
+            TopK *t = topkLegacy(o);
+            /* Capture the length before the minimum heap item is potentially evicted. */
+            size_t len=t->heap[0].itemlen;
+            char *evicted=TopK_Add(t,c->argv[i]->ptr,sdslen(c->argv[i]->ptr),n);
+            if (evicted) { addReplyBulkCBuffer(c,evicted,len); zfree(evicted); }
+            else addReplyNull(c);
+        }
         changed=1;
     }
     if (changed) {
         topkModified(c,o,oldsize,oldcount);
         /* Randomized decay cannot be replayed verbatim. Propagate the exact state.
          * This is O(sketch size); a compact deterministic delta is future work. */
-        rio payload;
-        createDumpPayload(&payload,o,c->argv[1],c->db->id,DUMP_PAYLOAD_SKIP_KEY_META,0);
-        long long expire=getExpire(c->db,c->argv[1]->ptr,o);
-        robj *cmd=createStringObject("RESTORE",7);
-        robj *ttl=createStringObjectFromLongLong(expire<0 ? 0 : expire);
-        robj *data=createStringObject(payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr));
-        robj *replace=createStringObject("REPLACE",7), *absolute=createStringObject("ABSTTL",6);
-        rewriteClientCommandVector(c,6,cmd,c->argv[1],ttl,data,replace,absolute);
-        decrRefCount(cmd); decrRefCount(ttl); decrRefCount(data);
-        decrRefCount(replace); decrRefCount(absolute); sdsfree(payload.io.buffer.ptr);
+        topkPropagateState(c,o);
     }
 }
 void topkQueryCommand(client *c) {
@@ -139,8 +225,15 @@ void topkQueryCommand(client *c) {
     int count=!strcasecmp(c->cmd->fullname,"topk.count");
     addReplyArrayLen(c,c->argc-2);
     for (int i=2; i<c->argc; i++) {
-        long long n=count ? TopK_Count(o->ptr,c->argv[i]->ptr,sdslen(c->argv[i]->ptr)) :
-                           TopK_Query(o->ptr,c->argv[i]->ptr,sdslen(c->argv[i]->ptr));
+        long long n;
+        if (topkIsChk(o)) {
+            size_t len = sdslen(c->argv[i]->ptr);
+            if (count) n = len > INT_MAX ? 0 : chkTopKCount(topkChk(o),c->argv[i]->ptr,len);
+            else n = topkChkFind(topkChk(o), c->argv[i]->ptr) != NULL;
+        } else {
+            n=count ? TopK_Count(topkLegacy(o),c->argv[i]->ptr,sdslen(c->argv[i]->ptr)) :
+                      TopK_Query(topkLegacy(o),c->argv[i]->ptr,sdslen(c->argv[i]->ptr));
+        }
         if (!count && c->resp==3) addReplyBool(c,n); else addReplyLongLong(c,n);
     }
 }
@@ -151,7 +244,19 @@ void topkListCommand(client *c) {
         addReplyError(c,"TopK: invalid argument"); return;
     }
     robj *o=topkLookup(c,0); if (!o) return;
-    TopK *t=o->ptr;
+    if (topkIsChk(o)) {
+        chkTopK *t = topkChk(o);
+        chkHeapBucket *list = chkTopKList(t);
+        size_t n = topkObjectLength(o);
+        addReplyArrayLen(c,n*(counts+1));
+        for (size_t i = 0; i < n; i++) {
+            addReplyBulkCBuffer(c,list[i].item,sdslen(list[i].item));
+            if (counts) addReplyLongLong(c,list[i].count);
+        }
+        zfree(list);
+        return;
+    }
+    TopK *t=topkLegacy(o);
     HeapBucket *list=TopK_List(t);
     size_t n=0; while (n<t->k && list[n].count) n++;
     addReplyArrayLen(c,n*(counts+1));
@@ -163,7 +268,17 @@ void topkListCommand(client *c) {
 }
 void topkInfoCommand(client *c) {
     robj *o=topkLookup(c,0); if (!o) return;
-    TopK *t=o->ptr;
+    if (topkIsChk(o)) {
+        chkTopK *t = topkChk(o);
+        if (c->resp==3) addReplyMapLen(c,4); else addReplyArrayLen(c,8);
+        addReplyStatus(c,"k"); addReplyLongLong(c,t->k);
+        addReplyStatus(c,"buckets"); addReplyLongLong(c,t->numbuckets);
+        addReplyStatus(c,"decay"); addReplyDouble(c,t->decay);
+        addReplyStatus(c,"algorithm"); addReplyBulkCString(c,"cuckoo-heavykeeper");
+        return;
+    }
+    /* Preserve the legacy INFO shape for existing clients. */
+    TopK *t=topkLegacy(o);
     if (c->resp==3) addReplyMapLen(c,4); else addReplyArrayLen(c,8);
     addReplyStatus(c,"k"); addReplyLongLong(c,t->k);
     addReplyStatus(c,"width"); addReplyLongLong(c,t->width);
@@ -172,7 +287,8 @@ void topkInfoCommand(client *c) {
 }
 uint64_t topkRdbId(void) { return probRdbId("TopK-TYPE",0); }
 ssize_t topkRdbSave(rio *rdb, robj *o) {
-    TopK *t=o->ptr;
+    if (topkIsChk(o)) return topkChkRdbSave(rdb,topkChk(o));
+    TopK *t=topkLegacy(o);
     probIO io={.rdb=rdb};
     addSaved(&io,rdbSaveLen(rdb,topkRdbId()));
     saveUnsigned(&io,t->k); saveUnsigned(&io,t->width); saveUnsigned(&io,t->depth);
@@ -194,6 +310,7 @@ ssize_t topkRdbSave(rio *rdb, robj *o) {
     return io.error ? -1 : io.bytes;
 }
 robj *topkRdbLoad(rio *rdb, int version) {
+    if (version==1) return topkChkRdbLoad(rdb);
     if (version!=0) return NULL;
     probIO io={.rdb=rdb};
     uint64_t k=loadUnsigned(&io), w=loadUnsigned(&io), d=loadUnsigned(&io);

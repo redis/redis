@@ -46,11 +46,6 @@ static_assert(LOBBY_PROMOTION_THRESHOLD < CHK_LUT_SIZE,
  * chkTopK structure has accumulated. See the paper for more info. */
 #define HEAVY_RATIO 0.008
 
-/* A unique seed for the items when storing them in the heap so it's not related
- * to the cuckoo's hashes. Also, we don't need the less-bit hash here as the
- * heap does not take much memory so we avoid needless possible collisions. */
-#define HEAP_SEED 1919
-
 typedef struct {
     size_t idx[CHK_NUM_TABLES];
     fingerprint_t fp;
@@ -111,22 +106,26 @@ void chkHeapifyDown(chkHeapBucket *array, size_t len, size_t start) {
 /* Create the chkTopK structure. Note, CHK paper recommends decay=1.08.
  * numbuckets must be a power of 2. Recommended size for numbuckets is at least
  * 7 or 8 times k. */
-chkTopK *chkTopKCreate(int k, int numbuckets, double decay) {
+static chkTopK *chkTopKCreateInternal(int k, int numbuckets, double decay, int try_alloc) {
     /* Number of buckets need to be a power of 2 for better performance - we
      * have better cache locality of the tables and faster table indices
      * calculations. */
-    assert(k > 0 && (numbuckets & (numbuckets - 1)) == 0);
+    assert(k > 0 && numbuckets > 0 && (numbuckets & (numbuckets - 1)) == 0);
 
     size_t usable = 0;
-    chkTopK *topk = zcalloc_usable(sizeof(chkTopK), &usable);
+    void *(*alloc)(size_t, size_t *) = try_alloc ? ztrycalloc_usable : zcalloc_usable;
+    chkTopK *topk = alloc(sizeof(chkTopK), &usable);
+    if (!topk) return NULL;
     topk->alloc_size += usable;
 
     for (int i = 0; i < CHK_NUM_TABLES; ++i) {
-        topk->tables[i] = zcalloc_usable(sizeof(chkBucket) * numbuckets, &usable);
+        topk->tables[i] = alloc(sizeof(chkBucket) * numbuckets, &usable);
+        if (!topk->tables[i]) goto error;
         topk->alloc_size += usable;
     }
 
-    topk->heap = zcalloc_usable(sizeof(chkHeapBucket) * k, &usable);
+    topk->heap = alloc(sizeof(chkHeapBucket) * k, &usable);
+    if (!topk->heap) goto error;
     topk->alloc_size += usable;
 
     topk->decay = decay;
@@ -144,6 +143,21 @@ chkTopK *chkTopKCreate(int k, int numbuckets, double decay) {
     }
 
     return topk;
+error:
+    for (int i = 0; i < CHK_NUM_TABLES; ++i) zfree(topk->tables[i]);
+    zfree(topk);
+    return NULL;
+}
+
+chkTopK *chkTopKCreate(int k, int numbuckets, double decay) {
+    return chkTopKCreateInternal(k, numbuckets, decay, 0);
+}
+
+chkTopK *chkTopKTryCreate(int k, int numbuckets, double decay) {
+    if (k <= 0 || numbuckets <= 0 || (numbuckets & (numbuckets - 1)) ||
+        (size_t)numbuckets > SIZE_MAX / sizeof(chkBucket) ||
+        (size_t)k > SIZE_MAX / sizeof(chkHeapBucket)) return NULL;
+    return chkTopKCreateInternal(k, numbuckets, decay, 1);
 }
 
 /* Release chkTopK resources */
@@ -552,7 +566,7 @@ update_heap:
         return NULL;
  
     /* Heap uses different hash than the cuckoo tables */
-    uint64_t fp = XXH3_64bits_withSeed(item, itemlen, HEAP_SEED);
+    uint64_t fp = XXH3_64bits_withSeed(item, itemlen, CHK_HEAP_SEED);
     chkHeapBucket *itemHeapPtr = chkCheckExistInHeap(topk, item, itemlen, fp);
     if (itemHeapPtr != NULL) {
         itemHeapPtr->count = entry->count;
@@ -573,6 +587,22 @@ update_heap:
     }
 
     return NULL;
+}
+
+/* Estimate counts from the sketch, including items outside the top-K heap. */
+counter_t chkTopKCount(chkTopK *topk, char *item, int itemlen) {
+    fpAndIdx hash = generateItemFpAndIdxs(topk, item, itemlen);
+    counter_t count = 0;
+    for (int i = 0; i < CHK_NUM_TABLES; i++) {
+        chkBucket *bucket = &topk->tables[i][hash.idx[i]];
+        for (int j = 0; j < CHK_HEAVY_ENTRIES_PER_BUCKET; j++) {
+            chkHeavyEntry *entry = &bucket->heavy_entries[j];
+            if (entry->fp == hash.fp && entry->count > count) count = entry->count;
+        }
+        if (bucket->lobby_entry.fp == hash.fp && bucket->lobby_entry.count > count)
+            count = bucket->lobby_entry.count;
+    }
+    return count;
 }
 
 int cmpchkHeapBucket(const void *tmp1, const void *tmp2) {
@@ -807,6 +837,26 @@ static void testManySmallWeightUpdates(void) {
     chkTopKRelease(topk);
 }
 
+static void testNativeKeyPrimitives(void) {
+    test_cond("CHK rejects invalid dimensions", chkTopKTryCreate(0, 8, 1.08) == NULL &&
+              chkTopKTryCreate(1, 0, 1.08) == NULL && chkTopKTryCreate(1, 3, 1.08) == NULL);
+    chkTopK *t = chkTopKTryCreate(1, 8, 1.08);
+    test_cond("CHK fallible creation succeeds", t != NULL);
+    if (!t) return;
+    const char binary[] = "a\0b";
+    chkTopKUpdateAndFreeExpelled(t, binary, 3, (1ULL << 32) + 7);
+    chkTopKUpdateAndFreeExpelled(t, "light", 5, 1);
+    test_cond("CHK counts exceed 32 bits", chkTopKCount(t, (char *)binary, 3) == (1ULL << 32) + 7);
+    test_cond("CHK counts items outside heap", chkTopKCount(t, "light", 5) == 1 &&
+              memcmp(t->heap[0].item, binary, 3) == 0);
+    uint64_t total = t->total;
+    chkTopKUpdateAndFreeExpelled(t, "zero", 4, 0);
+    test_cond("CHK zero increment leaves total unchanged", t->total == total);
+    test_cond("CHK memory usage includes tables and heap", chkTopKGetMemoryUsage(t) >=
+              sizeof(*t) + 16 * sizeof(chkBucket) + sizeof(chkHeapBucket));
+    chkTopKRelease(t);
+}
+
 int chkTopKTest(int argc, char *argv[], int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -815,6 +865,7 @@ int chkTopKTest(int argc, char *argv[], int flags) {
     testBasicTopK();
     testHeavierElementsReplaceLighter();
     testManySmallWeightUpdates();
+    testNativeKeyPrimitives();
 
     return 0;
 }
