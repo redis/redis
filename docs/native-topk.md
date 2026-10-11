@@ -1,10 +1,13 @@
 # Native Top-K
 
+This PR targets `feature/native-probabilistic` independently; see
+[the development workflow](probabilistic-development.md).
+
 All seven TOPK commands live in `src/probabilistic/t_topk.c`, with the reusable HeavyKeeper
 algorithm in `src/probabilistic/topk.c`. This is separate from core hot-key tracking:
 the two implementations can be evaluated independently by the data-types team.
 No additional dependency or module loading is required. The temporary
-`BUILD_BLOOM` switch enables the migrated family together.
+`BUILD_BLOOM` switch enables the migrated families present in this checkout.
 
 Native objects support COPY, expiry, UNLINK, memory accounting, digest and
 defragmentation. `TYPE` returns `topk`; the ACL category is `@topk`;
