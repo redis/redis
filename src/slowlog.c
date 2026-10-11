@@ -178,19 +178,20 @@ static void offCpuLog(const char *fmt, ...) {
     suppressed = 0;
 }
 
-/* CPU accounting for a command that is about to be logged.
- * Main thread: off-CPU time is measured over the window since
- * server.cpu_checkpoint (taken when the event loop wakes, moved by each slow
- * command), or since server.cpu_cmd_start for a top-level command, so fast
- * commands pay no syscall. Only the part that must have happened inside this
- * command is charged to it.
- * Module thread: call() measured the command exactly into c->cpu_*.
- * sample_cpu is 0 on the unblock path: c->duration is from an earlier iteration. */
-void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
+/* CPU accounting for a command that is about to be logged. 'start' is the
+ * checkpoint value when the command began (NULL = not measured: on the unblock
+ * path c->duration is from an earlier iteration).
+ * Main thread: off-CPU time is measured over the window since 'start'. Every
+ * slow command moves server.cpu_checkpoint, so siblings get tight windows,
+ * while a parent's 'start' is from before its children, so it keeps their
+ * off-CPU time. Fast commands pay no syscall. Only the part that must have
+ * happened inside this command is charged to it.
+ * Module thread: call() measured the command exactly into c->cpu_*. */
+void slowlogMeasureCpu(client *c, const cpuSample *start, slowlogCpu *m) {
     memset(m, 0, sizeof(*m));
     m->measured = c->duration; /* Execution time only, without blocked time. */
-    m->sampled = sample_cpu;
-    if (!sample_cpu) return;
+    m->sampled = start != NULL;
+    if (!start) return;
 
     if (pthread_equal(pthread_self(), server.main_thread_id)) {
         /* Shorter than the floor can never be reported (off_min <= measured),
@@ -199,12 +200,6 @@ void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
             m->sampled = 0;
             return;
         }
-        /* A top-level command measures from its own start, so it keeps the
-         * off-CPU time of slow commands it called; nested commands measure
-         * from the checkpoint, so siblings (MULTI/EXEC, script calls) don't
-         * share one wide window. */
-        const cpuSample *start = server.execution_nesting == 0 ?
-                                 &server.cpu_cmd_start : &server.cpu_checkpoint;
         cpuSample now;
         cpuSampleTake(&now);
         ustime_t window = (ustime_t)(now.wall - start->wall);
@@ -220,7 +215,7 @@ void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
         m->nivcsw = now.nivcsw - start->nivcsw;
         server.cpu_checkpoint = now;
     } else {
-        m->cpu = c->cpu_duration;
+        m->cpu = c->cpu_duration < m->measured ? c->cpu_duration : m->measured;
         m->off_max = m->measured > m->cpu ? m->measured - m->cpu : 0;
         m->off_min = m->off_max;
         m->nvcsw = c->cpu_nvcsw;
@@ -298,7 +293,7 @@ void slowlogCommand(client *c) {
 "    id, timestamp, time in microseconds, arguments array, client IP and port,",
 "    client name, total argument count, upper-bound estimate of CPU time in",
 "    microseconds",
-"    (0 when not measured)",
+"    (0 when not measured: blocked, or shorter than 100 microseconds)",
 "LEN",
 "    Return the length of the slowlog.",
 "RESET",

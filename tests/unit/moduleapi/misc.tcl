@@ -30,6 +30,19 @@ start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
         assert {[lindex $e 7] < [lindex $e 2] / 2}
     } {} {needs:debug}
 
+    test {RM_Call: a middle-level command keeps the off-CPU time of its child} {
+        r config set slowlog-log-slower-than 10000
+        r slowlog reset
+        r test.call_generic test.call_generic debug sleep 0.05
+        # Newest first: outer, middle, then the DEBUG SLEEP.
+        set log [r slowlog get 3]
+        foreach i {0 1} {
+            set e [lindex $log $i]
+            assert_match {test.call_generic *} [lindex $e 3]
+            assert {[lindex $e 7] < [lindex $e 2] / 2}
+        }
+    } {} {needs:debug}
+
     test {test redis version} {
         set version [s redis_version]
         assert_equal $version [r test.redisversion]

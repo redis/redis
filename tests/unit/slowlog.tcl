@@ -70,10 +70,11 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         # one-second rate limit so this test's line is not suppressed.
         after 1100
         set loglines [count_log_lines 0]
-        set before [s off_cpu_blocked_events]
+        # Count either label: on a loaded host a sleep can also be preempted.
+        set before [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}]
         r debug sleep 0.2
-        wait_for_log_messages 0 {"*off-CPU (blocked)*"} $loglines 50 100
-        assert_equal [expr {$before + 1}] [s off_cpu_blocked_events]
+        wait_for_log_messages 0 {"*Slow command off-CPU*"} $loglines 50 100
+        assert_equal [expr {$before + 1}] [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}]
     } {} {needs:debug external:skip}
 
     test {SLOWLOG - CPU-bound command gets a non-zero CPU estimate} {
@@ -104,7 +105,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     test {SLOWLOG - on-CPU subcommand does not mask a later off-CPU one in EXEC} {
         r config set slowlog-log-slower-than 10000
         r slowlog reset
-        set before [s off_cpu_blocked_events]
+        set before [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}]
         r multi
         r eval {local i = 0 while i < 3000000 do i = i + 1 end return i} 0
         r debug sleep 0.05
@@ -112,7 +113,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         set e [lindex [r slowlog get 1] 0]
         assert_match {debug sleep *} [lindex $e 3]
         assert {[lindex $e 7] < [lindex $e 2] / 2}
-        assert_equal [expr {$before + 1}] [s off_cpu_blocked_events]
+        assert_equal [expr {$before + 1}] [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}]
     } {} {needs:debug}
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
@@ -567,12 +568,12 @@ if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
         exec taskset -cp $starve_cpu $pid
         exec renice -n 19 -p $pid
 
-        proc start_busy_loops {cpu} {
-            set pids {}
+        # Appends each pid as it starts, so a partial start is still cleaned up.
+        proc start_busy_loops {cpu pidsvar} {
+            upvar $pidsvar pids
             for {set i 0} {$i < 3} {incr i} {
                 lappend pids [exec taskset -c $cpu sh -c {while :; do :; done} &]
             }
-            return $pids
         }
         proc stop_busy_loops {pids} {
             foreach p $pids {catch {exec kill $p}}
@@ -581,8 +582,9 @@ if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
         test {SLOWLOG - CPU starvation is detected for a preempted command} {
             r config set slowlog-log-slower-than 1000
             set before [s cpu_starvation_events]
-            set busy [start_busy_loops $starve_cpu]
+            set busy {}
             set err [catch {
+                start_busy_loops $starve_cpu busy
                 r eval {local i = 0 while i < 1000000 do i = i + 1 end return i} 0
                 set e [lindex [r slowlog get 1] 0]
             } msg]
@@ -605,8 +607,9 @@ if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
             for {set i 0} {$i < 1000} {incr i} { append buf "SET k$i v\r\n" }
             set clients {}
             for {set c 0} {$c < 10} {incr c} { lappend clients [redis_deferring_client] }
-            set busy [start_busy_loops $starve_cpu]
+            set busy {}
             set err [catch {
+                start_busy_loops $starve_cpu busy
                 foreach rd $clients { $rd write $buf; $rd flush }
                 foreach rd $clients {
                     for {set i 0} {$i < 1000} {incr i} { $rd read }

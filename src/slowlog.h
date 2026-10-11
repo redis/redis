@@ -26,7 +26,7 @@ typedef struct slowlogEntry {
 /* CPU accounting for one command about to be logged (see slowlogMeasureCpu()). */
 typedef struct slowlogCpu {
     ustime_t measured;  /* Execution time (c->duration). */
-    ustime_t cpu;       /* Stored CPU time: measured - off_min. 0 if not sampled. */
+    ustime_t cpu;       /* Stored CPU time (main thread: measured - off_min). 0 if not sampled. */
     ustime_t off_min;   /* Off-CPU time that must be inside the command. */
     ustime_t off_max;   /* At most this much off-CPU time. */
     long nvcsw, nivcsw; /* Context switches over the window. */
@@ -35,7 +35,7 @@ typedef struct slowlogCpu {
 
 /* Exported API */
 void slowlogInit(void);
-void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m);
+void slowlogMeasureCpu(client *c, const cpuSample *start, slowlogCpu *m);
 void slowlogReportOffCpu(const slowlogCpu *m);
 int slowlogWouldLog(long long duration);
 int slowlogPushEntryIfNeeded(client *c, robj **argv, int argc, long long duration,

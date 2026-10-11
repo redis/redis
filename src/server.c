@@ -2184,6 +2184,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
      * Do NOT add anything above moduleAcquireGIL !!! *
      ***************************** ********************/
     if (!ProcessingEventsWhileBlocked) {
+        int cpu_sampled = 0;
         /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
@@ -2192,19 +2193,22 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             atomicSet(server.module_gil_acquiring, 1);
             moduleAcquireGIL();
             atomicSet(server.module_gil_acquiring, 0);
+            /* Start the CPU window after the GIL (waiting for it isn't counted)
+             * and before module events, which may run commands. */
+            cpuSampleTake(&server.cpu_checkpoint);
+            cpu_sampled = 1;
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
+        if (!cpu_sampled) cpuSampleTake(&server.cpu_checkpoint);
+        server.el_cpu_start = server.cpu_checkpoint;
         /* Set the eventloop start time. */
         server.el_start = getMonotonicUs();
         /* Set the eventloop command count at start. */
         server.el_cmd_cnt_start = server.stat_numcommands;
-        /* Start the CPU window. After the GIL, so waiting for it isn't counted. */
-        cpuSampleTake(&server.cpu_checkpoint);
-        server.el_cpu_start = server.cpu_checkpoint;
     }
 
     /* Set running after waking up */
@@ -3932,7 +3936,7 @@ int getPropagateTargetsForCall(client *c, int flags) {
 
 /* Log the last command a client executed into the slowlog, with its CPU time
  * (see slowlogMeasureCpu()), and warn if it was mostly off-CPU. */
-void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, int sample_cpu) {
+void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, const cpuSample *cpu_start) {
     /* Some commands may contain sensitive data that should not be available in the slowlog. */
     if (cmd->flags & CMD_SKIP_SLOWLOG)
         return;
@@ -3941,7 +3945,7 @@ void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t dur
         return;
 
     slowlogCpu cpu;
-    slowlogMeasureCpu(c, sample_cpu, &cpu);
+    slowlogMeasureCpu(c, cpu_start, &cpu);
 
     /* If command argument vector was rewritten, use the original
      * arguments. */
@@ -4229,14 +4233,18 @@ void call(client *c, int flags) {
     /* Pass current server.ustime to avoid ustime() call if monotonic clock is used
      * and time will be updated before command execution based on monotonic clock. */
     const long long call_timer = use_hw_clock ? server.ustime : ustime();
-    /* Start of this command's CPU window if it's top-level (see slowlogMeasureCpu()). */
-    if (server.execution_nesting == 0) server.cpu_cmd_start = server.cpu_checkpoint;
+    /* This command's CPU window starts at the current checkpoint. Slow commands
+     * it calls move the checkpoint, not this copy (see slowlogMeasureCpu()). */
+    const cpuSample window_start = server.cpu_checkpoint;
     enterExecutionUnit(1, call_timer);
 
     /* Per-command CPU sample only on a module thread; main-thread commands
      * are estimated from server.cpu_checkpoint (no syscall per command). */
+    const int on_main_thread = pthread_equal(pthread_self(), server.main_thread_id);
     const int sample_cpu = update_command_stats &&
-                           !pthread_equal(pthread_self(), server.main_thread_id);
+                           server.slowlog_log_slower_than >= 0 &&
+                           server.slowlog_max_len > 0 &&
+                           !on_main_thread;
     cpuSample cpu_start;
     if (sample_cpu) cpuSampleTake(&cpu_start);
 
@@ -4332,7 +4340,12 @@ void call(client *c, int flags) {
     /* Log the command into the Slow log if needed (also flags off-CPU time).
      * If the client is blocked we will handle slowlog when it is unblocked. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED))
-        slowlogPushCurrentCommand(c, real_cmd, c->duration, 1);
+        /* Measure only if c->duration is this run alone (a command re-executed
+         * after blocking also carries the time of its earlier run, which the
+         * window doesn't cover), and on a module thread only if it was sampled. */
+        slowlogPushCurrentCommand(c, real_cmd, c->duration,
+                                  c->duration == duration && (on_main_thread || sample_cpu) ?
+                                  &window_start : NULL);
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
