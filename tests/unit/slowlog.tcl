@@ -66,7 +66,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
 
     test {SLOWLOG - off-CPU blocked command is counted and logged} {
         r config set slowlog-log-slower-than 100000
-        # Earlier tests' DEBUG SLEEPs also log this line; wait out the
+        # Earlier tests' DEBUG SLEEP calls also log this line; wait out the
         # one-second rate limit so this test's line is not suppressed.
         after 1100
         set loglines [count_log_lines 0]
