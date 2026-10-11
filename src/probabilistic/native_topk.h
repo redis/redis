@@ -16,17 +16,17 @@ typedef struct nativeTopK {
     union {
         TopK *legacy;
         chkTopK *chk;
-    };
+    } value;
 } nativeTopK;
 
 static inline int topkIsChk(const robj *o) {
     return ((nativeTopK *)o->ptr)->algorithm == TOPK_CUCKOO_HEAVYKEEPER;
 }
 static inline TopK *topkLegacy(const robj *o) {
-    return ((nativeTopK *)o->ptr)->legacy;
+    return ((nativeTopK *)o->ptr)->value.legacy;
 }
 static inline chkTopK *topkChk(const robj *o) {
-    return ((nativeTopK *)o->ptr)->chk;
+    return ((nativeTopK *)o->ptr)->value.chk;
 }
 
 robj *createTopkChkObject(chkTopK *t);

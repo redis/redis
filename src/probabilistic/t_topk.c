@@ -7,13 +7,13 @@
 robj *createTopkObject(void *p) {
     nativeTopK *t = zmalloc(sizeof(*t));
     t->algorithm = TOPK_HEAVYKEEPER;
-    t->legacy = p;
+    t->value.legacy = p;
     return createObject(OBJ_TOPK, t);
 }
 robj *createTopkChkObject(chkTopK *p) {
     nativeTopK *t = zmalloc(sizeof(*t));
     t->algorithm = TOPK_CUCKOO_HEAVYKEEPER;
-    t->chk = p;
+    t->value.chk = p;
     return createObject(OBJ_TOPK, t);
 }
 void freeTopkObject(robj *o) {
@@ -73,11 +73,11 @@ void topkDefrag(robj *o, void *(*defrag)(void *)) {
     void *p=defrag(o->ptr); if (p) o->ptr=p;
     nativeTopK *wrapper = o->ptr;
     if (topkIsChk(o)) {
-        p = defrag(wrapper->chk); if (p) wrapper->chk = p;
-        topkChkDefrag(wrapper->chk, defrag);
+        p = defrag(wrapper->value.chk); if (p) wrapper->value.chk = p;
+        topkChkDefrag(wrapper->value.chk, defrag);
         return;
     }
-    p = defrag(wrapper->legacy); if (p) wrapper->legacy = p;
+    p = defrag(wrapper->value.legacy); if (p) wrapper->value.legacy = p;
     TopK *t=topkLegacy(o);
     p=defrag(t->data); if (p) t->data=p;
     p=defrag(t->heap); if (p) t->heap=p;
