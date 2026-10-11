@@ -1,13 +1,15 @@
 # Native Cuckoo filters
 
-This stacked change adds all 14 `CF.*` commands as a native Redis object.
+This PR targets `feature/native-probabilistic` independently; see
+[the development workflow](probabilistic-development.md).
+
+This independent change adds all 14 `CF.*` commands as a native Redis object.
 Command handlers and object lifecycle live in `src/probabilistic/t_cuckoo.c`; the reusable
 algorithm is in `src/probabilistic/cuckoo.c` and dump/chunk helpers are in `src/probabilistic/cf.c`.
 No additional dependencies or module loading are required.
 
-`BUILD_BLOOM=yes` currently enables Bloom, CMS and Cuckoo together. Do not
-load external RedisBloom into this build: command names conflict. Top-K and
-t-digest are also native in the completed stack.
+`BUILD_BLOOM=yes` enables the migrated families present in this checkout.
+Do not load external RedisBloom into this build: command names conflict.
 
 ## Persistence and lifecycle
 
