@@ -4229,6 +4229,8 @@ void call(client *c, int flags) {
     /* Pass current server.ustime to avoid ustime() call if monotonic clock is used
      * and time will be updated before command execution based on monotonic clock. */
     const long long call_timer = use_hw_clock ? server.ustime : ustime();
+    /* Start of this command's CPU window if it's top-level (see slowlogMeasureCpu()). */
+    if (server.execution_nesting == 0) server.cpu_cmd_start = server.cpu_checkpoint;
     enterExecutionUnit(1, call_timer);
 
     /* Per-command CPU sample only on a module thread; main-thread commands

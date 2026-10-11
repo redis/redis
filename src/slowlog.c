@@ -156,9 +156,12 @@ void cpuSampleTake(cpuSample *s) {
 /* Log an off-CPU warning, at most one line per second. The next line printed
  * reports how many were suppressed; the INFO counters count every event. */
 static void offCpuLog(const char *fmt, ...) {
-    static mstime_t last_log_time_ms = 0;
+    /* Monotonic, not server.mstime: the cached time isn't refreshed after a
+     * long command, which would suppress lines that are due. */
+    static monotime last_log_us = 0;
     static long long suppressed = 0;
-    if (server.mstime <= last_log_time_ms + 1000) {
+    monotime now_us = getMonotonicUs();
+    if (last_log_us && now_us - last_log_us <= 1000000) {
         suppressed++;
         return;
     }
@@ -171,15 +174,16 @@ static void offCpuLog(const char *fmt, ...) {
         serverLog(LL_WARNING, "%s (%lld more suppressed)", msg, suppressed);
     else
         serverLog(LL_WARNING, "%s", msg);
-    last_log_time_ms = server.mstime;
+    last_log_us = now_us;
     suppressed = 0;
 }
 
 /* CPU accounting for a command that is about to be logged.
  * Main thread: off-CPU time is measured over the window since
- * server.cpu_checkpoint (taken when the event loop wakes, moved by each
- * top-level slow command), so fast commands pay no syscall. Only the part
- * that must have happened inside this command is charged to it.
+ * server.cpu_checkpoint (taken when the event loop wakes, moved by each slow
+ * command), or since server.cpu_cmd_start for a top-level command, so fast
+ * commands pay no syscall. Only the part that must have happened inside this
+ * command is charged to it.
  * Module thread: call() measured the command exactly into c->cpu_*.
  * sample_cpu is 0 on the unblock path: c->duration is from an earlier iteration. */
 void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
@@ -189,10 +193,16 @@ void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
     if (!sample_cpu) return;
 
     if (pthread_equal(pthread_self(), server.main_thread_id)) {
+        /* A top-level command measures from its own start, so it keeps the
+         * off-CPU time of slow commands it called; nested commands measure
+         * from the checkpoint, so siblings (MULTI/EXEC, script calls) don't
+         * share one wide window. */
+        const cpuSample *start = server.execution_nesting == 0 ?
+                                 &server.cpu_cmd_start : &server.cpu_checkpoint;
         cpuSample now;
         cpuSampleTake(&now);
-        ustime_t window = (ustime_t)(now.wall - server.cpu_checkpoint.wall);
-        ustime_t gap = window - (now.cpu_us - server.cpu_checkpoint.cpu_us);
+        ustime_t window = (ustime_t)(now.wall - start->wall);
+        ustime_t gap = window - (now.cpu_us - start->cpu_us);
         if (gap < 0) gap = 0;
         /* Off-CPU outside the command can't exceed the window time outside it. */
         ustime_t outside = window > m->measured ? window - m->measured : 0;
@@ -200,11 +210,9 @@ void slowlogMeasureCpu(client *c, int sample_cpu, slowlogCpu *m) {
         m->off_min = gap > outside ? gap - outside : 0;
         if (m->off_min > m->off_max) m->off_min = m->off_max;
         m->cpu = m->measured - m->off_min;
-        m->nvcsw = now.nvcsw - server.cpu_checkpoint.nvcsw;
-        m->nivcsw = now.nivcsw - server.cpu_checkpoint.nivcsw;
-        /* Only top-level commands move the checkpoint, so a script or module
-         * command keeps the off-CPU time of slow commands it calls. */
-        if (server.execution_nesting == 0) server.cpu_checkpoint = now;
+        m->nvcsw = now.nvcsw - start->nvcsw;
+        m->nivcsw = now.nivcsw - start->nivcsw;
+        server.cpu_checkpoint = now;
     } else {
         m->cpu = c->cpu_duration;
         m->off_max = m->measured > m->cpu ? m->measured - m->cpu : 0;
@@ -244,6 +252,7 @@ void offCpuCheckEventLoopCycle(ustime_t el_duration) {
     cpuSampleTake(&now);
     ustime_t took = (ustime_t)(now.wall - server.el_cpu_start.wall);
     ustime_t off = took - (now.cpu_us - server.el_cpu_start.cpu_us);
+    if (off < 0) off = 0;
     if (off < server.slowlog_log_slower_than || off < CPU_STARVATION_MIN_OFFCPU_US)
         return;
     long nvcsw = now.nvcsw - server.el_cpu_start.nvcsw;

@@ -101,6 +101,20 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_equal $before [s off_cpu_blocked_events]
     } {} {needs:debug}
 
+    test {SLOWLOG - on-CPU subcommand does not mask a later off-CPU one in EXEC} {
+        r config set slowlog-log-slower-than 10000
+        r slowlog reset
+        set before [s off_cpu_blocked_events]
+        r multi
+        r eval {local i = 0 while i < 3000000 do i = i + 1 end return i} 0
+        r debug sleep 0.05
+        r exec
+        set e [lindex [r slowlog get 1] 0]
+        assert_match {debug sleep *} [lindex $e 3]
+        assert {[lindex $e 7] < [lindex $e 2] / 2}
+        assert_equal [expr {$before + 1}] [s off_cpu_blocked_events]
+    } {} {needs:debug}
+
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
         r config set slowlog-max-len 100
         r config set slowlog-log-slower-than 0

@@ -2267,6 +2267,7 @@ struct redisServer {
     long long stat_eventloop_cpu_starvation_events;  /* Event-loop cycles classified as CPU starvation */
     long long stat_eventloop_off_cpu_blocked_events; /* Event-loop cycles classified as off-CPU (blocked) */
     cpuSample cpu_checkpoint;   /* Start of the main thread's CPU window. */
+    cpuSample cpu_cmd_start;    /* cpu_checkpoint when the current top-level command started. */
     cpuSample el_cpu_start;     /* Sample at the start of the event-loop cycle; never
                                    moved by commands. */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
