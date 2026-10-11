@@ -1,9 +1,11 @@
 # Native Bloom filter migration
 
+This PR targets `feature/native-probabilistic` independently; see
+[the development workflow](probabilistic-development.md).
+
 This implementation makes Bloom a native Redis object (`OBJ_BLOOM`),
-without module APIs or additional build dependencies. The full stack migrates
-all five RedisBloom families; see [upstream provenance](probabilistic-upstream.md)
-for the audited RedisBloom master revision.
+without module APIs or additional build dependencies. This independent PR adds only Bloom, audited against RedisBloom master
+`2fa3a19cbf0a`; the other datatypes have sibling PRs.
 
 ## Organization
 
@@ -31,14 +33,9 @@ Bloom is enabled by default (`BUILD_BLOOM=yes`). Only the Redis C toolchain and 
 are required. Termux still requires the separate local core portability patches.
 Do not load external RedisBloom in a Bloom-enabled server: the commands conflict.
 The run, generated-configuration, and deployment flows omit `redisbloom.so` and
-its module-only settings. All five probabilistic families are now native;
-RedisBloom has been removed from the bundled-module manifest.
-Top-K is now native; see [its migration guide](native-topk.md).
-Cuckoo is now native; see [its migration guide](native-cuckoo.md).
-Count-Min Sketch is now native too; see [its migration guide](native-cms.md).
-Existing manually maintained configs must remove any external RedisBloom
-`loadmodule` directive. See [existing-key upgrades](probabilistic-upgrade.md).
-`BUILD_BLOOM=no` disables the native family; it no longer selects a bundled module.
+its module-only settings. The other four families and RedisBloom retirement are separate PRs.
+Partial branches are development builds, not complete module replacements.
+`BUILD_BLOOM=no` disables the migrated families present in this checkout.
 
 ## Supported surface and compatibility
 
