@@ -4435,6 +4435,7 @@ int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc, getKeysR
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int sunioncardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int sdiffcardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int msetexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
