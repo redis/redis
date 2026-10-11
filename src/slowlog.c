@@ -257,6 +257,11 @@ void offCpuCheckEventLoopCycle(ustime_t el_duration) {
         return;
     long nvcsw = now.nvcsw - server.el_cpu_start.nvcsw;
     long nivcsw = now.nivcsw - server.el_cpu_start.nivcsw;
+    /* CONFIG RESETSTAT during the cycle zeroes stat_numcommands but not
+     * el_cmd_cnt_start; then count only the commands since the reset. */
+    long long cmds = server.stat_numcommands >= server.el_cmd_cnt_start ?
+                     server.stat_numcommands - server.el_cmd_cnt_start :
+                     server.stat_numcommands;
     int starvation = nivcsw > nvcsw;
     if (starvation)
         server.stat_eventloop_cpu_starvation_events++;
@@ -265,7 +270,7 @@ void offCpuCheckEventLoopCycle(ustime_t el_duration) {
     offCpuLog("Event loop cycle off-CPU (%s): took %lldus, %lldus off-CPU, %lld commands, "
               "%ld involuntary / %ld voluntary context switches",
               starvation ? "starvation" : "blocked", (long long)took, (long long)off,
-              server.stat_numcommands - server.el_cmd_cnt_start, nivcsw, nvcsw);
+              cmds, nivcsw, nvcsw);
 }
 
 /* Remove all the entries from the current slow log. */
