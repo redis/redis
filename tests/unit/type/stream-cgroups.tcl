@@ -771,6 +771,67 @@ start_server {
         assert_equal [s total_error_replies] 1
     }
 
+    test {XGROUP SETID moving the group back unblocks XREADGROUP with data} {
+        r DEL mystream
+        r XADD mystream 1-1 f v1
+        r XADD mystream 2-1 f v2
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
+        r XGROUP SETID mystream mygroup 1-1
+        wait_for_blocked_clients_count 0
+        assert_equal {{mystream {{2-1 {f v2}}}}} [$rd read]
+        $rd close
+    }
+
+    test {XGROUP SETID in a transaction unblocks every XREADGROUP it can serve} {
+        r DEL mystream
+        r XADD mystream 1-1 f v1
+        r XADD mystream 2-1 f v2
+        r XGROUP CREATE mystream mygroup $
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set rd3 [redis_deferring_client]
+        $rd1 XREADGROUP GROUP mygroup Alice COUNT 1 BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
+        $rd2 XREADGROUP GROUP mygroup Bob COUNT 1 BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 2
+        $rd3 XREADGROUP GROUP mygroup Carol COUNT 1 BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 3
+        r MULTI
+        r XGROUP SETID mystream mygroup 0
+        r EXEC
+        # Two entries for three consumers: the last one keeps waiting.
+        wait_for_blocked_clients_count 1
+        assert_equal {{mystream {{1-1 {f v1}}}}} [$rd1 read]
+        assert_equal {{mystream {{2-1 {f v2}}}}} [$rd2 read]
+        r XADD mystream 3-1 f v3
+        assert_equal {{mystream {{3-1 {f v3}}}}} [$rd3 read]
+        $rd1 close
+        $rd2 close
+        $rd3 close
+    }
+
+    test {XGROUP SETID not moving the group back does not re-execute XREADGROUP} {
+        r DEL mystream
+        r XADD mystream 1-1 f v1
+        r XGROUP CREATE mystream mygroup $
+        set rd [redis_deferring_client]
+        $rd XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS mystream ">"
+        wait_for_blocked_clients_count 1
+        after 250
+        r XGROUP SETID mystream mygroup 1-1
+        r XGROUP SETID mystream mygroup 5-0
+        # A re-executed consumer would have a fresh seen-time.
+        set consumer [lindex [r XINFO CONSUMERS mystream mygroup] 0]
+        assert_morethan_equal [dict get $consumer idle] 200
+        assert_equal 1 [s blocked_clients]
+        r XADD mystream 6-0 f v2
+        assert_equal {{mystream {{6-0 {f v2}}}}} [$rd read]
+        $rd close
+    }
+
     test {XGROUP DESTROY removes all consumer group references} {
         r DEL mystream
         for {set j 0} {$j < 5} {incr j} {
