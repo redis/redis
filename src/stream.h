@@ -111,20 +111,27 @@ typedef struct streamCG {
                                as processed. The key of the radix tree is the
                                ID as a 64 bit big endian number, while the
                                associated value is a streamNACK structure.*/
-    streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
-                                  entries (oldest delivery_time). Used for efficient
-                                  CLAIM operations. O(1) access to oldest entries. */
-    streamNACK *pel_time_tail; /* Tail of time-ordered doubly-linked list of pending
-                                  entries (newest delivery_time). O(1) append for
-                                  updates that set delivery_time to current time. */
-    streamNACK *pel_nack_tail; /* Tail of the NACK zone at the head of the
-                                  PEL time-ordered list. NACKed entries occupy
-                                  positions from pel_time_head to pel_nack_tail.
-                                  NULL if no NACKed entries exist. */
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
+    uint8_t distrib_counted; /* INFO Streams: bit per metric with a sample. */
+    uint32_t distrib_epoch;  /* INFO Streams: generation of the bits above. */
 } streamCG;
+
+/* The time-ordered doubly-linked list threading a group's PEL entries. It is
+ * an attribute of the PEL, so it lives in the metadata of the PEL rax; see
+ * streamCreateCG(). */
+typedef struct streamPelList {
+    streamNACK *time_head;  /* Oldest delivery_time: O(1) access for CLAIM. */
+    streamNACK *time_tail;  /* Newest delivery_time: O(1) append on delivery. */
+    streamNACK *nack_tail;  /* Tail of the NACK zone at the head of the list:
+                               NACKed entries occupy time_head..nack_tail.
+                               NULL if there are none. */
+} streamPelList;
+
+static inline streamPelList *streamCGPelList(streamCG *cg) {
+    return (streamPelList *) cg->pel->metadata;
+}
 
 /* A specific consumer in a consumer group.  */
 typedef struct streamConsumer {

@@ -960,15 +960,15 @@ void* defragStreamCGPendingEntry(raxIterator *ri, void *privdata) {
         if (newnack->pel_prev) {
             newnack->pel_prev->pel_next = newnack;
         } else {
-            cg->pel_time_head = newnack;
+            streamCGPelList(cg)->time_head = newnack;
         }
         if (newnack->pel_next) {
             newnack->pel_next->pel_prev = newnack;
         } else {
-            cg->pel_time_tail = newnack;
+            streamCGPelList(cg)->time_tail = newnack;
         }
-        if (cg->pel_nack_tail == nack) {
-            cg->pel_nack_tail = newnack;
+        if (streamCGPelList(cg)->nack_tail == nack) {
+            streamCGPelList(cg)->nack_tail = newnack;
         }
     }
     return newnack;
