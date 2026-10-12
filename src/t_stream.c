@@ -3695,14 +3695,10 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
 
 /* Free a consumer group and all its associated data. */
 static void streamFreeCG(stream *s, streamCG *cg) {
-    /* Free the pel, unlinking each NACK from the time list in the callback */
+    /* Free the pel, unlinking each NACK from the time list in the callback.
+     * The list itself lives in the pel's header and goes with it. */
     streamFreeNACKCtx ctx = {s, cg};
     raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, &ctx);
-    
-    /* The time-ordered list should now be empty after unlinking all NACKs */
-    streamPelList *pl = streamCGPelList(cg);
-    serverAssert(pl->time_head == NULL && pl->time_tail == NULL && pl->nack_tail == NULL);
-    
     raxFreeWithCbAndContext(cg->consumers, streamFreeConsumerGeneric, s);
     size_t usable;
     zfree_usable(cg, &usable);
