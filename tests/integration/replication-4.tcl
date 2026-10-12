@@ -293,3 +293,27 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+start_server {tags {"repl external:skip"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set master_host [srv -1 host]
+        set master_port [srv -1 port]
+        set replica [srv 0 client]
+
+        test {Replica applies writes from its master when it is out of memory} {
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            $replica config set maxmemory 1
+            $replica config set maxmemory-policy noeviction
+            $replica config set replica-ignore-maxmemory no
+
+            $master set foo bar
+            wait_for_ofs_sync $master $replica
+
+            assert_equal [$replica get foo] bar
+            assert_equal [s 0 unexpected_error_replies] 0
+        }
+    }
+}
