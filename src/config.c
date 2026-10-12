@@ -3449,12 +3449,7 @@ static int applyClientMaxMemoryUsage(const char **err) {
  * SET, so the dbs are always initialized here. */
 static int applyStreamStats(const char **err) {
     UNUSED(err);
-    if (!server.stream_stats) {
-        /* Nothing to do: the hooks stop updating and INFO stops printing the
-         * rows, which keep their content so that a failed multi-setting CONFIG
-         * SET re-applying `yes` during its rollback finds them exact. */
-        return 1;
-    }
+    if (!server.stream_stats) return 1;
     if (server.stream_stats_needs_reset) {
         /* Streams changed while tracking was off, so the rows fell behind.
          * Zeroing them starts a new generation of each db's rows
