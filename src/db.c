@@ -801,17 +801,18 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
 
         /* Notify keyspace events for override and type change */
         notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, db->id);
-        if (oldtype != newtype)
+        if (oldtype != newtype) {
             notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, db->id);
 
-        /* Overwriting a key with a list must wake blocked clients. Same
-         * type: only "grew" waiters (e.g. BLMOVEM EXACTLY). Type changed:
-         * treat as a fresh list (wakes BLPOP/BLMOVE/modules). */
-        if (newtype == OBJ_LIST) {
-            if (oldtype == OBJ_LIST)
-                signalKeyAsReadyNonEmptyList(db, key);
-            else
-                signalKeyAsReady(db, key, OBJ_LIST);
+            /* Overwriting a key with a value of another type must wake the
+             * clients blocked on it, like dbAdd() does for a fresh key: a
+             * list wakes BLPOP/BLMOVE, a sorted set wakes BZPOPMIN/BZMPOP,
+             * and both wake modules. */
+            signalKeyAsReady(db, key, newtype);
+        } else if (newtype == OBJ_LIST) {
+            /* A list overwritten with a list: only "grew" waiters can be
+             * blocked on it (e.g. BLMOVEM EXACTLY). */
+            signalKeyAsReadyNonEmptyList(db, key);
         }
     } else {
         /* Add the new key to the database */
