@@ -854,15 +854,18 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         seed_stream r st 4
         r xgroup create st g 0
         r xreadgroup group g c count 4 streams st >
+
         # Enabling at runtime does not rescan: the group, created while tracking
         # was off, is not counted until a group command next touches it.
         r config set stream-stats yes
         assert_equal "" [get_info_stream_stripped r]
+
         # A reload rebuilds the gauges exactly from the keyspace.
         r DEBUG RELOAD
         assert_equal "db0_stream_distrib_cgroups_pel:4=1" [get_info_stream_field r stream_distrib_cgroups_pel]
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
         assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+
         # Disabling hides the section; the rows are kept for an exact re-enable
         # if nothing changes meanwhile.
         r config set stream-stats no
