@@ -157,6 +157,7 @@ const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX] = {
     [STREAM_DISTRIB_CGROUPS_PEL] = "stream_distrib_cgroups_pel",
     [STREAM_DISTRIB_CGROUPS_CONSUMERS] = "stream_distrib_cgroups_consumers",
 };
+static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric");
 
 /* Zero the stream histograms in 'meta' and start a new generation: every
  * stream and group stamped with the old one is uncounted again, and a slot-trim
@@ -177,19 +178,8 @@ static int streamDistribBin(int64_t value) {
     return bin;
 }
 
-/* First per-group metric: [0, this) are per-stream, [this, MAX) per-group. */
-#define STREAM_DISTRIB_FIRST_CGROUP_METRIC STREAM_DISTRIB_CGROUPS_PEL
-
 static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric);
 static int64_t streamStreamSample(stream *s, streamDistribMetric metric);
-
-/* The metric ranges of the two units, and the width of the per-metric bits. */
-static_assert(STREAM_DISTRIB_STREAMS_CGROUPS < STREAM_DISTRIB_FIRST_CGROUP_METRIC,
-              "per-stream metrics must precede STREAM_DISTRIB_FIRST_CGROUP_METRIC");
-static_assert(STREAM_DISTRIB_CGROUPS_PEL >= STREAM_DISTRIB_FIRST_CGROUP_METRIC &&
-              STREAM_DISTRIB_CGROUPS_CONSUMERS >= STREAM_DISTRIB_FIRST_CGROUP_METRIC,
-              "per-group metrics must not precede STREAM_DISTRIB_FIRST_CGROUP_METRIC");
-static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric");
 
 /* Move one object's sample for 'metric' from the bin of 'old_val' to the bin
  * of 'new_val'; -1 on either side means no sample. 'epoch' and 'counted' are
@@ -286,25 +276,22 @@ static void streamUpdateStreamSamples(redisDb *db, stream *s, int adding) {
             server.stream_stats_needs_reset = 1;
         return;
     }
-    for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
-        streamDistribMetric metric = (streamDistribMetric) m;
-        if (adding)
-            streamUpdateStreamStat(db, s, metric, -1);
-        else
-            streamRemoveStreamStat(db, s, metric);
-    }
+    if (adding)
+        streamUpdateStreamStat(db, s, STREAM_DISTRIB_STREAMS_CGROUPS, -1);
+    else
+        streamRemoveStreamStat(db, s, STREAM_DISTRIB_STREAMS_CGROUPS);
     if (!s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;
     raxStart(&ri, s->cgroups);
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
         streamCG *cg = ri.data;
-        for (int m = STREAM_DISTRIB_FIRST_CGROUP_METRIC; m < STREAM_DISTRIB_MAX; m++) {
-            streamDistribMetric metric = (streamDistribMetric) m;
-            if (adding)
-                streamUpdateCGStat(db, cg, metric, -1);
-            else
-                streamRemoveCGStat(db, cg, metric);
+        if (adding) {
+            streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_PEL, -1);
+            streamUpdateCGStat(db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS, -1);
+        } else {
+            streamRemoveCGStat(db, cg, STREAM_DISTRIB_CGROUPS_PEL);
+            streamRemoveCGStat(db, cg, STREAM_DISTRIB_CGROUPS_CONSUMERS);
         }
     }
     raxStop(&ri);
@@ -2007,6 +1994,15 @@ static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
     serverAssert(0 && "not a per-stream metric");
 }
 
+/* Count one sample into 'tally' if 'counted' says its row holds it, or
+ * unconditionally when 'all'. */
+static inline void streamTallySample(streamStatsHist tally, int all, uint8_t counted,
+                                     streamDistribMetric metric, int64_t sample) {
+    if (!all && !(counted & (1u << metric))) return;
+    int bin = streamDistribBin(sample);
+    if (bin >= 0) tally[metric][bin]++;
+}
+
 /* Bin every histogram sample stream 's' holds into 'tally': one per per-stream
  * metric and one per group per per-group metric. The slot-trim delta
  * (cluster_asm.c) and DEBUG STREAM-STATS-ASSERT both count through this, so
@@ -2016,14 +2012,9 @@ static int64_t streamStreamSample(stream *s, streamDistribMetric metric) {
  * row bit is set; STREAM_DISTRIB_NEVER_COUNTED means every sample. */
 void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_epoch) {
     int all = (only_epoch == STREAM_DISTRIB_NEVER_COUNTED);
-    if (all || s->distrib_epoch == only_epoch) {
-        for (int m = 0; m < STREAM_DISTRIB_FIRST_CGROUP_METRIC; m++) {
-            if (!all && !(s->distrib_counted & (1u << m))) continue;
-            streamDistribMetric metric = (streamDistribMetric) m;
-            int bin = streamDistribBin(streamStreamSample(s, metric));
-            if (bin >= 0) tally[m][bin]++;
-        }
-    }
+    if (all || s->distrib_epoch == only_epoch)
+        streamTallySample(tally, all, s->distrib_counted, STREAM_DISTRIB_STREAMS_CGROUPS,
+                          streamStreamSample(s, STREAM_DISTRIB_STREAMS_CGROUPS));
     if (!s->cgroups || !raxSize(s->cgroups)) return;
     raxIterator ri;
     raxStart(&ri, s->cgroups);
@@ -2031,12 +2022,10 @@ void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_ep
     while (raxNext(&ri)) {
         streamCG *cg = ri.data;
         if (!all && cg->distrib_epoch != only_epoch) continue;
-        for (int m = STREAM_DISTRIB_FIRST_CGROUP_METRIC; m < STREAM_DISTRIB_MAX; m++) {
-            if (!all && !(cg->distrib_counted & (1u << m))) continue;
-            streamDistribMetric metric = (streamDistribMetric) m;
-            int bin = streamDistribBin(streamCGroupSample(cg, metric));
-            if (bin >= 0) tally[m][bin]++;
-        }
+        streamTallySample(tally, all, cg->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL,
+                          streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_PEL));
+        streamTallySample(tally, all, cg->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS,
+                          streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_CONSUMERS));
     }
     raxStop(&ri);
 }

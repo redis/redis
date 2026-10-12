@@ -1289,11 +1289,11 @@ enum {
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
 
 /* INFO Streams histogram rows, one per metric, named stream_distrib_<unit>_
- * <property>. Per-stream metrics come first, per-group metrics last. */
+ * <property>. */
 typedef enum {
     /* Per-stream metrics: one sample per stream key. */
     STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
-    /* Per-group metrics: one sample per consumer group. Keep these last. */
+    /* Per-group metrics: one sample per consumer group. */
     STREAM_DISTRIB_CGROUPS_PEL,         /* stream_distrib_cgroups_pel */
     STREAM_DISTRIB_CGROUPS_CONSUMERS,   /* stream_distrib_cgroups_consumers */
     STREAM_DISTRIB_MAX
