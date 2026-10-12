@@ -2056,11 +2056,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * client side caching protocol in broadcasting (BCAST) mode. */
     trackingBroadcastInvalidationMessages(NULL);
 
-    /* Off-CPU check of the cycle so far, before the AOF write/fsync so disk
-     * waits aren't counted. Not reached while nested: ProcessingEventsWhileBlocked
-     * returns early above. */
-    if (server.el_start > 0) offCpuCheckEventLoopCycle();
-
     /* Record time consumption of AOF writing. */
     monotime aof_start_time = getMonotonicUs();
     /* Record cron time in beforeSleep. This does not include the time consumed by AOF writing and IO writing below. */
@@ -2075,7 +2070,8 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         flushAppendOnlyFile(0);
 
     /* Record time consumption of AOF writing. */
-    durationAddSample(EL_DURATION_TYPE_AOF, getMonotonicUs() - aof_start_time);
+    monotime aof_duration = getMonotonicUs() - aof_start_time;
+    durationAddSample(EL_DURATION_TYPE_AOF, aof_duration);
 
     /* Update the fsynced replica offset.
      * If an initial rewrite is in progress then not all data is guaranteed to have actually been
@@ -2149,6 +2145,11 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     if (server.el_start > 0) {
         monotime el_duration = getMonotonicUs() - server.el_start;
         durationAddSample(EL_DURATION_TYPE_EL, el_duration);
+        /* Off-CPU check of the whole cycle, including commands handed over by
+         * IO threads above. The AOF write/fsync time is excluded so disk waits
+         * aren't counted. Not reached while nested: ProcessingEventsWhileBlocked
+         * returns early above. */
+        offCpuCheckEventLoopCycle((ustime_t)aof_duration);
     }
     server.el_cron_duration += duration_before_aof + duration_after_write;
     durationAddSample(EL_DURATION_TYPE_CRON, server.el_cron_duration);

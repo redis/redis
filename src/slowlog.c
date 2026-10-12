@@ -240,12 +240,12 @@ void slowlogReportOffCpu(const slowlogCpu *m) {
               (long long)m->off_min, (long long)m->off_max, m->nivcsw, m->nvcsw);
 }
 
-/* Called from beforeSleep(), before the AOF flush: report the event-loop cycle
+/* Called at the end of beforeSleep(): report the event-loop cycle
  * if the main thread was off-CPU long enough to make it slow on that alone
  * (starvation between fast commands never reaches the slowlog). Uses
  * server.el_cpu_start, which commands don't move, so all numbers describe the
  * same window. */
-void offCpuCheckEventLoopCycle(void) {
+void offCpuCheckEventLoopCycle(ustime_t excluded_us) {
     /* A cycle shorter than the threshold or the floor can't be reported. Sized
      * from el_cpu_start (a clock read, no syscall), the same origin as below. */
     ustime_t elapsed = (ustime_t)(getMonotonicUs() - server.el_cpu_start.wall);
@@ -256,7 +256,9 @@ void offCpuCheckEventLoopCycle(void) {
     cpuSample now;
     cpuSampleTake(&now);
     ustime_t took = (ustime_t)(now.wall - server.el_cpu_start.wall);
-    ustime_t off = took - (now.cpu_us - server.el_cpu_start.cpu_us);
+    /* excluded_us (the AOF flush) is taken out as if it were all off-CPU, so
+     * disk waits are never counted. */
+    ustime_t off = took - (now.cpu_us - server.el_cpu_start.cpu_us) - excluded_us;
     if (off < 0) off = 0;
     if (off < server.slowlog_log_slower_than || off < CPU_STARVATION_MIN_OFFCPU_US)
         return;
