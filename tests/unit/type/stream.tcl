@@ -52,17 +52,8 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
-    # Verify the INFO Streams histograms against a keyspace rebuild after every
-    # command; this suite drives XADD/XTRIM/XDEL/XSETID hardest, i.e. the
-    # cross-group PEL purges (DELREF) and stream creation by XADD, which enters
-    # a stream in the groups-per-stream row.
-    # Deliberately not tagged needs:debug: that would skip the entire suite where
-    # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
-    # the arming there.
-    if {!$::external && [lsearch $::denytags "needs:debug"] < 0} {
-        r config set stream-stats yes
-        r debug stream-stats-assert 1
-    }
+    # Also cover the INFO Streams bookkeeping: XADD/XTRIM/XDEL/XSETID paths.
+    arm_stream_stats_assert
 
     test "XADD wrong number of args" {
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}

@@ -1,17 +1,8 @@
 start_server {
     tags {"stream"}
 } {
-    # Verify the INFO Streams histograms against a keyspace rebuild after every
-    # command, so this whole suite doubles as coverage for their bookkeeping. It
-    # drives XREADGROUP, XCLAIM/XAUTOCLAIM and XGROUP CREATECONSUMER/DELCONSUMER
-    # hardest, i.e. every site that creates or removes a consumer.
-    # Deliberately not tagged needs:debug: that would skip the entire suite where
-    # DEBUG is unavailable (the external-server CI job denies that tag). Skip only
-    # the arming there.
-    if {!$::external && [lsearch $::denytags "needs:debug"] < 0} {
-        r config set stream-stats yes
-        r debug stream-stats-assert 1
-    }
+    # Also cover the INFO Streams bookkeeping: every consumer-group command.
+    arm_stream_stats_assert
 
     test {XGROUP CREATE: creation and duplicate group name detection} {
         r DEL mystream
