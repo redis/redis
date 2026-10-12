@@ -3939,7 +3939,7 @@ void preventCommandAOF(client *c);
 void preventCommandReplication(client *c);
 void slowlogPushCurrentCommand(client *c, struct redisCommand *cmd, ustime_t duration, const cpuSample *cpu_start);
 void cpuSampleTake(cpuSample *s);
-void offCpuCheckEventLoopCycle(ustime_t el_duration);
+void offCpuCheckEventLoopCycle(void);
 void updateCommandLatencyHistogram(struct hdr_histogram** latency_histogram, int64_t duration_hist);
 int prepareForShutdown(int flags);
 void replyToClientsBlockedOnShutdown(void);

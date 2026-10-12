@@ -245,11 +245,13 @@ void slowlogReportOffCpu(const slowlogCpu *m) {
  * (starvation between fast commands never reaches the slowlog). Uses
  * server.el_cpu_start, which commands don't move, so all numbers describe the
  * same window. */
-void offCpuCheckEventLoopCycle(ustime_t el_duration) {
-    /* A cycle shorter than the threshold or the floor can't be reported. */
+void offCpuCheckEventLoopCycle(void) {
+    /* A cycle shorter than the threshold or the floor can't be reported. Sized
+     * from el_cpu_start (a clock read, no syscall), the same origin as below. */
+    ustime_t elapsed = (ustime_t)(getMonotonicUs() - server.el_cpu_start.wall);
     if (server.slowlog_log_slower_than < 0 ||
-        el_duration < server.slowlog_log_slower_than ||
-        el_duration < CPU_STARVATION_MIN_OFFCPU_US)
+        elapsed < server.slowlog_log_slower_than ||
+        elapsed < CPU_STARVATION_MIN_OFFCPU_US)
         return;
     cpuSample now;
     cpuSampleTake(&now);

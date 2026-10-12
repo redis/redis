@@ -2059,8 +2059,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     /* Off-CPU check of the cycle so far, before the AOF write/fsync so disk
      * waits aren't counted. Not reached while nested: ProcessingEventsWhileBlocked
      * returns early above. */
-    if (server.el_start > 0)
-        offCpuCheckEventLoopCycle((ustime_t)(getMonotonicUs() - server.el_start));
+    if (server.el_start > 0) offCpuCheckEventLoopCycle();
 
     /* Record time consumption of AOF writing. */
     monotime aof_start_time = getMonotonicUs();
@@ -2196,6 +2195,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             /* Start the CPU window after the GIL (waiting for it isn't counted)
              * and before module events, which may run commands. */
             cpuSampleTake(&server.cpu_checkpoint);
+            server.el_cpu_start = server.cpu_checkpoint;
             cpu_sampled = 1;
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
@@ -2203,8 +2203,10 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             latencyEndMonitor(latency);
             latencyAddSampleIfNeeded("module-acquire-GIL",latency);
         }
-        if (!cpu_sampled) cpuSampleTake(&server.cpu_checkpoint);
-        server.el_cpu_start = server.cpu_checkpoint;
+        if (!cpu_sampled) {
+            cpuSampleTake(&server.cpu_checkpoint);
+            server.el_cpu_start = server.cpu_checkpoint;
+        }
         /* Set the eventloop start time. */
         server.el_start = getMonotonicUs();
         /* Set the eventloop command count at start. */
