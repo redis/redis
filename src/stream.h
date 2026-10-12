@@ -122,11 +122,16 @@ typedef struct streamCG {
  * an attribute of the PEL, so it lives in the metadata of the PEL rax; see
  * streamCreateCG(). */
 typedef struct streamPelList {
-    streamNACK *time_head;  /* Oldest delivery_time: O(1) access for CLAIM. */
-    streamNACK *time_tail;  /* Newest delivery_time: O(1) append on delivery. */
-    streamNACK *nack_tail;  /* Tail of the NACK zone at the head of the list:
-                               NACKed entries occupy time_head..nack_tail.
-                               NULL if there are none. */
+    streamNACK *time_head;  /* Head of time-ordered doubly-linked list of pending
+                               entries (oldest delivery_time). Used for efficient
+                               CLAIM operations. O(1) access to oldest entries. */
+    streamNACK *time_tail;  /* Tail of time-ordered doubly-linked list of pending
+                               entries (newest delivery_time). O(1) append for
+                               updates that set delivery_time to current time. */
+    streamNACK *nack_tail;  /* Tail of the NACK zone at the head of the
+                               PEL time-ordered list. NACKed entries occupy
+                               positions from time_head to nack_tail.
+                               NULL if no NACKed entries exist. */
 } streamPelList;
 
 static inline streamPelList *streamCGPelList(streamCG *cg) {
