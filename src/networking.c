@@ -3682,6 +3682,12 @@ int processCommandAndResetClient(client *c) {
  * the client. Returns C_ERR if the client is no longer valid after executing
  * the command, and C_OK for all other cases. */
 int processPendingCommandAndInputBuffer(client *c) {
+    /* A master client handed over by an IO thread must not execute its pending
+     * command while loading synchronously, the command would be rejected and
+     * lost. Leave it pending, stopLoading() resumes the master. */
+    if (c->flags & CLIENT_MASTER && server.loading && !server.async_loading)
+        return C_OK;
+
     /* Notice, this code is also called from 'processUnblockedClients'.
      * But in case of a module blocked client (see RM_Call 'K' flag) we do not reach this code path.
      * So whenever we change the code here we need to consider if we need this change on module
@@ -3818,6 +3824,12 @@ int processInputBuffer(client *c) {
          * stream (instead of replying -BUSY like we do with other clients) and
          * later resume the processing. */
         if (c->flags & CLIENT_MASTER && isInsideYieldingLongCommand()) break;
+
+        /* The same applies while loading synchronously (DEBUG RELOAD, for
+         * example): commands from the master would get rejected with -LOADING
+         * and be lost, as the replica advances the replication offset anyway.
+         * Keep them in the query buffer, stopLoading() resumes processing. */
+        if (c->flags & CLIENT_MASTER && server.loading && !server.async_loading) break;
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after

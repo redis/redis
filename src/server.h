@@ -3656,6 +3656,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx);
 int replicaFromIOThreadHasPendingRead(client *c);
 void putReplicasInPendingClientsToIOThreads(void);
 int replicationCronRunMasterClient(void);
+void resumeMasterProcessing(void);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);

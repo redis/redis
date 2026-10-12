@@ -2050,3 +2050,55 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+foreach iothreads {1 4} {
+    start_server [list tags {"repl external:skip needs:debug"} overrides [list io-threads $iothreads]] {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        start_server [list overrides [list io-threads $iothreads]] {
+            set replica [srv 0 client]
+
+            test "Replica does not drop writes from master during synchronous loading (io-threads $iothreads)" {
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+                for {set i 0} {$i < 200} {incr i} {
+                    $master set pad:$i xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+                }
+                wait_for_ofs_sync $master $replica
+
+                $replica config set key-load-delay 20000
+                $replica config set loading-process-events-interval-bytes 1024
+                $replica config resetstat
+
+                set rd [redis_deferring_client]
+                $rd debug reload
+                wait_for_condition 50 100 {
+                    [s 0 loading] eq 1
+                } else {
+                    fail "replica did not start loading"
+                }
+                assert_equal 0 [s 0 async_loading]
+
+                for {set i 0} {$i < 8} {incr i} {
+                    $master hset lost:$i f v
+                    after 100
+                }
+
+                $replica config set key-load-delay 0
+                $rd read
+                $rd close
+                wait_for_condition 100 100 {
+                    [s 0 loading] eq 0
+                } else {
+                    fail "replica did not finish loading"
+                }
+                wait_for_ofs_sync $master $replica
+                for {set i 0} {$i < 8} {incr i} {
+                    assert_equal 1 [$replica exists lost:$i]
+                }
+                assert_equal 0 [s 0 total_error_replies]
+            }
+        }
+    }
+}
