@@ -4873,4 +4873,66 @@ start_server {tags {"stream external:skip needs:debug"}} {
         assert_equal [dict get $ginfo entries-read] 3
         assert_equal [dict get $ginfo lag] 97
     }
+
+    # A delivery must not push entries_read past entries_added either. The
+    # counter can be higher than the real position of the group: ENTRIESREAD
+    # only has to be <= entries_added, and XSETID clamps a group that may still
+    # have entries to read.
+    test "XREADGROUP keeps entries_read within entries_added after a too high ENTRIESREAD" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        # The group is on the first entry, so its real counter is 1.
+        r XGROUP CREATE mystream grp 1-0 ENTRIESREAD 2
+        r XREADGROUP GROUP grp c STREAMS mystream >
+
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+
+        assert_equal OK [r RESTORE mystream2 0 [r DUMP mystream]]
+        r DEBUG RELOAD
+        assert_equal [r XLEN mystream] 2
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+    }
+
+    test "XREADGROUP keeps entries_read within entries_added after XSETID lowered it" {
+        r DEL mystream
+        for {set i 1} {$i <= 4} {incr i} { r XADD mystream $i-0 f v }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c COUNT 3 STREAMS mystream >
+
+        # XSETID clamps the group to 2, and the group still has 4-0 to read.
+        r XTRIM mystream MINID 3-0
+        r XSETID mystream 4-0 ENTRIESADDED 2
+        r XREADGROUP GROUP grp c STREAMS mystream >
+
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+
+        r DEBUG RELOAD
+        assert_equal [r XLEN mystream] 2
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 2
+        assert_equal [dict get $ginfo lag] 0
+    }
+
+    test "XREADGROUP keeps counting entries_read past the length of a trimmed stream" {
+        r DEL mystream
+        for {set i 1} {$i <= 5} {incr i} { r XADD mystream $i-0 f v }
+        r XGROUP CREATE mystream grp 0
+        r XREADGROUP GROUP grp c COUNT 4 STREAMS mystream >
+
+        # The length drops to 2 while entries_added stays 5: the limit is
+        # entries_added, so the last delivery still counts.
+        r XTRIM mystream MINID 4-0
+        r XREADGROUP GROUP grp c STREAMS mystream >
+
+        set ginfo [lindex [r XINFO GROUPS mystream] 0]
+        assert_equal [dict get $ginfo entries-read] 5
+        assert_equal [dict get $ginfo lag] 0
+    }
 }
