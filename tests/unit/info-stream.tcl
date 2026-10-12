@@ -685,6 +685,22 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
     }
 
+    test "STREAM-STATS - lazy enable: a read that delivers nothing registers every row" {
+        # Workers blocked or polling on an idle group never reach the serving
+        # loop; the registration must not depend on an entry being delivered.
+        r config set stream-stats no
+        r FLUSHALL
+        seed_stream r s 3
+        r xgroup create s g 0
+        r xreadgroup group g c count 3 streams s >
+        r config set stream-stats yes
+        assert_equal "" [get_info_stream_stripped r]
+        assert_equal {} [r xreadgroup group g c2 streams s >]
+        assert_equal "db0_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db0_stream_distrib_cgroups_pel:2=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db0_stream_distrib_cgroups_consumers:2=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+    }
+
     test "STREAM-STATS - lazy enable: XGROUP CREATECONSUMER registers every row, backlog included" {
         # The group has a backlog nobody reads; administering it must still
         # enter its PEL sample, or the row would read as "no backlog".

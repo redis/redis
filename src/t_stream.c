@@ -3311,6 +3311,14 @@ void xreadCommand(client *c) {
             }
             consumer->seen_time = commandTimeSnapshot();
             keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
+            /* Register the group and its stream here, which every read
+             * reaches; a read that blocks or returns empty never gets to the
+             * serving loop. The PEL is entered here only when nothing will be
+             * served; otherwise the serving loop moves it. */
+            streamStatsReenterStructural(c->db, s, groups[i]);
+            if (!serve_synchronously)
+                streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL,
+                                   streamCGroupSample(groups[i], STREAM_DISTRIB_CGROUPS_PEL));
         } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
@@ -3374,10 +3382,8 @@ void xreadCommand(client *c) {
              * group's PEL; snapshot it around the read for INFO Streams. */
             int64_t old_pel = groups ? streamCGroupSample(groups[i], STREAM_DISTRIB_CGROUPS_PEL) : -1;
             total_entries += streamReplyWithRange(c,s,&args);
-            if (groups) {
+            if (groups)
                 streamUpdateCGStat(c->db, groups[i], STREAM_DISTRIB_CGROUPS_PEL, old_pel);
-                streamStatsReenterStructural(c->db, s, groups[i]);
-            }
             if (server.memory_tracking_enabled)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),o,old_alloc,kvobjAllocSize(o));
             if (propCount) {
