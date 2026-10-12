@@ -128,25 +128,16 @@ unsigned long streamLength(const robj *subject) {
 /* ----------------------------------------------------------------------------
  * INFO Streams statistics
  *
- * Per-db base-2 histograms of stream properties, one row per
- * streamDistribMetric: groups per stream (every stream counts, bin 0 for no
- * groups), and PEL size and consumer count per group. Rows are updated by the
- * commands and module APIs that change the property, by the key lifecycle hooks
- * (streamKeyLoaded / streamKeyRemoved) and by the slot-trim delta in
- * cluster_asm.c. Only properties stored on the stream or group itself are
- * tracked, so a write updates one object; a stream-wide derived value such as
- * lag would cost O(groups) per XADD.
- *
- * streamUpdateStat() moves one sample from the bin of the old value to the bin
- * of the new one; -1 on either side means "no sample" (object created or
- * destroyed). Collection runs only while stream-stats is on, and enabling at
- * runtime does not rescan the keyspace: existing objects are entered when a
- * group command next touches them (streamStatsReenterStructural() covers the
- * two metrics whose own hooks are rare), so the rows under-count until then
- * and never over-count. That is safe because every stream and group carries a
- * stamp, its db's stream_stats_epoch plus one bit per metric, saying which
- * rows hold its sample: a sample not held is entered at the new value, and
- * never decremented at an untrusted old one.
+ * Per-db base-2 histograms of consumer groups per stream, pending entries per
+ * group and consumers per group, reported by the INFO Streams section while
+ * the stream-stats directive is on. They are maintained incrementally: the
+ * commands, module APIs and key lifecycle paths that change one of these
+ * properties move the object's sample to its new bin, so nothing is scanned.
+ * Enabling at runtime does not rescan either: existing streams and groups are
+ * entered when a group write command next touches them, so the rows
+ * under-count until then and never over-count; streamUpdateStat() explains
+ * how that is kept safe. Only properties stored on the stream or group itself
+ * are tracked, so a write updates one object.
  * -------------------------------------------------------------------------- */
 
 /* The INFO field name of each metric, indexed by streamDistribMetric, so a
