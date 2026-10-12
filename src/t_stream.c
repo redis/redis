@@ -2599,8 +2599,18 @@ void xaddCommand(client *c) {
         /* Create entry for lookup and potential insertion */
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         
-        /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, producer, entry, c)) {
+        /* Check if IID already exists and reply if found. This must not run
+         * for a command with an explicit ID applied from a master or while
+         * loading an AOF: such a command is an append the upstream node
+         * actually made (a duplicate is propagated with its wildcard ID
+         * unmodified), and a mapping that is still tracked here (it expires
+         * on this node's own threshold, which can trail the upstream one)
+         * would wrongly skip the append and permanently diverge this node.
+         * A wildcard-ID command from such a client is a duplicate the
+         * upstream node did not append: it is still filtered out here. */
+        if (!(mustObeyClient(c) && parsed_args.id_given) &&
+            idmpLookupAndReply(s, producer, entry, c))
+        {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
             keyModified(c,c->db,c->argv[1],kv,0);
@@ -3889,7 +3899,10 @@ void xidmprecordCommand(client *c) {
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
     int found = idmpLookup(producer, entry, &id);
-    if (found) {
+    if (found == 1 || (found == -1 && !mustObeyClient(c))) {
+        /* Same stream ID: nothing to record. A different stream ID from a
+         * real client: the tracked mapping is still valid there, so this is
+         * an error. */
         idmpEntryFree(entry, &s->alloc_size);
         if (found == 1)
             addReply(c, shared.ok);
@@ -3899,6 +3912,11 @@ void xidmprecordCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
         return;
     }
+
+    /* found == -1 from a master link or while loading an AOF: the upstream
+     * node had already expired the previous mapping when it recorded this
+     * one, while our copy is still tracked here. The recorded mapping is
+     * authoritative and replaces the stale one. */
 
     idmpInsertEntry(s, producer, entry, &id);
     trackStreamIdmpEntries(c, c->argv[1]);
@@ -6168,7 +6186,30 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
     entry->next = NULL;
     entry->id = *id;
 
-    /* Insert into dict (should always succeed since we already checked with lookup) */
+    /* A command applied from a master or while loading an AOF can carry an
+     * append for an IID that is still tracked here: this node expires the
+     * mapping on its own threshold, which can trail the upstream one (the
+     * replica may be behind, or the mapping was restored from a snapshot with
+     * a fresh window). The upstream append is authoritative, so drop the
+     * stale mapping instead of keeping the older stream ID. */
+    dictEntry *de = dictFind(producer->idmp_dict, entry);
+    if (de != NULL) {
+        idmpEntry *stale = dictGetKey(de);
+        idmpEntry *prev = NULL;
+        idmpEntry *it = producer->idmp_head;
+        while (it != stale) {
+            serverAssert(it != NULL);
+            prev = it;
+            it = it->next;
+        }
+        if (prev) prev->next = stale->next;
+        else producer->idmp_head = stale->next;
+        if (producer->idmp_tail == stale) producer->idmp_tail = prev;
+        dictDelete(producer->idmp_dict, stale);
+        idmpEntryFree(stale, &s->alloc_size);
+    }
+
+    /* Insert into dict (any stale mapping for this IID was just replaced) */
     serverAssert(dictAdd(producer->idmp_dict, entry, NULL) == DICT_OK);
     
     /* Add to linked list tail */

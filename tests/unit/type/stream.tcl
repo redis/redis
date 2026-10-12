@@ -4066,3 +4066,142 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 }
+
+start_server {tags {"repl external:skip"} overrides {enable-debug-command yes}} {
+    set replica [srv 0 client]
+
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test "XADD IDMP applies a propagated append whose mapping is still tracked" {
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [s 0 connected_slaves] == 1
+            } else {
+                fail "Replica didn't connect"
+            }
+
+            $master XADD mystream 1000-0 field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+
+            # Record a mapping on both nodes.
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+
+            # Freeze the replica's main thread: its cron is stalled, so its
+            # copy of the mapping outlives the master's, which expires after
+            # IDMP-DURATION.
+            $replica DEBUG SLEEP 4
+
+            # The master's mapping expired, so the retry appends a new entry
+            # and propagates it with an explicit ID.
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert {$id1 ne $id2}
+
+            # The replica must apply the propagated append, replacing its
+            # stale copy of the mapping, instead of answering it as a
+            # duplicate: that would drop an entry the master acknowledged.
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 3
+            } else {
+                fail "Replica did not apply the propagated append: XLEN is [$replica XLEN mystream]"
+            }
+            assert_equal 1 [dict get [$replica XINFO STREAM mystream] iids-tracked]
+        }
+
+        test "XADD IDMP duplicate request is not appended on the replica" {
+            $master DEL mystream
+
+            # Retry the same request: the master answers with the recorded ID
+            # without appending, and propagates the original command with its
+            # wildcard ID. The replica must filter it out with its own copy of
+            # the mapping, not append an entry of its own.
+            set id1 [$master XADD mystream IDMP p1 "req-1" * field "v1"]
+            set id2 [$master XADD mystream IDMP p1 "req-1" * field "v2"]
+            assert_equal $id1 $id2
+
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 1
+            } else {
+                fail "Replica appended a duplicated XADD: XLEN is [$replica XLEN mystream]"
+            }
+        }
+
+        test "XIDMPRECORD replaces a stale mapping on the replica" {
+            $master DEL mystream
+
+            # Record a mapping, then freeze the replica so that its copy of
+            # the mapping outlives the master's, and record the same IID
+            # against a new stream ID on the master.
+            $master XADD mystream 1000-0 field "init"
+            $master XCFGSET mystream IDMP-DURATION 2
+            $master XADD mystream IDMP p1 "req-1" * field "v1"
+
+            $replica DEBUG SLEEP 4
+            # The explicit ID must be above the stream's last ID.
+            $master XADD mystream 9999999999999-0 field "new"
+            $master XIDMPRECORD mystream p1 "req-1" 9999999999999-0
+
+            wait_for_condition 100 50 {
+                [$replica XLEN mystream] == 3
+            } else {
+                fail "Replica did not catch up: XLEN is [$replica XLEN mystream]"
+            }
+            # The propagated record is authoritative: the replica must keep
+            # tracking exactly one mapping for the producer and stay
+            # consistent with the master.
+            assert_equal 1 [dict get [$replica XINFO STREAM mystream] iids-tracked]
+            assert_equal 1 [dict get [$master XINFO STREAM mystream] iids-tracked]
+        }
+    }
+}
+
+start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsync always}} {
+    test "XADD IDMP appends after expiry survive an AOF restart" {
+        r XADD mystream 1000-0 field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        # Snapshot the mapping into the AOF, then let it expire and retry:
+        # the retry appends a new entry that is recorded in the AOF with an
+        # explicit ID.
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        after 3000
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+
+        # On restart the stale mapping is restored with a fresh window: the
+        # replayed append must not be deduplicated away. All three entries
+        # must be present after the restart.
+        restart_server 0 true false
+
+        assert_equal 3 [r XLEN mystream]
+        # The live mapping points at the new ID.
+        assert_equal $id2 [r XADD mystream IDMP p1 "req-1" * field "v3"]
+    }
+
+    test "XADD IDMP appends after expiry survive an AOF restart without rewrite" {
+        r DEL mystream
+        r XADD mystream 1000-0 field "init"
+        r XCFGSET mystream IDMP-DURATION 2
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+
+        # Both XADDs stay in the incremental file (no BGREWRITEAOF): let the
+        # mapping expire, then the retry appends a new entry that is recorded
+        # in the AOF with an explicit ID.
+        after 3000
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "v2"]
+        assert {$id1 ne $id2}
+
+        # On replay the first XADD records the mapping again and nothing
+        # expires while the file loads, so the second one used to be answered
+        # as a duplicate and dropped. All three entries must survive.
+        restart_server 0 true false
+
+        assert_equal 3 [r XLEN mystream]
+        assert_equal $id2 [r XADD mystream IDMP p1 "req-1" * field "v3"]
+    }
+}
