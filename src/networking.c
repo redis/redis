@@ -3828,8 +3828,13 @@ int processInputBuffer(client *c) {
         /* The same applies while loading synchronously (DEBUG RELOAD, for
          * example): commands from the master would get rejected with -LOADING
          * and be lost, as the replica advances the replication offset anyway.
-         * Keep them in the query buffer, stopLoading() resumes processing. */
-        if (c->flags & CLIENT_MASTER && server.loading && !server.async_loading) break;
+         * Keep them in the query buffer, stopLoading() resumes processing.
+         * An IO thread still parses the next command and hands it to the main
+         * thread, which holds it (see processPendingCommandAndInputBuffer),
+         * since a stream left in the query buffer of a client in an IO thread
+         * would wait for the next read from the master. */
+        if (c->flags & CLIENT_MASTER && c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+            server.loading && !server.async_loading) break;
 
         /* CLIENT_CLOSE_AFTER_REPLY closes the connection once the reply is
          * written to the client. Make sure to not let the reply grow after
