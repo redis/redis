@@ -760,6 +760,35 @@ start_server {tags {"external:skip" "needs:debug"} overrides {stream-stats no}} 
         assert_equal "db0_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
     }
 
+    test "STREAM-STATS - lazy enable: a stream moved to another db while off is counted there" {
+        # An in-place FLUSHDB gives db 0 a generation of its own. A MOVE while
+        # stats are off carries db 0's stamps into db 1, and the re-enable must
+        # not mistake them for db 1's: the moved group must register, and an
+        # ack on it must not touch another group's sample.
+        r config set stream-stats yes
+        r FLUSHALL
+        r multi
+        r flushdb
+        r exec
+        seed_stream r s 2
+        r xgroup create s g 0
+        r xreadgroup group g c count 1 streams s >
+        r config set stream-stats no
+        r move s 1
+        r config set stream-stats yes
+        r select 1
+        r xgroup setid s g 0
+        assert_equal "db1_stream_distrib_streams_cgroups:1=1" [get_info_stream_field r stream_distrib_streams_cgroups]
+        assert_equal "db1_stream_distrib_cgroups_pel:1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        assert_equal "db1_stream_distrib_cgroups_consumers:1=1" [get_info_stream_field r stream_distrib_cgroups_consumers]
+        seed_stream r t 1
+        r xgroup create t g 0
+        r xreadgroup group g c count 1 streams t >
+        r xack s g 1-1
+        assert_equal "db1_stream_distrib_cgroups_pel:0=1,1=1" [get_info_stream_field r stream_distrib_cgroups_pel]
+        r select 0
+    }
+
     test "STREAM-STATS - FLUSHDB of one database leaves another's counts intact" {
         r config set stream-stats yes
         r FLUSHALL

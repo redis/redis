@@ -1308,8 +1308,9 @@ typedef struct {
     streamStatsHist stream_hist;   /* INFO Streams: one row per metric. */
     uint32_t keysizes_stats_epoch; /* Bumped on an in-place empty; a pending
                                       slot-trim delta is then discarded. */
-    uint32_t stream_stats_epoch;   /* Bumped on each reset of stream_hist; a
-                                      stamp counts only while it matches. */
+    uint32_t stream_stats_epoch;   /* Set on each reset of stream_hist from a
+                                      server-wide counter, so no two dbs share
+                                      one; a stamp counts while it matches. */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -2652,6 +2653,7 @@ struct redisServer {
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
     int stream_stats;                   /* Enable stream stats for INFO Streams section. */
     int stream_stats_needs_reset;       /* Streams changed while stream_stats was off. */
+    uint32_t stream_stats_generation;   /* Last generation handed to a db's stream_hist. */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */

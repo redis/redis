@@ -152,10 +152,14 @@ static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric
 
 /* Zero the stream histograms in 'meta' and start a new generation: every
  * stream and group stamped with the old one is uncounted again, and a slot-trim
- * delta captured against it is discarded on completion. The epoch wraps,
- * skipping the never-counted sentinel. */
+ * delta captured against it is discarded on completion. Generations come from
+ * one server-wide counter, so a stamp carried into another db by MOVE while
+ * stats were off cannot match there; the counter skips 0, the value of fresh
+ * metadata, and the never-counted sentinel. */
 void streamStatsResetMeta(kvstoreMetadata *meta) {
-    if (++meta->stream_stats_epoch == STREAM_DISTRIB_NEVER_COUNTED) meta->stream_stats_epoch = 0;
+    if (++server.stream_stats_generation == STREAM_DISTRIB_NEVER_COUNTED)
+        server.stream_stats_generation = 1;
+    meta->stream_stats_epoch = server.stream_stats_generation;
     memset(meta->stream_hist, 0, sizeof(meta->stream_hist));
 }
 
