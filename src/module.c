@@ -4296,8 +4296,6 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
-    /* A string-to-Roaring-bitmap conversion changes the result from
-     * REDISMODULE_KEYTYPE_STRING to REDISMODULE_KEYTYPE_BITMAP. */
     case OBJ_BITMAP: return REDISMODULE_KEYTYPE_BITMAP;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
