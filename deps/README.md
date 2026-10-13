@@ -134,4 +134,4 @@ We currently vendor v4.7.2 with a few local patches, each marked with a
      `src/bitroar.c` can walk every allocation for MEMORY USAGE accounting,
      fork-child page dismissal and active defragmentation.
 4. Run `make -C deps/croaring test` and the bitmap test suites under
-   `tests/` (`bitroar`, `bitroar-oracle`, `bitops`).
+   `tests/` (`bitroar`, `bitops`).
