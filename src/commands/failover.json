@@ -28,14 +28,14 @@
                     {
                         "name": "port",
                         "type": "integer"
-                    },
-                    {
-                        "token": "FORCE",
-                        "name": "force",
-                        "type": "pure-token",
-                        "optional": true
                     }
                 ]
+            },
+            {
+                "token": "FORCE",
+                "name": "force",
+                "type": "pure-token",
+                "optional": true
             },
             {
                 "token": "ABORT",

@@ -1208,6 +1208,8 @@ jobs:
         cache-dependency-path: "./utils/req-res-validator/requirements.txt"
     - name: Install Python dependencies
       run: python -m pip install -r ./utils/req-res-validator/requirements.txt
+    - name: validator regression tests
+      run: python -m unittest discover -s utils/req-res-validator
     - name: validator
       run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
 
