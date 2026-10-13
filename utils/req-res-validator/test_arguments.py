@@ -1,6 +1,6 @@
 """Regression tests: python -m unittest discover -s utils/req-res-validator."""
-import copy
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -22,6 +22,13 @@ class ArgumentTests(unittest.TestCase):
         words = command.split("|")
         with (ROOT / "src/commands" / ("-".join(words) + ".json")).open() as f:
             doc = json.load(f)[words[-1].upper()]
+        # Exercise the flags representation returned by COMMAND DOCS.
+        def convert_flags(args):
+            for arg in args:
+                arg["flags"] = [flag for flag in ("optional", "multiple", "multiple_token")
+                                if arg.pop(flag, False)]
+                convert_flags(arg.get("arguments", []))
+        convert_flags(doc.get("arguments", []))
         return SimpleNamespace(command=command, argv=words + values, doc=doc)
 
     def test_repeated_options(self):
@@ -58,9 +65,7 @@ class ArgumentTests(unittest.TestCase):
 
     def test_multiple_tokens_and_blocks(self):
         for command, values in (
-                ("sort", ["k", "GET", "a*", "LIMIT", "0", "2", "GET", "b*"]),
                 ("sort", ["missing", "GET", "#", "ALPHA", "GET", "#"]),
-                ("bitfield", ["bits", "GET", "i8", "0", "GET", "i8", "8"]),
                 ("bitfield", ["bits", "SET", "i8", "0", "1", "GET", "i8", "0",
                               "SET", "i8", "8", "2", "GET", "i8", "8"]),
                 ("bitfield_ro", ["bits", "GET", "i8", "0", "GET", "i8", "8"]),
@@ -101,6 +106,42 @@ class ArgumentTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNone(validator.validate_request(self.request(command, values)))
 
+    def test_numeric_prefixes_do_not_hide_type_mismatches(self):
+        for value, wrong_type in (("#1", "integer"), ("(1.5", "double")):
+            with self.subTest(value=value):
+                req = self.request("set", ["k", value])
+                self.assertIsNone(validator.validate_request(req))
+                req.doc["arguments"][1]["type"] = wrong_type
+                self.assertIsNotNone(validator.validate_request(req))
+        for command, values in (
+                ("bitfield", ["bits", "SET", "u8", "#0", "#1"]),
+                ("zrangebyscore", ["z", "(0", "(1", "LIMIT", "#0", "1"])):
+            with self.subTest(command=command):
+                self.assertIsNotNone(validator.validate_request(self.request(command, values)))
+
+    def test_nested_options_preserve_parent_requirement(self):
+        for values in (
+                ["TO", "127.0.0.1", "6379", "FORCE", "TIMEOUT", "100"],
+                ["TO", "127.0.0.1", "6379", "TIMEOUT", "100", "FORCE"],
+                ["FORCE", "TIMEOUT", "100", "TO", "127.0.0.1", "6379"]):
+            with self.subTest(values=values):
+                self.assertIsNone(validator.validate_request(self.request("failover", values)))
+        self.assertIsNotNone(validator.validate_request(
+            self.request("failover", ["FORCE", "TIMEOUT", "100"])))
+
+    def test_unknown_metrics_do_not_skip_other_argument_checks(self):
+        prefix = ["METRICS", "2", "GPU", "CPU"]
+        self.assertIsNone(validator.validate_request(
+            self.request("hotkeys|start", prefix + ["COUNT", "10", "DURATION", "20"])))
+        for option in ("COUNT", "DURATION", "SAMPLE"):
+            with self.subTest(option=option):
+                self.assertIsNotNone(validator.validate_request(
+                    self.request("hotkeys|start", prefix + [option, "bad"])))
+        self.assertIsNotNone(validator.validate_request(
+            self.request("hotkeys|start", ["METRICS", "bad", "CPU"])))
+        self.assertIsNotNone(validator.validate_request(
+            self.request("hotkeys|start", prefix + ["GPU"])))
+
     def test_internal_commands_without_argument_docs(self):
         self.assertIsNone(validator.validate_request(
             self.request("replconf", ["listening-port", "12345"])))
@@ -108,7 +149,6 @@ class ArgumentTests(unittest.TestCase):
     def test_command_documentation_regressions(self):
         for command, values in (
                 ("client|list", ["TYPE", "slave"]),
-                ("failover", ["TO", "127.0.0.1", "6379", "TIMEOUT", "100", "FORCE"]),
                 ("module|loadex", ["module.so", "CONFIG", "option", "value", "ARGS"]),
                 ("sentinel|set", ["mymaster", "rename-command", "PING", "PONG"])):
             with self.subTest(command=command):

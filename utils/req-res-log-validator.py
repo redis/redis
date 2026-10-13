@@ -77,10 +77,6 @@ IGNORED_COMMANDS = {
     "VRANGE",
 }
 
-# HOTKEYS START deliberately ignores unknown metric names when at least one
-# supported metric is present. Its docs only enumerate supported metrics.
-IGNORED_REQUEST_COMMANDS = {"hotkeys|start"}
-
 class Request(object):
     """
     This class represents a Redis request (AKA command, argv)
@@ -201,7 +197,7 @@ class Response(object):
         return json.dumps(self.json)
 
 
-def _argument_value_matches(arg, value):
+def _argument_value_matches(arg, value, command):
     """Return whether a value matches an argument's declared type."""
     arg_type = arg.get("type")
     if arg_type in ("string", "key", "pattern"):
@@ -209,7 +205,8 @@ def _argument_value_matches(arg, value):
     if arg_type in ("integer", "unix-time"):
         try:
             # Bitfield offsets may express an integer index as #<index>.
-            if arg_type == "integer" and value.startswith("#"):
+            if (arg_type == "integer" and command in ("bitfield", "bitfield_ro")
+                    and arg.get("name") == "offset" and value.startswith("#")):
                 value = value[1:]
             int(value, 10)
             return True
@@ -219,7 +216,8 @@ def _argument_value_matches(arg, value):
         try:
             # Score bounds may be exclusive, and Redis accepts hexadecimal
             # floating-point numbers as well as decimal ones.
-            if value.startswith("("):
+            if (command in ("zcount", "zrangebyscore", "zrevrangebyscore", "zremrangebyscore")
+                    and arg.get("name") in ("min", "max") and value.startswith("(")):
                 value = value[1:]
             if value.lstrip("+-").lower().startswith("0x"):
                 float.fromhex(value)
@@ -268,7 +266,7 @@ def _argument_has_token(arg):
     return False
 
 
-def _match_argument(arg, values, position):
+def _match_argument(arg, values, position, command):
     """Return positions reachable after matching one documented argument."""
     arg_type = arg.get("type")
     next_position = position
@@ -291,10 +289,10 @@ def _match_argument(arg, values, position):
     if arg_type == "oneof":
         positions = []
         for subarg in arg.get("arguments", []):
-            positions.extend(_match_argument(subarg, values, next_position))
+            positions.extend(_match_argument(subarg, values, next_position, command))
     elif arg_type == "block":
-        positions = _match_arguments(arg.get("arguments", []), values, next_position)
-    elif next_position < len(values) and _argument_value_matches(arg, values[next_position]):
+        positions = _match_arguments(arg.get("arguments", []), values, next_position, command)
+    elif next_position < len(values) and _argument_value_matches(arg, values[next_position], command):
         positions = [next_position + 1]
     else:
         positions = []
@@ -310,7 +308,7 @@ def _match_argument(arg, values, position):
             repeated_arg["flags"] = [flag for flag in flags
                                       if flag not in ("multiple", "optional")]
             for current in frontier:
-                next_frontier.extend(_match_argument(repeated_arg, values, current))
+                next_frontier.extend(_match_argument(repeated_arg, values, current, command))
             frontier = [candidate for candidate in next_frontier
                         if candidate not in repeated]
             repeated.update(frontier)
@@ -321,8 +319,30 @@ def _match_argument(arg, values, position):
     return list(dict.fromkeys(positions))
 
 
-def _argument_positions(args, values, position):
+def _argument_positions(args, values, position, command):
     """Walk sequence states without recursing once per request argument."""
+    # Trailing options in a block can interleave with its siblings (e.g.
+    # FAILOVER TO host port TIMEOUT 100 FORCE), but still require their parent.
+    # Keep repeated blocks intact so options cannot escape their own iteration.
+    args = list(args)
+    dependencies = {}
+    for index in range(len(args)):
+        arg = args[index]
+        if (arg.get("type") != "block" or _argument_is_multiple(arg)
+                or not _argument_has_token(arg)):
+            continue
+        children = arg.get("arguments", [])
+        end = len(children)
+        while (end and _argument_is_optional(children[end - 1])
+               and _argument_has_token(children[end - 1])):
+            end -= 1
+        if end == len(children) or not end:
+            continue
+        args[index] = dict(arg, arguments=children[:end])
+        for child in children[end:]:
+            dependencies[len(args)] = index
+            args.append(child)
+    persistent = set(dependencies) | set(dependencies.values())
     pending = [(tuple(range(len(args))), frozenset(), position)]
     seen = set()
     while pending:
@@ -332,7 +352,9 @@ def _argument_positions(args, values, position):
             continue
         seen.add(state)
         if not remaining:
-            yield current
+            if all(child not in satisfied or parent in satisfied
+                   for child, parent in dependencies.items()):
+                yield current
             continue
 
         # Options may appear before or after required tokenized arguments
@@ -349,9 +371,10 @@ def _argument_positions(args, values, position):
         for index in candidates:
             arg = args[index]
             rest = tuple(i for i in remaining if i != index)
+            skipped = satisfied if index in persistent else satisfied - {index}
             if index in satisfied:
-                pending.append((rest, satisfied - {index}, current))
-            for next_position in _match_argument(arg, values, current):
+                pending.append((rest, skipped, current))
+            for next_position in _match_argument(arg, values, current, command):
                 # Successful Redis requests may repeat options, even when the
                 # docs omit 'multiple' (e.g. SET GET EX 10 GET). Keep checking
                 # each occurrence's value. Untokenized multiple arguments are
@@ -359,26 +382,26 @@ def _argument_positions(args, values, position):
                 repeat = _argument_has_token(arg) and next_position > current
                 if repeat:
                     matched = satisfied
-                    if not _argument_is_optional(arg):
+                    if not _argument_is_optional(arg) or index in persistent:
                         matched = satisfied | {index}
                     pending.append((remaining, matched, next_position))
                 else:
-                    pending.append((rest, satisfied - {index}, next_position))
+                    pending.append((rest, skipped, next_position))
 
 
-def _match_arguments(args, values, position=0):
+def _match_arguments(args, values, position=0, command=None):
     """Return positions reachable after matching a sequence of arguments."""
-    return list(dict.fromkeys(_argument_positions(args, values, position)))
+    return list(dict.fromkeys(_argument_positions(args, values, position, command)))
 
 
-def _matches_arguments(args, values, position=0):
+def _matches_arguments(args, values, position=0, command=None):
     """Return whether an argument sequence consumes the complete request."""
-    return any(end == len(values) for end in _argument_positions(args, values, position))
+    return any(end == len(values) for end in _argument_positions(args, values, position, command))
 
 
 def validate_request(req):
     """Validate a successful request against its COMMAND DOCS arguments."""
-    if not req.doc or req.command in IGNORED_REQUEST_COMMANDS:
+    if not req.doc:
         return None
     # Internal commands such as REPLCONF intentionally omit their arguments.
     if ("arguments" not in req.doc and
@@ -387,8 +410,19 @@ def validate_request(req):
 
     command_words = len(req.command.split("|"))
     values = req.argv[command_words:]
+    # HOTKEYS START ignores unknown names only inside its counted METRICS
+    # list. Keep the original count and subsequent options for type validation.
+    if req.command == "hotkeys|start" and len(values) >= 2 and values[0].upper() == "METRICS":
+        try:
+            count = int(values[1], 10)
+        except ValueError:
+            count = 0
+        if 0 < count <= len(values) - 2:
+            metrics = [value for value in values[2:2 + count]
+                       if value.upper() in ("CPU", "NET")]
+            values = values[:2] + metrics + values[2 + count:]
     arguments = req.doc.get("arguments", [])
-    if _matches_arguments(arguments, values):
+    if _matches_arguments(arguments, values, command=req.command):
         return None
     return f"request arguments {values!r} do not match declared arguments"
 
