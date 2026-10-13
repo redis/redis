@@ -1759,8 +1759,18 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 xreadgroup group g c count 1 streams $mig >
         assert_equal "1=1" [stream_pel_hist 0]
 
-        # Keep the background trim busy long enough to cross the synchronous FLUSH.
-        populate_slot 20000 -slot 3 -idx 0 -size 512
+        # Keep the background trim busy long enough to cross the synchronous
+        # FLUSH: one hash with many fields gives the BIO thread a long free
+        # while the keyspace stays tiny, so builds that re-verify the keysizes
+        # histograms after every command (DEBUG_ASSERT_KEYSPACE) are not slowed.
+        set filler [slot_key 3 bighash]
+        for {set chunk 0} {$chunk < 20} {incr chunk} {
+            set args {}
+            for {set i 0} {$i < 10000} {incr i} {
+                lappend args f[expr {$chunk * 10000 + $i}] v
+            }
+            R 0 hset $filler {*}$args
+        }
 
         R 1 CLUSTER MIGRATION IMPORT 0 100
 
@@ -1806,9 +1816,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         assert_equal "1=1" [stream_pel_hist 0]
         # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
-        # strings row (20000 migrated values of 512 bytes) must stay absent and the
+        # hashes row (the trimmed 200k-field filler) must stay absent and the
         # streams row must still hold the fresh sample, bin "2" for 3 entries.
-        assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_strings_sizes]
+        assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_hashes_sizes]
         assert_equal "2=1" [getInfoProperty [R 0 info keysizes] db0_distrib_streams_items]
 
         # Cleanup: flush and migrate the slots back to R 0.
