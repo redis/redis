@@ -295,6 +295,63 @@ start_server {} {
         r debug reply-copy-avoidance 1
     } {OK} {needs:debug}
 
+    test "client evicted when pending reply references deleted key (same-bucket unshared memory)" {
+        r flushdb
+        set old_maxmem [lindex [r config get maxmemory-clients] 1]
+        r config set maxmemory-clients 0
+        set initial_evicted [getInfoProperty [r info stats] evicted_clients]
+
+        set cname "slow_same_bucket"
+        set rr [redis_deferring_client]
+        $rr client setname $cname
+        $rr flush
+        assert {[$rr read] eq "OK"}
+
+        # Key k of 300 KB (triggers copy avoidance >= 16384)
+        r set k [string repeat k 300000]
+
+        # Saturate TCP socket buffer and build private obuf replies in the 4MB-8MB bucket range
+        while true {
+            set tot [client_field $cname tot-mem]
+            if {$tot >= 4500000} {
+                break
+            }
+            for {set i 0} {$i < 5} {incr i} {
+                $rr eval "return string.rep('x', 300000)" 0
+            }
+            $rr flush
+            after 20
+        }
+
+        # Queue GET k which adds shared reply referencing key k
+        $rr get k
+        $rr flush
+        after 100
+
+        set lower [client_field $cname tot-mem]
+        set shared [client_field $cname omem-shared]
+        set upper [expr {$lower + $shared}]
+
+        # Set maxmemory-clients between lower and upper
+        set target_limit [expr {$lower + ($shared / 2)}]
+        r config set maxmemory-clients $target_limit
+
+        # Delete key: pending GET reply is now the sole owner of the 300KB object.
+        # Both lower and upper bounds fall in the same power-of-two memory bucket,
+        # so evictClients() relies on the cron pass refreshing reply_bytes_unshared.
+        r del k
+
+        # Verify client is evicted by cron without requiring CLIENT LIST or INFO memory
+        wait_for_condition 50 100 {
+            [getInfoProperty [r info stats] evicted_clients] > $initial_evicted
+        } else {
+            fail "client holding unshared reply bytes was not evicted"
+        }
+
+        $rr close
+        r config set maxmemory-clients $old_maxmem
+    }
+
     foreach {no_evict} {on off} {
         test "client no-evict $no_evict" {
             r flushdb

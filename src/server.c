@@ -1154,14 +1154,14 @@ int updateClientMemUsageAndBucket(client *c) {
     }
 
     /* Include unshared reply bytes in the client's memory usage for eviction.
-     * Walking the reply buffer is costly, so skip the scan when its outcome
-     * cannot affect bucket placement: since 0 <= unshared <= shared, if both
-     * endpoints map to the same bucket the cached value is reused. */
+     * When client eviction is enabled, we must refresh reply_bytes_unshared so that
+     * the client's memory usage and server.stat_clients_type_memory reflect any
+     * referenced objects whose keys were deleted (solely owned by this client).
+     * Skipping this scan when lower and upper bounds fall into the same bucket
+     * would leave server.stat_clients_type_memory stale and prevent evictClients()
+     * from triggering eviction against maxmemory-clients. */
     if (c->reply_bytes_shared > 0) {
-        size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
-        size_t upper_bound = lower_bound + c->reply_bytes_shared;
-        if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
-            updateClientUnsharedReplyBytes(c);
+        updateClientUnsharedReplyBytes(c);
     } else {
         /* No shared bytes: clear any stale cached unshared. */
         c->reply_bytes_unshared = 0;
