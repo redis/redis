@@ -617,14 +617,15 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
     int64_t max = (bits == 64) ? INT64_MAX : (((int64_t)1<<(bits-1))-1);
     int64_t min = (-max)-1;
 
-    /* Note that maxincr and minincr could overflow, but we use the values
-     * only after checking 'value' range, so when we use it no overflow
-     * happens. 'uint64_t' casts are there just to prevent undefined behavior on
-     * overflow */
+    /* Note that maxincr and minincr could overflow, so they are used only
+     * when 'value' is within [min, max], and for 64 bit fields only when
+     * 'value' has the sign that keeps them in range. 'uint64_t' casts are
+     * there just to prevent undefined behavior on overflow */
     int64_t maxincr = (uint64_t)max-value;
     int64_t minincr = (uint64_t)min-value;
 
-    if (value > max || (bits != 64 && incr > maxincr) || (value >= 0 && incr > 0 && incr > maxincr))
+    if (value > max ||
+        (value >= min && incr > 0 && (bits != 64 || value >= 0) && incr > maxincr))
     {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
@@ -634,7 +635,9 @@ int checkSignedBitfieldOverflow(int64_t value, int64_t incr, uint64_t bits, int 
             }
         }
         return 1;
-    } else if (value < min || (bits != 64 && incr < minincr) || (value < 0 && incr < 0 && incr < minincr)) {
+    } else if (value < min ||
+               (incr < 0 && (bits != 64 || value < 0) && incr < minincr))
+    {
         if (limit) {
             if (owtype == BFOVERFLOW_WRAP) {
                 goto handle_wrap;
@@ -2052,8 +2055,14 @@ void bitfieldGeneric(client *c, int flags) {
                     retval = newval;
                 } else {
                     newval = thisop->i64;
-                    overflow = checkUnsignedBitfieldOverflow(newval,
-                            0,thisop->bits,thisop->owtype,&wrapped);
+                    /* A negative value underflows: check it as an
+                     * increment of zero so SAT clamps it to 0. */
+                    if (thisop->i64 < 0)
+                        overflow = checkUnsignedBitfieldOverflow(0,
+                                thisop->i64,thisop->bits,thisop->owtype,&wrapped);
+                    else
+                        overflow = checkUnsignedBitfieldOverflow(newval,
+                                0,thisop->bits,thisop->owtype,&wrapped);
                     if (overflow) newval = wrapped;
                     retval = oldval;
                 }
