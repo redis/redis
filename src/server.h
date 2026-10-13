@@ -3199,9 +3199,12 @@ typedef struct {
 } listTypeEntry;
 
 /* Structure to hold set iteration abstraction. */
+typedef struct _setTypeOps setTypeOps; /* defined in t_set_encoding.h */
+
 typedef struct {
     robj *subject;
     int encoding;
+    const setTypeOps *typeOps; /* encoding-specific ops struct, to avoid re-fetching it for every next call */
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
@@ -3494,6 +3497,7 @@ getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd);
 /* iothread.c - the threaded io implementation */
 void initThreadedIO(void);
 void killIOThreads(void);
+int isIOThreadPaused(int id);
 void pauseIOThread(int id);
 void resumeIOThread(int id);
 void pauseAllIOThreads(void);
@@ -4002,6 +4006,7 @@ size_t setTypeAllocSize(const robj *o);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
+void setTypeFree(robj *o);
 
 /* Data structure for OBJ_ENCODING_LISTPACK_EX for hash. It contains listpack
  * and metadata fields for hash field expiration.*/

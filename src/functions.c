@@ -77,10 +77,10 @@ dictType engineStatsDictType = {
 };
 
 dictType libraryFunctionDictType = {
-        dictSdsHash,          /* hash function */
+        dictSdsCaseHash,      /* hash function */
         dictSdsDup,           /* key dup */
         NULL,                 /* val dup */
-        dictSdsKeyCompare,    /* key compare */
+        dictSdsKeyCaseCompare,/* key compare */
         dictSdsDestructor,    /* key destructor */
         engineFunctionDispose,/* val destructor */
         NULL                  /* allow to expand */
@@ -234,6 +234,8 @@ functionsLibCtx* functionsLibCtxCreate(void) {
 
 /*
  * Creating a function inside the given library.
+ * A later registration replaces an earlier function with the same name
+ * (case insensitive), freeing the earlier function and its metadata.
  * On success, return C_OK.
  * On error, return C_ERR and set err output parameter with a relevant error message.
  *
@@ -247,11 +249,6 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
         return C_ERR;
     }
 
-    if (dictFetchValue(li->functions, name)) {
-        *err = sdsnew("Function already exists in the library");
-        return C_ERR;
-    }
-
     functionInfo *fi = zmalloc(sizeof(*fi));
     *fi = (functionInfo) {
         .name = name,
@@ -261,8 +258,9 @@ int functionLibCreateFunction(sds name, void *function, functionLibInfo *li, sds
         .f_flags = f_flags,
     };
 
-    int res = dictAdd(li->functions, fi->name, fi);
-    serverAssert(res == DICT_OK);
+    if (!dictReplace(li->functions, fi->name, fi)) {
+        serverLog(LL_NOTICE, "Function %s was overwritten in library %s", fi->name, li->name);
+    }
 
     return C_OK;
 }
@@ -307,7 +305,9 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
     dictInitIterator(&iter, li->functions);
     while ((entry = dictNext(&iter))) {
         functionInfo *fi = dictGetVal(entry);
-        dictAdd(lib_ctx->functions, fi->name, fi);
+        if (dictAdd(lib_ctx->functions, fi->name, fi) != DICT_OK) {
+            serverLog(LL_NOTICE, "Function %s already exists when linking library %s", fi->name, li->name);
+        }
         lib_ctx->cache_memory += functionMallocSize(fi);
     }
     dictResetIterator(&iter);

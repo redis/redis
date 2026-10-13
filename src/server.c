@@ -1141,13 +1141,12 @@ int updateClientMemUsageAndBucket(client *c) {
     /* The unlikely case this function was called from a thread different
      * than the main one is a module call from a spawned thread. This is safe
      * since this call must have been made after calling
-     * RedisModule_ThreadSafeContextLock i.e the module is holding the GIL. In
-     * that special case we assert that at least the updated client's
-     * running_tid is the main thread. The true main thread is allowed to call
-     * this function on clients handled by IO-threads as it makes sure the
-     * IO-threads are paused, f.e see clientsCron() and evictClients(). */
-    serverAssert((pthread_equal(pthread_self(), server.main_thread_id) ||
-                  c->running_tid == IOTHREAD_MAIN_THREAD_ID) && c->conn);
+     * RedisModule_ThreadSafeContextLock i.e the module is holding the GIL.
+     * Whoever the caller is, we assert that the updated client is running in
+     * the main thread, or that its IO-thread is paused, f.e see evictClients()
+     * and applyClientMaxMemoryUsage(). */
+    serverAssert((c->running_tid == IOTHREAD_MAIN_THREAD_ID ||
+                  isIOThreadPaused(c->tid)) && c->conn);
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 
@@ -7952,12 +7951,7 @@ void loadDataFromDisk(void) {
         }
     }
 
-    if (loaded && server.aof_state == AOF_ON) {
-        /* On database upgrades, we store an rdb file on shutdown, and then start from it with preload-file.
-         * but we still need to convert the old AOF file (exact same content), otherwise,
-         * we'll end up doing a foreground AOFRW on startup. */
-        upgradeAofIfNeeded(server.aof_manifest);
-    } else if (!loaded && server.aof_state == AOF_ON) {
+    if (!loaded && server.aof_state == AOF_ON) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
