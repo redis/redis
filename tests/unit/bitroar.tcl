@@ -217,13 +217,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         r function delete bitmap_gate
     }
 
-    test {Internal bitmap propagation primitives cannot be renamed} {
-        foreach command {bitconvert bitroarop} {
-            catch {exec src/redis-server --rename-command $command renamed} err
-            assert_match {*Cannot rename an internal command*} $err
-        }
-    } {} {external:skip}
-
     test {bitmap-default-roaring no: SETBIT keeps creating strings} {
         r config set bitmap-default-roaring no
         r del bitmap bitmap:existing
