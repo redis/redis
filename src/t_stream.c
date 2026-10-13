@@ -61,6 +61,10 @@ static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack);
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time);
 
+/* Forward declarations for the INFO Streams samplers */
+static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric);
+static int64_t streamStreamSample(stream *s, streamDistribMetric metric);
+
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
  * ----------------------------------------------------------------------- */
@@ -172,9 +176,6 @@ static int streamDistribBin(int64_t value) {
     debugServerAssert(bin < MAX_KEYSIZES_BINS);
     return bin;
 }
-
-static int64_t streamCGroupSample(streamCG *cg, streamDistribMetric metric);
-static int64_t streamStreamSample(stream *s, streamDistribMetric metric);
 
 /* Move one object's sample for 'metric' from the bin of 'old_val' to the bin
  * of 'new_val'; -1 on either side means no sample. 'epoch' and 'counted' are
