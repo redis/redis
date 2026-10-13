@@ -703,11 +703,6 @@ int double2ll(double d, long long *out) {
         return 0;
     long long ll = d;
     if (ll == d) {
-        /* Guard against -0.0, which would be silently converted to 0 (losing
-         * the sign), since 0.0 == -0.0. Return false so the caller uses the
-         * string path which correctly preserves the sign of negative zero. */
-        if (ll == 0 && signbit(d))
-            return 0;
         *out = ll;
         return 1;
     }
