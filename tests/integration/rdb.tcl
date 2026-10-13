@@ -4,7 +4,7 @@ start_server {overrides {save ""}} {
     test {DEBUG RELOAD rejects an active background save without losing writes} {
         r set reload-key before
         r save
-        r config set rdb-key-save-delay 2000000
+        r config set rdb-key-save-delay 1000000
         r bgsave
         assert_equal 1 [s rdb_bgsave_in_progress]
         r set reload-key after
@@ -23,7 +23,6 @@ start_server {overrides {save ""}} {
         assert_equal after [r get reload-key]
     }
 }
-
 
 set server_path [tmpdir "server.rdb-encoding-test"]
 
