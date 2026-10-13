@@ -1610,8 +1610,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 }
                 nwritten += n;
 
-                if (streamCGPelList(cg)->nack_tail) {
-                    streamNACK *nack = streamCGPelList(cg)->time_head;
+                if (cg->pel_nack_tail) {
+                    streamNACK *nack = cg->pel_time_head;
                     while (nack) {
                         unsigned char buf[sizeof(streamID)];
                         streamEncodeID(buf, &nack->id);
@@ -1620,7 +1620,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                             return -1;
                         }
                         nwritten += n;
-                        if (nack == streamCGPelList(cg)->nack_tail) break;
+                        if (nack == cg->pel_nack_tail) break;
                         nack = nack->pel_next;
                     }
                 }
@@ -4320,12 +4320,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Verify entries outside the NACK zone all have a consumer
-             * assigned. For old RDB types nack_tail is NULL, so
+             * assigned. For old RDB types pel_nack_tail is NULL, so
              * this walks the entire PEL — equivalent to checking all. */
             if (deep_integrity_validation) {
-                streamNACK *cur = streamCGPelList(cgroup)->nack_tail ?
-                                 streamCGPelList(cgroup)->nack_tail->pel_next :
-                                 streamCGPelList(cgroup)->time_head;
+                streamNACK *cur = cgroup->pel_nack_tail ?
+                                 cgroup->pel_nack_tail->pel_next :
+                                 cgroup->pel_time_head;
                 while (cur) {
                     if (!cur->consumer) {
                         rdbReportCorruptRDB("Stream CG PEL entry without "

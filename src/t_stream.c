@@ -154,6 +154,13 @@ const char *const streamDistribMetricNames[STREAM_DISTRIB_MAX] = {
 };
 static_assert(STREAM_DISTRIB_MAX <= 8, "distrib_counted holds one bit per metric");
 
+/* A consumer group's INFO Streams stamp, kept in the metadata of its PEL rax
+ * so that streamCG stays one cache line. */
+typedef struct {
+    uint32_t epoch;   /* Generation the bits refer to. */
+    uint8_t counted;  /* Bit per metric with a sample in its row. */
+} streamDistribStamp;
+
 /* Zero the stream histograms in 'meta' and start a new generation: every
  * stream and group stamped with the old one is uncounted again, and a slot-trim
  * delta captured against it is discarded on completion. Generations come from
@@ -229,12 +236,14 @@ static void streamUpdateStat(redisDb *db, uint32_t *epoch, uint8_t *counted,
  * and the stream_stats gate moves out of the caller into a call. */
 static inline __attribute__((always_inline))
 void streamUpdateCGStat(redisDb *db, streamCG *cg, streamDistribMetric metric, int64_t old) {
-    streamUpdateStat(db, &cg->distrib_epoch, &cg->distrib_counted, metric, old, streamCGroupSample(cg, metric));
+    streamDistribStamp *st = (streamDistribStamp *) cg->pel->metadata;
+    streamUpdateStat(db, &st->epoch, &st->counted, metric, old, streamCGroupSample(cg, metric));
 }
 
 static inline __attribute__((always_inline))
 void streamRemoveCGStat(redisDb *db, streamCG *cg, streamDistribMetric metric) {
-    streamUpdateStat(db, &cg->distrib_epoch, &cg->distrib_counted, metric, streamCGroupSample(cg, metric), -1);
+    streamDistribStamp *st = (streamDistribStamp *) cg->pel->metadata;
+    streamUpdateStat(db, &st->epoch, &st->counted, metric, streamCGroupSample(cg, metric), -1);
 }
 
 static inline __attribute__((always_inline))
@@ -453,7 +462,7 @@ robj *streamDup(robj *o) {
 
         /* Consumer Group PEL -- walk the time-ordered list so we can
          * append directly and preserve NACK zone structure. */
-        for (streamNACK *nack = streamCGPelList(cg)->time_head; nack; nack = nack->pel_next) {
+        for (streamNACK *nack = cg->pel_time_head; nack; nack = nack->pel_next) {
             unsigned char buf[sizeof(streamID)];
             streamEncodeID(buf, &nack->id);
             streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack->id);
@@ -462,7 +471,7 @@ robj *streamDup(robj *o) {
             new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, buf);
             raxInsert(new_cg->pel, buf, sizeof(streamID), new_nack, NULL);
             pelListInsertAtTail(new_cg, new_nack);
-            if (nack == streamCGPelList(cg)->nack_tail) streamCGPelList(new_cg)->nack_tail = new_nack;
+            if (nack == cg->pel_nack_tail) new_cg->pel_nack_tail = new_nack;
         }
 
         /* Consumers */
@@ -2017,10 +2026,11 @@ void streamTallyStreamSamples(stream *s, streamStatsHist tally, uint32_t only_ep
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
         streamCG *cg = ri.data;
-        if (!all && cg->distrib_epoch != only_epoch) continue;
-        streamTallySample(tally, all, cg->distrib_counted, STREAM_DISTRIB_CGROUPS_PEL,
+        streamDistribStamp *st = (streamDistribStamp *) cg->pel->metadata;
+        if (!all && st->epoch != only_epoch) continue;
+        streamTallySample(tally, all, st->counted, STREAM_DISTRIB_CGROUPS_PEL,
                           streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_PEL));
-        streamTallySample(tally, all, cg->distrib_counted, STREAM_DISTRIB_CGROUPS_CONSUMERS,
+        streamTallySample(tally, all, st->counted, STREAM_DISTRIB_CGROUPS_CONSUMERS,
                           streamCGroupSample(cg, STREAM_DISTRIB_CGROUPS_CONSUMERS));
     }
     raxStop(&ri);
@@ -2322,10 +2332,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
          * 3. We reach the pre-stored tail boundary */
         
         /* Store the current tail to prevent infinite loops */
-        streamNACK *tail = streamCGPelList(group)->time_tail;
+        streamNACK *tail = group->pel_time_tail;
         size_t processed = 0;
         
-        streamNACK *nack = streamCGPelList(group)->time_head;
+        streamNACK *nack = group->pel_time_head;
         while (nack) {
             /* Capture next pointer BEFORE modifications (pelListUpdate may reorder) */
             streamNACK *next = nack->pel_next;
@@ -3249,7 +3259,7 @@ void xreadCommand(client *c) {
              * get the minimum delivery time in the PEL, in order to use it 
              * later if block option is set. */
             if (min_idle_time != -1) {
-                streamNACK *nack = streamCGPelList(groups[i])->time_head;
+                streamNACK *nack = groups[i]->pel_time_head;
                 /* Iterate through PEL entries to find the first one that exists */
                 while (nack) {
                     /* Skip entries that don't exist in the stream anymore */
@@ -3679,28 +3689,33 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     size_t usable;
     streamCG *cg = zmalloc_usable(sizeof(*cg), &usable);
     s->alloc_size += usable;
-    /* The PEL rax carries the list threading its entries (streamPelList) in
-     * its header metadata, which raxNewEx() does not zero. */
-    cg->pel = raxNewEx(sizeof(streamPelList), &s->alloc_size, sizeof(streamID));
-    streamPelList *pl = streamCGPelList(cg);
-    pl->time_head = pl->time_tail = pl->nack_tail = NULL;
+    /* The PEL rax carries the group's INFO Streams stamp in its metadata
+     * (see streamDistribStamp); the header's allocation class has room. */
+    cg->pel = raxNewEx(sizeof(streamDistribStamp), &s->alloc_size, sizeof(streamID));
+    cg->pel_time_head = NULL;
+    cg->pel_time_tail = NULL;
+    cg->pel_nack_tail = NULL;
     cg->consumers = raxNewEx(0, &s->alloc_size, 0);
     cg->last_id.ms = 0;
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
-    cg->distrib_epoch = STREAM_DISTRIB_NEVER_COUNTED;
-    cg->distrib_counted = 0;
+    streamDistribStamp *st = (streamDistribStamp *) cg->pel->metadata;
+    st->epoch = STREAM_DISTRIB_NEVER_COUNTED;
+    st->counted = 0;
     raxInsertAt(s->cgroups,(unsigned char*)name,namelen,cg,NULL,&link);
     return cg;
 }
 
 /* Free a consumer group and all its associated data. */
 static void streamFreeCG(stream *s, streamCG *cg) {
-    /* Free the pel, unlinking each NACK from the time list in the callback.
-     * The list itself lives in the pel's header and goes with it. */
+    /* Free the pel, unlinking each NACK from the time list in the callback */
     streamFreeNACKCtx ctx = {s, cg};
     raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, &ctx);
+    
+    /* pel_time_head/tail/pel_nack_tail should now be NULL after unlinking all NACKs */
+    serverAssert(cg->pel_time_head == NULL && cg->pel_time_tail == NULL && cg->pel_nack_tail == NULL);
+    
     raxFreeWithCbAndContext(cg->consumers, streamFreeConsumerGeneric, s);
     size_t usable;
     zfree_usable(cg, &usable);
@@ -6133,49 +6148,47 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
 /* Insert a NACK after 'after' in the time-ordered list.
  * If after is NULL, insert at the head. */
 static void pelListInsertAfter(streamCG *cg, streamNACK *after, streamNACK *nack) {
-    streamPelList *pl = streamCGPelList(cg);
     if (after) {
         nack->pel_prev = after;
         nack->pel_next = after->pel_next;
         if (after->pel_next)
             after->pel_next->pel_prev = nack;
         else
-            pl->time_tail = nack;
+            cg->pel_time_tail = nack;
         after->pel_next = nack;
     } else {
         nack->pel_prev = NULL;
-        nack->pel_next = pl->time_head;
-        if (pl->time_head)
-            pl->time_head->pel_prev = nack;
+        nack->pel_next = cg->pel_time_head;
+        if (cg->pel_time_head)
+            cg->pel_time_head->pel_prev = nack;
         else
-            pl->time_tail = nack;
-        pl->time_head = nack;
+            cg->pel_time_tail = nack;
+        cg->pel_time_head = nack;
     }
 }
 
 /* Insert a NACK at the tail of the PEL time-ordered list. This is used when
  * delivery_time is set to current time, which is the common case. */
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
-    pelListInsertAfter(cg, streamCGPelList(cg)->time_tail, nack);
+    pelListInsertAfter(cg, cg->pel_time_tail, nack);
 }
 
 /* Unlink a NACK from the PEL time-ordered list. */
 void pelListUnlink(streamCG *cg, streamNACK *nack) {
-    streamPelList *pl = streamCGPelList(cg);
-    if (nack == pl->nack_tail) {
-        pl->nack_tail = nack->pel_prev;
+    if (nack == cg->pel_nack_tail) {
+        cg->pel_nack_tail = nack->pel_prev;
     }
     if (nack->pel_prev) {
         nack->pel_prev->pel_next = nack->pel_next;
     } else {
         /* Removing head. */
-        pl->time_head = nack->pel_next;
+        cg->pel_time_head = nack->pel_next;
     }
     if (nack->pel_next) {
         nack->pel_next->pel_prev = nack->pel_prev;
     } else {
         /* Removing tail. */
-        pl->time_tail = nack->pel_prev;
+        cg->pel_time_tail = nack->pel_prev;
     }
     nack->pel_prev = nack->pel_next = NULL;
 }
@@ -6185,22 +6198,21 @@ void pelListUnlink(streamCG *cg, streamNACK *nack) {
  * may not be time-ordered. We scan backwards from the tail since most times
  * are recent, so the common case is still fast.
  *
- * The NACK zone (time_head..nack_tail) is skipped: new entries are
- * never placed before nack_tail, so the NACK zone stays intact. */
+ * The NACK zone (pel_time_head..pel_nack_tail) is skipped: new entries are
+ * never placed before pel_nack_tail, so the NACK zone stays intact. */
 void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
-    streamPelList *pl = streamCGPelList(cg);
     /* Empty list or append to tail (common case). */
-    if (pl->time_head == NULL ||
-        nack->delivery_time >= pl->time_tail->delivery_time) {
+    if (cg->pel_time_head == NULL ||
+        nack->delivery_time >= cg->pel_time_tail->delivery_time) {
         pelListInsertAtTail(cg, nack);
         return;
     }
 
     /* Scan backwards from tail, stopping at the NACK-zone boundary
-     * (nack_tail) so we never insert inside the zone. If boundary
+     * (pel_nack_tail) so we never insert inside the zone. If boundary
      * is NULL (no NACK zone), the scan may reach the list head. */
-    streamNACK *boundary = pl->nack_tail;
-    streamNACK *curr = pl->time_tail;
+    streamNACK *boundary = cg->pel_nack_tail;
+    streamNACK *curr = cg->pel_time_tail;
     while (curr != boundary && curr->delivery_time > nack->delivery_time) {
         curr = curr->pel_prev;
     }
@@ -6209,25 +6221,23 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack) {
 }
 
 /* Insert a NACKed entry at the end of the NACK zone (head region of the PEL
- * time-ordered list). The NACK zone occupies positions from time_head to
- * nack_tail. This is O(1) and maintains FIFO order among NACKed entries. */
+ * time-ordered list). The NACK zone occupies positions from pel_time_head to
+ * pel_nack_tail. This is O(1) and maintains FIFO order among NACKed entries. */
 void pelListInsertNacked(streamCG *cg, streamNACK *nack) {
-    streamPelList *pl = streamCGPelList(cg);
     nack->delivery_time = 0;
-    pelListInsertAfter(cg, pl->nack_tail, nack);
-    pl->nack_tail = nack;
+    pelListInsertAfter(cg, cg->pel_nack_tail, nack);
+    cg->pel_nack_tail = nack;
 }
 
-/* Return the number of entries in the NACK zone (time_head..nack_tail).
+/* Return the number of entries in the NACK zone (pel_time_head..pel_nack_tail).
  * Returns 0 when no NACKed entries exist. */
 uint64_t pelListNackedCount(streamCG *cg) {
-    streamPelList *pl = streamCGPelList(cg);
     uint64_t count = 0;
-    if (pl->nack_tail) {
-        streamNACK *nack = pl->time_head;
+    if (cg->pel_nack_tail) {
+        streamNACK *nack = cg->pel_time_head;
         while (nack) {
             count++;
-            if (nack == pl->nack_tail) break;
+            if (nack == cg->pel_nack_tail) break;
             nack = nack->pel_next;
         }
     }

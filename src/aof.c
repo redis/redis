@@ -2732,18 +2732,18 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
 
             /* Emit XNACK FORCE for NACKed (unowned) entries from the
              * NACK zone of the PEL time-ordered list
-             * (time_head..nack_tail). Consecutive entries with
+             * (pel_time_head..pel_nack_tail). Consecutive entries with
              * the same delivery_count are batched into a single command.
              *
              * nack_stop is the first node outside the NACK zone (or NULL
              * when the zone extends to the end of the PEL). When
-             * nack_tail is NULL (no NACKed entries) the guard below
+             * pel_nack_tail is NULL (no NACKed entries) the guard below
              * skips the whole block. */
-            streamNACK *nack_end = streamCGPelList(group)->nack_tail;
+            streamNACK *nack_end = group->pel_nack_tail;
             if (nack_end != NULL) {
                 streamID batch_ids[AOF_REWRITE_ITEMS_PER_CMD];
                 streamNACK *nack_stop = nack_end->pel_next;
-                streamNACK *nack = streamCGPelList(group)->time_head;
+                streamNACK *nack = group->pel_time_head;
                 int batch_count = 0;
                 uint64_t batch_dc = 0;
                 while (nack && nack != nack_stop) {
