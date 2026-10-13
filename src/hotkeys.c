@@ -115,20 +115,29 @@ void hotkeyStatsUpdateCurrentCmd(hotkeyStats *hotkeys, hotkeyMetrics metrics) {
     serverAssert(hotkeys->current_client);
 
     int numkeys = hotkeys->keys_result.numkeys;
-    uint64_t duration_per_key = metrics.cpu_time_usec / numkeys;
+    uint64_t total_duration = metrics.cpu_time_usec;
     uint64_t total_bytes = metrics.net_bytes;
-    uint64_t bytes_per_key = total_bytes / numkeys;
+
+    /* Use remainder-based distribution to avoid integer division truncation.
+     * Without this, e.g. a 10-usec command on 3 keys would give each key only
+     * 3 usec (3*3=9, losing 1 usec of tracking). Instead, the first (total % numkeys)
+     * keys get ceil(total/numkeys) and the rest get floor(total/numkeys), so
+     * the sum across all keys equals the original total. */
+    uint64_t duration_base = total_duration / numkeys;
+    uint64_t duration_rem  = total_duration % numkeys;
+    uint64_t bytes_base    = total_bytes / numkeys;
+    uint64_t bytes_rem     = total_bytes % numkeys;
 
     /* Update statistics counters */
-    hotkeys->time_all_commands_all_slots += metrics.cpu_time_usec;
+    hotkeys->time_all_commands_all_slots += total_duration;
     hotkeys->net_bytes_all_commands_all_slots += total_bytes;
 
     if (hotkeys->is_in_selected_slots) {
-        hotkeys->time_all_commands_selected_slots += metrics.cpu_time_usec;
+        hotkeys->time_all_commands_selected_slots += total_duration;
         hotkeys->net_bytes_all_commands_selected_slots += total_bytes;
 
         if (hotkeys->is_sampled && hotkeys->sample_ratio > 1) {
-            hotkeys->time_sampled_commands_selected_slots += metrics.cpu_time_usec;
+            hotkeys->time_sampled_commands_selected_slots += total_duration;
             hotkeys->net_bytes_sampled_commands_selected_slots += total_bytes;
         }
     }
@@ -149,6 +158,10 @@ void hotkeyStatsUpdateCurrentCmd(hotkeyStats *hotkeys, hotkeyMetrics metrics) {
     /* Add all keys to topK structure */
     for (int i = 0; i < numkeys; ++i) {
         int pos = hotkeys->keys_result.keys[i].pos;
+
+        /* Distribute remainder among the first keys so the sum equals the total. */
+        uint64_t duration_per_key = duration_base + (i < (int)duration_rem ? 1 : 0);
+        uint64_t bytes_per_key    = bytes_base    + (i < (int)bytes_rem    ? 1 : 0);
 
         if (hotkeys->tracked_metrics & HOTKEYS_TRACK_CPU) {
             sds ret = chkTopKUpdate(hotkeys->cpu, argv[pos]->ptr, sdslen(argv[pos]->ptr), duration_per_key);
