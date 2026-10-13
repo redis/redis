@@ -629,6 +629,13 @@ NULL
             }
         }
 
+        /* A background saver can replace the snapshot between our synchronous
+         * save and load, rolling the dataset back to the child's fork time. */
+        if (save && server.child_type == CHILD_TYPE_RDB) {
+            addReplyError(c,"Background save already in progress");
+            return;
+        }
+
         backupSetFailed("debug reload executed");
 
         /* The default behavior is to save the RDB file before loading
