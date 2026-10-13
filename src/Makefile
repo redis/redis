@@ -362,6 +362,15 @@ ifneq ($(SKIP_VEC_SETS),yes)
 	FINAL_CFLAGS+=-DINCLUDE_VEC_SETS=1
 endif
 
+FINAL_CFLAGS+=-I. -I./probabilistic
+BUILD_BLOOM ?= yes
+ifeq ($(BUILD_BLOOM),yes)
+include $(wildcard probabilistic/*.mk)
+ifneq ($(strip $(REDIS_PROBABILISTIC_OBJ)),)
+	REDIS_PROBABILISTIC_OBJ+=probabilistic/bloom_murmur.o
+endif
+endif
+
 ifndef V
     define MAKE_INSTALL
         @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$(1)$(ENDCOLOR) 1>&2
@@ -408,7 +417,7 @@ REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
 REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o redisassert.o release.o crcspeed.o crccombine.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o strl.o
 REDIS_CHECK_RDB_NAME=redis-check-rdb$(PROG_SUFFIX)
 REDIS_CHECK_AOF_NAME=redis-check-aof$(PROG_SUFFIX)
-ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
+ALL_SOURCES=$(sort $(patsubst %.o,%.c,$(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ) $(REDIS_PROBABILISTIC_OBJ) $(REDIS_CLI_OBJ) $(REDIS_BENCHMARK_OBJ)))
 
 all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) $(TLS_MODULE) module_tests
 	@echo ""
@@ -461,7 +470,7 @@ ifneq ($(strip $(PREV_FINAL_LDFLAGS)), $(strip $(FINAL_LDFLAGS)))
 endif
 
 # redis-server
-$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ)
+$(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ) $(REDIS_VEC_SETS_OBJ) $(REDIS_PROBABILISTIC_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a ../deps/fpconv/libfpconv.a ../deps/xxhash/libxxhash.a ../deps/tre/libtre.a $(FINAL_LIBS)
 
 # redis-sentinel
@@ -488,7 +497,7 @@ $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS) $(TLS_CLIENT_LIBS)
 
-DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
+DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_PROBABILISTIC_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
 -include $(DEP)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
@@ -512,6 +521,8 @@ endif
 commands.c: $(COMMANDS_DEF_FILENAME).def
 
 clean:
+	rm -f bloom-unit bloom-perf cms-unit cuckoo-unit topk-unit tdigest-unit tdigest-capacity-unit tdigest-sort-unit
+	rm -f probabilistic/*.o probabilistic/*.d
 	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep *.so
 	rm -f $(DEP)
 	-(cd ../tests/modules && $(MAKE) clean)
@@ -531,6 +542,14 @@ test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BEN
 
 test-modules: $(REDIS_SERVER_NAME)
 	@(cd ..; ./runtest-moduleapi)
+
+# Each independent datatype PR adds its own self-contained test fragment.
+.PHONY: test-probabilistic
+test: test-probabilistic
+test-probabilistic: $(REDIS_SERVER_NAME)
+ifeq ($(BUILD_BLOOM),yes)
+include $(wildcard ../tests/*/probabilistic.mk)
+endif
 
 test-sentinel: $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME)
 	@(cd ..; ./runtest-sentinel)

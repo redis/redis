@@ -44,6 +44,15 @@ host_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 
 load_flags=""
 for name in $selected; do
+  if ! module_load_enabled "$name"; then
+    if [ "$explicit" = "1" ]; then
+      echo "ERROR: RedisBloom conflicts with enabled native probabilistic datatypes."
+      echo "       Use the native commands available in this build; do not load both implementations."
+      exit 1
+    fi
+    echo "==> Skipping redisbloom: probabilistic types are native"
+    continue
+  fi
   # Resolve the .so basename from modules.yaml. Prefer `target_module:`
   # (just-the-artifact), fall back to basename of `loadmodule:`, finally
   # to `<name>.so` so we still try something even if both fields are empty.

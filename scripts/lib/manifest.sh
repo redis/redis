@@ -84,6 +84,20 @@ else
 fi
 MODULES_MANIFEST_FILE="${MODULES_MANIFEST_FILE:-$REPO_ROOT/modules/modules.yaml}"
 
+# Any native family conflicts with the all-in-one RedisBloom module.
+# Keep module fetching/packaging until the separate retirement PR lands.
+native_probabilistic_enabled() {
+  [ "${BUILD_BLOOM:-yes}" = "yes" ] || return 1
+  for fragment in "$REPO_ROOT"/src/probabilistic/*.mk; do
+    [ ! -f "$fragment" ] || return 0
+  done
+  return 1
+}
+
+module_load_enabled() {
+  [ "$1" != "redisbloom" ] || ! native_probabilistic_enabled
+}
+
 manifest_join_words() {
   awk '
     {

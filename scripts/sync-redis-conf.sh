@@ -10,6 +10,8 @@
 #   ASSUME_BUILT=1 scripts/sync-redis-conf.sh     # emit loadmodule even when .so missing
 #
 # Environment contract (all optional):
+#   BUILD_BLOOM             yes (default) omits external RedisBloom and its config;
+#                           no allows it for a server built with BUILD_BLOOM=no
 #   REDIS_CONF              path to source conf       (default: redis.conf)
 #   REDIS_GEN_CONF          path to generated conf    (default: redis-full.conf)
 #   MODULES                 space-separated module subset (default: every module
@@ -159,7 +161,12 @@ lookup_so() {
 active=""
 missing=""
 bad_manifest=""
+disabled=""
 for name in $requested; do
+  if ! module_load_enabled "$name"; then
+    disabled="${disabled}${disabled:+ }${name}"
+    continue
+  fi
   so="$(lookup_so "$name")"
   if [ -z "$so" ]; then
     bad_manifest="${bad_manifest}${bad_manifest:+ }${name}"
@@ -254,6 +261,7 @@ $MODULES_BEGIN
 # Active:       $active_display
 # Missing .so:  $missing_display
 # Bad manifest: $bad_display
+# Disabled by native Bloom: $(display_or_none "$disabled")
 
 EOF
 
@@ -264,6 +272,10 @@ EOF
   # modules.yaml); in install mode they become $PREFIX/<basename>.
   echo "$LOADMODULE_BEGIN"
   for name in $requested; do
+    if ! module_load_enabled "$name"; then
+      printf '# %s: not loaded because native Bloom is enabled\n' "$name"
+      continue
+    fi
     so="$(lookup_so "$name")"
     if [ -z "$so" ]; then
       printf "# %s: 'loadmodule' field missing in modules.yaml\n" "$name"
@@ -290,6 +302,7 @@ EOF
   # Per-module config blocks. Each block is wrapped in its own BEGIN/END
   # markers so it's trivially diff-able and locatable in the generated file.
   for name in $requested; do
+    module_load_enabled "$name" || continue
     so="$(lookup_so "$name")"
     conf="modules/$name/src/module.conf"
     so_full=""

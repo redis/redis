@@ -1244,6 +1244,26 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+#ifdef INCLUDE_BLOOM
+    } else if (ob->type == OBJ_BLOOM) {
+        bloomDefrag(ob, activeDefragAlloc);
+#endif
+#ifdef INCLUDE_CMS
+    } else if (ob->type == OBJ_CMS) {
+        cmsDefrag(ob, activeDefragAlloc);
+#endif
+#ifdef INCLUDE_CUCKOO
+    } else if (ob->type == OBJ_CUCKOO) {
+        cuckooDefrag(ob, activeDefragAlloc);
+#endif
+#ifdef INCLUDE_TOPK
+    } else if (ob->type == OBJ_TOPK) {
+        topkDefrag(ob, activeDefragAlloc);
+#endif
+#ifdef INCLUDE_TDIGEST
+    } else if (ob->type == OBJ_TDIGEST) {
+        tdigestDefrag(ob, activeDefragAlloc);
+#endif
     } else {
         serverPanic("Unknown object type");
     }

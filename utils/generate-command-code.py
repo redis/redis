@@ -35,6 +35,11 @@ GROUPS = {
     "stream": "COMMAND_GROUP_STREAM",
     "bitmap": "COMMAND_GROUP_BITMAP",
     "array": "COMMAND_GROUP_ARRAY",
+    "bloom": "COMMAND_GROUP_BLOOM",
+    "cms": "COMMAND_GROUP_CMS",
+    "cuckoo": "COMMAND_GROUP_CUCKOO",
+    "topk": "COMMAND_GROUP_TOPK",
+    "tdigest": "COMMAND_GROUP_TDIGEST",
     "rate_limit": "COMMAND_GROUP_RATE_LIMIT",
 }
 
@@ -328,7 +333,7 @@ class Command(object):
             self.reply_schema = ReplySchema(self.reply_schema_name(), self.desc["reply_schema"])
 
     def fullname(self):
-        return self.name.replace("-", "_").replace(":", "")
+        return self.name.replace("-", "_").replace(":", "").replace(".", "_")
 
     def return_types_table_name(self):
         return "%s_ReturnInfo" % self.fullname().replace(" ", "_")
@@ -605,6 +610,11 @@ const char *COMMAND_GROUP_STR[] = {
     "stream",
     "bitmap",
     "array",
+    "bloom",
+    "cms",
+    "cuckoo",
+    "topk",
+    "tdigest",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
@@ -619,7 +629,11 @@ const char *commandGroupStr(int index) {
 
     command_list = sorted(commands.values(), key=lambda cmd: (cmd.group, cmd.name))
     for command in command_list:
+        if command.group in ("bloom", "cms", "cuckoo", "topk", "tdigest"):
+            f.write("#ifdef INCLUDE_%s\n" % command.group.upper())
         command.write_internal_structs(f)
+        if command.group in ("bloom", "cms", "cuckoo", "topk", "tdigest"):
+            f.write("#endif\n")
 
     f.write("/* Main command table */\n")
     f.write("struct COMMAND_STRUCT redisCommandTable[] = {\n")
@@ -628,7 +642,11 @@ const char *commandGroupStr(int index) {
         if curr_group != command.group:
             curr_group = command.group
             f.write("/* %s */\n" % curr_group)
+        if command.group in ("bloom", "cms", "cuckoo", "topk", "tdigest"):
+            f.write("#ifdef INCLUDE_%s\n" % command.group.upper())
         f.write("{%s},\n" % command.struct_code())
+        if command.group in ("bloom", "cms", "cuckoo", "topk", "tdigest"):
+            f.write("#endif\n")
     f.write("{0}\n")
     f.write("};\n")
 

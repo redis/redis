@@ -3009,6 +3009,26 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
 #endif
     } else if (o->type == OBJ_ARRAY) {
         if (rewriteArrayObject(r,key,o) == 0) return C_ERR;
+#ifdef INCLUDE_BLOOM
+    } else if (o->type == OBJ_BLOOM) {
+        if (!bloomRewriteAof(r, key, o)) return C_ERR;
+#endif
+#ifdef INCLUDE_CMS
+    } else if (o->type == OBJ_CMS) {
+        if (!cmsRewriteAof(r, key, o, dbid)) return C_ERR;
+#endif
+#ifdef INCLUDE_CUCKOO
+    } else if (o->type == OBJ_CUCKOO) {
+        if (!cuckooRewriteAof(r, key, o, dbid)) return C_ERR;
+#endif
+#ifdef INCLUDE_TOPK
+    } else if (o->type == OBJ_TOPK) {
+        if (!topkRewriteAof(r, key, o, dbid)) return C_ERR;
+#endif
+#ifdef INCLUDE_TDIGEST
+    } else if (o->type == OBJ_TDIGEST) {
+        if (!tdigestRewriteAof(r, key, o, dbid)) return C_ERR;
+#endif
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {

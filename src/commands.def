@@ -25,6 +25,11 @@ const char *COMMAND_GROUP_STR[] = {
     "stream",
     "bitmap",
     "array",
+    "bloom",
+    "cms",
+    "cuckoo",
+    "topk",
+    "tdigest",
     "module",
 #ifdef ENABLE_GCRA
     "rate_limit"
