@@ -1635,12 +1635,13 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
         return;
     }
 
-    /* A lookup runs module code only through the keyspace notifications it
-     * fires (key miss, expired). Without a module subscribed to them nothing
-     * can delete, replace or modify a source between two lookups, and one pass
-     * over the sources is enough. */
-    int lookup_runs_modules =
-        moduleHasSubscribersForKeyspaceEvent(NOTIFY_KEY_MISS|NOTIFY_EXPIRED);
+    /* A lookup can run module code in several ways: keyspace notifications
+     * (key miss, expired), the key server event and the unlink callbacks of
+     * module types fired when a key expires, and key metadata hooks. Without
+     * any module loaded none of them exists, nothing can delete, replace or
+     * modify a source between two lookups, and one pass over the sources is
+     * enough. */
+    int lookup_runs_modules = moduleCount() != 0;
     numkeys = c->argc - 3;
 
     if (lookup_runs_modules) {
