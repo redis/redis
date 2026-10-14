@@ -15,7 +15,7 @@ void assertCrash(RedisModuleInfoCtx *ctx, int for_crash_report) {
 void hangCrash(RedisModuleInfoCtx *ctx, int for_crash_report) {
     UNUSED(ctx);
     if (for_crash_report) {
-        /* Stay inside the crash report until crash-handler-timeout kills the process. */
+        /* Stay inside the crash report until the crash watchdog kills the process. */
         while (1) sleep(1);
     }
 }

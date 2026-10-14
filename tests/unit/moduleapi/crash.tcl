@@ -61,11 +61,11 @@ if {!$::valgrind && !$::tsan} {
         }
     }
 
-    # The crash watchdog (crash-handler-timeout) is only compiled on Linux.
+    # The crash watchdog is only compiled on Linux.
     if {[get_system_name] eq {linux}} {
         start_server {tags {"modules external:skip"}} {
             r module load $testmodule hang
-            r config set crash-handler-timeout 2
+            r debug set-crash-watchdog-timeout 2
 
             test {Crash watchdog terminates a stuck crash report} {
                 set pid [s process_id]

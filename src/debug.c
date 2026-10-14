@@ -63,16 +63,20 @@ static volatile int signal_handler_lock_initialized = 0;
 
 /* Crash watchdog: bounds a bug report so a stuck backtrace() or module info
  * callback still exits. */
+/* Seconds a bug report may run; tests shorten it with
+ * DEBUG SET-CRASH-WATCHDOG-TIMEOUT. */
+static int crash_watchdog_timeout = 30;
 #ifdef HAVE_CRASH_WATCHDOG
 /* SIGRTMIN+4: glibc reserves +0..+2, and SIGALRM is the software watchdog. */
 #define CRASH_WATCHDOG_SIG (SIGRTMIN + 4)
 static timer_t crash_watchdog_timer;
 static int crash_watchdog_ok = 0;   /* the timer was created */
 
-/* The bug report missed its deadline. Not kill(): when Redis is PID 1 of its
- * namespace, a default-action signal it sends itself is dropped (kill() still
- * returns 0), and unlike a real crash there is no faulting instruction to
- * return to. abort() dies there too: glibc falls back to a fault. */
+/* The crash handler calls functions that are not async-signal-safe, like
+ * backtrace(), and we suspect they can deadlock. If the bug report doesn't
+ * finish in time, abort() so the process still terminates in a bounded time
+ * and a core dump is generated. Use abort(), not kill(): a signal sent to
+ * ourselves can be dropped. */
 static void crashWatchdogHandler(int sig) {
     UNUSED(sig);
     struct sigaction act;
@@ -81,7 +85,7 @@ static void crashWatchdogHandler(int sig) {
     if (!bug_report_start) return;
 
     serverLogRawFromHandler(LL_WARNING|LL_RAW,
-"\n=== CRASH WATCHDOG: crash report exceeded crash-handler-timeout ===\n"
+"\n=== CRASH WATCHDOG: crash report exceeded its timeout ===\n"
 "    The bug report above is incomplete. Aborting so the process can be\n"
 "    restarted and a core dump produced.\n\n");
 
@@ -147,7 +151,7 @@ static void crashWatchdogArmIfIdle(void) {
     if (crash_watchdog_ok && timer_gettime(crash_watchdog_timer, &cur) == 0 &&
         (cur.it_value.tv_sec || cur.it_value.tv_nsec)) return;
 #endif
-    crashWatchdogSet(server.crash_handler_timeout);
+    crashWatchdogSet(crash_watchdog_timeout);
 }
 
 /* Forward declarations */
@@ -601,6 +605,8 @@ void debugCommand(client *c) {
 "    Setting it to 0 prevents access to expired keys (and hash-fields),",
 "    simulating the standard Redis behavior. Setting it to 1 allows",
 "    access to expired keys (and hash-fields) without triggering deletion.",
+"SET-CRASH-WATCHDOG-TIMEOUT <seconds>",
+"    Seconds a crash report may run before the process is aborted (default 30).",
 "QUICKLIST-PACKED-THRESHOLD <size>",
 "    Sets the threshold for elements to be inserted as plain vs packed nodes",
 "    Default value is 1GB, allows values up to 4GB. Setting to 0 restores to default.",
@@ -1044,6 +1050,14 @@ NULL
                c->argc == 3)
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-crash-watchdog-timeout") &&
+               c->argc == 3)
+    {
+        long seconds;
+        if (getRangeLongFromObjectOrReply(c, c->argv[2], 1, INT_MAX, &seconds, NULL) != C_OK)
+            return;
+        crash_watchdog_timeout = seconds;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"set-allow-access-expired") &&
                c->argc == 3)
@@ -2538,7 +2552,7 @@ int memtest_test_linux_anonymous_maps(void) {
         errors += memtest_preserving_test((void*)start_vect[j],size_vect[j],1);
         if (write(fd, errors ? "E" : "O",1) == -1) { /* Nothing to do. */ }
     }
-    crashWatchdogSet(server.crash_handler_timeout);
+    crashWatchdogSet(crash_watchdog_timeout);
     if (write(fd,"\n",1) == -1) { /* Nothing to do. */ }
 
     /* NOTE: It is very important to close the file descriptor only now
