@@ -1766,7 +1766,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # while the keyspace stays tiny, so builds that re-verify the keysizes
         # histograms after every command (DEBUG_ASSERT_KEYSPACE) are not slowed.
         set filler [slot_key 3 bighash]
-        for {set chunk 0} {$chunk < 20} {incr chunk} {
+        for {set chunk 0} {$chunk < 40} {incr chunk} {
             set args {}
             for {set i 0} {$i < 10000} {incr i} {
                 lappend args f[expr {$chunk * 10000 + $i}] v
@@ -1774,18 +1774,22 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 0 hset $filler {*}$args
         }
 
+        set freed_before [getInfoProperty [R 0 info memory] lazyfreed_objects]
         R 1 CLUSTER MIGRATION IMPORT 0 100
 
         # Wait until the background trim has been handed to the BIO thread:
         # lazyfree_pending_objects is raised on the main thread at schedule and
-        # drops back to zero once the detached slot has been freed. Poll every
-        # millisecond so that window, the few milliseconds spent freeing the
-        # filler, is not missed, but allow seconds for the migration before it:
-        # on instrumented builds shipping the filler alone exceeds a second.
-        wait_for_condition 10000 1 {
-            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0
+        # drops back to zero once the detached slot has been freed. That window
+        # is the few tens of milliseconds spent freeing the filler, so poll
+        # every 5 ms, but allow seconds for the migration before it: on
+        # instrumented builds shipping the filler alone exceeds a second. Also
+        # stop once lazyfreed_objects has advanced, i.e. the free already
+        # finished: the check after the FLUSH then reports the missed window.
+        wait_for_condition 2000 5 {
+            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0 ||
+            [getInfoProperty [R 0 info memory] lazyfreed_objects] > $freed_before
         } else {
-            fail "background trim did not start; race window not exercised"
+            fail "background trim did not start"
         }
 
         # MULTI forces FLUSHALL SYNC to run synchronously, in place.
@@ -1821,7 +1825,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         assert_equal "1=1" [stream_pel_hist 0]
         # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
-        # hashes row (the trimmed 200k-field filler) must stay absent and the
+        # hashes row (the trimmed 400k-field filler) must stay absent and the
         # streams row must still hold the fresh sample, bin "2" for 3 entries.
         assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_hashes_sizes]
         assert_equal "2=1" [getInfoProperty [R 0 info keysizes] db0_distrib_streams_items]
