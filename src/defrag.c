@@ -364,7 +364,7 @@ luaScript *activeDefragLuaScript(luaScript *script) {
  * and should NOT be accessed. */
 dict *dictDefragTables(dict *d) {
     dict *ret = NULL;
-    dictEntry **newtable;
+    dictBucket *newtable;
     /* handle the dict struct */
     if ((ret = activeDefragAlloc(d)))
         d = ret;
@@ -497,7 +497,7 @@ void activeDefragSdsDict(dict* d, int val_type) {
 void activeDefragHfieldDict(dict *d) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
-        .defragAlloc = activeDefragAlloc, /* Only defrag dictEntry */
+        .defragAlloc = activeDefragAlloc, /* Only defrag the dict child buckets */
         .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
         .defragVal = NULL  /* No separate value - value is part of the entry (hfield). */
     };
@@ -713,8 +713,8 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
     if (dictSize(zs->dict) > server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
     else {
-        /* Use dictScanDefrag to iterate and defrag both dictEntry structures and skiplist nodes.
-         * dictScanDefrag handles defragging dictEntry/dictEntryNoValue structures via defragfns,
+        /* Use dictScanDefrag to iterate and defrag both the dict child buckets and skiplist nodes.
+         * dictScanDefrag handles defragging the child buckets via defragfns,
          * and calls our callback with plink for each entry so we can defrag skiplist nodes. */
         scanLaterZsetData data = {zs};
         dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};

@@ -1223,9 +1223,10 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
             # We add one member per SADD on purpose: a single SADD with many
             # members would pre-size the dict and skip rehashing. A set's dict
             # is only rehashed by operations on it, so stopping shortly after an
-            # expand boundary (here 256) leaves the rehash unfinished.
+            # expand boundary (here 32 buckets) leaves the rehash unfinished.
             r DEL "src{t}"
-            for {set i 0} {$i < 265} {incr i} { r SADD "src{t}" "s-$i" }
+            set count [expr {32 * [dict_bucket_slots] + 4}]
+            for {set i 0} {$i < $count} {incr i} { r SADD "src{t}" "s-$i" }
             assert_encoding hashtable "src{t}"
 
             r {*}$cmd

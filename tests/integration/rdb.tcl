@@ -93,7 +93,9 @@ start_server {overrides {loglevel verbose}} {
         restart_server 0 true false
 
         # Verify DB resize log message
-        verify_log_message 0 "*DB $dbid resized*1024 key*512 expire*" 0
+        set key_buckets [expr {[s arch_bits] == 32 ? 128 : 256}]
+        set expire_buckets [expr {$key_buckets / 2}]
+        verify_log_message 0 "*DB $dbid resized*$key_buckets key*$expire_buckets expire*" 0
     }
 }
 

@@ -101,7 +101,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     }
 
     dictEntryLink link = NULL;
-    found = (lookupKeyWriteWithLink(c->db,key,&link) != NULL);
+    kvobj *current = lookupKeyWriteWithLink(c->db,key,&link);
+    found = (current != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
         (flags & (OBJ_SET_XX | OBJ_SET_IFEQ | OBJ_SET_IFDEQ) && !found))
@@ -115,7 +116,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     /* Handle conditional set operations - only set if key is found and condition
      * is met - otherwise return nil. */
     if (found && (flags & (OBJ_SET_IFEQ | OBJ_SET_IFNE | OBJ_SET_IFDEQ | OBJ_SET_IFDNE))) {
-        kvobj *current = lookupKeyRead(c->db, key);
+        /* Reuse the kvobj of the lookup above: another lookup in the same dict
+         * may do a rehash step, which would invalidate `link`. */
         if (checkType(c, current, OBJ_STRING)) {
             return;
         }

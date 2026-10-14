@@ -333,7 +333,12 @@ static hashTemplate *hashTemplateArrayGetTemplate(hashTemplateArray *hta);
  * Later, it is applied on main thread in cron, key refs are actually dropped. */
 static redisAtomic uintptr_t bio_pending_drops = 0;
 
-static uint64_t pendingDropHash(const void *key) { return (uint64_t)(uintptr_t)key; }
+/* The id is mixed, as ids are small integers and the dict takes the hash tag
+ * of an entry from the top byte of the hash. */
+static uint64_t pendingDropHash(const void *key) {
+    uint64_t id = (uint64_t)(uintptr_t)key;
+    return dictGenHashFunction(&id, sizeof(id));
+}
 static dictType pendingDropDictType = { pendingDropHash, NULL, NULL, NULL, NULL, NULL, NULL };
 
 /* BIO thread: Increment deleted key count for the template id. */
@@ -5666,7 +5671,7 @@ void genericHgetallCommand(client *c, int flags) {
      * Collect a batch of dict entries, prefetch their Entry structs and
      * value SDS data, then emit replies while the data is cache-warm.
      * This hides the latency of pointer chasing through scattered
-     * heap allocations (dictEntry → Entry → value SDS). */
+     * heap allocations (bucket → Entry → value SDS). */
 #define HGETALL_BATCH 16
     if (o->encoding == OBJ_ENCODING_HT) {
         int skip_expired = !server.allow_access_expired;

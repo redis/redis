@@ -516,7 +516,8 @@ run_solo {defrag} {
             r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
 
-            # Populate memory with interleaving pubsub-key pattern of same size
+            # Interleave two disposable allocations with each pair of channel
+            # subscriptions. This leaves enough holes even with bucket overhead.
             set n 50000
             set dummy_channel "[string repeat x 400]"
             set rd [redis_deferring_client]
@@ -532,6 +533,8 @@ run_solo {defrag} {
                 # referencing argv from IO threads.
                 $rd setbit k$j [expr {[string length $channel_name] * 8}] 1
                 $rd read ; # Discard set replies
+                $rd setbit spare$j [expr {[string length $channel_name] * 8}] 1
+                $rd read
             }
 
             after 120 ;# serverCron only updates the info once in 100ms
@@ -548,13 +551,14 @@ run_solo {defrag} {
             set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 $rd del k$j
+                $rd del spare$j
                 if {($j + 1) % $batch_size == 0} {
-                    for {set i 0} {$i < $batch_size} {incr i} {
+                    for {set i 0} {$i < 2 * $batch_size} {incr i} {
                         $rd read
                     }
                 }
             }
-            set remaining [expr {$n % $batch_size}]
+            set remaining [expr {2 * ($n % $batch_size)}]
             for {set j 0} {$j < $remaining} {incr j} { $rd read }
             if {$type eq "cluster"} {
                 $rd config resetstat
