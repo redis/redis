@@ -4460,6 +4460,7 @@ int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int bitroarsetGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
@@ -4851,6 +4852,8 @@ void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
 void bitroaropCommand(client *c);
+void bitroarsetCommand(client *c);
+void bitroargetCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);
