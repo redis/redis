@@ -5776,8 +5776,8 @@ void processEventsWhileBlocked(void) {
     int prev_propagate_targets = server.allowed_propagate_targets;
     server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
 
-    /* Commands served here get their own CPU window; the outer one is restored after. */
-    cpuSample prev_cpu_checkpoint = server.cpu_checkpoint;
+    /* Commands served here, and the blocked command's later calls, measure from
+     * this sample. The blocked command keeps its own start (see call()). */
     cpuSampleTake(&server.cpu_checkpoint);
 
     /* Note: when we are processing events while blocked (for instance during
@@ -5806,7 +5806,6 @@ void processEventsWhileBlocked(void) {
     serverAssert(ProcessingEventsWhileBlocked >= 0);
 
     server.allowed_propagate_targets = prev_propagate_targets;
-    server.cpu_checkpoint = prev_cpu_checkpoint;
     server.cmd_time_snapshot = prev_cmd_time_snapshot;
 }
 
