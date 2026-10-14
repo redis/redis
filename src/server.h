@@ -2271,10 +2271,8 @@ struct redisServer {
     long long stat_slowlog_count;          /* Total slowlog entries ever pushed */
     long long stat_slowlog_time_us_sum;    /* Sum of all slowlog entry durations (usec) */
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
-    long long stat_cpu_starvation_events;  /* Slowlog entries classified as CPU starvation */
-    long long stat_off_cpu_blocked_events; /* Slowlog entries classified as off-CPU (blocked) */
-    long long stat_eventloop_cpu_starvation_events;  /* Event-loop cycles classified as CPU starvation */
-    long long stat_eventloop_off_cpu_blocked_events; /* Event-loop cycles classified as off-CPU (blocked) */
+    long long stat_slow_command_off_cpu_events; /* Slowlog entries reported as off-CPU */
+    long long stat_eventloop_off_cpu_events;     /* Event-loop cycles reported as off-CPU */
     cpuSample cpu_checkpoint;   /* Start of the main thread's CPU window. */
     cpuSample el_cpu_start;     /* Sample at the start of the event-loop cycle; never
                                    moved by commands. */

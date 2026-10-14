@@ -70,17 +70,17 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         # one-second rate limit so this test's line is not suppressed.
         after 1100
         set loglines [count_log_lines 0]
-        # Count either label: on a loaded host a sleep can also be preempted.
-        set before [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}]
+        set before [s slow_command_off_cpu_events]
         r debug sleep 0.2
         wait_for_log_messages 0 {"*Slow command off-CPU*"} $loglines 50 100
-        assert_morethan_equal [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}] [expr {$before + 1}]
+        assert_morethan_equal [s slow_command_off_cpu_events] [expr {$before + 1}]
     } {} {needs:debug external:skip}
 
     test {SLOWLOG - CPU-bound command gets a non-zero CPU estimate} {
         r config set slowlog-log-slower-than 0
         r slowlog reset
-        r eval {local i = 0 while i < 3000000 do i = i + 1 end return i} 0
+        # Long enough to pass the 10ms measurement floor.
+        r eval {local i = 0 while i < 10000000 do i = i + 1 end return i} 0
         set e [lindex [r slowlog get] 0]
         assert_match {eval *} [lindex $e 3]
         # No ratio assertion: how much of it ran on-CPU depends on the host.
@@ -110,7 +110,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
     test {SLOWLOG - on-CPU subcommand does not mask a later off-CPU one in EXEC} {
         r config set slowlog-log-slower-than 10000
         r slowlog reset
-        set before [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}]
+        set before [s slow_command_off_cpu_events]
         r multi
         r eval {local i = 0 while i < 3000000 do i = i + 1 end return i} 0
         r debug sleep 0.05
@@ -120,7 +120,7 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         # Measured (0 means not measured) and mostly off-CPU.
         assert {[lindex $e 7] > 0 && [lindex $e 7] < [lindex $e 2] / 2}
         # At least the sleep; on a loaded host the EVAL can be preempted too.
-        assert_morethan_equal [expr {[s off_cpu_blocked_events] + [s cpu_starvation_events]}] [expr {$before + 1}]
+        assert_morethan_equal [s slow_command_off_cpu_events] [expr {$before + 1}]
     } {} {needs:debug}
 
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
@@ -375,20 +375,16 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         r debug sleep 0.2
         set info [r info stats]
         assert_equal 1 [getInfoProperty $info slowlog_commands_count]
-        assert_morethan_equal [expr {[getInfoProperty $info off_cpu_blocked_events] +
-                                     [getInfoProperty $info cpu_starvation_events]}] 1
-        assert_morethan_equal [expr {[getInfoProperty $info eventloop_off_cpu_blocked_events] +
-                                     [getInfoProperty $info eventloop_cpu_starvation_events]}] 1
+        assert_morethan_equal [getInfoProperty $info slow_command_off_cpu_events] 1
+        assert_morethan_equal [getInfoProperty $info eventloop_off_cpu_events] 1
 
         r config resetstat
         set info [r info stats]
         assert_equal 0 [getInfoProperty $info slowlog_commands_count]
         assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_max]
         assert_equal {0.00} [getInfoProperty $info slowlog_commands_time_ms_sum]
-        assert_equal 0 [getInfoProperty $info off_cpu_blocked_events]
-        assert_equal 0 [getInfoProperty $info cpu_starvation_events]
-        assert_equal 0 [getInfoProperty $info eventloop_off_cpu_blocked_events]
-        assert_equal 0 [getInfoProperty $info eventloop_cpu_starvation_events]
+        assert_equal 0 [getInfoProperty $info slow_command_off_cpu_events]
+        assert_equal 0 [getInfoProperty $info eventloop_off_cpu_events]
     } {} {needs:debug}
 
     test {SLOWLOG - INFO COMMANDSTATS shows slowlog metrics for slow commands} {
@@ -588,7 +584,7 @@ if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
 
         test {SLOWLOG - CPU starvation is detected for a preempted command} {
             r config set slowlog-log-slower-than 1000
-            set before [s cpu_starvation_events]
+            set before [s slow_command_off_cpu_events]
             set busy {}
             set err [catch {
                 start_busy_loops $starve_cpu busy
@@ -601,7 +597,7 @@ if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
             assert_match {eval *} [lindex $e 3]
             # Mostly off-CPU: the estimated CPU is well under half the duration.
             assert {[lindex $e 7] < [lindex $e 2] / 2}
-            assert_morethan [s cpu_starvation_events] $before
+            assert_morethan [s slow_command_off_cpu_events] $before
         }
 
         test {SLOWLOG - CPU starvation between fast commands is detected per event-loop cycle} {
@@ -609,7 +605,7 @@ if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
             # wakeup needs enough work (10 x 1000 SETs) to be preempted mid-cycle.
             # Some SETs may still be preempted, so the per-command counter isn't checked.
             r config set slowlog-log-slower-than 1000
-            set before [s eventloop_cpu_starvation_events]
+            set before [s eventloop_off_cpu_events]
             set buf {}
             for {set i 0} {$i < 1000} {incr i} { append buf "SET k$i v\r\n" }
             set clients {}
@@ -626,7 +622,7 @@ if {$system_name eq {linux} && ![catch {exec which taskset renice}]} {
             foreach rd $clients { $rd close }
             if {$err} {error $msg}
 
-            assert_morethan [s eventloop_cpu_starvation_events] $before
+            assert_morethan [s eventloop_off_cpu_events] $before
         }
     }
 }

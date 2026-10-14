@@ -3015,10 +3015,8 @@ void resetServerStats(void) {
     server.stat_slowlog_count = 0;
     server.stat_slowlog_time_us_sum = 0;
     server.stat_slowlog_time_us_max = 0;
-    server.stat_cpu_starvation_events = 0;
-    server.stat_off_cpu_blocked_events = 0;
-    server.stat_eventloop_cpu_starvation_events = 0;
-    server.stat_eventloop_off_cpu_blocked_events = 0;
+    server.stat_slow_command_off_cpu_events = 0;
+    server.stat_eventloop_off_cpu_events = 0;
     lazyfreeResetStats();
 }
 
@@ -7080,10 +7078,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "slowlog_commands_count:%lld\r\n", server.stat_slowlog_count,
             "slowlog_commands_time_ms_max:%.2f\r\n", (double)server.stat_slowlog_time_us_max / 1000,
             "slowlog_commands_time_ms_sum:%.2f\r\n", (double)server.stat_slowlog_time_us_sum / 1000,
-            "cpu_starvation_events:%lld\r\n", server.stat_cpu_starvation_events,
-            "off_cpu_blocked_events:%lld\r\n", server.stat_off_cpu_blocked_events,
-            "eventloop_cpu_starvation_events:%lld\r\n", server.stat_eventloop_cpu_starvation_events,
-            "eventloop_off_cpu_blocked_events:%lld\r\n", server.stat_eventloop_off_cpu_blocked_events,
+            "slow_command_off_cpu_events:%lld\r\n", server.stat_slow_command_off_cpu_events,
+            "eventloop_off_cpu_events:%lld\r\n", server.stat_eventloop_off_cpu_events,
             "hash_templates:%zu\r\n", hashTemplateRegistrySize(),
             "hash_template_keys:%zu\r\n", hashTemplateKeyCount()));
         info = genRedisInfoStringACLStats(info);
