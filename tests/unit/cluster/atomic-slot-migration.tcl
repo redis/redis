@@ -1745,6 +1745,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     # than merely driving an empty bin negative; the keysizes rows are checked
     # the same way. Timing-dependent by design: the trim must still be in flight
     # when the FLUSH lands.
+    # Timing-dependent by design and too slow to be reliable under the thread
+    # sanitizer, hence tsan:skip.
     test "Slot bg-trim delta is not applied when a sync FLUSH resets the histogram" {
         R 0 debug asm-trim-method bg
         R 0 flushall
@@ -1776,8 +1778,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Wait until the background trim has been handed to the BIO thread:
         # lazyfree_pending_objects is raised on the main thread at schedule and
-        # drops back to zero once the detached slot has been freed.
-        wait_for_condition 1000 1 {
+        # drops back to zero once the detached slot has been freed. Poll every
+        # millisecond so that window, the few milliseconds spent freeing the
+        # filler, is not missed, but allow seconds for the migration before it:
+        # on instrumented builds shipping the filler alone exceeds a second.
+        wait_for_condition 10000 1 {
             [getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0
         } else {
             fail "background trim did not start; race window not exercised"
@@ -1827,7 +1832,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
         R 0 config set stream-stats no
-    }
+        # Disabled: the rows are hidden. Also the test's last command: the
+        # tags argument below needs an expected result, and {} means the body
+        # must return an empty string, which this assertion does.
+        assert_equal "" [stream_pel_hist 0]
+    } {} {tsan:skip}
 
     test "Test bgtrim after a successful migration" {
         R 0 debug asm-trim-method bg
