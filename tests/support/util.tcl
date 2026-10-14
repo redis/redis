@@ -1226,6 +1226,18 @@ proc debug_digest_value {key} {
     r debug digest-value $key
 }
 
+# Arm the per-command INFO Streams assertion: the server rebuilds the stream
+# histograms from the keyspace after every command and panics on a mismatch,
+# so the calling suite also covers the stream-stats bookkeeping. Not a tag on
+# the suite, which would skip every test where DEBUG is unavailable (external
+# servers, and the CI job that runs with --tags -needs:debug): only the
+# arming is skipped there.
+proc arm_stream_stats_assert {} {
+    if {$::external || [lsearch $::denytags "needs:debug"] >= 0} return
+    r config set stream-stats yes
+    r debug stream-stats-assert 1
+}
+
 proc debug_digest {{level 0}} {
     if {[lsearch $::denytags "needs:debug"] >= 0 || $::ignoredigest} {
         return "dummy-digest"
