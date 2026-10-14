@@ -72,6 +72,11 @@
 #define HAVE_BACKTRACE 1
 #endif
 
+/* Linux only: timer_create, and the stack collector this bounds, are both Linux-only. */
+#ifdef __linux__
+#define HAVE_CRASH_WATCHDOG 1
+#endif
+
 /* MSG_NOSIGNAL. */
 #ifdef __linux__
 #define HAVE_MSG_NOSIGNAL 1
