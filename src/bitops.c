@@ -1635,49 +1635,14 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
         return;
     }
 
-    /* A lookup can run module code in several ways: keyspace notifications
-     * (key miss, expired), the key server event and the unlink callbacks of
-     * module types fired when a key expires, and key metadata hooks. Without
-     * any module loaded none of them exists, nothing can delete, replace or
-     * modify a source between two lookups, and one pass over the sources is
-     * enough. */
-    int lookup_runs_modules = moduleCount() != 0;
     numkeys = c->argc - 3;
-
-    if (lookup_runs_modules) {
-        /* Expire a logically expired target before reading the sources.
-         * Storing the result would otherwise expire it last: a native result
-         * would queue its DEL after BITOP, so replicas and the AOF would
-         * delete the result, and writes that expired callbacks make to a
-         * source would be replayed before BITOP although BITOP did not see
-         * them. */
-        lookupKeyWriteWithFlags(c->db, targetkey, LOOKUP_NOTOUCH);
-
-        /* Look up every source first for the lookup side effects (lazy
-         * expiration, key-miss notifications, access statistics). Module
-         * callbacks fired by those lookups may delete, replace or modify
-         * sources that were already looked up, and their writes are
-         * propagated before BITOP itself. Collect the source values only
-         * afterwards, without further effects, so BITOP never keeps a value a
-         * callback freed and computes from the sources as the callbacks left
-         * them, which replicas and the AOF normally see too, since they replay
-         * BITOP after the callbacks' writes. A source of the wrong type fails
-         * the command right away, before any later source is looked up, so a
-         * failing BITOP has no further lookup side effects. */
-        for (j = 0; j < numkeys; j++) {
-            kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
-            if (checkStringOrBitmapType(c, kv)) return;
-        }
-    }
 
     /* Store pointers to the string objects into an array. */
     src = zmalloc(sizeof(unsigned char*) * numkeys);
     len = zmalloc(sizeof(uint64_t) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
-        kvobj *kv = lookup_runs_modules ?
-            lookupKeyReadWithFlags(c->db, c->argv[j + 3], LOOKUP_NOEFFECTS) :
-            lookupKeyRead(c->db, c->argv[j + 3]);
+        kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
         /* Handle non-existing keys as empty strings. */
         if (kv == NULL) {
             objects[j] = NULL;
@@ -1723,11 +1688,11 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
     int mode_forced = maxlen && !has_roaring_bitmap &&
                       (force_roaring || bitroarDefaultEnabled(c));
     if (has_roaring_bitmap || mode_forced) {
-        /* The single pass skipped expiring the target up front. A native
-         * result needs it gone before it is stored (see above). No module can
-         * run here, so the sources collected above stay valid. */
-        if (!lookup_runs_modules)
-            lookupKeyWriteWithFlags(c->db, targetkey, LOOKUP_NOTOUCH);
+        /* Expire a logically expired target before storing the result.
+         * Storing it would otherwise expire it last: a native result would
+         * queue its DEL after BITOP, so replicas and the AOF would delete the
+         * result. */
+        lookupKeyWriteWithFlags(c->db, targetkey, LOOKUP_NOTOUCH);
         bitopCommandBitmap(c, op, targetkey, objects, numkeys, maxlen,
                            mode_forced && !force_roaring);
         for (j = 0; j < numkeys; j++) {
