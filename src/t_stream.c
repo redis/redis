@@ -602,30 +602,6 @@ int lpGetEdgeStreamID(unsigned char *lp, int first, streamID *master_id, streamI
    return 1;
 }
 
-/* Return the ID of the last live entry in a listpack. */
-static int lpGetLastLiveStreamID(unsigned char *lp, streamID *master_id, streamID *id) {
-    unsigned char *lp_ele = lpLast(lp);
-    while (lp_ele) {
-        int64_t lp_count = lpGetInteger(lp_ele);
-        if (lp_count == 0) return 0; /* Reached the master entry. */
-        while (lp_count--) lp_ele = lpPrev(lp,lp_ele);
-
-        int64_t flags = lpGetInteger(lp_ele);
-        if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
-            lp_ele = lpNext(lp,lp_ele); /* Seek ID. */
-            *id = *master_id;
-            id->ms += lpGetInteger(lp_ele);
-            lp_ele = lpNext(lp,lp_ele);
-            id->seq += lpGetInteger(lp_ele);
-            return 1;
-        }
-
-        /* Seek the lp-count of the previous entry. */
-        lp_ele = lpPrev(lp,lp_ele);
-    }
-    return 0;
-}
-
 /* Debugging function to log the full content of a listpack. Useful
  * for development and debugging. */
 void streamLogListpackContent(unsigned char *lp) {
@@ -1052,7 +1028,10 @@ static void nackSetDeliveryCount(streamNACK *nack, int mode, long long retrycoun
  * IDs < 'id' (or number of elements >= maxlen in case of MAXLEN).
  *
  * If 'max_deleted_id' is not NULL, it is set to the largest ID removed by this
- * trim. The value is valid only when the function returns a non-zero count.
+ * trim. When a whole node is dropped this is the node's last ID, which may be
+ * an entry already deleted before (a tombstone): that doesn't matter, since no
+ * live entry lies between it and the last one actually deleted. The value is
+ * valid only when the function returns a non-zero count.
  */
 int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *max_deleted_id) {
     size_t maxlen = args->maxlen;
@@ -1111,9 +1090,6 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
             if (max_deleted_id) {
                 if (trim_strategy == TRIM_STRATEGY_MAXLEN)
                     lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
-                int64_t marked_deleted = lpGetInteger(lpNext(lp,lpFirst(lp)));
-                if (marked_deleted)
-                    serverAssert(lpGetLastLiveStreamID(lp,&master_id,&last_id));
                 *max_deleted_id = last_id;
             }
             s->alloc_size -= lpBytes(lp);

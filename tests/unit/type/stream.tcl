@@ -3780,7 +3780,10 @@ start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
-    test {XTRIM with ~ MINID skips an old trailing tombstone when reporting the largest deleted ID} {
+    test {XTRIM with ~ MINID can propagate the last ID of a removed node that is a tombstone} {
+        # 2-0 was deleted before, so the node removed by the trim ends with a
+        # tombstone. Its successor is still exact: there is nothing live between
+        # 1-0 and 2-0, and the next node starts at 3-0.
         foreach id {1-0 2-0 3-0} {
             r XADD tombstone $id f v
         }
@@ -3789,7 +3792,7 @@ start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
         assert_equal 1 [r XTRIM tombstone MINID ~ 3-0 KEEPREF]
         assert_replication_stream $repl {
             {select *}
-            {xtrim tombstone MINID = 1-1 KEEPREF}
+            {xtrim tombstone MINID = 2-1 KEEPREF}
         }
         close_replication_stream $repl
         assert_equal {{3-0 {f v}}} [r XRANGE tombstone - +]
