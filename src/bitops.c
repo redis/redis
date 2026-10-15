@@ -2078,7 +2078,7 @@ static void bitroarReplyAllIntArray(client *c, robj *o) {
         return;
     }
     if (count > LONG_MAX) {
-        addReplyError(c, "result is too large, use R.RANGEINTARRAY");
+        addReplyError(c, "result is too large, use BITRANGEINTARRAY");
         return;
     }
     addReplyArrayLen(c, (long)count);
@@ -2087,9 +2087,9 @@ static void bitroarReplyAllIntArray(client *c, robj *o) {
     bitroarVisitSetBits(o, 0, count, bitroarReplySetBits, &reply);
 }
 
-/* R.GETINTARRAY key -- redis-roaring's integer-array interface, backed by a
+/* BITGETINTARRAY key -- redis-roaring's integer-array interface, backed by a
  * native bitmap. Values are ascending set-bit offsets, not raw bitmap bytes. */
-void rGetIntArrayCommand(client *c) {
+void bitgetintarrayCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
     if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
     bitroarReplyAllIntArray(c, o);
@@ -2107,10 +2107,10 @@ static int bitroarParseIntArrayRank(client *c, robj *arg, const char *name, uint
     return C_OK;
 }
 
-/* R.RANGEINTARRAY key start end -- inclusive ranks, not a value interval.
+/* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval.
  * Preserve the module's type/argument/range-limit validation order even for
  * missing keys and ranges that would otherwise produce an empty reply. */
-void rRangeIntArrayCommand(client *c) {
+void bitrangeintarrayCommand(client *c) {
     robj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
     uint64_t start, end;

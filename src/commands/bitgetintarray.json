@@ -1,11 +1,11 @@
 {
-    "R.RANGEINTARRAY": {
-        "summary": "Returns an inclusive range of set-bit offsets by their zero-based ranks in a native bitmap.",
+    "BITGETINTARRAY": {
+        "summary": "Returns all set-bit offsets in a native bitmap as an ascending array of integers.",
         "complexity": "O(C + M) where C is the number of bitmap containers and M is the number of returned integers.",
         "group": "bitmap",
         "since": "8.12.0",
-        "arity": 4,
-        "function": "rRangeIntArrayCommand",
+        "arity": 2,
+        "function": "bitgetintarrayCommand",
         "command_flags": [
             "READONLY"
         ],
@@ -37,20 +37,11 @@
                 "name": "key",
                 "type": "key",
                 "key_spec_index": 0
-            },
-            {
-                "name": "start",
-                "type": "integer"
-            },
-            {
-                "name": "end",
-                "type": "integer"
             }
         ],
         "reply_schema": {
-            "description": "Set-bit offsets at the inclusive ranks in ascending order. Missing or empty bitmaps, reversed ranges, and starts beyond the last rank return an empty array.",
+            "description": "Set-bit offsets in ascending order, or an empty array for a missing or empty bitmap.",
             "type": "array",
-            "maxItems": 100000000,
             "uniqueItems": true,
             "items": {
                 "type": "integer",

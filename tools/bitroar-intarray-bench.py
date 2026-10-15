@@ -195,7 +195,7 @@ def main():
     parser.add_argument("--src-dir", type=Path, default=Path(__file__).resolve().parent.parent / "src")
     parser.add_argument("--module", type=Path, help="optional reference redis-roaring shared library")
     parser.add_argument("--module-src-dir", type=Path,
-                        help="unmodified base Redis binaries without native R.* commands; required with --module")
+                        help="Redis binaries for the module baseline process; required with --module")
     parser.add_argument("--module-revision", default=None, help="reference source commit recorded in results")
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--requests", type=int, default=5000, help="maximum requests per trial")
@@ -262,8 +262,9 @@ def main():
                 calibration = {}
                 samples = {backend: [] for backend in backends}
                 for backend, (client, path) in backends.items():
-                    prefix = "R64" if backend == "module" and values and values[-1] > 0xffffffff else "R"
-                    command = [prefix + (".GETINTARRAY" if ranks is None else ".RANGEINTARRAY"), key]
+                    prefix = "BIT" if backend == "native" else (
+                        "R64." if values and values[-1] > 0xffffffff else "R.")
+                    command = [prefix + ("GETINTARRAY" if ranks is None else "RANGEINTARRAY"), key]
                     if ranks is not None:
                         command += list(ranks)
                     started = time.perf_counter()

@@ -1,6 +1,6 @@
 # Integer-array command benchmarks
 
-`bitroar-intarray-bench.py` measures `R.GETINTARRAY` and `R.RANGEINTARRAY` against
+`bitroar-intarray-bench.py` measures `BITGETINTARRAY` and `BITRANGEINTARRAY` against
 isolated Redis processes over Unix sockets. It needs Python 3.9+ and a normal
 optimized Redis build; no Python packages or existing server are required.
 
@@ -9,12 +9,13 @@ make -j4
 python3 tools/bitroar-intarray-bench.py --json-out /tmp/intarray-native.json
 ```
 
-The optional redis-roaring module baseline needs an **unmodified base Redis
-build**, without the new native `R.*` command names, in a second isolated
-process. Renaming or disabling the native names is insufficient: module
-registration also checks Redis's original command table. Build the parent of
-the command change with the same compiler and flags, and pass its binaries via
-`--module-src-dir`. Pin and record the module revision:
+The optional redis-roaring module baseline runs in a second isolated process.
+Pass its Redis binaries via `--module-src-dir`. For a comparison against the
+upstream base, build that revision with the same compiler and flags. The native
+`BIT*` names do not collide with the module's `R.*` names, so this option can also
+point to the current checkout's `src` directory. The historical measurements
+below retain a separate exact-upstream baseline. Pin and record the module
+revision:
 
 ```sh
 git clone https://github.com/aviggiano/redis-roaring.git /tmp/redis-roaring
@@ -84,7 +85,15 @@ Large-array throughput naturally includes reply serialization, buffering, and
 network/client costs; small-page throughput can be limited by round-trip
 overhead. These measurements are diagnostic results, not CI pass/fail gates.
 
-## Measured comparison (2026-10-15)
+## Historical measured comparison before the command rename (2026-10-15)
+
+These measurements used the equivalent implementation before its public native
+commands were renamed from `R.GETINTARRAY` / `R.RANGEINTARRAY` to
+`BITGETINTARRAY` / `BITRANGEINTARRAY`. The rename leaves the command algorithms
+unchanged. No full timing run was repeated for the rename: the source revisions,
+binary hashes, raw command names, and results below describe the original run.
+The reference module continues to use `R.*` / `R64.*` names in both versions of
+the harness.
 
 This run measured all 50 workloads against both implementations, with three
 trials per backend. Full replies and exact command counts passed validation.
@@ -122,7 +131,8 @@ hash below identify what was measured. The baseline embedded version says
 | Reference module | `ce9182a912bce173aaa58c6bbe0164f8598ae8e537d78d402e8bf5fa440b1d66` |
 | Raw result JSON | `edc7ea96e7741c59f5105862f61780c7421bf3ff323dac56aeb8690cf98eb857` |
 
-The exact invocation, from the native checkout, was:
+The exact invocation, from the native checkout using the pre-rename harness,
+was:
 
 ```sh
 taskset -c 0,1 python3 tools/bitroar-intarray-bench.py \
@@ -134,13 +144,15 @@ taskset -c 0,1 python3 tools/bitroar-intarray-bench.py \
   > /workspace/scratch/bitroar-intarray-comparison.log 2>&1
 ```
 
-The raw JSON retains all samples, warmups, request counts, exact reply sizes,
+The current harness issues the renamed native `BIT*` commands; it does not
+reproduce the historical `R.*` labels. The raw JSON retains all samples,
+warmups, request counts, exact reply sizes,
 latency metrics, build settings, and binary hashes. The JSON and stdout log are
 local review artifacts at the paths above, not files in the repository.
 
 The main observations, using median server execution time, are:
 
-- Sparse 65,536-element `RANGEINTARRAY` first-page time is
+- Sparse 65,536-element `R.RANGEINTARRAY` first-page time is
   2.30 µs. Before removing the up-front
   cardinality scan it was 595.18 µs
   (about 259× higher).
@@ -159,7 +171,7 @@ The main observations, using median server execution time, are:
   6.79 seconds in the module.
   The module selects each requested rank separately; the native command skips
   to the first rank and then iterates forward.
-- Native sparse `GETINTARRAY` remains slower: the 65,536-element case takes
+- Native sparse `R.GETINTARRAY` was slower: the 65,536-element case takes
   3.86 ms versus
   2.12 ms. The empty page after
   that bitmap's end takes 641.59 µs natively
