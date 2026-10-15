@@ -940,10 +940,9 @@ typedef enum {
 #define OBJ_BITMAP 8    /* Bitmap object. */
 #ifdef ENABLE_GCRA
 #define OBJ_GCRA 9      /* GCRA object. */
-#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
-#else
-#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
 #endif
+#define OBJ_BLOOM 10    /* Scalable Bloom filter; type 9 is reserved for GCRA. */
+#define OBJ_TYPE_MAX 11 /* Maximum number of object types */
 
 /* NOTE: adding a new object requires changes in the following places:
  * - rdb.c - save/load (also bump RDB_VERSION if needed)

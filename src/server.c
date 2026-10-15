@@ -8311,6 +8311,7 @@ int iAmMaster(void) {
 #include "intset.h"  /* Compact integer set structure */
 #include "murmurhash.h"
 #include "sb.h"
+#include "t_bloom.h"
 
 int __failed_tests = 0;
 int __test_num = 0;
@@ -8340,6 +8341,7 @@ struct redisTest {
     {"crc64", crc64Test},
     {"murmurhash", murmurhashTest},
     {"bloom", bloomTest},
+    {"bloom-object", bloomObjectTest},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
     {"mstr", mstrTest},
