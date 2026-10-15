@@ -2775,20 +2775,18 @@ void streamRewriteApproxSpecifier(client *c, int idx) {
 /* We propagate MAXLEN/MINID ~ <count> as MAXLEN/MINID = <resulting-len-of-stream>
  * otherwise trimming is no longer deterministic on replicas / AOF.
  *
- * For MINID, if entries were deleted we propagate the successor of the largest
- * deleted ID. Otherwise (possible through XADD), we propagate the first live ID
- * so replaying the exact trim is a no-op. This avoids deriving the boundary from
- * tombstones or from entries kept by ACKED (see #15934). */
-void streamRewriteTrimArgument(client *c, stream *s, streamAddTrimArgs *args,
-                               int64_t deleted, streamID *max_deleted_id)
-{
+ * For MINID we propagate the successor of 'max_deleted_id', the largest ID the
+ * trim removed. When nothing was deleted (possible through XADD) it is NULL and
+ * we propagate the first live ID, so replaying the exact trim is a no-op. This
+ * avoids deriving the boundary from tombstones or from entries kept by ACKED
+ * (see #15934). */
+void streamRewriteTrimArgument(client *c, stream *s, streamAddTrimArgs *args, streamID *max_deleted_id) {
     robj *arg;
     if (args->trim_strategy == TRIM_STRATEGY_MAXLEN) {
         arg = createStringObjectFromLongLong(s->length);
     } else {
-        serverAssert(max_deleted_id != NULL);
         streamID minid;
-        if (deleted) {
+        if (max_deleted_id) {
             minid = *max_deleted_id;
             serverAssert(streamIncrID(&minid) == C_OK);
         } else {
@@ -5615,7 +5613,7 @@ void xtrimCommand(client *c) {
              * It's enough to check only args->approx because there is no
              * way LIMIT is given without the ~ option. */
             streamRewriteApproxSpecifier(c,parsed_args.trim_strategy_arg_idx-1);
-            streamRewriteTrimArgument(c,s,&parsed_args,deleted,max_deleted_id_ptr);
+            streamRewriteTrimArgument(c,s,&parsed_args,max_deleted_id_ptr);
         }
 
         /* Propagate the write. */
