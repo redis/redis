@@ -52,6 +52,9 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: XADD/XTRIM/XDEL/XSETID paths.
+    arm_stream_stats_assert
+
     test "XADD wrong number of args" {
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
