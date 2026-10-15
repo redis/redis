@@ -152,6 +152,24 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         }
     }
 
+    test {Integer-array commands respect CLIENT REPLY OFF and SKIP} {
+        intarray_seed intarray:suppressed {0 8 65536}
+        set client [redis_deferring_client]
+        $client client reply off
+        $client r.getintarray intarray:suppressed
+        $client r.rangeintarray intarray:suppressed 1 9
+        $client client reply on
+        assert_equal OK [$client read]
+        foreach args {{r.getintarray intarray:suppressed}
+                      {r.rangeintarray intarray:suppressed 1 9}} {
+            $client client reply skip
+            $client {*}$args
+            $client ping
+            assert_equal PONG [$client read]
+        }
+        $client close
+    }
+
     test {Integer-array traversal crosses 256-value batches and seeks across containers} {
         set expected {}
         for {set i 0} {$i < 1100} {incr i} {

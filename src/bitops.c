@@ -2050,34 +2050,41 @@ void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
+typedef struct bitroarIntArrayReply {
+    client *c;
+    long emitted;
+} bitroarIntArrayReply;
+
 /* Stream set-bit offsets into the reply without allocating a second array
  * proportional to the result. Stop if the output buffer limit closes the
  * client: a compressed bitmap can describe a very large integer array. */
 static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privdata) {
-    client *c = privdata;
+    bitroarIntArrayReply *reply = privdata;
+    client *c = reply->c;
     for (size_t i = 0; i < count; i++) {
         if (c->flags & CLIENT_CLOSE_ASAP) return 0;
         addReplyLongLong(c, values[i]);
+        reply->emitted++;
     }
     return !(c->flags & CLIENT_CLOSE_ASAP);
 }
 
-static void bitroarReplyIntArray(client *c, robj *o, uint64_t start, uint64_t count) {
+static void bitroarReplyAllIntArray(client *c, robj *o) {
     /* In particular, CLIENT REPLY OFF must not enumerate an entire bitmap. */
     if (prepareClientToWrite(c) != C_OK) return;
-    uint64_t cardinality = bitroarCardinality(o);
-    if (start >= cardinality) {
+    uint64_t count = bitroarCardinality(o);
+    if (count == 0) {
         addReply(c, shared.emptyarray);
         return;
     }
-    count = min(count, cardinality - start);
     if (count > LONG_MAX) {
         addReplyError(c, "result is too large, use R.RANGEINTARRAY");
         return;
     }
     addReplyArrayLen(c, (long)count);
     if (c->flags & CLIENT_CLOSE_ASAP) return;
-    bitroarVisitSetBits(o, start, count, bitroarReplySetBits, c);
+    bitroarIntArrayReply reply = {c, 0};
+    bitroarVisitSetBits(o, 0, count, bitroarReplySetBits, &reply);
 }
 
 /* R.GETINTARRAY key -- redis-roaring's integer-array interface, backed by a
@@ -2085,7 +2092,7 @@ static void bitroarReplyIntArray(client *c, robj *o, uint64_t start, uint64_t co
 void rGetIntArrayCommand(client *c) {
     robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
     if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
-    bitroarReplyIntArray(c, o, 0, UINT64_MAX);
+    bitroarReplyAllIntArray(c, o);
 }
 
 /* Match the R.* module interface's unsigned 32-bit rank arguments, including
@@ -2123,7 +2130,14 @@ void rRangeIntArrayCommand(client *c) {
         addReply(c, shared.emptyarray);
         return;
     }
-    bitroarReplyIntArray(c, o, start, count);
+    /* Avoid counting every container just to return a small page. Iterator
+     * exhaustion handles truncation, and the span cap keeps emitted in long. */
+    void *arraylen = addReplyDeferredLen(c);
+    if (arraylen == NULL) return;
+    bitroarIntArrayReply reply = {c, 0};
+    bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
+    /* Resolve the placeholder even if an output limit scheduled async close. */
+    setDeferredArrayLen(c, arraylen, reply.emitted);
 }
 
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
