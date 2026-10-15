@@ -38,7 +38,10 @@ endif
 ifeq ($(uname_S),Darwin)
 ifeq ("$(wildcard /usr/lib/libSystem.dylib)","")
 # Use the selected SDK; the CLT SDK may require a newer linker than Xcode.
-MACOS_SDK := $(or $(SDKROOT),$(shell xcrun --sdk macosx --show-sdk-path))
+MACOS_SDK := $(shell xcrun --show-sdk-path 2>/dev/null)
+ifeq ($(MACOS_SDK),)
+$(error Could not resolve macOS SDK path)
+endif
 LIBS = -L "$(MACOS_SDK)/usr/lib" -lsystem
 endif
 endif
