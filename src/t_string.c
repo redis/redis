@@ -347,7 +347,8 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
                    !(args->flags & OBJ_EXAT) && !(args->flags & OBJ_PX) &&
-                   !(args->flags & OBJ_PXAT) && next)
+                   !(args->flags & OBJ_PXAT) && next &&
+                   !(command_type == COMMAND_MSETEX && (args->flags & OBJ_EX)))
         {
             args->flags |= OBJ_EX;
             args->expire = next;
@@ -357,7 +358,8 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
                    !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
                    !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
-                   !(args->flags & OBJ_PXAT) && next)
+                   !(args->flags & OBJ_PXAT) && next &&
+                   !(command_type == COMMAND_MSETEX && (args->flags & OBJ_PX)))
         {
             args->flags |= OBJ_PX;
             args->unit = UNIT_MILLISECONDS;

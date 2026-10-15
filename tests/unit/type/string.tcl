@@ -376,6 +376,29 @@ start_server {tags {"string"}} {
         assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 keepttl px 5000}
     }
 
+    test {MSETEX - repeated EX/PX is rejected} {
+        # Only the last EX/PX would be rewritten to PXAT when propagating,
+        # leaving an invalid command for replicas and AOF.
+        r del dup:key{t}
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 100 ex 200}
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val px 100000 px 200000}
+        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 100 nx ex 200}
+        assert_equal 0 [r exists dup:key{t}]
+    }
+
+    test {MSETEX - EX/PX propagate as PXAT to replica} {
+        r del repl:key1{t} repl:key2{t}
+        set repl [attach_to_replication_stream]
+        r msetex 2 repl:key1{t} v1 repl:key2{t} v2 ex 100
+        r msetex 1 repl:key1{t} v3 px 100000 xx
+        assert_replication_stream $repl {
+            {select *}
+            {msetex 2 repl:key1{t} v1 repl:key2{t} v2 PXAT *}
+            {msetex 1 repl:key1{t} v3 PXAT * xx}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test "STRLEN against non-existing key" {
         assert_equal 0 [r strlen notakey]
     }
