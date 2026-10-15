@@ -455,6 +455,7 @@ again:
             }
             crc64_pclmul_enable(1);
 
+#ifdef HAVE_PCLMUL
             /* Chained/continuation check: a CRC seeded from one dispatch
              * path (table, below the cutoff) must continue correctly
              * through the other (PCLMUL, at/above the cutoff), matching
@@ -468,6 +469,7 @@ again:
                     assert(chained == whole);
                 }
             }
+#endif /* HAVE_PCLMUL */
 
             /* Degenerate content: all-zero and all-one-bit buffers are
              * the classic carry-less-multiply corner cases and are not
