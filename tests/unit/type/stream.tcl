@@ -3736,11 +3736,10 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
 }
 
 start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
-    test {XTRIM with ~ MINID, ACKED and LIMIT propagates the ID where the trim stopped} {
-        # 3-0..6-0 are still pending, so the next acknowledged entry is nowhere
-        # below the threshold. The master must not look for it (that would walk
-        # all of them, and so would replicas and the AOF): it propagates the first
-        # ID of the node LIMIT stopped at, which is all they need.
+    test {XTRIM with ~ MINID propagates the successor of the largest deleted ID} {
+        # 3-0..6-0 are still pending, so looking for the next acknowledged entry
+        # would walk all of them. The largest entry deleted is 2-0, whose successor
+        # is an exact boundary that makes replicas delete the same entries.
         foreach id {1-0 2-0 3-0 4-0 5-0 6-0} {
             r XADD mystream $id f v
         }
@@ -3751,9 +3750,49 @@ start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
         assert_equal 2 [r XTRIM mystream MINID ~ 7-0 LIMIT 2 ACKED]
         assert_replication_stream $repl {
             {select *}
-            {xtrim mystream MINID = 3-0 LIMIT 2 ACKED}
+            {xtrim mystream MINID = 2-1 LIMIT 2 ACKED}
         }
         close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {XADD with ~ MINID propagates a no-op boundary when nothing was deleted} {
+        foreach id {1-0 2-0} {
+            r XADD nochange $id f v
+        }
+        set repl [attach_to_replication_stream]
+        r XADD nochange ACKED MINID ~ 3-0 LIMIT 1 3-0 f v
+        assert_replication_stream $repl {
+            {select *}
+            {xadd nochange ACKED MINID = 1-0 LIMIT 1 3-0 f v}
+        }
+        close_replication_stream $repl
+        assert_equal {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}} [r XRANGE nochange - +]
+    } {} {needs:repl}
+
+    test {XTRIM with ~ MINID propagates the successor at the maximum ID boundary} {
+        r XADD high 18446744073709551615-18446744073709551614 f v
+        set repl [attach_to_replication_stream]
+        assert_equal 1 [r XTRIM high MINID ~ 18446744073709551615-18446744073709551615 DELREF]
+        assert_replication_stream $repl {
+            {select *}
+            {xtrim high MINID = 18446744073709551615-18446744073709551615 DELREF}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
+    test {XTRIM with ~ MINID skips an old trailing tombstone when reporting the largest deleted ID} {
+        foreach id {1-0 2-0 3-0} {
+            r XADD tombstone $id f v
+        }
+        r XDEL tombstone 2-0
+        set repl [attach_to_replication_stream]
+        assert_equal 1 [r XTRIM tombstone MINID ~ 3-0 KEEPREF]
+        assert_replication_stream $repl {
+            {select *}
+            {xtrim tombstone MINID = 1-1 KEEPREF}
+        }
+        close_replication_stream $repl
+        assert_equal {{3-0 {f v}}} [r XRANGE tombstone - +]
     } {} {needs:repl}
 }
 
