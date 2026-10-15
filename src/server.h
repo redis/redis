@@ -242,6 +242,21 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Max number of IO threads */
 #define IO_THREADS_MAX_NUM 128
 
+/* Client types eligible for IO threads. Replication roles refer to the remote
+ * endpoint: replicas connect downstream, while the primary is upstream.
+ * Generic replication types include both compressed and uncompressed links. */
+#define IO_THREADS_CLIENT_TYPE_NORMAL (1 << 0)
+#define IO_THREADS_CLIENT_TYPE_REPLICA (1 << 1)
+#define IO_THREADS_CLIENT_TYPE_PRIMARY (1 << 2)
+#define IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED (1 << 3)
+#define IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED (1 << 4)
+#define IO_THREADS_CLIENT_TYPE_REPLICATION \
+    (IO_THREADS_CLIENT_TYPE_REPLICA | IO_THREADS_CLIENT_TYPE_PRIMARY)
+#define IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED \
+    (IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED | IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED)
+#define IO_THREADS_CLIENT_TYPE_ALL \
+    (IO_THREADS_CLIENT_TYPE_NORMAL | IO_THREADS_CLIENT_TYPE_REPLICATION | IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED)
+
 /* To make IO threads and main thread run in parallel, we will transfer clients
  * between them if the number of clients in the pending list reaches this value. */
 #define IO_THREAD_MAX_PENDING_CLIENTS 16
@@ -2206,8 +2221,8 @@ struct redisServer {
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
-    int io_threads_num;         /* Number of IO threads, including the main thread. */
-    int io_threads_repl_compression_only; /* Restrict IO threads to compressed replication connections. */
+    int io_threads_num;         /* Number of IO threads to use. */
+    int io_threads_client_types; /* Client types eligible for IO threads. */
     int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
