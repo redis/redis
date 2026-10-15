@@ -9,10 +9,6 @@
 
 /* Set member expiration (SME): commands and encoding-independent expiry logic.
  *
- * The set<->subexpires functions near the end of the file are placeholders:
- * no set carries an expiration yet, so they must never be reached with a
- * registered set.
- *
  * Every set can hold member expirations: a set that cannot as it is, is converted
  * to the listpack with expirations or to a hashtable (see
  * setTypeConvertToExpireEncoding()). */

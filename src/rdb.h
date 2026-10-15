@@ -85,18 +85,18 @@
 #define RDB_TYPE_HASH_TMPL_LP_REF 30          /* TMPL_LP, with template ref (RDB save): raw lp blob, first entry is tid */
 #define RDB_TYPE_HASH_TMPL_ARRAY 31           /* TMPL_ARRAY, self-contained (DUMP): [count][f0][v0]...[fN-1][vN-1] */
 #define RDB_TYPE_HASH_TMPL_ARRAY_REF 32       /* TMPL_ARRAY, with template ref (RDB save): [tid][v0]...[vN-1] */
+#define RDB_TYPE_SET_LISTPACK_EX 33           /* Set LP with member expirations. Attach min TTL at start */
+#define RDB_TYPE_SET_METADATA 34              /* Set with member expirations. Attach min TTL at start */
 #ifdef ENABLE_GCRA
-#define RDB_TYPE_GCRA 33                      /* GCRA object */
+#define RDB_TYPE_GCRA 35                      /* GCRA object */
 #endif
-#define RDB_TYPE_SET_LISTPACK_EX 34           /* Set LP with member expirations. Attach min TTL at start */
-#define RDB_TYPE_SET_METADATA 35              /* Set with member expirations. Attach min TTL at start */
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
 #ifdef ENABLE_GCRA
 #define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 35))
 #else
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 32) || (t) == 34 || (t) == 35)
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 34))
 #endif
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */

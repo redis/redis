@@ -30,7 +30,7 @@
  * Redis will also need to expose kind of HEXPIRESCAN and HEXPIRECOUNT for this
  * idea. Yet to be better defined.
  *
- * The SUBKEY_MAX_ABS_TIME_MSEC constraint (see server.h) must be enforced only at API
+ * The SUBEXPIRE_MAX_ABS_TIME_MSEC constraint (see server.h) must be enforced only at API
  * level. Internally, the expiration time can be up to EB_EXPIRE_TIME_MAX for future
  * readiness.
  */

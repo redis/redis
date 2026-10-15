@@ -2510,16 +2510,16 @@ void copyCommand(client *c) {
 
     /* Duplicate object according to object's type. */
     robj *newobj;
-    uint64_t minHashExpire = EB_EXPIRE_TIME_INVALID; /* HFE feature */
+    uint64_t subexpiryTime = EB_EXPIRE_TIME_INVALID; /* HFE or SME */
     switch(o->type) {
         case OBJ_STRING: newobj = dupStringObject(o); break;
         case OBJ_LIST: newobj = listTypeDup(o); break;
         case OBJ_SET:
             newobj = setTypeDup(o);
-            minHashExpire = setTypeGetMinExpire(newobj, 1);
+            subexpiryTime = setTypeGetMinExpire(newobj, 1);
             break;
         case OBJ_ZSET: newobj = zsetDup(o); break;
-        case OBJ_HASH: newobj = hashTypeDup(o, &minHashExpire); break;
+        case OBJ_HASH: newobj = hashTypeDup(o, &subexpiryTime); break;
         case OBJ_STREAM: newobj = streamDup(o); break;
 #ifdef ENABLE_GCRA
         case OBJ_GCRA: newobj = gcraDup(o); break;
@@ -2548,8 +2548,8 @@ void copyCommand(client *c) {
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
-    if (minHashExpire != EB_EXPIRE_TIME_INVALID)
-        estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
+    if (subexpiryTime != EB_EXPIRE_TIME_INVALID)
+        estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, subexpiryTime);
 
     /* Register copied stream with IDMP producers for cron-based expiration. */
     if (kvCopy->type == OBJ_STREAM)

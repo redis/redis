@@ -2310,8 +2310,7 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
 
     /* The members with an expiration are written one by one with SADDEX, after
      * the ones without it, which are written in batches by SADD. */
-    int has_expire = setTypeHasExpireSupport(o) &&
-                     setTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
+    int has_expire = setTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
     if (has_expire) {
         setTypeInitIterator(&si, o, SET_ITER_RAW);
         while (setTypeNext(&si, &str, &len, &llval) != -1)

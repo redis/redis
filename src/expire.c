@@ -967,14 +967,14 @@ int parseSubkeyExpireTime(client *c, robj *o, int unit, long long basetime,
     }
 
     if (unit == UNIT_SECONDS) {
-        if (val > (long long) SUBKEY_MAX_ABS_TIME_MSEC / 1000) {
+        if (val > (long long) SUBEXPIRE_MAX_ABS_TIME_MSEC / 1000) {
             addReplyErrorExpireTime(c);
             return C_ERR;
         }
         val *= 1000;
     }
 
-    if (val > (long long) SUBKEY_MAX_ABS_TIME_MSEC - basetime) {
+    if (val > (long long) SUBEXPIRE_MAX_ABS_TIME_MSEC - basetime) {
         addReplyErrorExpireTime(c);
         return C_ERR;
     }
