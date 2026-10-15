@@ -1239,72 +1239,6 @@ static ssize_t rdbSaveBloomObject(rio *rdb, const robj *o) {
     return total;
 }
 
-static robj *rdbLoadBloomObject(rio *rdb) {
-    SBChain *sb = NULL;
-    uint64_t size, nfilters, options, growth;
-    int encoded;
-#define LOAD_BLOOM_LEN(dest) do { \
-    if (rdbLoadLenByRef(rdb, &encoded, &(dest)) == -1) goto error; \
-    if (encoded) goto corrupt; \
-} while (0)
-    LOAD_BLOOM_LEN(size);
-    LOAD_BLOOM_LEN(nfilters);
-    LOAD_BLOOM_LEN(options);
-    LOAD_BLOOM_LEN(growth);
-    if (size > SIZE_MAX || nfilters == 0 || nfilters > INT_MAX ||
-        nfilters > SIZE_MAX / sizeof(SBLink) || options > UINT_MAX || growth > UINT_MAX ||
-        (options & ~(BLOOM_OPT_NOROUND | BLOOM_OPT_ENTS_IS_BITS |
-                     BLOOM_OPT_FORCE64 | BLOOM_OPT_NO_SCALING)) ||
-        (!(options & BLOOM_OPT_NO_SCALING) && growth == 0)) goto corrupt;
-    sb = ztrycalloc(sizeof(*sb));
-    if (!sb) goto error;
-    sb->filters = ztrycalloc(nfilters * sizeof(*sb->filters));
-    if (!sb->filters) goto error;
-    sb->size = size;
-    sb->options = options;
-    sb->growth = growth;
-    for (size_t i = 0; i < nfilters; i++) {
-        /* Cleanup visits only initialized links after a short read. */
-        sb->nfilters = i + 1;
-        SBLink *link = &sb->filters[i];
-        struct bloom *b = &link->inner;
-        uint64_t hashes, n2, count;
-        size_t bytes;
-        LOAD_BLOOM_LEN(b->entries);
-        if (rdbLoadBinaryDoubleValue(rdb, &b->error) == -1) goto error;
-        LOAD_BLOOM_LEN(hashes);
-        if (rdbLoadBinaryDoubleValue(rdb, &b->bpe) == -1) goto error;
-        LOAD_BLOOM_LEN(b->bits);
-        LOAD_BLOOM_LEN(n2);
-        if (hashes > UINT32_MAX || n2 > 63 || b->bits == 0 || b->bits % 8 ||
-            b->bits / 8 > SIZE_MAX) goto corrupt;
-        b->hashes = hashes;
-        b->n2 = n2;
-        b->bytes = b->bits / 8;
-        b->force64 = !!(sb->options & BLOOM_OPT_FORCE64);
-        if (bloom_validate_integrity(b)) goto corrupt;
-        b->bf = rdbGenericLoadStringObject(rdb, RDB_LOAD_PLAIN, &bytes);
-        if (!b->bf) goto error;
-        if (bytes != b->bytes) goto corrupt;
-        LOAD_BLOOM_LEN(count);
-        if (count > SIZE_MAX || count > b->entries) goto corrupt;
-        link->size = count;
-    }
-#undef LOAD_BLOOM_LEN
-    if (SB_ValidateIntegrity(sb)) goto corrupt;
-    if (!(sb->options & BLOOM_OPT_NO_SCALING) &&
-        sb->filters[sb->nfilters - 1].inner.entries > UINT64_MAX / sb->growth) goto corrupt;
-    return createBloomObject(sb);
-
-corrupt:
-    SBChain_Free(sb);
-    rdbReportCorruptRDB("Invalid Bloom RDB payload");
-    return NULL;
-error:
-    SBChain_Free(sb);
-    return NULL;
-}
-
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
     ssize_t n = 0, nwritten = 0;
 
@@ -4691,6 +4625,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
             rdbReportReadError("Short read module id");
             return NULL;
         }
+        if (bloomIsLegacyRdbType(moduleid)) {
+            int is_corrupt;
+            o = rdbLoadBloomObject(rdb,moduleid,&is_corrupt);
+            if (is_corrupt) rdbReportCorruptRDB("Invalid Bloom RDB payload");
+            if (o && error) *error = 0;
+            return o;
+        }
         moduleType *mt = moduleTypeLookupModuleByID(moduleid);
 
         if (rdbCheckMode) {
@@ -4851,7 +4792,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
             arSet(ar, idx, v);
         }
     } else if (rdbtype == RDB_TYPE_BLOOM) {
-        if ((o = rdbLoadBloomObject(rdb)) == NULL) return NULL;
+        int is_corrupt;
+        o = rdbLoadBloomObject(rdb,BLOOM_RDB_NATIVE_ID,&is_corrupt);
+        if (is_corrupt) rdbReportCorruptRDB("Invalid Bloom RDB payload");
+        if (o == NULL) return NULL;
     } else if (rdbtype == RDB_TYPE_BITMAP) {
         if ((o = rdbLoadBitmapObject(rdb)) == NULL) return NULL;
     } else {

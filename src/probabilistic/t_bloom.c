@@ -10,6 +10,7 @@
 #include "server.h"
 #include "t_bloom.h"
 #include "endianconv.h"
+#include <math.h>
 
 robj *createBloomObject(SBChain *chain) {
     robj *o = createObject(OBJ_BLOOM, chain);
@@ -92,6 +93,121 @@ int bloomRewriteAof(rio *r, robj *key, robj *o, int dbid) {
              rioWriteBulkString(r,"REPLACE",7);
     sdsfree(payload.io.buffer.ptr);
     return ok;
+}
+
+#define BLOOM_LEGACY_RDB_TYPE_NAME "MBbloom--"
+/* Module type IDs reserve their low 10 bits for the encoding version. */
+#define BLOOM_LEGACY_RDB_VERSION_MASK UINT64_C(0x3FF)
+#define BLOOM_LEGACY_RDB_VERSION_INITIAL 0
+#define BLOOM_LEGACY_RDB_VERSION_BITS 1
+#define BLOOM_LEGACY_RDB_VERSION_OPTIONS 2
+#define BLOOM_LEGACY_RDB_VERSION_GROWTH 4
+#define BLOOM_LEGACY_RDB_VERSION_MAX BLOOM_LEGACY_RDB_VERSION_GROWTH
+#define BLOOM_LEGACY_RDB_DEFAULT_OPTIONS 0
+#define BLOOM_LEGACY_RDB_DEFAULT_GROWTH 2
+#define BLOOM_RDB_NATIVE_VERSION (-1)
+#define BLOOM_RDB_MAX_N2 (sizeof(uint64_t) * CHAR_BIT - 1)
+#define BLOOM_RDB_VALID_OPTIONS (BLOOM_OPT_NOROUND | BLOOM_OPT_ENTS_IS_BITS | \
+                                 BLOOM_OPT_FORCE64 | BLOOM_OPT_NO_SCALING)
+
+int bloomIsLegacyRdbType(uint64_t moduleid) {
+    char name[sizeof(BLOOM_LEGACY_RDB_TYPE_NAME)];
+    moduleTypeNameByID(name,moduleid);
+    return !strcmp(name,BLOOM_LEGACY_RDB_TYPE_NAME);
+}
+
+robj *rdbLoadBloomObject(rio *rdb, uint64_t moduleid, int *is_corrupt) {
+    int encver = moduleid == BLOOM_RDB_NATIVE_ID ? BLOOM_RDB_NATIVE_VERSION :
+                 (int)(moduleid & BLOOM_LEGACY_RDB_VERSION_MASK);
+    *is_corrupt = 0;
+    SBChain *sb = NULL;
+    uint64_t size, nfilters, options = BLOOM_LEGACY_RDB_DEFAULT_OPTIONS;
+    uint64_t growth = BLOOM_LEGACY_RDB_DEFAULT_GROWTH;
+    int encoded;
+#define LOAD_BLOOM_RAW_LEN(dest) do { \
+    if (rdbLoadLenByRef(rdb, &encoded, &(dest)) == -1) goto error; \
+    if (encoded) goto corrupt; \
+} while (0)
+#define LOAD_BLOOM_OPCODE(expected) do { \
+    if (encver != BLOOM_RDB_NATIVE_VERSION) { \
+        uint64_t opcode; \
+        LOAD_BLOOM_RAW_LEN(opcode); \
+        if (opcode != (expected)) goto corrupt; \
+    } \
+} while (0)
+#define LOAD_BLOOM_LEN(dest) do { \
+    LOAD_BLOOM_OPCODE(RDB_MODULE_OPCODE_UINT); \
+    LOAD_BLOOM_RAW_LEN(dest); \
+} while (0)
+    if (encver > BLOOM_LEGACY_RDB_VERSION_MAX) goto corrupt;
+    LOAD_BLOOM_LEN(size);
+    LOAD_BLOOM_LEN(nfilters);
+    if (encver == BLOOM_RDB_NATIVE_VERSION || encver >= BLOOM_LEGACY_RDB_VERSION_OPTIONS)
+        LOAD_BLOOM_LEN(options);
+    if (encver == BLOOM_RDB_NATIVE_VERSION || encver >= BLOOM_LEGACY_RDB_VERSION_GROWTH)
+        LOAD_BLOOM_LEN(growth);
+    if (size > SIZE_MAX || nfilters == 0 || nfilters > INT_MAX ||
+        nfilters > SIZE_MAX / sizeof(SBLink) || options > UINT_MAX || growth > UINT_MAX ||
+        (options & ~BLOOM_RDB_VALID_OPTIONS) ||
+        (!(options & BLOOM_OPT_NO_SCALING) && growth == 0)) goto corrupt;
+    sb = ztrycalloc(sizeof(*sb));
+    if (!sb) goto error;
+    sb->filters = ztrycalloc(nfilters * sizeof(*sb->filters));
+    if (!sb->filters) goto error;
+    sb->size = size;
+    sb->options = options;
+    sb->growth = growth;
+    for (size_t i = 0; i < nfilters; i++) {
+        /* Cleanup visits only initialized links after a short read. */
+        sb->nfilters = i + 1;
+        SBLink *link = &sb->filters[i];
+        struct bloom *b = &link->inner;
+        uint64_t hashes, n2 = 0, count;
+        size_t bytes;
+        LOAD_BLOOM_LEN(b->entries);
+        LOAD_BLOOM_OPCODE(RDB_MODULE_OPCODE_DOUBLE);
+        if (rdbLoadBinaryDoubleValue(rdb, &b->error) == -1) goto error;
+        LOAD_BLOOM_LEN(hashes);
+        LOAD_BLOOM_OPCODE(RDB_MODULE_OPCODE_DOUBLE);
+        if (rdbLoadBinaryDoubleValue(rdb, &b->bpe) == -1) goto error;
+        if (encver == BLOOM_LEGACY_RDB_VERSION_INITIAL) {
+            double bits = (double)b->entries * b->bpe;
+            if (!isfinite(bits) || bits < 1 || bits >= (double)UINT64_MAX) goto corrupt;
+            b->bits = (uint64_t)bits;
+        } else {
+            LOAD_BLOOM_LEN(b->bits);
+            LOAD_BLOOM_LEN(n2);
+        }
+        if (hashes > UINT32_MAX || n2 > BLOOM_RDB_MAX_N2) goto corrupt;
+        b->hashes = hashes;
+        b->n2 = n2;
+        b->force64 = !!(sb->options & BLOOM_OPT_FORCE64);
+        LOAD_BLOOM_OPCODE(RDB_MODULE_OPCODE_STRING);
+        b->bf = rdbGenericLoadStringObject(rdb, RDB_LOAD_PLAIN, &bytes);
+        if (!b->bf) goto error;
+        b->bytes = bytes;
+        if (bloom_validate_integrity(b)) goto corrupt;
+        if (encver >= BLOOM_LEGACY_RDB_VERSION_BITS && b->bits != b->bytes * CHAR_BIT) goto corrupt;
+        LOAD_BLOOM_LEN(count);
+        if (count > SIZE_MAX || count > b->entries) goto corrupt;
+        link->size = count;
+    }
+    LOAD_BLOOM_OPCODE(RDB_MODULE_OPCODE_EOF);
+#undef LOAD_BLOOM_LEN
+#undef LOAD_BLOOM_OPCODE
+#undef LOAD_BLOOM_RAW_LEN
+    if (SB_ValidateIntegrity(sb)) goto corrupt;
+    if (!(sb->options & BLOOM_OPT_NO_SCALING) &&
+        sb->filters[sb->nfilters - 1].inner.entries > UINT64_MAX / sb->growth) goto corrupt;
+    return createBloomObject(sb);
+
+corrupt:
+    SBChain_Free(sb);
+    *is_corrupt = 1;
+    return NULL;
+error:
+    SBChain_Free(sb);
+    return NULL;
 }
 
 /* Propagate the empty filter's exact geometry, independently of local defaults. */

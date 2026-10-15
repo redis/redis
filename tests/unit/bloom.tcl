@@ -385,3 +385,176 @@ start_server {tags {"bloom external:skip"} overrides {save ""}} {
         assert_match {*capacity:7*ratio:0.02} [lindex [r bf.debug configured] 1]
     }
 }
+
+# MBbloom-- encodings 0..3 use the original RedisBloom algorithm and historical
+# field layouts; encoding 4 is an actual module DUMP. All contain {i,0,255},
+# i=0..19. Version 0 uses 1102 bits in 138 bytes; its padding must not change
+# the hash modulus. Versions 0/1/3 use 32-bit hashes, and 2/4 use 64-bit hashes.
+proc legacy_bloom_payload {version} {
+    set payloads {
+        0 07813016e5a289bef80002140201024064047b14ae47e17a743f020804e9862fb2350e26400540900002094200048000615810000048800020000200820104820822020202004025100400018808600c801060040291c0020080002000800000208008201200008842001002228008400011a00b020088000018020200008000087208e8220000082002010408000080e010a000821002140201d001000040208000005002c27208000000030000820000000000000000000214000b0025e91036481e6d84
+        1 07813016e5a289bef801021402010240b9047b14ae47e17a743f020804e9862fb2350e2640024800020b05410000e0040040000000000040040200800000200c12000000000000900402000010000044000000000000282001280100000011000002000001080040000004800000000040000200060aa04020808000000002000000009008800000001000022010a804028160010020000000222402000000200020250001200200000020000000008000030a00100000000200001008000080000000808302004000000012188802000000000200000080020002100480800440000000020000000800008080002100000000002001000084000000000840800080000008000000008020102240020800000080000020008002400000082000012c0a010028308000080000000214000b001d2afaa09014c39b
+        2 07813016e5a289bef8020214020402050202047b14ae47e17a743f020804e9862fb2350e264002404002000508008808008800e09f02020204047b14ae47e17a643f0209044af7d49edef028400240400200050855c8c8405527260602040208047b14ae47e17a543f020a04aa677a8b87d32b40024080020005105c1a94e445ccaca18fc50d3c7c85ae6202080210047b14ae47e17a443f020b040bd81f7830b62e40024100020005200081000b800050851c1098408a880100852d9100608c083184140890404080110206000b0059ea4f67ff55b777
+        3 07813016e5a289bef803021402010209024064047b14ae47e17a843f02070488168ac58c2b23400243c0020005407882a0c40000090008082020002020010a40288420130c000100220004002000072201c0000223133080000801010400040000a0800000808008b2801000020010801800022024900020a2080a0880822000009000220092000802044680000080280000010a20920208800480a202001010604400a04200000214000b005eb173d0efe8e3dc
+        4 07813016e5a289bef80402140204020502020202047b14ae47e17a743f020804e9862fb2350e264002404002000508008808008800e09f02020204047b14ae47e17a643f0209044af7d49edef028400240400200050855c8c8405527260602040208047b14ae47e17a543f020a04aa677a8b87d32b40024080020005105c1a94e445ccaca18fc50d3c7c85ae6202080210047b14ae47e17a443f020b040bd81f7830b62e40024100020005200081000b800050851c1098408a880100852d9100608c08318414089040408011020600110020ee7eea0e5a6337
+    }
+    return [binary format H* [dict get $payloads $version]]
+}
+
+start_server {tags {"bloom"} overrides {save ""}} {
+    test {Legacy Bloom DUMP encodings 0 through 4 become native objects} {
+        foreach version {0 1 2 3 4} {
+            set key legacy-$version
+            assert_equal OK [r restore $key 60000 [legacy_bloom_payload $version]]
+            assert_equal bloom [r type $key]
+            assert_equal bloom [r object encoding $key]
+            assert_equal 20 [r bf.card $key]
+            for {set i 0} {$i < 20} {incr i} {
+                assert_equal 1 [r bf.exists $key [binary format ccc $i 0 -1]]
+            }
+            assert {[r pttl $key] > 0}
+            binary scan [r dump $key] c type
+            assert_equal 35 $type
+            r persist $key
+        }
+        assert_match {*bits:1102*hashwidth:32*} [lindex [r bf.debug legacy-0] 1]
+        assert_match {*hashwidth:32*} [lindex [r bf.debug legacy-1] 1]
+        assert_match {*hashwidth:64*} [lindex [r bf.debug legacy-2] 1]
+        assert_match {*hashwidth:32*} [lindex [r bf.debug legacy-3] 1]
+        assert_match {*hashwidth:64*} [lindex [r bf.debug legacy-4] 1]
+    }
+
+    test {Imported Bloom filters preserve native DUMP COPY and chunk round trips} {
+        foreach version {0 1 2 3 4} {
+            set key legacy-$version
+            set payload [r dump $key]
+            r restore restored 0 $payload
+            assert_equal $payload [r dump restored]
+            assert_equal 1 [r copy $key copied]
+            assert_equal $payload [r dump copied]
+            set iter 0
+            while 1 {
+                lassign [r bf.scandump $key $iter] iter data
+                if {$iter == 0} break
+                r bf.loadchunk chunks $iter $data
+            }
+            assert_equal $payload [r dump chunks]
+            for {set i 0} {$i < 20} {incr i} {
+                assert_equal 1 [r bf.exists chunks [binary format ccc $i 0 -1]]
+            }
+            r del restored copied chunks
+        }
+    }
+
+    test {Imported Bloom filters can grow while retaining old membership} {
+        foreach version {0 1 2 3 4} {
+            set limit [expr {$version == 3 ? 40 : 200}]
+            for {set i 20} {$i < $limit} {incr i} {
+                r bf.add legacy-$version [binary format ccc $i 0 -1]
+            }
+            for {set i 0} {$i < $limit} {incr i} {
+                assert_equal 1 [r bf.exists legacy-$version [binary format ccc $i 0 -1]]
+            }
+        }
+        assert {[lindex [r bf.info legacy-0 filters] end] > 1}
+        assert {[lindex [r bf.info legacy-1 filters] end] > 1}
+    }
+
+    test {Imported Bloom filters survive a native RDB reload} {
+        set payloads {}
+        foreach version {0 1 2 3 4} {lappend payloads [r dump legacy-$version]}
+        r debug reload
+        foreach version {0 1 2 3 4} {
+            assert_equal [lindex $payloads $version] [r dump legacy-$version]
+        }
+    } {} {needs:debug}
+
+    foreach preamble {no yes} {
+        test "Imported Bloom filters survive AOF rewrite with RDB preamble $preamble" {
+            r config set aof-use-rdb-preamble $preamble
+            r config set appendonly yes
+            waitForBgrewriteaof r
+            set payloads {}
+            foreach version {0 1 2 3 4} {lappend payloads [r dump legacy-$version]}
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            r debug loadaof
+            foreach version {0 1 2 3 4} {
+                assert_equal [lindex $payloads $version] [r dump legacy-$version]
+            }
+            assert_equal OK [r config set appendonly no]
+        } {} {needs:debug}
+    }
+
+    test {Legacy Bloom rejects truncated payloads without replacing the destination} {
+        r set destination original
+        r debug set-skip-checksum-validation 1
+        foreach version {0 1 2 3 4} {
+            set payload [legacy_bloom_payload $version]
+            for {set cut 1} {$cut < [string length $payload]-10} {incr cut} {
+                set bad "[string range $payload 0 [expr {$cut-1}]][string range $payload end-9 end]"
+                assert_error {*Bad data format*} {r restore destination 0 $bad replace}
+            }
+        }
+        r debug set-skip-checksum-validation 0
+        assert_equal original [r get destination]
+    } {} {needs:debug}
+
+    test {Legacy Bloom validates encoding version, opcodes, metadata, and EOF} {
+        r debug set-skip-checksum-validation 1
+        set payload [legacy_bloom_payload 4]
+        # Module version; UINT/DOUBLE/STRING opcodes; size/count/options/growth;
+        # hashes; n2; encoded length tags (which are illegal for integers).
+        foreach {offset value} {9 5 10 1 10 192 11 0 12 4 13 0 14 4 15 255 16 1 17 0 18 192 20 2 29 4 30 0 31 2 40 4 43 4 44 64 45 2} {
+            set bad [string replace $payload $offset $offset [binary format c $value]]
+            assert_error {*Bad data format*} {r restore bad 0 $bad}
+            assert_equal 0 [r exists bad]
+        }
+        foreach offset {21 32} {
+            set bad [string replace $payload $offset [expr {$offset+7}] [binary format H* 000000000000f87f]]
+            assert_error {*Bad data format*} {r restore bad 0 $bad}
+        }
+        set bad [string replace $payload end-10 end-10 [binary format c 1]]
+        assert_error {*Bad data format*} {r restore bad 0 $bad}
+        # Another module name must still follow the ordinary module loader.
+        set other [string replace $payload 2 2 [binary format c 0]]
+        assert_error {*Bad data format*} {r restore other 0 $other}
+        r debug set-skip-checksum-validation 0
+        assert_equal PONG [r ping]
+    } {} {needs:debug}
+}
+
+# A complete historical RDB using the same module values and no checksum.
+set legacy_dir [tmpdir bloom-legacy]
+set legacy_path [file join $legacy_dir legacy.rdb]
+set legacy_file [open $legacy_path wb]
+puts -nonewline $legacy_file "REDIS0011[binary format H* fe09]"
+foreach version {0 1 2 3 4} {
+    set key legacy-$version
+    set payload [legacy_bloom_payload $version]
+    puts -nonewline $legacy_file [string index $payload 0]
+    puts -nonewline $legacy_file [binary format ca* [string length $key] $key]
+    puts -nonewline $legacy_file [string range $payload 1 end-10]
+}
+puts -nonewline $legacy_file [binary format H* ff0000000000000000]
+close $legacy_file
+
+start_server [list tags {bloom external:skip} overrides [list dir $legacy_dir dbfilename legacy.rdb save ""]] {
+    test {Legacy module RDB loads without RedisBloom and passes redis-check-rdb} {
+        assert_match {*RDB looks OK*} [exec src/redis-check-rdb $legacy_path]
+        foreach version {0 1 2 3 4} {
+            assert_equal bloom [r type legacy-$version]
+            assert_equal 20 [r bf.card legacy-$version]
+            for {set i 0} {$i < 20} {incr i} {
+                assert_equal 1 [r bf.exists legacy-$version [binary format ccc $i 0 -1]]
+            }
+        }
+        r save
+        restart_server 0 true false
+        foreach version {0 1 2 3 4} {
+            assert_equal bloom [r type legacy-$version]
+            assert_equal 20 [r bf.card legacy-$version]
+            assert_equal 1 [r bf.exists legacy-$version [binary format ccc 0 0 -1]]
+        }
+    }
+}

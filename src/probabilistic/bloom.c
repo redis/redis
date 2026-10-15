@@ -280,10 +280,11 @@ void bloom_free(struct bloom *bloom) { zfree(bloom->bf); }
 
 // Returns 0 on success
 int bloom_validate_integrity(struct bloom *bloom) {
+    /* Legacy encoding 0 can leave unused padding bits in the last byte. */
     if (!bloom || !isfinite(bloom->error) || bloom->error <= 0 || bloom->error >= 1.0 ||
         !isfinite(bloom->bpe) || bloom->bpe <= 0 || bloom->bytes > UINT64_MAX / 8 ||
         (bloom->n2 > 63) || (bloom->n2 != 0 && bloom->bits < (1ULL << bloom->n2)) ||
-        bloom->bits == 0 || bloom->bits != bloom->bytes * 8) {
+        bloom->bits == 0 || bloom->bits > bloom->bytes * 8) {
         return 1;
     }
 
