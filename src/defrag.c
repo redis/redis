@@ -248,7 +248,7 @@ Entry *activeDefragEntry(Entry *entry) {
     Entry *ret = NULL;
 
     /* First, defrag the entry allocation itself */
-    void *ptr = entryGetAllocPtr(entry);
+    void *ptr = hEntryGetAllocPtr(entry);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
         size_t offset = (char*)entry - (char*)ptr;
@@ -257,7 +257,7 @@ Entry *activeDefragEntry(Entry *entry) {
     }
 
     /* Then defrag the value if it's not embedded (using the potentially new entry) */
-    sds *valuePtr = entryGetValuePtrRef(entry);
+    sds *valuePtr = hEntryGetValuePtrRef(entry);
     if (valuePtr) {
         sds new_value = activeDefragSds(*valuePtr);
         if (new_value) *valuePtr = new_value;
@@ -290,7 +290,7 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
  * front of it). Returns the new pointer, or NULL if the allocation wasn't moved,
  * in which case nothing was released. */
 static void *activeDefragSetEntry(void *ptr) {
-    void *alloc = setEntryGetAllocPtr(ptr);
+    void *alloc = sEntryGetAllocPtr(ptr);
     void *newalloc = activeDefragAlloc(alloc);
     if (!newalloc) return NULL;
     return (char *)newalloc + ((char *)ptr - (char *)alloc);
@@ -314,7 +314,7 @@ static void *activeDefragSetEntryAndUpdateRef(void *ptr, void *privdata) {
 static void activeDefragSetDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     dict *d = privdata;
     void *member = dictGetKey(de);
-    if (setEntryHasExpiry(member)) return;
+    if (sEntryHasExpiry(member)) return;
     void *newptr = activeDefragSds(member);
     if (newptr) dictSetKeyAtLink(d, newptr, &plink, 0);
 }
@@ -526,7 +526,7 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEnt
     /* If the hfield does not have TTL, we directly defrag it.
      * Fields with TTL are skipped here and will be defragmented later
      * during the hash expiry ebuckets defragmentation phase. */
-    if (entryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
+    if (hEntryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
         if ((newEntry = activeDefragEntry(entry))) {
             /* Hash dicts use no_value=1, so we must use dictSetKeyAtLink */
             dictSetKeyAtLink(d, newEntry, &plink, 0);

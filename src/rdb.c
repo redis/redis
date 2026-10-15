@@ -1211,8 +1211,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 sds ele = dictGetKey(de);
                 if (setWithMeta) {
                     SetEntry *entry = (SetEntry *)ele;
-                    uint64_t expiry = setEntryHasExpiry(entry) ?
-                                      setEntryGetExpiry(entry) : EB_EXPIRE_TIME_INVALID;
+                    uint64_t expiry = sEntryHasExpiry(entry) ?
+                                      sEntryGetExpiry(entry) : EB_EXPIRE_TIME_INVALID;
                     /* 0 means no expiration, the others are relative to
                      * minExpire (plus one, as the zero is taken). */
                     uint64_t ttl = (expiry == EB_EXPIRE_TIME_INVALID) ? 0 : expiry - minExpire + 1;
@@ -1421,12 +1421,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             dictInitIterator(&di, o->ptr);
             while((de = dictNext(&di)) != NULL) {
                 Entry *entry = dictGetKey(de);
-                sds field = entryGetField(entry);
-                sds value = entryGetValue(entry);
+                sds field = hEntryGetField(entry);
+                sds value = hEntryGetValue(entry);
 
                 /* save the TTL */
                 if (hashWithMeta) {
-                    uint64_t ttl, expiryTime= entryGetExpiry(entry);
+                    uint64_t ttl, expiryTime= hEntryGetExpiry(entry);
 
                     /* Saved TTL value:
                      *  - 0: Indicates no TTL. This is common case so we keep it small.
@@ -3242,33 +3242,33 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Create entry with field and value - take ownership of value */
-            entry = entryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
-            sdsfree(fieldSds);  /* entryCreate() doesn't take ownership of field */
+            entry = hEntryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
+            sdsfree(fieldSds);  /* hEntryCreate() doesn't take ownership of field */
 
             if (dupSearchDict) {
-                sds field_dup = sdsdup(entryGetField(entry));
+                sds field_dup = sdsdup(hEntryGetField(entry));
 
                 if (dictAdd(dupSearchDict, field_dup, NULL) != DICT_OK) {
                     rdbReportCorruptRDB("Hash with dup elements");
                     dictRelease(dupSearchDict);
                     decrRefCount(o);
                     sdsfree(field_dup);
-                    entryFree(entry, NULL);
+                    hEntryFree(entry, NULL);
                     return NULL;
                 }
             }
 
             /* Convert to hash table if size threshold is exceeded */
-            if (entryFieldLen(entry) > server.hash_max_listpack_value ||
-                sdslen(entryGetValue(entry)) > server.hash_max_listpack_value ||
-                !lpSafeToAdd(o->ptr, entryFieldLen(entry) + sdslen(entryGetValue(entry))))
+            if (hEntryFieldLen(entry) > server.hash_max_listpack_value ||
+                sdslen(hEntryGetValue(entry)) > server.hash_max_listpack_value ||
+                !lpSafeToAdd(o->ptr, hEntryFieldLen(entry) + sdslen(hEntryGetValue(entry))))
             {
                 hashTypeConvert(NULL, o, OBJ_ENCODING_HT);
                 ret = dictAdd((dict*)o->ptr, entry, NULL);  /* no_value=1 */
                 if (ret == DICT_ERR) {
                     rdbReportCorruptRDB("Duplicate hash fields detected");
                     if (dupSearchDict) dictRelease(dupSearchDict);
-                    entryFree(entry, NULL);
+                    hEntryFree(entry, NULL);
                     decrRefCount(o);
                     return NULL;
                 }
@@ -3277,10 +3277,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Add pair to listpack */
-            o->ptr = lpAppend(o->ptr, (unsigned char*)entryGetField(entry), entryFieldLen(entry));
-            o->ptr = lpAppend(o->ptr, (unsigned char*)entryGetValue(entry), sdslen(entryGetValue(entry)));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)hEntryGetField(entry), hEntryFieldLen(entry));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)hEntryGetValue(entry), sdslen(hEntryGetValue(entry)));
 
-            entryFree(entry, NULL);
+            hEntryFree(entry, NULL);
         }
 
         if (dupSearchDict) {
@@ -3315,15 +3315,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Create entry with field and value - take ownership of value */
-            entry = entryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
-            sdsfree(fieldSds);  /* entryCreate() doesn't take ownership of field */
+            entry = hEntryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
+            sdsfree(fieldSds);  /* hEntryCreate() doesn't take ownership of field */
 
             /* Add entry to hash table */
             dict *d = o->ptr;
             ret = dictAdd(d, entry, NULL);  /* no_value=1 */
             if (ret == DICT_ERR) {
                 rdbReportCorruptRDB("Duplicate hash fields detected");
-                entryFree(entry, NULL);
+                hEntryFree(entry, NULL);
                 decrRefCount(o);
                 return NULL;
             }
@@ -3525,12 +3525,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             /* Create entry with field, value, and optional expiration */
             uint32_t entryFlags = ENTRY_TAKE_VALUE | ((expireAt != 0) ? ENTRY_HAS_EXPIRY : 0);
-            entry = entryCreate(fieldSds, value, entryFlags, &usable);
-            sdsfree(fieldSds);  /* entryCreate() doesn't take ownership of field */
+            entry = hEntryCreate(fieldSds, value, entryFlags, &usable);
+            sdsfree(fieldSds);  /* hEntryCreate() doesn't take ownership of field */
 
-            sds field = entryGetField(entry);
+            sds field = hEntryGetField(entry);
             size_t flen = sdslen(field);
-            sds value = entryGetValue(entry);
+            sds value = hEntryGetValue(entry);
             size_t vlen = sdslen(value);            
 
             /* store the values read - either to listpack or dict */
@@ -3544,7 +3544,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         dictRelease(dupSearchDict);
                         decrRefCount(o);
                         sdsfree(field_dup);
-                        entryFree(entry, NULL);
+                        hEntryFree(entry, NULL);
                         return NULL;
                     }
                 }
@@ -3562,7 +3562,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                             rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)original_len);
                             decrRefCount(o);
                             if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                            entryFree(entry, NULL);
+                            hEntryFree(entry, NULL);
                             return NULL;
                         }
                     }
@@ -3570,7 +3570,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     /* don't add the values to the new hash: the next if will catch and the values will be added there */
                 } else {
                     listpackExAddNew(o, field, flen, value, vlen, expireAt);
-                    entryFree(entry, NULL);
+                    hEntryFree(entry, NULL);
                 }
             }
 
@@ -3587,7 +3587,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
                 if (ret == DICT_ERR) {
                     rdbReportCorruptRDB("Duplicate hash fields detected");
-                    entryFree(entry, NULL);
+                    hEntryFree(entry, NULL);
                     decrRefCount(o);
                     return NULL;
                 }

@@ -74,7 +74,7 @@ static inline int htHasExpire(const dict *d) {
 }
 
 static ExpireMeta *setMemberGetExpireMeta(const eItem item) {
-    return setEntryRefExpiryMeta((SetEntry *)item);
+    return sEntryRefExpiryMeta((SetEntry *)item);
 }
 
 static void setDictEntryDestructor(dict *d, void *entry) {
@@ -82,12 +82,12 @@ static void setDictEntryDestructor(dict *d, void *entry) {
     size_t *alloc_size = htGetMetadataSize(d);
 
     /* If the member has an expiration, remove it from the private ebuckets. */
-    if (setEntryGetExpiry(entry) != EB_EXPIRE_TIME_INVALID) {
+    if (sEntryGetExpiry(entry) != EB_EXPIRE_TIME_INVALID) {
         htMetadataEx *meta = htGetMetadataEx(d);
         ebRemove(&meta->hfe, &setMemberExpireBucketsType, entry);
     }
 
-    setEntryFree(entry, &usable);
+    sEntryFree(entry, &usable);
     *alloc_size -= usable;
 }
 
@@ -145,7 +145,7 @@ static int htRawAddCommon(robj *set, char *str, size_t len, int str_is_sds, uint
     dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
     if (link != NULL) {
         if (hasExpire) {
-            uint64_t prev = setEntryGetExpiry(dictGetKey(*link));
+            uint64_t prev = sEntryGetExpiry(dictGetKey(*link));
             if (setTypeExpireTimeElapsed(prev)) {
                 /* The member is logically expired but not removed yet: replace it by
                  * a new one, as if it was not there. */
@@ -164,14 +164,14 @@ static int htRawAddCommon(robj *set, char *str, size_t len, int str_is_sds, uint
     /* Key doesn't already exist in the set. Add it but dup the key. */
     SetEntry *entry;
     if (expire != EB_EXPIRE_TIME_INVALID) {
-        entry = setEntryCreate(sdsval, sdslen(sdsval), 1);
+        entry = sEntryCreate(sdsval, sdslen(sdsval), 1);
         if (sdsval != str) sdsfree(sdsval);
     } else {
         if (sdsval == str) sdsval = sdsdup(sdsval);
         entry = (SetEntry *)sdsval;
     }
     dictSetKeyAtLink(ht, entry, &bucket, 1);
-    *htGetMetadataSize(ht) += setEntryMemUsage(entry);
+    *htGetMetadataSize(ht) += sEntryMemUsage(entry);
     if (expire != EB_EXPIRE_TIME_INVALID)
         ebAdd(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, entry, expire);
     return 1;
@@ -214,7 +214,7 @@ static int htGetExpire(robj *set, char *str, size_t len, int64_t llval, int str_
     dictEntry *de = dictFind(set->ptr, sdsval);
     if (sdsval != str) sdsfree(sdsval);
     if (de == NULL) return 0;
-    *expire = setEntryGetExpiry(dictGetKey(de));
+    *expire = sEntryGetExpiry(dictGetKey(de));
     return 1;
 }
 
@@ -231,25 +231,25 @@ static int htSetExpire(robj *set, char *str, size_t len, int64_t llval, int str_
 
     if (expire == EB_EXPIRE_TIME_INVALID) {
         /* Remove the expiration. A plain member has none. */
-        if (!setEntryHasExpiry(old)) return 1;
+        if (!sEntryHasExpiry(old)) return 1;
         /* Unlink from the private tree if it is there, then drop the prefix. */
-        if (setEntryGetExpiry(old) != EB_EXPIRE_TIME_INVALID)
+        if (sEntryGetExpiry(old) != EB_EXPIRE_TIME_INVALID)
             ebRemove(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, old);
         ssize_t usableDiff;
-        entry = setEntryRemoveExpiry(old, &usableDiff);
+        entry = sEntryRemoveExpiry(old, &usableDiff);
         *alloc_size += usableDiff;
         dictSetKeyAtLink(ht, entry, &link, 0);
         return 1;
     }
 
     serverAssert(htHasExpire(ht));
-    if (!setEntryHasExpiry(old)) {
+    if (!sEntryHasExpiry(old)) {
         /* Reallocate the member with room for the expiration. */
         ssize_t usableDiff;
-        entry = setEntryAddExpiry(old, &usableDiff);
+        entry = sEntryAddExpiry(old, &usableDiff);
         *alloc_size += usableDiff;
     } else {
-        uint64_t prev = setEntryGetExpiry(old);
+        uint64_t prev = sEntryGetExpiry(old);
         if (prev == expire) return 1;
         /* Remove from the private tree the old expiration time. */
         if (prev != EB_EXPIRE_TIME_INVALID)
@@ -276,7 +276,7 @@ typedef struct htExpireCtx {
 /* Called by ebExpire() for each member that expired. */
 static ExpireAction htOnMemberExpire(eItem item, void *c) {
     htExpireCtx *ctx = c;
-    sds member = setEntryGetMember((SetEntry *)item);
+    sds member = sEntryGetMember((SetEntry *)item);
     if (ctx->cb) ctx->cb(ctx->ctx, member, sdslen(member), 0);
     /* ebExpire() already took the item out of the tree, so the destructor of the
      * dict only frees it. */
@@ -314,7 +314,7 @@ static int htIterNext(setTypeIterator *si, char **str, size_t *len, int64_t *lle
     *len = sdslen(*str);
     *llele = -123456789; /* Not needed. Defensive. */
     if (htHasExpire((dict *)si->subject->ptr))
-        si->expire = setEntryGetExpiry((SetEntry *)*str);
+        si->expire = sEntryGetExpiry((SetEntry *)*str);
     return 0;
 }
 

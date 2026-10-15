@@ -1704,14 +1704,14 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         keyStr = kvobjGetKey(kv);
     } else if (o->type == OBJ_HASH) {
         hashEntry = dictGetKey(de);
-        keyStr = entryGetField(hashEntry);
+        keyStr = hEntryGetField(hashEntry);
     } else if (o->type == OBJ_ZSET) {
         znode = dictGetKey(de);
         keyStr = zslGetNodeElement(znode);
     } else {
         keyStr = dictGetKey(de);
         /* A set member that is logically expired is not returned. */
-        if (o->type == OBJ_SET && setEntryIsExpired((SetEntry *)keyStr))
+        if (o->type == OBJ_SET && sEntryIsExpired((SetEntry *)keyStr))
             return;
     }
     
@@ -1745,10 +1745,10 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         key = keyStr;
     } else if (o->type == OBJ_HASH) {
         key = keyStr;
-        val = entryGetValue(hashEntry);
+        val = hEntryGetValue(hashEntry);
 
         /* If field is expired, then ignore */
-        if (entryIsExpired(hashEntry))
+        if (hEntryIsExpired(hashEntry))
             return;
 
     } else if (o->type == OBJ_ZSET) {

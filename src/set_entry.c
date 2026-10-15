@@ -17,43 +17,43 @@
  * member sds. */
 #define SET_ENTRY_AUX_BIT_HAS_EXPIRY 0
 
-int setEntryHasExpiry(const SetEntry *entry) {
-    return sdsGetAuxBit(setEntryGetMember(entry), SET_ENTRY_AUX_BIT_HAS_EXPIRY);
+int sEntryHasExpiry(const SetEntry *entry) {
+    return sdsGetAuxBit(sEntryGetMember(entry), SET_ENTRY_AUX_BIT_HAS_EXPIRY);
 }
 
-void *setEntryGetAllocPtr(const SetEntry *entry) {
-    char *buf = sdsAllocPtr(setEntryGetMember(entry));
-    if (setEntryHasExpiry(entry)) buf -= sizeof(ExpireMeta);
+void *sEntryGetAllocPtr(const SetEntry *entry) {
+    char *buf = sdsAllocPtr(sEntryGetMember(entry));
+    if (sEntryHasExpiry(entry)) buf -= sizeof(ExpireMeta);
     return buf;
 }
 
-ExpireMeta *setEntryRefExpiryMeta(SetEntry *entry) {
-    return setEntryHasExpiry(entry) ? (ExpireMeta *)setEntryGetAllocPtr(entry) : NULL;
+ExpireMeta *sEntryRefExpiryMeta(SetEntry *entry) {
+    return sEntryHasExpiry(entry) ? (ExpireMeta *)sEntryGetAllocPtr(entry) : NULL;
 }
 
-uint64_t setEntryGetExpiry(const SetEntry *entry) {
-    if (!setEntryHasExpiry(entry))
+uint64_t sEntryGetExpiry(const SetEntry *entry) {
+    if (!sEntryHasExpiry(entry))
         return EB_EXPIRE_TIME_INVALID;
 
-    ExpireMeta *expireMeta = (ExpireMeta *)setEntryGetAllocPtr(entry);
+    ExpireMeta *expireMeta = (ExpireMeta *)sEntryGetAllocPtr(entry);
     if (expireMeta->trash)
         return EB_EXPIRE_TIME_INVALID;
 
     return ebGetMetaExpTime(expireMeta);
 }
 
-int setEntryIsExpired(const SetEntry *entry) {
-    return setTypeExpireTimeElapsed(setEntryGetExpiry(entry));
+int sEntryIsExpired(const SetEntry *entry) {
+    return setTypeExpireTimeElapsed(sEntryGetExpiry(entry));
 }
 
-size_t setEntryMemUsage(const SetEntry *entry) {
-    size_t size = sdsAllocSize(setEntryGetMember(entry));
-    if (setEntryHasExpiry(entry)) size += sizeof(ExpireMeta);
+size_t sEntryMemUsage(const SetEntry *entry) {
+    size_t size = sdsAllocSize(sEntryGetMember(entry));
+    if (sEntryHasExpiry(entry)) size += sizeof(ExpireMeta);
     return size;
 }
 
 /* Allocates an entry with an ExpireMeta and a copy of the member. */
-static SetEntry *setEntryCreateWithExpiry(const char *member, size_t len) {
+static SetEntry *sEntryCreateWithExpiry(const char *member, size_t len) {
     /* SDS_TYPE_5 has no aux bits, so the member needs at least an SDS_TYPE_8
      * header to record the presence of the ExpireMeta. */
     char type = sdsReqType(len);
@@ -69,59 +69,59 @@ static SetEntry *setEntryCreateWithExpiry(const char *member, size_t len) {
 
     sds s = sdsnewplacement(buf + sizeof(ExpireMeta), memberSize, type, member, len);
     sdsSetAuxBit(s, SET_ENTRY_AUX_BIT_HAS_EXPIRY, 1);
-    debugServerAssert(setEntryHasExpiry((SetEntry *)s));
+    debugServerAssert(sEntryHasExpiry((SetEntry *)s));
     return (SetEntry *)s;
 }
 
-SetEntry *setEntryCreate(const char *member, size_t len, int withExpiry) {
+SetEntry *sEntryCreate(const char *member, size_t len, int withExpiry) {
     if (!withExpiry)
         return (SetEntry *)sdsnewlen(member, len);
-    return setEntryCreateWithExpiry(member, len);
+    return sEntryCreateWithExpiry(member, len);
 }
 
-SetEntry *setEntryAddExpiry(SetEntry *entry, ssize_t *usableDiff) {
-    serverAssert(!setEntryHasExpiry(entry));
-    sds member = setEntryGetMember(entry);
-    size_t oldUsable = setEntryMemUsage(entry);
+SetEntry *sEntryAddExpiry(SetEntry *entry, ssize_t *usableDiff) {
+    serverAssert(!sEntryHasExpiry(entry));
+    sds member = sEntryGetMember(entry);
+    size_t oldUsable = sEntryMemUsage(entry);
 
-    SetEntry *newEntry = setEntryCreateWithExpiry(member, sdslen(member));
+    SetEntry *newEntry = sEntryCreateWithExpiry(member, sdslen(member));
     sdsfree(member);
 
     if (usableDiff)
-        *usableDiff = (ssize_t)setEntryMemUsage(newEntry) - (ssize_t)oldUsable;
+        *usableDiff = (ssize_t)sEntryMemUsage(newEntry) - (ssize_t)oldUsable;
     return newEntry;
 }
 
-SetEntry *setEntryRemoveExpiry(SetEntry *entry, ssize_t *usableDiff) {
-    serverAssert(setEntryHasExpiry(entry));
+SetEntry *sEntryRemoveExpiry(SetEntry *entry, ssize_t *usableDiff) {
+    serverAssert(sEntryHasExpiry(entry));
     /* The entry must not be linked in an ebuckets tree, otherwise freeing it
      * would leave the tree pointing at freed memory. */
-    serverAssert(setEntryRefExpiryMeta(entry)->trash);
-    sds member = setEntryGetMember(entry);
-    size_t oldUsable = setEntryMemUsage(entry);
+    serverAssert(sEntryRefExpiryMeta(entry)->trash);
+    sds member = sEntryGetMember(entry);
+    size_t oldUsable = sEntryMemUsage(entry);
 
     SetEntry *newEntry = (SetEntry *)sdsnewlen(member, sdslen(member));
-    zfree(setEntryGetAllocPtr(entry));
+    zfree(sEntryGetAllocPtr(entry));
 
     if (usableDiff)
-        *usableDiff = (ssize_t)setEntryMemUsage(newEntry) - (ssize_t)oldUsable;
+        *usableDiff = (ssize_t)sEntryMemUsage(newEntry) - (ssize_t)oldUsable;
     return newEntry;
 }
 
-void setEntryFree(SetEntry *entry, size_t *usable) {
-    if (usable) *usable = setEntryMemUsage(entry);
+void sEntryFree(SetEntry *entry, size_t *usable) {
+    if (usable) *usable = sEntryMemUsage(entry);
 
-    if (setEntryHasExpiry(entry))
-        zfree(setEntryGetAllocPtr(entry));
+    if (sEntryHasExpiry(entry))
+        zfree(sEntryGetAllocPtr(entry));
     else
-        sdsfree(setEntryGetMember(entry));
+        sdsfree(sEntryGetMember(entry));
 }
 
-SetEntry *setEntryDefrag(SetEntry *entry, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds)) {
-    if (!setEntryHasExpiry(entry))
-        return (SetEntry *)sdsdefragfn(setEntryGetMember(entry));
+SetEntry *sEntryDefrag(SetEntry *entry, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds)) {
+    if (!sEntryHasExpiry(entry))
+        return (SetEntry *)sdsdefragfn(sEntryGetMember(entry));
 
-    char *allocation = setEntryGetAllocPtr(entry);
+    char *allocation = sEntryGetAllocPtr(entry);
     char *newAllocation = defragfn(allocation);
     if (newAllocation != NULL) {
         /* Return the same offset into the new allocation as the entry's offset
@@ -132,11 +132,11 @@ SetEntry *setEntryDefrag(SetEntry *entry, void *(*defragfn)(void *), sds (*sdsde
     return NULL;
 }
 
-void setEntryDismissMemory(SetEntry *entry) {
-    if (setEntryHasExpiry(entry))
-        dismissMemory(setEntryGetAllocPtr(entry), setEntryMemUsage(entry));
+void sEntryDismissMemory(SetEntry *entry) {
+    if (sEntryHasExpiry(entry))
+        dismissMemory(sEntryGetAllocPtr(entry), sEntryMemUsage(entry));
     else
-        dismissSds(setEntryGetMember(entry));
+        dismissSds(sEntryGetMember(entry));
 }
 
 /* ------------------------------ Unit tests -------------------------------- */
@@ -148,7 +148,7 @@ void setEntryDismissMemory(SetEntry *entry) {
 #define TEST(name) printf("test — %s\n", name);
 
 static ExpireMeta *setEntryTestGetMeta(const eItem item) {
-    return setEntryRefExpiryMeta((SetEntry *)item);
+    return sEntryRefExpiryMeta((SetEntry *)item);
 }
 
 static EbucketsType setEntryTestBucketsType = {
@@ -190,7 +190,7 @@ static void fillMember(char *buf, size_t len, char base) {
     for (size_t j = 0; j < len; j++) buf[j] = base + (j % 26);
 }
 
-int setEntryTest(int argc, char **argv, int flags) {
+int sEntryTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
@@ -206,17 +206,17 @@ int setEntryTest(int argc, char **argv, int flags) {
             char *buf = zmalloc(len + 1);
             fillMember(buf, len, 'a');
 
-            SetEntry *e = setEntryCreate(buf, len, 0);
-            sds m = setEntryGetMember(e);
+            SetEntry *e = sEntryCreate(buf, len, 0);
+            sds m = sEntryGetMember(e);
             CHECK(sdslen(m) == len && memcmp(m, buf, len) == 0);
-            CHECK(!setEntryHasExpiry(e));
-            CHECK(setEntryRefExpiryMeta(e) == NULL);
-            CHECK(setEntryGetExpiry(e) == EB_EXPIRE_TIME_INVALID);
+            CHECK(!sEntryHasExpiry(e));
+            CHECK(sEntryRefExpiryMeta(e) == NULL);
+            CHECK(sEntryGetExpiry(e) == EB_EXPIRE_TIME_INVALID);
             CHECK(((uintptr_t)e & 1) == 1);
-            CHECK(setEntryGetAllocPtr(e) == sdsAllocPtr(m));
-            CHECK(setEntryMemUsage(e) == sdsAllocSize(m));
-            size_t usable = 0, expected = setEntryMemUsage(e);
-            setEntryFree(e, &usable);
+            CHECK(sEntryGetAllocPtr(e) == sdsAllocPtr(m));
+            CHECK(sEntryMemUsage(e) == sdsAllocSize(m));
+            size_t usable = 0, expected = sEntryMemUsage(e);
+            sEntryFree(e, &usable);
             CHECK(usable == expected);
             zfree(buf);
         }
@@ -230,20 +230,20 @@ int setEntryTest(int argc, char **argv, int flags) {
             char *buf = zmalloc(len + 1);
             fillMember(buf, len, 'A');
 
-            SetEntry *e = setEntryCreate(buf, len, 1);
-            sds m = setEntryGetMember(e);
+            SetEntry *e = sEntryCreate(buf, len, 1);
+            sds m = sEntryGetMember(e);
             CHECK(sdslen(m) == len && memcmp(m, buf, len) == 0);
             CHECK(sdsType(m) != SDS_TYPE_5);
-            CHECK(setEntryHasExpiry(e));
+            CHECK(sEntryHasExpiry(e));
             CHECK(((uintptr_t)e & 1) == 1);
-            ExpireMeta *meta = setEntryRefExpiryMeta(e);
-            CHECK(meta != NULL && (void *)meta == setEntryGetAllocPtr(e));
+            ExpireMeta *meta = sEntryRefExpiryMeta(e);
+            CHECK(meta != NULL && (void *)meta == sEntryGetAllocPtr(e));
             CHECK((char *)m - sdsHdrSize(sdsType(m)) == (char *)meta + sizeof(ExpireMeta));
             CHECK(meta->trash == 1);
-            CHECK(setEntryGetExpiry(e) == EB_EXPIRE_TIME_INVALID);
-            CHECK(setEntryMemUsage(e) == sdsAllocSize(m) + sizeof(ExpireMeta));
-            size_t usable = 0, expected = setEntryMemUsage(e);
-            setEntryFree(e, &usable);
+            CHECK(sEntryGetExpiry(e) == EB_EXPIRE_TIME_INVALID);
+            CHECK(sEntryMemUsage(e) == sdsAllocSize(m) + sizeof(ExpireMeta));
+            size_t usable = 0, expected = sEntryMemUsage(e);
+            sEntryFree(e, &usable);
             CHECK(usable == expected);
             zfree(buf);
         }
@@ -259,25 +259,25 @@ int setEntryTest(int argc, char **argv, int flags) {
         for (int i = 0; i < N; i++) {
             char member[32];
             int len = snprintf(member, sizeof(member), "member:%d", i);
-            entries[i] = setEntryCreate(member, len, 1);
+            entries[i] = sEntryCreate(member, len, 1);
             uint64_t when = 1000000 + (uint64_t)((i * 7919) % 100000);
             if (when < minWhen) minWhen = when;
             CHECK(ebAdd(&eb, &setEntryTestBucketsType, entries[i], when) == 0);
-            CHECK(setEntryGetExpiry(entries[i]) == when);
+            CHECK(sEntryGetExpiry(entries[i]) == when);
         }
         CHECK(ebGetTotalItems(eb, &setEntryTestBucketsType) == N);
         CHECK(ebGetNextTimeToExpire(eb, &setEntryTestBucketsType) == minWhen);
 
         for (int i = 0; i < N; i += 2) {
             CHECK(ebRemove(&eb, &setEntryTestBucketsType, entries[i]) == 1);
-            CHECK(setEntryGetExpiry(entries[i]) == EB_EXPIRE_TIME_INVALID);
-            CHECK(setEntryRefExpiryMeta(entries[i])->trash == 1);
+            CHECK(sEntryGetExpiry(entries[i]) == EB_EXPIRE_TIME_INVALID);
+            CHECK(sEntryRefExpiryMeta(entries[i])->trash == 1);
         }
         CHECK(ebGetTotalItems(eb, &setEntryTestBucketsType) == N / 2);
 
         for (int i = 0; i < N; i++) {
             if (i % 2) CHECK(ebRemove(&eb, &setEntryTestBucketsType, entries[i]) == 1);
-            setEntryFree(entries[i], NULL);
+            sEntryFree(entries[i], NULL);
         }
         CHECK(ebGetTotalItems(eb, &setEntryTestBucketsType) == 0);
         test_cond("ebuckets: add, expiry visible, minimum, remove, trash again", ok);
@@ -290,30 +290,30 @@ int setEntryTest(int argc, char **argv, int flags) {
             char *buf = zmalloc(len + 1);
             fillMember(buf, len, 'k');
 
-            SetEntry *e = setEntryCreate(buf, len, 0);
-            size_t before = setEntryMemUsage(e);
+            SetEntry *e = sEntryCreate(buf, len, 0);
+            size_t before = sEntryMemUsage(e);
             ssize_t diff = 0;
-            SetEntry *e2 = setEntryAddExpiry(e, &diff);
-            CHECK(setEntryHasExpiry(e2));
-            CHECK(sdslen(setEntryGetMember(e2)) == len &&
-                  memcmp(setEntryGetMember(e2), buf, len) == 0);
-            CHECK((ssize_t)setEntryMemUsage(e2) - (ssize_t)before == diff);
+            SetEntry *e2 = sEntryAddExpiry(e, &diff);
+            CHECK(sEntryHasExpiry(e2));
+            CHECK(sdslen(sEntryGetMember(e2)) == len &&
+                  memcmp(sEntryGetMember(e2), buf, len) == 0);
+            CHECK((ssize_t)sEntryMemUsage(e2) - (ssize_t)before == diff);
             CHECK(((uintptr_t)e2 & 1) == 1);
 
             /* Register and unregister, as the set code does around a change. */
             ebuckets eb = ebCreate();
             CHECK(ebAdd(&eb, &setEntryTestBucketsType, e2, 5000) == 0);
-            CHECK(setEntryGetExpiry(e2) == 5000);
+            CHECK(sEntryGetExpiry(e2) == 5000);
             CHECK(ebRemove(&eb, &setEntryTestBucketsType, e2) == 1);
 
-            size_t withExpiry = setEntryMemUsage(e2);
+            size_t withExpiry = sEntryMemUsage(e2);
             diff = 0;
-            SetEntry *e3 = setEntryRemoveExpiry(e2, &diff);
-            CHECK(!setEntryHasExpiry(e3));
-            CHECK(sdslen(setEntryGetMember(e3)) == len &&
-                  memcmp(setEntryGetMember(e3), buf, len) == 0);
-            CHECK((ssize_t)setEntryMemUsage(e3) - (ssize_t)withExpiry == diff);
-            setEntryFree(e3, NULL);
+            SetEntry *e3 = sEntryRemoveExpiry(e2, &diff);
+            CHECK(!sEntryHasExpiry(e3));
+            CHECK(sdslen(sEntryGetMember(e3)) == len &&
+                  memcmp(sEntryGetMember(e3), buf, len) == 0);
+            CHECK((ssize_t)sEntryMemUsage(e3) - (ssize_t)withExpiry == diff);
+            sEntryFree(e3, NULL);
             zfree(buf);
         }
         test_cond("add and remove an expiry slot: content and usage difference", ok);
@@ -322,15 +322,15 @@ int setEntryTest(int argc, char **argv, int flags) {
     TEST("Defrag") {
         int ok = 1;
         for (int withExpiry = 0; withExpiry <= 1; withExpiry++) {
-            SetEntry *e = setEntryCreate("defrag-me", 9, withExpiry);
-            CHECK(setEntryDefrag(e, testDefragNoMove, testSdsDefragNoMove) == NULL);
-            SetEntry *moved = setEntryDefrag(e, testDefragMove, testSdsDefragMove);
+            SetEntry *e = sEntryCreate("defrag-me", 9, withExpiry);
+            CHECK(sEntryDefrag(e, testDefragNoMove, testSdsDefragNoMove) == NULL);
+            SetEntry *moved = sEntryDefrag(e, testDefragMove, testSdsDefragMove);
             CHECK(moved != NULL);
-            CHECK(sdslen(setEntryGetMember(moved)) == 9 &&
-                  memcmp(setEntryGetMember(moved), "defrag-me", 9) == 0);
-            CHECK(setEntryHasExpiry(moved) == withExpiry);
+            CHECK(sdslen(sEntryGetMember(moved)) == 9 &&
+                  memcmp(sEntryGetMember(moved), "defrag-me", 9) == 0);
+            CHECK(sEntryHasExpiry(moved) == withExpiry);
             CHECK(((uintptr_t)moved & 1) == 1);
-            setEntryFree(moved, NULL);
+            sEntryFree(moved, NULL);
         }
         test_cond("defrag: not moved returns NULL, moved returns the new entry", ok);
     }

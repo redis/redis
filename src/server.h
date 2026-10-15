@@ -49,7 +49,7 @@ typedef long long ustime_t; /* microsecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
-#include "entry.h"   /* Entry objects (field-value pairs with optional expiration) */
+#include "hash_entry.h" /* Entry objects (field-value pairs with optional expiration) */
 #include "set_entry.h" /* SetEntry objects (set members with optional expiration) */
 #include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */

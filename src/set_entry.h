@@ -63,68 +63,68 @@
 typedef struct _setEntry SetEntry;
 
 /* The SetEntry pointer is the member sds pointer. */
-static inline sds setEntryGetMember(const SetEntry *entry) {
+static inline sds sEntryGetMember(const SetEntry *entry) {
     return (sds)entry;
 }
 
 /* Returns true if the entry carries an ExpireMeta (it has an expiration slot,
  * which is not necessarily registered in an ebuckets tree yet). */
-int setEntryHasExpiry(const SetEntry *entry);
+int sEntryHasExpiry(const SetEntry *entry);
 
 /* Returns the address of the entry allocation. */
-void *setEntryGetAllocPtr(const SetEntry *entry);
+void *sEntryGetAllocPtr(const SetEntry *entry);
 
 /* Returns a reference to the ExpireMeta if present, NULL otherwise. This is the
  * accessor for the EbucketsType of the set's private expiration tree. */
-ExpireMeta *setEntryRefExpiryMeta(SetEntry *entry);
+ExpireMeta *sEntryRefExpiryMeta(SetEntry *entry);
 
 /* Returns the expiration time (UNIX time in milliseconds) or
  * EB_EXPIRE_TIME_INVALID if the entry has none or is not registered in an
  * ebuckets tree. */
-uint64_t setEntryGetExpiry(const SetEntry *entry);
+uint64_t sEntryGetExpiry(const SetEntry *entry);
 
 /* Returns 1 if the entry has an expiration time that has passed, so the member
- * must be treated as if it did not exist. Counterpart of entryIsExpired() of
+ * must be treated as if it did not exist. Counterpart of hEntryIsExpired() of
  * hash fields. */
-int setEntryIsExpired(const SetEntry *entry);
+int sEntryIsExpired(const SetEntry *entry);
 
 /* Creates a new entry holding a copy of the given member. If withExpiry is set
  * the entry has an ExpireMeta that is not yet registered in an ebuckets tree
  * (its expiration reads as invalid until ebAdd() is called). Without expiry the
  * result is a plain sds. */
-SetEntry *setEntryCreate(const char *member, size_t len, int withExpiry);
+SetEntry *sEntryCreate(const char *member, size_t len, int withExpiry);
 
 /* Reallocates a plain entry (no expiration) into one that carries an ExpireMeta,
  * and frees the old one. Returns the new entry. If usableDiff is not NULL it is
  * set to the difference in memory usage (new - old). */
-SetEntry *setEntryAddExpiry(SetEntry *entry, ssize_t *usableDiff);
+SetEntry *sEntryAddExpiry(SetEntry *entry, ssize_t *usableDiff);
 
 /* Reallocates an entry that carries an ExpireMeta into a plain entry and frees
  * the old one. The entry must not be registered in an ebuckets tree (remove it
  * with ebRemove() first). Returns the new entry. If usableDiff is not NULL it is
  * set to the difference in memory usage (new - old). */
-SetEntry *setEntryRemoveExpiry(SetEntry *entry, ssize_t *usableDiff);
+SetEntry *sEntryRemoveExpiry(SetEntry *entry, ssize_t *usableDiff);
 
 /* Memory used by the entry, based on the sds alloc fields. This is used for
- * size accounting and must be consistent with setEntryFree(). */
-size_t setEntryMemUsage(const SetEntry *entry);
+ * size accounting and must be consistent with sEntryFree(). */
+size_t sEntryMemUsage(const SetEntry *entry);
 
 /* Frees the entry. If usable is not NULL it is set to the entry memory usage. */
-void setEntryFree(SetEntry *entry, size_t *usable);
+void sEntryFree(SetEntry *entry, size_t *usable);
 
-/* Defragments the entry using the given functions (as entryDefrag()). The
+/* Defragments the entry using the given functions (as hEntryDefrag()). The
  * defrag functions return NULL if the allocation was not moved, otherwise the
  * new location. Returns the new entry pointer if it moved, NULL otherwise. A
  * separate sds defrag function is used for plain entries because of the unique
  * memory layout of sds strings. */
-SetEntry *setEntryDefrag(SetEntry *entry, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds));
+SetEntry *sEntryDefrag(SetEntry *entry, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds));
 
 /* Advises the allocator to dismiss the memory used by the entry. Only to be
  * used in a forked child, see dismissMemory(). */
-void setEntryDismissMemory(SetEntry *entry);
+void sEntryDismissMemory(SetEntry *entry);
 
 #ifdef REDIS_TEST
-int setEntryTest(int argc, char **argv, int flags);
+int sEntryTest(int argc, char **argv, int flags);
 #endif
 
 #endif

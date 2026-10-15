@@ -12344,7 +12344,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
     if (kv->type == OBJ_SET) {
         /* A member that is logically expired is not returned, unless asked. */
         if ((!(data->key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
-            setEntryIsExpired((SetEntry *)key))
+            sEntryIsExpired((SetEntry *)key))
             return;
         field = createStringObject(key, sdslen(key));
         value = NULL;
@@ -12353,12 +12353,12 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
 
         /* If field is expired and not indicated to access expired, then ignore */
         if ((!(data->key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
-            (entryIsExpired(e)))
+            (hEntryIsExpired(e)))
             return;
 
         /* For hash, the value is stored in the entry (field), not in the dict entry */
-        sds fieldStr = entryGetField(e);
-        sds val = entryGetValue(e);
+        sds fieldStr = hEntryGetField(e);
+        sds val = hEntryGetValue(e);
 
         field = createStringObject(fieldStr, sdslen(fieldStr));
         value = createStringObject(val, sdslen(val));

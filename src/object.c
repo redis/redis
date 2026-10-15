@@ -734,7 +734,7 @@ void dismissSetObject(robj *o, size_t size_hint) {
             const int with_expire = setHashtableHasExpire(o);
             while ((de = dictNext(&di)) != NULL) {
                 if (with_expire)
-                    setEntryDismissMemory(dictGetKey(de));
+                    sEntryDismissMemory(dictGetKey(de));
                 else
                     dismissSds(dictGetKey(de));
             }
@@ -792,7 +792,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
             dictIterator di;
             dictInitIterator(&di, d);
             while ((de = dictNext(&di)) != NULL) {
-                entryDismissMemory((Entry *) dictGetKey(de));
+                hEntryDismissMemory((Entry *) dictGetKey(de));
             }
             dictResetIterator(&di);
         }
