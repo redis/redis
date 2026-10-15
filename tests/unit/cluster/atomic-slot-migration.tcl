@@ -219,6 +219,17 @@ proc reset_default_trim_method {} {
     }
 }
 
+# Return an INFO `streams` per-cgroup histogram (e.g. stream_distrib_cgroups_pel) for a
+# node's db (e.g. "1=1,4=1"), or "" if absent.
+proc stream_cgroups_hist {node_id metric {dbnum 0}} {
+    foreach line [split [R $node_id info streams] "\n"] {
+        set line [string trim $line "\r"]
+        if {[regexp "^db${dbnum}_${metric}:(.*)$" $line -> val]} { return $val }
+    }
+    return ""
+}
+proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id stream_distrib_cgroups_pel $dbnum] }
+
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
         test "Simple slot migration (trim method: $trim_method)" {
@@ -309,6 +320,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             wait_for_asm_done
         }
     }
+
 }
 
 # Skip most of the tests when running under valgrind since it is hard to
@@ -1673,6 +1685,163 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    foreach trim_method {"active" "bg"} {
+        test "Slot trim updates stream_distrib_cgroups_pel histogram (trim method: $trim_method)" {
+            R 0 debug asm-trim-method $trim_method
+            R 0 flushall
+            R 1 flushall
+            R 0 config set stream-stats yes
+            R 1 config set stream-stats yes
+
+            # Streams in slots migrated away (0-100) and one that stays (101).
+            # Each has a group with a partial read, giving distinct PEL bins:
+            #   key   entries read -> PEL
+            #   s0    4       1       1
+            #   s1    8       4       4
+            #   s101  2       1       1
+            set s0 [slot_key 0 strm]
+            set s1 [slot_key 1 strm]
+            set s101 [slot_key 101 strm]
+            foreach {key n r} [list $s0 4 1 $s1 8 4 $s101 2 1] {
+                for {set i 1} {$i <= $n} {incr i} { R 0 xadd $key $i-1 f v }
+                R 0 xgroup create $key g 0
+                R 0 xreadgroup group g c count $r streams $key >
+            }
+            assert_equal "1=2,4=1" [stream_pel_hist 0]     ;# PEL 1,4,1
+
+            # Migrate slots 0-100 to R 1; slot 101 stays on R 0.
+            R 1 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+
+            # Trimming the migrated slots frees their stream keys (and groups) --
+            # with the bg method off-thread, bypassing streamKeyRemoved -- so
+            # R 0's histogram must drop to just the slot-101 group.
+            wait_for_condition 1000 50 {
+                [stream_pel_hist 0] eq "1=1"
+            } else {
+                fail "R0 histogram not trimmed: pel=[stream_pel_hist 0]"
+            }
+
+            # The importing node counts the migrated groups as they load.
+            assert_equal "1=1,4=1" [stream_pel_hist 1]
+
+            # cleanup: flush and migrate the slots back to R 0.
+            R 0 flushall
+            R 1 flushall
+            R 0 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+            R 0 config set stream-stats no
+            R 1 config set stream-stats no
+        }
+    }
+
+    # A background trim tallies its histogram delta on the BIO thread against
+    # the generation it was scheduled for. A synchronous FLUSH empties the
+    # kvstore in place, zeroing the histograms without changing the kvstore
+    # identity, and does not cancel a trim already handed to BIO. Without the
+    # generation check that trim's stale delta would be subtracted from samples
+    # created after the FLUSH. The replacement group is put in the same PEL bin
+    # as the trimmed one so a stale subtraction removes the fresh sample rather
+    # than merely driving an empty bin negative; the keysizes rows are checked
+    # the same way. Timing-dependent by design: the trim must still be in flight
+    # when the FLUSH lands.
+    # Timing-dependent by design and too slow to be reliable under the thread
+    # sanitizer, hence tsan:skip.
+    test "Slot bg-trim delta is not applied when a sync FLUSH resets the histogram" {
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+        R 1 flushall
+        R 0 config set stream-stats yes
+
+        # Create a group in a slot that will be migrated. Give it one pending entry
+        # so its PEL histogram contribution is in bin "1".
+        set mig [slot_key 3 strm]
+        for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
+        R 0 xgroup create $mig g 0
+        R 0 xreadgroup group g c count 1 streams $mig >
+        assert_equal "1=1" [stream_pel_hist 0]
+
+        # Keep the background trim busy long enough to cross the synchronous
+        # FLUSH: one hash with many fields gives the BIO thread a long free
+        # while the keyspace stays tiny, so builds that re-verify the keysizes
+        # histograms after every command (DEBUG_ASSERT_KEYSPACE) are not slowed.
+        set filler [slot_key 3 bighash]
+        for {set chunk 0} {$chunk < 40} {incr chunk} {
+            set args {}
+            for {set i 0} {$i < 10000} {incr i} {
+                lappend args f[expr {$chunk * 10000 + $i}] v
+            }
+            R 0 hset $filler {*}$args
+        }
+
+        set freed_before [getInfoProperty [R 0 info memory] lazyfreed_objects]
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+
+        # Wait until the background trim has been handed to the BIO thread:
+        # lazyfree_pending_objects is raised on the main thread at schedule and
+        # drops back to zero once the detached slot has been freed. That window
+        # is the few tens of milliseconds spent freeing the filler, so poll
+        # every 5 ms, but allow seconds for the migration before it: on
+        # instrumented builds shipping the filler alone exceeds a second. Also
+        # stop once lazyfreed_objects has advanced, i.e. the free already
+        # finished: the check after the FLUSH then reports the missed window.
+        wait_for_condition 2000 5 {
+            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0 ||
+            [getInfoProperty [R 0 info memory] lazyfreed_objects] > $freed_before
+        } else {
+            fail "background trim did not start"
+        }
+
+        # MULTI forces FLUSHALL SYNC to run synchronously, in place.
+        R 0 multi
+        R 0 flushall sync
+        R 0 exec
+
+        # The BIO thread must still be freeing the trimmed slot after the
+        # histogram reset. Otherwise the completion callback did not span the
+        # reset and this run would not exercise the bug.
+        assert {[getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0}
+
+        # Add a fresh group in the same PEL bin that the stale delta would
+        # decrement.
+        set keep [slot_key 101 strm]
+        for {set i 1} {$i <= 3} {incr i} {
+            R 0 xadd $keep $i-1 f v
+        }
+        R 0 xgroup create $keep g 0
+        R 0 xreadgroup group g c count 1 streams $keep >
+        assert_equal "1=1" [stream_pel_hist 0]
+
+        # Wait for the BIO thread to finish freeing the trimmed slot, then give
+        # the main thread time to run the completion callback that performs the
+        # epoch check. There is no observable for the callback itself; a late
+        # callback could only hide the bug, never fail a correct build.
+        wait_for_condition 1000 10 {
+            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] == 0
+        } else {
+            fail "background trim did not finish"
+        }
+        after 100
+
+        assert_equal "1=1" [stream_pel_hist 0]
+        # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
+        # hashes row (the trimmed 400k-field filler) must stay absent and the
+        # streams row must still hold the fresh sample, bin "2" for 3 entries.
+        assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_hashes_sizes]
+        assert_equal "2=1" [getInfoProperty [R 0 info keysizes] db0_distrib_streams_items]
+
+        # Cleanup: flush and migrate the slots back to R 0.
+        R 0 flushall
+        R 1 flushall
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 config set stream-stats no
+        # Disabled: the rows are hidden. Also the test's last command: the
+        # tags argument below needs an expected result, and {} means the body
+        # must return an empty string, which this assertion does.
+        assert_equal "" [stream_pel_hist 0]
+    } {} {tsan:skip}
+
     test "Test bgtrim after a successful migration" {
         R 0 debug asm-trim-method bg
         R 3 debug asm-trim-method bg
@@ -3609,6 +3778,49 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Cleanup
         R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
+
+    test "ASM forwards config-selected BITOP representation" {
+        R 0 flushall
+        R 1 flushall
+
+        set source1 [slot_key 0 bitop:s1]
+        set source2 [slot_key 0 bitop:s2]
+        set dest [slot_key 0 bitop:out]
+        set old_source_default [lindex [R 0 config get bitmap-default-roaring] 1]
+        set old_dest_default [lindex [R 1 config get bitmap-default-roaring] 1]
+
+        R 0 config set bitmap-default-roaring yes
+        R 1 config set bitmap-default-roaring no
+        R 0 set $source1 [binary format H* f0]
+        R 0 set $source2 [binary format H* 0f]
+
+        # Keep the slot in the streaming phase while the live BITOP is issued.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 2 1000000]
+        assert_equal 1 [R 0 bitop or $dest $source1 $source2]
+        assert_equal bitmap [R 0 type $dest]
+        set source_digest [R 0 debug digest-value $source1 $source2 $dest]
+
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        # BITROAROP carries the destination and sources through the import
+        # stream, preserving the source-selected representation despite the
+        # destination's opposite local default.
+        assert_equal bitmap [R 1 type $dest]
+        assert_equal [binary format H* ff] [R 1 debug bitmap-raw $dest]
+        assert_equal $source_digest [R 1 debug digest-value $source1 $source2 $dest]
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal bitmap [R 4 type $dest]
+        assert_equal $source_digest [R 4 debug digest-value $source1 $source2 $dest]
+
+        R 0 config set bitmap-default-roaring $old_source_default
+        R 1 config set bitmap-default-roaring $old_dest_default
+
+        # Restore slot ownership for the following tests.
+        R 0 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
     }
 

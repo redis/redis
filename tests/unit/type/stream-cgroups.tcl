@@ -1,6 +1,9 @@
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: every consumer-group command.
+    arm_stream_stats_assert
+
     test {XGROUP CREATE: creation and duplicate group name detection} {
         r DEL mystream
         r XADD mystream * foo bar
