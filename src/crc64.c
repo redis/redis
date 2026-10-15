@@ -138,8 +138,6 @@ uint64_t _crc64(uint_fast64_t crc, const void *in_data, const uint64_t len) {
 
 /******************** END GENERATED PYCRC FUNCTIONS ********************/
 
-#define CRC64_PCLMUL_CUTOFF 64
-
 #ifdef HAVE_PCLMUL
 /* PCLMULQDQ-accelerated CRC64 (reflected, poly 0xad93d23594c935a9).
  *
@@ -166,6 +164,8 @@ uint64_t _crc64(uint_fast64_t crc, const void *in_data, const uint64_t len) {
  * crc64_xpow_mod() and stored bit-reflected, ready for PCLMULQDQ. */
 
 #include <immintrin.h>
+
+#define CRC64_PCLMUL_CUTOFF 64
 
 /* Bit-reflected fold constants for D = 512, 384, 256, 128, as
  * {x^(D+63) mod P, x^(D-1) mod P} pairs. Filled in by crc64_pclmul_init(). */
@@ -455,6 +455,7 @@ again:
             }
             crc64_pclmul_enable(1);
 
+#ifdef HAVE_PCLMUL
             /* Chained/continuation check: a CRC seeded from one dispatch
              * path (table, below the cutoff) must continue correctly
              * through the other (PCLMUL, at/above the cutoff), matching
@@ -468,6 +469,7 @@ again:
                     assert(chained == whole);
                 }
             }
+#endif /* HAVE_PCLMUL */
 
             /* Degenerate content: all-zero and all-one-bit buffers are
              * the classic carry-less-multiply corner cases and are not
