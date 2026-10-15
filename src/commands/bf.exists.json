@@ -1,0 +1,60 @@
+{
+    "BF.EXISTS": {
+        "summary": "Checks whether an item exists in a Bloom Filter",
+        "complexity": "O(k * f), where k is the number of hash functions and f is the number of sub-filters.",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "item",
+                "type": "string"
+            }
+        ],
+        "since": "8.12.0",
+        "group": "bloom",
+        "arity": 3,
+        "function": "bfExistsCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "BLOOM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1
+                },
+                {
+                    "type": "boolean"
+                }
+            ]
+        }
+    }
+}

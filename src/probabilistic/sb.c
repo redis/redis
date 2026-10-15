@@ -89,6 +89,9 @@ int SBChain_Add(SBChain *sb, const void *data, size_t len) {
 
     // Determine if we need to add more items?
     SBLink *cur = CUR_FILTER(sb);
+    if (cur->size == SIZE_MAX || sb->size == SIZE_MAX) {
+        return -1;
+    }
     if (cur->size >= cur->inner.entries) {
         if (sb->options & BLOOM_OPT_NO_SCALING) {
             return -2;
@@ -103,9 +106,6 @@ int SBChain_Add(SBChain *sb, const void *data, size_t len) {
         cur = CUR_FILTER(sb);
     }
 
-    if (cur->size == SIZE_MAX || sb->size == SIZE_MAX) {
-        return -1;
-    }
     int rv = SBChain_AddToLink(cur, h);
     if (rv) {
         sb->size++;
@@ -395,6 +395,14 @@ int bloomTest(int argc, char **argv, int flags) {
         test_cond("Bloom expansion grows capacity and tightens error rate",
                   sb->filters[1].inner.entries >= sb->filters[0].inner.entries * 2 &&
                   sb->filters[1].inner.error == sb->filters[0].inner.error * 0.5);
+
+        size_t nfilters = sb->nfilters, lastsize = CUR_FILTER(sb)->size;
+        CUR_FILTER(sb)->size = CUR_FILTER(sb)->inner.entries;
+        sb->size = SIZE_MAX;
+        test_cond("Bloom count overflow does not grow the filter",
+                  SBChain_Add(sb, "overflow", 8) == SB_ERR && sb->nfilters == nfilters);
+        sb->size = size;
+        CUR_FILTER(sb)->size = lastsize;
 
         size_t header_len;
         char *header = SBChain_GetEncodedHeader(sb, &header_len);

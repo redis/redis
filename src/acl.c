@@ -63,6 +63,7 @@ struct ACLCategoryItem {
     {"array", ACL_CATEGORY_ARRAY},
     {"bitmap", ACL_CATEGORY_BITMAP},
     {"hyperloglog", ACL_CATEGORY_HYPERLOGLOG},
+    {"bloom", ACL_CATEGORY_BLOOM},
     {"geo", ACL_CATEGORY_GEO},
     {"stream", ACL_CATEGORY_STREAM},
     {"pubsub", ACL_CATEGORY_PUBSUB},

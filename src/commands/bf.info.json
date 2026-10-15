@@ -1,0 +1,109 @@
+{
+    "BF.INFO": {
+        "summary": "Returns information about a Bloom Filter",
+        "complexity": "O(f), where f is the number of sub-filters.",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "single-value",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "capacity",
+                        "type": "pure-token",
+                        "token": "CAPACITY"
+                    },
+                    {
+                        "name": "size",
+                        "type": "pure-token",
+                        "token": "SIZE"
+                    },
+                    {
+                        "name": "filters",
+                        "type": "pure-token",
+                        "token": "FILTERS"
+                    },
+                    {
+                        "name": "items",
+                        "type": "pure-token",
+                        "token": "ITEMS"
+                    },
+                    {
+                        "name": "expansion",
+                        "type": "pure-token",
+                        "token": "EXPANSION"
+                    }
+                ]
+            }
+        ],
+        "since": "8.12.0",
+        "group": "bloom",
+        "arity": -2,
+        "function": "bfInfoCommand",
+        "command_flags": [
+            "READONLY",
+            "FAST"
+        ],
+        "acl_categories": [
+            "BLOOM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": {
+                        "oneOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    }
+}
