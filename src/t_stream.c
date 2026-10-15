@@ -2931,7 +2931,7 @@ void xaddCommand(client *c) {
              * It's enough to check only args->approx because there is no
              * way LIMIT is given without the ~ option. */
             streamRewriteApproxSpecifier(c,parsed_args.trim_strategy_arg_idx-1);
-            streamRewriteTrimArgument(c,s,&parsed_args,deleted,max_deleted_id_ptr);
+            streamRewriteTrimArgument(c,s,&parsed_args,deleted ? max_deleted_id_ptr : NULL);
         }
     }
 
