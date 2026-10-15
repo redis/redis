@@ -3662,6 +3662,8 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
         r XADD mystream 3-0 f v
         assert_equal 2 [r XTRIM mystream MINID ~ 3-0 DELREF]
         assert_equal {{3-0 {f v}}} [r XRANGE mystream - +]
+        # Rebuild the stream with a different node layout to verify that the
+        # propagated exact MINID does not depend on the master's node packing.
         r config set stream-node-max-entries 1
         r debug loadaof
         assert_equal {{3-0 {f v}}} [r XRANGE mystream - +]
