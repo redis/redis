@@ -4877,6 +4877,8 @@ void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
 void bitroaropCommand(client *c);
+void rGetIntArrayCommand(client *c);
+void rRangeIntArrayCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);

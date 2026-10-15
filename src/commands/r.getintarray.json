@@ -1,0 +1,52 @@
+{
+    "R.GETINTARRAY": {
+        "summary": "Returns all set-bit offsets in a native bitmap as an ascending array of integers.",
+        "complexity": "O(C + M) where C is the number of bitmap containers and M is the number of returned integers.",
+        "group": "bitmap",
+        "since": "8.12.0",
+        "arity": 2,
+        "function": "rGetIntArrayCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ],
+        "reply_schema": {
+            "description": "Set-bit offsets in ascending order, or an empty array for a missing or empty bitmap.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "integer",
+                "minimum": 0
+            }
+        }
+    }
+}

@@ -328,7 +328,7 @@ class Command(object):
             self.reply_schema = ReplySchema(self.reply_schema_name(), self.desc["reply_schema"])
 
     def fullname(self):
-        return self.name.replace("-", "_").replace(":", "")
+        return self.name.replace("-", "_").replace(":", "").replace(".", "_")
 
     def return_types_table_name(self):
         return "%s_ReturnInfo" % self.fullname().replace(" ", "_")

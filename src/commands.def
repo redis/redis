@@ -875,6 +875,56 @@ struct COMMAND_ARG GETBIT_Args[] = {
 {MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** R_GETINTARRAY ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* R_GETINTARRAY history */
+#define R_GETINTARRAY_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* R_GETINTARRAY tips */
+#define R_GETINTARRAY_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* R_GETINTARRAY key specs */
+keySpec R_GETINTARRAY_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* R_GETINTARRAY argument table */
+struct COMMAND_ARG R_GETINTARRAY_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** R_RANGEINTARRAY ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* R_RANGEINTARRAY history */
+#define R_RANGEINTARRAY_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* R_RANGEINTARRAY tips */
+#define R_RANGEINTARRAY_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* R_RANGEINTARRAY key specs */
+keySpec R_RANGEINTARRAY_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* R_RANGEINTARRAY argument table */
+struct COMMAND_ARG R_RANGEINTARRAY_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** SETBIT ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -13014,6 +13064,8 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("bitpos","Finds the first set (1) or clear (0) bit in a string.","O(N)","2.8.7",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITPOS_History,1,BITPOS_Tips,0,bitposCommand,-3,CMD_READONLY,ACL_CATEGORY_BITMAP,BITPOS_Keyspecs,1,NULL,3),.args=BITPOS_Args},
 {MAKE_CMD("bitroarop","Performs a bitwise operation and stores a native bitmap result for replication and AOF replay.","O(N)","8.12.0",CMD_DOC_SYSCMD,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITROAROP_History,0,BITROAROP_Tips,0,bitroaropCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_INTERNAL,ACL_CATEGORY_BITMAP,BITROAROP_Keyspecs,2,NULL,3),.args=BITROAROP_Args},
 {MAKE_CMD("getbit","Returns a bit value by offset.","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,GETBIT_History,0,GETBIT_Tips,0,getbitCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,GETBIT_Keyspecs,1,NULL,2),.args=GETBIT_Args},
+{MAKE_CMD("r.getintarray","Returns all set-bit offsets in a native bitmap as an ascending array of integers.","O(C + M) where C is the number of bitmap containers and M is the number of returned integers.","8.12.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,R_GETINTARRAY_History,0,R_GETINTARRAY_Tips,0,rGetIntArrayCommand,2,CMD_READONLY,ACL_CATEGORY_BITMAP,R_GETINTARRAY_Keyspecs,1,NULL,1),.args=R_GETINTARRAY_Args},
+{MAKE_CMD("r.rangeintarray","Returns an inclusive range of set-bit offsets by their zero-based ranks in a native bitmap.","O(C + M) where C is the number of bitmap containers and M is the number of returned integers.","8.12.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,R_RANGEINTARRAY_History,0,R_RANGEINTARRAY_Tips,0,rRangeIntArrayCommand,4,CMD_READONLY,ACL_CATEGORY_BITMAP,R_RANGEINTARRAY_Keyspecs,1,NULL,3),.args=R_RANGEINTARRAY_Args},
 {MAKE_CMD("setbit","Sets or clears the bit at offset of the string value. Creates the key if it doesn't exist.","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,SETBIT_History,0,SETBIT_Tips,0,setbitCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,SETBIT_Keyspecs,1,NULL,3),.args=SETBIT_Args},
 /* cluster */
 {MAKE_CMD("asking","Signals that a cluster client is following an -ASK redirect.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,ASKING_History,0,ASKING_Tips,0,askingCommand,1,CMD_FAST,ACL_CATEGORY_CONNECTION,ASKING_Keyspecs,0,NULL,0)},

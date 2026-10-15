@@ -2050,6 +2050,82 @@ void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
+/* Stream set-bit offsets into the reply without allocating a second array
+ * proportional to the result. Stop if the output buffer limit closes the
+ * client: a compressed bitmap can describe a very large integer array. */
+static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privdata) {
+    client *c = privdata;
+    for (size_t i = 0; i < count; i++) {
+        if (c->flags & CLIENT_CLOSE_ASAP) return 0;
+        addReplyLongLong(c, values[i]);
+    }
+    return !(c->flags & CLIENT_CLOSE_ASAP);
+}
+
+static void bitroarReplyIntArray(client *c, robj *o, uint64_t start, uint64_t count) {
+    /* In particular, CLIENT REPLY OFF must not enumerate an entire bitmap. */
+    if (prepareClientToWrite(c) != C_OK) return;
+    uint64_t cardinality = bitroarCardinality(o);
+    if (start >= cardinality) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    count = min(count, cardinality - start);
+    if (count > LONG_MAX) {
+        addReplyError(c, "result is too large, use R.RANGEINTARRAY");
+        return;
+    }
+    addReplyArrayLen(c, (long)count);
+    if (c->flags & CLIENT_CLOSE_ASAP) return;
+    bitroarVisitSetBits(o, start, count, bitroarReplySetBits, c);
+}
+
+/* R.GETINTARRAY key -- redis-roaring's integer-array interface, backed by a
+ * native bitmap. Values are ascending set-bit offsets, not raw bitmap bytes. */
+void rGetIntArrayCommand(client *c) {
+    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
+    if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
+    bitroarReplyIntArray(c, o, 0, UINT64_MAX);
+}
+
+/* Match the R.* module interface's unsigned 32-bit rank arguments, including
+ * its error messages. Returned native bitmap offsets can be wider than ranks. */
+static int bitroarParseIntArrayRank(client *c, robj *arg, const char *name, uint64_t *rank) {
+    long long value;
+    if (getLongLongFromObject(arg, &value) != C_OK || value < 0 || value > UINT32_MAX) {
+        addReplyErrorFormat(c, "invalid %s: must be an unsigned 32 bit integer", name);
+        return C_ERR;
+    }
+    *rank = value;
+    return C_OK;
+}
+
+/* R.RANGEINTARRAY key start end -- inclusive ranks, not a value interval.
+ * Preserve the module's type/argument/range-limit validation order even for
+ * missing keys and ranges that would otherwise produce an empty reply. */
+void rRangeIntArrayCommand(client *c) {
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
+    uint64_t start, end;
+    if (bitroarParseIntArrayRank(c, c->argv[2], "start", &start) != C_OK ||
+        bitroarParseIntArrayRank(c, c->argv[3], "end", &end) != C_OK) return;
+    if (start > end) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    /* Widen the inclusive span so 0..UINT32_MAX cannot wrap past the limit. */
+    uint64_t count = end - start + 1;
+    if (count > 100000000) {
+        addReplyError(c, "-Roaring: range too large: maximum 100000000 elements");
+        return;
+    }
+    if (o == NULL) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    bitroarReplyIntArray(c, o, start, count);
+}
+
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
  * clamping 'start'/'end' to byte coordinates, and derive the half-open bit
  * interval used by Roaring bitmap range operations ('bit_start'/'bit_end')
