@@ -639,7 +639,7 @@ start_server {
     test {XIDMPRECORD parameter validation} {
         # Wrong arity
         assert_error {*wrong number of arguments for 'xidmprecord' command} {r XIDMPRECORD mystream p1 i1}
-        assert_error {*wrong number of arguments for 'xidmprecord' command} {r XIDMPRECORD mystream p1 i1 1-1 extra}
+        assert_error {*recorded-ms is not an integer or out of range*} {r XIDMPRECORD mystream p1 i1 1-1 extra}
 
         # Key does not exist
         assert_error {*no such key*} {r XIDMPRECORD nosuchkey p1 i1 1-1}
@@ -1801,6 +1801,25 @@ start_server {
         
         set reply [r XINFO STREAM mystream]
         assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XIDMP entries use insertion time rather than stream ID time} {
+        r DEL mystream
+        r XADD mystream 0-1 field value
+        r XCFGSET mystream IDMP-DURATION 1
+        set id1 [r XADD mystream 9999999999999-0 field value]
+        set id2 [r XADD mystream IDMP p1 req-1 * field value]
+        assert_match {9999999999999-*} $id1
+        assert_match {9999999999999-*} $id2
+        after 2500
+        wait_for_condition 50 100 {
+            [dict get [r XINFO STREAM mystream] pids-tracked] == 0 &&
+            [dict get [r XINFO STREAM mystream] iids-tracked] == 0
+        } else {
+            fail "IDMP entry did not expire based on insertion time"
+        }
+        set id3 [r XADD mystream IDMP p1 req-1 * field new]
+        assert {$id3 ne $id2}
     }
 
     test {XIDMP entries expire after DURATION seconds} {

@@ -96,7 +96,10 @@ char *rdb_type_string[] = {
     "bitmap",
 #ifdef ENABLE_GCRA
     "gcra",
+#else
+    "",
 #endif
+    "stream-v6",
 };
 
 /* Show a few stats collected into 'rdbstate' */

@@ -427,6 +427,7 @@ robj *streamDup(robj *o) {
                                                        src_entry->iid_len,
                                                        &new_s->alloc_size);
                 new_entry->id = src_entry->id;
+                new_entry->recorded_ms = src_entry->recorded_ms;
 
                 /* Append to tail of the new producer's linked list. */
                 if (new_prod->idmp_tail != NULL) {
@@ -2840,6 +2841,7 @@ void xaddCommand(client *c) {
         
         /* Create entry for lookup and potential insertion */
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+        entry->recorded_ms = server.mstime;
         
         /* Check if IID already exists and reply if found */
         if (idmpLookupAndReply(s, producer, entry, c)) {
@@ -4147,10 +4149,24 @@ void xsetidCommand(client *c) {
     keyModified(c,c->db,c->argv[1],kv,0);
 }
 
-/* XIDMPRECORD <key> <pid> <iid> <streamID>
+/* XIDMPRECORD <key> <pid> <iid> <streamID> [recorded-ms]
  * Set IDMP metadata (producer id + idempotency id) on an existing stream message. */
 void xidmprecordCommand(client *c) {
     streamID id;
+    long long recorded_ms = server.mstime;
+
+    if (c->argc != 5 && c->argc != 6) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+
+    if (c->argc == 6 && getLongLongFromObjectOrReply(c, c->argv[5], &recorded_ms,
+            "recorded-ms is not an integer or out of range") != C_OK)
+        return;
+    if (recorded_ms < 0) {
+        addReplyError(c, "recorded-ms must be non-negative");
+        return;
+    }
 
     if (streamParseStrictIDOrReply(c, c->argv[4], &id, 0, NULL) != C_OK)
         return;
@@ -4182,6 +4198,7 @@ void xidmprecordCommand(client *c) {
 
     idmpProducer *producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
     idmpEntry *entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+    entry->recorded_ms = recorded_ms;
     int found = idmpLookup(producer, entry, &id);
     if (found) {
         idmpEntryFree(entry, &s->alloc_size);
@@ -6393,6 +6410,7 @@ idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) 
     idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry) + iid_len, &usable);
     
     entry->next = NULL;
+    entry->recorded_ms = 0;
     entry->iid_len = iid_len;
     memcpy(entry->iid, iid, iid_len);
     
@@ -6702,7 +6720,7 @@ void handleExpiredIdmpEntries(void) {
                 /* Remove expired entries from the head of this producer's linked list */
                 while (producer->idmp_head != NULL) {
                     idmpEntry *entry = producer->idmp_head;
-                    if (entry->id.ms <= expire_time) {
+                    if (entry->recorded_ms <= expire_time) {
                         /* Remove from dict */
                         dictDelete(producer->idmp_dict, entry);
                         /* Remove from linked list head */
