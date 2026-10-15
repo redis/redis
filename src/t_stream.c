@@ -6331,19 +6331,16 @@ void handleExpiredIdmpEntries(void) {
                 keyModified(NULL, db, key, kv, 0);
 
             /* If no producers remain, free the entire rax tree */
-            int producers_empty = raxSize(s->idmp_producers) == 0;
-            if (producers_empty) {
+            if (raxSize(s->idmp_producers) == 0) {
                 raxFree(s->idmp_producers);
                 s->idmp_producers = NULL;
-            }
-
-            if (server.memory_tracking_enabled && (modified || producers_empty))
-                updateSlotAllocSize(db, getKeySlot(key->ptr), kv, old_alloc, kvobjAllocSize(kv));
-
-            if (producers_empty) {
                 dictDelete(db->stream_idmp_keys, key);
-                continue;
+                modified = 1;
             }
+
+            /* Use the kvobj's key: 'key' may have been freed by dictDelete() above. */
+            if (server.memory_tracking_enabled && modified)
+                updateSlotAllocSize(db,getKeySlot(kvobjGetKey(kv)),kv,old_alloc,kvobjAllocSize(kv));
         }
         dictResetIterator(&di);
     }
