@@ -1711,8 +1711,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     } else {
         keyStr = dictGetKey(de);
         /* A set member that is logically expired is not returned. */
-        if (o->type == OBJ_SET && setEntryHasExpiry((SetEntry *)keyStr) &&
-            setTypeExpireTimeElapsed(setEntryGetExpiry((SetEntry *)keyStr)))
+        if (o->type == OBJ_SET && setEntryIsExpired((SetEntry *)keyStr))
             return;
     }
     

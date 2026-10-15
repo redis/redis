@@ -83,6 +83,11 @@ ExpireMeta *setEntryRefExpiryMeta(SetEntry *entry);
  * ebuckets tree. */
 uint64_t setEntryGetExpiry(const SetEntry *entry);
 
+/* Returns 1 if the entry has an expiration time that has passed, so the member
+ * must be treated as if it did not exist. Counterpart of entryIsExpired() of
+ * hash fields. */
+int setEntryIsExpired(const SetEntry *entry);
+
 /* Creates a new entry holding a copy of the given member. If withExpiry is set
  * the entry has an ExpireMeta that is not yet registered in an ebuckets tree
  * (its expiration reads as invalid until ebAdd() is called). Without expiry the

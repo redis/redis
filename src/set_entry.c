@@ -42,6 +42,10 @@ uint64_t setEntryGetExpiry(const SetEntry *entry) {
     return ebGetMetaExpTime(expireMeta);
 }
 
+int setEntryIsExpired(const SetEntry *entry) {
+    return setTypeExpireTimeElapsed(setEntryGetExpiry(entry));
+}
+
 size_t setEntryMemUsage(const SetEntry *entry) {
     size_t size = sdsAllocSize(setEntryGetMember(entry));
     if (setEntryHasExpiry(entry)) size += sizeof(ExpireMeta);

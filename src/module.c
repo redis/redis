@@ -12344,8 +12344,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
     if (kv->type == OBJ_SET) {
         /* A member that is logically expired is not returned, unless asked. */
         if ((!(data->key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
-            setEntryHasExpiry((SetEntry *)key) &&
-            setTypeExpireTimeElapsed(setEntryGetExpiry((SetEntry *)key)))
+            setEntryIsExpired((SetEntry *)key))
             return;
         field = createStringObject(key, sdslen(key));
         value = NULL;
