@@ -37,7 +37,9 @@ endif
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
 ifeq ($(uname_S),Darwin)
 ifeq ("$(wildcard /usr/lib/libSystem.dylib)","")
-LIBS = -L /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -lsystem
+# Use the selected SDK; the CLT SDK may require a newer linker than Xcode.
+MACOS_SDK := $(or $(SDKROOT),$(shell xcrun --sdk macosx --show-sdk-path))
+LIBS = -L "$(MACOS_SDK)/usr/lib" -lsystem
 endif
 endif
 
