@@ -105,6 +105,18 @@ configEnum cluster_slot_stats_enum[] = {
     {NULL, 0}
 };
 
+configEnum io_threads_client_types_enum[] = {
+    {"all", IO_THREADS_CLIENT_TYPE_ALL},
+    {"replication-compressed", IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED},
+    {"primary-compressed", IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED},
+    {"replica-compressed", IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED},
+    {"replication", IO_THREADS_CLIENT_TYPE_REPLICATION},
+    {"primary", IO_THREADS_CLIENT_TYPE_PRIMARY},
+    {"replica", IO_THREADS_CLIENT_TYPE_REPLICA},
+    {"normal", IO_THREADS_CLIENT_TYPE_NORMAL},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -703,8 +715,20 @@ void loadServerConfigFromString(char *config) {
             goto loaderr;
         }
 
-        if (server.io_threads_repl_compression_only && server.repl_compression == 0) {
-            err = "io-threads-repl-compression-only requires repl-compression to be greater than 0";
+        int client_types = server.io_threads_client_types;
+        int compression_only =
+            ((client_types & IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_REPLICA)) ||
+            ((client_types & IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_PRIMARY));
+        if (compression_only && server.repl_compression == 0) {
+            err = "io-threads-client-types compression-only selectors require compression support and repl-compression > 0";
+            goto loaderr;
+        }
+        if (server.repl_compression > 0 &&
+            !(client_types & (IO_THREADS_CLIENT_TYPE_REPLICATION | IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED)))
+        {
+            err = "repl-compression requires io-threads-client-types to include replication clients";
             goto loaderr;
         }
 
@@ -3536,6 +3560,7 @@ standardConfig static_configs[] = {
     createSDSConfig("requirepass", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.requirepass, NULL, NULL, updateRequirePass),
 
     /* Enum Configs */
+    createEnumConfig("io-threads-client-types", NULL, IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, io_threads_client_types_enum, server.io_threads_client_types, IO_THREADS_CLIENT_TYPE_ALL, NULL, NULL),
     createEnumConfig("supervised", NULL, IMMUTABLE_CONFIG, supervised_mode_enum, server.supervised_mode, SUPERVISED_NONE, NULL, NULL),
     createEnumConfig("syslog-facility", NULL, IMMUTABLE_CONFIG, syslog_facility_enum, server.syslog_facility, LOG_LOCAL0, NULL, NULL),
     createEnumConfig("repl-diskless-load", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, repl_diskless_load_enum, server.repl_diskless_load, REPL_DISKLESS_LOAD_DISABLED, NULL, NULL),
@@ -3597,7 +3622,6 @@ standardConfig static_configs[] = {
     createIntConfig("lookahead", NULL, MODIFIABLE_CONFIG, 1, INT_MAX, server.lookahead, REDIS_DEFAULT_LOOKAHEAD, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("slowlog-entry-max-argc", NULL, MODIFIABLE_CONFIG, 2, INT_MAX, server.slowlog_max_argc, 32, INTEGER_CONFIG, NULL, NULL),
 #ifdef USE_COMPRESSION
-    createBoolConfig("io-threads-repl-compression-only", NULL, IMMUTABLE_CONFIG, server.io_threads_repl_compression_only, 0, NULL, NULL),
     createIntConfig("repl-compression", NULL, IMMUTABLE_CONFIG, 0, 22, server.repl_compression, 0, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-compression-max-latency", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.compression_max_latency, 100, INTEGER_CONFIG, NULL, NULL), /* 100ms */
 #endif
