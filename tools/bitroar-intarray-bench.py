@@ -186,7 +186,7 @@ def source_revision(src):
                               capture_output=True, text=True)
     if revision.returncode:
         return None
-    dirty = subprocess.run(["git", "-C", str(src.parent), "diff", "--quiet"], check=False)
+    dirty = subprocess.run(["git", "-C", str(src.parent), "diff", "--quiet", "HEAD", "--"], check=False)
     return {"commit": revision.stdout.strip(), "tracked_changes": dirty.returncode != 0}
 
 

@@ -1596,8 +1596,18 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal 1 [r getbit bitmap:public:aof:direct $sparse_public_offset]
         assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:aof:zero]
         assert_equal 1 [r getbit bitmap:public:aof:auto $sparse_public_offset]
+        # The module's AOF tests enumerate restored values with GETINTARRAY.
+        # Native AOF uses its own serialization, but must retain the same readback.
+        foreach key {bitmap:public:aof:direct bitmap:public:aof:auto} {
+            assert_equal [list $sparse_public_offset] [r bitgetintarray $key]
+            assert_equal [list $sparse_public_offset] [r bitrangeintarray $key 0 9]
+        }
+        assert_equal {} [r bitgetintarray bitmap:public:aof:zero]
+        assert_equal {} [r bitrangeintarray bitmap:public:aof:zero 0 9]
 
         if {$test_high_offset} {
+            assert_equal [list $high_bit] [r bitgetintarray bitmap:public:aof:high]
+            assert_equal [list $high_bit] [r bitrangeintarray bitmap:public:aof:high 0 9]
             r config set proto-max-bulk-len $byte_len
             assert_equal 1 [r getbit bitmap:public:aof:high $high_bit]
             assert_equal 1 [r bitcount bitmap:public:aof:high]
@@ -2204,6 +2214,13 @@ proc assert_bitmap_has_exact_bits {key bits} {
     assert_equal [llength $unique] [r bitcount $key]
     foreach bit $unique {
         assert_equal 1 [r getbit $key $bit]
+    }
+    if {[r type $key] in {bitmap none}} {
+        # Reuse the translated redis-roaring algebra fixtures to check its
+        # integer-array read interfaces on native and missing results.
+        assert_equal $unique [r bitgetintarray $key]
+        assert_equal $unique [r bitrangeintarray $key 0 [llength $unique]]
+        assert_equal [lrange $unique 1 3] [r bitrangeintarray $key 1 3]
     }
 }
 

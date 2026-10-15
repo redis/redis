@@ -43,6 +43,54 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         r config set bitmap-default-roaring no
     }
 
+    test {Integer-array commands cover redis-roaring 32-bit and 64-bit reference fixtures} {
+        # Shared fixtures from integration_1.sh, integration_3.sh and
+        # unit/test_bitmap{,64}_{from,range}_int_array.c. Bounds are inclusive;
+        # the module's calloc padding is not part of its command reply.
+        set cases {
+            {single-zero {0} 0 0 {0}}
+            {decimal-powers {1 10 100 1000 10000 100000} 0 99 {1 10 100 1000 10000 100000}}
+            {binary-powers {2 4 8 16 32 64 128} 0 99 {2 4 8 16 32 64 128}}
+            {basic {10 20 30 40 50 60 70 80 90 100} 0 5 {10 20 30 40 50 60}}
+            {offset {100 200 300 400 500 600 700 800} 2 3 {300 400}}
+            {sparse-zero {0 8 16} 0 2 {0 8 16}}
+            {uint32-max {4294967292 4294967293 4294967294 4294967295} 0 4 {4294967292 4294967293 4294967294 4294967295}}
+            {truncated {1 3 5} 0 10 {1 3 5}}
+            {empty {} 0 5 {}}
+            {reversed {10 20 30} 5 3 {}}
+            {single-rank {42} 0 0 {42}}
+            {single-value {12345} 0 3 {12345}}
+            {duplicates {0 1 1 2 3 5 8 13 21} 4 8 {5 8 13 21}}
+        }
+        foreach case $cases {
+            lassign $case name bits start end expected
+            intarray_seed intarray:reference $bits
+            assert_equal [lsort -integer -unique $bits] \
+                [r bitgetintarray intarray:reference] $name
+            assert_equal $expected \
+                [r bitrangeintarray intarray:reference $start $end] $name
+        }
+        set fibonacci [list 0 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 \
+                       2584 4181 6765 10946 17711 28657 46368 75025 121393 196418 317811]
+        intarray_seed intarray:fibonacci $fibonacci
+        assert_equal $fibonacci [r bitgetintarray intarray:fibonacci]
+        assert_equal $fibonacci [r bitrangeintarray intarray:fibonacci 0 99]
+    }
+
+    test {Integer-array commands reflect repeated insertions and deletions} {
+        # integration_1.sh / integration_3.sh append/delete cases, including
+        # the R64 regression for repeatedly deleting the only set bit at zero.
+        intarray_seed intarray:mutations {1 2 3}
+        assert_equal {1 2 3} [r bitgetintarray intarray:mutations]
+        foreach bit {1 3} {r setbit intarray:mutations $bit 0}
+        assert_equal {2} [r bitgetintarray intarray:mutations]
+        assert_equal {2} [r bitrangeintarray intarray:mutations 0 9]
+        intarray_seed intarray:mutations {0}
+        foreach bit {0 0 0} {r setbit intarray:mutations $bit 0}
+        assert_equal {} [r bitgetintarray intarray:mutations]
+        assert_equal {} [r bitrangeintarray intarray:mutations 0 9]
+    }
+
     test {BITRANGEINTARRAY uses inclusive ranks rather than bit offsets} {
         intarray_seed intarray:ranks {1 2 3 5 6 7 8 9 10}
         assert_equal {1 2 3 5 6 7} [r bitrangeintarray intarray:ranks 0 5]
@@ -172,18 +220,23 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     }
 
     test {Integer-array traversal crosses 256-value batches and seeks across containers} {
-        set expected {}
-        for {set i 0} {$i < 1100} {incr i} {
-            lappend expected [expr {$i * 65536 + ($i % 17)}]
+        set bases {0 4294967296}
+        set old_limit [config_get_set proto-max-bulk-len 1073741824]
+        foreach base $bases {
+            set expected {}
+            for {set i 0} {$i < 1100} {incr i} {
+                lappend expected [expr {$base + $i * 65536 + ($i % 17)}]
+            }
+            intarray_seed intarray:containers $expected
+            assert_equal $expected [r bitgetintarray intarray:containers]
+            foreach bounds {{0 255} {0 256} {255 256} {256 512} {257 513}
+                            {510 1025} {900 1099} {1099 1200} {1100 1200}} {
+                lassign $bounds start end
+                assert_equal [lrange $expected $start $end] \
+                    [r bitrangeintarray intarray:containers $start $end]
+            }
         }
-        intarray_seed intarray:containers $expected
-        assert_equal $expected [r bitgetintarray intarray:containers]
-        foreach bounds {{0 255} {0 256} {255 256} {256 512} {257 513}
-                        {510 1025} {900 1099} {1099 1200} {1100 1200}} {
-            lassign $bounds start end
-            assert_equal [lrange $expected $start $end] \
-                [r bitrangeintarray intarray:containers $start $end]
-        }
+        r config set proto-max-bulk-len $old_limit
     }
 
     test {Integer-array traversal handles dense bitset and run containers} {
@@ -241,15 +294,64 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
             set max_bytes [expr {(1 << 60) - 1}]
             set max_bit [expr {$max_bytes * 8 - 1}]
             set old_limit [config_get_set proto-max-bulk-len $max_bytes]
-            set expected [list 0 4294967295 4294967296 1099511627776 $max_bit]
+            # Adapt the module's unsigned-64 maximum fixture to native
+            # bitmaps' supported offset limit.
+            set expected [list 0 4294967295 4294967296 1099511627776 \
+                [expr {$max_bit - 3}] [expr {$max_bit - 2}] [expr {$max_bit - 1}] $max_bit]
             intarray_seed intarray:wide $expected
             # Reading stored offsets must not reapply the current write limit.
             r config set proto-max-bulk-len 1048576
             assert_equal $expected [r bitgetintarray intarray:wide]
-            assert_equal [lrange $expected 1 4] [r bitrangeintarray intarray:wide 1 4]
-            assert_equal [list $max_bit] [r bitrangeintarray intarray:wide 4 99]
+            assert_equal [lrange $expected 1 end] [r bitrangeintarray intarray:wide 1 99]
+            assert_equal [lrange $expected 4 end] [r bitrangeintarray intarray:wide 4 8]
+            assert_equal [list $max_bit] [r bitrangeintarray intarray:wide 7 99]
             r config set proto-max-bulk-len $old_limit
             r del intarray:wide
+        }
+    }
+
+    test {BITRANGEINTARRAY seeks to the maximum rank in a bitmap with more than 2^32 set bits} {
+        # NOT creates run containers, so the 512 MiB logical bitmap occupies
+        # only a few MiB and does not need a large uncompressed fixture.
+        set old_limit [config_get_set proto-max-bulk-len 536870913]
+        set old_bitmap [config_get_set bitmap-default-roaring yes]
+        r del intarray:maxrank
+        r setbit intarray:maxrank 4294967303 0
+        r bitop not intarray:maxrank intarray:maxrank
+        r config set bitmap-default-roaring $old_bitmap
+        r config set proto-max-bulk-len $old_limit
+        assert_equal 4294967304 [r bitcount intarray:maxrank]
+        assert_equal {4294967294 4294967295} \
+            [r bitrangeintarray intarray:maxrank 4294967294 4294967295]
+        r setbit intarray:maxrank 0 0
+        assert_equal {4294967295 4294967296} \
+            [r bitrangeintarray intarray:maxrank 4294967294 4294967295]
+        if {[s arch_bits] == 32} {
+            assert_error {ERR result is too large, use BITRANGEINTARRAY} {
+                r bitgetintarray intarray:maxrank
+            }
+        }
+        # Suppressed replies must not traverse billions of values.
+        set client [redis_deferring_client]
+        $client client reply off
+        $client bitgetintarray intarray:maxrank
+        $client bitrangeintarray intarray:maxrank 0 99999999
+        $client client reply on
+        assert_equal OK [$client read]
+        $client close
+        r del intarray:maxrank
+    }
+
+    test {Integer-array commands enumerate restored bitmaps} {
+        # Port the GETINTARRAY round trips from integration_6.py and the
+        # serialization fixtures in test_bitmap{,64}_from_int_array.c.
+        foreach bits {{0 1 2} {317811 196418 121393 233 144 89 55 34 21} {}} {
+            intarray_seed intarray:serialize $bits
+            r restore intarray:restored 0 [r dump intarray:serialize] replace
+            set expected [lsort -integer -unique $bits]
+            assert_equal $expected [r bitgetintarray intarray:restored]
+            assert_equal [lrange $expected 1 end] \
+                [r bitrangeintarray intarray:restored 1 99]
         }
     }
 
