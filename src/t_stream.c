@@ -1058,11 +1058,6 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
         unsigned char *lp = ri.data, *p = lpFirst(lp);
         int64_t entries = lpGetInteger(p);
 
-        streamID master_id = {0};
-        streamID last_id = {0};
-        /* Read the master ID from the radix tree key. */
-        streamDecodeID(ri.key, &master_id);
-
         /* Check if we exceeded the amount of work we could do */
         if (limit && (deleted + entries) > limit)
             break;
@@ -1070,6 +1065,10 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
         /* Check if we can remove the whole node */
         int remove_node = 0; /* Final decision flag for node removal */
         int node_eligible_for_remove = 0; /* Whether node meets the basic criteria for removal */
+        streamID master_id = {0};
+        streamID last_id = {0,0};
+        /* Read the master ID from the radix tree key. */
+        streamDecodeID(ri.key, &master_id);
         if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             node_eligible_for_remove = s->length - entries >= maxlen;
         } else {
