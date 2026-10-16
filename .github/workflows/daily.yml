@@ -1097,7 +1097,7 @@ jobs:
       with:
         operating_system: freebsd
         environment_variables: MAKE
-        version: 14.5
+        version: 15.1
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
