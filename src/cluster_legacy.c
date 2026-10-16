@@ -4398,9 +4398,6 @@ void clusterFailoverReplaceYourMaster(void) {
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
-
-    /* 6) Handle the ASM task from previous master. */
-    asmFinalizeMasterTask();
 }
 
 /* This function is called if we are a slave node and our master serving
