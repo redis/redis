@@ -1093,11 +1093,11 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v1.0.0
+      uses: cross-platform-actions/action@v1.6.0
       with:
         operating_system: freebsd
         environment_variables: MAKE
-        version: 13.2
+        version: 14.5
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
