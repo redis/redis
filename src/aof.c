@@ -594,14 +594,17 @@ static int writeAofManifestFileToDir(char *dirname, sds buf) {
         goto cleanup;
     }
 
-    /* Also sync the directory so the manifest rename is durable. */
-    if (fsyncFileDir(am_filepath) == -1) {
+    /* Also sync the directory so the manifest rename is durable. The rename
+     * above has already put the new manifest in place, so a failure here must
+     * not be reported as an error: the caller would treat the whole manifest
+     * write as failed and roll back in memory (dropping the base file it just
+     * created) while the new manifest is already on disk, leaving a manifest
+     * that names a deleted base file and a server that cannot restart. Only the
+     * durability of the rename across a power loss is at stake, so log and
+     * continue. */
+    if (fsyncFileDir(am_filepath) == -1)
         serverLog(LL_WARNING, "Fail to fsync manifest directory %s: %s.",
             am_filepath, strerror(errno));
-
-        ret = C_ERR;
-        goto cleanup;
-    }
 
 cleanup:
     if (fd != -1) close(fd);
