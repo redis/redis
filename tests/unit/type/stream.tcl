@@ -3671,6 +3671,11 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
 
 start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
     test {XADD with ~ MINID propagates the successor of the largest deleted ID} {
+        # With stream-node-max-entries 2 the six entries form three nodes.
+        # ACKED + LIMIT 3: the trim deletes 1-0 (acked, node 1), skips 2-0
+        # (pending, node 1), then deletes 3-0 and 4-0 (acked, node 2). The
+        # budget is exhausted before node 3, so 5-0 (acked) survives. The
+        # largest deleted ID is 4-0, and its successor 4-1 is propagated.
         foreach id {1-0 2-0 3-0 4-0 5-0 6-0} {
             r XADD trimmed $id f v
         }
@@ -3689,6 +3694,9 @@ start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
     } {} {needs:repl}
 
     test {XADD with ~ MINID propagates a no-op boundary when nothing was deleted} {
+        # Two entries in one node, LIMIT 1 stops the trim before examining it,
+        # so nothing is deleted. The propagated MINID is the stream's first
+        # live ID (1-0), making replay a no-op.
         foreach id {1-0 2-0} {
             r XADD nochange $id f v
         }
