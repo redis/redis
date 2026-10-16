@@ -3621,6 +3621,10 @@ int cancelReplicationHandshake(int reconnect) {
 void replicationSetMaster(char *ip, int port) {
     int was_master = server.masterhost == NULL;
 
+    /* Mark replicaof runtime-modified once here so every caller (REPLICAOF,
+     * FAILOVER, cluster promotion) is covered. */
+    markConfigRuntimeModified("replicaof");
+
     sdsfree(server.masterhost);
     server.masterhost = NULL;
     if (server.master) {
@@ -3673,6 +3677,11 @@ void replicationSetMaster(char *ip, int port) {
 /* Cancel replication, setting the instance as a master itself. */
 void replicationUnsetMaster(void) {
     if (server.masterhost == NULL) return; /* Nothing to do. */
+
+    /* Mark replicaof runtime-modified for every caller (REPLICAOF NO ONE,
+     * abortFailover, PSYNC error path, cluster demotion). Sticky and
+     * idempotent. */
+    markConfigRuntimeModified("replicaof");
 
     /* Fire the master link modules event. */
     if (server.repl_state == REPL_STATE_CONNECTED)
