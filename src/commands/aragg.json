@@ -1,0 +1,250 @@
+{
+    "ARAGG": {
+        "summary": "Compute one or more aggregates over array elements matching optional predicates.",
+        "complexity": "O(P * C + A) where P is the number of visited positions, C is predicate evaluation cost, and A is aggregate computation.",
+        "group": "array",
+        "since": "8.10.0",
+        "arity": -6,
+        "function": "araggCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "ARRAY"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Array of aggregate results in the same order as the requested operations. Each result is a number (integer or string), or Null if no matching element could be aggregated.",
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "integer",
+                        "description": "COUNT, AND, OR, XOR operations return an integer"
+                    },
+                    {
+                        "type": "string",
+                        "description": "SUM, MIN, MAX, AVG operations return a string representation of the number"
+                    },
+                    {
+                        "type": "null",
+                        "description": "Returned when no element matched or no numeric value could be aggregated"
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "start",
+                "type": "string"
+            },
+            {
+                "name": "end",
+                "type": "string"
+            },
+            {
+                "name": "predicate",
+                "type": "oneof",
+                "multiple": true,
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "exact",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "exact",
+                                "type": "pure-token",
+                                "token": "EXACT"
+                            },
+                            {
+                                "name": "string",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "match",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "match",
+                                "type": "pure-token",
+                                "token": "MATCH"
+                            },
+                            {
+                                "name": "string",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "glob",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "glob",
+                                "type": "pure-token",
+                                "token": "GLOB"
+                            },
+                            {
+                                "name": "pattern",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "re",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "re",
+                                "type": "pure-token",
+                                "token": "RE"
+                            },
+                            {
+                                "name": "pattern",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "range",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "range",
+                                "type": "pure-token",
+                                "token": "RANGE"
+                            },
+                            {
+                                "name": "min",
+                                "type": "string"
+                            },
+                            {
+                                "name": "max",
+                                "type": "string"
+                            },
+                            {
+                                "name": "exclusive",
+                                "type": "pure-token",
+                                "token": "EXCLUSIVE",
+                                "optional": true
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "name": "options",
+                "type": "oneof",
+                "optional": true,
+                "multiple": true,
+                "arguments": [
+                    {
+                        "name": "and",
+                        "type": "pure-token",
+                        "token": "AND"
+                    },
+                    {
+                        "name": "or",
+                        "type": "pure-token",
+                        "token": "OR"
+                    },
+                    {
+                        "name": "limit",
+                        "type": "integer",
+                        "token": "LIMIT"
+                    },
+                    {
+                        "name": "nocase",
+                        "type": "pure-token",
+                        "token": "NOCASE"
+                    }
+                ]
+            },
+            {
+                "name": "aggregate",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "aggregate",
+                        "type": "pure-token",
+                        "token": "AGGREGATE"
+                    },
+                    {
+                        "name": "operations",
+                        "type": "oneof",
+                        "multiple": true,
+                        "arguments": [
+                            {
+                                "name": "sum",
+                                "type": "pure-token",
+                                "token": "SUM"
+                            },
+                            {
+                                "name": "min",
+                                "type": "pure-token",
+                                "token": "MIN"
+                            },
+                            {
+                                "name": "max",
+                                "type": "pure-token",
+                                "token": "MAX"
+                            },
+                            {
+                                "name": "count",
+                                "type": "pure-token",
+                                "token": "COUNT"
+                            },
+                            {
+                                "name": "avg",
+                                "type": "pure-token",
+                                "token": "AVG"
+                            },
+                            {
+                                "name": "and",
+                                "type": "pure-token",
+                                "token": "AND"
+                            },
+                            {
+                                "name": "or",
+                                "type": "pure-token",
+                                "token": "OR"
+                            },
+                            {
+                                "name": "xor",
+                                "type": "pure-token",
+                                "token": "XOR"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
