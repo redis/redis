@@ -2855,13 +2855,19 @@ int clusterProcessPacket(clusterLink *link) {
         if (hdr->mflags[0] & CLUSTERMSG_FLAG0_EXT_DATA) {
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
-                uint16_t extlen = getPingExtLength(ext);
+                /* ext->length is a 32-bit wire field. Keep it in a 32-bit
+                 * variable: a truncated 16-bit value would pass the checks
+                 * below while getNextPingExt() advances the cursor by the
+                 * full 32-bit length. */
+                uint32_t extlen = getPingExtLength(ext);
                 if (extlen < sizeof(clusterMsgPingExt) || extlen % 8 != 0) {
-                    serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)",
-                        clusterGetMessageTypeString(type), (int) extlen);
+                    serverLog(LL_WARNING, "Received a %s packet without proper padding (%u bytes)",
+                        clusterGetMessageTypeString(type), extlen);
                     return 1;
                 }
-                if ((totlen - explen) < extlen) {
+                /* explen may legitimately exceed totlen here when the gossip
+                 * count is inflated; guard the unsigned subtraction. */
+                if (totlen < explen || (totlen - explen) < extlen) {
                     serverLog(LL_WARNING, "Received invalid %s packet with extension data that exceeds "
                         "total packet length (%lld)", clusterGetMessageTypeString(type),
                         (unsigned long long) totlen);
