@@ -1,0 +1,3 @@
+# Validation only; the scanner itself uses the Python standard library.
+black==26.5.1
+mypy==2.3.1
