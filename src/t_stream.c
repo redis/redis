@@ -6335,7 +6335,6 @@ void handleExpiredIdmpEntries(void) {
                 raxFree(s->idmp_producers);
                 s->idmp_producers = NULL;
                 dictDelete(db->stream_idmp_keys, key);
-                modified = 1;
             }
 
             /* Use the kvobj's key: 'key' may have been freed by dictDelete() above. */

@@ -1198,11 +1198,13 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         set partial_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
         R 0 XADD $partial_stream * f v
-        R 0 XCFGSET $partial_stream IDMP-DURATION 5
+        R 0 XCFGSET $partial_stream IDMP-DURATION 10
         R 0 XADD $partial_stream IDMP p0 old-request * f v
         after 2000
+        assert_equal 1 [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked]
         R 0 XADD $partial_stream IDMP p1 new-request * f v
-        wait_for_condition 100 50 {
+        assert_equal 2 [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked]
+        wait_for_condition 200 50 {
             [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked] == 1
         } else {
             fail "IDMP expiry did not leave the newer producer tracked"
