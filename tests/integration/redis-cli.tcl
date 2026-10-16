@@ -580,6 +580,36 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         # Run the cli
         assert_equal "OK" [run_cli_host_port_db "127.0.0.1" $port1 0 -c SET foo bar]
     }
+
+    test_nontty_cli "--json --stat survives RESP2-only server (HELLO 3 returning ERR)" {
+        # Regression for cliSwitchProto leaving config.current_resp3 = 1 after
+        # HELLO 3 was rejected. With config.resp3 == 2 (--json), redis-cli is
+        # supposed to tolerate the error and stay on RESP2. Before the fix,
+        # statMode -> getDatabases() would assert on the RESP2 array reply
+        # while expecting REDIS_REPLY_MAP and abort the process. The fake
+        # node here speaks pure RESP2 (HELLO replies with -ERR) so the
+        # CONFIG GET databases response exercises the assertion.
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_resp2_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+        exec $tclsh $script $port \
+                "HELLO 3" "-ERR unknown command 'HELLO'\r\n" \
+                "CONFIG GET databases" "*2\r\n\$9\r\ndatabases\r\n\$2\r\n16\r\n" \
+                "INFO" "\$2\r\nok\r\n" &
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port]}] == 0
+        } else {
+            fail "fake resp2 node didn't start"
+        }
+        # Without the fix this exec aborts inside getDatabases(); with the fix
+        # statMode reaches the INFO loop and the connection eventually closes
+        # cleanly. exec may report a non-zero status either way; we only
+        # require the absence of an assertion / abort marker.
+        catch {exec src/redis-cli -h 127.0.0.1 -p $port --json --stat -i 0.05 2>@1} output
+        if {[regexp -nocase {assertion failed|aborted|core dumped|sigabrt} $output]} {
+            fail "redis-cli aborted on RESP2-only server: $output"
+        }
+    }
 }
 
     test_nontty_cli "Quoted input arguments" {
