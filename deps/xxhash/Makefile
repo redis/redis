@@ -186,9 +186,6 @@ clean:
 	$(RM) xxhsum.wasm xxhsum.js xxhsum.html
 	$(RM) xxh32sum$(EXT) xxh64sum$(EXT) xxh128sum$(EXT) xxh3sum$(EXT)
 	$(RM) fuzzer
-	$(MAKE) -C tests clean
-	$(MAKE) -C tests/bench clean
-	$(MAKE) -C tests/collisions clean
 	@echo cleaning completed
 
 

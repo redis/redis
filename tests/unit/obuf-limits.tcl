@@ -23,6 +23,10 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
         set res [lindex [r config get client-output-buffer-limit] 1]
         assert_equal $res "normal 1048576 2097152 60 slave 3145728 4194304 70 pubsub 5242880 6291456 80"
 
+        r config set client-output-buffer-limit "normal 18014398509481985kb 0 0 replica 0 0 0 pubsub 0 0 0"
+        set res [lindex [r config get client-output-buffer-limit] 1]
+        assert_equal $res "normal 18446744073709551615 0 0 slave 0 0 0 pubsub 0 0 0"
+
         # Set back to the original value.
         r config set client-output-buffer-limit $oldval
     }

@@ -144,7 +144,7 @@ start_server {tags {"info" "external:skip"}} {
             assert {$p0 < $p100}
         } {} {needs:debug}
 
-        test {latencystats: batch percentiles match the fallback exactly} {
+        test {latencystats: stack and heap percentile contexts preserve output} {
             r config resetstat
             r CONFIG SET latency-tracking yes
             # Keep this histogram unchanged while testing different configs.
@@ -160,13 +160,15 @@ start_server {tags {"info" "external:skip"}} {
                 r CONFIG SET latency-tracking-info-percentiles $percentiles
                 set batch [split [latency_percentiles_usec debug] ,]
                 assert_equal [llength $percentiles] [llength $batch]
-                # More than 16 percentiles uses hdr_value_at_percentile().
-                set padded $percentiles
-                while {[llength $padded] <= 16} { lappend padded 100 }
-                r CONFIG SET latency-tracking-info-percentiles $padded
-                set fallback [split [latency_percentiles_usec debug] ,]
-                assert_equal 17 [llength $fallback]
-                assert_equal $batch [lrange $fallback 0 [expr {[llength $batch] - 1}]]
+                # Cross the stack/heap boundary while keeping the same prefix.
+                foreach length {17 64} {
+                    set padded $percentiles
+                    while {[llength $padded] < $length} { lappend padded 100 }
+                    r CONFIG SET latency-tracking-info-percentiles $padded
+                    set heap [split [latency_percentiles_usec debug] ,]
+                    assert_equal $length [llength $heap]
+                    assert_equal $batch [lrange $heap 0 [expr {[llength $batch] - 1}]]
+                }
             }
             r CONFIG SET latency-tracking-info-percentiles ""
             assert_equal {} [latency_percentiles_usec debug]

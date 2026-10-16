@@ -11,6 +11,8 @@ unless this is not possible or feasible with a reasonable effort.
 
 | Version | Supported                                                              |
 |---------|------------------------------------------------------------------------|
+| 8.10.x  | :white_check_mark:                                                     |
+| 8.8.x   | :white_check_mark:                                                     |
 | 8.6.x   | :white_check_mark:                                                     |
 | 8.4.x   | :white_check_mark:                                                     |
 | 8.2.x   | :white_check_mark:                                                     |

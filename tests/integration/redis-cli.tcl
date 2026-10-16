@@ -623,6 +623,48 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
+    test_nontty_cli "Latency mode reports requested percentiles" {
+        # Single-shot --latency in CSV mode samples for one second then exits.
+        # Without percentiles the line is "min,max,avg,count" (4 fields); with
+        # --latency-percentiles one extra column per percentile is appended.
+        set base [run_cli --csv -i 1 --latency]
+        assert_equal 4 [llength [split [string trim $base] ","]]
+
+        set out [run_cli --csv -i 1 --latency --latency-percentiles 50,99]
+        set fields [split [string trim $out] ","]
+        assert_equal 6 [llength $fields]
+
+        # Sanity-check the values: all are non-negative numbers reported in ms
+        # (fields: min,max,avg,count,p50,p99). Percentiles come from an HDR
+        # histogram and are bucket-quantized, so we only assert that they are
+        # monotonic (p50 <= p99); comparing them against the exact min/max
+        # scalars could differ by a quantum and is intentionally avoided.
+        lassign $fields min max avg count p50 p99
+        foreach v [list $min $max $avg $p50 $p99] {
+            assert {[string is double -strict $v]}
+            assert {$v >= 0}
+        }
+        assert {$p50 <= $p99}
+    }
+
+    test_nontty_cli "Latency mode reports percentiles as JSON object" {
+        set out [run_cli --json -i 1 --latency --latency-percentiles 50,99.9]
+        # Labels are echoed verbatim (not reformatted), so "99.9" stays "99.9".
+        assert_match {*"percentiles":*"50":*"99.9":*} $out
+    }
+
+    test_nontty_cli "Latency mode rejects invalid percentiles" {
+        # The argument is validated during option parsing, before any server
+        # connection or the sampling loop, so each invocation exits immediately
+        # with a nonzero status; exec folds the stderr message into $output.
+        foreach bad {bogus nan inf -1 101} {
+            set cmd [rediscli [srv host] [srv port] \
+                [list --latency --latency-percentiles 50,$bad]]
+            catch {exec {*}$cmd} output
+            assert_match "*Invalid percentile*" $output
+        }
+    }
+
     test_nontty_cli "Test command-line hinting - latest server" {
         # cli will connect to the running server and will use COMMAND DOCS
         catch {run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt} output
@@ -846,6 +888,92 @@ start_server {tags {"cli external:skip"}} {
 }
 
 start_server {tags {"cli external:skip"}} {
+    test "key size analysis does not alter key LRU metadata" {
+        foreach mode {--bigkeys --memkeys --keystats} {
+            r set key value
+            after 1100
+            set idle_before [r object idletime key]
+
+            set cmd [rediscli [srv host] [srv port] [list -n $::dbnum $mode]]
+            exec {*}$cmd
+
+            assert_morethan_equal [r object idletime key] $idle_before
+        }
+        r del key
+    }
+
+    test "key analysis modes do not alter key LFU metadata" {
+        r config set maxmemory-policy allkeys-lfu
+        r config set lfu-log-factor 0
+
+        foreach mode {--bigkeys --memkeys --keystats --hotkeys} {
+            r set key value
+            set freq_before [r object freq key]
+
+            set cmd [rediscli [srv host] [srv port] [list -n $::dbnum $mode]]
+            exec {*}$cmd
+
+            assert_equal [r object freq key] $freq_before
+        }
+
+        r del key
+        r config set maxmemory-policy noeviction
+        r config set lfu-log-factor 10
+    }
+
+    test "key size analysis continues when CLIENT NO-TOUCH is unavailable" {
+        r acl setuser keystats-user on >password ~* +@all -client
+        r set key value
+
+        set cmd [rediscli [srv host] [srv port] \
+            [list -n $::dbnum --user keystats-user -a password --no-auth-warning --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match "*Scanning the entire keyspace*" $result
+
+        r del key
+        r acl deluser keystats-user
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "RESP3 upgrade persists across a forced reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=3}
+
+        # kill server and restart to force redis-cli's forced-reconnect path
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # without retyping HELLO, the reconnect should have re-negotiated RESP3
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=3}
+    }
+}
+
+if {!$::force_resp3} {
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "HELLO 2\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=2}
+
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # must stay on RESP2 -- the explicit downgrade must not be re-promoted
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=2}
+    }
+}
+}
+
+start_server {tags {"cli external:skip"}} {
     test "keystats on empty database should not produce garbage stats" {
         # On an empty DB the keystats histogram has total_count = 0. Verify hdr_mean(), hdr_stddev(),
         # and the percentile calculation handle this gracefully.
@@ -856,6 +984,73 @@ start_server {tags {"cli external:skip"}} {
         # The "Note:" line with Mean/StdDeviation is only printed when displayKeyStatsSizeDist()
         # compute stats. When keysize_histogram->total_count == 0, it should be skipped entirely.
         assert_match "*No key size samples collected*" $result
+    }
+}
+
+start_server {tags {"cli" "bitmap" "bitmap-roaring" "external:skip"}} {
+    test "bigkeys reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:large" has 5 set bits*} $result
+        assert_match {*2 bitmaps with 7 set bits*avg size 3.50*} $result
+        assert_no_match {*bitmaps with 0 ?*} $result
+    }
+
+    test "keystats reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*"bitmap:large" has 5 set bits*} $result
+        assert_match {*bitmap*7 set bits*3.50*} $result
+    }
+
+    test "bigkeys and keystats report a zero-cardinality native bitmap" {
+        r flushdb
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:zero 0 0
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:zero]
+        assert_equal 0 [r bitcount bitmap:zero]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:zero" has 0 set bits*} $result
+        assert_match {*1 bitmaps with 0 set bits*avg size 0.00*} $result
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*bitmap*"bitmap:zero" has 0 set bits*} $result
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    test "bigkeys reports a zero-size key as the biggest key of its type" {
+        # type->biggest starts at 0, so a strict '<' comparison never fires when
+        # every sampled key of a type has size 0, leaving biggest_key unset even
+        # though the key was counted.
+        r set foo ""
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        set result [exec {*}$cmd]
+        assert_match {*Biggest string found "foo" has 0 bytes*} $result
     }
 }
 
