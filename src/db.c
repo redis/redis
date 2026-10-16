@@ -1104,7 +1104,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
 
-    if (dbnum == -1) flushSlaveKeysWithExpireList();
+    if (dbnum == -1) flushSlaveKeysWithExpireList(async);
 
     if (with_functions) {
         serverAssert(dbnum == -1);
@@ -2726,7 +2726,7 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
     }
 
     trackingInvalidateKeysOnFlush(1);
-    flushSlaveKeysWithExpireList();
+    flushSlaveKeysWithExpireList(1);
 }
 
 /* SWAPDB db1 db2 */
