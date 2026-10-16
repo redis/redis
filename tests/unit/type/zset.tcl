@@ -1358,6 +1358,22 @@ start_server {tags {"zset"}} {
         assert_error "*WRONGTYPE*" {r zmpop 2 foo2{t} foo1{t} max count 1}
     }
 
+    foreach {type entries} {listpack 128 skiplist 0} {
+        test "ZRANGE BYSCORE/BYLEX with LIMIT count near LONG_MIN - $type" {
+            set original [config_get_set zset-max-listpack-entries $entries]
+            r del limitzset
+            r zadd limitzset 0 a 0 b 0 c
+            assert_encoding $type limitzset
+            assert_equal {a b c} [r zrangebyscore limitzset -inf +inf LIMIT 0 -9223372036854775807]
+            assert_equal {a b c} [r zrange limitzset -inf +inf BYSCORE LIMIT 0 -9223372036854775808]
+            assert_equal {c b a} [r zrevrangebyscore limitzset +inf -inf LIMIT 0 -9223372036854775808]
+            assert_equal {a b c} [r zrangebylex limitzset - + LIMIT 0 -9223372036854775807]
+            assert_equal {c b a} [r zrange limitzset + - BYLEX REV LIMIT 0 -9223372036854775808]
+            r del limitzset
+            r config set zset-max-listpack-entries $original
+        }
+    }
+
     test "ZMPOP with illegal argument" {
         assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop}
         assert_error "ERR wrong number of arguments for 'zmpop' command" {r zmpop 1}
@@ -1373,6 +1389,8 @@ start_server {tags {"zset"}} {
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} COUNT}
         assert_error "ERR syntax error*" {r zmpop 1 myzset{t} MAX COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r zmpop 2 myzset{t} myzset2{t} bad_arg}
+        assert_error "ERR syntax error*" {r zmpop 9223372036854775807 myzset{t} MIN}
+        assert_error "ERR syntax error*" {r bzmpop 0 9223372036854775807 myzset{t} MIN}
 
         assert_error "ERR count*" {r zmpop 1 myzset{t} MIN COUNT 0}
         assert_error "ERR count*" {r zmpop 1 myzset{t} MAX COUNT a}
