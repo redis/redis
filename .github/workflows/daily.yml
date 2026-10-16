@@ -1111,18 +1111,25 @@ jobs:
           netstat -an -p tcp || true
 
           set +e
-          truss -f -o /tmp/redis-freebsd-truss.log \
-            ./runtest --single unit/keyspace --single unit/auth \
+          ./runtest --single unit/keyspace --single unit/auth \
             --single unit/networking --single unit/protocol
           test_status=$?
           set -e
 
           if [ "$test_status" -ne 0 ]; then
+            echo '=== Re-running unit/networking with FreeBSD ktrace ==='
+            rm -f /tmp/redis-freebsd-ktrace.out /tmp/redis-freebsd-kdump.log
+            set +e
+            ktrace -i -t c -f /tmp/redis-freebsd-ktrace.out \
+              ./runtest --single unit/networking
+            trace_status=$?
+            set -e
+            ktrace -C || true
+            kdump -f /tmp/redis-freebsd-ktrace.out > /tmp/redis-freebsd-kdump.log || true
             echo '=== FreeBSD socket trace: address/connection errors ==='
-            grep -En -C 4 'EADDRINUSE|socket\(|bind\(|connect\(|setsockopt\(' \
-              /tmp/redis-freebsd-truss.log | tail -n 300 || true
-            echo '=== FreeBSD socket trace: last 100 lines ==='
-            tail -n 100 /tmp/redis-freebsd-truss.log || true
+            grep -En -C 4 'EADDRINUSE|socket|bind|connect|setsockopt' \
+              /tmp/redis-freebsd-kdump.log | tail -n 300 || true
+            echo "=== unit/networking trace exit status: $trace_status ==="
             echo '=== FreeBSD sockets after failure ==='
             sockstat -4 || true
             netstat -an -p tcp || true
