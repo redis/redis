@@ -2719,15 +2719,19 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     return node;
 }
 
-/* Integer hashing, used by hnsw_deserialize_index().
- * MurmurHash3's 64-bit finalizer function. */
-uint64_t hnsw_hash_node_id(uint64_t id) {
-    id ^= id >> 33;
-    id *= 0xff51afd7ed558ccd;
-    id ^= id >> 33;
-    id *= 0xc4ceb9fe1a85ec53;
-    id ^= id >> 33;
-    return id;
+/* MurmurHash3's 64-bit finalizer function. */
+static inline uint64_t hnsw_fmix64(uint64_t x) {
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccd;
+    x ^= x >> 33;
+    x *= 0xc4ceb9fe1a85ec53;
+    x ^= x >> 33;
+    return x;
+}
+
+/* Salted integer hashing, used by hnsw_deserialize_index(). */
+static inline uint64_t hnsw_hash_node_id(uint64_t id, uint64_t salt0, uint64_t salt1) {
+    return hnsw_fmix64(hnsw_fmix64(id ^ salt0) ^ salt1);
 }
 
 /* Helper for duplicated link detection in hnsw_deserialize_index(). */
@@ -2763,15 +2767,17 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     if (table == NULL) return 0;
     memset(table,0,sizeof(hnswNode*) * table_size);
 
-    /* First pass: populate the ID -> pointer hash table. */
+    /* First pass: populate the ID -> pointer hash table. IDs must be
+     * unique, otherwise the serialized data is corrupted. */
     hnswNode *node = index->head;
     while(node) {
-        uint64_t bucket = hnsw_hash_node_id(node->id) & (table_size-1);
+        uint64_t bucket = hnsw_hash_node_id(node->id, salt0, salt1) & (table_size-1);
         for (uint64_t j = 0; j < table_size; j++) {
             if (table[bucket] == NULL) {
                 table[bucket] = node;
                 break;
             }
+            if (table[bucket]->id == node->id) goto corrupted;
             bucket = (bucket+1) & (table_size-1);
         }
         node = node->next;
@@ -2831,10 +2837,12 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 accumulator[1] ^= mixed_h2;
 
                 // Fix links.
-                uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
+                uint64_t bucket = hnsw_hash_node_id(linked_id, salt0, salt1) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
-                    if (table[bucket] && table[bucket]->id == linked_id) {
+                    /* No deletions: an empty slot ends the probe chain. */
+                    if (table[bucket] == NULL) break;
+                    if (table[bucket]->id == linked_id) {
                         neighbor = table[bucket];
                         break;
                     }

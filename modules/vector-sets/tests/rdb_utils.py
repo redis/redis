@@ -3,12 +3,21 @@ import struct
 RDB_TYPE_MODULE_2 = 7
 OPCODE_EOF, OPCODE_UINT, OPCODE_STRING = 0, 2, 5
 
+def _crc64_table():
+    table = []
+    for byte in range(256):
+        crc = byte
+        for _ in range(8):
+            crc = (crc >> 1) ^ (0x95ac9329ac4bc9b5 if crc & 1 else 0)
+        table.append(crc)
+    return table
+
+_CRC64_TABLE = _crc64_table()
+
 def crc64(data):
     crc = 0
     for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = (crc >> 1) ^ (0x95ac9329ac4bc9b5 if crc & 1 else 0)
+        crc = _CRC64_TABLE[(crc ^ byte) & 0xff] ^ (crc >> 8)
     return crc
 
 def read_len(buf, pos):
@@ -58,9 +67,10 @@ def decode_dump(payload):
     return module_id, tokens, rdbver
 
 def encode_dump(module_id, tokens, rdbver):
-    out = bytes([RDB_TYPE_MODULE_2]) + write_len(module_id)
+    parts = [bytes([RDB_TYPE_MODULE_2]), write_len(module_id)]
     for kind, v in tokens:
-        if kind == 'u': out += write_len(OPCODE_UINT) + write_len(v)
-        else: out += write_len(OPCODE_STRING) + v
-    out += write_len(OPCODE_EOF) + rdbver
+        if kind == 'u': parts += [write_len(OPCODE_UINT), write_len(v)]
+        else: parts += [write_len(OPCODE_STRING), v]
+    parts += [write_len(OPCODE_EOF), rdbver]
+    out = b''.join(parts)
     return out + struct.pack('<Q', crc64(out))
