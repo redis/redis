@@ -1105,15 +1105,28 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.30.0
+      uses: cross-platform-actions/action@v1.6.0
       with:
         operating_system: freebsd
         environment_variables: MAKE
-        version: 13.2
+        version: 15.1
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
           gmake
+          # The unit/networking test "Prefetch works with maximum batch size
+          # of 128 and client number larger than batch size" creates 300 Tcl
+          # clients in one run. Each client asks the kernel to choose an
+          # ephemeral local port (port 0). FreeBSD 15
+          # changed the local-port allocation/lookup implementation; under
+          # this workload its randomized selection can transiently choose a
+          # port/connection tuple that is still present in the socket table,
+          # and the client creation fails with EADDRINUSE before the Redis
+          # assertion runs. Disable randomized selection for this disposable
+          # CI VM as a workaround. This does not change Redis's listening
+          # port or the ephemeral-port range, and the setting is lost at
+          # reboot.
+          sudo sysctl net.inet.ip.portrange.randomized=0
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
   test-alpine-jemalloc:
