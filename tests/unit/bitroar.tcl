@@ -491,11 +491,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
             # the same server instead of a fixed limit, so the check holds on
             # slow builds and busy runners alike. Streaming costs about 5x that
             # baseline, while a SHA1 finalization per run costs about 100x.
-            # Keep the fastest of three runs to ride out scheduling noise.
+            # Measure both keys in each round to reduce changes in runner load
+            # between their samples. Keep the fastest of three runs per key
+            # to ride out scheduling noise.
             r setrange bitmap:digest:baseline [expr {16 * 1024 * 1024 - 1}] x
             foreach key {bitmap:digest:frag:converted bitmap:digest:baseline} {
                 set fastest($key) {}
-                for {set i 0} {$i < 3} {incr i} {
+            }
+            for {set i 0} {$i < 3} {incr i} {
+                foreach key {bitmap:digest:frag:converted bitmap:digest:baseline} {
                     set start [clock milliseconds]
                     r debug digest-value $key
                     set elapsed [expr {[clock milliseconds] - $start}]
