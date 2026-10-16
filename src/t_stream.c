@@ -2463,8 +2463,13 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
             {
                 /* A valid counter and no tombstones between the group's last-delivered-id
                  * and the stream's last-generated-id mean we can increment the read counter
-                 * to keep tracking the group's progress. */
-                group->entries_read++;
+                 * to keep tracking the group's progress. The counter may be higher than
+                 * the group's real position (ENTRIESREAD only has to be <= entries_added,
+                 * and XSETID clamps it to a lowered entries_added), so stop at entries_added,
+                 * like XGROUP CREATE/SETID and XSETID do: otherwise the lag turns negative
+                 * and the RDB fails to load. */
+                if ((uint64_t)group->entries_read < s->entries_added)
+                    group->entries_read++;
             } else if (s->entries_added) {
                 /* The group's counter may be invalid, so we try to obtain it. */
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
