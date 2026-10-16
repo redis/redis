@@ -1115,8 +1115,8 @@ jobs:
           # port or the ephemeral-port range, and the setting is lost at
           # reboot.
           sudo sysctl net.inet.ip.portrange.randomized=0
-          ./runtest --single unit/keyspace --single unit/auth \
-            --single unit/networking --single unit/protocol
+          
+          ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
   test-alpine-jemalloc:
     runs-on: ubuntu-latest
