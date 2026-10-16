@@ -1,7 +1,6 @@
-# BITGETINTARRAY / BITRANGEINTARRAY follow redis-roaring R.GETINTARRAY /
-# R.RANGEINTARRAY at
-# e7382b7cea1ec495304e8aa60916c49673e74c1d. Ranges address inclusive ranks in
-# the sorted set-bit offsets, while native bitmap offsets may exceed 32 bits.
+# redis-roaring R.GETINTARRAY / R.RANGEINTARRAY provide the reference semantics.
+# Ranges address inclusive ranks in the sorted set-bit offsets, while native
+# bitmap offsets may exceed 32 bits.
 proc intarray_seed {key bits} {
     set old [lindex [r config get bitmap-default-roaring] 1]
     r del $key
@@ -134,8 +133,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
                 assert_error {WRONGTYPE Operation against a key holding the wrong kind of value} {
                     r bitrangeintarray $key 0 0
                 }
-                # The module checks type before either argument or the range cap.
-                foreach bounds {{invalid invalid} {0 4294967295} {1 0}} {
+                # Valid ranks still require the correct key type before
+                # handling a reversed range or enforcing the range cap.
+                foreach bounds {{0 4294967295} {1 0}} {
                     assert_error {WRONGTYPE Operation against a key holding the wrong kind of value} {
                         r bitrangeintarray $key {*}$bounds
                     }
@@ -149,11 +149,15 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal {value} [r lrange intarray:list 0 -1]
     }
 
-    test {BITRANGEINTARRAY validates unsigned 32-bit start before end, even for missing keys} {
+    test {BITRANGEINTARRAY validates unsigned 32-bit start before end and key type} {
         intarray_seed intarray:parse {0 9}
+        r set intarray:parse:string value
+        r del intarray:parse:list
+        r lpush intarray:parse:list value
         set invalid_ranks [list {} abc -1 -0 +1 01 { 1} {1 } 1.5 1e1 0x1 \
             4294967296 9223372036854775807 9223372036854775808]
-        foreach key {intarray:parse intarray:missing intarray:empty} {
+        foreach key {intarray:parse intarray:missing intarray:empty
+                     intarray:parse:string intarray:parse:list} {
             foreach invalid $invalid_ranks {
                 assert_error {ERR invalid start: must be an unsigned 32 bit integer} {
                     r bitrangeintarray $key $invalid invalid

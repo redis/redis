@@ -2069,7 +2069,11 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
     return !(c->flags & CLIENT_CLOSE_ASAP);
 }
 
-static void bitroarReplyAllIntArray(client *c, robj *o) {
+/* BITGETINTARRAY key -- redis-roaring's integer-array interface, backed by a
+ * native bitmap. Values are ascending set-bit offsets, not raw bitmap bytes. */
+void bitgetintarrayCommand(client *c) {
+    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
+    if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
     /* In particular, CLIENT REPLY OFF must not enumerate an entire bitmap. */
     if (prepareClientToWrite(c) != C_OK) return;
     uint64_t count = bitroarCardinality(o);
@@ -2082,17 +2086,8 @@ static void bitroarReplyAllIntArray(client *c, robj *o) {
         return;
     }
     addReplyArrayLen(c, (long)count);
-    if (c->flags & CLIENT_CLOSE_ASAP) return;
     bitroarIntArrayReply reply = {c, 0};
     bitroarVisitSetBits(o, 0, count, bitroarReplySetBits, &reply);
-}
-
-/* BITGETINTARRAY key -- redis-roaring's integer-array interface, backed by a
- * native bitmap. Values are ascending set-bit offsets, not raw bitmap bytes. */
-void bitgetintarrayCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
-    if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
-    bitroarReplyAllIntArray(c, o);
 }
 
 /* Match the R.* module interface's unsigned 32-bit rank arguments, including
@@ -2107,15 +2102,13 @@ static int bitroarParseIntArrayRank(client *c, robj *arg, const char *name, uint
     return C_OK;
 }
 
-/* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval.
- * Preserve the module's type/argument/range-limit validation order even for
- * missing keys and ranges that would otherwise produce an empty reply. */
+/* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval. */
 void bitrangeintarrayCommand(client *c) {
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
-    if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
     uint64_t start, end;
     if (bitroarParseIntArrayRank(c, c->argv[2], "start", &start) != C_OK ||
         bitroarParseIntArrayRank(c, c->argv[3], "end", &end) != C_OK) return;
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
     if (start > end) {
         addReply(c, shared.emptyarray);
         return;
