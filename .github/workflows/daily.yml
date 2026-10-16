@@ -1102,6 +1102,7 @@ jobs:
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
           gmake
+          sudo sysctl net.inet.ip.portrange.randomized=0
           echo '=== FreeBSD socket environment ==='
           uname -a
           sysctl net.inet.ip.portrange.first \
