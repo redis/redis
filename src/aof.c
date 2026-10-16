@@ -2524,10 +2524,10 @@ int rioWriteBulkStreamID(rio *r,streamID *id) {
  * key and group. */
 int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t groupname_len, streamConsumer *consumer, unsigned char *rawid, streamNACK *nack) {
      /* XCLAIM <key> <group> <consumer> 0 <id> TIME <milliseconds-unix-time>
-               RETRYCOUNT <count> JUSTID FORCE. */
+               RETRYCOUNT <count> JUSTID FORCE AOFRESTORE. */
     streamID id;
     streamDecodeID(rawid,&id);
-    if (rioWriteBulkCount(r,'*',12) == 0) return 0;
+    if (rioWriteBulkCount(r,'*',13) == 0) return 0;
     if (rioWriteBulkString(r,"XCLAIM",6) == 0) return 0;
     if (rioWriteBulkObject(r,key) == 0) return 0;
     if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
@@ -2540,6 +2540,7 @@ int rioWriteStreamPendingEntry(rio *r, robj *key, const char *groupname, size_t 
     if (rioWriteBulkLongLong(r,nack->delivery_count) == 0) return 0;
     if (rioWriteBulkString(r,"JUSTID",6) == 0) return 0;
     if (rioWriteBulkString(r,"FORCE",5) == 0) return 0;
+    if (rioWriteBulkString(r,"AOFRESTORE",10) == 0) return 0;
     return 1;
 }
 
@@ -2552,9 +2553,9 @@ int rioWriteStreamNackedEntries(rio *r, robj *key, const char *groupname,
                                 int count, uint64_t delivery_count) {
     serverAssert(count > 0 && count <= AOF_REWRITE_ITEMS_PER_CMD);
 
-    /* XNACK <key> <group> FAIL IDS <n> <id..> RETRYCOUNT <cnt> FORCE
-     * 6 fixed tokens before IDs + count IDs + 3 fixed tokens after. */
-    if (rioWriteBulkCount(r,'*',6+count+3) == 0) return 0;
+    /* XNACK <key> <group> FAIL IDS <n> <id..> RETRYCOUNT <cnt> FORCE AOFRESTORE
+     * 6 fixed tokens before IDs + count IDs + 4 fixed tokens after. */
+    if (rioWriteBulkCount(r,'*',6+count+4) == 0) return 0;
     if (rioWriteBulkString(r,"XNACK",5) == 0) return 0;
     if (rioWriteBulkObject(r,key) == 0) return 0;
     if (rioWriteBulkString(r,groupname,groupname_len) == 0) return 0;
@@ -2569,6 +2570,7 @@ int rioWriteStreamNackedEntries(rio *r, robj *key, const char *groupname,
     if (rioWriteBulkString(r,"RETRYCOUNT",10) == 0) return 0;
     if (rioWriteBulkLongLong(r,delivery_count) == 0) return 0;
     if (rioWriteBulkString(r,"FORCE",5) == 0) return 0;
+    if (rioWriteBulkString(r,"AOFRESTORE",10) == 0) return 0;
     return 1;
 }
 
