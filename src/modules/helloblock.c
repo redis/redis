@@ -103,6 +103,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     if (pthread_create(&tid,NULL,HelloBlock_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
+        RedisModule_Free(targ);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
     return REDISMODULE_OK;
