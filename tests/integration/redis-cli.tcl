@@ -148,6 +148,44 @@ start_server {tags {"cli"}} {
         _run_cli [srv host] [srv port] $::dbnum {} {*}$args
     }
 
+    # Run redis-cli, let it sample for run_ms, send it SIGINT, and return its
+    # stdout up to EOF (used to exercise the Ctrl-C whole-run summary). The
+    # child is redis-cli directly (no sh -c wrapper) so the signal reaches it.
+    # stdout is drained while waiting so the pipe buffer can never fill and
+    # deadlock the child, and the full run_ms elapses so samples are recorded.
+    # If errvar is given, stderr is captured to that variable in the caller.
+    proc run_cli_sigint {run_ms args} {
+        set errvar {}
+        if {[lindex $args 0] eq "-errvar"} {
+            set errvar [lindex $args 1]
+            set args [lrange $args 2 end]
+        }
+        set redir ""
+        if {$errvar ne ""} {
+            upvar 1 $errvar errout
+            set errfile [tmpfile "cli_err"]
+            set redir " 2>$errfile"
+        }
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum {*}$args]]
+        set fd [open "|$cmd$redir" "r"]
+        fconfigure $fd -translation binary -blocking 0
+        set p [lindex [pid $fd] 0]
+        set buf ""; set waited 0
+        while {$waited < $run_ms} {
+            after 50; incr waited 50
+            append buf [read $fd]
+        }
+        exec kill -INT $p
+        fconfigure $fd -blocking 1
+        append buf [read $fd]
+        catch {close $fd}
+        if {$errvar ne ""} {
+            set efd [open $errfile r]; set errout [read $efd]; close $efd
+            file delete $errfile
+        }
+        return [format_output $buf]
+    }
+
     proc run_cli_with_input_pipe {mode cmd args} {
         if {$mode == "x" } {
             _run_cli [srv host] [srv port] $::dbnum [list pipe $cmd] -x {*}$args
@@ -623,34 +661,181 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
-    test_nontty_cli "Latency mode reports requested percentiles" {
-        # Single-shot --latency in CSV mode samples for one second then exits.
-        # Without percentiles the line is "min,max,avg,count" (4 fields); with
-        # --latency-percentiles one extra column per percentile is appended.
-        set base [run_cli --csv -i 1 --latency]
-        assert_equal 4 [llength [split [string trim $base] ","]]
+    test_nontty_cli "Latency CSV default is legacy, percentiles opt-in" {
+        # CSV defaults to the legacy bare "min,max,avg,count" (4 fields, no
+        # header, no index) so existing --csv parsers are byte-unaffected. The
+        # rich header/index/percentile format is opt-in.
+        set out [run_cli --csv -i 1 --latency]
+        set lines [split [string trim $out] "\n"]
+        assert_equal 1 [llength $lines]
+        set f [split [string trim [lindex $lines 0]] ","]
+        assert_equal 4 [llength $f]
+        assert {[string is double -strict [lindex $f 0]]}
 
+        # "auto" opts in to the rich format: header + index + ceiling columns.
+        set out [run_cli --csv -i 1 --latency --latency-percentiles auto]
+        assert_equal {idx min max avg samples p99 p99.9 p99.99 p99.999} \
+            [split [string trim [lindex [split [string trim $out] "\n"] 0]] ","]
+
+        # An explicit list: header is exactly the requested set + idx.
         set out [run_cli --csv -i 1 --latency --latency-percentiles 50,99]
-        set fields [split [string trim $out] ","]
-        assert_equal 6 [llength $fields]
-
-        # Sanity-check the values: all are non-negative numbers reported in ms
-        # (fields: min,max,avg,count,p50,p99). Percentiles come from an HDR
-        # histogram and are bucket-quantized, so we only assert that they are
-        # monotonic (p50 <= p99); comparing them against the exact min/max
-        # scalars could differ by a quantum and is intentionally avoided.
-        lassign $fields min max avg count p50 p99
+        set lines [split [string trim $out] "\n"]
+        assert_equal {idx min max avg samples p50 p99} \
+            [split [string trim [lindex $lines 0]] ","]
+        set row [split [string trim [lindex $lines 1]] ","]
+        assert_equal 7 [llength $row]
+        assert_equal 0 [lindex $row 0]                 ;# first index is 0
+        lassign $row idx min max avg count p50 p99
         foreach v [list $min $max $avg $p50 $p99] {
             assert {[string is double -strict $v]}
             assert {$v >= 0}
         }
         assert {$p50 <= $p99}
+
+        # "none" is the legacy bare format too (explicit opt-out).
+        set out [run_cli --csv -i 1 --latency --latency-percentiles none]
+        assert_equal 4 [llength \
+            [split [string trim [lindex [split [string trim $out] "\n"] 0]] ","]]
     }
 
-    test_nontty_cli "Latency mode reports percentiles as JSON object" {
+    test_nontty_cli "Latency RAW mode stays byte-stable" {
+        # --raw is machine-read; it must keep the legacy layout: no header, no
+        # index, and no percentiles unless explicitly requested. Default is the
+        # bare "min max avg count" (4 fields) on a single line.
+        set out [run_cli --raw -i 1 --latency]
+        set lines [split [string trim $out] "\n"]
+        assert_equal 1 [llength $lines]
+        set fields [split [string trim [lindex $lines 0]]]
+        assert_equal 4 [llength $fields]
+        assert {[string is double -strict [lindex $fields 0]]}
+
+        # An explicit list appends percentile columns after count (still no
+        # header, still no index): "min max avg count p50 p99" = 6 fields.
+        set out [run_cli --raw -i 1 --latency --latency-percentiles 50,99]
+        set fields [split [string trim [lindex [split [string trim $out] "\n"] 0]]]
+        assert_equal 6 [llength $fields]
+    }
+
+    test_nontty_cli "Latency JSON default is legacy, percentiles opt-in" {
+        # Default JSON is the legacy object (no idx, no type, no percentiles).
+        set out [run_cli --json -i 1 --latency]
+        assert_match {*"min":*"count":*} $out
+        assert {[string first "idx" $out] == -1}
+        assert {[string first "percentiles" $out] == -1}
+
+        # "auto" opts in to a typed sample object with idx + percentiles.
+        set out [run_cli --json -i 1 --latency --latency-percentiles auto]
+        assert_match {*"type": "sample"*"idx":*"percentiles":*"99":*} $out
+
+        # An explicit list echoes its labels verbatim ("99.9" stays "99.9").
         set out [run_cli --json -i 1 --latency --latency-percentiles 50,99.9]
-        # Labels are echoed verbatim (not reformatted), so "99.9" stays "99.9".
         assert_match {*"percentiles":*"50":*"99.9":*} $out
+    }
+
+    test_nontty_cli "Latency auto percentiles gate on sample count" {
+        # Sample long enough to clear the 100-sample floor for p99 but stay well
+        # under the 1000 needed for p99.9. Assertions are keyed off the actual
+        # sample count so they hold regardless of the machine's sampling rate.
+        set out [run_cli --csv -i 3 --latency --latency-percentiles auto]
+        set lines [split [string trim $out] "\n"]
+        set hdr [split [string trim [lindex $lines 0]] ","]
+        set row [split [string trim [lindex $lines 1]] ","]
+        set samples [lindex $row 4]
+        set p99 [lindex $row [lsearch $hdr p99]]
+        set p999 [lindex $row [lsearch $hdr p99.9]]
+        if {$samples > 100} {
+            assert {[string is double -strict $p99]} ;# p99 populated once > 100
+        } else {
+            assert_equal {} $p99
+        }
+        assert_equal {} $p999                        ;# > 1000 unreachable here
+    }
+
+    test_nontty_cli "Latency Ctrl-C prints a whole-run summary" {
+        # In --latency-history the loop runs until interrupted; SIGINT must emit
+        # a cumulative summary over ALL samples (not just the last window). Use
+        # JSON so the summary lands on stdout with a stable shape.
+        # Sub-second interval so several window boundaries land inside the run
+        # window regardless of process-startup latency (avoids a flaky race on
+        # the range-object assertion below). Percentiles opt-in enables the
+        # rich summary (legacy/default emits no summary).
+        set out [run_cli_sigint 1500 --latency-history --json -i 0.2 \
+                     --latency-percentiles auto]
+        set lines [split [string trim $out] "\n"]
+        # Exactly one summary object, and it is the last line emitted.
+        set summaries [lsearch -all -inline $lines {*"type": "summary"*}]
+        assert_equal 1 [llength $summaries]
+        assert_match {*"type": "summary"*} [lindex $lines end]
+        # A window boundary emits a typed range object (the interval elapsed).
+        assert_match {*"type": "range"*} $out
+        # Its count must be >= any per-window count (proves it is cumulative).
+        regexp {"count": (\d+)} [lindex $summaries 0] -> sum_count
+        set max_window 0
+        foreach l $lines {
+            if {[regexp {"type": "summary"} $l]} continue
+            if {[regexp {"count": (\d+)} $l -> c] && $c > $max_window} {
+                set max_window $c
+            }
+        }
+        assert {$sum_count >= $max_window}
+    }
+
+    test_nontty_cli "Latency RAW Ctrl-C keeps stdout byte-clean, summary on stderr" {
+        # With percentiles requested for --raw the whole-run summary must NOT
+        # pollute stdout (machine-read); it is written to stderr instead, and
+        # every stdout data line stays index/header-free ("min max avg count p99"
+        # = 5 fields), never a "summary" line.
+        set out [run_cli_sigint 1000 -errvar err --latency-history --raw -i 1 \
+                     --latency-percentiles 99]
+        assert {[string first "summary" $out] == -1}
+        assert_match {*summary min:*} $err
+        foreach l [split [string trim $out] "\n"] {
+            if {[string match "*range*" $l]} continue      ;# legacy " -- range"
+            assert_equal 5 [llength [split [string trim $l]]]
+        }
+    }
+
+    test_nontty_cli "Latency STANDARD box renders a Unicode table" {
+        # STANDARD output is reachable under FAKETTY; on a UTF-8 locale it draws
+        # a box-drawing table with a header and, on Ctrl-C, a summary box.
+        set ::env(FAKETTY) 1
+        set ::env(LC_ALL) "C.UTF-8"
+        set ok [catch {set out [run_cli_sigint 1000 --latency]} e]
+        catch {unset ::env(LC_ALL)}
+        catch {unset ::env(FAKETTY)}
+        if {$ok} { error $e } ;# restore env even if the run threw
+        assert_match "*\xe2\x94\x82*" $out          ;# vertical bar present
+        assert_match "*\xe2\x94\x8c*" $out          ;# top-left corner present
+        assert_match {*idx*min*max*avg*samples*} $out
+        assert_match {*Summary (all samples):*} $out
+    }
+
+    test_nontty_cli "Latency STANDARD box falls back to ASCII under C locale" {
+        # A non-UTF-8 locale must degrade to an ASCII box (no Unicode bytes).
+        set ::env(FAKETTY) 1
+        set ::env(LC_ALL) "C"
+        set ok [catch {set out [run_cli_sigint 1000 --latency]} e]
+        catch {unset ::env(LC_ALL)}
+        catch {unset ::env(FAKETTY)}
+        if {$ok} { error $e } ;# restore env even if the run threw
+        assert {[string first "\xe2\x94" $out] == -1} ;# no Unicode box bytes
+        assert_match {*+*-*+*} $out                   ;# ASCII corners/rules
+        assert_match {*Summary (all samples):*} $out
+    }
+
+    test_nontty_cli "Latency tty 'none' restores the legacy single line" {
+        # On a tty, --latency-percentiles none is a full escape hatch: the exact
+        # historical "min: .. max: .. avg: .. (N samples)" line, no box, no idx,
+        # and no Ctrl-C summary.
+        set ::env(FAKETTY) 1
+        set ok [catch {set out \
+            [run_cli_sigint 1000 --latency --latency-percentiles none]} e]
+        catch {unset ::env(FAKETTY)}
+        if {$ok} { error $e }
+        assert_match {*min:*max:*avg:*samples)*} $out
+        assert {[string first "\xe2\x94" $out] == -1}  ;# no Unicode box
+        assert {[string first "|" $out] == -1}         ;# no ASCII box either
+        assert {[string first "Summary" $out] == -1}   ;# no summary (exact legacy)
     }
 
     test_nontty_cli "Latency mode rejects invalid percentiles" {
