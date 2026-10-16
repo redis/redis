@@ -4002,6 +4002,7 @@ int clientsCronRunClient(client *c);
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
 #define RESTART_SERVER_CONFIG_REWRITE (1<<1) /* CONFIG REWRITE before restart.*/
 int restartServer(int flags, mstime_t delay);
+void closeInheritedFDs(void);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 
