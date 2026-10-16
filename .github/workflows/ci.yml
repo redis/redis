@@ -8,6 +8,24 @@ concurrency:
 
 jobs:
 
+  check-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        run: sudo apt-get install -y clang-format
+
+      - name: Check changed C code formatting
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          BASE="${PR_BASE:-origin/$DEFAULT_BRANCH}"
+          make format BASE="$BASE"
+
   test-ubuntu-latest:
     runs-on: ubuntu-latest
     steps:
