@@ -896,57 +896,80 @@ size_t zmalloc_get_rss(void) {
 
 #if defined(USE_JEMALLOC)
 
+/* Upper bound on the number of small bins jemalloc exposes. The default build
+ * uses ~36; this leaves ample headroom for fine-grained size-class configs. */
+#define ZMALLOC_MAX_SMALL_BINS 128
+
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
  * Done by summing the memory in unused regs in all slabs of all small bins.
  *
  * Pass in arena to get the information of the specified arena, otherwise pass
  * in MALLCTL_ARENAS_ALL to get all. */
 size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
-    unsigned nbins;
     size_t sz, frag = 0;
 
-    /* Pre-convert mallctl paths to MIB for better performance.
-     * This eliminates snprintf and string parsing overhead in the loop. */
-    size_t bin_size_mib[8], bin_nregs_mib[8], curregs_mib[8], curslabs_mib[8];
-    size_t bin_size_miblen = 8, bin_nregs_miblen = 8, curregs_miblen = 8, curslabs_miblen = 8;
+    /* The bin geometry (number of bins, per-bin region size and regions per
+     * slab) and the resolved mallctl MIBs are constant for the lifetime of the
+     * process. Resolve them once and cache them, so that on every subsequent
+     * call we only fetch the two values that actually change (curregs and
+     * curslabs) and skip all snprintf/string-parsing overhead. */
+    static int initialized = 0;
+    static unsigned nbins = 0;
+    static uint32_t bin_nregs[ZMALLOC_MAX_SMALL_BINS];
+    static size_t bin_reg_size[ZMALLOC_MAX_SMALL_BINS];
+    static size_t curregs_mib_base[8], curslabs_mib_base[8];
+    static size_t curregs_miblen = 8, curslabs_miblen = 8;
 
-    sz = sizeof(unsigned);
-    assert(!je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0));
+    if (!initialized) {
+        size_t bin_size_mib[8], bin_nregs_mib[8];
+        size_t bin_size_miblen = 8, bin_nregs_miblen = 8;
 
-    /* Convert all patterns to MIB (required before using je_mallctlbymib) */
-    assert(!je_mallctlnametomib("arenas.bin.0.size", bin_size_mib, &bin_size_miblen));
-    assert(!je_mallctlnametomib("arenas.bin.0.nregs", bin_nregs_mib, &bin_nregs_miblen));
-    assert(!je_mallctlnametomib("stats.arenas.0.bins.0.curregs", curregs_mib, &curregs_miblen));
-    assert(!je_mallctlnametomib("stats.arenas.0.bins.0.curslabs", curslabs_mib, &curslabs_miblen));
+        sz = sizeof(unsigned);
+        assert(!je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0));
+        assert(nbins <= ZMALLOC_MAX_SMALL_BINS);
+
+        /* Convert all patterns to MIB (required before using je_mallctlbymib) */
+        assert(!je_mallctlnametomib("arenas.bin.0.size", bin_size_mib, &bin_size_miblen));
+        assert(!je_mallctlnametomib("arenas.bin.0.nregs", bin_nregs_mib, &bin_nregs_miblen));
+        assert(!je_mallctlnametomib("stats.arenas.0.bins.0.curregs", curregs_mib_base, &curregs_miblen));
+        assert(!je_mallctlnametomib("stats.arenas.0.bins.0.curslabs", curslabs_mib_base, &curslabs_miblen));
+
+        /* Cache the immutable per-bin geometry. */
+        for (unsigned j = 0; j < nbins; j++) {
+            bin_size_mib[2] = j;
+            sz = sizeof(size_t);
+            assert(!je_mallctlbymib(bin_size_mib, bin_size_miblen, &bin_reg_size[j], &sz, NULL, 0));
+
+            bin_nregs_mib[2] = j;
+            sz = sizeof(uint32_t);
+            assert(!je_mallctlbymib(bin_nregs_mib, bin_nregs_miblen, &bin_nregs[j], &sz, NULL, 0));
+        }
+        initialized = 1;
+    }
+
+    /* Work on local copies of the MIBs so that setting the arena/bin indices
+     * does not mutate the shared cached templates. */
+    size_t curregs_mib[8], curslabs_mib[8];
+    memcpy(curregs_mib, curregs_mib_base, sizeof(curregs_mib));
+    memcpy(curslabs_mib, curslabs_mib_base, sizeof(curslabs_mib));
+    curregs_mib[2] = arena;
+    curslabs_mib[2] = arena;
 
     for (unsigned j = 0; j < nbins; j++) {
-        size_t curregs, curslabs, reg_size;
-        uint32_t nregs;
-
-        /* The size of the current bin */
-        bin_size_mib[2] = j;
-        sz = sizeof(size_t);
-        assert(!je_mallctlbymib(bin_size_mib, bin_size_miblen, &reg_size, &sz, NULL, 0));
+        size_t curregs, curslabs;
 
         /* Number of used regions in the bin */
-        curregs_mib[2] = arena;
         curregs_mib[4] = j;
         sz = sizeof(size_t);
         assert(!je_mallctlbymib(curregs_mib, curregs_miblen, &curregs, &sz, NULL, 0));
 
-        /* Number of regions per slab */
-        bin_nregs_mib[2] = j;
-        sz = sizeof(uint32_t);
-        assert(!je_mallctlbymib(bin_nregs_mib, bin_nregs_miblen, &nregs, &sz, NULL, 0));
-
         /* Number of current slabs in the bin */
-        curslabs_mib[2] = arena;
         curslabs_mib[4] = j;
         sz = sizeof(size_t);
         assert(!je_mallctlbymib(curslabs_mib, curslabs_miblen, &curslabs, &sz, NULL, 0));
 
         /* Calculate the fragmentation bytes for the current bin and add it to the total. */
-        frag += ((nregs * curslabs) - curregs) * reg_size;
+        frag += ((bin_nregs[j] * curslabs) - curregs) * bin_reg_size[j];
     }
 
     return frag;
