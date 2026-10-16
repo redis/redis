@@ -5301,6 +5301,10 @@ void hgetdelCommand(client *c) {
         }
     }
 
+    /* update memory tracking, the lookups above may have resized the hash */
+    if (o && server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
+
     /* Return if no modification has been made. */
     if (vecSize(vexpired) == 0 && vecSize(vdeleted) == 0) {
         vecRelease(vexpired);
@@ -5315,9 +5319,6 @@ void hgetdelCommand(client *c) {
     int64_t hist_newlen = delete_key ? -1 : newlen;
     if (oldlen != hist_newlen)
         updateKeysizesHist(c->db, OBJ_HASH, oldlen, hist_newlen);
-    /* update memory tracking */
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     /* is it last HFE */
     if (!delete_key && hfe && (hashTypeIsFieldsWithExpire(o) == 0))
         estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
