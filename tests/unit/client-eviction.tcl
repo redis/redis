@@ -295,6 +295,42 @@ start_server {} {
         r debug reply-copy-avoidance 1
     } {OK} {needs:debug}
 
+    test "client evicted due to output buf with copy avoidance and key deletion" {
+        r flushdb
+        r setrange k1 200000 v
+        set rr [redis_deferring_client]
+        $rr client setname test_client
+        $rr flush
+        assert {[$rr read] == "OK"}
+        # Attempt a large response under eviction limit
+        $rr get k1
+        $rr flush
+        assert {[string length [$rr read]] == 200001}
+        set mem [client_field test_client tot-mem]
+        assert {$mem < $maxmemory_clients}
+
+        # Fill output buff in loop without reading it and make sure
+        # we're eventually disconnected, but before reaching maxmemory_clients
+        set i 1
+        while true {
+            if { [catch {
+                set mem [client_field test_client tot-mem]
+                assert {$mem < $maxmemory_clients}
+                $rr get k$i
+                $rr flush
+                # now trigger copy avoidance unsharing by deleting the key
+                r del k$i
+                incr i
+                # and then re-create another key to continue the test
+                r setrange k$i 200000 v
+               } e]} {
+                assert {![client_exists test_client]}
+                break
+            }
+        }
+        $rr close
+    }
+
     foreach {no_evict} {on off} {
         test "client no-evict $no_evict" {
             r flushdb
