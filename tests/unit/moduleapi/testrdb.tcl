@@ -116,14 +116,37 @@ tags "modules external:skip" {
                     $master config set dynamic-hz no
                     $replica config set dynamic-hz no
                     set start [clock clicks -milliseconds]
+
+                    # Use deferred mode to reduce round-trips while generating data.
+                    set pipeline 16
+                    set pending 0
+                    r deferred 1
                     # Generate small keys
                     for {set k 0} {$k < 20000} {incr k} {
                         r testrdb.set.key keysmall$k [string repeat A [expr {int(rand()*100)}]]
+                        incr pending
+                        if {$pending == $pipeline} {
+                            for {set i 0} {$i < $pipeline} {incr i} {
+                                r read
+                            }
+                            set pending 0
+                        }
                     }
                     # Generate larger keys
                     for {set k 0} {$k < 30} {incr k} {
                         r testrdb.set.key key$k [string repeat A [expr {int(rand()*1000000)}]]
+                        incr pending
+                        if {$pending == $pipeline} {
+                            for {set i 0} {$i < $pipeline} {incr i} {
+                                r read
+                            }
+                            set pending 0
+                        }
                     }
+                    for {set i 0} {$i < $pending} {incr i} {
+                        r read
+                    }
+                    r deferred 0
 
                     if {$::verbose} {
                         set end [clock clicks -milliseconds]
