@@ -488,12 +488,35 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [lsort [r smembers myset]] {b c}
             # A missing key is not created.
             r del myset
-            assert_equal [r saddex myset PXAT 1 MEMBERS 2 a b] 1
+            assert_equal [r saddex myset PXAT 1 MEMBERS 2 a b] 0
             assert_equal [r exists myset] 0
             # Deleting every member deletes the key.
             sme_create_set r myset {a b}
             assert_equal [r saddex myset EXAT 1 MEMBERS 2 a b] 1
             assert_equal [r exists myset] 0
+        }
+
+        test "SADDEX - Replies 0 when nothing was modified ($enc)" {
+            # An expiration in the past, and none of the members exists.
+            sme_create_set r myset {a b}
+            assert_equal [r saddex myset PXAT 1 MEMBERS 2 x y] 0
+            assert_equal [lsort [r smembers myset]] {a b}
+            # The members exist with the very same expiration.
+            set when [expr {[clock milliseconds] + 100000}]
+            assert_equal [r saddex myset PXAT $when MEMBERS 2 a b] 1
+            assert_equal [r saddex myset PXAT $when MEMBERS 2 a b] 0
+            # At least one member differs: new, or a different expiration.
+            assert_equal [r saddex myset PXAT $when MEMBERS 2 a c] 1
+            assert_equal [r saddex myset PXAT [expr {$when + 1}] MEMBERS 1 a] 1
+            # Existing members without an expiration, with and without KEEPTTL.
+            sme_create_set r myset {a b}
+            assert_equal [r saddex myset MEMBERS 2 a b] 0
+            assert_equal [r saddex myset KEEPTTL MEMBERS 2 a b] 0
+            # An existing expiration is discarded, or kept.
+            r saddex myset PXAT $when MEMBERS 1 a
+            assert_equal [r saddex myset KEEPTTL MEMBERS 1 a] 0
+            assert_equal [r saddex myset MEMBERS 1 a] 1
+            assert_equal [r saddex myset MEMBERS 1 a] 0
         }
 
         test "SADDEX - Without an expiration option it is SADD for sets that do not expire ($enc)" {
@@ -566,9 +589,50 @@ start_server {tags {"external:skip needs:debug"}} {
         assert_equal "pmessage * __keyspace@${db}__:myset del" [$rd1 read]
         $rd1 close
     }
+
+    test "SADDEX - Members that do not change fire no events and are not counted as dirty" {
+        set db 9
+        r config set notify-keyspace-events Ksg
+        r del myset
+        r saddex myset PXAT 4102444800000 MEMBERS 2 a b
+        r sadd plain x
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+        set dirty [s rdb_changes_since_last_save]
+        # Nothing changes: no event, and nothing is counted.
+        r saddex myset PXAT 4102444800000 MEMBERS 2 a b
+        r saddex myset PXAT 1 MEMBERS 2 nosuch other
+        r saddex plain MEMBERS 1 x
+        r saddex plain KEEPTTL MEMBERS 1 x
+        assert_equal $dirty [s rdb_changes_since_last_save]
+        # Only the member that changes is counted.
+        r saddex myset PXAT 4102444800000 MEMBERS 3 a b c
+        assert_equal [expr {$dirty + 1}] [s rdb_changes_since_last_save]
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myset sexpire" [$rd1 read]
+        # Nothing else was published: the next event is the one of this command.
+        r sadd myset d
+        assert_equal "pmessage * __keyspace@${db}__:myset sadd" [$rd1 read]
+        $rd1 close
+    }
 }
 
 start_server {tags {"external:skip needs:repl needs:debug"}} {
+    test "SADDEX - A command that modifies nothing is not propagated" {
+        set repl [attach_to_replication_stream]
+        r saddex n1 PXAT 4102444800000 MEMBERS 2 a b
+        r saddex n1 PXAT 4102444800000 MEMBERS 2 a b       ;# same expiration: nothing
+        r saddex n1 PXAT 1 MEMBERS 1 nosuch                ;# past, no member exists: nothing
+        r saddex n1 KEEPTTL MEMBERS 2 a b                  ;# expiration is kept: nothing
+        r saddex n1 PXAT 4102444800000 MEMBERS 2 a c       ;# c is new
+        assert_replication_stream $repl {
+            {select *}
+            {saddex n1 PXAT 4102444800000 MEMBERS 2 a b}
+            {saddex n1 PXAT 4102444800000 MEMBERS 2 a c}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test "SME commands propagate in canonical form" {
         set repl [attach_to_replication_stream]
         r sadd s1 a b c

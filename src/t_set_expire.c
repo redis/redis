@@ -974,6 +974,10 @@ void saddexCommand(client *c) {
         }
     }
 
+    /* Counts the members that were added, deleted or got a different expiration.
+     * Only they are counted as changes, notified and propagated: the reply is 0,
+     * and nothing is propagated, if there was none, even if the conditions were met. */
+    int modified = 0;
     memvec mvset, mvupdated, mvdeleted;
     vec *vset = memvecInit(&mvset, memberCount);
     vec *vupdated = memvecInit(&mvupdated, memberCount);
@@ -992,6 +996,7 @@ void saddexCommand(client *c) {
                 if (setTypeRemove(set, member)) {
                     propagateSetMemberDeletion(c->db, keyArg->ptr, member, sdslen(member));
                     vecPush(vdeleted, memberObj);
+                    modified++;
                 }
             }
         } else {
@@ -1012,6 +1017,14 @@ void saddexCommand(client *c) {
         for (int i = 0; i < memberCount; i++) {
             robj *memberObj = c->argv[firstMemberPos + i];
             sds member = memberObj->ptr;
+            uint64_t cur;
+            int exists = setTypeGetExpire(set, member, &cur);
+            /* A member that is logically expired but not removed yet is added again. */
+            int changed = setMemberIsGone(exists, cur) ||
+                          (setsExpire ? cur != (uint64_t)expireTime
+                                      : (cur != EB_EXPIRE_TIME_INVALID && !(flags & SME_KEEPTTL)));
+            if (!changed) continue;
+            modified++;
             if (setsExpire) {
                 /* Add or update the member, and set its expiration. The set
                  * grows to a bigger encoding, keeping the expirations, if needed. */
@@ -1062,6 +1075,8 @@ void saddexCommand(client *c) {
     if (pastTime) {
         /* The SREMs of the deleted members were already propagated. */
         preventCommandPropagation(c);
+    } else if (modified == 0) {
+        preventCommandPropagation(c);
     } else if (setsExpire && !(flags & SME_PXAT)) {
         /* Propagate with an absolute time in milliseconds: PXAT. */
         rewriteClientCommandArgument(c, expireTimePos - 1, shared.pxat);
@@ -1070,7 +1085,7 @@ void saddexCommand(client *c) {
         decrRefCount(expire);
     }
 
-    addReplyLongLong(c, 1);
+    addReplyLongLong(c, modified > 0);
 
     vecRelease(vset);
     vecRelease(vupdated);
