@@ -229,6 +229,36 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
     }
 }
 
+start_server {config "minimal.conf" tags {"network external:skip"}} {
+    test {Lookahead prefetches the keys of a pipeline} {
+        set server_pid [s process_id]
+        for {set i 0} {$i < 16} {incr i} {
+            r set key:$i $i
+        }
+        set info [r info stats]
+        set entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+        set batches [getInfoProperty $info io_threaded_total_prefetch_batches]
+
+        # Pause the server so the whole pipeline is read at once, and the
+        # lookahead parses all of it before executing the first command.
+        set rd [redis_deferring_client]
+        pause_process $server_pid
+        for {set i 0} {$i < 16} {incr i} {
+            $rd get key:$i
+        }
+        $rd flush
+        resume_process $server_pid
+        for {set i 0} {$i < 16} {incr i} {
+            assert_equal $i [$rd read]
+        }
+        $rd close
+
+        set info [r info stats]
+        assert_morethan [getInfoProperty $info io_threaded_total_prefetch_batches] $batches
+        assert_morethan [getInfoProperty $info io_threaded_total_prefetch_entries] $entries
+    }
+}
+
 start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-debug-command {yes} io-threads 2}} {
     set server_pid [s process_id]
     # Since each thread may perform memory prefetch independently, this test is
