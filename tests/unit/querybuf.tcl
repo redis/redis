@@ -199,7 +199,7 @@ start_server {tags {"querybuf"}} {
         set queued 0
         catch {
             for {set i 0} {$i < 20} {incr i} {
-                $rd set key:$i $payload
+                $rd set key:$i{t} $payload
                 incr queued
             }
         } e
@@ -226,7 +226,7 @@ start_server {tags {"querybuf"}} {
         set payload [string repeat A 102400]
         $rd multi
         for {set i 0} {$i < 5} {incr i} {
-            $rd set key:$i $payload
+            $rd set key:$i{t} $payload
         }
         assert_equal [llength [$rd exec]] 5
 
