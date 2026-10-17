@@ -4000,6 +4000,7 @@ NULL
             entries_read = s->entries_added;
         }
 
+        int moved_back = streamCompareID(&id,&cg->last_id) < 0;
         streamUpdateCGroupLastId(s, cg, &id);
         cg->entries_read = entries_read;
         streamStatsReenterStructural(c->db, s, cg);
@@ -4010,6 +4011,10 @@ NULL
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
         keyModified(c,c->db,c->argv[2],o,0);
+        /* Moving the group back makes the entries after the new ID
+         * deliverable again: unblock the XREADGROUP consumers, so that they
+         * are served now and not only when the next entry is added. */
+        if (moved_back) signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             if (server.memory_tracking_enabled)
