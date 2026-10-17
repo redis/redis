@@ -3335,9 +3335,14 @@ static sds getConfigReplicaOfOption(standardConfig *config) {
     return sdsnew(buf);
 }
 
-int allowProtectedAction(int config, client *c) {
+/* is_local is a connIsLocal() result: 1 for a local connection, 0 or -1 otherwise. */
+int allowProtectedActionIsLocal(int config, int is_local) {
     return (config == PROTECTED_ACTION_ALLOWED_YES) ||
-           (config == PROTECTED_ACTION_ALLOWED_LOCAL && (connIsLocal(c->conn) == 1));
+           (config == PROTECTED_ACTION_ALLOWED_LOCAL && is_local == 1);
+}
+
+int allowProtectedAction(int config, client *c) {
+    return allowProtectedActionIsLocal(config, connIsLocal(c->conn));
 }
 
 
