@@ -4205,3 +4205,96 @@ start_server {tags {"stream external:skip"} overrides {appendonly yes appendfsyn
         assert_equal $id2 [r XADD mystream IDMP p1 "req-1" * field "v3"]
     }
 }
+
+# Retries must answer with the mapping that was recorded last, so every
+# replacement below is verified through the deduplicated reply.
+proc assert_idmp_retries {client expected} {
+    foreach {key iid id} $expected {
+        assert_equal $id [$client XADD $key IDMP p $iid * f retry]
+    }
+}
+
+# An upstream node propagates an XADD with an explicit ID when it appends an
+# entry for a mapping this node still tracks. The parser rejects that
+# combination from a regular client, so the incremental file is written by
+# hand and loaded with DEBUG LOADAOF. The IDs are far in the future, so
+# nothing expires while the file is replayed and the replacement runs on the
+# middle of the list, on the tail, and through the walk fallback.
+start_server {tags {"stream needs:debug external:skip"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always auto-aof-rewrite-percentage 0}} {
+    set server_path [lindex [r config get dir] 1]
+    set aof_dirpath [file join $server_path appendonlydir]
+    set aof_incr_file [file join $aof_dirpath appendonly.aof.1.incr.aof]
+    set aof_manifest_file [file join $aof_dirpath appendonly.aof.manifest]
+
+    set expected {
+        s-mid      a                     9000000000001-0
+        s-mid      b                     9000000000004-0
+        s-mid      c                     9000000000003-0
+        s-tail     a                     9000000000001-0
+        s-tail     b                     9000000000003-0
+        s-fallback a                     9000000000003-0
+        s-fallback ppppppppppppppppppp   9000000000002-0
+    }
+
+    test {XADD IDMP replaces a tracked mapping applied from the AOF} {
+        r config set appendonly no
+        r flushall
+        file delete -force $aof_dirpath
+
+        create_aof $aof_dirpath $aof_incr_file {
+            # a, b, c in insertion order, then b (the middle node) replaced.
+            append_to_aof [formatCommand XADD s-mid IDMP p a 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-mid IDMP p b 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-mid IDMP p c 9000000000003-0 f v3]
+            append_to_aof [formatCommand XADD s-mid IDMP p b 9000000000004-0 f v4]
+
+            # a replaced while it is the last mapping of the producer.
+            append_to_aof [formatCommand XADD s-tail IDMP p a 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-tail IDMP p b 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-tail IDMP p b 9000000000003-0 f v3]
+
+            # The node after 'a' has a longer IID, so its slot cannot be
+            # reused for the shorter 'a' and the list has to be walked.
+            append_to_aof [formatCommand XADD s-fallback IDMP p a 9000000000001-0 f v1]
+            append_to_aof [formatCommand XADD s-fallback IDMP p ppppppppppppppppppp 9000000000002-0 f v2]
+            append_to_aof [formatCommand XADD s-fallback IDMP p a 9000000000003-0 f v3]
+        }
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        # The replayed commands carry no SELECT, so they land in DB 0, while
+        # the test client talks to DB 9 by default.
+        r debug loadaof
+        r select 0
+
+        assert_equal 4 [r XLEN s-mid]
+        assert_equal 3 [r XLEN s-tail]
+        assert_equal 3 [r XLEN s-fallback]
+        assert_equal 3 [dict get [r XINFO STREAM s-mid] iids-tracked]
+        assert_equal 2 [dict get [r XINFO STREAM s-tail] iids-tracked]
+        assert_equal 2 [dict get [r XINFO STREAM s-fallback] iids-tracked]
+        assert_idmp_retries r $expected
+
+        # The same mappings must survive a round trip through RDB.
+        r debug reload
+        assert_idmp_retries r $expected
+
+        # A cold start has to load them from the AOF again.
+        restart_server 0 true false
+        r select 0
+        assert_idmp_retries r $expected
+
+        # The rewrite emits one XIDMPRECORD per mapping, so the rewritten
+        # file has to restore the same mappings.
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        restart_server 0 true false
+        r select 0
+
+        assert_equal 4 [r XLEN s-mid]
+        assert_equal 3 [r XLEN s-tail]
+        assert_equal 3 [r XLEN s-fallback]
+        assert_idmp_retries r $expected
+    }
+}

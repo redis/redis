@@ -2600,16 +2600,16 @@ void xaddCommand(client *c) {
         entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         
         /* Check if IID already exists and reply if found. This must not run
-         * for a command with an explicit ID applied from a master or while
-         * loading an AOF: such a command is an append the upstream node
-         * actually made (a duplicate is propagated with its wildcard ID
-         * unmodified), and a mapping that is still tracked here (it expires
-         * on this node's own threshold, which can trail the upstream one)
-         * would wrongly skip the append and permanently diverge this node.
-         * A wildcard-ID command from such a client is a duplicate the
+         * for a command with an explicit ID: the parser already rejects IDMP
+         * unless the ID is auto-generated, so such a command can only come
+         * from a master link or from AOF loading, and it is an append the
+         * upstream node actually made (a duplicate is propagated with its
+         * wildcard ID unmodified). A mapping that is still tracked here (it
+         * expires on this node's own threshold, which can trail the upstream
+         * one) would wrongly skip the append and permanently diverge this
+         * node. A wildcard-ID command from such a client is a duplicate the
          * upstream node did not append: it is still filtered out here. */
-        if (!(mustObeyClient(c) && parsed_args.id_given) &&
-            idmpLookupAndReply(s, producer, entry, c))
+        if (!parsed_args.id_given && idmpLookupAndReply(s, producer, entry, c))
         {
             /* IID already exists, free the entry and return */
             idmpEntryFree(entry, &s->alloc_size);
@@ -6180,6 +6180,39 @@ static int idmpLookup(idmpProducer *producer, idmpEntry *entry, streamID *id) {
     return streamCompareID(&existing->id, id) == 0 ? 1 : -1;
 }
 
+/* Remove 'target' from the producer's linked list.
+ *
+ * The list is singly linked, so finding the previous node costs a walk. When
+ * the target is followed by another entry, move that entry into the target's
+ * slot instead: overwrite the target with the following node and make the
+ * following node's dict entry point at the target. The IIDs of the two nodes
+ * differ, so the target's allocation is only reused when it is large enough. */
+static void idmpListRemoveEntry(stream *s, idmpProducer *producer, idmpEntry *target) {
+    idmpEntry *following = target->next;
+
+    if (following != NULL && following->iid_len <= target->iid_len) {
+        dictEntry *de = dictFind(producer->idmp_dict, following);
+        serverAssert(de != NULL);
+        memcpy(target, following, sizeof(idmpEntry) + following->iid_len);
+        dictSetKey(producer->idmp_dict, de, target);
+        if (producer->idmp_tail == following) producer->idmp_tail = target;
+        idmpEntryFree(following, &s->alloc_size);
+        return;
+    }
+
+    idmpEntry *prev = NULL;
+    idmpEntry *it = producer->idmp_head;
+    while (it != target) {
+        serverAssert(it != NULL);
+        prev = it;
+        it = it->next;
+    }
+    if (prev) prev->next = target->next;
+    else producer->idmp_head = target->next;
+    if (producer->idmp_tail == target) producer->idmp_tail = prev;
+    idmpEntryFree(target, &s->alloc_size);
+}
+
 /* Insert an idmpEntry into the producer's dict and linked list with the given stream ID. */
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id) {
     /* Set the stream ID and initialize next pointer */
@@ -6190,28 +6223,33 @@ static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry,
      * append for an IID that is still tracked here: this node expires the
      * mapping on its own threshold, which can trail the upstream one (the
      * replica may be behind, or the mapping was restored from a snapshot with
-     * a fresh window). The upstream append is authoritative, so drop the
-     * stale mapping instead of keeping the older stream ID. */
-    dictEntry *de = dictFind(producer->idmp_dict, entry);
+     * a fresh window). The upstream append is authoritative, so the stale
+     * mapping is replaced instead of kept. dictAddRaw reports the existing
+     * dict entry, when there is one, without a second lookup. */
+    dictEntry *existing = NULL;
+    dictEntry *de = dictAddRaw(producer->idmp_dict, entry, &existing);
+
     if (de != NULL) {
-        idmpEntry *stale = dictGetKey(de);
-        idmpEntry *prev = NULL;
-        idmpEntry *it = producer->idmp_head;
-        while (it != stale) {
-            serverAssert(it != NULL);
-            prev = it;
-            it = it->next;
+        /* dictAddRaw leaves the value unset. */
+        dictSetVal(producer->idmp_dict, de, NULL);
+    } else {
+        idmpEntry *stale = dictGetKey(existing);
+
+        if (stale->next == NULL) {
+            /* The stale mapping is the tail: it keeps its list slot and only
+             * its stream ID is refreshed, so the new entry is dropped. */
+            stale->id = *id;
+            idmpEntryFree(entry, &s->alloc_size);
+            s->iids_added++;
+            return;
         }
-        if (prev) prev->next = stale->next;
-        else producer->idmp_head = stale->next;
-        if (producer->idmp_tail == stale) producer->idmp_tail = prev;
-        dictDelete(producer->idmp_dict, stale);
-        idmpEntryFree(stale, &s->alloc_size);
+
+        /* Drop the stale mapping from the list only: the dict entry that
+         * points at it is reused for the new mapping below. */
+        idmpListRemoveEntry(s, producer, stale);
+        dictSetKey(producer->idmp_dict, existing, entry);
     }
 
-    /* Insert into dict (any stale mapping for this IID was just replaced) */
-    serverAssert(dictAdd(producer->idmp_dict, entry, NULL) == DICT_OK);
-    
     /* Add to linked list tail */
     if (producer->idmp_tail == NULL) {
         producer->idmp_head = producer->idmp_tail = entry;
