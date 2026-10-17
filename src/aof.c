@@ -2590,13 +2590,14 @@ int rioWriteStreamEmptyConsumer(rio *r, robj *key, const char *groupname, size_t
  * restore an IDMP entry for the given producer in the context of the
  * specified key. */
 int rioWriteStreamIdmpEntry(rio *r, robj *key, const char *pid, size_t pid_len, idmpEntry *entry) {
-    /* XIDMPRECORD <key> <pid> <iid> <streamID> */
-    if (rioWriteBulkCount(r,'*',5) == 0) return 0;
+    /* XIDMPRECORD <key> <pid> <iid> <streamID> <recorded-ms> */
+    if (rioWriteBulkCount(r,'*',6) == 0) return 0;
     if (rioWriteBulkString(r,"XIDMPRECORD",11) == 0) return 0;
     if (rioWriteBulkObject(r,key) == 0) return 0;
     if (rioWriteBulkString(r,pid,pid_len) == 0) return 0;
     if (rioWriteBulkString(r,entry->iid,entry->iid_len) == 0) return 0;
     if (rioWriteBulkStreamID(r,&entry->id) == 0) return 0;
+    if (rioWriteBulkLongLong(r,entry->recorded_ms) == 0) return 0;
     return 1;
 }
 
