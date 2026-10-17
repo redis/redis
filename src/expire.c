@@ -176,9 +176,17 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 
     kvobj *kv = (kvobj *) item;
 
-    /* currently we only support hash type sub-expire */
-    assert(kv->type == OBJ_HASH);
-    uint64_t nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
+    uint64_t nextExpTime;
+    switch (kv->type) {
+    case OBJ_HASH:
+        nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
+        break;
+    case OBJ_SET:
+        nextExpTime = setTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
+        break;
+    default:
+        serverPanic("Unexpected type in subexpires: %d", kv->type);
+    }
 
     /* If hash has no more fields to expire or got deleted, indicate
      * to remove it from HFE DB to the caller ebExpire() */
@@ -187,7 +195,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
     } else {
         /* Hash has more fields to expire. Update next expiration time of the hash
          * and indicate to add it back to global HFE DS */
-        ebSetMetaExpTime(hashGetExpireMeta(item), nextExpTime);
+        ebSetMetaExpTime(subexpiresBucketsType.getExpireMeta(item), nextExpTime);
         return ACT_UPDATE_EXP_ITEM;
     }
 }
@@ -939,4 +947,38 @@ void touchCommand(client *c) {
     for (int j = 1; j < c->argc; j++)
         if (lookupKeyRead(c->db,c->argv[j]) != NULL) touched++;
     addReplyLongLong(c,touched);
+}
+
+/* Parse the expire time of a hash field or set member from a command argument
+ * and do boundary checks. Shared by the hash field and set member expiration
+ * commands, so the numeric rules are identical. */
+int parseSubkeyExpireTime(client *c, robj *o, int unit, long long basetime,
+                           long long *expire)
+{
+    long long val;
+
+    /* Read the expiry time from command */
+    if (getLongLongFromObjectOrReply(c, o, &val, NULL) != C_OK)
+        return C_ERR;
+
+    if (val < 0) {
+        addReplyError(c,"invalid expire time, must be >= 0");
+        return C_ERR;
+    }
+
+    if (unit == UNIT_SECONDS) {
+        if (val > (long long) SUBEXPIRE_MAX_ABS_TIME_MSEC / 1000) {
+            addReplyErrorExpireTime(c);
+            return C_ERR;
+        }
+        val *= 1000;
+    }
+
+    if (val > (long long) SUBEXPIRE_MAX_ABS_TIME_MSEC - basetime) {
+        addReplyErrorExpireTime(c);
+        return C_ERR;
+    }
+    val += basetime;
+    *expire = val;
+    return C_OK;
 }

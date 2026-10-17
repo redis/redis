@@ -813,9 +813,10 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
     sds key = kvobjGetKey(kv);
     int slot = getKeySlot(key);
 
-    /* Preserve HFE registration for hash objects (embedded in object memory). */
+    /* Preserve the subexpires registration of hash and set objects that have
+     * member expirations (the ExpireMeta is embedded in object memory). */
     uint64_t subexpiry = EB_EXPIRE_TIME_INVALID;
-    if (kv->type == OBJ_HASH)
+    if (typeMaySubexpire(kv->type))
         subexpiry = estoreRemove(db->subexpires, slot, kv);
 
     /* Preserve existing expire value (and whether an expires entry exists). */

@@ -2378,6 +2378,10 @@ void zuiInitIterator(zsetopsrc *op) {
         } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
             it->lp.lp = op->subject->ptr;
             it->lp.p = lpFirst(it->lp.lp);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            /* (member, ttl) pairs. The sets with a ttl are refused before. */
+            it->lp.lp = setListpackExGetLp(op->subject);
+            it->lp.p = lpFirst(it->lp.lp);
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -2414,7 +2418,8 @@ void zuiClearIterator(zsetopsrc *op) {
             UNUSED(it); /* skip */
         } else if (op->encoding == OBJ_ENCODING_HT) {
             dictReleaseIterator(it->ht.di);
-        } else if (op->encoding == OBJ_ENCODING_LISTPACK) {
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK ||
+                   op->encoding == OBJ_ENCODING_LISTPACK_EX) {
             UNUSED(it);
         } else {
             serverPanic("Unknown set encoding");
@@ -2500,6 +2505,14 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
 
             /* Move to next element. */
             it->lp.p = lpNext(it->lp.lp, it->lp.p);
+        } else if (op->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            if (it->lp.p == NULL)
+                return 0;
+            val->estr = lpGetValue(it->lp.p, &val->elen, &val->ell);
+            val->score = 1.0;
+
+            /* Move to next element, skipping its ttl. */
+            it->lp.p = lpNext(it->lp.lp, lpNext(it->lp.lp, it->lp.p));
         } else {
             serverPanic("Unknown set encoding");
         }
@@ -2928,6 +2941,13 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
                 addReplyErrorObject(c,shared.wrongtypeerr);
+                return;
+            }
+            /* The members of a set can have an expiration, which a sorted set
+             * has no way to keep, so the set cannot be an input. */
+            if (obj->type == OBJ_SET && setTypeGetMinExpire(obj, 1) != EB_EXPIRE_TIME_INVALID) {
+                zfree(src);
+                addReplyError(c,"operation not supported on a set with member expirations");
                 return;
             }
 

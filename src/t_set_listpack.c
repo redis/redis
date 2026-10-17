@@ -151,7 +151,7 @@ static void *lpConvertFrom(robj *set, unsigned long cap, int panic) {
     size_t len = 0;
     int64_t llele = 0;
     setTypeIterator si;
-    setTypeInitIterator(&si, set);
+    setTypeInitIterator(&si, set, SET_ITER_RAW);
     while (setTypeNext(&si, &str, &len, &llele) != -1) {
         if (str != NULL)
             lp = lpAppend(lp, (unsigned char *)str, len);

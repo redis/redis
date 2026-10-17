@@ -8,7 +8,7 @@
 
 #include "server.h"
 #include "redisassert.h"
-#include "entry.h"
+#include "hash_entry.h"
 
 /* Aggregates parameters for entry layout and serialization.
  * Populated by setEntryWriteInfo() and consumed by needsNewAlloc() and entryWrite*(). */
@@ -36,7 +36,7 @@ static_assert(FIELD_SDS_AUX_BIT_ENTRY_MAX + SDS_TYPE_BITS < sizeof(char) * CHAR_
 
 /* Returns true if the entry's value is not embedded (stored by pointer). */
 static inline int entryHasValuePtr(const Entry *entry) {
-    return sdsGetAuxBit(entryGetField(entry), FIELD_SDS_AUX_BIT_ENTRY_HAS_VALUE_PTR);
+    return sdsGetAuxBit(hEntryGetField(entry), FIELD_SDS_AUX_BIT_ENTRY_HAS_VALUE_PTR);
 }
 
 /* Returns true if the entry's value is embedded in the entry. */
@@ -45,64 +45,64 @@ static inline int entryHasEmbeddedValue(Entry *entry) {
 }
 
 /* Returns true if the entry has an expiration timestamp. */
-int entryHasExpiry(const Entry *entry) {
-    return sdsGetAuxBit(entryGetField(entry), FIELD_SDS_AUX_BIT_ENTRY_HAS_EXPIRY);
+int hEntryHasExpiry(const Entry *entry) {
+    return sdsGetAuxBit(hEntryGetField(entry), FIELD_SDS_AUX_BIT_ENTRY_HAS_EXPIRY);
 }
 
 /* Returns the location of a pointer to a separately allocated value. Only for
  * an entry without an embedded value. */
 static sds *entryGetValueRef(const Entry *entry) {
     serverAssert(entryHasValuePtr(entry));
-    char *fieldHdr = sdsAllocPtr(entryGetField(entry));
+    char *fieldHdr = sdsAllocPtr(hEntryGetField(entry));
     char *valuePtr = fieldHdr - sizeof(sds);
     return (sds *) valuePtr;
 }
 
 /* A pointer to the value pointer. If embedded or doesn't have a value, returns NULL. */
-sds *entryGetValuePtrRef(const Entry *entry) {
+sds *hEntryGetValuePtrRef(const Entry *entry) {
     return entryHasValuePtr(entry) ? entryGetValueRef(entry) : NULL;
 }
 
 /* Returns the sds of the entry's value. */
-sds entryGetValue(const Entry *entry) {
+sds hEntryGetValue(const Entry *entry) {
     if (entryHasValuePtr(entry)) {
         return *entryGetValueRef(entry);
     } else {
         /* Skip field content, field null terminator and value sds8 hdr. */
-        size_t offset = sdslen(entryGetField(entry)) + 1 + sdsHdrSize(SDS_TYPE_8);
+        size_t offset = sdslen(hEntryGetField(entry)) + 1 + sdsHdrSize(SDS_TYPE_8);
         return (sds)((char *)entry + offset);
     }
 }
 
 /* Returns the address of the entry allocation. */
-void *entryGetAllocPtr(const Entry *entry) {
-    char *buf = sdsAllocPtr(entryGetField(entry));
+void *hEntryGetAllocPtr(const Entry *entry) {
+    char *buf = sdsAllocPtr(hEntryGetField(entry));
     if (entryHasValuePtr(entry)) buf -= sizeof(sds);
-    if (entryHasExpiry(entry)) buf -= sizeof(ExpireMeta);
+    if (hEntryHasExpiry(entry)) buf -= sizeof(ExpireMeta);
     return buf;
 }
 
 /**************************************** Entry Expiry API *****************************************/
 
 /* Returns the entry expiration timestamp, or EB_EXPIRE_TIME_INVALID */
-uint64_t entryGetExpiry(const Entry *entry) {
-    if (!entryHasExpiry(entry))
+uint64_t hEntryGetExpiry(const Entry *entry) {
+    if (!hEntryHasExpiry(entry))
         return EB_EXPIRE_TIME_INVALID;
 
-    ExpireMeta *expireMeta = (ExpireMeta *)entryGetAllocPtr(entry);
+    ExpireMeta *expireMeta = (ExpireMeta *)hEntryGetAllocPtr(entry);
     if (expireMeta->trash)
         return EB_EXPIRE_TIME_INVALID;
 
     return ebGetMetaExpTime(expireMeta);
 }
 
-int entryIsExpired(const Entry *entry) {
+int hEntryIsExpired(const Entry *entry) {
     if (server.allow_access_expired)
         return 0;
 
-    /* Condition remains valid even if entryGetExpiry() returns EB_EXPIRE_TIME_INVALID,
+    /* Condition remains valid even if hEntryGetExpiry() returns EB_EXPIRE_TIME_INVALID,
      * as the constant is equivalent to (EB_EXPIRE_TIME_MAX + 1). */
-    uint64_t expireTime = entryGetExpiry(entry);
+    uint64_t expireTime = hEntryGetExpiry(entry);
     return (mstime_t)expireTime < commandTimeSnapshot();
 }
 
@@ -110,21 +110,21 @@ int entryIsExpired(const Entry *entry) {
 
 /* Calculate entry allocation size based on SDS alloc fields.
  * This is used for size accounting. */
-size_t entryMemUsage(Entry *entry) {
-    size_t size = sdsAllocSize(entryGetField(entry));
-    size += sdsAllocSize(entryGetValue(entry));
+size_t hEntryMemUsage(Entry *entry) {
+    size_t size = sdsAllocSize(hEntryGetField(entry));
+    size += sdsAllocSize(hEntryGetValue(entry));
     if (entryHasValuePtr(entry)) size += sizeof(sds);
-    if (entryHasExpiry(entry)) size += sizeof(ExpireMeta);
+    if (hEntryHasExpiry(entry)) size += sizeof(ExpireMeta);
     return size;
 }
 
-void entryFree(Entry *entry, size_t *usable) {
-    if (usable) *usable = entryMemUsage(entry);
+void hEntryFree(Entry *entry, size_t *usable) {
+    if (usable) *usable = hEntryMemUsage(entry);
 
     if (entryHasValuePtr(entry))
-        sdsfree(entryGetValue(entry));
+        sdsfree(hEntryGetValue(entry));
 
-    zfree(entryGetAllocPtr(entry));
+    zfree(hEntryGetAllocPtr(entry));
 }
 
 /* Determine the appropriate SDS type for the field based on length and expiry.
@@ -222,17 +222,17 @@ static Entry *entryWriteNew(EntryWriteInfo *info, sds field, sds value) {
                                                info->embdFieldType, field, sdslen(field));
 
     /* Set aux bits to encode entry type */
-    sdsSetAuxBit(entryGetField(newEntry), FIELD_SDS_AUX_BIT_ENTRY_HAS_VALUE_PTR, !info->isEmbdNewVal);
-    sdsSetAuxBit(entryGetField(newEntry), FIELD_SDS_AUX_BIT_ENTRY_HAS_EXPIRY, info->expirySize > 0);
+    sdsSetAuxBit(hEntryGetField(newEntry), FIELD_SDS_AUX_BIT_ENTRY_HAS_VALUE_PTR, !info->isEmbdNewVal);
+    sdsSetAuxBit(hEntryGetField(newEntry), FIELD_SDS_AUX_BIT_ENTRY_HAS_EXPIRY, info->expirySize > 0);
 
     /* Verify the entry was built correctly */
     debugServerAssert(entryHasValuePtr(newEntry) == !info->isEmbdNewVal);
-    debugServerAssert(entryHasExpiry(newEntry) == (info->expirySize > 0));
+    debugServerAssert(hEntryHasExpiry(newEntry) == (info->expirySize > 0));
 
     return newEntry;
 }
 
-Entry *entryCreate(sds field, sds value, uint32_t flags, size_t *usable) {
+Entry *hEntryCreate(sds field, sds value, uint32_t flags, size_t *usable) {
     /* Calculate required size and layout */
     EntryWriteInfo info;
     setEntryWriteInfo(&info, field, value, flags);
@@ -242,7 +242,7 @@ Entry *entryCreate(sds field, sds value, uint32_t flags, size_t *usable) {
 
     /* Calculate usable size if requested */
     if (usable)
-        *usable = entryMemUsage(entry);
+        *usable = hEntryMemUsage(entry);
 
     return entry;
 }
@@ -271,7 +271,7 @@ static inline int needsNewAlloc(Entry *e,
         return 0;
     
     /* Check if new embedded value fits in old allocation */
-    size_t oldAllocSize = sdsAllocSize(entryGetValue(e));
+    size_t oldAllocSize = sdsAllocSize(hEntryGetValue(e));
     size_t newReqSize = info->embdValueSize;
     return !((newReqSize <= oldAllocSize) && (newReqSize >= oldAllocSize * 3 / 4));
 }
@@ -288,7 +288,7 @@ static Entry *entryWriteOver(Entry *e, EntryWriteInfo *info, sds value)
         *valueRef = (info->flags & ENTRY_TAKE_VALUE) ? value : sdsdup(value);
     } else {
         /* Update embedded value in-place - always copy content */
-        sds oldValue = entryGetValue(e);
+        sds oldValue = hEntryGetValue(e);
         /* Use the old value's allocation size */
         size_t valueSize = sdsAllocSize(oldValue);
         sdsnewplacement(sdsAllocPtr(oldValue), valueSize, SDS_TYPE_8, value, sdslen(value));
@@ -301,9 +301,9 @@ static Entry *entryWriteOver(Entry *e, EntryWriteInfo *info, sds value)
 }
 
 /* Modify the entry's value and/or reserve space for expiration metadata */
-Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff) {
+Entry *hEntryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff) {
     /* Check if we need to add/remove expiration metadata */
-    int oldHasExpiry = entryHasExpiry(entry) != 0;
+    int oldHasExpiry = hEntryHasExpiry(entry) != 0;
     int newHasExpiry = (flags & ENTRY_HAS_EXPIRY) != 0;    
     int expiryAddRemove = (oldHasExpiry != newHasExpiry);
     
@@ -319,15 +319,15 @@ Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff)
     }
 
     /* Calculate old usable size before any modifications */
-    size_t oldUsable = entryMemUsage(entry);
+    size_t oldUsable = hEntryMemUsage(entry);
 
     /* Get the value to use (either provided or existing) */
     if (!value)
-        value = entryGetValue(entry);
+        value = hEntryGetValue(entry);
 
     /* Calculate required size and layout for the updated entry */
     EntryWriteInfo info;
-    setEntryWriteInfo(&info, entryGetField(entry), value, flags);
+    setEntryWriteInfo(&info, hEntryGetField(entry), value, flags);
 
     /* Decide whether to update in-place or create a new entry */
     Entry *newEntry;
@@ -341,7 +341,7 @@ Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff)
             debugServerAssert((info.flags & ENTRY_TAKE_VALUE) == 0);
             
             /* Try reuse the existing value */
-            value = entryGetValue(oldEntry);
+            value = hEntryGetValue(oldEntry);
             
             /* If value is a pointer, we can transfer it from old to new entry  */
             if (entryHasValuePtr(oldEntry)) {
@@ -351,14 +351,14 @@ Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff)
             }
         }
         
-        newEntry = entryWriteNew(&info, entryGetField(oldEntry), value);
-        entryFree(oldEntry, NULL);
+        newEntry = entryWriteNew(&info, hEntryGetField(oldEntry), value);
+        hEntryFree(oldEntry, NULL);
 
-        newUsable = entryMemUsage(newEntry);
+        newUsable = hEntryMemUsage(newEntry);
     } else {
         /* Update in-place */
         newEntry = entryWriteOver(entry, &info, value);
-        newUsable = entryMemUsage(newEntry);
+        newUsable = hEntryMemUsage(newEntry);
     }
 
     /* Calculate the difference in memory usage */
@@ -367,7 +367,7 @@ Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff)
 
     /* Verify the entry was built correctly */
     debugServerAssert(entryHasValuePtr(newEntry) == !info.isEmbdNewVal);
-    debugServerAssert(entryHasExpiry(newEntry) == (info.expirySize != 0));
+    debugServerAssert(hEntryHasExpiry(newEntry) == (info.expirySize != 0));
     debugServerAssert((info.flags & ENTRY_TAKE_VALUE) == 0); /* verify the flag is cleared */
     serverAssert(newEntry);
 
@@ -381,13 +381,13 @@ Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff)
  * of sds strings.
  * If the location of the entry changed we return the new location,
  * otherwise we return NULL. */
-Entry *entryDefrag(Entry *e, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds)) {
+Entry *hEntryDefrag(Entry *e, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds)) {
     if (entryHasValuePtr(e)) {
         sds *valueRef = entryGetValueRef(e);
         sds newValue = sdsdefragfn(*valueRef);
         if (newValue) *valueRef = newValue;
     }
-    char *allocation = entryGetAllocPtr(e);
+    char *allocation = hEntryGetAllocPtr(e);
     char *newAllocation = defragfn(allocation);
     if (newAllocation != NULL) {
         /* Return the same offset into the new allocation as the entry's offset
@@ -400,7 +400,7 @@ Entry *entryDefrag(Entry *e, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds))
 
 /* Used for releasing memory to OS to avoid unnecessary CoW. Called when we've
  * forked and memory won't be used again. See zmadvise_dontneed() */
-void entryDismissMemory(Entry *entry) {
+void hEntryDismissMemory(Entry *entry) {
     /* Only dismiss values memory since the field size usually is small. */
     if (entryHasValuePtr(entry)) {
         dismissSds(*entryGetValueRef(entry));

@@ -347,12 +347,12 @@ void restoreCommand(client *c) {
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;
 
-    /* If minExpiredField was set, then the object is hash with expiration
-     * on fields and need to register it in global HFE DS */
-    if (kvtype == OBJ_HASH) {
-        uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
-        if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
+    /* If the object is a hash or set with expiration on its members or
+     * fields, register it in the global subexpires DS */
+    if (typeMaySubexpire(kvtype)) {
+        uint64_t minSubexpiry = kvobjGetMinSubexpiry(kv);
+        if (minSubexpiry != EB_EXPIRE_TIME_INVALID)
+            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minSubexpiry);
     }
 
     if (kvtype == OBJ_STREAM)

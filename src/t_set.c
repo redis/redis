@@ -29,10 +29,11 @@
  * the single place that maps a set's encoding to its backend implementation;
  * every other function below dispatches through it instead of switching on
  * robj->encoding itself. */
-static const setTypeOps *setTypeGetOps(int encoding) {
+const setTypeOps *setTypeGetOps(int encoding) {
     switch (encoding) {
     case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
     case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
+    case OBJ_ENCODING_LISTPACK_EX: return &setTypeOpsListpackEx;
     case OBJ_ENCODING_HT: return &setTypeOpsHT;
     default: serverPanic("Unknown set encoding");
     }
@@ -73,7 +74,8 @@ robj *setTypeCreate(sds value, size_t size_hint) {
 /* Check if the existing set should be converted to another encoding based off the
  * the size hint. */
 void setTypeMaybeConvert(robj *set, size_t size_hint) {
-    if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint > server.set_max_listpack_entries)
+    if (((set->encoding == OBJ_ENCODING_LISTPACK || set->encoding == OBJ_ENCODING_LISTPACK_EX) &&
+         size_hint > server.set_max_listpack_entries)
         || (set->encoding == OBJ_ENCODING_INTSET && size_hint > server.set_max_intset_entries))
     {
         setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
@@ -106,7 +108,7 @@ static void maybeConvertToIntset(robj *set) {
     size_t len = 0;
     int64_t llval = 0;
     setTypeIterator si;
-    setTypeInitIterator(&si, set);
+    setTypeInitIterator(&si, set, SET_ITER_RAW);
     while (setTypeNext(&si, &str, &len, &llval) != -1) {
         if (str) {
             /* If the element is returned as a string, we may be able to convert
@@ -165,6 +167,78 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     return added;
 }
 
+/* Like setTypeAddAux(), and the member gets the given expiration, or none if it
+ * is EB_EXPIRE_TIME_INVALID. The set must be able to hold member expirations
+ * if an expiration is given. If the member exists already, 0 is returned and its
+ * expiration is set to the given one. */
+int setTypeAddExAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t expire) {
+    if (expire == EB_EXPIRE_TIME_INVALID)
+        return setTypeAddAux(set, str, len, llval, str_is_sds);
+
+    serverAssert(setTypeHasExpireSupport(set));
+    char tmpbuf[LONG_STR_SIZE];
+    if (!str) {
+        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+        str = tmpbuf;
+        str_is_sds = 0;
+    }
+
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    int64_t *llvalp = (str == tmpbuf) ? &llval : NULL;
+    int target_enc;
+    int added = ops->rawAddEx(set, str, len, llvalp, str_is_sds, 0, &target_enc, expire);
+    if (added == -1) {
+        /* Doesn't fit under the current encoding: convert it, keeping the
+         * expirations, and retry there. */
+        serverAssert(str);
+        setTypeConvertAndExpand(set, target_enc, ops->size(set) + 1, 1);
+        added = setTypeGetOps(target_enc)->rawAddEx(set, str, len, NULL, str_is_sds, 1, &target_enc, expire);
+        serverAssert(added == 1);
+        return added;
+    }
+    if (added == 0)
+        ops->setExpire(set, str, len, llval, str_is_sds, expire);
+    return added;
+}
+
+/* Like setTypeIsMemberAux(), but reports the expiration of the member. Returns
+ * 1 if the member exists (even if it is logically expired), 0 otherwise. The
+ * expiration is EB_EXPIRE_TIME_INVALID if the member has none. */
+int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t *expire) {
+    char tmpbuf[LONG_STR_SIZE];
+    if (!str && set->encoding != OBJ_ENCODING_INTSET) {
+        len = ll2string(tmpbuf, sizeof tmpbuf, llval);
+        str = tmpbuf;
+        str_is_sds = 0;
+    }
+
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    if (!setTypeHasExpireSupport(set)) {
+        *expire = EB_EXPIRE_TIME_INVALID;
+        return ops->isMember(set, str, len, llval, str_is_sds);
+    }
+    return ops->getExpire(set, str, len, llval, str_is_sds, expire);
+}
+
+/* Adds a member to the destination set of a STORE command, merging the
+ * expiration: the nearest one wins, and a member without expiration counts as
+ * an infinite one. So an existing expiration is kept unless the new one is
+ * earlier, and a member that has none gets the new one. Returns 1 if the member
+ * was added, 0 if it was there. */
+static int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
+                                 int str_is_sds, uint64_t expire)
+{
+    if (expire == EB_EXPIRE_TIME_INVALID)
+        return setTypeAddAux(dst, str, len, llval, str_is_sds);
+
+    if (!setTypeHasExpireSupport(dst)) setTypeConvertToExpireEncoding(dst);
+    uint64_t cur;
+    if (setTypeGetExpireAux(dst, str, len, llval, str_is_sds, &cur) &&
+        cur != EB_EXPIRE_TIME_INVALID && cur <= expire)
+        return 0;
+    return setTypeAddExAux(dst, str, len, llval, str_is_sds, expire);
+}
+
 /* Deletes a value provided as an sds string from the set. Returns 1 if the
  * value was deleted and 0 if it was not a member of the set. */
 int setTypeRemove(robj *setobj, sds value) {
@@ -208,11 +282,21 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
         str_is_sds = 0;
     }
 
-    return setTypeGetOps(set->encoding)->isMember(set, str, len, llval, str_is_sds);
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    if (unlikely(setTypeHasExpireSupport(set))) {
+        /* A member that is logically expired but not removed yet is not a member
+         * for the callers of this function. It is not removed either. */
+        uint64_t expire;
+        if (!ops->getExpire(set, str, len, llval, str_is_sds, &expire)) return 0;
+        return !setTypeExpireTimeElapsed(expire);
+    }
+    return ops->isMember(set, str, len, llval, str_is_sds);
 }
 
-void setTypeInitIterator(setTypeIterator *si, robj *subject) {
+void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode) {
     si->subject = subject;
+    si->mode = mode;
+    si->expire = EB_EXPIRE_TIME_INVALID;
     si->encoding = subject->encoding;
     si->typeOps = setTypeGetOps(si->encoding);
     si->typeOps->iterInit(si);
@@ -245,8 +329,16 @@ void setTypeResetIterator(setTypeIterator *si) {
  *
  * When there are no more elements -1 is returned. */
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
-    if (si->typeOps->iterNext(si, str, len, llele) == -1) return -1;
-    return si->encoding;
+    while (si->typeOps->iterNext(si, str, len, llele) != -1) {
+        /* In skip-expired mode, the members that are logically expired but not
+         * yet removed are not returned (and not removed either). */
+        if (si->expire != EB_EXPIRE_TIME_INVALID &&
+            si->mode == SET_ITER_SKIP_EXPIRED &&
+            setTypeExpireTimeElapsed(si->expire))
+            continue;
+        return si->encoding;
+    }
+    return -1;
 }
 
 /* The not copy on write friendly version but easy to use version
@@ -336,9 +428,13 @@ void setTypeConvert(robj *setobj, int enc) {
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
-    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK) {
+    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK &&
+        enc != OBJ_ENCODING_LISTPACK_EX)
+    {
         serverPanic("Unsupported set conversion");
     }
+    /* A set with member expirations keeps them: it can only grow to a hashtable. */
+    serverAssert(setobj->encoding != OBJ_ENCODING_LISTPACK_EX || enc == OBJ_ENCODING_HT);
 
     void *newptr = setTypeGetOps(enc)->convertFrom(setobj, cap, panic);
     if (newptr == NULL) {
@@ -346,9 +442,26 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         return C_ERR;
     }
 
+    /* The set is registered in db->subexpires through the ExpireMeta that lives in
+     * its encoding, which is freed here: unregister it, and register it again with
+     * the new one. Only sets that are in a database are registered, and the
+     * command that converts it is the one executing. */
+    uint64_t registered = EB_EXPIRE_TIME_INVALID;
+    redisDb *regdb = NULL;
+    if (setobj->encoding == OBJ_ENCODING_LISTPACK_EX || setobj->encoding == OBJ_ENCODING_HT) {
+        if (setHasSubexpiry(setobj))
+            registered = ebGetExpireTime(&subexpiresBucketsType, setobj);
+        if (registered != EB_EXPIRE_TIME_INVALID) {
+            serverAssert(server.executing_client && server.executing_client->db);
+            regdb = server.executing_client->db;
+            estoreRemove(regdb->subexpires, getKeySlot(kvobjGetKey(setobj)), setobj);
+        }
+    }
+
     setTypeFree(setobj); /* frees the internals but not setobj itself */
     setobj->encoding = enc;
     setobj->ptr = newptr;
+    if (regdb) setTypeUpdateSubexpiry(regdb, setobj);
     return C_OK;
 }
 
@@ -474,9 +587,34 @@ void smoveCommand(client *c) {
 
     /* If srcset and dstset are equal, SMOVE is a no-op */
     if (srcset == dstset) {
-        addReply(c,setTypeIsMember(srcset,ele->ptr) ?
+        addReply(c,setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, NULL) ?
             shared.cone : shared.czero);
         return;
+    }
+
+    /* The member moves with its expiration. A source member that is logically
+     * expired is not a member: it is removed, and nothing is moved. */
+    uint64_t srcExpire = EB_EXPIRE_TIME_INVALID;
+    if (setTypeHasExpireSupport(srcset)) {
+        if (!setTypeIsMemberLazy(c->db, srcset, ele->ptr, 0, NULL)) {
+            addReply(c,shared.czero);
+            return;
+        }
+        setTypeGetExpire(srcset, ele->ptr, &srcExpire);
+    }
+
+    /* The destination member, if there is one, gets the expiration of the source
+     * member, replacing its own. A destination member that is logically expired
+     * is removed first, and is then treated as a new member. */
+    int dstHadMember = 0;
+    uint64_t dstExpire = EB_EXPIRE_TIME_INVALID;
+    if (dstset && setTypeHasExpireSupport(dstset)) {
+        int dstDeleted = 0;
+        dstHadMember = setTypeIsMemberLazy(c->db, dstset, ele->ptr, 0, &dstDeleted);
+        if (dstDeleted)
+            dstset = NULL; /* The key was deleted: it is created again below. */
+        else if (dstHadMember)
+            setTypeGetExpire(dstset, ele->ptr, &dstExpire);
     }
 
     if (server.memory_tracking_enabled)
@@ -513,13 +651,36 @@ void smoveCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         oldDstAllocSize = kvobjAllocSize(dstset);
+    int added, expireChanged = 0, persisted = 0;
+    if (srcExpire != EB_EXPIRE_TIME_INVALID) {
+        setTypeConvertToExpireEncoding(dstset);
+        added = setTypeAddExAux(dstset, ele->ptr, sdslen(ele->ptr), 0, 1, srcExpire);
+        expireChanged = 1;
+    } else {
+        added = setTypeAdd(dstset,ele->ptr);
+        /* The member without an expiration overwrites the expiration of the one
+         * that already was in the destination. */
+        if (!added && dstExpire != EB_EXPIRE_TIME_INVALID) {
+            setTypeGetOps(dstset->encoding)->setExpire(dstset, ele->ptr, sdslen(ele->ptr), 0, 1,
+                                                       EB_EXPIRE_TIME_INVALID);
+            persisted = 1;
+        }
+    }
     /* An extra key has changed when ele was successfully added to dstset */
-    if (setTypeAdd(dstset,ele->ptr)) {
+    if (added) {
         unsigned long dstLen = setTypeSize(dstset);
         updateKeysizesHist(c->db, OBJ_SET, dstLen - 1, dstLen);
+    }
+    if (added || expireChanged || persisted) {
+        if (expireChanged || persisted) setTypeUpdateSubexpiry(c->db, dstset);
         server.dirty++;
         keyModified(c,c->db,c->argv[2],dstset,1);
-        notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
+        if (added)
+            notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
+        if (expireChanged)
+            notifyKeyspaceEvent(NOTIFY_SET,"sexpire",c->argv[2],c->db->id);
+        if (persisted)
+            notifyKeyspaceEvent(NOTIFY_SET,"spersist",c->argv[2],c->db->id);
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), dstset, oldDstAllocSize, kvobjAllocSize(dstset));
@@ -528,40 +689,35 @@ void smoveCommand(client *c) {
 
 void sismemberCommand(client *c) {
     kvobj *set;
-    size_t oldsize = 0;
 
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
-    if (server.memory_tracking_enabled)
-        oldsize = kvobjAllocSize(set);
-    if (setTypeIsMember(set,c->argv[2]->ptr))
+    /* Removes the member if it is logically expired. Also updates the allocation
+     * size accounting (a lookup can move memory, for example by rehashing). */
+    if (setTypeIsMemberLazy(c->db, set, c->argv[2]->ptr, 0, NULL))
         addReply(c,shared.cone);
     else
         addReply(c,shared.czero);
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
 }
 
 void smismemberCommand(client *c) {
     /* Don't abort when the key cannot be found. Non-existing keys are empty
      * sets, where SMISMEMBER should respond with a series of zeros. */
-    size_t oldsize = 0;
     kvobj *set = lookupKeyRead(c->db, c->argv[1]);
     if (set && checkType(c,set,OBJ_SET)) return;
 
     addReplyArrayLen(c,c->argc - 2);
 
-    if (server.memory_tracking_enabled && set)
-        oldsize = kvobjAllocSize(set);
     for (int j = 2; j < c->argc; j++) {
-        if (set && setTypeIsMember(set,c->argv[j]->ptr))
+        int setDeleted = 0;
+        if (set && setTypeIsMemberLazy(c->db, set, c->argv[j]->ptr, 0, &setDeleted))
             addReply(c,shared.cone);
         else
             addReply(c,shared.czero);
+        /* The key was deleted if the last member was a logically expired one. */
+        if (setDeleted) set = NULL;
     }
-    if (server.memory_tracking_enabled && set)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
 }
 
 void scardCommand(client *c) {
@@ -598,6 +754,14 @@ void spopWithCountCommand(client *c) {
     /* If count is zero, serve an empty set ASAP to avoid special
      * cases later. */
     if (count == 0) {
+        addReply(c,shared.emptyset[c->resp]);
+        return;
+    }
+
+    /* Remove the members that are logically expired first, so that all of the
+     * rest of the command works on a set of live members. If they were all
+     * expired, the key is gone. */
+    if (setTypeExpireIfNeeded(c->db, set)) {
         addReply(c,shared.emptyset[c->resp]);
         return;
     }
@@ -747,19 +911,25 @@ void spopWithCountCommand(client *c) {
             zfree(ps);
             set->ptr = lp;
         } else {
+            const int keepExpire = setTypeHasExpireSupport(set);
             while(remaining--) {
                 int encoding = setTypeRandomElement(set, &str, &len, &llele);
-                if (!newset) {
+                uint64_t expire = EB_EXPIRE_TIME_INVALID;
+                if (keepExpire) {
+                    /* The remaining members keep their expiration. */
+                    setTypeGetExpireAux(set, str, len, llele, encoding == OBJ_ENCODING_HT, &expire);
+                    if (!newset) newset = createSetListpackExObject();
+                } else if (!newset) {
                     newset = str ? createSetListpackObject() : createIntsetObject();
                 }
-                setTypeAddAux(newset, str, len, llele, encoding == OBJ_ENCODING_HT);
+                setTypeAddExAux(newset, str, len, llele, encoding == OBJ_ENCODING_HT, expire);
                 setTypeRemoveAux(set, str, len, llele, encoding == OBJ_ENCODING_HT);
             }
         }
 
         /* Transfer the old set to the client. */
         setTypeIterator si;
-        setTypeInitIterator(&si, set);
+        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
@@ -788,6 +958,8 @@ void spopWithCountCommand(client *c) {
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
         set = newset;
+        /* The new object is not registered in subexpires yet. */
+        if (setTypeHasExpireSupport(set)) setTypeUpdateSubexpiry(c->db, set);
     }
 
     /* Replicate/AOF the remaining elements as an SREM operation */
@@ -825,6 +997,13 @@ void spopCommand(client *c) {
      * indeed a kv */
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
     if (kv == NULL || checkType(c, kv, OBJ_SET)) return;
+
+    /* Remove the members that are logically expired first. If they were all
+     * expired, the key is gone. */
+    if (setTypeExpireIfNeeded(c->db, kv)) {
+        addReplyNull(c);
+        return;
+    }
 
     size = setTypeSize(kv);
     updateKeysizesHist(c->db, OBJ_SET, size, size-1);
@@ -873,6 +1052,61 @@ void spopCommand(client *c) {
  * the number of randoms per time. */
 #define SRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
 
+/* Returns 1 if the set has logically expired members that are still in it. */
+static int setHasElapsedMembers(robj *set) {
+    uint64_t min = setTypeGetMinExpire(set, 1);
+    return min != EB_EXPIRE_TIME_INVALID && setTypeExpireTimeElapsed(min);
+}
+
+/* SRANDMEMBER on a set that has logically expired members that were not
+ * removed, because this node is not allowed to remove them right now (a
+ * replica, for example). The expired members are never returned: the members
+ * are sampled among the live ones, which are collected for that.
+ *
+ * With 'hasCount' the reply is an array and 'count' has the same meaning as
+ * in SRANDMEMBER: positive for unique members, negative for repeated ones. */
+static void srandmemberFromLiveMembers(client *c, robj *set, int hasCount, long count) {
+    unsigned long live = 0, cap = setTypeSize(set);
+    sds *members = zmalloc(sizeof(sds) * (cap ? cap : 1));
+    char *str;
+    size_t len = 0;
+    int64_t llele = 0;
+    setTypeIterator si;
+    setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
+    while (setTypeNext(&si, &str, &len, &llele) != -1 && live < cap)
+        members[live++] = str ? sdsnewlen(str, len) : sdsfromlonglong(llele);
+    setTypeResetIterator(&si);
+
+    if (!hasCount) {
+        if (live == 0) addReplyNull(c);
+        else {
+            sds m = members[rand() % live];
+            addReplyBulkCBuffer(c, m, sdslen(m));
+        }
+    } else if (count < 0) {
+        /* Repeated members: sample with replacement. */
+        unsigned long n = (unsigned long)(-count);
+        addReplyArrayLen(c, live ? n : 0);
+        while (live && n--) {
+            sds m = members[rand() % live];
+            addReplyBulkCBuffer(c, m, sdslen(m));
+            if (c->flags & CLIENT_CLOSE_ASAP) break;
+        }
+    } else {
+        /* Unique members: a partial shuffle, then the first 'count'. */
+        unsigned long n = (unsigned long)count < live ? (unsigned long)count : live;
+        addReplyArrayLen(c, n);
+        for (unsigned long i = 0; i < n; i++) {
+            unsigned long j = i + rand() % (live - i);
+            sds tmp = members[i]; members[i] = members[j]; members[j] = tmp;
+            addReplyBulkCBuffer(c, members[i], sdslen(members[i]));
+        }
+    }
+
+    for (unsigned long i = 0; i < live; i++) sdsfree(members[i]);
+    zfree(members);
+}
+
 void srandmemberWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
@@ -896,6 +1130,21 @@ void srandmemberWithCountCommand(client *c) {
 
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray))
         == NULL || checkType(c,set,OBJ_SET)) return;
+
+    if (setTypeHasExpireSupport(set)) {
+        /* Remove the members that are logically expired first. If they were all
+         * expired, the key is gone. */
+        if (setTypeExpireIfNeeded(c->db, set)) {
+            addReply(c,shared.emptyarray);
+            return;
+        }
+        /* If some expired members are left because they could not be removed
+         * (on a replica, for example), none of them may be returned. */
+        if (setHasElapsedMembers(set)) {
+            srandmemberFromLiveMembers(c, set, 1, l);
+            return;
+        }
+    }
     size = setTypeSize(set);
 
     /* If count is zero, serve it ASAP to avoid special cases later. */
@@ -953,7 +1202,7 @@ void srandmemberWithCountCommand(client *c) {
     if (count >= size) {
         setTypeIterator si;
         addReplyArrayLen(c,size);
-        setTypeInitIterator(&si, set);
+        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
@@ -1011,7 +1260,7 @@ void srandmemberWithCountCommand(client *c) {
         setTypeIterator si;
 
         /* Add all the elements into the temporary dictionary. */
-        setTypeInitIterator(&si, set);
+        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
         dictExpand(d, size);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             int retval = DICT_ERR;
@@ -1096,6 +1345,18 @@ void srandmemberCommand(client *c) {
     /* Handle variant without <count> argument. Reply with simple bulk string */
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
+
+    if (setTypeHasExpireSupport(set)) {
+        /* Same as for the variant with a count. */
+        if (setTypeExpireIfNeeded(c->db, set)) {
+            addReplyNull(c);
+            return;
+        }
+        if (setHasElapsedMembers(set)) {
+            srandmemberFromLiveMembers(c, set, 0, 0);
+            return;
+        }
+    }
 
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
@@ -1229,7 +1490,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
     int only_integers = 1;
-    setTypeInitIterator(&si, sets[0].set);
+    setTypeInitIterator(&si, sets[0].set, SET_ITER_SKIP_EXPIRED);
     while((encoding = setTypeNext(&si, &str, &len, &intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
             if (sets[j].set == sets[0].set) continue;
@@ -1240,6 +1501,19 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
         /* Only take action when all sets contain the member */
         if (j == setnum) {
+            /* The stored member gets the nearest expiration of all the sets. */
+            uint64_t expire = EB_EXPIRE_TIME_INVALID;
+            if (dstkey && !cardinality_only) {
+                for (j = 0; j < setnum; j++) {
+                    uint64_t e = si.expire;
+                    if (j > 0 && sets[j].set != sets[0].set) {
+                        if (!setTypeHasExpireSupport(sets[j].set)) continue;
+                        setTypeGetExpireAux(sets[j].set, str, len, intobj,
+                                            encoding == OBJ_ENCODING_HT, &e);
+                    } else if (j > 0) continue;
+                    if (e != EB_EXPIRE_TIME_INVALID && e < expire) expire = e;
+                }
+            }
             if (cardinality_only) {
                 cardinality++;
 
@@ -1269,7 +1543,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
                         only_integers = 0;
                     }
                 }
-                setTypeAddAux(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT);
+                setTypeAddMergeExpire(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT, expire);
             }
         }
     }
@@ -1290,13 +1564,14 @@ void sinterGenericCommand(client *c, robj **setkeys,
         /* Store the resulting set into the target, if the intersection
          * is not an empty set. */
         if (setTypeSize(dstset) > 0) {
-            if (only_integers) maybeConvertToIntset(dstset);
+            if (only_integers && !setTypeHasExpireSupport(dstset)) maybeConvertToIntset(dstset);
             if (dstset->encoding == OBJ_ENCODING_LISTPACK) {
                 /* We allocated too much memory when we created it to avoid
                  * frequent reallocs. Therefore, we shrink it now. */
                 dstset->ptr = lpShrinkToFit(dstset->ptr);
             }
             setKey(c, c->db, dstkey, &dstset, 0);
+            if (setTypeHasExpireSupport(dstset)) setTypeUpdateSubexpiry(c->db, dstset);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,"sinterstore",
                 dstkey,c->db->id);
@@ -1335,25 +1610,34 @@ void smembersCommand(client *c) {
         return;
     }
 
-    /* Prepare the response. */
-    unsigned long length = setTypeSize(setobj);
-    addReplySetLen(c,length);
+    /* Prepare the response. The logically expired members are skipped, so the
+     * length is not known in advance for the sets that can hold expirations. */
+    unsigned long length = setTypeSize(setobj), returned = 0;
+    void *replylen = NULL;
+    const int deferred_len = setTypeHasExpireSupport(setobj);
+    if (deferred_len)
+        replylen = addReplyDeferredLen(c);
+    else
+        addReplySetLen(c,length);
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(setobj);
     /* Iterate through the elements of the set. */
-    setTypeInitIterator(&si, setobj);
+    setTypeInitIterator(&si, setobj, SET_ITER_SKIP_EXPIRED);
 
     while (setTypeNext(&si, &str, &len, &intobj) != -1) {
         if (str != NULL)
             addReplyBulkCBuffer(c, str, len);
         else
             addReplyBulkLongLong(c, intobj);
-        length--;
+        returned++;
     }
     setTypeResetIterator(&si);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), setobj, oldsize, kvobjAllocSize(setobj));
-    serverAssert(length == 0); /* fail on corrupt data */
+    if (deferred_len)
+        setDeferredSetLen(c, replylen, returned);
+    else
+        serverAssert(returned == length); /* fail on corrupt data */
 }
 
 /* SINTERCARD numkeys key [key ...] [LIMIT limit] */
@@ -1443,7 +1727,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * the hashtable is more efficient when find and compare than the listpack. The corresponding
          * time complexity are O(1) vs O(n). */
         if (!dstkey && dstset_encoding == OBJ_ENCODING_INTSET &&
-            (setobj->encoding == OBJ_ENCODING_LISTPACK || setobj->encoding == OBJ_ENCODING_HT)) {
+            (setobj->encoding == OBJ_ENCODING_LISTPACK || setobj->encoding == OBJ_ENCODING_LISTPACK_EX ||
+         setobj->encoding == OBJ_ENCODING_HT)) {
             dstset_encoding = OBJ_ENCODING_HT;
         }
         sets[j].set = setobj;
@@ -1507,10 +1792,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 0; j < setnum && !early_exit; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            setTypeInitIterator(&si, sets[j].set);
+            setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (!approx) {
-                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                    cardinality += setTypeAddMergeExpire(dstset, str, len, llval, encoding == OBJ_ENCODING_HT,
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
                     if (cardinality_only && limit > 0 && cardinality >= limit) {
                         early_exit = 1;
                         break;
@@ -1558,7 +1844,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          *
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
-        setTypeInitIterator(&si, sets[0].set);
+        setTypeInitIterator(&si, sets[0].set, SET_ITER_SKIP_EXPIRED);
         while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j].set) continue; /* no key is an empty set. */
@@ -1575,7 +1861,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                         break; /* We reached the limit, break from the while loop iterating sets[0] */
                     }
                 } else {
-                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                    cardinality += setTypeAddMergeExpire(dstset, str, len, llval, encoding == OBJ_ENCODING_HT,
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
                 }
             }
         }
@@ -1590,13 +1877,13 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 1; j < setnum; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            setTypeInitIterator(&si, sets[j].set);
+            setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1)
                 setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             setTypeResetIterator(&si);
         }
 
-        setTypeInitIterator(&si, sets[0].set);
+        setTypeInitIterator(&si, sets[0].set, SET_ITER_SKIP_EXPIRED);
         while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
             if (!setTypeIsMemberAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT)) {
                 cardinality++;
@@ -1615,11 +1902,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 0; j < setnum; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            setTypeInitIterator(&si, sets[j].set);
+            setTypeInitIterator(&si, sets[j].set, SET_ITER_SKIP_EXPIRED);
             while((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (j == 0) {
-                    cardinality += setTypeAddAux(dstset, str, len, llval,
-                                                 encoding == OBJ_ENCODING_HT);
+                    cardinality += setTypeAddMergeExpire(dstset, str, len, llval,
+                                                         encoding == OBJ_ENCODING_HT,
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
                 } else {
                     cardinality -= setTypeRemoveAux(dstset, str, len, llval,
                                                     encoding == OBJ_ENCODING_HT);
@@ -1654,7 +1942,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                                           decrRefCount(dstset);
     } else if (!dstkey) {
         addReplySetLen(c,cardinality);
-        setTypeInitIterator(&si, dstset);
+        setTypeInitIterator(&si, dstset, SET_ITER_SKIP_EXPIRED);
         while (setTypeNext(&si, &str, &len, &llval) != -1) {
             if (str)
                 addReplyBulkCBuffer(c, str, len);
@@ -1669,6 +1957,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * create this key with the result set inside */
         if (setTypeSize(dstset) > 0) {
             setKey(c, c->db, dstkey, &dstset, 0);
+            if (setTypeHasExpireSupport(dstset)) setTypeUpdateSubexpiry(c->db, dstset);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(NOTIFY_SET,
                 op == SET_OP_UNION ? "sunionstore" : "sdiffstore",
