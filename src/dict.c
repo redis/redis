@@ -2,8 +2,9 @@
  *
  * This file implements in memory hash tables with insert/del/replace/find/
  * get-random-element operations. Hash tables will auto resize if needed
- * tables of power of two in size are used, collisions are handled by
- * chaining. See the source code for more information... :)
+ * tables of power of two in size are used, entries are stored in 64-byte
+ * buckets and collisions that don't fit in a bucket are handled by chaining
+ * child buckets. See the source code for more information... :)
  *
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
@@ -39,16 +40,15 @@
  * Note that even when dict_can_resize is set to DICT_RESIZE_AVOID, not all
  * resizes are prevented:
  *  - A hash table is still allowed to expand if the ratio between the number
- *    of elements and the buckets >= dict_force_resize_ratio.
+ *    of elements and the slots >= dict_force_resize_ratio.
  *  - A hash table is still allowed to shrink if the ratio between the number
- *    of elements and the buckets <= 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
+ *    of elements and the slots <= 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio). */
 static redisAtomic dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static const unsigned int dict_force_resize_ratio = 4;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
-    struct dictEntry *next;  /* Must be first */
-    void *key;               /* Must be second */
+    void *key;
     union {
         void *val;
         uint64_t u64;
@@ -57,13 +57,34 @@ struct dictEntry {
     } v;
 };
 
-typedef struct dictEntryNoValue {
-    dictEntry *next; /* Must be first */
-    void *key;       /* Must be second */
-} dictEntryNoValue;
+/* Bucket layout (64 bytes):
+ *
+ *   chained(1 bit) presence(SLOTS bits) hashes[SLOTS] slots[SLOTS]
+ *
+ * presence tells which positions hold an entry. hashes[] holds the top byte of
+ * the hash of each entry and is used to rule out most non-matching entries
+ * without touching them. When chained is set, the last slot is not an entry
+ * but a pointer to a child bucket and its presence bit is clear. */
+#if DICT_BUCKET_SLOTS == 7
+#define BUCKET_BITS_TYPE uint8_t
+#define BUCKET_FACTOR 5
+#else
+#define BUCKET_BITS_TYPE uint16_t
+#define BUCKET_FACTOR 3
+#endif
+#define BUCKET_DIVISOR 32
+#define BUCKET_BITS_TYPE_EX __extension__ BUCKET_BITS_TYPE
 
-static_assert(offsetof(dictEntry, next) == offsetof(dictEntryNoValue, next), "dictEntry & dictEntryNoValue next not aligned");
-static_assert(offsetof(dictEntry, key) == offsetof(dictEntryNoValue, key), "dictEntry & dictEntryNoValue key not aligned");
+struct dictBucket {
+    BUCKET_BITS_TYPE_EX chained : 1;
+    BUCKET_BITS_TYPE_EX presence : DICT_BUCKET_SLOTS;
+    uint8_t hashes[DICT_BUCKET_SLOTS];
+    dictEntry *slots[DICT_BUCKET_SLOTS];
+};
+
+static_assert(sizeof(dictBucket) == DICT_BUCKET_BYTES, "dictBucket must be one cache line");
+
+typedef BUCKET_BITS_TYPE bucketBits;
 
 /* -------------------------- private prototypes ---------------------------- */
 
@@ -72,12 +93,9 @@ static void _dictShrinkIfNeeded(dict *d);
 static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
-static dictEntryLink dictGetNextLink(dictEntry *de);
-static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
 static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
-dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
-static dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link);
+static dictEntry *dictInsertKey(dict *d, uint64_t hash, void *key __stored_key, dictEntryLink *link);
 
 /* -------------------------- unused  --------------------------- */
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);
@@ -145,14 +163,6 @@ static inline int entryIsNormal(const dictEntry *de) {
     return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NORMAL;
 }
 
-/* Creates an entry without a value field. */
-static inline dictEntry *createEntryNoValue(void *key __stored_key, dictEntry *next) {
-    dictEntryNoValue *entry = zmalloc(sizeof(*entry));
-    entry->key = key;
-    entry->next = next;
-    return (dictEntry *) entry;
-}
-
 static inline dictEntry *encodeMaskedPtr(const void *ptr, unsigned int bits) {
     assert(((uintptr_t)ptr & ENTRY_PTR_MASK) == 0);
     return (dictEntry *)(void *)((uintptr_t)ptr | bits);
@@ -174,15 +184,266 @@ static inline dictEntry *encodeEntryKey(dict *d, void *key) {
     }
 }
 
-/* Decodes the pointer to an entry without value, when you know it is an entry
- * without value. Hint: Use entryIsNoValue to check. */
-static inline dictEntryNoValue *decodeEntryNoValue(const dictEntry *de) {
-    return decodeMaskedPtr(de);
-}
-
 /* Returns 1 if the entry has a value field and 0 otherwise. */
 static inline int entryHasValue(const dictEntry *de) {
     return entryIsNormal(de);
+}
+
+/* ----------------------------- bucket helpers ----------------------------- */
+
+/* The tag stored per slot is the top byte of the hash; the bucket index uses
+ * the low bits, so the two are independent for tables up to 2^56 buckets. */
+static inline uint8_t hashTag(uint64_t hash) {
+    return hash >> (CHAR_BIT * 7);
+}
+
+/* Returns the number of positions of a bucket that can hold an entry. */
+static inline int numBucketPositions(const dictBucket *b) {
+    return DICT_BUCKET_SLOTS - (b->chained ? 1 : 0);
+}
+
+static inline int bucketIsFull(const dictBucket *b) {
+    return b->presence == (bucketBits)((1u << numBucketPositions(b)) - 1);
+}
+
+static inline int isPositionFilled(const dictBucket *b, int pos) {
+    return b->presence & (1u << pos);
+}
+
+static inline dictBucket *getChildBucket(const dictBucket *b) {
+    return b->chained ? (dictBucket *)(void *)b->slots[DICT_BUCKET_SLOTS - 1] : NULL;
+}
+
+static inline void setChildBucket(dictBucket *b, dictBucket *child) {
+    b->slots[DICT_BUCKET_SLOTS - 1] = (dictEntry *)(void *)child;
+}
+
+/* A bucket with nothing in it and no child. */
+static inline int bucketIsEmpty(const dictBucket *b) {
+    return b->presence == 0 && !b->chained;
+}
+
+/* Returns the number of entries in a bucket chain. */
+static unsigned long chainEntries(const dictBucket *b) {
+    unsigned long n = 0;
+    for (; b; b = getChildBucket(b)) n += __builtin_popcount(b->presence);
+    return n;
+}
+
+/* Returns 1 if the table holds no entries and no child buckets, 0 otherwise.
+ * Deletes while compaction is paused may leave child buckets without
+ * entries. */
+static inline int tableIsEmpty(dict *d, int htidx) {
+    return d->ht_used[htidx] == 0 && d->child_buckets[htidx] == 0;
+}
+
+/* Returns the mask of the positions whose hash tag is `tag`. */
+static inline bucketBits findHashMatches(const uint8_t *hashes, uint8_t tag) {
+    bucketBits m = 0;
+    for (int i = 0; i < DICT_BUCKET_SLOTS; i++)
+        m |= (bucketBits)((hashes[i] == tag) << i);
+    return m;
+}
+
+/* Child buckets are allocated and freed with these functions, which keep
+ * child_buckets[] and the bucketChanged callback (which counts top-level and
+ * child buckets) in sync. _dictClear() is the exception, as its callers
+ * subtract all the buckets at once. */
+static dictBucket *allocChildBucket(dict *d, int table) {
+    dictBucket *b = zcalloc(sizeof(*b));
+    d->child_buckets[table]++;
+    if (d->type->bucketChanged) d->type->bucketChanged(d, 1);
+    return b;
+}
+
+static void freeChildBucket(dict *d, dictBucket *b, int table) {
+    zfree(b);
+    debugAssert(d->child_buckets[table] > 0);
+    d->child_buckets[table]--;
+    if (d->type->bucketChanged) d->type->bucketChanged(d, -1);
+}
+
+/* Move an entry from one bucket position to another. */
+static void moveEntry(dictBucket *to, int pos_to, dictBucket *from, int pos_from) {
+    assert(!isPositionFilled(to, pos_to));
+    assert(isPositionFilled(from, pos_from));
+    to->slots[pos_to] = from->slots[pos_from];
+    to->hashes[pos_to] = from->hashes[pos_from];
+    to->presence |= (1u << pos_to);
+    from->presence &= ~(1u << pos_from);
+}
+
+/* Exchange the entries of two filled bucket positions. */
+static void swapEntries(dictBucket *a, int pos_a, dictBucket *b, int pos_b) {
+    assert(isPositionFilled(a, pos_a) && isPositionFilled(b, pos_b));
+    dictEntry *de = a->slots[pos_a];
+    uint8_t tag = a->hashes[pos_a];
+    a->slots[pos_a] = b->slots[pos_b];
+    a->hashes[pos_a] = b->hashes[pos_b];
+    b->slots[pos_b] = de;
+    b->hashes[pos_b] = tag;
+}
+
+/* Converts a full bucket to a chained one, moving its last entry to a new
+ * child bucket. */
+static void bucketConvertToChained(dict *d, dictBucket *b, int table) {
+    assert(!b->chained);
+    int pos = DICT_BUCKET_SLOTS - 1;
+    assert(isPositionFilled(b, pos));
+    dictBucket *child = allocChildBucket(d, table);
+    moveEntry(child, 0, b, pos);
+    b->chained = 1;
+    setChildBucket(b, child);
+}
+
+/* Frees the last bucket of a chain, which must be empty or have a single
+ * entry. The before-last bucket becomes the new last bucket; a lone entry
+ * takes the place of its child pointer. */
+static void pruneLastBucket(dict *d, dictBucket *before_last, dictBucket *last, int table) {
+    assert(before_last->chained && getChildBucket(before_last) == last);
+    assert(!last->chained);
+    assert(last->presence == 0 || __builtin_popcount(last->presence) == 1);
+    before_last->chained = 0;
+    assert(!isPositionFilled(before_last, DICT_BUCKET_SLOTS - 1));
+    if (last->presence != 0) {
+        int pos_in_last = __builtin_ctz(last->presence);
+        moveEntry(before_last, DICT_BUCKET_SLOTS - 1, last, pos_in_last);
+    }
+    freeChildBucket(d, last, table);
+}
+
+/* After removing an entry from a chained bucket, fill the hole with an entry
+ * from the end of the chain and free the last bucket if it becomes (nearly)
+ * empty. A last bucket that is already empty (deletes while compaction was
+ * paused) is freed first, and the entry is taken from the new last bucket. If
+ * `b` itself becomes the last bucket, the hole is left as it is. */
+static void fillBucketHole(dict *d, dictBucket *b, int pos, int table) {
+    assert(b->chained && !isPositionFilled(b, pos));
+    while (1) {
+        dictBucket *before_last = b;
+        dictBucket *last = getChildBucket(b);
+        while (last->chained) {
+            before_last = last;
+            last = getChildBucket(last);
+        }
+        if (last->presence == 0) {
+            pruneLastBucket(d, before_last, last, table);
+            if (!b->chained) return;
+            continue;
+        }
+        int pos_in_last = __builtin_ctz(last->presence);
+        moveEntry(b, pos, last, pos_in_last);
+        if (last->presence == 0 || __builtin_popcount(last->presence) == 1) {
+            pruneLastBucket(d, before_last, last, table);
+        }
+        return;
+    }
+}
+
+/* Compact the chain after removing the entry at `pos` of bucket `b`, unless
+ * that is paused. `parent` is the bucket whose child is `b`, or NULL. Without
+ * a parent, a last bucket that became (nearly) empty is left as it is; a
+ * top-level bucket has no parent and is never freed here. */
+static void compactAfterDelete(dict *d, dictBucket *b, dictBucket *parent, int pos, int table) {
+    if (d->pauserehash != 0) return;
+    if (b->chained)
+        fillBucketHole(d, b, pos, table);
+    else if (parent && (b->presence == 0 || __builtin_popcount(b->presence) == 1))
+        pruneLastBucket(d, parent, b, table);
+}
+
+/* Deleting entries while compaction is paused leaves holes. This fills them by
+ * moving entries from the end of the chain, and frees the buckets that are no
+ * longer needed. */
+static void compactBucketChain(dict *d, size_t bucket_index, int table) {
+    dictBucket *b = &d->ht_table[table][bucket_index];
+    while (b->chained) {
+        dictBucket *next = getChildBucket(b);
+        if (next->chained && next->presence == 0) {
+            /* Empty bucket in the middle of the chain: unlink it. */
+            setChildBucket(b, getChildBucket(next));
+            freeChildBucket(d, next, table);
+            continue;
+        }
+        if (!next->chained && (next->presence == 0 || __builtin_popcount(next->presence) == 1)) {
+            pruneLastBucket(d, b, next, table);
+            return;
+        }
+        /* Filling a hole touches no other position of b. */
+        bucketBits holes = ~b->presence & (bucketBits)((1u << (DICT_BUCKET_SLOTS - 1)) - 1);
+        while (holes) {
+            int pos = __builtin_ctz(holes);
+            holes &= holes - 1;
+            fillBucketHole(d, b, pos, table);
+            if (!b->chained) return;
+        }
+        b = next;
+    }
+}
+
+/* Find a free position for an entry with the given hash, in the table that
+ * accepts inserts. Chains the bucket if it is full. */
+static dictBucket *findBucketForInsert(dict *d, uint64_t hash, int *pos_out, int *table_out) {
+    int table = dictIsRehashing(d) ? 1 : 0;
+    assert(d->ht_table[table]);
+    dictBucket *b = &d->ht_table[table][hash & DICTHT_SIZE_MASK(d->ht_size_exp[table])];
+    while (bucketIsFull(b)) {
+        if (!b->chained) bucketConvertToChained(d, b, table);
+        b = getChildBucket(b);
+    }
+    /* The bucket is not full, so its first clear presence bit is a usable
+     * position (a chained bucket also has positions before its child slot). */
+    int pos = __builtin_ctz(~(unsigned)b->presence);
+    debugAssert(pos < numBucketPositions(b));
+    *pos_out = pos;
+    if (table_out) *table_out = table;
+    return b;
+}
+
+/* Search a single bucket (not its child buckets) for the key. Returns the
+ * position of the key, or -1 if it is not in this bucket. */
+static inline int bucketFindKey(dict *d, dictBucket *b, uint8_t tag, const void *key,
+                                keyCmpFunc cmp, dictCmpCache *cache)
+{
+    bucketBits candidates = b->presence & findHashMatches(b->hashes, tag);
+    while (candidates) {
+        int pos = __builtin_ctz(candidates);
+        const void *visitedKey = dictStoredKey2Key(d, dictGetKey(b->slots[pos]));
+        if (key == visitedKey || cmp(cache, key, visitedKey)) return pos;
+        candidates &= candidates - 1;
+    }
+    return -1;
+}
+
+/* Find the bucket and position of a key. Does not rehash or write anything.
+ * If `parent_out` is not NULL, it is set to the bucket whose child is the
+ * returned bucket, or NULL for a top-level bucket. */
+static dictBucket *findBucketForKey(dict *d, uint64_t hash, const void *key, int *pos_out,
+                                    int *table_out, dictBucket **parent_out)
+{
+    dictCmpCache cache = {0};
+    keyCmpFunc cmp = dictGetCmpFunc(d);
+    uint8_t tag = hashTag(hash);
+    for (int table = 0; table <= 1; table++) {
+        if (d->ht_used[table] == 0) continue;
+        size_t idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+        /* Buckets before rehashidx have already been moved to the new table. */
+        if (table == 0 && (long)idx < d->rehashidx) continue;
+        dictBucket *b = &d->ht_table[table][idx];
+        dictBucket *parent = NULL;
+        do {
+            int pos = bucketFindKey(d, b, tag, key, cmp, &cache);
+            if (pos >= 0) {
+                *pos_out = pos;
+                if (table_out) *table_out = table;
+                if (parent_out) *parent_out = parent;
+                return b;
+            }
+            parent = b;
+            b = getChildBucket(b);
+        } while (b);
+    }
+    return NULL;
 }
 
 /* ----------------------------- API implementation ------------------------- */
@@ -193,6 +454,7 @@ static void _dictReset(dict *d, int htidx)
     d->ht_table[htidx] = NULL;
     d->ht_size_exp[htidx] = -1;
     d->ht_used[htidx] = 0;
+    d->child_buckets[htidx] = 0;
 }
 
 /* Create a new hash table */
@@ -244,26 +506,26 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
     assert(!dictIsRehashing(d));
 
     /* the new hash table */
-    dictEntry **new_ht_table;
+    dictBucket *new_ht_table;
     unsigned long new_ht_used;
     signed char new_ht_size_exp = _dictNextExp(size);
 
     /* Detect overflows */
     size_t newsize = DICTHT_SIZE(new_ht_size_exp);
-    if (newsize < size || newsize * sizeof(dictEntry*) < newsize)
+    if (newsize * DICT_BUCKET_SLOTS < size || newsize * DICT_BUCKET_BYTES < newsize)
         return DICT_ERR;
 
     /* Rehashing to the same table size is not useful. */
     if (new_ht_size_exp == d->ht_size_exp[0]) return DICT_ERR;
 
-    /* Allocate the new hash table and initialize all pointers to NULL */
+    /* Allocate the new hash table and initialize all buckets to empty */
     if (malloc_failed) {
-        new_ht_table = ztrycalloc(newsize*sizeof(dictEntry*));
+        new_ht_table = ztrycalloc(newsize*DICT_BUCKET_BYTES);
         *malloc_failed = new_ht_table == NULL;
         if (*malloc_failed)
             return DICT_ERR;
     } else
-        new_ht_table = zcalloc(newsize*sizeof(dictEntry*));
+        new_ht_table = zcalloc(newsize*DICT_BUCKET_BYTES);
 
     new_ht_used = 0;
 
@@ -280,8 +542,9 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
 
     /* Is this the first initialization or is the first hash table empty? If so
      * it's not really a rehashing, we can just set the first hash table so that
-     * it can accept keys. */
-    if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
+     * it can accept keys. An empty table is kept while rehashing is paused, as
+     * a safe iterator or a scan may still be walking its buckets. */
+    if (d->ht_table[0] == NULL || (tableIsEmpty(d, 0) && d->pauserehash == 0)) {
         if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
         if (d->type->bucketChanged)
             d->type->bucketChanged(d, -(long long)DICTHT_SIZE(d->ht_size_exp[0]));
@@ -295,7 +558,7 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
     }
 
     /* Force a full rehashing of the dictionary */
-    if (d->type->force_full_rehash) {
+    if (d->type->force_full_rehash && d->pauserehash == 0) {
         while (dictRehash(d, 1000)) {
             /* Continue rehashing */
         }
@@ -304,9 +567,10 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
 }
 
 int _dictExpand(dict *d, unsigned long size, int* malloc_failed) {
-    /* the size is invalid if it is smaller than the size of the hash table 
+    /* the size is invalid if it is smaller than the slots of the hash table 
      * or smaller than the number of elements already inside the hash table */
-    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) >= size)
+    if (dictIsRehashing(d) || d->ht_used[0] > size ||
+        DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS >= size)
         return DICT_ERR;
     return _dictResize(d, size, malloc_failed);
 }
@@ -325,61 +589,62 @@ int dictTryExpand(dict *d, unsigned long size) {
 
 /* return DICT_ERR if shrink was not performed */
 int dictShrink(dict *d, unsigned long size) {
-    /* the size is invalid if it is bigger than the size of the hash table
+    /* the size is invalid if it is bigger than the slots of the hash table
      * or smaller than the number of elements already inside the hash table */
-    if (dictIsRehashing(d) || d->ht_used[0] > size || DICTHT_SIZE(d->ht_size_exp[0]) <= size)
+    if (dictIsRehashing(d) || d->ht_used[0] > size ||
+        DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS <= size)
         return DICT_ERR;
     return _dictResize(d, size, NULL);
 }
 
-/* Helper function for `dictRehash` and `dictBucketRehash` which rehashes all the keys
- * in a bucket at index `idx` from the old to the new hash HT. */
+/* Helper function for `dictRehash` and `_dictBucketRehash` which rehashes all the keys
+ * in the bucket chain at index `idx` from the old to the new hash HT. */
 static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
-    dictEntry *de = d->ht_table[0][idx];
-    uint64_t h;
-    dictEntry *nextde;
-    while (de) {
-        nextde = dictGetNext(de);
-        void *storedKey = dictGetKey(de);
-        /* Get the index in the new hash table */
-        if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
-            const void *key = dictStoredKey2Key(d, storedKey);
-            h = dictGetHash(d, key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
-        } else {
-            /* We're shrinking the table. The tables sizes are powers of
-             * two, so we simply mask the bucket index in the larger table
-             * to get the bucket index in the smaller table. */
-            h = idx & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
-        }
-        if (d->type->no_value) {
-            if (!d->ht_table[1][h]) {
-                /* The destination bucket is empty, allowing the key to be stored 
-                 * directly without allocating a dictEntry. If an old entry was 
-                 * previously allocated, free its memory. */                
-                if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
-                
-                de = encodeEntryKey(d, storedKey);
-                
-            } else if (entryIsKey(de)) {
-                /* We don't have an allocated entry but we need one. */
-                de = createEntryNoValue(storedKey, d->ht_table[1][h]);
+    dictBucket *root = &d->ht_table[0][idx];
+    for (dictBucket *b = root; b; b = getChildBucket(b)) {
+        bucketBits present = b->presence;
+        while (present) {
+            int pos = __builtin_ctz(present);
+            present &= present - 1;
+            dictEntry *de = b->slots[pos];
+            uint64_t h;
+            uint8_t tag;
+            /* Get the hash bits that locate the bucket in the new hash table */
+            if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
+                const void *key = dictStoredKey2Key(d, dictGetKey(de));
+                h = dictGetHash(d, key);
+                tag = hashTag(h);
             } else {
-                dictSetNext(de, d->ht_table[1][h]);
+                /* We're shrinking the table. The tables sizes are powers of
+                 * two, so we simply mask the bucket index in the larger table
+                 * to get the bucket index in the smaller table. The hash tag
+                 * of the entry stays the same. */
+                h = idx;
+                tag = b->hashes[pos];
             }
-        } else {
-            dictSetNext(de, d->ht_table[1][h]);
+            int dpos;
+            dictBucket *dst = findBucketForInsert(d, h, &dpos, NULL);
+            dst->slots[dpos] = de;
+            dst->hashes[dpos] = tag;
+            dst->presence |= (1u << dpos);
+            d->ht_used[0]--;
+            d->ht_used[1]++;
         }
-        d->ht_table[1][h] = de;
-        d->ht_used[0]--;
-        d->ht_used[1]++;
-        de = nextde;
     }
-    d->ht_table[0][idx] = NULL;
+    /* All the entries of the chain moved, so free its child buckets. */
+    dictBucket *child = getChildBucket(root);
+    while (child) {
+        dictBucket *next = getChildBucket(child);
+        freeChildBucket(d, child, 0);
+        child = next;
+    }
+    root->chained = 0;
+    root->presence = 0;
 }
 
 /* This checks if we already rehashed the whole table and if more rehashing is required */
 static int dictCheckRehashingCompleted(dict *d) {
-    if (d->ht_used[0] != 0) return 0;
+    if (!tableIsEmpty(d, 0)) return 0;
     
     if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
     if (d->type->bucketChanged)
@@ -388,6 +653,7 @@ static int dictCheckRehashingCompleted(dict *d) {
     /* Copy the new ht onto the old one */
     d->ht_table[0] = d->ht_table[1];
     d->ht_used[0] = d->ht_used[1];
+    d->child_buckets[0] = d->child_buckets[1];
     d->ht_size_exp[0] = d->ht_size_exp[1];
     _dictReset(d, 1);
     d->rehashidx = -1;
@@ -395,10 +661,11 @@ static int dictCheckRehashingCompleted(dict *d) {
 }
 
 /* Performs N steps of incremental rehashing. Returns 1 if there are still
- * keys to move from the old to the new hash table, otherwise 0 is returned.
+ * keys to move from the old to the new hash table (or child buckets left
+ * without keys to free), otherwise 0 is returned.
  *
- * Note that a rehashing step consists in moving a bucket (that may have more
- * than one key as we use chaining) from the old to the new hash table, however
+ * Note that a rehashing step consists in moving a bucket (with all the keys in
+ * it and in its child buckets) from the old to the new hash table, however
  * since part of the hash table may be composed of empty spaces, it is not
  * guaranteed that this function will rehash even a single bucket, since it
  * will visit at max N*10 empty buckets in total, otherwise the amount of
@@ -410,21 +677,27 @@ int dictRehash(dict *d, int n) {
     dictResizeEnable can_resize;
     atomicGet(dict_can_resize, can_resize);
     if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
+    /* Entries must not move while rehashing is paused. */
+    if (d->pauserehash != 0) return 0;
     /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
-     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
+     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32.
+     *   New tables are sized with spare slots, so a shrink forced at 1/32 fill
+     *   may target a table only 16 times smaller. Such a shrink still makes
+     *   progress while the fill of the old table stays at or below 1/32. */
     if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
-         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
+         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1 &&
+          dictSize(d) > s0 * DICT_BUCKET_SLOTS / (HASHTABLE_MIN_FILL * dict_force_resize_ratio))))
     {
         return 0;
     }
 
-    while(n-- && d->ht_used[0] != 0) {
+    while(n-- && !tableIsEmpty(d, 0)) {
         /* Note that rehashidx can't overflow as we are sure there are more
-         * elements because ht[0].used != 0 */
+         * entries or child buckets in ht[0] */
         assert(DICTHT_SIZE(d->ht_size_exp[0]) > (unsigned long)d->rehashidx);
-        while(d->ht_table[0][d->rehashidx] == NULL) {
+        while(bucketIsEmpty(&d->ht_table[0][d->rehashidx])) {
             d->rehashidx++;
             if (--empty_visits == 0) return 1;
         }
@@ -482,10 +755,14 @@ int _dictBucketRehash(dict *d, uint64_t idx) {
     if (can_resize == DICT_RESIZE_FORBID || !dictIsRehashing(d)) return 0;
     /* If dict_can_resize is DICT_RESIZE_AVOID, we want to avoid rehashing.
      * - If expanding, the threshold is dict_force_resize_ratio which is 4.
-     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32. */
+     * - If shrinking, the threshold is 1 / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) which is 1/32.
+     *   New tables are sized with spare slots, so a shrink forced at 1/32 fill
+     *   may target a table only 16 times smaller. Such a shrink still makes
+     *   progress while the fill of the old table stays at or below 1/32. */
     if (can_resize == DICT_RESIZE_AVOID &&
         ((s1 > s0 && s1 < dict_force_resize_ratio * s0) ||
-         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1)))
+         (s1 < s0 && s0 < HASHTABLE_MIN_FILL * dict_force_resize_ratio * s1 &&
+          dictSize(d) > s0 * DICT_BUCKET_SLOTS / (HASHTABLE_MIN_FILL * dict_force_resize_ratio))))
     {
         return 0;
     }
@@ -530,51 +807,56 @@ int dictCompareKeys(dict *d, const void *key1, const void *key2) {
  */
 dictEntry *dictAddRaw(dict *d, void *key __stored_key, dictEntry **existing)
 {
-    /* Get the position for the new key or NULL if the key already exists. */
-    void *position = dictFindLinkForInsert(d, dictStoredKey2Key(d, key), existing);
-    if (!position) return NULL;
+    const void *lookupKey = dictStoredKey2Key(d, key);
+    uint64_t hash = dictGetHash(d, lookupKey);
+    int pos;
+    if (existing) *existing = NULL;
+
+    /* Rehash the hash table if needed */
+    _dictRehashStepIfNeeded(d, hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]));
+
+    /* Expand the hash table if needed */
+    _dictExpandIfNeeded(d);
+
+    /* Return NULL if the key already exists. */
+    dictBucket *b = findBucketForKey(d, hash, lookupKey, &pos, NULL, NULL);
+    if (b) {
+        if (existing) *existing = b->slots[pos];
+        return NULL;
+    }
 
     /* Dup the key if necessary. */
     if (d->type->keyDup) key = d->type->keyDup(d, key);
 
-    return dictInsertKeyAtLink(d, key, position);
+    return dictInsertKey(d, hash, key, NULL);
 }
 
-/* Adds a key in the dict's hashtable at the link returned by a preceding
- * call to dictFindLinkForInsert(). This is a low level function which allows
- * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
- * used instead. It assumes that dictExpandIfNeeded() was called before. */
-dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link) {
-    dictEntryLink bucket = link; /* It's a bucket, but the API hides that. */
+/* Adds a key that is not in the dict yet, at a free position of the bucket
+ * chain that its hash maps to, and returns the new entry. For no_value dicts
+ * the entry is the encoded key. If `link` is not NULL, it is set to the link
+ * of the new entry. This is a low level function which assumes that
+ * dictExpandIfNeeded() was called before. */
+static dictEntry *dictInsertKey(dict *d, uint64_t hash, void *key __stored_key, dictEntryLink *link) {
     dictEntry *entry;
-    /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
-     * Assert that the provided bucket is the right table. */
-    int htidx = dictIsRehashing(d) ? 1 : 0;
-    assert(bucket >= &d->ht_table[htidx][0] &&
-           bucket <= &d->ht_table[htidx][DICTHT_SIZE_MASK(d->ht_size_exp[htidx])]);
+    int pos, htidx;
     if (d->type->no_value) {
-        if (!*bucket) {
-            /* We can store the key directly in the destination bucket without 
-             * allocating dictEntry.
-             */
-            entry = encodeEntryKey(d, key);
-            assert(entryIsKey(entry));
-        } else {
-            /* Allocate an entry without value. */
-            entry = createEntryNoValue(key, *bucket);
-        }
+        /* We can store the key directly in the bucket slot without
+         * allocating dictEntry. */
+        entry = encodeEntryKey(d, key);
+        assert(entryIsKey(entry));
     } else {
-        /* Allocate the memory and store the new entry.
-         * Insert the element in top, with the assumption that in a database
-         * system it is more likely that recently added entries are accessed
-         * more frequently. */
+        /* Allocate the memory and store the new entry. */
         entry = zmalloc(sizeof(*entry));
         assert(entryIsNormal(entry)); /* Check alignment of allocation */
         entry->key = key;
-        entry->next = *bucket;
     }
-    *bucket = entry;
+    /* If rehashing is ongoing, we insert in table 1, otherwise in table 0. */
+    dictBucket *b = findBucketForInsert(d, hash, &pos, &htidx);
+    b->slots[pos] = entry;
+    b->hashes[pos] = hashTag(hash);
+    b->presence |= (1u << pos);
     d->ht_used[htidx]++;
+    if (link) *link = &b->slots[pos];
 
     return entry;
 }
@@ -625,10 +907,9 @@ dictEntry *dictAddOrFind(dict *d, void *key __stored_key) {
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
-    dictCmpCache cmpCache = {0};
+    dictBucket *b, *parent;
     uint64_t h, idx;
-    dictEntry *he, *prevHe;
-    int table;
+    int pos, table;
 
     /* dict is empty */
     if (dictSize(d) == 0) return NULL;
@@ -639,34 +920,20 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d,idx);
 
-    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
+    b = findBucketForKey(d, h, key, &pos, &table, &parent);
+    if (!b) return NULL; /* not found */
 
-    for (table = 0; table <= 1; table++) {
-        if (table == 0 && (long)idx < d->rehashidx) continue;
-        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        he = d->ht_table[table][idx];
-        prevHe = NULL;
-        while(he) {
-            const void *he_key = dictStoredKey2Key(d, dictGetKey(he));
-            if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
-                /* Unlink the element from the list */
-                if (prevHe)
-                    dictSetNext(prevHe, dictGetNext(he));
-                else
-                    d->ht_table[table][idx] = dictGetNext(he);
-                if (!nofree) {
-                    dictFreeUnlinkedEntry(d, he);
-                }
-                d->ht_used[table]--;
-                _dictShrinkIfNeeded(d);
-                return he;
-            }
-            prevHe = he;
-            he = dictGetNext(he);
-        }
-        if (!dictIsRehashing(d)) break;
+    dictEntry *he = b->slots[pos];
+    /* Unlink the element from the bucket and compact the chain, unless that
+     * is paused */
+    b->presence &= ~(1u << pos);
+    compactAfterDelete(d, b, parent, pos, table);
+    if (!nofree) {
+        dictFreeUnlinkedEntry(d, he);
     }
-    return NULL; /* not found */
+    d->ht_used[table]--;
+    _dictShrinkIfNeeded(d);
+    return he;
 }
 
 /* Remove an element, returning DICT_OK on success or DICT_ERR if the
@@ -714,20 +981,30 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
     unsigned long i;
 
     /* Free all the elements */
-    for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]) && d->ht_used[htidx] > 0; i++) {
-        dictEntry *he, *nextHe;
-        /* Callback will be called once for every 65535 deletions. Beware,
-         * if dict has less than 65535 items, it will not be called at all.*/
+    for (i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]) && !tableIsEmpty(d, htidx); i++) {
+        dictBucket *root = &d->ht_table[htidx][i], *b, *next;
+        /* Callback will be called once for every 65536 buckets. Beware,
+         * if the table has 65536 buckets or less, it will not be called at all.*/
         if (callback && i != 0 && (i & 65535) == 0) callback(d);
 
-        if ((he = d->ht_table[htidx][i]) == NULL) continue;
-        while(he) {
-            nextHe = dictGetNext(he);
-            dictFreeKey(d, he);
-            dictFreeVal(d, he);
-            if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
-            d->ht_used[htidx]--;
-            he = nextHe;
+        if (bucketIsEmpty(root)) continue;
+        for (b = root; b; b = next) {
+            bucketBits present = b->presence;
+            while (present) {
+                dictEntry *he = b->slots[__builtin_ctz(present)];
+                present &= present - 1;
+                dictFreeKey(d, he);
+                dictFreeVal(d, he);
+                if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+                d->ht_used[htidx]--;
+            }
+            next = getChildBucket(b);
+            /* The callers already subtracted the child buckets with
+             * bucketChanged. */
+            if (b != root) {
+                zfree(b);
+                d->child_buckets[htidx]--;
+            }
         }
     }
     /* Free the table and the allocated cache structure */
@@ -747,7 +1024,7 @@ void dictRelease(dict *d)
 
     /* Subtract the size of all buckets. */
     if (d->type->bucketChanged)
-        d->type->bucketChanged(d, -(long long)dictBuckets(d));
+        d->type->bucketChanged(d, -(long long)(dictBuckets(d) + dictChildBuckets(d)));
 
     if (d->type->onDictRelease)
         d->type->onDictRelease(d);
@@ -761,13 +1038,13 @@ void dictRelease(dict *d)
  * 
  * Returns dictEntryLink reference if found. Otherwise, return NULL.
  * 
- * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
+ * bucket - return a link to the first slot of the bucket that the key was
+ *          mapped to, in the table that accepts inserts, unless the table
+ *          is not allocated.
  */
 static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
-    dictCmpCache cmpCache = {0};
-    dictEntryLink link;
     uint64_t idx;
-    int table;
+    int pos;
     
     if (bucket) {
         *bucket = NULL;
@@ -778,28 +1055,20 @@ static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLin
 
     const uint64_t hash = dictGetHash(d, key);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
     /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d,idx);
 
-    int tables = (dictIsRehashing(d)) ? 2 : 1;
-    for (table = 0; table < tables; table++) {
-        if (table == 0 && (long)idx < d->rehashidx) continue;
-        idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-
-        link = &(d->ht_table[table][idx]);
-        if (bucket) *bucket = link;
-        while(link && *link) {
-            const void *visitedKey = dictStoredKey2Key(d, dictGetKey(*link));
-
-            if (key == visitedKey || cmpFunc( &cmpCache, key, visitedKey))                
-                return link;
-
-            link = dictGetNextLink(*link);
+    if (bucket) {
+        int table = dictIsRehashing(d) ? 1 : 0;
+        if (d->ht_table[table]) {
+            idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+            *bucket = &d->ht_table[table][idx].slots[0];
         }
     }
-    return NULL;
+
+    dictBucket *b = findBucketForKey(d, hash, key, &pos, NULL, NULL);
+    return b ? &b->slots[pos] : NULL;
 }
 
 dictEntry *dictFind(dict *d, const void *key)
@@ -809,23 +1078,26 @@ dictEntry *dictFind(dict *d, const void *key)
 }
 
 /* Finds the dictEntry using pointer and pre-calculated hash.
- * oldkey is a dead pointer and should not be accessed.
+ * oldptr is a dead pointer and should not be accessed.
  * the hash value should be provided using dictGetHash.
  * no string / key comparison is performed.
  * return value is a pointer to the dictEntry if found, or NULL if not found. */
 dictEntry *dictFindByHashAndPtr(dict *d, const void *oldptr, const uint64_t hash) {
-    dictEntry *he;
     unsigned long idx, table;
+    uint8_t tag = hashTag(hash);
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     for (table = 0; table <= 1; table++) {
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
         if (table == 0 && (long)idx < d->rehashidx) continue;
-        he = d->ht_table[table][idx];
-        while(he) {
-            if (oldptr == dictGetKey(he))
-                return he;
-            he = dictGetNext(he);
+        for (dictBucket *b = &d->ht_table[table][idx]; b; b = getChildBucket(b)) {
+            bucketBits candidates = b->presence & findHashMatches(b->hashes, tag);
+            while (candidates) {
+                dictEntry *he = b->slots[__builtin_ctz(candidates)];
+                if (oldptr == dictGetKey(he))
+                    return he;
+                candidates &= candidates - 1;
+            }
         }
         if (!dictIsRehashing(d)) return NULL;
     }
@@ -834,24 +1106,31 @@ dictEntry *dictFindByHashAndPtr(dict *d, const void *oldptr, const uint64_t hash
 
 /* Find a key and return its dictEntryLink reference. Otherwise, return NULL
  * 
- * A dictEntryLink pointer being used to find preceding dictEntry of searched item. 
- * It is Useful for deletion, addition, unlinking and updating, especially for 
- * dict configured with 'no_value'. In such cases returning only `dictEntry` from 
- * a lookup may be insufficient since it might be opt-out to be the object itself. 
- * By locating preceding dictEntry (dictEntryLink) these ops can be properly handled. 
+ * A dictEntryLink is the address of the bucket slot that holds the entry of the
+ * searched item. It is Useful for deletion, addition, unlinking and updating,
+ * especially for dict configured with 'no_value'. In such cases returning only
+ * `dictEntry` from a lookup may be insufficient since it might be opt-out to be
+ * the object itself. By locating the slot (dictEntryLink) these ops can be
+ * properly handled.
+ *
+ * A link is valid only until the dict is modified: an insert into the same
+ * bucket chain (a full bucket moves its last entry to a child bucket), a delete
+ * that compacts the chain, a rehash step (that lookups do too) and a resize
+ * can invalidate it. dictPauseRehashing() keeps it valid across lookups and
+ * deletes of other keys in the same dict, but not across inserts.
  * 
  * After calling link = dictFindLink(...), any necessary updates based on returned 
  * link or bucket must be performed immediately after by calling dictSetKeyAtLink() 
  * without any intervening operations on given dict. Otherwise, `dictEntryLink` may 
  * become invalid. Example with kvobj of replacing key with new key:
  * 
- *      link = dictFindLink(d, key, &bucket, 0);
+ *      link = dictFindLink(d, key, &bucket);
  *      ... Do something, but don't modify the dict ...
  *      // assert(link != NULL);
  *      dictSetKeyAtLink(d, kv, &link, 0);
  *      
- * To add new value (If no space for the new key, dict will be expanded by
- * dictSetKeyAtLink() and bucket will be looked up again.):
+ * To add new value (dictSetKeyAtLink() expands the dict if there is no space
+ * for the new key, and looks up the insert position again):
  *   
  *      link = dictFindLink(d, key, &bucket);
  *      ... Do something, but don't modify the dict ...
@@ -870,9 +1149,12 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
 
 /* Set the key with link 
  *
- * link:    - When `newItem` is set, `link` points to the bucket of the key.
+ * link:    - When `newItem` is set, `link` points to the bucket of the key, or
+ *            to NULL. The insert position is looked up again, as it depends
+ *            on the hash of the key.
  *          - When `newItem` is not set, `link` points to the link of the key.
- *          - If *link is NULL, dictFindLink() will be called to locate the key.
+ *          - When `newItem` is not set and *link is NULL, dictFindLink() will
+ *            be called to locate the key.
  *          - On return, get updated, by need, to the inserted key. 
  *
  * newItem: 1 = Add a key with a new dictEntry.
@@ -884,21 +1166,11 @@ void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int 
     void *addedKey = (d->type->keyDup) ? d->type->keyDup(d, key) : key;
     
     if (newItem) {
-        signed char snap[2] = {d->ht_size_exp[0], d->ht_size_exp[1] };
-
         /* Make room if needed for the new key */
         dictExpandIfNeeded(d);
-        
-        /* Lookup key's link if tables reallocated or if given link is set to NULL */
-        if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
-            dictEntryLink bucket;
-            /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
-            *link = dictFindLinkInternal(d, dictStoredKey2Key(d, key), &bucket);
-            assert(bucket != NULL);
-            assert(*link == NULL);
-            *link = bucket; /* On newItem the link should be the bucket */
-        }
-        dictInsertKeyAtLink(d, addedKey, *link);
+
+        uint64_t hash = dictGetHash(d, dictStoredKey2Key(d, key));
+        dictInsertKey(d, hash, addedKey, link);
         return;
     } 
     
@@ -914,7 +1186,6 @@ void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int 
         /* `de` opt-out to be actually a key. Replace key but keep the lsb flags */
         *de = encodeEntryKey(d, addedKey);
     } else {
-        /* either dictEntry or dictEntryNoValue */
         (*de)->key = addedKey;
     }
 }
@@ -941,46 +1212,59 @@ void *dictFetchValue(dict *d, const void *key) {
  * If we want to find an entry before delete this entry, this an optimization to avoid
  * dictFind followed by dictDelete. i.e. the first API is a find, and it gives some info
  * to the second one to avoid repeating the lookup
+ *
+ * `table_index` holds the table and the position of the entry in its bucket.
  */
 dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index) {
-    dictCmpCache cmpCache = {0};
-    uint64_t h, idx, table;
+    dictBucket *b, *parent;
+    uint64_t h;
+    int pos, table;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
     h = dictGetHash(d, key);    
-    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
+    b = findBucketForKey(d, h, key, &pos, &table, &parent);
+    if (!b) return NULL;
 
-    for (table = 0; table <= 1; table++) {
-        idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        if (table == 0 && (long)idx < d->rehashidx) continue;
-        dictEntry **ref = &d->ht_table[table][idx];
-        while (ref && *ref) {
-            const void *de_key = dictStoredKey2Key(d, dictGetKey(*ref));
-            if (key == de_key || cmpFunc(&cmpCache, key, de_key)) {
-                *table_index = table;
-                dictPauseRehashing(d);
-                return ref;
-            }
-            ref = dictGetNextLink(*ref);
-        }
-        if (!dictIsRehashing(d)) return NULL;
+    /* Freeing an entry of the last bucket of a chain may free that bucket,
+     * which needs its parent bucket. Move the entry into the parent (swapping
+     * it with an entry of the parent, if there is one), so that
+     * dictTwoPhaseUnlinkFree() can compact the chain without it. Entries must
+     * not move while rehashing is paused, in which case it stays where it is. */
+    if (parent && !b->chained && d->pauserehash == 0) {
+        bucketBits filled = parent->presence;
+        int parent_pos = filled ? __builtin_ctz(filled) : 0;
+        if (filled)
+            swapEntries(parent, parent_pos, b, pos);
+        else
+            moveEntry(parent, parent_pos, b, pos);
+        b = parent;
+        pos = parent_pos;
     }
-    return NULL;
+    *table_index = table | (pos << 1);
+    dictPauseRehashing(d);
+    return &b->slots[pos];
 }
 
 void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink plink, int table_index) {
     if (plink == NULL || *plink == NULL) return;
+    int table = table_index & 1;
+    int pos = table_index >> 1;
+    dictBucket *b = (dictBucket *)(void *)((char *)(plink - pos) - offsetof(dictBucket, slots));
+    debugAssert(isPositionFilled(b, pos) && !(b->chained && pos == DICT_BUCKET_SLOTS - 1));
     dictEntry *de = *plink;
-    d->ht_used[table_index]--;
+    d->ht_used[table]--;
 
-    *plink = dictGetNext(de);
+    b->presence &= ~(1u << pos);
     dictFreeKey(d, de);
     dictFreeVal(d, de);
     if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
-    _dictShrinkIfNeeded(d);
     dictResumeRehashing(d);
+    /* The parent of the bucket isn't known: dictTwoPhaseUnlinkFind() moved the
+     * entry out of the last bucket of the chain, unless rehashing was paused. */
+    compactAfterDelete(d, b, NULL, pos, table);
+    _dictShrinkIfNeeded(d);
 }
 
 void dictSetKey(dict *d, dictEntry* de, void *key __stored_key) {
@@ -1064,43 +1348,18 @@ double *dictGetDoubleValPtr(dictEntry *de) {
     return &de->v.d;
 }
 
-/* Returns the 'next' field of the entry or NULL if the entry doesn't have a
- * 'next' field. */
-dictEntry *dictGetNext(const dictEntry *de) {
-    if (entryIsKey(de)) return NULL; /* there's no next */
-    /* Must come after entryIsKey() check */
-    return de->next;
-}
-
-/* Returns a pointer to the 'next' field in the entry or NULL if the entry
- * doesn't have a next field. */
-static dictEntryLink dictGetNextLink(dictEntry *de) {
-    if (entryIsKey(de)) return NULL;
-    /* Must come after entryIsKey() check */
-    return &de->next;
-}
-
-static void dictSetNext(dictEntry *de, dictEntry *next) {
-    assert(!entryIsKey(de));
-    /* dictEntryNoValue & dictEntry are layout-compatible */
-    de->next = next;
-}
-
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
  * and values. */
 size_t dictMemUsage(const dict *d) {
-    /* Account for the actual per-entry structure size: no_value=1 dicts (sets,
-     * the sorted-set element index, hashes) allocate a dictEntryNoValue (or
-     * store the key inline in the bucket), not a full dictEntry. Mirrors what
-     * kvstoreMemUsage() already does via dictEntryMemUsage(). This is a strict
-     * over-estimate still (inline-stored keys allocate nothing), but no longer
-     * charges the value slot that a no_value dict never has. */
+    /* The buckets (top-level and child) plus the per-entry structures. no_value=1
+     * dicts (sets, the sorted-set element index, hashes) store the key in the
+     * bucket slot and allocate nothing per entry, see dictEntryMemUsage(). */
     return dictSize(d) * dictEntryMemUsage(d->type->no_value) +
-        dictBuckets(d) * sizeof(dictEntry*);
+        (dictBuckets(d) + dictChildBuckets(d)) * DICT_BUCKET_BYTES;
 }
 
 size_t dictEntryMemUsage(int noValueDict) {
-    return (noValueDict) ? sizeof(dictEntryNoValue) :sizeof(dictEntry);
+    return (noValueDict) ? 0 : sizeof(dictEntry);
 }
 
 /* A fingerprint is a 64 bit number that represents the state of the dictionary
@@ -1147,8 +1406,9 @@ void dictInitIterator(dictIterator *iter, dict *d)
     iter->table = 0;
     iter->index = -1;
     iter->safe = 0;
-    iter->entry = NULL;
-    iter->nextEntry = NULL;
+    iter->bucket = NULL;
+    iter->pos = 0;
+    iter->last_seen_size = 0;
 }
 
 void dictInitSafeIterator(dictIterator *iter, dict *d)
@@ -1183,40 +1443,76 @@ dictIterator *dictGetSafeIterator(dict *d) {
 
 dictEntry *dictNext(dictIterator *iter)
 {
-    while (1) {
-        if (iter->entry == NULL) {
-            if (iter->index == -1 && iter->table == 0) {
-                if (iter->safe)
-                    dictPauseRehashing(iter->d);
-                else
-                    iter->fingerprint = dictFingerprint(iter->d);
+    dict *d = iter->d;
+    dictBucket *b;
+    int pos;
 
-                /* skip the rehashed slots in table[0] */
-                if (dictIsRehashing(iter->d)) {
-                    iter->index = iter->d->rehashidx - 1;
-                }
-            }
-            iter->index++;
-            if (iter->index >= (long) DICTHT_SIZE(iter->d->ht_size_exp[iter->table])) {
-                if (dictIsRehashing(iter->d) && iter->table == 0) {
-                    iter->table++;
-                    iter->index = 0;
-                } else {
-                    break;
-                }
-            }
-            iter->entry = iter->d->ht_table[iter->table][iter->index];
+    if (iter->index == -1 && iter->table == 0) {
+        if (iter->safe) {
+            dictPauseRehashing(d);
+            iter->last_seen_size = d->ht_used[0];
         } else {
-            iter->entry = iter->nextEntry;
+            iter->fingerprint = dictFingerprint(d);
         }
-        if (iter->entry) {
-            /* We need to save the 'next' here, the iterator user
-             * may delete the entry we are returning. */
-            iter->nextEntry = dictGetNext(iter->entry);
-            return iter->entry;
+
+        /* skip the rehashed buckets in table[0] */
+        iter->index = dictIsRehashing(d) ? d->rehashidx : 0;
+        if (d->ht_table[0] == NULL ||
+            iter->index >= (long) DICTHT_SIZE(d->ht_size_exp[0]))
+        {
+            iter->bucket = NULL;
+            return NULL;
+        }
+        b = &d->ht_table[0][iter->index];
+        pos = 0;
+    } else {
+        b = iter->bucket;
+        if (b == NULL) return NULL;
+        if (b->chained && iter->pos == DICT_BUCKET_SLOTS - 1) {
+            /* The last returned entry was in the last slot of a bucket that
+             * was not chained then. An insert chained the bucket since, moving
+             * that entry to slot 0 of the child bucket, so skip it. */
+            b = getChildBucket(b);
+            pos = 1;
+        } else {
+            pos = iter->pos + 1;
         }
     }
-    return NULL;
+
+    while (1) {
+        /* Return the next filled position of the bucket. The user of the
+         * iterator may delete the entry we are returning: a safe iterator
+         * pauses the compaction of bucket chains, so no entry moves. */
+        bucketBits present = b->presence >> pos;
+        if (present) {
+            iter->bucket = b;
+            iter->pos = pos + __builtin_ctz(present);
+            return b->slots[iter->pos];
+        }
+        if (b->chained) {
+            b = getChildBucket(b);
+            pos = 0;
+            continue;
+        }
+
+        /* The chain is done. Compact it if the table lost entries while the
+         * chain was walked, and nothing else pauses rehashing. */
+        if (iter->safe && d->pauserehash == 1 && d->ht_used[iter->table] < iter->last_seen_size)
+            compactBucketChain(d, iter->index, iter->table);
+        iter->index++;
+        if (iter->index >= (long) DICTHT_SIZE(d->ht_size_exp[iter->table])) {
+            if (dictIsRehashing(d) && iter->table == 0) {
+                iter->table++;
+                iter->index = 0;
+            } else {
+                iter->bucket = NULL;
+                return NULL;
+            }
+        }
+        b = &d->ht_table[iter->table][iter->index];
+        pos = 0;
+        if (iter->safe) iter->last_seen_size = d->ht_used[iter->table];
+    }
 }
 
 void dictReleaseIterator(dictIterator *iter)
@@ -1229,9 +1525,9 @@ void dictReleaseIterator(dictIterator *iter)
  * implement randomized algorithms */
 dictEntry *dictGetRandomKey(dict *d)
 {
-    dictEntry *he, *orighe;
+    dictBucket *b;
     unsigned long h;
-    int listlen, listele;
+    unsigned long listlen, listele;
 
     if (dictSize(d) == 0) return NULL;
     if (dictIsRehashing(d)) _dictRehashStep(d);
@@ -1241,30 +1537,31 @@ dictEntry *dictGetRandomKey(dict *d)
             /* We are sure there are no elements in indexes from 0
              * to rehashidx-1 */
             h = d->rehashidx + (randomULong() % (dictBuckets(d) - d->rehashidx));
-            he = (h >= s0) ? d->ht_table[1][h - s0] : d->ht_table[0][h];
-        } while(he == NULL);
+            b = (h >= s0) ? &d->ht_table[1][h - s0] : &d->ht_table[0][h];
+        } while((listlen = chainEntries(b)) == 0);
     } else {
         unsigned long m = DICTHT_SIZE_MASK(d->ht_size_exp[0]);
         do {
             h = randomULong() & m;
-            he = d->ht_table[0][h];
-        } while(he == NULL);
+            b = &d->ht_table[0][h];
+        } while((listlen = chainEntries(b)) == 0);
     }
 
-    /* Now we found a non empty bucket, but it is a linked
-     * list and we need to get a random element from the list.
-     * The only sane way to do so is counting the elements and
-     * select a random index. */
-    listlen = 0;
-    orighe = he;
-    while(he) {
-        he = dictGetNext(he);
-        listlen++;
-    }
+    /* Now we found a non empty bucket, but it may be a chain of buckets
+     * and we need to get a random element from the chain. The only sane
+     * way to do so is counting the elements and select a random index. */
     listele = random() % listlen;
-    he = orighe;
-    while(listele--) he = dictGetNext(he);
-    return he;
+    for (; b; b = getChildBucket(b)) {
+        unsigned long n = __builtin_popcount(b->presence);
+        if (listele < n) {
+            bucketBits present = b->presence;
+            while (listele--) present &= present - 1;
+            return b->slots[__builtin_ctz(present)];
+        }
+        listele -= n;
+    }
+    assert(0);
+    return NULL;
 }
 
 /* This function samples the dictionary to return a few keys from random
@@ -1330,11 +1627,11 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                     continue;
             }
             if (i >= DICTHT_SIZE(d->ht_size_exp[j])) continue; /* Out of range for this table. */
-            dictEntry *he = d->ht_table[j][i];
+            dictBucket *b = &d->ht_table[j][i];
 
             /* Count contiguous empty buckets, and jump to other
              * locations if they reach 'count' (with a minimum of 5). */
-            if (he == NULL) {
+            if (bucketIsEmpty(b)) {
                 emptylen++;
                 if (emptylen >= 5 && emptylen > count) {
                     i = randomULong() & maxsizemask;
@@ -1342,22 +1639,25 @@ unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count) {
                 }
             } else {
                 emptylen = 0;
-                while (he) {
-                    /* Collect all the elements of the buckets found non empty while iterating.
-                     * To avoid the issue of being unable to sample the end of a long chain,
-                     * we utilize the Reservoir Sampling algorithm to optimize the sampling process.
-                     * This means that even when the maximum number of samples has been reached,
-                     * we continue sampling until we reach the end of the chain.
-                     * See https://en.wikipedia.org/wiki/Reservoir_sampling. */
-                    if (stored < count) {
-                        des[stored] = he;
-                    } else {
-                        unsigned long r = randomULong() % (stored + 1);
-                        if (r < count) des[r] = he;
+                for (; b; b = getChildBucket(b)) {
+                    bucketBits present = b->presence;
+                    while (present) {
+                        dictEntry *he = b->slots[__builtin_ctz(present)];
+                        present &= present - 1;
+                        /* Collect all the elements of the buckets found non empty while iterating.
+                         * To avoid the issue of being unable to sample the end of a long chain,
+                         * we utilize the Reservoir Sampling algorithm to optimize the sampling process.
+                         * This means that even when the maximum number of samples has been reached,
+                         * we continue sampling until we reach the end of the chain.
+                         * See https://en.wikipedia.org/wiki/Reservoir_sampling. */
+                        if (stored < count) {
+                            des[stored] = he;
+                        } else {
+                            unsigned long r = randomULong() % (stored + 1);
+                            if (r < count) des[r] = he;
+                        }
+                        stored++;
                     }
-
-                    he = dictGetNext(he);
-                    stored++;
                 }
                 if (stored >= count) goto end;
             }
@@ -1371,38 +1671,40 @@ end:
 
 
 /* Reallocate the dictEntry, key and value allocations in a bucket using the
- * provided allocation functions in order to defrag them. */
-static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions *defragfns) {
+ * provided allocation functions in order to defrag them. The child buckets of
+ * the chain are reallocated too. */
+static void dictDefragBucket(dict *d, dictBucket *b, dictDefragFunctions *defragfns) {
     dictDefragAllocFunction *defragalloc = defragfns->defragAlloc;
     dictDefragAllocFunction *defragkey = defragfns->defragKey;
     dictDefragAllocFunction *defragval = defragfns->defragVal;
-    while (bucketref && *bucketref) {
-        dictEntry *de = *bucketref, *newde = NULL;
-        void *newkey = defragkey ? defragkey(dictGetKey(de)) : NULL;
+    while (b) {
+        bucketBits present = b->presence;
+        while (present) {
+            int pos = __builtin_ctz(present);
+            present &= present - 1;
+            dictEntry *de = b->slots[pos], *newde = NULL;
+            void *newkey = defragkey ? defragkey(dictGetKey(de)) : NULL;
 
-        if (d->type->no_value) {
-            if (entryIsKey(de)) {
-                if (newkey) *bucketref = encodeEntryKey(d, newkey);
+            if (d->type->no_value) {
+                if (newkey) b->slots[pos] = encodeEntryKey(d, newkey);
             } else {
-                dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
-                if ((newentry = defragalloc(entry))) {
-                    newde = (dictEntry *) newentry;
-                    entry = newentry;
-                }
-                if (newkey) entry->key = newkey;
+                void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
+                assert(entryIsNormal(de));
+                newde = defragalloc(de);
+                if (newde) de = newde;
+                if (newkey) de->key = newkey;
+                if (newval) de->v.val = newval;
             }
-        } else {
-            void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
-            assert(entryIsNormal(de));
-            newde = defragalloc(de);
-            if (newde) de = newde;
-            if (newkey) de->key = newkey;
-            if (newval) de->v.val = newval;
+            if (newde) {
+                b->slots[pos] = newde;
+            }
         }
-        if (newde) {
-            *bucketref = newde;
+        dictBucket *child = getChildBucket(b), *newchild;
+        if (child && (newchild = defragalloc(child))) {
+            setChildBucket(b, newchild);
+            child = newchild;
         }
-        bucketref = dictGetNextLink(*bucketref);
+        b = child;
     }
 }
 
@@ -1456,8 +1758,15 @@ static unsigned long rev(unsigned long v) {
  * However it is possible some elements get returned multiple times.
  *
  * For every element returned, the callback argument 'fn' is
- * called with 'privdata' as first argument and the dictionary entry
- * 'de' as second argument.
+ * called with 'privdata' as first argument, the dictionary entry
+ * 'de' as second argument and the link of the entry as third argument.
+ *
+ * The callback may delete, insert or replace entries. Bucket chains are not
+ * compacted while a callback runs, so deletes leave holes and never move an
+ * entry that is yet to be returned. The chain being scanned is compacted once
+ * its callbacks are done, unless something else also pauses rehashing; holes
+ * left in other chains are filled by later inserts, scans, safe iterators or
+ * rehashing.
  *
  * HOW IT WORKS.
  *
@@ -1537,32 +1846,34 @@ unsigned long dictScan(dict *d,
 void dictScanDefragBucket(dict *d,dictScanFunction *fn,
                           dictDefragFunctions *defragfns,
                           void *privdata,
-                          dictEntry **bucketref) {
-    dictEntry **plink, *de, *next;
+                          int htidx, unsigned long idx) {
+    dictBucket *root = &d->ht_table[htidx][idx];
 
-    /* Emit entries at bucket */
-    if (defragfns) dictDefragBucket(d, bucketref, defragfns);
+    /* Defrag the bucket chain if requested, then emit its entries */
+    if (defragfns) dictDefragBucket(d, root, defragfns);
 
-    de = *bucketref;
-    plink = bucketref;
-    while (de) {
-        next = dictGetNext(de);
-        fn(privdata, de, plink);
-
-        if (!next) break; /* if last element, break */
-
-        /* if `*plink` still pointing to 'de', then it means that the 
-         * visited item wasn't deleted by fn() */
-        if (*plink == de)            
-            plink = &(de->next);
-
-        de = next;
+    /* Rehashing is paused, so the deletes of the callbacks only clear presence
+     * bits: no entry moves and no bucket is freed while the chain is walked.
+     * presence is read again after each callback, since inserts may fill
+     * holes or chain a full bucket. The child slot of a chained bucket never
+     * has its presence bit set. */
+    for (dictBucket *b = root; b; b = getChildBucket(b)) {
+        bucketBits rest;
+        for (int pos = 0; (rest = b->presence >> pos) != 0; pos++) {
+            pos += __builtin_ctz(rest);
+            fn(privdata, b->slots[pos], &b->slots[pos]);
+        }
     }
+
+    /* Fill the holes that deletes left in this chain, unless something else
+     * (an outer scan or iterator of this dict, a held link) also pauses
+     * rehashing: entries must not move under it. */
+    if (d->pauserehash == 1) compactBucketChain(d, idx, htidx);
 }
 
 /* Like dictScan, but additionally reallocates the memory used by the dict
- * entries using the provided allocation function. This feature was added for
- * the active defrag feature.
+ * entries and child buckets using the provided allocation function. This
+ * feature was added for the active defrag feature.
  *
  * The 'defragfns' callbacks are called with a pointer to memory that callback
  * can reallocate. The callbacks should return a new memory address or NULL,
@@ -1585,7 +1896,7 @@ unsigned long dictScanDefrag(dict *d,
     if (!dictIsRehashing(d)) {
         htidx0 = 0;
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
-        dictScanDefragBucket(d, fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
+        dictScanDefragBucket(d, fn, defragfns, privdata, htidx0, v & m0);
 
         /* Set unmasked bits so incrementing the reversed cursor
          * operates on the masked bits */
@@ -1609,12 +1920,12 @@ unsigned long dictScanDefrag(dict *d,
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
         m1 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx1]);
 
-        dictScanDefragBucket(d, fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
+        dictScanDefragBucket(d, fn, defragfns, privdata, htidx0, v & m0);
 
         /* Iterate over indices in larger table that are the expansion
          * of the index pointed to by the cursor in the smaller table */
         do {
-            dictScanDefragBucket(d, fn, defragfns, privdata, &d->ht_table[htidx1][v & m1]);
+            dictScanDefragBucket(d, fn, defragfns, privdata, htidx1, v & m1);
 
             /* Increment the reverse cursor not covered by the smaller mask.*/
             v |= ~m1;
@@ -1639,8 +1950,8 @@ unsigned long dictScanDefrag(dict *d,
 static int dictTypeResizeAllowed(dict *d, size_t size) {
     if (d->type->resizeAllowed == NULL) return 1;
     return d->type->resizeAllowed(
-                    DICTHT_SIZE(_dictNextExp(size)) * sizeof(dictEntry*),
-                    (double)d->ht_used[0] / DICTHT_SIZE(d->ht_size_exp[0]));
+                    DICTHT_SIZE(_dictNextExp(size)) * DICT_BUCKET_BYTES,
+                    (double)d->ht_used[0] / (DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS));
 }
 
 /* Returning DICT_OK indicates a successful expand or the dictionary is undergoing rehashing, 
@@ -1658,14 +1969,15 @@ int dictExpandIfNeeded(dict *d) {
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
      * table (global setting) or we should avoid it but the ratio between
-     * elements/buckets is over the "safe" threshold, we resize doubling
+     * elements/slots is over the "safe" threshold, we resize doubling
      * the number of buckets. */
+    size_t slots = DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS;
     dictResizeEnable can_resize;
     atomicGet(dict_can_resize, can_resize);
     if ((can_resize == DICT_RESIZE_ENABLE &&
-         d->ht_used[0] >= DICTHT_SIZE(d->ht_size_exp[0])) ||
+         d->ht_used[0] >= slots) ||
         (can_resize != DICT_RESIZE_FORBID &&
-         d->ht_used[0] >= dict_force_resize_ratio * DICTHT_SIZE(d->ht_size_exp[0])))
+         d->ht_used[0] >= dict_force_resize_ratio * slots))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0] + 1))
             dictExpand(d, d->ht_used[0] + 1);
@@ -1690,17 +2002,18 @@ int dictShrinkIfNeeded(dict *d) {
     if (dictIsRehashing(d)) return DICT_OK;
     
     /* If the size of hash table is DICT_HT_INITIAL_SIZE, don't shrink it. */
-    if (DICTHT_SIZE(d->ht_size_exp[0]) <= DICT_HT_INITIAL_SIZE) return DICT_OK;
+    size_t slots = DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS;
+    if (slots <= DICT_HT_INITIAL_SIZE) return DICT_OK;
 
-    /* If we reached below 1:8 elements/buckets ratio, and we are allowed to resize
+    /* If we reached below 1:8 elements/slots ratio, and we are allowed to resize
      * the hash table (global setting) or we should avoid it but the ratio is below 1:32,
      * we'll trigger a resize of the hash table. */
     dictResizeEnable can_resize;
     atomicGet(dict_can_resize, can_resize);
     if ((can_resize == DICT_RESIZE_ENABLE &&
-         d->ht_used[0] * HASHTABLE_MIN_FILL <= DICTHT_SIZE(d->ht_size_exp[0])) ||
+         d->ht_used[0] * HASHTABLE_MIN_FILL <= slots) ||
         (can_resize != DICT_RESIZE_FORBID &&
-         d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= DICTHT_SIZE(d->ht_size_exp[0])))
+         d->ht_used[0] * HASHTABLE_MIN_FILL * dict_force_resize_ratio <= slots))
     {
         if (dictTypeResizeAllowed(d, d->ht_used[0]))
             dictShrink(d, d->ht_used[0]);
@@ -1721,7 +2034,7 @@ static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx) {
     if ((!dictIsRehashing(d)) || (d->pauserehash != 0))
         return;
     /* rehashing not in progress if rehashidx == -1 */
-    if ((long)visitedIdx >= d->rehashidx && d->ht_table[0][visitedIdx]) {
+    if ((long)visitedIdx >= d->rehashidx && !bucketIsEmpty(&d->ht_table[0][visitedIdx])) {
         /* If we have a valid hash entry at `idx` in ht0, we perform
          * rehash on the bucket at `idx` (being more CPU cache friendly) */
         _dictBucketRehash(d, visitedIdx);
@@ -1732,56 +2045,20 @@ static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx) {
     }
 }
 
-/* Our hash table capability is a power of two */
+/* Our hash table capability is a power of two number of buckets. We aim for a
+ * fill of at most BUCKET_DIVISOR / (BUCKET_FACTOR * DICT_BUCKET_SLOTS) when the
+ * table is sized for `size` elements, i.e. 91% with 7 slots per bucket
+ * (32 / 5 / 7) or 89% with 12 (32 / 3 / 12), which lets us avoid a division:
+ * buckets = ceil(size * BUCKET_FACTOR / BUCKET_DIVISOR). */
 static signed char _dictNextExp(unsigned long size)
 {
     if (size <= DICT_HT_INITIAL_SIZE) return DICT_HT_INITIAL_EXP;
-    if (size >= LONG_MAX) return (8*sizeof(long)-1);
+    unsigned long buckets = (size * BUCKET_FACTOR - 1) / BUCKET_DIVISOR + 1;
+    if (buckets == 1) return 0;
+    if (buckets >= LONG_MAX) return (8*sizeof(long)-1);
 
-    return 8*sizeof(long) - __builtin_clzl(size-1);
+    return 8*sizeof(long) - __builtin_clzl(buckets-1);
 }
-
-/* Finds and returns the link within the dict where the provided key should
- * be inserted using dictInsertKeyAtLink() if the key does not already exist in
- * the dict. If the key exists in the dict, NULL is returned and the optional
- * 'existing' entry pointer is populated, if provided. */
-dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing) {
-    unsigned long idx, table;
-    dictCmpCache cmpCache = {0};
-    dictEntry *he;
-    uint64_t hash = dictGetHash(d, key);
-    if (existing) *existing = NULL;
-    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-
-    /* Rehash the hash table if needed */
-    _dictRehashStepIfNeeded(d,idx);
-
-    /* Expand the hash table if needed */
-    _dictExpandIfNeeded(d);
-    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
-
-    for (table = 0; table <= 1; table++) {
-        if (table == 0 && (long)idx < d->rehashidx) continue; 
-        idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        /* Search if this slot does not already contain the given key */
-        he = d->ht_table[table][idx];
-        while(he) {
-            const void *he_key = dictStoredKey2Key(d, dictGetKey(he));            
-            if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
-                if (existing) *existing = he;
-                return NULL;
-            }
-            he = dictGetNext(he);
-        }
-        if (!dictIsRehashing(d)) break;
-    }
-
-    /* If we are in the process of rehashing the hash table, the bucket is
-     * always returned in the context of the second (new) hash table. */
-    dictEntry **bucket = &d->ht_table[dictIsRehashing(d) ? 1 : 0][idx];
-    return bucket;
-}
-
 
 void dictEmpty(dict *d, void(callback)(dict*)) {
     /* Someone may be monitoring a dict that started rehashing, before
@@ -1791,7 +2068,7 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
 
     /* Subtract the size of all buckets. */
     if (d->type->bucketChanged)
-        d->type->bucketChanged(d, -(long long)dictBuckets(d));
+        d->type->bucketChanged(d, -(long long)(dictBuckets(d) + dictChildBuckets(d)));
 
     _dictClear(d,0,callback);
     _dictClear(d,1,callback);
@@ -1827,6 +2104,7 @@ void dictFreeStats(dictStats *stats) {
 
 void dictCombineStats(dictStats *from, dictStats *into) {
     into->buckets += from->buckets;
+    into->childBuckets += from->childBuckets;
     into->maxChainLen = (from->maxChainLen > into->maxChainLen) ? from->maxChainLen : into->maxChainLen;
     into->totalChainLen += from->totalChainLen;
     into->htSize += from->htSize;
@@ -1843,23 +2121,18 @@ dictStats *dictGetStatsHt(dict *d, int htidx, int full) {
     stats->clvector = clvector;
     stats->htSize = DICTHT_SIZE(d->ht_size_exp[htidx]);
     stats->htUsed = d->ht_used[htidx];
+    stats->childBuckets = d->child_buckets[htidx];
     if (!full) return stats;
     /* Compute stats. */
     for (unsigned long i = 0; i < DICTHT_SIZE(d->ht_size_exp[htidx]); i++) {
-        dictEntry *he;
+        /* Count the entries of this bucket and of its child buckets. */
+        unsigned long chainlen = chainEntries(&d->ht_table[htidx][i]);
 
-        if (d->ht_table[htidx][i] == NULL) {
+        if (chainlen == 0) {
             clvector[0]++;
             continue;
         }
         stats->buckets++;
-        /* For each hash entry on this slot... */
-        unsigned long chainlen = 0;
-        he = d->ht_table[htidx][i];
-        while(he) {
-            chainlen++;
-            he = dictGetNext(he);
-        }
         clvector[(chainlen < DICT_STATS_VECTLEN) ? chainlen : (DICT_STATS_VECTLEN-1)]++;
         if (chainlen > stats->maxChainLen) stats->maxChainLen = chainlen;
         stats->totalChainLen += chainlen;
@@ -1886,11 +2159,12 @@ size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full) {
     if (full) {
         l += snprintf(buf + l, bufsize - l,
                       " different slots: %lu\n"
+                      " child buckets: %lu\n"
                       " max chain length: %lu\n"
                       " avg chain length (counted): %.02f\n"
                       " avg chain length (computed): %.02f\n"
                       " Chain length distribution:\n",
-                      stats->buckets, stats->maxChainLen,
+                      stats->buckets, stats->childBuckets, stats->maxChainLen,
                       (float) stats->totalChainLen / stats->buckets, (float) stats->htUsed / stats->buckets);
 
         for (unsigned long i = 0; i < DICT_STATS_VECTLEN - 1; i++) {
@@ -1930,6 +2204,134 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2) {
     (void)(cache); /*unused*/
     return key1 == key2;
+}
+
+/* ------------------------- Prefetch state machine ------------------------- */
+
+/* Steps of a lookup driven by dictPrefetchNext(). */
+enum {
+    PREFETCH_BUCKET,        /* Pick the next table and prefetch the key's bucket */
+    PREFETCH_MATCH,         /* Match the hash tags of the bucket (now in cache) */
+    PREFETCH_CANDIDATE,     /* Prefetch the next tag-matching entry, or the child bucket */
+    PREFETCH_ENTRY_KEY,     /* dictType-driven prefetch of the entry's key payload (for keyCompare) */
+    PREFETCH_ENTRY_VALUE,   /* Compare keys; on match, dictType-driven prefetch of the value payload */
+    PREFETCH_DONE           /* Indicates that prefetching for this key is complete */
+};
+
+/* Initialize the state of a prefetch lookup of `key` in `d`. The lookup is
+ * done right away if `d` is NULL or empty. */
+void dictPrefetchInit(dictPrefetchState *st, dict *d, const void *key) {
+    st->d = d;
+    st->key = key;
+    st->hash = 0;
+    st->bucket = NULL;
+    st->current_entry = NULL;
+    st->candidates = 0;
+    st->ht_idx = -1;
+    st->lone = 0;
+    if (!d || dictSize(d) == 0) {
+        st->stage = PREFETCH_DONE;
+        st->done = 1;
+        return;
+    }
+    /* We skip prefetch during loading, so ht_table[0] should never be NULL
+     * when dictSize() > 0 (which only happens mid-dictEmpty via _dictReset). */
+    assert(d->ht_table[0]);
+    st->hash = dictGetHash(d, key);
+    st->stage = PREFETCH_BUCKET;
+    st->done = 0;
+}
+
+/* Advance the lookup until it gets to an address that is worth prefetching,
+ * and return it. The steps follow a dictFind(): the bucket, the hash tag
+ * match in the bucket (which is in cache by then), the tag-matching entry,
+ * the key payload of the entry, and the key compare followed by the value
+ * payload of the entry. If the key is not found in a bucket, its child bucket
+ * is next, and then the bucket in the other table if the dict is rehashing.
+ *
+ * When the lookup completes, st->done is set and the address of the value
+ * payload or NULL is returned. */
+void *dictPrefetchNext(dictPrefetchState *st) {
+    dict *d = st->d;
+    while (1) {
+        switch (st->stage) {
+            case PREFETCH_BUCKET: {
+                /* Pick the next table that may hold the key; none left means done. */
+                int table = st->ht_idx + 1;
+                size_t idx = 0;
+                for (; table <= 1; table++) {
+                    if (table == 1 && !dictIsRehashing(d)) {
+                        table = 2;
+                        break;
+                    }
+                    if (d->ht_used[table] == 0) continue;
+                    idx = st->hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
+                    if (table == 0 && (long)idx < d->rehashidx) continue;
+                    break;
+                }
+                if (table > 1) {
+                    st->stage = PREFETCH_DONE;
+                    st->done = 1;
+                    return NULL;
+                }
+                st->ht_idx = table;
+                st->bucket = &d->ht_table[table][idx];
+                st->stage = PREFETCH_MATCH;
+                return st->bucket;
+            }
+            case PREFETCH_MATCH: {
+                dictBucket *b = st->bucket;
+                st->candidates = b->presence & findHashMatches(b->hashes, hashTag(st->hash));
+                st->lone = (st->candidates && (st->candidates & (st->candidates - 1)) == 0 &&
+                            !b->chained && !dictIsRehashing(d));
+                st->stage = PREFETCH_CANDIDATE;
+                break;
+            }
+            case PREFETCH_CANDIDATE: {
+                dictBucket *b = st->bucket;
+                if (st->candidates) {
+                    int pos = __builtin_ctz(st->candidates);
+                    st->candidates &= st->candidates - 1;
+                    st->current_entry = b->slots[pos];
+                    st->stage = PREFETCH_ENTRY_KEY;
+                    return st->current_entry;
+                }
+                /* No (more) candidates here: the child bucket, else the next table. */
+                dictBucket *child = getChildBucket(b);
+                if (child) {
+                    st->bucket = child;
+                    st->stage = PREFETCH_MATCH;
+                    return child;
+                }
+                st->stage = PREFETCH_BUCKET;
+                break;
+            }
+            case PREFETCH_ENTRY_KEY:
+                st->stage = PREFETCH_ENTRY_VALUE;
+                if (d->type->prefetchEntryKey) {
+                    void *addr = d->type->prefetchEntryKey(st->current_entry);
+                    if (addr) return addr;
+                }
+                break;
+            case PREFETCH_ENTRY_VALUE: {
+                const void *cmp_key = dictStoredKey2Key(d, dictGetKey(st->current_entry));
+                /* The only tag match in an unchained bucket, while not rehashing,
+                 * is assumed to be a hit without comparing the keys. */
+                if (st->lone || dictCompareKeys(d, st->key, cmp_key)) {
+                    st->stage = PREFETCH_DONE;
+                    st->done = 1;
+                    if (d->type->prefetchEntryValue)
+                        return d->type->prefetchEntryValue(st->current_entry);
+                    return NULL;
+                }
+                st->stage = PREFETCH_CANDIDATE;
+                break;
+            }
+            default:
+                st->done = 1;
+                return NULL;
+        }
+    }
 }
 
 /* ------------------------------- Benchmark ---------------------------------*/
@@ -2009,7 +2411,7 @@ dictType BenchmarkDictType = {
 };
 
 /* Same as BenchmarkDictType, but a no_value=1 (set-style) dict -- used to verify
- * that dictMemUsage() sizes entries as dictEntryNoValue, not dictEntry. */
+ * that dictMemUsage() charges nothing per entry for dicts without values. */
 static dictType BenchmarkDictTypeNoValue = {
     .hashFunction = hashCallback,
     .keyCompare = compareCallback,
@@ -2017,11 +2419,418 @@ static dictType BenchmarkDictTypeNoValue = {
     .no_value = 1,
 };
 
+/* ------------------------- verification helpers --------------------------- */
+
+/* Sum of the bucketChanged() deltas of the dict under test. */
+static long long test_buckets = 0;
+
+static void testBucketChanged(dict *d, long long delta) {
+    UNUSED(d);
+    test_buckets += delta;
+}
+
+/* A hash function that maps every key to the same bucket chain (but still
+ * produces a valid tag), to build long bucket chains. */
+static uint64_t constHashCallback(const void *key) {
+    UNUSED(key);
+    return 0x5a5a5a5a5a5a5a5aULL;
+}
+
+/* Maps every key to one of 4 bucket indexes (but keeps the real tag), so
+ * there are several long chains instead of a single one. */
+static uint64_t fewBucketsHashCallback(const void *key) {
+    return (hashCallback(key) & 0x3) | (hashCallback(key) & 0xff00000000000000ULL);
+}
+
+static dictType verifyDictType = {
+    .hashFunction = hashCallback,
+    .keyCompare = compareCallback,
+    .keyDestructor = freeCallback,
+    .no_value = 1,
+    .keys_are_odd = 0,
+    .bucketChanged = testBucketChanged,
+};
+
+static dictType verifyDictTypeVal = {
+    .hashFunction = hashCallback,
+    .keyCompare = compareCallback,
+    .keyDestructor = freeCallback,
+    .bucketChanged = testBucketChanged,
+};
+
+static dictType chainDictType = {
+    .hashFunction = constHashCallback,
+    .keyCompare = compareCallback,
+    .keyDestructor = freeCallback,
+    .no_value = 1,
+    .bucketChanged = testBucketChanged,
+};
+
+static dictType fewBucketsDictType = {
+    .hashFunction = fewBucketsHashCallback,
+    .keyCompare = compareCallback,
+    .keyDestructor = freeCallback,
+    .bucketChanged = testBucketChanged,
+};
+
+/* Checks the structural invariants of the dict: presence bits, tags, bucket
+ * indexes, chains, counters and memory accounting. */
+static void dictVerify(dict *d) {
+    size_t counted[2] = {0, 0}, children[2] = {0, 0};
+    for (int t = 0; t <= 1; t++) {
+        if (!d->ht_table[t]) {
+            assert(d->ht_size_exp[t] == -1);
+            assert(d->ht_used[t] == 0 && d->child_buckets[t] == 0);
+            continue;
+        }
+        size_t nb = DICTHT_SIZE(d->ht_size_exp[t]);
+        for (size_t idx = 0; idx < nb; idx++) {
+            dictBucket *root = &d->ht_table[t][idx];
+            if (t == 0 && dictIsRehashing(d) && (long)idx < d->rehashidx)
+                assert(bucketIsEmpty(root)); /* already moved */
+            for (dictBucket *b = root; b; b = getChildBucket(b)) {
+                if (b != root) children[t]++;
+                if (b->chained) {
+                    assert(!isPositionFilled(b, DICT_BUCKET_SLOTS - 1));
+                    assert(getChildBucket(b) != NULL);
+                }
+                for (int pos = 0; pos < DICT_BUCKET_SLOTS; pos++) {
+                    if (!isPositionFilled(b, pos)) continue;
+                    dictEntry *e = b->slots[pos];
+                    if (d->type->no_value) assert(entryIsKey(e));
+                    else assert(entryIsNormal(e));
+                    uint64_t hash = dictGetHash(d, dictStoredKey2Key(d, dictGetKey(e)));
+                    assert(hashTag(hash) == b->hashes[pos]);
+                    assert((hash & DICTHT_SIZE_MASK(d->ht_size_exp[t])) == idx);
+                    counted[t]++;
+                }
+            }
+        }
+    }
+    for (int t = 0; t <= 1; t++) {
+        assert(counted[t] == d->ht_used[t]);
+        assert(children[t] == d->child_buckets[t]);
+    }
+    if (dictIsRehashing(d)) {
+        assert(d->ht_table[0] && d->ht_table[1]);
+        assert(d->rehashidx >= 0 && (size_t)d->rehashidx <= DICTHT_SIZE(d->ht_size_exp[0]));
+    } else {
+        assert(d->ht_table[1] == NULL && d->ht_used[1] == 0);
+    }
+    if (d->type->bucketChanged == testBucketChanged)
+        assert(test_buckets == (long long)(dictBuckets(d) + dictChildBuckets(d)));
+}
+
+/* Finish an ongoing rehashing. Rehashing is not forced under
+ * DICT_RESIZE_AVOID, so make sure it's enabled. */
+static void drainRehash(dict *d) {
+    dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+    while (dictIsRehashing(d)) dictRehashMicroseconds(d, 1000);
+}
+
+/* Reference model for randomized tests: keys are "k<id>" strings. */
+#define MODEL_KEYS 4000
+
+typedef struct modelCtx {
+    uint8_t present[MODEL_KEYS];
+    uint32_t seen[MODEL_KEYS];
+    unsigned long count;
+    int delete_percent; /* in scan/iterator callbacks */
+    dict *d;
+} modelCtx;
+
+static int keyId(const void *key) {
+    return atoi((const char *)key + 1);
+}
+
+static char *keyForId(int id) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "k%d", id);
+    size_t len = strlen(buf) + 1;
+    char *s = zmalloc(len);
+    memcpy(s, buf, len);
+    return s;
+}
+
+static int modelAdd(modelCtx *m, dict *d, int id) {
+    char *k = keyForId(id);
+    int ret = dictAdd(d, k, (void *)(long)id);
+    if (m->present[id]) {
+        assert(ret == DICT_ERR);
+        zfree(k);
+        return 0;
+    }
+    assert(ret == DICT_OK);
+    m->present[id] = 1;
+    m->count++;
+    return 1;
+}
+
+static int modelDel(modelCtx *m, dict *d, int id) {
+    char *k = keyForId(id);
+    int ret = dictDelete(d, k);
+    zfree(k);
+    if (!m->present[id]) {
+        assert(ret == DICT_ERR);
+        return 0;
+    }
+    assert(ret == DICT_OK);
+    m->present[id] = 0;
+    m->count--;
+    return 1;
+}
+
+/* Verify content equals the model by iterating (safe) and by lookups. */
+static void modelCheck(modelCtx *m, dict *d) {
+    assert(dictSize(d) == m->count);
+    memset(m->seen, 0, sizeof(m->seen));
+    dictIterator it;
+    dictEntry *de;
+    dictInitSafeIterator(&it, d);
+    while ((de = dictNext(&it))) {
+        int id = keyId(dictGetKey(de));
+        assert(m->present[id]);
+        assert(++m->seen[id] == 1);
+    }
+    dictResetIterator(&it);
+    for (int i = 0; i < MODEL_KEYS; i++) assert(m->seen[i] == m->present[i]);
+    for (int i = 0; i < MODEL_KEYS; i += 7) {
+        char *k = keyForId(i);
+        assert((dictFind(d, k) != NULL) == m->present[i]);
+        zfree(k);
+    }
+    dictVerify(d);
+}
+
+static void modelScanCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    modelCtx *m = privdata;
+    UNUSED(plink);
+    int id = keyId(dictGetKey(de));
+    m->seen[id]++;
+    if ((int)(rand() % 100) < m->delete_percent) {
+        /* Deleting the entry passed to us is allowed. */
+        char *k = keyForId(id);
+        assert(dictDelete(m->d, k) == DICT_OK);
+        zfree(k);
+        m->present[id] = 0;
+        m->count--;
+    }
+}
+
+typedef struct scanMutationCtx {
+    dict *d;
+    int seen[DICT_BUCKET_SLOTS + 3];
+    int deletion; /* dictDelete, dictUnlink, or two-phase unlink */
+    int additions;
+    int nested;
+    int delete_id;
+} scanMutationCtx;
+
+static void scanMutationCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    scanMutationCtx *ctx = privdata;
+    int id = keyId(dictGetKey(de));
+    UNUSED(plink);
+    assert(id >= 0 && id < DICT_BUCKET_SLOTS + 3);
+    ctx->seen[id]++;
+    if (ctx->deletion == 3) {
+        /* Refilling an unchained hole is an insertion, not compaction. */
+        assert(ctx->seen[id] == 1);
+        assert(dictDelete(ctx->d, dictGetKey(de)) == DICT_OK);
+        assert(dictAdd(ctx->d, keyForId(id), NULL) == DICT_OK);
+        return;
+    }
+    if (id != ctx->delete_id) return;
+
+    if (ctx->nested == 1) {
+        ctx->nested = 2;
+        assert(dictScan(ctx->d, 0, scanMutationCb, ctx) == 0);
+        return;
+    }
+    char *key = keyForId(id);
+    if (ctx->deletion == 0) {
+        assert(dictDelete(ctx->d, key) == DICT_OK);
+    } else if (ctx->deletion == 1) {
+        dictEntry *unlinked = dictUnlink(ctx->d, key);
+        assert(unlinked != NULL);
+        dictFreeUnlinkedEntry(ctx->d, unlinked);
+    } else {
+        int table;
+        dictEntryLink link = dictTwoPhaseUnlinkFind(ctx->d, key, &table);
+        assert(link != NULL);
+        dictTwoPhaseUnlinkFree(ctx->d, link, table);
+    }
+    zfree(key);
+    for (int i = 0; i < ctx->additions; i++)
+        assert(dictAdd(ctx->d, keyForId(DICT_BUCKET_SLOTS + 1 + i), NULL) == DICT_OK);
+}
+
+#define SCAN_DELETE_PREV_KEYS (3 * DICT_BUCKET_SLOTS)
+
+typedef struct scanDeletePrevCtx {
+    dict *d;
+    int seen[SCAN_DELETE_PREV_KEYS];
+    int prev_id;
+} scanDeletePrevCtx;
+
+/* Deletes the entry emitted before this one, which is not the entry passed
+ * to the callback. Compacting right away would move an entry from the end of
+ * the chain into that already scanned slot. */
+static void scanDeletePrevCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    scanDeletePrevCtx *ctx = privdata;
+    int id = keyId(dictGetKey(de));
+    UNUSED(plink);
+    assert(id >= 0 && id < SCAN_DELETE_PREV_KEYS);
+    ctx->seen[id]++;
+    if (ctx->prev_id >= 0) {
+        char *key = keyForId(ctx->prev_id);
+        assert(dictDelete(ctx->d, key) == DICT_OK);
+        zfree(key);
+    }
+    ctx->prev_id = id;
+}
+
 #define start_benchmark() start = timeInMilliseconds()
 #define end_benchmark(msg) do { \
     elapsed = timeInMilliseconds()-start; \
     printf(msg ": %ld items in %lld ms\n", count, elapsed); \
 } while(0)
+
+/* Randomized test against a reference model. */
+static void dictRandomizedTest(dictType *type, int rounds, int ops_per_round) {
+    modelCtx *m = zcalloc(sizeof(*m));
+    test_buckets = 0;
+    dict *d = dictCreate(type);
+    m->d = d;
+    dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+
+    for (int round = 0; round < rounds; round++) {
+        /* Phase profile: mostly growth, then mostly shrink, etc. */
+        int add_bias = (round % 4 < 2) ? 70 : 30;
+        for (int op = 0; op < ops_per_round; op++) {
+            int id = rand() % MODEL_KEYS;
+            int r = rand() % 100;
+            if (r < add_bias) modelAdd(m, d, id);
+            else if (r < 92) modelDel(m, d, id);
+            else if (r < 94) {
+                char *k = keyForId(id);
+                dictEntry *de = dictFind(d, k);
+                assert((de != NULL) == m->present[id]);
+                zfree(k);
+            } else if (r < 96) {
+                /* Two-phase delete with nested lookups in between. */
+                char *k = keyForId(id);
+                int table;
+                dictEntryLink link = dictTwoPhaseUnlinkFind(d, k, &table);
+                assert((link != NULL) == m->present[id]);
+                if (link) {
+                    char *k2 = keyForId(rand() % MODEL_KEYS);
+                    dictFind(d, k2); /* may look up, must not move entries */
+                    zfree(k2);
+                    dictTwoPhaseUnlinkFree(d, link, table);
+                    m->present[id] = 0;
+                    m->count--;
+                }
+                zfree(k);
+            } else if (r < 97) {
+                dictRehash(d, 1 + rand() % 3);
+            } else if (r < 98) {
+                dictSetResizeEnabled(rand() % 2 ? DICT_RESIZE_AVOID : DICT_RESIZE_ENABLE);
+            } else if (r < 99) {
+                if (rand() % 2) dictExpand(d, dictSize(d) * 2 + 1);
+                else dictShrink(d, dictSize(d) + 1);
+            } else {
+                drainRehash(d);
+            }
+            assert(dictSize(d) == m->count);
+        }
+        dictVerify(d);
+
+        /* Safe iteration while deleting what was returned and inserting
+         * keys that were absent at the start and not deleted (inserts may
+         * or may not be returned, but at most once). */
+        {
+            memset(m->seen, 0, sizeof(m->seen));
+            uint8_t initial[MODEL_KEYS];
+            memcpy(initial, m->present, sizeof(initial));
+            uint8_t deleted[MODEL_KEYS] = {0};
+            dictIterator it;
+            dictEntry *de;
+            dictInitSafeIterator(&it, d);
+            while ((de = dictNext(&it))) {
+                int id = keyId(dictGetKey(de));
+                assert(m->present[id]);
+                m->seen[id]++;
+                int r = rand() % 100;
+                if (r < 30) {
+                    modelDel(m, d, id); /* the returned entry */
+                    deleted[id] = 1;
+                } else if (r < 50) {
+                    /* Only insert keys that were absent at the start and were
+                     * not returned and deleted: the iterator may return
+                     * those, but only once. */
+                    int nid = rand() % MODEL_KEYS;
+                    if (!initial[nid] && !deleted[nid]) modelAdd(m, d, nid);
+                }
+            }
+            dictResetIterator(&it);
+            for (int i = 0; i < MODEL_KEYS; i++) {
+                assert(m->seen[i] <= 1);
+                if (initial[i] && !deleted[i]) assert(m->seen[i] == 1);
+            }
+            assert(dictSize(d) == m->count);
+            dictVerify(d);
+        }
+
+        /* Full scan with deletes of the current entry in the callback. */
+        {
+            memset(m->seen, 0, sizeof(m->seen));
+            uint8_t initial[MODEL_KEYS];
+            memcpy(initial, m->present, sizeof(initial));
+            m->delete_percent = rand() % 40;
+            unsigned long cursor = 0;
+            do {
+                cursor = dictScan(d, cursor, modelScanCb, m);
+                /* Interleave a bit of rehashing between scan calls. */
+                if (rand() % 4 == 0) dictRehash(d, 1);
+            } while (cursor);
+            m->delete_percent = 0;
+            for (int i = 0; i < MODEL_KEYS; i++)
+                if (initial[i]) assert(m->seen[i] >= 1);
+            assert(dictSize(d) == m->count);
+            dictVerify(d);
+        }
+
+        if (round % 3 == 0) modelCheck(m, d);
+    }
+    dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+    drainRehash(d);
+    modelCheck(m, d);
+    dictRelease(d);
+    assert(test_buckets == 0);
+    zfree(m);
+}
+
+/* Exercise every deletion API, including the key-clearing step used by
+ * asynchronous database deletion. */
+static void testDeleteKey(dict *d, const char *key, int deletion) {
+    if (deletion == 0) {
+        assert(dictDelete(d, key) == DICT_OK);
+    } else if (deletion == 1) {
+        dictEntry *de = dictUnlink(d, key);
+        assert(de != NULL);
+        dictFreeUnlinkedEntry(d, de);
+    } else {
+        int table;
+        dictEntryLink link = dictTwoPhaseUnlinkFind(d, key, &table);
+        assert(link != NULL);
+        if (deletion == 3) {
+            void *oldkey = dictGetKey(*link);
+            dictSetKeyAtLink(d, NULL, &link, 0);
+            zfree(oldkey);
+        }
+        dictTwoPhaseUnlinkFree(d, link, table);
+    }
+}
 
 /* ./redis-server test dict [<count> | --accurate] */
 int dictTest(int argc, char **argv, int flags) {
@@ -2032,7 +2841,7 @@ int dictTest(int argc, char **argv, int flags) {
     dictEntry* de = NULL;
     dictEntry* existing = NULL;
     long count = 0;
-    unsigned long new_dict_size, current_dict_used, remain_keys;
+    unsigned long current_dict_used, remain_keys, capacity, new_buckets;
     int accurate = (flags & REDIS_TEST_ACCURATE);
 
     if (argc == 4) {
@@ -2045,60 +2854,78 @@ int dictTest(int argc, char **argv, int flags) {
         count = 5000;
     }
 
+    TEST("Initial table is a single bucket") {
+        assert(dictBuckets(d) == 0);
+        retval = dictAdd(d, stringFromLongLong(1000000), (void*)1);
+        assert(retval == DICT_OK);
+        assert(dictBuckets(d) == 1);
+        assert(dictChildBuckets(d) == 0);
+        assert(dictDelete(d, "1000000") == DICT_OK);
+        assert(dictBuckets(d) == 1); /* never shrinks below one bucket */
+        dictVerify(d);
+    }
+
     TEST("Add 16 keys and verify dict resize is ok") {
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
         for (j = 0; j < 16; j++) {
             retval = dictAdd(d,stringFromLongLong(j),(void*)j);
             assert(retval == DICT_OK);
         }
-        while (dictIsRehashing(d)) dictRehashMicroseconds(d,1000);
+        drainRehash(d);
         assert(dictSize(d) == 16);
-        assert(dictBuckets(d) == 16);
+        assert(dictBuckets(d) * DICT_BUCKET_SLOTS >= 16);
+        /* A power of two number of buckets. */
+        assert((dictBuckets(d) & (dictBuckets(d) - 1)) == 0);
+        dictVerify(d);
     }
 
-    TEST("Use DICT_RESIZE_AVOID to disable the dict resize and pad to (dict_force_resize_ratio * 16)") {
-        /* Use DICT_RESIZE_AVOID to disable the dict resize, and pad
-         * the number of keys to (dict_force_resize_ratio * 16), so we can satisfy
-         * dict_force_resize_ratio in next test. */
+    TEST("Use DICT_RESIZE_AVOID to disable the dict resize and pad to (dict_force_resize_ratio * capacity)") {
         dictSetResizeEnabled(DICT_RESIZE_AVOID);
-        for (j = 16; j < (long)dict_force_resize_ratio * 16; j++) {
+        capacity = dictBuckets(d) * DICT_BUCKET_SLOTS;
+        for (j = 16; j < (long)(dict_force_resize_ratio * capacity); j++) {
             retval = dictAdd(d,stringFromLongLong(j),(void*)j);
             assert(retval == DICT_OK);
         }
-        current_dict_used = dict_force_resize_ratio * 16;
+        current_dict_used = dict_force_resize_ratio * capacity;
         assert(dictSize(d) == current_dict_used);
-        assert(dictBuckets(d) == 16);
+        assert(dictBuckets(d) * DICT_BUCKET_SLOTS == capacity);
+        assert(!dictIsRehashing(d));
+        dictVerify(d);
     }
 
     TEST("Add one more key, trigger the dict resize") {
         retval = dictAdd(d,stringFromLongLong(current_dict_used),(void*)(current_dict_used));
         assert(retval == DICT_OK);
         current_dict_used++;
-        new_dict_size = 1UL << _dictNextExp(current_dict_used);
+        new_buckets = DICTHT_SIZE(_dictNextExp(current_dict_used));
         assert(dictSize(d) == current_dict_used);
-        assert(DICTHT_SIZE(d->ht_size_exp[0]) == 16);
-        assert(DICTHT_SIZE(d->ht_size_exp[1]) == new_dict_size);
+        assert(dictIsRehashing(d));
+        assert(DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS == capacity);
+        assert(DICTHT_SIZE(d->ht_size_exp[1]) == new_buckets);
+        dictVerify(d);
 
         /* Wait for rehashing. */
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
-        while (dictIsRehashing(d)) dictRehashMicroseconds(d,1000);
+        drainRehash(d);
         assert(dictSize(d) == current_dict_used);
-        assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_dict_size);
-        assert(DICTHT_SIZE(d->ht_size_exp[1]) == 0);
+        assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_buckets);
+        assert(d->ht_size_exp[1] == -1);
+        dictVerify(d);
     }
 
     TEST("Delete keys until we can trigger shrink in next test") {
         /* Delete keys until we can satisfy (1 / HASHTABLE_MIN_FILL) in the next test. */
-        for (j = new_dict_size / HASHTABLE_MIN_FILL + 1; j < (long)current_dict_used; j++) {
+        capacity = dictBuckets(d) * DICT_BUCKET_SLOTS;
+        for (j = capacity / HASHTABLE_MIN_FILL + 1; j < (long)current_dict_used; j++) {
             char *key = stringFromLongLong(j);
             retval = dictDelete(d, key);
             zfree(key);
             assert(retval == DICT_OK);
         }
-        current_dict_used = new_dict_size / HASHTABLE_MIN_FILL + 1;
+        current_dict_used = capacity / HASHTABLE_MIN_FILL + 1;
         assert(dictSize(d) == current_dict_used);
-        assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_dict_size);
-        assert(DICTHT_SIZE(d->ht_size_exp[1]) == 0);
+        assert(dictBuckets(d) * DICT_BUCKET_SLOTS == capacity);
+        assert(!dictIsRehashing(d));
     }
 
     TEST("Delete one more key, trigger the dict resize") {
@@ -2106,18 +2933,19 @@ int dictTest(int argc, char **argv, int flags) {
         char *key = stringFromLongLong(current_dict_used);
         retval = dictDelete(d, key);
         zfree(key);
-        unsigned long oldDictSize = new_dict_size;
-        new_dict_size = 1UL << _dictNextExp(current_dict_used);
+        new_buckets = DICTHT_SIZE(_dictNextExp(current_dict_used));
         assert(retval == DICT_OK);
         assert(dictSize(d) == current_dict_used);
-        assert(DICTHT_SIZE(d->ht_size_exp[0]) == oldDictSize);
-        assert(DICTHT_SIZE(d->ht_size_exp[1]) == new_dict_size);
+        assert(dictIsRehashing(d));
+        assert(DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS == capacity);
+        assert(DICTHT_SIZE(d->ht_size_exp[1]) == new_buckets);
 
         /* Wait for rehashing. */
-        while (dictIsRehashing(d)) dictRehashMicroseconds(d,1000);
+        drainRehash(d);
         assert(dictSize(d) == current_dict_used);
-        assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_dict_size);
-        assert(DICTHT_SIZE(d->ht_size_exp[1]) == 0);
+        assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_buckets);
+        assert(d->ht_size_exp[1] == -1);
+        dictVerify(d);
     }
 
     TEST("Empty the dictionary and add 128 keys") {
@@ -2126,16 +2954,17 @@ int dictTest(int argc, char **argv, int flags) {
             retval = dictAdd(d,stringFromLongLong(j),(void*)j);
             assert(retval == DICT_OK);
         }
-        while (dictIsRehashing(d)) dictRehashMicroseconds(d,1000);
+        drainRehash(d);
         assert(dictSize(d) == 128);
-        assert(dictBuckets(d) == 128);
+        dictVerify(d);
     }
 
-    TEST("Use DICT_RESIZE_AVOID to disable the dict resize and reduce to 3") {
+    TEST("Use DICT_RESIZE_AVOID to disable the dict resize and reduce to a few keys") {
         /* Use DICT_RESIZE_AVOID to disable the dict reset, and reduce
          * the number of keys until we can trigger shrinking in next test. */
         dictSetResizeEnabled(DICT_RESIZE_AVOID);
-        remain_keys = DICTHT_SIZE(d->ht_size_exp[0]) / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) + 1;
+        capacity = dictBuckets(d) * DICT_BUCKET_SLOTS;
+        remain_keys = capacity / (HASHTABLE_MIN_FILL * dict_force_resize_ratio) + 1;
         for (j = remain_keys; j < 128; j++) {
             char *key = stringFromLongLong(j);
             retval = dictDelete(d, key);
@@ -2144,26 +2973,55 @@ int dictTest(int argc, char **argv, int flags) {
         }
         current_dict_used = remain_keys;
         assert(dictSize(d) == remain_keys);
-        assert(dictBuckets(d) == 128);
+        assert(dictBuckets(d) * DICT_BUCKET_SLOTS == capacity);
+        assert(!dictIsRehashing(d));
     }
 
-    TEST("Delete one more key, trigger the dict resize") {
+    TEST("Delete one more key, trigger the dict resize (AVOID)") {
         current_dict_used--;
         char *key = stringFromLongLong(current_dict_used);
         retval = dictDelete(d, key);
         zfree(key);
-        new_dict_size = 1UL << _dictNextExp(current_dict_used);
         assert(retval == DICT_OK);
         assert(dictSize(d) == current_dict_used);
-        assert(DICTHT_SIZE(d->ht_size_exp[0]) == 128);
-        assert(DICTHT_SIZE(d->ht_size_exp[1]) == new_dict_size);
+        assert(dictIsRehashing(d));
+        assert(DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_SLOTS == capacity);
+        new_buckets = DICTHT_SIZE(d->ht_size_exp[1]);
 
         /* Wait for rehashing. */
-        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
-        while (dictIsRehashing(d)) dictRehashMicroseconds(d,1000);
+        for (int steps = 0; dictIsRehashing(d) && steps < 1000; steps++)
+            dictRehash(d, 100);
+        assert(!dictIsRehashing(d));
         assert(dictSize(d) == current_dict_used);
-        assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_dict_size);
-        assert(DICTHT_SIZE(d->ht_size_exp[1]) == 0);
+        assert(DICTHT_SIZE(d->ht_size_exp[0]) == new_buckets);
+        assert(d->ht_size_exp[1] == -1);
+        dictVerify(d);
+    }
+
+    TEST("Forced shrink at 1/32 occupancy finishes under DICT_RESIZE_AVOID") {
+        dictType type = BenchmarkDictType;
+        type.hashFunction = constHashCallback;
+        dict *ds = dictCreate(&type);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+        assert(dictExpand(ds, 800) == DICT_OK);
+        for (int i = 0; i < 100; i++)
+            assert(dictAdd(ds, stringFromLongLong(i), NULL) == DICT_OK);
+        size_t threshold = dictBuckets(ds) * DICT_BUCKET_SLOTS / (HASHTABLE_MIN_FILL * dict_force_resize_ratio);
+        dictSetResizeEnabled(DICT_RESIZE_AVOID);
+        for (int i = 99; i >= (int)threshold; i--) {
+            char *key = stringFromLongLong(i);
+            assert(dictDelete(ds, key) == DICT_OK);
+            zfree(key);
+            if (dictSize(ds) > threshold) assert(!dictIsRehashing(ds));
+        }
+        assert(dictIsRehashing(ds));
+        assert(DICTHT_SIZE(ds->ht_size_exp[0]) == 16 * DICTHT_SIZE(ds->ht_size_exp[1]));
+        for (int steps = 0; dictIsRehashing(ds) && steps < 1000; steps++)
+            dictRehash(ds, 100);
+        assert(!dictIsRehashing(ds));
+        assert(dictSize(ds) == threshold);
+        dictVerify(ds);
+        dictRelease(ds);
     }
 
     TEST("Restore to original state") {
@@ -2171,19 +3029,7 @@ int dictTest(int argc, char **argv, int flags) {
         dictSetResizeEnabled(DICT_RESIZE_ENABLE);
     }
 
-    TEST("dictMemUsage sizes no_value entries by dictEntryNoValue (not dictEntry)") {
-        /* Regression: MEMORY USAGE used to overcount no_value=1 dicts (sets,
-         * the sorted-set element index, hashes) by charging sizeof(dictEntry)
-         * per entry instead of sizeof(dictEntryNoValue).
-         *
-         * A dictEntry is {next, key, value-union}; a dictEntryNoValue is
-         * {next, key}. Dropping the value makes a no_value entry smaller by
-         * exactly the size of the value union, which is 8 bytes (it holds a
-         * uint64_t/double) on both 64-bit (dictEntry 24 -> dictEntryNoValue 16)
-         * and 32-bit (16 -> 8). dictMemUsage() must reflect that 8 B/entry. */
-        const size_t value_union_bytes = 8;
-        assert(sizeof(dictEntry) - sizeof(dictEntryNoValue) == value_union_bytes);
-
+    TEST("dictMemUsage charges one dictEntry per element only for dicts with values") {
         long n = 1000;
         dict *dn = dictCreate(&BenchmarkDictType);          /* no_value = 0 */
         dict *dv = dictCreate(&BenchmarkDictTypeNoValue);   /* no_value = 1 */
@@ -2193,14 +3039,365 @@ int dictTest(int argc, char **argv, int flags) {
         }
 
         /* Identical keys and resize policy => identical bucket geometry, so the
-         * two dicts' reported memory differs only by the value union that each
-         * of the n no_value entries drops: n * 8 bytes. */
+         * two dicts' reported memory differs only by the dictEntry of each of
+         * the n elements that the no_value dict does not allocate. */
         assert(dictSize(dn) == (unsigned long)n && dictSize(dv) == (unsigned long)n);
         assert(dictBuckets(dn) == dictBuckets(dv));
-        assert(dictMemUsage(dn) - dictMemUsage(dv) == (size_t)n * value_union_bytes);
+        assert(dictEntryMemUsage(1) == 0 && dictEntryMemUsage(0) == sizeof(dictEntry));
+        assert(dictMemUsage(dn) - dictMemUsage(dv) == (size_t)n * dictEntryMemUsage(0));
+        assert(dictMemUsage(dv) == (dictBuckets(dv) + dictChildBuckets(dv)) * DICT_BUCKET_BYTES);
 
         dictRelease(dn);
         dictRelease(dv);
+    }
+
+    TEST("Long bucket chains: insert, delete, compaction and accounting") {
+        test_buckets = 0;
+        dict *dc = dictCreate(&chainDictType);
+        const int n = 300; /* all keys share one chain */
+        for (int i = 0; i < n; i++) {
+            assert(dictAdd(dc, stringFromLongLong(i), NULL) == DICT_OK);
+            dictVerify(dc);
+        }
+        assert(dc->child_buckets[0] + dc->child_buckets[1] > 0);
+        /* Delete in a scattered order, every deletion must keep the chain
+         * valid and compact it. */
+        for (int i = 0; i < n; i += 2) {
+            char *k = stringFromLongLong(i);
+            assert(dictDelete(dc, k) == DICT_OK);
+            zfree(k);
+            dictVerify(dc);
+        }
+        drainRehash(dc);
+        for (int i = 1; i < n; i += 2) {
+            char *k = stringFromLongLong(i);
+            assert(dictFind(dc, k) != NULL);
+            zfree(k);
+        }
+        for (int i = 0; i < n; i += 2) {
+            char *k = stringFromLongLong(i);
+            assert(dictFind(dc, k) == NULL);
+            zfree(k);
+        }
+        /* Chain is fully compacted: only as many buckets as needed. */
+        unsigned long used = dictSize(dc);
+        unsigned long needed = (used + DICT_BUCKET_SLOTS - 2) / (DICT_BUCKET_SLOTS - 1);
+        unsigned long children = dc->child_buckets[0];
+        assert(children <= needed + 1);
+        dictRelease(dc);
+        assert(test_buckets == 0);
+    }
+
+    TEST("Deleting tail entries prunes overflow buckets through every deletion API") {
+        for (int no_value = 0; no_value <= 1; no_value++) {
+            dictType type = chainDictType;
+            type.no_value = no_value;
+            for (int deletion = 0; deletion < 4; deletion++) {
+                test_buckets = 0;
+                dict *dc = dictCreate(&type);
+                const int n = 2 * DICT_BUCKET_SLOTS;
+                assert(dictExpand(dc, n) == DICT_OK);
+                for (int i = 0; i < n; i++)
+                    assert(dictAdd(dc, keyForId(i), NULL) == DICT_OK);
+                unsigned long roots = dictBuckets(dc);
+                assert(dictChildBuckets(dc) == 2);
+                for (int i = n - 1; i >= DICT_BUCKET_SLOTS - 1; i--) {
+                    char *key = keyForId(i);
+                    testDeleteKey(dc, key, deletion);
+                    zfree(key);
+                    unsigned long children = (dictSize(dc) - 2) / (DICT_BUCKET_SLOTS - 1);
+                    assert(dictBuckets(dc) == roots && !dictIsRehashing(dc));
+                    assert(dictChildBuckets(dc) == children);
+                    assert(dictMemUsage(dc) == (roots + children) * DICT_BUCKET_BYTES +
+                                              dictSize(dc) * dictEntryMemUsage(no_value));
+                    dictVerify(dc);
+                }
+                for (int i = 0; i < DICT_BUCKET_SLOTS - 1; i++) {
+                    char *key = keyForId(i);
+                    assert(dictFind(dc, key) != NULL);
+                    zfree(key);
+                }
+                assert(dictChildBuckets(dc) == 0);
+                dictRelease(dc);
+                assert(test_buckets == 0);
+            }
+        }
+    }
+
+    TEST("Tail pruning stays paused during safe iteration") {
+        for (int deletion = 0; deletion < 4; deletion++) {
+            test_buckets = 0;
+            dict *dc = dictCreate(&chainDictType);
+            const int n = 2 * DICT_BUCKET_SLOTS;
+            assert(dictExpand(dc, n) == DICT_OK);
+            for (int i = 0; i < n; i++)
+                assert(dictAdd(dc, keyForId(i), NULL) == DICT_OK);
+            dictIterator it;
+            dictEntry *de;
+            int visited = 0;
+            dictInitSafeIterator(&it, dc);
+            while ((de = dictNext(&it))) {
+                int id = keyId(dictGetKey(de));
+                visited++;
+                if (id >= DICT_BUCKET_SLOTS - 1) {
+                    char *key = keyForId(id);
+                    testDeleteKey(dc, key, deletion);
+                    zfree(key);
+                    assert(dictChildBuckets(dc) == 2);
+                }
+            }
+            dictResetIterator(&it);
+            assert(visited == n);
+            assert(dictSize(dc) == DICT_BUCKET_SLOTS - 1 && dictChildBuckets(dc) == 0);
+            dictVerify(dc);
+            dictRelease(dc);
+            assert(test_buckets == 0);
+        }
+    }
+
+    TEST("Safe iterator deleting the returned entry in a long chain returns each entry once") {
+        test_buckets = 0;
+        dict *dc = dictCreate(&chainDictType);
+        const int n = 200;
+        for (int i = 0; i < n; i++) assert(dictAdd(dc, stringFromLongLong(i), NULL) == DICT_OK);
+        uint8_t seen[200] = {0};
+        dictIterator it;
+        dictInitSafeIterator(&it, dc);
+        dictEntry *e;
+        int visited = 0;
+        while ((e = dictNext(&it))) {
+            int id = atoi(dictGetKey(e));
+            assert(!seen[id]);
+            seen[id] = 1;
+            visited++;
+            if (id % 3 != 0) {
+                char *k = stringFromLongLong(id);
+                assert(dictDelete(dc, k) == DICT_OK);
+                zfree(k);
+            }
+        }
+        dictResetIterator(&it);
+        assert(visited == n);
+        dictVerify(dc);
+        assert(dictSize(dc) == (unsigned long)((n + 2) / 3));
+        dictRelease(dc);
+        assert(test_buckets == 0);
+    }
+
+    TEST("Safe iterator inserting while iterating never returns an entry twice") {
+        test_buckets = 0;
+        dict *dc = dictCreate(&chainDictType);
+        const int n = 40;
+        for (int i = 0; i < n; i++) assert(dictAdd(dc, stringFromLongLong(i), NULL) == DICT_OK);
+        uint8_t seen[400] = {0};
+        dictIterator it;
+        dictInitSafeIterator(&it, dc);
+        dictEntry *e;
+        int next_new = n;
+        while ((e = dictNext(&it))) {
+            int id = atoi(dictGetKey(e));
+            assert(id < 400 && !seen[id]);
+            seen[id] = 1;
+            if (next_new < 399) {
+                assert(dictAdd(dc, stringFromLongLong(next_new++), NULL) == DICT_OK);
+            }
+        }
+        dictResetIterator(&it);
+        for (int i = 0; i < n; i++) assert(seen[i]);
+        dictVerify(dc);
+        dictRelease(dc);
+        assert(test_buckets == 0);
+    }
+
+    TEST("Scan: callback deletes the entry it is given, chains stay valid") {
+        test_buckets = 0;
+        dict *dc = dictCreate(&fewBucketsDictType);
+        modelCtx *m = zcalloc(sizeof(*m));
+        m->d = dc;
+        for (int i = 0; i < MODEL_KEYS; i++) modelAdd(m, dc, i);
+        drainRehash(dc);
+        dictVerify(dc);
+        m->delete_percent = 60;
+        unsigned long cursor = 0;
+        do {
+            cursor = dictScan(dc, cursor, modelScanCb, m);
+        } while (cursor);
+        for (int i = 0; i < MODEL_KEYS; i++) assert(m->seen[i] >= 1);
+        assert(dictSize(dc) == m->count);
+        dictVerify(dc);
+        dictRelease(dc);
+        assert(test_buckets == 0);
+        zfree(m);
+    }
+
+    TEST("Scan preserves surviving keys when callbacks delete and insert, including nested scans") {
+        for (int no_value = 0; no_value <= 1; no_value++) {
+            dictType type = chainDictType;
+            type.no_value = no_value;
+            test_buckets = 0;
+            dict *unchained = dictCreate(&type);
+            dictSetResizeEnabled(DICT_RESIZE_FORBID);
+            for (int i = 0; i < DICT_BUCKET_SLOTS; i++)
+                assert(dictAdd(unchained, keyForId(i), NULL) == DICT_OK);
+            scanMutationCtx replacement = {.d = unchained, .deletion = 3};
+            assert(dictScan(unchained, 0, scanMutationCb, &replacement) == 0);
+            for (int i = 0; i < DICT_BUCKET_SLOTS; i++) assert(replacement.seen[i] == 1);
+            dictVerify(unchained);
+            dictRelease(unchained);
+            assert(test_buckets == 0);
+            for (int deletion = 0; deletion < 3; deletion++) {
+                for (int additions = 1; additions <= 2; additions++) {
+                    for (int nested = 0; nested <= 1; nested++) {
+                        test_buckets = 0;
+                        dict *dc = dictCreate(&type);
+                        dictSetResizeEnabled(DICT_RESIZE_FORBID);
+                        for (int i = 0; i <= DICT_BUCKET_SLOTS; i++)
+                            assert(dictAdd(dc, keyForId(i), NULL) == DICT_OK);
+                        scanMutationCtx ctx = {.d = dc, .deletion = deletion,
+                                               .additions = additions, .nested = nested};
+                        assert(dictScan(dc, 0, scanMutationCb, &ctx) == 0);
+                        for (int i = 1; i <= DICT_BUCKET_SLOTS; i++) assert(ctx.seen[i] >= 1);
+                        assert(dictFind(dc, "k0") == NULL);
+                        assert(dictSize(dc) == DICT_BUCKET_SLOTS + (unsigned long)additions);
+                        dictVerify(dc);
+                        dictRelease(dc);
+                        assert(test_buckets == 0);
+                    }
+                }
+            }
+        }
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+    }
+
+    TEST("Scan emits every entry when callbacks delete already emitted entries") {
+        test_buckets = 0;
+        dict *dc = dictCreate(&chainDictType);
+        dictSetResizeEnabled(DICT_RESIZE_FORBID);
+        for (int i = 0; i < SCAN_DELETE_PREV_KEYS; i++)
+            assert(dictAdd(dc, keyForId(i), NULL) == DICT_OK);
+        assert(dictChildBuckets(dc) > 1);
+        scanDeletePrevCtx ctx = {.d = dc, .prev_id = -1};
+        assert(dictScan(dc, 0, scanDeletePrevCb, &ctx) == 0);
+        for (int i = 0; i < SCAN_DELETE_PREV_KEYS; i++) assert(ctx.seen[i] == 1);
+        assert(dictSize(dc) == 1 && dictChildBuckets(dc) == 0);
+        dictVerify(dc);
+        dictRelease(dc);
+        assert(test_buckets == 0);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+    }
+
+    TEST("Scan defers pruning its tail until surviving entries have been emitted") {
+        for (int no_value = 0; no_value <= 1; no_value++) {
+            dictType type = chainDictType;
+            type.no_value = no_value;
+            for (int deletion = 0; deletion < 3; deletion++) {
+                for (int last = 0; last <= 1; last++) {
+                    for (int additions = 0; additions <= 1; additions++) {
+                        for (int nested = 0; nested <= 1; nested++) {
+                            test_buckets = 0;
+                            dict *dc = dictCreate(&type);
+                            dictSetResizeEnabled(DICT_RESIZE_FORBID);
+                            for (int i = 0; i <= DICT_BUCKET_SLOTS; i++)
+                                assert(dictAdd(dc, keyForId(i), NULL) == DICT_OK);
+                            if (additions) {
+                                /* Leave an earlier hole so the callback can insert
+                                 * without refilling the tail or changing dictSize. */
+                                dictPauseRehashing(dc);
+                                assert(dictDelete(dc, "k0") == DICT_OK);
+                                dictResumeRehashing(dc);
+                            }
+                            scanMutationCtx ctx = {.d = dc, .deletion = deletion,
+                                                   .delete_id = DICT_BUCKET_SLOTS - 1 + last,
+                                                   .additions = additions, .nested = nested};
+                            assert(dictScan(dc, 0, scanMutationCb, &ctx) == 0);
+                            for (int i = additions; i <= DICT_BUCKET_SLOTS; i++)
+                                assert(ctx.seen[i] >= 1);
+                            assert(dictSize(dc) == DICT_BUCKET_SLOTS && dictChildBuckets(dc) == 0);
+                            dictVerify(dc);
+                            dictRelease(dc);
+                            assert(test_buckets == 0);
+                        }
+                    }
+                }
+            }
+        }
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+    }
+
+    TEST("Randomized operations against a reference model (no_value)") {
+        dictRandomizedTest(&verifyDictType, accurate ? 600 : 60, 1500);
+    }
+
+    TEST("Randomized operations against a reference model (with values)") {
+        dictRandomizedTest(&verifyDictTypeVal, accurate ? 300 : 30, 1500);
+    }
+
+    TEST("Randomized operations with very long chains") {
+        dictRandomizedTest(&fewBucketsDictType, accurate ? 200 : 20, 1000);
+    }
+
+    TEST("Rehash during safe iteration is paused and resumes afterwards") {
+        test_buckets = 0;
+        dict *dr = dictCreate(&verifyDictType);
+        for (int i = 0; i < 500; i++) assert(dictAdd(dr, stringFromLongLong(i), NULL) == DICT_OK);
+        drainRehash(dr);
+        dictIterator it;
+        dictInitSafeIterator(&it, dr);
+        dictEntry *e = dictNext(&it);
+        assert(e != NULL);
+        /* Force a resize while iterating: rehashing must not progress. */
+        dictExpand(dr, 100000);
+        assert(dictIsRehashing(dr));
+        assert(dictRehash(dr, 100) == 0);
+        assert(dictIsRehashing(dr));
+        int visited = 1;
+        while (dictNext(&it)) visited++;
+        dictResetIterator(&it);
+        assert(visited == 500);
+        drainRehash(dr);
+        assert(dictSize(dr) == 500);
+        dictVerify(dr);
+        dictRelease(dr);
+        assert(test_buckets == 0);
+    }
+
+    TEST("Safe iterator compacts the chains it leaves in both tables while rehashing") {
+        test_buckets = 0;
+        dict *dr = dictCreate(&fewBucketsDictType);
+        dictSetResizeEnabled(DICT_RESIZE_ENABLE);
+        const int n = 200;
+        for (int i = 0; i < n; i++) assert(dictAdd(dr, keyForId(i), NULL) == DICT_OK);
+        drainRehash(dr);
+        /* Start a rehash, and move part of the entries to the new table. */
+        assert(dictExpand(dr, 4 * n) == DICT_OK);
+        assert(dictIsRehashing(dr));
+        dictRehash(dr, 2);
+        assert(dictIsRehashing(dr) && dr->ht_used[0] > 0 && dr->ht_used[1] > 0);
+        uint8_t seen[200] = {0};
+        dictIterator it;
+        dictEntry *de;
+        int visited = 0;
+        dictInitSafeIterator(&it, dr);
+        while ((de = dictNext(&it))) {
+            int id = keyId(dictGetKey(de));
+            assert(!seen[id]);
+            seen[id] = 1;
+            visited++;
+            if (id % 2) assert(dictDelete(dr, dictGetKey(de)) == DICT_OK);
+        }
+        dictResetIterator(&it);
+        assert(visited == n);
+        assert(dictSize(dr) == (unsigned long)n / 2);
+        /* Every chain was left with deletes in it, so none has holes. */
+        for (int t = 0; t <= 1; t++) {
+            for (size_t idx = 0; idx < DICTHT_SIZE(dr->ht_size_exp[t]); idx++) {
+                for (dictBucket *b = &dr->ht_table[t][idx]; b->chained; b = getChildBucket(b))
+                    assert(bucketIsFull(b));
+            }
+        }
+        dictVerify(dr);
+        dictRelease(dr);
+        assert(test_buckets == 0);
     }
 
     srand(12345);
@@ -2390,6 +3587,35 @@ int dictTest(int argc, char **argv, int flags) {
         }
 
         dictRelease(d);
+    }
+
+    TEST("dictFindLink() + dictSetKeyAtLink() insert and replace, with rehashing") {
+        test_buckets = 0;
+        dict *dl = dictCreate(&verifyDictType);
+        for (int i = 0; i < 2000; i++) {
+            char *key = stringFromLongLong(i);
+            dictEntryLink bucket = NULL;
+            dictEntryLink link = dictFindLink(dl, key, &bucket);
+            assert(link == NULL);
+            dictSetKeyAtLink(dl, key, &bucket, 1);
+            /* bucket now points at the inserted entry. */
+            assert(bucket != NULL && dictGetKey(*bucket) == key);
+            link = dictFindLink(dl, key, NULL);
+            assert(link == bucket || dictGetKey(*link) == key);
+            if (i % 5 == 0) {
+                /* Replace the key object with an equal one. */
+                char *key2 = stringFromLongLong(i);
+                void *old = dictGetKey(*link);
+                dictSetKeyAtLink(dl, key2, &link, 0);
+                assert(dictGetKey(*link) == key2);
+                zfree(old);
+            }
+        }
+        assert(dictSize(dl) == 2000);
+        drainRehash(dl);
+        dictVerify(dl);
+        dictRelease(dl);
+        assert(test_buckets == 0);
     }
 
     return 0;
