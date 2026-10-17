@@ -5283,6 +5283,7 @@ int finishShutdown(void) {
     int save = server.shutdown_flags & SHUTDOWN_SAVE;
     int nosave = server.shutdown_flags & SHUTDOWN_NOSAVE;
     int force = server.shutdown_flags & SHUTDOWN_FORCE;
+    int failover = (server.shutdown_flags & SHUTDOWN_FAILOVER);
 
     /* Log a warning for each replica that is lagging. */
     listIter replicas_iter;
@@ -5418,6 +5419,9 @@ int finishShutdown(void) {
         serverLog(LL_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }
+
+    /* Handle cluster-related matters when shutdown. */
+    if (server.cluster_enabled) clusterHandleServerShutdown(failover);
 
     /* Best effort flush of slave output buffers, so that we hopefully
      * send them pending writes. */
