@@ -173,6 +173,28 @@ void putReplicasInPendingClientsToIOThreads(void) {
     }
 }
 
+/* If we are a replica with an active master, make it continue processing the
+ * replication stream that accumulated in its query buffer while processing was
+ * paused (a busy script, or a synchronous loading). */
+void resumeMasterProcessing(void) {
+    if (server.masterhost && server.master) {
+        /* Master running in IO thread needs to be sent to main thread so that
+         * it can process any pending commands ASAP without waiting for the next
+         * read.
+         * We don't queue the client for reprocessing in this case as it will
+         * create contention with main thread when it deals with unblocked
+         * clients - see comment above queueClientForReprocessing. */
+        if (server.master->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+            pauseIOThread(server.master->tid);
+            enqueuePendingClientsToMainThread(server.master, 0);
+            resumeIOThread(server.master->tid);
+            return;
+        }
+
+        queueClientForReprocessing(server.master);
+    }
+}
+
 /* Run some cron tasks for a connected master client. Return 1 when the client
  * is freed, 0 otherwise. */
 int replicationCronRunMasterClient(void) {
