@@ -48,9 +48,8 @@
             }
         ],
         "reply_schema": {
-            "description": "Set-bit offsets at the inclusive ranks in ascending order. Missing or empty bitmaps, reversed ranges, and starts beyond the last rank return an empty array.",
+            "description": "Set-bit offsets at the inclusive ranks in ascending order. An end of -1 includes all remaining set bits. Missing or empty bitmaps, reversed bounded ranges, and starts beyond the last rank return an empty array.",
             "type": "array",
-            "maxItems": 100000000,
             "uniqueItems": true,
             "items": {
                 "type": "integer",

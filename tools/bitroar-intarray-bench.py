@@ -138,6 +138,7 @@ def seed(client, backend, key, values):
 
 def workloads(values):
     count = len(values)
+    # Preserve the historical label; native full reads now use RANGE 0 -1.
     yield "get-all", None, values
     if not count:
         yield "range-empty", (0, 15), []
@@ -262,11 +263,13 @@ def main():
                 calibration = {}
                 samples = {backend: [] for backend in backends}
                 for backend, (client, path) in backends.items():
-                    prefix = "BIT" if backend == "native" else (
-                        "R64." if values and values[-1] > 0xffffffff else "R.")
-                    command = [prefix + ("GETINTARRAY" if ranks is None else "RANGEINTARRAY"), key]
-                    if ranks is not None:
-                        command += list(ranks)
+                    if backend == "native":
+                        command = ["BITRANGEINTARRAY", key, *(ranks if ranks is not None else (0, -1))]
+                    else:
+                        prefix = "R64." if values and values[-1] > 0xffffffff else "R."
+                        command = [prefix + ("GETINTARRAY" if ranks is None else "RANGEINTARRAY"), key]
+                        if ranks is not None:
+                            command += list(ranks)
                     started = time.perf_counter()
                     actual = client.call(*command)
                     calibration[backend] = time.perf_counter() - started

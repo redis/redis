@@ -2069,62 +2069,57 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
     return !(c->flags & CLIENT_CLOSE_ASAP);
 }
 
-/* BITGETINTARRAY key -- redis-roaring's integer-array interface, backed by a
- * native bitmap. Values are ascending set-bit offsets, not raw bitmap bytes. */
-void bitgetintarrayCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
-    if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
-    /* In particular, CLIENT REPLY OFF must not enumerate an entire bitmap. */
-    if (prepareClientToWrite(c) != C_OK) return;
-    uint64_t count = bitroarCardinality(o);
-    if (count == 0) {
-        addReply(c, shared.emptyarray);
-        return;
-    }
-    if (count > LONG_MAX) {
-        addReplyError(c, "result is too large, use BITRANGEINTARRAY");
-        return;
-    }
-    addReplyArrayLen(c, (long)count);
-    bitroarIntArrayReply reply = {c, 0};
-    bitroarVisitSetBits(o, 0, count, bitroarReplySetBits, &reply);
-}
-
-/* Match the R.* module interface's unsigned 32-bit rank arguments, including
- * its error messages. Returned native bitmap offsets can be wider than ranks. */
-static int bitroarParseIntArrayRank(client *c, robj *arg, const char *name, uint64_t *rank) {
-    long long value;
-    if (getLongLongFromObject(arg, &value) != C_OK || value < 0 || value > UINT32_MAX) {
-        addReplyErrorFormat(c, "invalid %s: must be an unsigned 32 bit integer", name);
-        return C_ERR;
-    }
-    *rank = value;
-    return C_OK;
-}
-
-/* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval. */
+/* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval.
+ * Ranks are unsigned 32-bit integers, with end=-1 selecting through the last
+ * rank. Returned native bitmap offsets can be wider than the rank arguments. */
 void bitrangeintarrayCommand(client *c) {
-    uint64_t start, end;
-    if (bitroarParseIntArrayRank(c, c->argv[2], "start", &start) != C_OK ||
-        bitroarParseIntArrayRank(c, c->argv[3], "end", &end) != C_OK) return;
+    long long start, end;
+    const char *start_err = "invalid start: must be an unsigned 32 bit integer";
+    const char *end_err = "invalid end: must be -1 or an unsigned 32 bit integer";
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &start, start_err) != C_OK) return;
+    if (start < 0 || start > UINT32_MAX) {
+        addReplyError(c, start_err);
+        return;
+    }
+    if (getLongLongFromObjectOrReply(c, c->argv[3], &end, end_err) != C_OK) return;
+    if (end < -1 || end > UINT32_MAX) {
+        addReplyError(c, end_err);
+        return;
+    }
     robj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
-    if (start > end) {
-        addReply(c, shared.emptyarray);
-        return;
-    }
-    /* Widen the inclusive span so 0..UINT32_MAX cannot wrap past the limit. */
-    uint64_t count = end - start + 1;
-    if (count > 100000000) {
-        addReplyError(c, "-Roaring: range too large: maximum 100000000 elements");
-        return;
+    uint64_t count = 0;
+    if (end != -1) {
+        if (start > end) {
+            addReply(c, shared.emptyarray);
+            return;
+        }
+        /* Widen the inclusive span so 0..UINT32_MAX cannot wrap past the limit. */
+        count = (uint64_t)(end - start) + 1;
+        if (count > 100000000) {
+            addReplyError(c, "-Roaring: range too large: maximum 100000000 elements");
+            return;
+        }
     }
     if (o == NULL) {
         addReply(c, shared.emptyarray);
         return;
     }
-    /* Avoid counting every container just to return a small page. Iterator
-     * exhaustion handles truncation, and the span cap keeps emitted in long. */
+    if (end == -1) {
+        /* Suppressed replies must not count or enumerate an entire bitmap. */
+        if (prepareClientToWrite(c) != C_OK) return;
+        uint64_t cardinality = bitroarCardinality(o);
+        count = cardinality > (uint64_t)start ? cardinality - (uint64_t)start : 0;
+        /* The reply length is a long, including on 32-bit systems. Check the
+         * remaining result rather than rejecting a large bitmap outright. */
+        if (count > LONG_MAX) {
+            addReplyError(c, "result is too large, use a bounded BITRANGEINTARRAY range");
+            return;
+        }
+    }
+    /* Bounded requests avoid counting every container just to return a small
+     * page. Iterator exhaustion handles truncation; the checks above ensure
+     * the number of emitted values fits in long. */
     void *arraylen = addReplyDeferredLen(c);
     if (arraylen == NULL) return;
     bitroarIntArrayReply reply = {c, 0};

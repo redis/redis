@@ -1,6 +1,6 @@
 # Integer-array command benchmark tool
 
-`bitroar-intarray-bench.py` measures `BITGETINTARRAY` and `BITRANGEINTARRAY`
+`bitroar-intarray-bench.py` measures `BITRANGEINTARRAY`
 in isolated Redis processes over Unix sockets. It requires Python 3.9+, an
 optimized Redis build, and no third-party Python packages.
 
@@ -8,6 +8,10 @@ optimized Redis build, and no third-party Python packages.
 make -j4
 python3 tools/bitroar-intarray-bench.py --json-out /tmp/intarray-native.json
 ```
+
+The retained `get-all` workload label now uses `BITRANGEINTARRAY key 0 -1`
+for native full reads and `R.GETINTARRAY` or `R64.GETINTARRAY` for the module.
+The `range-all` workload uses explicit first/last ranks on both backends.
 
 To compare with a built redis-roaring module, supply its shared library and
 compatible Redis binaries. Use matching compiler and optimization settings,
