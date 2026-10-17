@@ -1012,6 +1012,41 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd4 close
     }
 
+    test "Clients blocked on an emptied key keep their order" {
+        r del bkey{t}
+        set z1 [redis_deferring_client]
+        set l1 [redis_deferring_client]
+        set l2 [redis_deferring_client]
+        set z2 [redis_deferring_client]
+        $z2 client id
+        set z2id [$z2 read]
+        $z1 bzpopmin bkey{t} 0
+        wait_for_blocked_clients_count 1
+        $l1 blpop bkey{t} 0
+        wait_for_blocked_clients_count 2
+        $l2 blpop bkey{t} 0
+        wait_for_blocked_clients_count 3
+        $z2 bzpopmin bkey{t} 0
+        wait_for_blocked_clients_count 4
+
+        # The first list waiter empties the key; the sorted set waiters it
+        # passed and left behind must still come in the order they blocked.
+        r lpush bkey{t} a
+        assert_equal {bkey{t} a} [$l1 read]
+        r zadd bkey{t} 1 m
+        wait_for_blocked_clients_count 2
+        assert_match {*flags=b *} [r client list id $z2id]
+        assert_equal {bkey{t} m 1} [$z1 read]
+        r lpush bkey{t} b
+        assert_equal {bkey{t} b} [$l2 read]
+        r zadd bkey{t} 2 n
+        assert_equal {bkey{t} n 2} [$z2 read]
+        $z1 close
+        $l1 close
+        $l2 close
+        $z2 close
+    }
+
     test "Linked LMOVEs" {
       set rd1 [redis_deferring_client]
       set rd2 [redis_deferring_client]
