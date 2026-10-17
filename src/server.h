@@ -2676,6 +2676,7 @@ struct redisServer {
     /* Pubsub */
     kvstore *pubsub_channels;  /* Map channels to list of subscribed clients */
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
+    rax *pubsub_patterns_index; /* Literal prefix -> its pattern, or a set of them */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
     kvstore *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
@@ -3283,6 +3284,7 @@ extern dictType externalStringType;
 extern dictType sdsHashDictType;
 extern dictType clientDictType;
 extern dictType objToDictDictType;
+extern dictType pubsubPatternSetDictType;
 extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
