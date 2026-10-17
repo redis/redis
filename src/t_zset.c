@@ -1251,8 +1251,7 @@ static unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds el
     char scorebuf[MAX_D2STRING_CHARS];
     int scorelen = 0;
     long long lscore;
-    /* double2ll() maps -0 to 0 and drops the sign, so keep it as a string. */
-    int score_is_long = double2ll(score, &lscore) && !(lscore == 0 && signbit(score));
+    int score_is_long = double2ll(score, &lscore);
     if (!score_is_long)
         scorelen = d2string(scorebuf,sizeof(scorebuf),score);
 
@@ -1614,6 +1613,9 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
         *out_flags = ZADD_OUT_NAN;
         return 0;
     }
+
+    /* Store -0 as 0 so the score doesn't depend on the encoding. */
+    if (score == 0) score = 0;
 
     /* Update the sorted set according to its encoding. */
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
