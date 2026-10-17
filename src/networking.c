@@ -192,7 +192,7 @@ client *createClient(connection *conn) {
     c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
     c->io_lastinteraction = 0;
-    c->duration = 0;
+    resetClientCommandDuration(c);
     c->user = DefaultUser; /* Set a safe default value: clientSetDefaultAuth reads c->user. */
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
@@ -2377,7 +2377,7 @@ void freeClient(client *c) {
 
     /* Deallocate structures used to block on blocking ops. */
     /* If there is any in-flight command, we don't record their duration. */
-    c->duration = 0;
+    resetClientCommandDuration(c);
     if (c->flags & CLIENT_BLOCKED) unblockClient(c, 1);
     dictRelease(c->bstate.keys);
 
@@ -5813,6 +5813,10 @@ void processEventsWhileBlocked(void) {
      * blocked in (see server.allowed_propagate_targets). */
     int prev_propagate_targets = server.allowed_propagate_targets;
     server.allowed_propagate_targets = PROPAGATE_AOF|PROPAGATE_REPL;
+
+    /* Commands served here, and the blocked command's later calls, measure from
+     * this sample. The blocked command keeps its own start (see call()). */
+    cpuSampleTake(&server.cpu_checkpoint);
 
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we
