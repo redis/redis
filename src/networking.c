@@ -544,7 +544,9 @@ void _addReplySegmentsToBufferOrList(client *c, const replySegment *seg, int nse
         return;
     }
 
-    for (int i = 0; i < nseg; i++) c->net_output_bytes_curr_cmd += seg[i].len;
+    size_t total = 0;
+    for (int i = 0; i < nseg; i++) total += seg[i].len;
+    c->net_output_bytes_curr_cmd += total;
     /* We call it here because this may affect the reply buffer offset (see the
      * reqres function comment); it is idempotent per request. */
     reqresSaveClientReplyOffset(c);
@@ -562,6 +564,33 @@ void _addReplySegmentsToBufferOrList(client *c, const replySegment *seg, int nse
             if (seg[i].len)
                 _addReplyPayloadToList(c, server.pending_push_messages,
                                        seg[i].ptr, seg[i].len, PLAIN_REPLY);
+        return;
+    }
+
+    /* Fast path: when the whole reply fits in the space left, copy the segments
+     * back to back into the plain tail of the reply list, or into the static
+     * buffer while the list is still empty. This is where the per-segment chain
+     * below would put them anyway, and once the static buffer is full it is the
+     * common case for every small element of a large reply. */
+    char *dst = NULL;
+    if (listLength(c->reply)) {
+        clientReplyBlock *tail = listNodeValue(listLast(c->reply));
+        /* 'tail' is NULL while an addReplyDeferredLen() placeholder is last. */
+        if (tail && !tail->buf_encoded && tail->size - tail->used >= total) {
+            dst = tail->buf + tail->used;
+            tail->used += total;
+        }
+    } else if (!c->buf_encoded && c->buf_usable_size - c->bufpos >= total) {
+        dst = c->buf + c->bufpos;
+        c->bufpos += total;
+        if (c->buf_peak < c->bufpos) c->buf_peak = c->bufpos;
+    }
+    if (dst) {
+        for (int i = 0; i < nseg; i++) {
+            if (!seg[i].len) continue;
+            memcpy(dst, seg[i].ptr, seg[i].len);
+            dst += seg[i].len;
+        }
         return;
     }
 
