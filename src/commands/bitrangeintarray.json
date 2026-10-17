@@ -1,0 +1,60 @@
+{
+    "BITRANGEINTARRAY": {
+        "summary": "Returns an inclusive range of set-bit offsets by their zero-based ranks in a native bitmap.",
+        "complexity": "O(C + M) where C is the number of bitmap containers and M is the number of returned integers.",
+        "group": "bitmap",
+        "since": "8.12.0",
+        "arity": 4,
+        "function": "bitrangeintarrayCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "start",
+                "type": "integer"
+            },
+            {
+                "name": "end",
+                "type": "integer"
+            }
+        ],
+        "reply_schema": {
+            "description": "Set-bit offsets at the inclusive ranks in ascending order. An end of -1 includes all remaining set bits. Missing or empty bitmaps, reversed bounded ranges, and starts beyond the last rank return an empty array.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "integer",
+                "minimum": 0
+            }
+        }
+    }
+}
