@@ -1255,6 +1255,33 @@ start_server {tags {"zset"}} {
         }
     }
 
+    if {$encoding eq "skiplist"} {
+        test "ZPOP detaches skiplist edges across levels with binary members" {
+            r del zset
+            for {set i 0} {$i < 256} {incr i} {
+                r zadd zset 0 [format "member:%04d:\x00" $i]
+            }
+
+            set popped [r zpopmin zset 80]
+            for {set i 0} {$i < 80} {incr i} {
+                assert_equal [format "member:%04d:\x00" $i] [lindex $popped [expr {$i * 2}]]
+                assert_equal 0 [lindex $popped [expr {$i * 2 + 1}]]
+            }
+
+            set popped [r zpopmax zset 80]
+            for {set i 0} {$i < 80} {incr i} {
+                assert_equal [format "member:%04d:\x00" [expr {255 - $i}]] [lindex $popped [expr {$i * 2}]]
+                assert_equal 0 [lindex $popped [expr {$i * 2 + 1}]]
+            }
+
+            assert_equal 96 [r zcard zset]
+            assert_equal 0 [r zrank zset "member:0080:\x00"]
+            assert_equal 95 [r zrank zset "member:0175:\x00"]
+            r zpopmin zset 96
+            assert_equal 0 [r exists zset]
+        }
+    }
+
     foreach {popmin popmax} {BZPOPMIN BZPOPMAX BZMPOP_MIN BZMPOP_MAX} {
         test "$popmin/$popmax with a single existing sorted set - $encoding" {
             set rd [redis_deferring_client]
