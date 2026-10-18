@@ -1257,7 +1257,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
          serverAssert(exlink != NULL);
      }
 
-    /* Try to defrag robj. For hash objects with HFEs,
+    /* Try to defrag robj. For hash and set objects registered in subexpires
      * defer defragmentation until processing db's subexpires. */
     if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID) &&
         !(ob->type == OBJ_SET && setIsRegisteredInSubexpires(ob))) {

@@ -2552,8 +2552,8 @@ void copyCommand(client *c) {
     spec.no_evict = blessIsNoEvict(o);
     kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, &spec);
 
-    /* If minExpiredField was set, then the object is hash with expiration
-     * on fields and need to register it in global HFE DS */
+    /* If subexpiryTime was set, then the object is hash or set with expiration
+     * on fields / members and need to register it in global subexpires DS */
     if (subexpiryTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, subexpiryTime);
 
