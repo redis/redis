@@ -1379,15 +1379,22 @@ start_server {tags {"external:skip needs:debug"}} {
         set members {}
         for {set i 0} {$i < 2000} {incr i} {lappend members m$i}
         r sadd myset {*}$members
+        # Far in the future, so the checks below do not depend on how fast it runs.
         set now [clock milliseconds]
         foreach m [lshuffle $members] {
-            r spexpireat myset [expr {$now + 3000 + int(rand() * 2000)}] MEMBERS 1 $m
+            r spexpireat myset [expr {$now + 100000000 + int(rand() * 2000)}] MEMBERS 1 $m
         }
         # Add more members while the dict grows (it rehashes).
         for {set i 2000} {$i < 6000} {incr i} {r sadd myset m$i}
         assert_equal [r scard myset] 6000
         for {set i 0} {$i < 100} {incr i} {
             assert {[r sttl myset MEMBERS 1 m$i] > 0}
+        }
+        # Now make them expire, in random order. One that already passed while
+        # this loop runs is deleted by the command, which ends the same way.
+        set now [clock milliseconds]
+        foreach m [lshuffle $members] {
+            r spexpireat myset [expr {$now + 1000 + int(rand() * 1000)}] MEMBERS 1 $m
         }
         r debug set-active-expire 1
         wait_for_condition 300 50 {[r scard myset] == 4000} else {fail "the members did not expire"}
