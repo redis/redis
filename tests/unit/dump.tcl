@@ -6,6 +6,14 @@ start_server {tags {"dump"}} {
         list [r exists foo] [r restore foo 0 $encoded] [r ttl foo] [r get foo]
     } {0 OK -1 bar}
 
+    test {RESTORE can transfer the NO-EVICT flag with the value} {
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        assert_equal {OK} [r restore foo 0 $encoded no-evict]
+        assert_equal {NO-EVICT} [r bless get foo]
+    }
+
     test {RESTORE can set an arbitrary expire to the materialized key} {
         r set foo bar
         set encoded [r dump foo]
@@ -247,6 +255,23 @@ start_server {tags {"dump"}} {
             assert_equal "Some Value" [$second get key]
             assert_equal {NO-EVICT} [$second bless get key]
             assert_equal 1 [getInfoProperty [$second info] blessed_keys]
+        }
+    } {} {external:skip}
+
+    test {MIGRATE BUSYKEY does not bless the existing destination} {
+        set first [srv 0 client]
+        r set key "Source Value"
+        r bless set key no-evict
+        start_server {tags {"repl"}} {
+            set second [srv 0 client]
+            set second_host [srv 0 host]
+            set second_port [srv 0 port]
+            $second set key "Destination Value"
+
+            assert_error "*BUSYKEY*" {r -1 migrate $second_host $second_port key 9 5000}
+            assert_equal "Destination Value" [$second get key]
+            assert_equal {} [$second bless get key]
+            assert_equal {NO-EVICT} [$first bless get key]
         }
     } {} {external:skip}
 

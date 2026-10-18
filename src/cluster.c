@@ -212,11 +212,11 @@ void dumpCommand(client *c) {
     return;
 }
 
-/* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] */
+/* RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency] [NO-EVICT] */
 void restoreCommand(client *c) {
     long long ttl, lfu_freq = -1, lru_idle = -1, lru_clock = -1;
     rio payload;
-    int j, type, replace = 0, absttl = 0;
+    int j, type, replace = 0, absttl = 0, noevict = 0;
     robj *obj;
 
     /* Parse additional options */
@@ -224,6 +224,8 @@ void restoreCommand(client *c) {
         int additional = c->argc-j-1;
         if (!strcasecmp(c->argv[j]->ptr,"replace")) {
             replace = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"no-evict")) {
+            noevict = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"absttl")) {
             absttl = 1;
         } else if (!strcasecmp(c->argv[j]->ptr,"idletime") && additional >= 1 &&
@@ -312,8 +314,9 @@ void restoreCommand(client *c) {
     kvobj *oldval = lookupKeyWriteWithLink(c->db, key, &link);
     int oldtype = oldval ? oldval->type : -1;
 
-    /* RESTORE REPLACE keeps the destination's NO-EVICT flag. */
-    spec.no_evict = replace && oldval && blessIsNoEvict(oldval);
+    /* Restore an explicitly transferred NO-EVICT flag. REPLACE also keeps
+     * protection already present on the destination. */
+    spec.no_evict = noevict || (replace && oldval && blessIsNoEvict(oldval));
 
     /* Call dbDelete() only when a key is actually present:
      *   oldval != NULL -> key exists.
@@ -646,8 +649,9 @@ void migrateCommand(client *c) {
         kvArray[non_expired] = kvArray[j];
         keyArray[non_expired++] = keyArray[j];
 
+        int noevict = blessIsNoEvict(kvArray[j]);
         serverAssertWithInfo(c,NULL,
-                             rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
+                             rioWriteBulkCount(&cmd,'*',4 + replace + noevict));
 
         if (server.cluster_enabled)
             serverAssertWithInfo(c,NULL,
@@ -672,10 +676,10 @@ void migrateCommand(client *c) {
         if (replace)
             serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"REPLACE",7));
 
-        /* DUMP payloads omit NO-EVICT. Reapply the flag after RESTORE, as
-         * slot migration does when transferring a snapshot. */
-        if (blessIsNoEvict(kvArray[j]))
-            serverAssertWithInfo(c,NULL,blessRewrite(&cmd,keyArray[j],kvArray[j]) == C_OK);
+        /* DUMP payloads omit NO-EVICT, so transfer the flag as a RESTORE
+         * option to keep it coupled to the value replacement. */
+        if (noevict)
+            serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"NO-EVICT",8));
     }
 
     /* Fix the actual number of keys we are migrating. */
@@ -702,7 +706,6 @@ void migrateCommand(client *c) {
     char buf0[1024]; /* Auth reply. */
     char buf1[1024]; /* Select reply. */
     char buf2[1024]; /* Restore reply. */
-    char buf3[1024]; /* BLESS reply, when needed. */
 
     /* Read the AUTH reply if needed. */
     if (password && connSyncReadLine(cs->conn, buf0, sizeof(buf0), timeout) <= 0)
@@ -712,10 +715,9 @@ void migrateCommand(client *c) {
     if (select && connSyncReadLine(cs->conn, buf1, sizeof(buf1), timeout) <= 0)
         goto socket_err;
 
-    /* Read the RESTORE and optional BLESS replies. */
+    /* Read the RESTORE replies. */
     int error_from_target = 0;
     int socket_error = 0;
-    int restore_reply_received = 0;
     int del_idx = 1; /* Index of the key argument for the replicated DEL op. */
 
     /* Allocate the new argument vector that will replace the current command,
@@ -729,18 +731,9 @@ void migrateCommand(client *c) {
             socket_error = 1;
             break;
         }
-        restore_reply_received = 1;
-        int bless_reply_error = 0;
-        if (blessIsNoEvict(kvArray[j])) {
-            if (connSyncReadLine(cs->conn, buf3, sizeof(buf3), timeout) <= 0) {
-                socket_error = 1;
-                break;
-            }
-            bless_reply_error = buf3[0] == '-';
-        }
         if ((password && buf0[0] == '-') ||
             (select && buf1[0] == '-') ||
-            buf2[0] == '-' || bless_reply_error)
+            buf2[0] == '-')
         {
             /* On error assume that last_dbid is no longer valid. */
             if (!error_from_target) {
@@ -748,8 +741,7 @@ void migrateCommand(client *c) {
                 char *errbuf;
                 if (password && buf0[0] == '-') errbuf = buf0;
                 else if (select && buf1[0] == '-') errbuf = buf1;
-                else if (buf2[0] == '-') errbuf = buf2;
-                else errbuf = buf3;
+                else errbuf = buf2;
 
                 error_from_target = 1;
                 addReplyErrorFormat(c,"Target instance replied with error: %s",
@@ -774,7 +766,7 @@ void migrateCommand(client *c) {
      * command vector. We only retry if we are sure nothing was processed
      * and we failed to read the first reply (j == 0 test). */
     if (!error_from_target && socket_error && j == 0 && may_retry &&
-        !restore_reply_received && errno != ETIMEDOUT)
+        errno != ETIMEDOUT)
     {
         goto socket_err; /* A retry is guaranteed because of tested conditions.*/
     }

@@ -18,6 +18,10 @@
             [
                 "5.0.0",
                 "Added the `IDLETIME` and `FREQ` options."
+            ],
+            [
+                "8.12.0",
+                "Added the `NO-EVICT` option."
             ]
         ],
         "command_flags": [
@@ -92,6 +96,13 @@
                 "type": "integer",
                 "optional": true,
                 "since": "5.0.0"
+            },
+            {
+                "name": "no-evict",
+                "token": "NO-EVICT",
+                "type": "pure-token",
+                "optional": true,
+                "since": "8.12.0"
             }
         ]
     }
