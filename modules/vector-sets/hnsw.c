@@ -117,7 +117,8 @@
 /* Algorithm parameters. */
 
 #define HNSW_P 0.25         /* Probability of level increase. */
-#define HNSW_MAX_LEVEL 16   /* Max level nodes can reach. */
+/* HNSW_MAX_LEVEL is defined in hnsw.h (needed by callers to bound
+ * deserialization). */
 #define HNSW_EF_C 200       /* Default size of dynamic candidate list while
                              * inserting a new node, in case 0 is passed to
                              * the 'ef' argument while inserting. This is also
