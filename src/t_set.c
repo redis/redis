@@ -227,7 +227,7 @@ int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str
  * one source has expiration, the values is set by the 'farthest' flag:  the
  * nearest value if it is false (as in SINTERSTORE), or the farthest with if it
  * is true (as in SUNIONSTORE).
- * Returns 1 if the member was added, 0 if it was there. */
+ * Returns 1 if the member was added, 0 if it was already there. */
 static int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
                                  int str_is_sds, uint64_t expire, int farthest)
 {
