@@ -7734,10 +7734,13 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
  * writing or there is an active iterator, REDISMODULE_ERR is returned. */
 int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
+    /* RM_DeleteKey clears BLESS state, so carry it across the replacement. */
+    int noevict = key->kv && blessIsNoEvict(key->kv);
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
     setKey(key->ctx->client,key->db,key->key, &o,SETKEY_NO_SIGNAL);
     key->kv = o;
+    if (noevict) blessSetNoEvict(key->db, key->kv, 1);
     return REDISMODULE_OK;
 }
 
