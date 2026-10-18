@@ -56,7 +56,7 @@ start_server {tags {"bless"}} {
         assert_error {*syntax*} {r bless scan 0 none}
     }
 
-    test {BLESS SCAN skips expired keys before physical deletion} {
+    test {BLESS SCAN and INFO count expired blessed keys until physical deletion} {
         r flushall
         r debug set-active-expire 0
         r set live value
@@ -65,10 +65,11 @@ start_server {tags {"bless"}} {
         r bless set expired no-evict
         r pexpire expired 1
         wait_for_condition 50 10 {
-            [lindex [r bless scan 0 no-evict] 1] eq {live}
+            [lsort [lindex [r bless scan 0 no-evict] 1]] eq [lsort {live expired}] &&
+            [s blessed_keys] == 2
         } else {
             r debug set-active-expire 1
-            fail "BLESS SCAN returned an expired key"
+            fail "BLESS SCAN and INFO did not include the unreclaimed expired key"
         }
         set physical_keys [r dbsize]
         r debug set-active-expire 1
