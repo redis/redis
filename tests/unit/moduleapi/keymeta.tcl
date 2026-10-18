@@ -461,6 +461,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         # Read the most recent base AOF file
         set aof_file [lindex [lsort $aof_files] end]
         set fp [open $aof_file r]
+        fconfigure $fp -translation binary
         set aof_content [read $fp]
         close $fp
 
@@ -1287,6 +1288,7 @@ test "AOF: Roaring bitmap rewrite preserves AOF-only metadata" {
         set aof_files [glob -nocomplain -directory $aof_dir appendonlydir/${aof_base_filename}.*.base.aof]
         assert {[llength $aof_files] > 0}
         set fp [open [lindex [lsort $aof_files] end] r]
+        fconfigure $fp -translation binary
         set aof_content [read $fp]
         close $fp
 
@@ -1327,6 +1329,7 @@ test "AOF: Roaring bitmap rewrite omits metadata without an AOF callback" {
         set aof_files [glob -nocomplain -directory $aof_dir appendonlydir/${aof_base_filename}.*.base.aof]
         assert {[llength $aof_files] > 0}
         set fp [open [lindex [lsort $aof_files] end] r]
+        fconfigure $fp -translation binary
         set aof_content [read $fp]
         close $fp
 
