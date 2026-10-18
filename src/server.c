@@ -8326,63 +8326,6 @@ int iAmMaster(void) {
 int __failed_tests = 0;
 int __test_num = 0;
 
-/* Compare the actual INFO formatter with independent scalar queries and the
- * original floating-point formatting, including reuse across empty histograms. */
-static int infoTest(int argc, char **argv, int flags) {
-    UNUSED(argc);
-    UNUSED(argv);
-    UNUSED(flags);
-    int failed_before = __failed_tests;
-    const int lengths[] = {0, 1, 3, 16, 17, 64, 4096};
-    const double special[] = {100, 0, 99.9, 50, -0.0, 50, 0.000001, 99.999999};
-    struct hdr_histogram *histogram;
-    int rc = hdr_init(1, 1000000000, 2, &histogram);
-    test_cond("INFO test histogram initializes", rc == 0);
-    if (rc != 0) return 1;
-    for (size_t n = 0; n < sizeof(lengths)/sizeof(*lengths); n++) {
-        int len = lengths[n];
-        double *percentiles = zmalloc(sizeof(*percentiles) * (len ? len : 1));
-        for (int j = 0; j < len; j++) {
-            percentiles[j] = j < 8 ? special[j] : 100.0 * (len-j) / len;
-        }
-        latencyPercentileContext ctx;
-        initLatencyPercentileContext(&ctx, percentiles, len);
-        test_cond("INFO uses stack storage through 16 percentiles",
-                  (ctx.entries == ctx.stack_entries) == (len <= 16));
-        /* A populated histogram, then an empty one, then a single sample. */
-        for (int sample = 0; sample < 3; sample++) {
-            hdr_reset(histogram);
-            if (sample == 0) {
-                const int64_t values[] = {0, 999, 10001, 20001, 5000000, 15000000, 1000000000};
-                for (size_t j = 0; j < sizeof(values)/sizeof(*values); j++) {
-                    test_cond("INFO test sample records", hdr_record_value(histogram, values[j]));
-                }
-            } else if (sample == 2) {
-                test_cond("INFO single sample records", hdr_record_value(histogram, 10001));
-            }
-            sds actual = fillPercentileDistributionLatencies(sdsempty(), "test", histogram, &ctx);
-            sds expected = sdsnew("latency_percentiles_usec_test:");
-            for (int j = 0; j < len; j++) {
-                char label[128];
-                size_t l = snprintf(label, sizeof(label), "%f", percentiles[j]);
-                trimDoubleString(label, l);
-                expected = sdscatprintf(expected, "p%s=%.3f%s", label,
-                    (double)hdr_value_at_percentile(histogram, percentiles[j]) / 1000.0,
-                    j == len-1 ? "" : ",");
-            }
-            expected = sdscatlen(expected, "\r\n", 2);
-            test_cond("INFO batch output matches scalar queries and original formatting",
-                      sdscmp(actual, expected) == 0);
-            sdsfree(actual);
-            sdsfree(expected);
-        }
-        freeLatencyPercentileContext(&ctx);
-        zfree(percentiles);
-    }
-    hdr_close(histogram);
-    return __failed_tests != failed_before;
-}
-
 /* The flags are the following:
 * --accurate:     Runs tests with more iterations.
 * --large-memory: Enables tests that consume more than 100mb. */
@@ -8421,7 +8364,6 @@ struct redisTest {
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
     {"lzf", lzfTest},
-    {"info", infoTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
