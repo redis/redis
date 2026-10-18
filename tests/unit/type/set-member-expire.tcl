@@ -1514,8 +1514,9 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 }
 
-# Stage 8: the STORE variants. The stored member gets the nearest expiration of
-# the sources that have it; a source without an expiration counts as infinite.
+# Stage 8: the STORE variants. The stored member gets the expiration of the sources
+# that have one, a source without an expiration is ignored. If more than one has it,
+# SINTERSTORE gives the nearest and SUNIONSTORE the farthest.
 start_server {tags {"external:skip needs:debug"}} {
     r debug keysizes-hist-assert 1
     r debug allocsize-slots-assert 1
@@ -1523,7 +1524,7 @@ start_server {tags {"external:skip needs:debug"}} {
     foreach enc $::sme_encodings {
     sme_force_encoding r $enc
 
-    test "SUNIONSTORE - The nearest expiration wins, none counts as infinite ($enc)" {
+    test "SUNIONSTORE - The farthest expiration wins, a source with none is ignored ($enc)" {
         r flushall
         r sadd a m1 m2 m3 m4
         r sadd b m2 m3 m5
@@ -1533,10 +1534,14 @@ start_server {tags {"external:skip needs:debug"}} {
         r sexpire b 100 MEMBERS 1 m3
         assert_equal [r sunionstore d a b] 5
         assert {[r sttl d MEMBERS 1 m1] > 900 && [r sttl d MEMBERS 1 m1] <= 1000}
-        assert {[r sttl d MEMBERS 1 m2] > 900 && [r sttl d MEMBERS 1 m2] <= 1000}
-        assert {[r sttl d MEMBERS 1 m3] > 50 && [r sttl d MEMBERS 1 m3] <= 100}
+        assert {[r sttl d MEMBERS 1 m2] > 2900 && [r sttl d MEMBERS 1 m2] <= 3000}
+        assert {[r sttl d MEMBERS 1 m3] > 4900 && [r sttl d MEMBERS 1 m3] <= 5000}
         assert_equal [r sttl d MEMBERS 2 m4 m5] [list $E_NO_TTL $E_NO_TTL]
         assert_equal [sme_subexpiry r] 3
+        # The order of the sources does not matter.
+        r sunionstore d b a
+        assert {[r sttl d MEMBERS 1 m2] > 2900 && [r sttl d MEMBERS 1 m2] <= 3000}
+        assert {[r sttl d MEMBERS 1 m3] > 4900 && [r sttl d MEMBERS 1 m3] <= 5000}
     }
 
     test "SUNIONSTORE - A member with an expiration in one source and none in the other ($enc)" {
@@ -1544,10 +1549,26 @@ start_server {tags {"external:skip needs:debug"}} {
         r sadd a x
         r sadd b x
         r sexpire b 1000 MEMBERS 1 x
+        # The expiration is taken from the source that has it, in whichever order.
         r sunionstore d a b
         assert {[r sttl d MEMBERS 1 x] > 900}
         r sunionstore d b a
         assert {[r sttl d MEMBERS 1 x] > 900}
+    }
+
+    test "SUNIONSTORE - Members that are integers get the farthest expiration ($enc)" {
+        r flushall
+        r sadd a 1 2 3
+        r sadd b 1 2 4
+        r sexpire a 1000 MEMBERS 2 1 2
+        r sexpire b 3000 MEMBERS 1 1
+        assert_equal [r sunionstore d a b] 4
+        assert {[r sttl d MEMBERS 1 1] > 2900}
+        assert {[r sttl d MEMBERS 1 2] > 900 && [r sttl d MEMBERS 1 2] <= 1000}
+        assert_equal [r sttl d MEMBERS 2 3 4] [list $E_NO_TTL $E_NO_TTL]
+        r sunionstore d b a
+        assert {[r sttl d MEMBERS 1 1] > 2900}
+        assert {[r sttl d MEMBERS 1 2] > 900 && [r sttl d MEMBERS 1 2] <= 1000}
     }
 
     test "SINTERSTORE - The nearest expiration of all the sources ($enc)" {

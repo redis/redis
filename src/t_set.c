@@ -221,12 +221,15 @@ int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str
 }
 
 /* Adds a member to the destination set of a STORE command, merging the
- * expiration: the nearest one wins, and a member without expiration counts as
- * an infinite one. So an existing expiration is kept unless the new one is
- * earlier, and a member that has none gets the new one. Returns 1 if the member
- * was added, 0 if it was there. */
+ * expiration with member's expiration if it is there already. In the expiration
+ * merge process, a source without an expiration is ignored: the member gets the
+ * one of the expiration values from sources that have expiration. If more than
+ * one source has expiration, the values is set by the 'farthest' flag:  the
+ * nearest value if it is false (as in SINTERSTORE), or the farthest with if it
+ * is true (as in SUNIONSTORE).
+ * Returns 1 if the member was added, 0 if it was there. */
 static int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
-                                 int str_is_sds, uint64_t expire)
+                                 int str_is_sds, uint64_t expire, int farthest)
 {
     if (expire == EB_EXPIRE_TIME_INVALID)
         return setTypeAddAux(dst, str, len, llval, str_is_sds);
@@ -234,7 +237,7 @@ static int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval
     if (!setTypeHasExpireSupport(dst)) setTypeConvertToExpireEncoding(dst);
     uint64_t cur;
     if (setTypeGetExpireAux(dst, str, len, llval, str_is_sds, &cur) &&
-        cur != EB_EXPIRE_TIME_INVALID && cur <= expire)
+        cur != EB_EXPIRE_TIME_INVALID && (farthest ? cur >= expire : cur <= expire))
         return 0;
     return setTypeAddExAux(dst, str, len, llval, str_is_sds, expire);
 }
@@ -1543,7 +1546,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
                         only_integers = 0;
                     }
                 }
-                setTypeAddMergeExpire(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT, expire);
+                setTypeAddMergeExpire(dstset, str, len, intobj, encoding == OBJ_ENCODING_HT, expire, 0);
             }
         }
     }
@@ -1796,7 +1799,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (!approx) {
                     cardinality += setTypeAddMergeExpire(dstset, str, len, llval, encoding == OBJ_ENCODING_HT,
-                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID, 1);
                     if (cardinality_only && limit > 0 && cardinality >= limit) {
                         early_exit = 1;
                         break;
@@ -1862,7 +1865,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                     }
                 } else {
                     cardinality += setTypeAddMergeExpire(dstset, str, len, llval, encoding == OBJ_ENCODING_HT,
-                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID, 0);
                 }
             }
         }
@@ -1907,7 +1910,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 if (j == 0) {
                     cardinality += setTypeAddMergeExpire(dstset, str, len, llval,
                                                          encoding == OBJ_ENCODING_HT,
-                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID);
+                                                         dstkey ? si.expire : EB_EXPIRE_TIME_INVALID, 0);
                 } else {
                     cardinality -= setTypeRemoveAux(dstset, str, len, llval,
                                                     encoding == OBJ_ENCODING_HT);
