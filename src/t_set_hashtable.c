@@ -162,18 +162,18 @@ static int htRawAddCommon(robj *set, char *str, size_t len, int str_is_sds, uint
     }
 
     /* Key doesn't already exist in the set. Add it but dup the key. */
-    SetEntry *entry;
+    SetEntry *sEntry;
     if (expire != EB_EXPIRE_TIME_INVALID) {
-        entry = sEntryCreate(sdsval, sdslen(sdsval), 1);
+        sEntry = sEntryCreate(sdsval, sdslen(sdsval), 1);
         if (sdsval != str) sdsfree(sdsval);
     } else {
         if (sdsval == str) sdsval = sdsdup(sdsval);
-        entry = (SetEntry *)sdsval;
+        sEntry = (SetEntry *)sdsval;
     }
-    dictSetKeyAtLink(ht, entry, &bucket, 1);
-    *htGetMetadataSize(ht) += sEntryMemUsage(entry);
+    dictSetKeyAtLink(ht, sEntry, &bucket, 1);
+    *htGetMetadataSize(ht) += sEntryMemUsage(sEntry);
     if (expire != EB_EXPIRE_TIME_INVALID)
-        ebAdd(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, entry, expire);
+        ebAdd(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, sEntry, expire);
     return 1;
 }
 
@@ -226,37 +226,37 @@ static int htSetExpire(robj *set, char *str, size_t len, int64_t llval, int str_
     if (sdsval != str) sdsfree(sdsval);
     if (link == NULL) return 0;
 
-    SetEntry *old = dictGetKey(*link), *entry = old;
+    SetEntry *sOldEntry = dictGetKey(*link), *sEntry = sOldEntry;
     size_t *alloc_size = htGetMetadataSize(ht);
 
     if (expire == EB_EXPIRE_TIME_INVALID) {
         /* Remove the expiration. A plain member has none. */
-        if (!sEntryHasExpiry(old)) return 1;
+        if (!sEntryHasExpiry(sOldEntry)) return 1;
         /* Unlink from the private tree if it is there, then drop the prefix. */
-        if (sEntryGetExpiry(old) != EB_EXPIRE_TIME_INVALID)
-            ebRemove(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, old);
+        if (sEntryGetExpiry(sOldEntry) != EB_EXPIRE_TIME_INVALID)
+            ebRemove(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, sOldEntry);
         ssize_t usableDiff;
-        entry = sEntryRemoveExpiry(old, &usableDiff);
+        sEntry = sEntryRemoveExpiry(sOldEntry, &usableDiff);
         *alloc_size += usableDiff;
-        dictSetKeyAtLink(ht, entry, &link, 0);
+        dictSetKeyAtLink(ht, sEntry, &link, 0);
         return 1;
     }
 
     serverAssert(htHasExpire(ht));
-    if (!sEntryHasExpiry(old)) {
+    if (!sEntryHasExpiry(sOldEntry)) {
         /* Reallocate the member with room for the expiration. */
         ssize_t usableDiff;
-        entry = sEntryAddExpiry(old, &usableDiff);
+        sEntry = sEntryAddExpiry(sOldEntry, &usableDiff);
         *alloc_size += usableDiff;
     } else {
-        uint64_t prev = sEntryGetExpiry(old);
+        uint64_t prev = sEntryGetExpiry(sOldEntry);
         if (prev == expire) return 1;
         /* Remove from the private tree the old expiration time. */
         if (prev != EB_EXPIRE_TIME_INVALID)
-            ebRemove(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, old);
+            ebRemove(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, sOldEntry);
     }
-    dictSetKeyAtLink(ht, entry, &link, 0); /* newItem=0: update an existing entry */
-    ebAdd(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, entry, expire);
+    dictSetKeyAtLink(ht, sEntry, &link, 0); /* newItem=0: update an existing entry */
+    ebAdd(&htGetMetadataEx(ht)->hfe, &setMemberExpireBucketsType, sEntry, expire);
     return 1;
 }
 

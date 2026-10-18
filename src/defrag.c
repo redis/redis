@@ -245,26 +245,26 @@ sds activeDefragSds(sds sdsptr) {
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-Entry *activeDefragEntry(Entry *entry) {
-    Entry *ret = NULL;
+HashEntry *activeDefragEntry(HashEntry *hEntry) {
+    HashEntry *hRet = NULL;
 
     /* First, defrag the entry allocation itself */
-    void *ptr = hEntryGetAllocPtr(entry);
+    void *ptr = hEntryGetAllocPtr(hEntry);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
-        size_t offset = (char*)entry - (char*)ptr;
-        entry = (Entry *)((char*)newptr + offset);
-        ret = entry;
+        size_t offset = (char*)hEntry - (char*)ptr;
+        hEntry = (HashEntry *)((char*)newptr + offset);
+        hRet = hEntry;
     }
 
     /* Then defrag the value if it's not embedded (using the potentially new entry) */
-    sds *valuePtr = hEntryGetValuePtrRef(entry);
+    sds *valuePtr = hEntryGetValuePtrRef(hEntry);
     if (valuePtr) {
         sds new_value = activeDefragSds(*valuePtr);
         if (new_value) *valuePtr = new_value;
     }
 
-    return ret;
+    return hRet;
 }
 
 /* Defrag helper for hfield strings and update the reference in the dict.
@@ -281,10 +281,10 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
     link = dictFindLink(d, ptr, NULL);
     serverAssert(link);
 
-    Entry *newEntry = activeDefragEntry(ptr);
-    if (newEntry)
-        dictSetKeyAtLink(d, newEntry, &link, 0);
-    return newEntry;
+    HashEntry *hNewEntry = activeDefragEntry(ptr);
+    if (hNewEntry)
+        dictSetKeyAtLink(d, hNewEntry, &link, 0);
+    return hNewEntry;
 }
 
 /* Defrag a set member: a plain sds or a SetEntry (an sds with an ExpireMeta in
@@ -522,15 +522,15 @@ void activeDefragLuaScriptDictCallback(void *privdata, const dictEntry *de, dict
 
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     dict *d = privdata;
-    Entry *newEntry = NULL, *entry = dictGetKey(de);
+    HashEntry *hNewEntry = NULL, *hEntry = dictGetKey(de);
 
     /* If the hfield does not have TTL, we directly defrag it.
      * Fields with TTL are skipped here and will be defragmented later
      * during the hash expiry ebuckets defragmentation phase. */
-    if (hEntryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
-        if ((newEntry = activeDefragEntry(entry))) {
+    if (hEntryGetExpiry(hEntry) == EB_EXPIRE_TIME_INVALID) {
+        if ((hNewEntry = activeDefragEntry(hEntry))) {
             /* Hash dicts use no_value=1, so we must use dictSetKeyAtLink */
-            dictSetKeyAtLink(d, newEntry, &plink, 0);
+            dictSetKeyAtLink(d, hNewEntry, &plink, 0);
         }
     }
 }

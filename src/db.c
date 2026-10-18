@@ -1690,7 +1690,7 @@ int objectTypeCompare(robj *o, long long target) {
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
-    Entry *hashEntry = NULL;
+    HashEntry *hEntry = NULL;
     scanData *data = (scanData *)privdata;
     vec *keys = data->keys;
     robj *o = data->o;
@@ -1708,8 +1708,8 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         kv = dictGetKV(de);
         keyStr = kvobjGetKey(kv);
     } else if (o->type == OBJ_HASH) {
-        hashEntry = dictGetKey(de);
-        keyStr = hEntryGetField(hashEntry);
+        hEntry = dictGetKey(de);
+        keyStr = hEntryGetField(hEntry);
     } else if (o->type == OBJ_ZSET) {
         znode = dictGetKey(de);
         keyStr = zslGetNodeElement(znode);
@@ -1750,10 +1750,10 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         key = keyStr;
     } else if (o->type == OBJ_HASH) {
         key = keyStr;
-        val = hEntryGetValue(hashEntry);
+        val = hEntryGetValue(hEntry);
 
         /* If field is expired, then ignore */
-        if (hEntryIsExpired(hashEntry))
+        if (hEntryIsExpired(hEntry))
             return;
 
     } else if (o->type == OBJ_ZSET) {

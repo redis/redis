@@ -794,7 +794,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
             dictIterator di;
             dictInitIterator(&di, d);
             while ((de = dictNext(&di)) != NULL) {
-                hEntryDismissMemory((Entry *) dictGetKey(de));
+                hEntryDismissMemory((HashEntry *) dictGetKey(de));
             }
             dictResetIterator(&di);
         }

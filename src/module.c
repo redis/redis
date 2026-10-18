@@ -12498,16 +12498,16 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
         field = createStringObject(key, sdslen(key));
         value = NULL;
     } else if (kv->type == OBJ_HASH) {
-        Entry *e = (Entry *) key;
+        HashEntry *hE = (HashEntry *) key;
 
         /* If field is expired and not indicated to access expired, then ignore */
         if ((!(data->key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
-            (hEntryIsExpired(e)))
+            (hEntryIsExpired(hE)))
             return;
 
         /* For hash, the value is stored in the entry (field), not in the dict entry */
-        sds fieldStr = hEntryGetField(e);
-        sds val = hEntryGetValue(e);
+        sds fieldStr = hEntryGetField(hE);
+        sds val = hEntryGetValue(hE);
 
         field = createStringObject(fieldStr, sdslen(fieldStr));
         value = createStringObject(val, sdslen(val));
