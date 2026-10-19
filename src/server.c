@@ -6284,20 +6284,90 @@ void bytesToHuman(char *s, size_t size, unsigned long long n) {
     }
 }
 
-/* Fill percentile distribution of latencies. */
-sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
+/* Keep the usual percentile configuration on the stack. Larger configurations
+ * allocate once per INFO section, reusing the buffers for every histogram. */
+#define LATENCY_PERCENTILE_STACK_MAX 16
+
+typedef struct latencyPercentile {
+    double percentile;
+    int index;
+    char label[16]; /* Configured percentiles are in [0, 100], formatted with %f. */
+} latencyPercentile;
+
+typedef struct latencyPercentileContext {
+    int len;
+    latencyPercentile *entries;
+    double *percentiles;
+    int64_t *values;
+    int *order; /* Configured index -> sorted index. */
+    latencyPercentile stack_entries[LATENCY_PERCENTILE_STACK_MAX];
+    double stack_percentiles[LATENCY_PERCENTILE_STACK_MAX];
+    int64_t stack_values[LATENCY_PERCENTILE_STACK_MAX];
+    int stack_order[LATENCY_PERCENTILE_STACK_MAX];
+} latencyPercentileContext;
+
+static int compareLatencyPercentiles(const void *a, const void *b) {
+    const latencyPercentile *pa = a, *pb = b;
+    if (pa->percentile < pb->percentile) return -1;
+    if (pa->percentile > pb->percentile) return 1;
+    return (pa->index > pb->index) - (pa->index < pb->index);
+}
+
+static void initLatencyPercentileContext(latencyPercentileContext *ctx, const double *percentiles, int len) {
+    ctx->len = len;
+    if (len <= LATENCY_PERCENTILE_STACK_MAX) {
+        ctx->entries = ctx->stack_entries;
+        ctx->percentiles = ctx->stack_percentiles;
+        ctx->values = ctx->stack_values;
+        ctx->order = ctx->stack_order;
+    } else {
+        ctx->entries = zcalloc_num(len, sizeof(*ctx->entries));
+        ctx->percentiles = zcalloc_num(len, sizeof(*ctx->percentiles));
+        ctx->values = zcalloc_num(len, sizeof(*ctx->values));
+        ctx->order = zcalloc_num(len, sizeof(*ctx->order));
+    }
+    for (int j = 0; j < len; j++) {
+        ctx->entries[j].percentile = percentiles[j];
+        ctx->entries[j].index = j;
+        size_t l = snprintf(ctx->entries[j].label, sizeof(ctx->entries[j].label), "%f", percentiles[j]);
+        trimDoubleString(ctx->entries[j].label, l);
+    }
+    /* Sort once for all command and subcommand histograms. */
+    qsort(ctx->entries, len, sizeof(*ctx->entries), compareLatencyPercentiles);
+    for (int j = 0; j < len; j++) {
+        ctx->percentiles[j] = ctx->entries[j].percentile;
+        ctx->order[ctx->entries[j].index] = j;
+    }
+}
+
+static void freeLatencyPercentileContext(latencyPercentileContext *ctx) {
+    if (ctx->len > LATENCY_PERCENTILE_STACK_MAX) {
+        zfree(ctx->entries);
+        zfree(ctx->percentiles);
+        zfree(ctx->values);
+        zfree(ctx->order);
+    }
+}
+
+/* Resolve all configured percentiles in one histogram pass, then emit them in
+ * the configured order. HdrHistogram 0.12.1 handles p0 and empty histograms. */
+static sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram, latencyPercentileContext *ctx) {
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
-    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
-        char fbuf[128];
-        size_t len = snprintf(fbuf, sizeof(fbuf), "%f", server.latency_tracking_info_percentiles[j]);
-        trimDoubleString(fbuf, len);
-        info = sdscatprintf(info,"p%s=%.3f", fbuf,
-            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_info_percentiles[j]))/1000.0f);
-        if (j != server.latency_tracking_info_percentiles_len-1)
+    if (ctx->len > 0)
+        hdr_value_at_percentiles(histogram, ctx->percentiles, ctx->values, ctx->len);
+
+    for (int j = 0; j < ctx->len; j++) {
+        int index = ctx->order[j];
+        int64_t v = ctx->values[index];
+        /* Latencies are bounded to 1e9 nanoseconds. Integer formatting of
+         * microseconds matches %.3f within that range, including bucket rounding,
+         * while avoiding the floating-point formatter for every histogram. */
+        info = sdscatprintf(info,"p%s=%lld.%03lld", ctx->entries[index].label,
+                            (long long)(v / 1000), (long long)(v % 1000));
+        if (j != ctx->len-1)
             info = sdscatlen(info,",",1);
-        }
-    info = sdscatprintf(info,"\r\n");
-    return info;
+    }
+    return sdscatlen(info,"\r\n",2);
 }
 
 const char *replstateToString(int replstate) {
@@ -6423,12 +6493,16 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
                     c->slowlog_count, (double)c->slowlog_time_us_sum / 1000,
                     (double)c->slowlog_time_us_max / 1000);
             } else {
-                info = sdscatprintf(info,
-                    "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
-                    ",rejected_calls=%lld,failed_calls=%lld\r\n",
+                /* Hot path: sdscatfmt is cheaper than sdscatprintf but has no %f,
+                 * so format usec_per_call separately. */
+                char upc[64];
+                snprintf(upc, sizeof(upc), "%.2f",
+                    (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
+                info = sdscatfmt(info,
+                    "cmdstat_%s:calls=%I,usec=%I,usec_per_call=%s"
+                    ",rejected_calls=%I,failed_calls=%I\r\n",
                     getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe), c->calls, c->microseconds,
-                    (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
-                    c->rejected_calls, c->failed_calls);
+                    upc, c->rejected_calls, c->failed_calls);
             }
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
@@ -6457,7 +6531,8 @@ sds genRedisInfoStringACLStats(sds info) {
     return info;
 }
 
-sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+/* Reuse the context across command and subcommand histograms. */
+static sds genRedisInfoStringLatencyStatsImpl(sds info, dict *commands, latencyPercentileContext *ctx) {
     struct redisCommand *c;
     dictEntry *de;
     dictIterator di;
@@ -6468,15 +6543,24 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
         if (c->latency_histogram) {
             info = fillPercentileDistributionLatencies(info,
                 getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe),
-                c->latency_histogram);
+                c->latency_histogram, ctx);
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         if (c->subcommands_dict) {
-            info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);
+            info = genRedisInfoStringLatencyStatsImpl(info, c->subcommands_dict, ctx);
         }
     }
     dictResetIterator(&di);
 
+    return info;
+}
+
+sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+    latencyPercentileContext ctx;
+    initLatencyPercentileContext(&ctx, server.latency_tracking_info_percentiles,
+                                 server.latency_tracking_info_percentiles_len);
+    info = genRedisInfoStringLatencyStatsImpl(info, commands, &ctx);
+    freeLatencyPercentileContext(&ctx);
     return info;
 }
 
