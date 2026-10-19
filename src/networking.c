@@ -5778,7 +5778,7 @@ void processEventsWhileBlocked(void) {
 
     /* Commands served here, and the blocked command's later calls, measure from
      * this sample. The blocked command keeps its own start (see call()). */
-    cpuSampleTake(&server.cpu_checkpoint);
+    if (server.off_cpu_tracking) cpuSampleTake(&server.cpu_checkpoint);
 
     /* Note: when we are processing events while blocked (for instance during
      * busy Lua scripts), we set a global flag. When such flag is set, we

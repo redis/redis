@@ -244,7 +244,7 @@ void offCpuCheckEventLoopCycle(ustime_t excluded_us) {
     /* A cycle shorter than the threshold or the floor isn't checked. Sized
      * from el_cpu_start (a clock read, no syscall), the same origin as below. */
     ustime_t elapsed = (ustime_t)(getMonotonicUs() - server.el_cpu_start.wall);
-    if (server.slowlog_log_slower_than < 0 ||
+    if (!server.off_cpu_tracking || server.slowlog_log_slower_than < 0 ||
         elapsed < server.slowlog_log_slower_than ||
         elapsed < CPU_STARVATION_MIN_OFFCPU_US)
         return;
@@ -287,7 +287,8 @@ void slowlogCommand(client *c) {
 "    id, timestamp, time in microseconds, arguments array, client IP and port,",
 "    client name, total argument count, upper-bound estimate of CPU time in",
 "    microseconds",
-"    (0 when not measured: blocked, or shorter than 10 milliseconds)",
+"    (0 when not measured: blocked, shorter than 10 milliseconds, or",
+"    off-cpu-tracking is off)",
 "LEN",
 "    Return the length of the slowlog.",
 "RESET",

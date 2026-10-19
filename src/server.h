@@ -2366,6 +2366,7 @@ struct redisServer {
     int pause_cron;                 /* Don't run cron tasks (debug) */
     int dict_resizing;              /* Whether to allow main dict and expired dict to be resized (debug) */
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
+    int off_cpu_tracking;           /* Sample CPU time to report off-CPU commands and cycles. */
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
     int memory_tracking_enabled;    /* Account used memory per slot */

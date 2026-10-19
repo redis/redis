@@ -70,7 +70,7 @@
                     },
                     {
                         "type": "integer",
-                        "description": "Upper-bound estimate of the executing thread's CPU time (user and system) for the command, in microseconds: the duration minus the off-CPU time that provably happened during it. 0 when not measured (a command that was blocked, or one shorter than 10 milliseconds).",
+                        "description": "Upper-bound estimate of the executing thread's CPU time (user and system) for the command, in microseconds: the duration minus the off-CPU time that provably happened during it. 0 when not measured (a command that was blocked, one shorter than 10 milliseconds, or off-cpu-tracking is off).",
                         "minimum": 0
                     }
                 ]

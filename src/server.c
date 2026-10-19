@@ -2184,7 +2184,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
      * Do NOT add anything above moduleAcquireGIL !!! *
      ***************************** ********************/
     if (!ProcessingEventsWhileBlocked) {
-        int cpu_sampled = 0;
+        int cpu_sampled = !server.off_cpu_tracking;
         /* Acquire the modules GIL so that their threads won't touch anything. */
         if (moduleCount()) {
             mstime_t latency;
@@ -2195,9 +2195,11 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             atomicSet(server.module_gil_acquiring, 0);
             /* Start the CPU window after the GIL (waiting for it isn't counted)
              * and before module events, which may run commands. */
-            cpuSampleTake(&server.cpu_checkpoint);
-            server.el_cpu_start = server.cpu_checkpoint;
-            cpu_sampled = 1;
+            if (!cpu_sampled) {
+                cpuSampleTake(&server.cpu_checkpoint);
+                server.el_cpu_start = server.cpu_checkpoint;
+                cpu_sampled = 1;
+            }
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
@@ -4237,12 +4239,14 @@ void call(client *c, int flags) {
     /* This command's CPU window starts at the current checkpoint. Slow commands
      * it calls move the checkpoint, not this copy (see slowlogMeasureCpu()). */
     const cpuSample window_start = server.cpu_checkpoint;
+    /* Measured only if tracking was on when it started, so its start is fresh. */
+    const int cpu_tracked = server.off_cpu_tracking;
     enterExecutionUnit(1, call_timer);
 
     /* Per-command CPU sample only on a module thread; main-thread commands
      * are estimated from server.cpu_checkpoint (no syscall per command). */
     const int on_main_thread = pthread_equal(pthread_self(), server.main_thread_id);
-    const int sample_cpu = update_command_stats &&
+    const int sample_cpu = update_command_stats && cpu_tracked &&
                            server.slowlog_log_slower_than >= 0 &&
                            server.slowlog_max_len > 0 &&
                            !on_main_thread;
@@ -4345,7 +4349,8 @@ void call(client *c, int flags) {
          * after blocking also carries the time of its earlier run, which the
          * window doesn't cover), and on a module thread only if it was sampled. */
         slowlogPushCurrentCommand(c, real_cmd, c->duration,
-                                  c->duration == duration && (on_main_thread || sample_cpu) ?
+                                  c->duration == duration && server.off_cpu_tracking &&
+                                  ((on_main_thread && cpu_tracked) || sample_cpu) ?
                                   &window_start : NULL);
 
     /* Send the command to clients in MONITOR mode if applicable,

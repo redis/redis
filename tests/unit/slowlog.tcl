@@ -123,6 +123,28 @@ start_server {tags {"slowlog"} overrides {slowlog-log-slower-than 1000000}} {
         assert_morethan_equal [s slow_command_off_cpu_events] [expr {$before + 1}]
     } {} {needs:debug}
 
+    test {SLOWLOG - off-cpu-tracking no skips CPU measurement} {
+        r config set slowlog-log-slower-than 10000
+        r config set off-cpu-tracking no
+        r slowlog reset
+        set cmd_before [s slow_command_off_cpu_events]
+        set el_before [s eventloop_off_cpu_events]
+        r debug sleep 0.05
+        set e [lindex [r slowlog get 1] 0]
+        assert_match {debug sleep *} [lindex $e 3]
+        assert_equal 0 [lindex $e 7]
+        # Turning it on after an idle period must not report that period.
+        after 200
+        r config set off-cpu-tracking yes
+        r ping
+        assert_equal $cmd_before [s slow_command_off_cpu_events]
+        assert_equal $el_before [s eventloop_off_cpu_events]
+        # And it measures again.
+        r debug sleep 0.05
+        set e [lindex [r slowlog get 1] 0]
+        assert_morethan [lindex $e 7] 0
+    } {} {needs:debug}
+
     test {SLOWLOG - Certain commands are omitted that contain sensitive information} {
         r config set slowlog-max-len 100
         r config set slowlog-log-slower-than 0
