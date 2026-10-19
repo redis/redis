@@ -936,7 +936,7 @@ static void zbtScoreEncoding(unsigned int count, double *scores, int desc,
 
 /* Return the smallest leaf allocation that holds the supplied arrays. */
 static size_t zbtScoreLeafRequestBytes(unsigned int count, double *scores,
-                                       zbtBuildElement *eles)
+                                       zbtBuildElement *elems)
 {
     uint64_t base;
     uint8_t bits, shift;
@@ -947,7 +947,7 @@ static size_t zbtScoreLeafRequestBytes(unsigned int count, double *scores,
                    zbtScoreLeafScoreBytes(count, bits) +
                    count * (sizeof(uint16_t) + sizeof(uint8_t));
     for (unsigned int i = 0; i < count; i++)
-        bytes += zbtElementStorageBytes(&eles[i]);
+        bytes += zbtElementStorageBytes(&elems[i]);
     return bytes;
 }
 
@@ -964,14 +964,14 @@ static size_t zbtScoreLeafRequestBytes(unsigned int count, double *scores,
  * table but does not link the leaf into the tree or leaf list.
  */
 static zbtScoreLeaf *zbtScoreLeafBuild(zbtreeSet *zs, unsigned int count,
-                                       double *scores, zbtBuildElement *eles,
+                                       double *scores, zbtBuildElement *elems,
                                        uint8_t *tags, uint32_t id,
                                        int edge_page)
 {
     uint64_t score_base;
     uint8_t score_bits, score_shift;
     zbtScoreEncoding(count, scores, 0, &score_base, &score_bits, &score_shift);
-    size_t request = zbtScoreLeafRequestBytes(count, scores, eles);
+    size_t request = zbtScoreLeafRequestBytes(count, scores, elems);
     size_t alloc_request = request;
     if (edge_page && request <= ZBT_SCORE_LEAF_BYTES) {
         alloc_request = ZBT_SCORE_LEAF_BYTES;
@@ -1006,7 +1006,7 @@ static zbtScoreLeaf *zbtScoreLeafBuild(zbtreeSet *zs, unsigned int count,
     records = (unsigned char *)leaf + capacity;
 
     for (unsigned int i = 0; i < count; i++) {
-        size_t item_bytes = zbtElementStorageBytes(&eles[i]);
+        size_t item_bytes = zbtElementStorageBytes(&elems[i]);
 
         zbtScoreLeafWriteScore(leaf, i, scores[i]);
         debugServerAssert(zbtScoreLeafScore(leaf, i) == scores[i]);
@@ -1015,7 +1015,7 @@ static zbtScoreLeaf *zbtScoreLeafBuild(zbtreeSet *zs, unsigned int count,
                      ZBT_SCORE_LEAF_BYTES);
         offsets[i] = (uint16_t)((char *)records - (char *)leaf);
         hash_tags[i] = tags[i];
-        if (zbtBuildElementWrite(zs, records, &eles[i]))
+        if (zbtBuildElementWrite(zs, records, &elems[i]))
             leaf->n.has_external = 1;
     }
     leaf->record_start = records - (unsigned char *)leaf;
@@ -1061,16 +1061,16 @@ static zbtScoreLeaf *zbtScoreCompactLeaf(zbtreeSet *zs,
                                          zbtScoreLeaf *oldleaf)
 {
     double scores[ZBT_SCORE_LEAF_MAX];
-    zbtBuildElement eles[ZBT_SCORE_LEAF_MAX];
+    zbtBuildElement elems[ZBT_SCORE_LEAF_MAX];
     uint8_t tags[ZBT_SCORE_LEAF_MAX];
 
     for (unsigned int i = 0; i < oldleaf->n.count; i++) {
         scores[i] = zbtScoreLeafScore(oldleaf, i);
-        zbtBuildElementFromLeaf(&eles[i], oldleaf, i);
+        zbtBuildElementFromLeaf(&elems[i], oldleaf, i);
         tags[i] = zbtScoreLeafTag(oldleaf, i);
     }
     zbtScoreLeaf *newleaf = zbtScoreLeafBuild(zs, oldleaf->n.count,
-        scores, eles, tags, oldleaf->id, 0);
+        scores, elems, tags, oldleaf->id, 0);
     zbtScoreReplaceLeaf(zs, oldleaf, newleaf);
     return newleaf;
 }
@@ -1315,7 +1315,7 @@ static int zbtScoreLeafFindMember(zbtScoreLeaf *leaf, uint32_t hash,
 /* Choose a score-leaf split that balances bytes, not just element count.
  * Both sides must fit in the 4 KB leaf limit. */
 static unsigned int zbtScoreChooseSplit(unsigned int count, double *scores,
-                                        zbtBuildElement *eles)
+                                        zbtBuildElement *elems)
 {
     size_t total = 0, prefix = 0;
     unsigned int candidate = count / 2;
@@ -1324,10 +1324,10 @@ static unsigned int zbtScoreChooseSplit(unsigned int count, double *scores,
      * find a balanced split without repeatedly decoding every score.
      */
     for (unsigned int i = 0; i < count; i++)
-        total += zbtElementStorageBytes(&eles[i]) +
+        total += zbtElementStorageBytes(&elems[i]) +
                  sizeof(double) + sizeof(uint16_t) + sizeof(uint8_t);
     for (unsigned int i = 1; i < count; i++) {
-        prefix += zbtElementStorageBytes(&eles[i - 1]) +
+        prefix += zbtElementStorageBytes(&elems[i - 1]) +
                   sizeof(double) + sizeof(uint16_t) + sizeof(uint8_t);
         if (prefix * 2 >= total) {
             candidate = i;
@@ -1335,10 +1335,10 @@ static unsigned int zbtScoreChooseSplit(unsigned int count, double *scores,
         }
     }
 
-    if (zbtScoreLeafRequestBytes(candidate, scores, eles) <=
+    if (zbtScoreLeafRequestBytes(candidate, scores, elems) <=
             ZBT_SCORE_LEAF_BYTES &&
         zbtScoreLeafRequestBytes(count - candidate, scores + candidate,
-                                 eles + candidate) <= ZBT_SCORE_LEAF_BYTES)
+                                 elems + candidate) <= ZBT_SCORE_LEAF_BYTES)
         return candidate;
 
     /* The byte estimate is conservative, but verify every boundary if an
@@ -1347,9 +1347,9 @@ static unsigned int zbtScoreChooseSplit(unsigned int count, double *scores,
     size_t best_largest = SIZE_MAX;
 
     for (unsigned int i = 1; i < count; i++) {
-        size_t left = zbtScoreLeafRequestBytes(i, scores, eles);
+        size_t left = zbtScoreLeafRequestBytes(i, scores, elems);
         size_t right = zbtScoreLeafRequestBytes(count - i, scores + i,
-                                                eles + i);
+                                                elems + i);
         if (left > ZBT_SCORE_LEAF_BYTES ||
             right > ZBT_SCORE_LEAF_BYTES)
             continue;
@@ -1373,7 +1373,7 @@ static unsigned int zbtScoreChooseSplit(unsigned int count, double *scores,
  */
 static int zbtScoreInsertInPlace(zbtreeSet *zs, zbtScoreLeaf *leaf,
                                  unsigned int count,
-                                 double *scores, zbtBuildElement *eles,
+                                 double *scores, zbtBuildElement *elems,
                                  uint8_t *tags, uint16_t *locations,
                                  unsigned int inserted)
 {
@@ -1384,13 +1384,13 @@ static int zbtScoreInsertInPlace(zbtreeSet *zs, zbtScoreLeaf *leaf,
     size_t score_bytes = zbtScoreLeafScoreBytes(count, score_bits);
     size_t index_end = offsetof(zbtScoreLeaf, data) + score_bytes +
                        count * (sizeof(uint16_t) + sizeof(uint8_t));
-    size_t item_bytes = zbtElementStorageBytes(&eles[inserted]);
+    size_t item_bytes = zbtElementStorageBytes(&elems[inserted]);
     if (index_end + item_bytes > leaf->record_start)
         return 0;
 
     uint16_t new_offset = leaf->record_start - item_bytes;
     if (zbtBuildElementWrite(zs, (unsigned char *)leaf + new_offset,
-                             &eles[inserted]))
+                             &elems[inserted]))
         leaf->n.has_external = 1;
 
     leaf->n.count = count;
@@ -1574,26 +1574,26 @@ static zbtScoreLeaf *zbtScoreInsertAt(zbtreeSet *zs, zbtScoreLeaf *oldleaf,
         return oldleaf;
 
     double scores[ZBT_SCORE_LEAF_MAX + 1];
-    zbtBuildElement eles[ZBT_SCORE_LEAF_MAX + 1];
+    zbtBuildElement elems[ZBT_SCORE_LEAF_MAX + 1];
     uint8_t tags[ZBT_SCORE_LEAF_MAX + 1];
     uint16_t locations[ZBT_SCORE_LEAF_MAX + 1];
 
     for (unsigned int i = 0, src = 0; i < oldcount + 1; i++) {
         if (i == pos) {
             scores[i] = score;
-            eles[i] = *ele;
+            elems[i] = *ele;
             tags[i] = tag;
             locations[i] = 0;
         } else {
             scores[i] = zbtScoreLeafScore(oldleaf, src);
-            zbtBuildElementFromLeaf(&eles[i], oldleaf, src);
+            zbtBuildElementFromLeaf(&elems[i], oldleaf, src);
             tags[i] = zbtScoreLeafTag(oldleaf, src);
             locations[i] = zbtScoreLeafOffset(oldleaf, src);
             src++;
         }
     }
 
-    size_t request = zbtScoreLeafRequestBytes(oldcount + 1, scores, eles);
+    size_t request = zbtScoreLeafRequestBytes(oldcount + 1, scores, elems);
 
     /* Long members can fill the page before its element limit is reached.
      * Preserve a full edge page in that case for the same reason as above. */
@@ -1607,24 +1607,24 @@ static zbtScoreLeaf *zbtScoreInsertAt(zbtreeSet *zs, zbtScoreLeaf *oldleaf,
     if (oldcount < ZBT_SCORE_LEAF_MAX &&
         request <= ZBT_SCORE_LEAF_BYTES)
     {
-        if (zbtScoreInsertInPlace(zs, oldleaf, oldcount + 1, scores, eles,
+        if (zbtScoreInsertInPlace(zs, oldleaf, oldcount + 1, scores, elems,
                                   tags, locations, pos))
             return oldleaf;
         zbtScoreLeaf *newleaf = zbtScoreLeafBuild(zs, oldcount + 1,
-                                                  scores, eles, tags,
+                                                  scores, elems, tags,
                                                   oldleaf->id, 0);
         zbtScoreReplaceLeaf(zs, oldleaf, newleaf);
         return newleaf;
     }
 
     unsigned int left_count =
-        zbtScoreChooseSplit(oldcount + 1, scores, eles);
+        zbtScoreChooseSplit(oldcount + 1, scores, elems);
     unsigned int right_count = oldcount + 1 - left_count;
-    zbtScoreLeaf *left = zbtScoreLeafBuild(zs, left_count, scores, eles,
+    zbtScoreLeaf *left = zbtScoreLeafBuild(zs, left_count, scores, elems,
                                            tags, oldleaf->id, 0);
     zbtScoreLeaf *right = zbtScoreLeafBuild(zs, right_count,
                                             scores + left_count,
-                                            eles + left_count,
+                                            elems + left_count,
                                             tags + left_count,
                                             ZBT_NEW_LEAF_ID, 0);
     left->n.index_resize = right->n.index_resize = oldleaf->n.index_resize;
@@ -2483,7 +2483,7 @@ static zbtScoreLeaf *zbtScoreMergePair(zbtreeSet *zs, zbtScoreLeaf *left,
                                        size_t max_bytes)
 {
     double scores[ZBT_SCORE_LEAF_MAX];
-    zbtBuildElement eles[ZBT_SCORE_LEAF_MAX];
+    zbtBuildElement elems[ZBT_SCORE_LEAF_MAX];
     uint8_t tags[ZBT_SCORE_LEAF_MAX];
 
     unsigned int count = left->n.count + right->n.count;
@@ -2497,17 +2497,17 @@ static zbtScoreLeaf *zbtScoreMergePair(zbtreeSet *zs, zbtScoreLeaf *left,
 
     for (unsigned int i = 0; i < left->n.count; i++) {
         scores[i] = zbtScoreLeafScore(left, i);
-        zbtBuildElementFromLeaf(&eles[i], left, i);
+        zbtBuildElementFromLeaf(&elems[i], left, i);
         tags[i] = zbtScoreLeafTag(left, i);
     }
     int merged_was_copied = 0;
     for (unsigned int i = 0; i < right->n.count; i++) {
         unsigned int dst = left->n.count + i;
         scores[dst] = zbtScoreLeafScore(right, i);
-        zbtBuildElementFromLeaf(&eles[dst], right, i);
+        zbtBuildElementFromLeaf(&elems[dst], right, i);
         tags[dst] = zbtScoreLeafTag(right, i);
     }
-    if (zbtScoreLeafRequestBytes(count, scores, eles) > max_bytes)
+    if (zbtScoreLeafRequestBytes(count, scores, elems) > max_bytes)
         return NULL;
 
     /* Keep the ID of the leaf with more members: each member of the other
@@ -2516,7 +2516,7 @@ static zbtScoreLeaf *zbtScoreMergePair(zbtreeSet *zs, zbtScoreLeaf *left,
     zbtScoreLeaf *gone = kept == left ? right : left;
     uint32_t kept_id = kept->id;
     uint32_t gone_id = gone->id;
-    zbtScoreLeaf *merged = zbtScoreLeafBuild(zs, count, scores, eles,
+    zbtScoreLeaf *merged = zbtScoreLeafBuild(zs, count, scores, elems,
                                               tags, kept_id, 0);
     zbtScoreReplaceLeaf(zs, kept, merged);
 
@@ -2734,7 +2734,7 @@ static void zbtScoreDeleteRun(zbtreeSet *zs, zbtScoreLeaf *score_leaf,
     }
 
     double scores[ZBT_SCORE_LEAF_MAX];
-    zbtBuildElement eles[ZBT_SCORE_LEAF_MAX];
+    zbtBuildElement elems[ZBT_SCORE_LEAF_MAX];
     uint8_t tags[ZBT_SCORE_LEAF_MAX];
     unsigned int kept = 0;
 
@@ -2744,13 +2744,13 @@ static void zbtScoreDeleteRun(zbtreeSet *zs, zbtScoreLeaf *score_leaf,
             continue;
         }
         scores[kept] = zbtScoreLeafScore(score_leaf, i);
-        zbtBuildElementFromLeaf(&eles[kept], score_leaf, i);
+        zbtBuildElementFromLeaf(&elems[kept], score_leaf, i);
         tags[kept] = zbtScoreLeafTag(score_leaf, i);
         kept++;
     }
     serverAssert(kept == count - n);
 
-    zbtScoreLeaf *newleaf = zbtScoreLeafBuild(zs, kept, scores, eles, tags,
+    zbtScoreLeaf *newleaf = zbtScoreLeafBuild(zs, kept, scores, elems, tags,
                                               score_leaf->id, 0);
     zbtScoreReplaceLeaf(zs, score_leaf, newleaf);
     /* Like single-member pops, a range draining an end need not pull
@@ -3348,7 +3348,7 @@ struct zbtreeAppendBatch {
     size_t conservative_bytes;
     double scores[ZBT_SCORE_LEAF_MAX];
     uint8_t tags[ZBT_SCORE_LEAF_MAX];
-    zbtBuildElement eles[ZBT_SCORE_LEAF_MAX];
+    zbtBuildElement elems[ZBT_SCORE_LEAF_MAX];
     unsigned char scratch[ZBT_SCORE_LEAF_BYTES];
     size_t scratch_used;
 };
@@ -3393,7 +3393,7 @@ static void zbtreeAppendBatchFlush(zbtreeAppendBatch *b) {
      * relative to its own real content. */
     zbtScoreLeaf *newleaf;
     if (zs->score_root == NULL) {
-        newleaf = zbtScoreLeafBuild(zs, b->count, b->scores, b->eles, b->tags,
+        newleaf = zbtScoreLeafBuild(zs, b->count, b->scores, b->elems, b->tags,
                                     ZBT_NEW_LEAF_ID, 0);
         zs->score_root = &newleaf->n;
         zs->score_first = zs->score_last = newleaf;
@@ -3410,7 +3410,7 @@ static void zbtreeAppendBatchFlush(zbtreeAppendBatch *b) {
         zbtScoreLeaf *oldleaf = zs->score_last;
         if (zmalloc_usable_size(oldleaf) >= ZBT_SCORE_LEAF_BYTES)
             oldleaf = zbtScoreCompactLeaf(zs, oldleaf);
-        newleaf = zbtScoreLeafBuild(zs, b->count, b->scores, b->eles, b->tags,
+        newleaf = zbtScoreLeafBuild(zs, b->count, b->scores, b->elems, b->tags,
                                     ZBT_NEW_LEAF_ID, 0);
         newleaf->prev = oldleaf;
         newleaf->next = oldleaf->next;
@@ -3424,11 +3424,11 @@ static void zbtreeAppendBatchFlush(zbtreeAppendBatch *b) {
      * zbtIndexInsert() can finish the rehash and check the total member count. */
     zs->length += b->count;
     if (zs->member_rehash) {
-        zbtIndexInsert(zs, b->eles[0].hash, newleaf->id, NULL);
+        zbtIndexInsert(zs, b->elems[0].hash, newleaf->id, NULL);
     } else {
         /* zbtIndexTableInsertRaw()'s bucket lookup is a near-guaranteed
          * cache miss on a member_index too large to fit in cache. Every
-         * element's hash is already materialized in b->eles[] (a free read,
+         * element's hash is already materialized in b->elems[] (a free read,
          * unlike re-deriving a hash from a leaf's packed bytes elsewhere in
          * this file), so prefetch a few elements ahead to hide that miss
          * behind the current iteration's own work. Re-derives the live
@@ -3442,11 +3442,11 @@ static void zbtreeAppendBatchFlush(zbtreeAppendBatch *b) {
                 zbtIndexTable *table = zs->member_rehash ?
                     &zs->member_rehash->table : &zs->member_index;
                 if (table->size > 0) {
-                    unsigned long idx = b->eles[ahead].hash & (table->size - 1);
+                    unsigned long idx = b->elems[ahead].hash & (table->size - 1);
                     redis_prefetch_write(zbtIndexBucketAt(table, idx));
                 }
             }
-            zbtIndexInsert(zs, b->eles[i].hash, newleaf->id, NULL);
+            zbtIndexInsert(zs, b->elems[i].hash, newleaf->id, NULL);
         }
     }
     b->count = 0;
@@ -3481,14 +3481,14 @@ void zbtreeAppendBatchAddWithHash(zbtreeAppendBatch *b, double score,
          * later call adopt this allocation instead of copying again. */
         unsigned char *external = zbtAlloc(b->zs, elelen);
         memcpy(external, ele, elelen);
-        b->eles[i].ptr = external;
-        b->eles[i].len = elelen;
-        b->eles[i].hash = hash;
-        b->eles[i].external = external;
-        b->eles[i].owner_record = NULL;
+        b->elems[i].ptr = external;
+        b->elems[i].len = elelen;
+        b->elems[i].hash = hash;
+        b->elems[i].external = external;
+        b->elems[i].owner_record = NULL;
     } else {
         memcpy(b->scratch + b->scratch_used, ele, elelen);
-        zbtBuildElementFromBytes(&b->eles[i], b->scratch + b->scratch_used,
+        zbtBuildElementFromBytes(&b->elems[i], b->scratch + b->scratch_used,
                                  elelen, hash);
         b->scratch_used += elelen;
     }
@@ -5044,17 +5044,17 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
             zbtreeLength(fast) == (unsigned long)n &&
             zbtreeLength(slow) == (unsigned long)n);
 
-        zbtreeIterator fiter, siter;
-        int ffound = zbtreeIteratorStart(fast, 0, &fiter);
-        int sfound = zbtreeIteratorStart(slow, 0, &siter);
+        zbtreeIterator fast_iter, slow_iter;
+        int ffound = zbtreeIteratorStart(fast, 0, &fast_iter);
+        int sfound = zbtreeIteratorStart(slow, 0, &slow_iter);
         int forward_match = 1;
         long forward_count = 0;
         while (ffound && sfound) {
             const unsigned char *fele, *sele;
             size_t flen, slen;
             double fscore, sscore;
-            ffound = zbtreeIteratorNext(&fiter, 0, &fele, &flen, &fscore);
-            sfound = zbtreeIteratorNext(&siter, 0, &sele, &slen, &sscore);
+            ffound = zbtreeIteratorNext(&fast_iter, 0, &fele, &flen, &fscore);
+            sfound = zbtreeIteratorNext(&slow_iter, 0, &sele, &slen, &sscore);
             if (ffound != sfound) { forward_match = 0; break; }
             if (!ffound) break;
             if (fscore != sscore || flen != slen ||
@@ -5068,16 +5068,16 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         test_cond("Forward iteration is byte-identical between the two trees",
             forward_match && forward_count == n);
 
-        ffound = zbtreeIteratorStart(fast, 1, &fiter);
-        sfound = zbtreeIteratorStart(slow, 1, &siter);
+        ffound = zbtreeIteratorStart(fast, 1, &fast_iter);
+        sfound = zbtreeIteratorStart(slow, 1, &slow_iter);
         int reverse_match = 1;
         long reverse_count = 0;
         while (ffound && sfound) {
             const unsigned char *fele, *sele;
             size_t flen, slen;
             double fscore, sscore;
-            ffound = zbtreeIteratorNext(&fiter, 1, &fele, &flen, &fscore);
-            sfound = zbtreeIteratorNext(&siter, 1, &sele, &slen, &sscore);
+            ffound = zbtreeIteratorNext(&fast_iter, 1, &fele, &flen, &fscore);
+            sfound = zbtreeIteratorNext(&slow_iter, 1, &sele, &slen, &sscore);
             if (ffound != sfound) { reverse_match = 0; break; }
             if (!ffound) break;
             if (fscore != sscore || flen != slen ||
