@@ -117,21 +117,6 @@ void sEntryFree(SetEntry *sEntry, size_t *usable) {
         sdsfree(sEntryGetMember(sEntry));
 }
 
-SetEntry *sEntryDefrag(SetEntry *sEntry, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds)) {
-    if (!sEntryHasExpiry(sEntry))
-        return (SetEntry *)sdsdefragfn(sEntryGetMember(sEntry));
-
-    char *allocation = sEntryGetAllocPtr(sEntry);
-    char *newAllocation = defragfn(allocation);
-    if (newAllocation != NULL) {
-        /* Return the same offset into the new allocation as the entry's offset
-         * in the old allocation. */
-        ptrdiff_t entryPointerOffset = (char *)sEntry - allocation;
-        return (SetEntry *)(newAllocation + entryPointerOffset);
-    }
-    return NULL;
-}
-
 void sEntryDismissMemory(SetEntry *sEntry) {
     if (sEntryHasExpiry(sEntry))
         dismissMemory(sEntryGetAllocPtr(sEntry), sEntryMemUsage(sEntry));
@@ -156,32 +141,6 @@ static EbucketsType setEntryTestBucketsType = {
     .onDeleteItem = NULL,
     .itemsAddrAreOdd = 1,
 };
-
-/* A defrag function that always moves the allocation. */
-static void *testDefragMove(void *ptr) {
-    size_t sz = zmalloc_usable_size(ptr);
-    void *p = zmalloc(sz);
-    memcpy(p, ptr, sz);
-    zfree(ptr);
-    return p;
-}
-
-static void *testDefragNoMove(void *ptr) {
-    UNUSED(ptr);
-    return NULL;
-}
-
-/* An sds defrag function that always moves the sds. */
-static sds testSdsDefragMove(sds s) {
-    sds n = sdsdup(s);
-    sdsfree(s);
-    return n;
-}
-
-static sds testSdsDefragNoMove(sds s) {
-    UNUSED(s);
-    return NULL;
-}
 
 /* Collects the result of many checks, so each test section reports once. */
 #define CHECK(c) do { if (!(c)) { ok = 0; printf("  check failed: %s (line %d)\n", #c, __LINE__); } } while (0)
@@ -317,22 +276,6 @@ int sEntryTest(int argc, char **argv, int flags) {
             zfree(buf);
         }
         test_cond("add and remove an expiry slot: content and usage difference", ok);
-    }
-
-    TEST("Defrag") {
-        int ok = 1;
-        for (int withExpiry = 0; withExpiry <= 1; withExpiry++) {
-            SetEntry *sE = sEntryCreate("defrag-me", 9, withExpiry);
-            CHECK(sEntryDefrag(sE, testDefragNoMove, testSdsDefragNoMove) == NULL);
-            SetEntry *sMoved = sEntryDefrag(sE, testDefragMove, testSdsDefragMove);
-            CHECK(sMoved != NULL);
-            CHECK(sdslen(sEntryGetMember(sMoved)) == 9 &&
-                  memcmp(sEntryGetMember(sMoved), "defrag-me", 9) == 0);
-            CHECK(sEntryHasExpiry(sMoved) == withExpiry);
-            CHECK(((uintptr_t)sMoved & 1) == 1);
-            sEntryFree(sMoved, NULL);
-        }
-        test_cond("defrag: not moved returns NULL, moved returns the new entry", ok);
     }
 
     test_report();

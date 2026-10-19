@@ -112,13 +112,6 @@ size_t sEntryMemUsage(const SetEntry *sEntry);
 /* Frees the entry. If usable is not NULL it is set to the entry memory usage. */
 void sEntryFree(SetEntry *sEntry, size_t *usable);
 
-/* Defragments the entry using the given functions (as hEntryDefrag()). The
- * defrag functions return NULL if the allocation was not moved, otherwise the
- * new location. Returns the new entry pointer if it moved, NULL otherwise. A
- * separate sds defrag function is used for plain entries because of the unique
- * memory layout of sds strings. */
-SetEntry *sEntryDefrag(SetEntry *sEntry, void *(*defragfn)(void *), sds (*sdsdefragfn)(sds));
-
 /* Advises the allocator to dismiss the memory used by the entry. Only to be
  * used in a forked child, see dismissMemory(). */
 void sEntryDismissMemory(SetEntry *sEntry);
