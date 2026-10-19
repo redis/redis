@@ -30,10 +30,14 @@ user *DefaultUser;  /* Global reference to the default user.
 list *UsersToLoad;  /* This is a list of users found in the configuration file
                        that we'll need to load in the final stage of Redis
                        initialization, after all the modules are already
-                       loaded. Every list element is a NULL terminated
-                       array of SDS pointers: the first is the user name,
-                       all the remaining pointers are ACL rules in the same
-                       format as ACLSetUser(). */
+                       loaded. Each entry contains the NULL terminated
+                       username and ACL rules, along with their config source. */
+
+typedef struct aclUserConfigEntry {
+    sds *rules;
+    configSource source;
+} aclUserConfigEntry;
+
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
 
@@ -270,12 +274,10 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
     return 0; /* No match. */
 }
 
-/* Method for searching for a user within a list of user definitions. The
- * list contains an array of user arguments, and we are only
- * searching the first argument, the username, for a match. */
+/* Match a queued user definition by the username in its first rule. */
 int ACLListMatchLoadedUser(void *definition, void *user) {
-    sds *user_definition = definition;
-    return sdscmp(user_definition[0], user) == 0;
+    aclUserConfigEntry *entry = definition;
+    return sdscmp(entry->rules[0], user) == 0;
 }
 
 /* Method for passwords/pattern comparison used for the user->passwords list
@@ -427,6 +429,7 @@ aclSelector *ACLUserGetRootSelector(user *u) {
 user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
     user *u = zmalloc(sizeof(*u));
+    u->source = CONFIG_SOURCE_RUNTIME;
     u->name = sdsnewlen(name,namelen);
     atomicSet(u->flags, USER_FLAG_DISABLED | USER_FLAG_SANITIZE_PAYLOAD);
     u->passwords = listCreate();
@@ -2210,7 +2213,8 @@ cleanup:
  * When an error is detected and C_ERR is returned, the function populates
  * by reference (if not set to NULL) the argc_err argument with the index
  * of the argv vector that caused the error. */
-int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
+int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err,
+                            configSource source) {
     if (argc < 2 || strcasecmp(argv[0],"user")) {
         if (argc_err) *argc_err = 0;
         return C_ERR;
@@ -2247,11 +2251,13 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
     }
 
     /* Rules look valid, let's append the user to the list. */
-    sds *copy = zmalloc(sizeof(sds)*(merged_argc + 2));
-    copy[0] = sdsdup(argv[1]);
-    for (int j = 0; j < merged_argc; j++) copy[j+1] = sdsdup(acl_args[j]);
-    copy[merged_argc + 1] = NULL;
-    listAddNodeTail(UsersToLoad,copy);
+    aclUserConfigEntry *entry = zmalloc(sizeof(*entry));
+    entry->rules = zmalloc(sizeof(sds)*(merged_argc + 2));
+    entry->rules[0] = sdsdup(argv[1]);
+    for (int j = 0; j < merged_argc; j++) entry->rules[j+1] = sdsdup(acl_args[j]);
+    entry->rules[merged_argc + 1] = NULL;
+    entry->source = source;
+    listAddNodeTail(UsersToLoad,entry);
     ACLFreeUser(fakeuser);
     for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
     zfree(acl_args);
@@ -2266,7 +2272,8 @@ int ACLLoadConfiguredUsers(void) {
     listNode *ln;
     listRewind(UsersToLoad,&li);
     while ((ln = listNext(&li)) != NULL) {
-        sds *aclrules = listNodeValue(ln);
+        aclUserConfigEntry *entry = listNodeValue(ln);
+        sds *aclrules = entry->rules;
         sds username = aclrules[0];
 
         if (ACLStringHasSpaces(aclrules[0],sdslen(aclrules[0]))) {
@@ -2281,6 +2288,7 @@ int ACLLoadConfiguredUsers(void) {
             u = ACLGetUserByName("default",7);
             ACLSetUser(u,"reset",-1);
         }
+        u->source = entry->source;
 
         /* Load every rule defined for this user. */
         for (int j = 1; aclrules[j]; j++) {
