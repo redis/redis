@@ -1220,8 +1220,10 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
 
         /* If the node is eligible for removal but we couldn't remove it due to delete strategy
          * constraints (we need to check each entry individually), continue to the next node
-         * instead of stopping here. */
-        if (node_eligible_for_remove)
+         * instead of stopping here. The same applies to MAXLEN with ACKED, since entries that
+         * are still referenced were skipped and later nodes may hold deletable entries. */
+        if (node_eligible_for_remove ||
+            (trim_strategy == TRIM_STRATEGY_MAXLEN && delete_strategy == DELETE_STRATEGY_ACKED))
             continue;
 
         break; /* If we are here, there was enough to delete in the current
