@@ -408,7 +408,9 @@ static int PausedIOThreads[IO_THREADS_MAX_NUM] = {0};
 void pauseIOThreadsRange(int start, int end) {
     if (!server.io_threads_active) return;
     serverAssert(start >= 1 && end < server.io_threads_num && start <= end);
-    serverAssert(pthread_equal(pthread_self(), server.main_thread_id));
+    /* A module thread holding the GIL excludes the main thread, so it can
+     * pause IO threads as well. */
+    serverAssert(pthread_equal(pthread_self(), server.main_thread_id) || moduleThreadHoldsGIL());
 
     /* Try to make all io threads paused in parallel */
     for (int i = start; i <= end; i++) {
@@ -440,7 +442,7 @@ void pauseIOThreadsRange(int start, int end) {
 void resumeIOThreadsRange(int start, int end) {
     if (!server.io_threads_active) return;
     serverAssert(start >= 1 && end < server.io_threads_num && start <= end);
-    serverAssert(pthread_equal(pthread_self(), server.main_thread_id));
+    serverAssert(pthread_equal(pthread_self(), server.main_thread_id) || moduleThreadHoldsGIL());
 
     for (int i = start; i <= end; i++) {
         serverAssert(PausedIOThreads[i] > 0);
@@ -476,6 +478,12 @@ void handlePauseAndResume(IOThread *t) {
         }
         atomicSetWithSync(t->paused, IO_THREAD_UNPAUSED);
     }
+}
+
+/* Return true if the specific io thread is paused by the main thread, or by a
+ * module thread holding the GIL. */
+int isIOThreadPaused(int id) {
+    return PausedIOThreads[id] > 0;
 }
 
 /* Pause the specific io thread, and wait for it to be paused. */

@@ -25,11 +25,10 @@ To run Redis test suite with TLS, you'll need TLS support for TCL (i.e.
 1. Run `./utils/gen-test-certs.sh` to generate a root CA and a server
    certificate.
 
-2. Run `./runtest --tls` or `./runtest-cluster --tls` to run Redis and Redis
-   Cluster tests in TLS mode.
+2. Run `./runtest --tls` to run Redis and Redis Cluster tests in TLS mode.
 
-3. Run `./runtest --tls-module` or `./runtest-cluster --tls-module` to
-   run Redis and Redis cluster tests in TLS mode with Redis module.
+3. Run `./runtest --tls-module` to run Redis and Redis Cluster tests in TLS
+   mode with Redis module.
 
 ### Running manually
 
@@ -59,8 +58,40 @@ To connect to this Redis server with `redis-cli`:
 This will disable TCP and enable TLS on port 6379. It's also possible to have
 both TCP and TLS available, but you'll need to assign different ports.
 
+Note why that `redis-cli` invocation passes a certificate of its own: by default
+clients on a TLS port must present one that verifies against the configured CA,
+replicas connecting to a master included. `tls-auth-clients no` accepts no client
+certificate at all, and `tls-auth-clients optional` validates one only when it is
+offered. Both relax the client port alone — see "Cluster bus protection" below for
+why neither can relax the cluster bus. Setting `tls-auth-clients-user CN`
+additionally maps a validated certificate's Common Name to a Redis ACL user, so
+the certificate authenticates the client without an `AUTH` command.
+
 To make a Replica connect to the master using TLS, use `--tls-replication yes`,
-and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`.
+and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`. Note that
+a cluster node refuses to start without `tls-cluster` unless the requirement is
+explicitly waived; see "Cluster bus protection" below.
+
+Cluster bus protection
+----------------------
+
+The cluster bus protocol has no authentication of its own: any host able to reach
+a node's cluster bus port can speak the protocol — a `MEET` from an unknown host
+is enough to have it added as a node, with its gossip trusted — and so threaten
+the whole cluster. What authenticates the bus is `tls-cluster`, which makes every
+peer present a certificate that verifies against the configured CA — in both the
+accepting and the connecting direction, and `tls-cluster` also makes configuring
+a CA mandatory. This does not depend on `tls-auth-clients`, which governs the
+client port only.
+
+For that reason `cluster-bus-port-protected-mode` defaults to **yes**, and a node
+started with `cluster-enabled yes` refuses to start unless `tls-cluster` is
+enabled. Running an unauthenticated cluster bus remains supported, but it has to
+be stated explicitly with `cluster-bus-port-protected-mode no`, acknowledging
+that the port is reachable by trusted hosts only — because a firewall, a VPN or a
+private network keeps untrusted hosts away from it. A node started that way
+records the fact in its log. The option has no effect outside cluster mode, as
+only a cluster node opens a cluster bus port.
 
 Peer certificate verification
 -----------------------------
@@ -126,8 +157,21 @@ Notes:
 * Multiple names may be supplied as a single space-separated value (quote it in
   the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
   a match against any one of them succeeds.
-* Full-label wildcards (`*.example.com`) match; partial-label wildcards
-  (`f*.example.com`) do not.
+* Wildcards are matched from the **certificate**, not from this option: a
+  certificate whose SAN is a full-label wildcard (`*.example.com`) matches a
+  concrete name configured here (`node.example.com`), while a partial-label
+  wildcard in the certificate (`f*.example.com`) never matches. Configuring a
+  wildcard as the expected name does not perform wildcard matching.
+* A name beginning with a dot (e.g. `.example.com`) is **not** a host name.
+  OpenSSL treats it as a *parent domain*: it accepts any subdomain at **any
+  depth** (`node.example.com`, `a.b.example.com`, ...) and does **not** accept
+  `example.com` itself. A short suffix is correspondingly broad — `.com` accepts
+  every name in that TLD, which under a shared or public CA is close to accepting
+  any CA-signed certificate. This is a legitimate pattern, but much wider than
+  pinning explicit hosts, so Redis logs a warning reporting how many such entries
+  are configured, at startup and on `CONFIG SET`, to make the scope visible.
+  Prefer explicit host names, a deeper parent (`.dc1.example.com`), or several
+  space-separated names.
 * The option is opt-in and defaults to unset (no peer-name check), preserving the
   previous behavior.
 * It does **not** apply to ordinary client connections on the data port, whose
@@ -141,6 +185,42 @@ Notes:
   any OpenSSL version. When compiled out, if `tls-expected-peer-name` is set each
   affected connection logs a warning and proceeds without the name check (CA
   chain validation still applies).
+
+TLS groups
+----------
+
+The `tls-groups` option controls the OpenSSL named groups used
+during TLS handshakes. The value is passed directly to OpenSSL, so it accepts
+the syntax supported by `SSL_CTX_set1_groups_list()` (or the older
+`SSL_CTX_set1_curves_list()` API), for example:
+
+    tls-groups X25519:prime256v1
+
+Redis does not filter the list, so any group name accepted by the linked
+OpenSSL build can be used.
+
+The setting applies to both the server context and Redis' client context used
+for replication, cluster, and other server-to-server TLS connections. The
+client and server must have at least one group in common for the handshake to
+succeed.
+
+This option requires OpenSSL 1.0.2 or newer, which provides the
+`SSL_CTX_set1_curves_list()` API used by Redis. Newer OpenSSL versions also
+provide the equivalent `SSL_CTX_set1_groups_list()` API. Building TLS support
+against an older OpenSSL fails with a clear compile-time error by default. To
+build Redis without this option, define `TLS_NO_GROUPS`, for
+example:
+
+    make BUILD_TLS=yes CFLAGS=-DTLS_NO_GROUPS
+
+When the feature is compiled out, setting `tls-groups` causes TLS
+context configuration to fail instead of silently ignoring the requested
+preference.
+
+`redis-cli` and `redis-benchmark` expose `--tls-groups` when built with
+OpenSSL support for named group configuration. When the feature is compiled
+out, the command-line option is not accepted, matching the behavior of other
+TLS options that depend on OpenSSL build capabilities.
 
 Connections
 -----------

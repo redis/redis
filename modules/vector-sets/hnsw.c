@@ -794,7 +794,7 @@ uint32_t random_level(void) {
     static const int threshold = HNSW_P * RAND_MAX;
     uint32_t level = 0;
 
-    while (rand() < threshold && level < HNSW_MAX_LEVEL)
+    while (rand() < threshold && level < HNSW_MAX_LEVEL - 1)
         level += 1;
     return level;
 }
@@ -903,6 +903,13 @@ uint32_t hnsw_quants_bytes(HNSW *index) {
  * after the node creation (see later for the serialization API that
  * handles this and more). */
 hnswNode *hnsw_node_new(HNSW *index, uint64_t id, const float *vector, const int8_t *qvector, float qrange, uint32_t level, int normalize) {
+    /* Defense in depth: every node level must stay within the architectural
+     * cap. Untrusted input (e.g. a tampered serialized stream) is already
+     * rejected by the caller before reaching this point, so a violation here
+     * can only be an internal bug: fail fast instead of over-allocating the
+     * node and poisoning index->max_level. */
+    assert(level < HNSW_MAX_LEVEL);
+
     hnswNode *node = hmalloc(sizeof(hnswNode)+(sizeof(hnswNodeLayer)*(level+1)));
     if (!node) return NULL;
 
@@ -1701,13 +1708,13 @@ void hnsw_reconnect_nodes(HNSW *index, hnswNode **nodes, int count, uint32_t lay
 
     // Step 5: Pair nodes greedily based on scores.
     int *used = hmalloc(count*sizeof(int));
-    memset(used,0,count*sizeof(int));
     if (!used) {
         hfree(distances);
         hfree(row_avgs);
         hfree(scores);
         return;
     }
+    memset(used,0,count*sizeof(int));
 
     /* Scan the matrix looking each time for the potential
      * link with the best score. */
@@ -2593,6 +2600,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     uint32_t version = (params[1] & 0xff000000) >> 24;  // Format version.
 
     if (version > HNSW_SERIALIZATION_VERSION) return NULL;
+
+    /* A serialized stream coming from an untrusted source (e.g. a tampered
+     * RDB file) could encode an out of range level: reject it here, otherwise
+     * we would over-allocate the node layers and poison index->max_level with
+     * an illegal value. */
+    if (level >= HNSW_MAX_LEVEL) return NULL;
     int has_worst_link_info = version > 0;
 
     /* Keep track of maximum ID seen while loading. */
@@ -2619,9 +2632,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
 
-        /* Sanity check: links should be less than max links and
-         * in general a reasonable amount. */
-        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+        /* Sanity check: links should be less than max links, and max links
+         * must not exceed what select_neighbors() can ever grow a layer to.
+         * A larger fan-out can only come from tampered data, and deleting
+         * such a node makes hnsw_reconnect_nodes() quadratic in its size. */
+        uint32_t links_limit = i == 0 ? index->M * 3 : index->M * 2;
+        if (num_links > max_links || max_links > links_limit) {
             hnsw_node_free(node);
             return NULL;
         }

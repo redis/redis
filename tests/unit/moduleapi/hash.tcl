@@ -175,7 +175,17 @@ start_server {tags {"modules external:skip"}} {
         r del htmpl
         r hash.set htmpl "a" f1 v1 f2 v2 f3 v3
         assert_equal [r object encoding htmpl] "template-listpack"
-        assert_equal [lsort [r hgetall htmpl]] {f1 f2 f3 v1 v2 v3}
+        assert_equal [r hgetall htmpl] {f1 v1 f2 v2 f3 v3}
+        # Delete a field of a template hash through RM_HashSet.
+        assert_equal 1 [r hash.set htmpl "" f2 :delete:]
+        assert_equal [r hgetall htmpl] {f1 v1 f3 v3}
+        assert_equal [r object encoding htmpl] "template-listpack"
+        # Same delete on a template-array hash (large value converts it).
+        r hash.set htmpl "" f3 [string repeat x 100]
+        assert_equal [r object encoding htmpl] "template-array"
+        assert_equal 1 [r hash.set htmpl "" f3 :delete:]
+        assert_equal [r hgetall htmpl] {f1 v1}
+        assert_equal [r object encoding htmpl] "template-array"
         r config set hash-min-template-entries 0
     }
 

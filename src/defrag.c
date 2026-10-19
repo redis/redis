@@ -20,6 +20,7 @@
 
 #include "server.h"
 #include "zset_btree.h"
+#include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -803,6 +804,17 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
 }
 
+void defragBitmapObject(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_BITMAP);
+    /* Only the threshold decision is needed here. Avoid a full main-thread
+     * ART walk before scheduling a large bitmap for incremental defrag. */
+    if (bitroarContainerCountUpTo(ob, server.active_defrag_max_scan_fields + 1) >
+        server.active_defrag_max_scan_fields)
+        defragLater(ctx, ob);
+    else
+        bitroarDefrag(ob);
+}
+
 /* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
  * hashtable/set/array paths) so a wide template hash can't stall defrag. */
 void defragTmplArray(defragKeysCtx *ctx, kvobj *ob) {
@@ -1269,6 +1281,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+    } else if (ob->type == OBJ_BITMAP) {
+        defragBitmapObject(ctx, ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1411,6 +1425,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
             ob->ptr = ar;
+        } else if (ob->type == OBJ_BITMAP) {
+            *cursor = bitroarDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
             zbtreeDefragStateReset(zset_btree_state);
@@ -1649,6 +1665,25 @@ static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
         scanCallbackCountScanned, NULL, &defragfns);
 }
 
+static doneStatus defragStageBlessedKvstore(void *ctx, monotime endtime) {
+    defragKeysCtx *defrag_keys_ctx = ctx;
+    redisDb *db = &server.db[defrag_keys_ctx->dbid];
+    if (db->blessed_keys != defrag_keys_ctx->kvstate.kvs) {
+        /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
+        return DEFRAG_DONE;
+    }
+
+    static dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        /* Unlike expires, the blessed-keys index owns its sds key (sdsdup), so it
+         * must be relocated here. Values are NULL, so there is nothing to defrag. */
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = NULL,
+    };
+    return defragStageKvstoreHelper(endtime, ctx,
+        scanCallbackCountScanned, NULL, &defragfns);
+}
+
 /* Defrag (hash) object with subexpiry and update its reference in the DB keys. */
 void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
     redisDb *db = privdata;
@@ -1747,43 +1782,34 @@ static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     return DEFRAG_DONE;
 }
 
-static doneStatus defragStageHashTemplates(void *ctx, monotime endtime) {
-    unsigned long *cursor = ctx;
-    hashTemplateRegistry *reg = server.htemplates;
-    if (reg == NULL || reg->by_id == NULL) return DEFRAG_DONE;
-
-    unsigned long iterations = 0;
-    while (*cursor < reg->by_id_next) {
-        hashTemplate *tmpl = hashTemplateGetById(*cursor);
-        (*cursor)++;
-        if (tmpl == NULL) continue; /* freed or never-used slot */
-
-        hashTemplateDefrag(tmpl);
-
-        if (++iterations > 8) {
-            iterations = 0;
-            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
-        }
-    }
-    return DEFRAG_DONE;
-}
-
 static void defragTmplRegistryCb(void *privdata, const dictEntry *de, dictEntryLink plink) {
-    UNUSED(privdata); 
-    UNUSED(de);
+    monotime endtime = *(monotime *)privdata;
     UNUSED(plink);
+    hashTemplateDefrag(dictGetKey(de), (dictEntry *)de, endtime);
 }
 
-/* Defrag a registry lookup dict. Keys/values (template/blob pointers) are
- * relocated by defragStageHashTemplates. */
-static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor, monotime endtime) {
+/* Defrag a registry lookup dict, invoking 'scan_fn' per entry, the way
+ * defragStageKvstoreHelper() does. */
+static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor,
+                                     dictScanFunction *scan_fn, monotime endtime)
+{
     dictDefragFunctions fns = { .defragAlloc = activeDefragAlloc };
-    unsigned long iterations = 0;
+    unsigned int iterations = 0;
+    unsigned long long prev_defragged = server.stat_active_defrag_hits;
+    unsigned long long prev_scanned = server.stat_active_defrag_scanned;
     do {
-        *cursor = dictScanDefrag(*dref, *cursor, defragTmplRegistryCb, &fns, NULL);
-        if (++iterations > 64) {
+        *cursor = dictScanDefrag(*dref, *cursor, scan_fn, &fns, &endtime);
+
+        if (++iterations > 16 ||
+            server.stat_active_defrag_hits - prev_defragged > 512 ||
+            server.stat_active_defrag_scanned - prev_scanned > 64)
+        {
             iterations = 0;
-            if (getMonotonicUs() >= endtime) return DEFRAG_NOT_DONE;
+            prev_defragged = server.stat_active_defrag_hits;
+            prev_scanned = server.stat_active_defrag_scanned;
+
+            if (*cursor != 0 && getMonotonicUs() >= endtime)
+                return DEFRAG_NOT_DONE;
         }
     } while (*cursor != 0);
     dict *newd = dictDefragTables(*dref);
@@ -1793,12 +1819,12 @@ static doneStatus defragRegistryDict(dict **dref, unsigned long *cursor, monotim
 
 static doneStatus defragStageHashTemplatesByFields(void *ctx, monotime endtime) {
     if (server.htemplates == NULL) return DEFRAG_DONE;
-    return defragRegistryDict(&server.htemplates->by_fields, ctx, endtime);
+    return defragRegistryDict(&server.htemplates->by_fields, ctx, defragTmplRegistryCb, endtime);
 }
 
 static doneStatus defragStageHashTemplatesByFieldsLp(void *ctx, monotime endtime) {
     if (server.htemplates == NULL) return DEFRAG_DONE;
-    return defragRegistryDict(&server.htemplates->by_fields_lp, ctx, endtime);
+    return defragRegistryDict(&server.htemplates->by_fields_lp, ctx, scanCallbackCountScanned, endtime);
 }
 
 static doneStatus defragStageHashTemplatesById(void *ctx, monotime endtime) {
@@ -2123,6 +2149,12 @@ static void beginDefragCycle(void) {
         defrag_expires_ctx->dbid = dbid;
         addDefragStage(defragStageExpiresKvstore, freeDefragKeysContext, defrag_expires_ctx);
 
+        /* Add stage for the blessed-keys index. */
+        defragKeysCtx *defrag_blessed_ctx = zcalloc(sizeof(defragKeysCtx));
+        defrag_blessed_ctx->kvstate = INIT_KVSTORE_STATE(db->blessed_keys);
+        defrag_blessed_ctx->dbid = dbid;
+        addDefragStage(defragStageBlessedKvstore, freeDefragKeysContext, defrag_blessed_ctx);
+
         /* Add stage for subexpires. */
         defragSubexpiresCtx *defrag_subexpires_ctx = zcalloc(sizeof(defragSubexpiresCtx));
         defrag_subexpires_ctx->subexpires = db->subexpires;
@@ -2147,7 +2179,6 @@ static void beginDefragCycle(void) {
     addDefragStage(defragLuaScripts, NULL, NULL);
 
     /* Add stage for the hash template registry. */
-    addDefragStage(defragStageHashTemplates, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesByFields, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesByFieldsLp, zfree, zcalloc(sizeof(unsigned long)));
     addDefragStage(defragStageHashTemplatesById, zfree, zcalloc(sizeof(unsigned long)));

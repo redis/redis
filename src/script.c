@@ -404,7 +404,9 @@ static int scriptVerifyCommandArity(struct redisCommand *cmd, int argc, sds *err
 static int scriptVerifyACL(client *c, sds *err) {
     /* Check the ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckAllPerm(c, &acl_errpos);
+    /* 'c' is the script engine's fake client, which has no pending command, so
+     * the keys are extracted from c->argv. */
+    int acl_retval = ACLCheckAllPerm(c, c->current_pending_cmd, &acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,ACL_LOG_CTX_LUA,acl_errpos,NULL,NULL);
         sds msg = getAclErrorMessage(acl_retval, c->user, c->cmd, c->argv[acl_errpos]->ptr, 0);

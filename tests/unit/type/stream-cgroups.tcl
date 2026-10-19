@@ -1,6 +1,9 @@
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: every consumer-group command.
+    arm_stream_stats_assert
+
     test {XGROUP CREATE: creation and duplicate group name detection} {
         r DEL mystream
         r XADD mystream * foo bar
@@ -3305,7 +3308,6 @@ start_server {
             set claim_before [r XREADGROUP GROUP group1 consumer2 CLAIM 500 STREAMS mystream >]
             assert_equal [llength [lindex $claim_before 0 1]] 1
             
-            r SAVE
             r DEBUG RELOAD
 
             # After reload: idle time resets, message not immediately claimable

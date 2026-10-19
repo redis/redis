@@ -14,7 +14,7 @@ on:
         default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC,defrag,vectorset,assert-keyspace,arm,compression'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'redis,modules,sentinel,cluster,unittest'
+        default: 'redis,modules,sentinel,unittest'
       test_args:
         description: 'extra test arguments'
         default: ''
@@ -61,9 +61,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: ./src/redis-server test all --accurate
@@ -100,9 +97,6 @@ jobs:
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
@@ -139,9 +133,6 @@ jobs:
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-arm-tls:
     runs-on: ubuntu-24.04-arm
@@ -176,9 +167,6 @@ jobs:
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
 
   # Test with DEBUG_ASSERT_KEYSPACE enabled to verify keyspace consistency.
   # This enables additional runtime checks after each command for:
@@ -214,9 +202,6 @@ jobs:
       run: |
         ./runtest --verbose --tags "-slow -defrag" \
           --dump-logs ${{github.event.inputs.test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-jemalloc-fortify:
     runs-on: ubuntu-latest
@@ -251,9 +236,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: ./src/redis-server test all --accurate
@@ -288,9 +270,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-no-malloc-usable-size:
     runs-on: ubuntu-latest
@@ -322,9 +301,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-32bit:
     runs-on: ubuntu-latest
@@ -359,9 +335,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
     - name: unittest
       if: true && !contains(github.event.inputs.skiptests, 'unittest')
       run: ./src/redis-server test all --accurate
@@ -401,10 +374,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel --tls ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: |
-        ./runtest-cluster --tls ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-tls-no-tls:
     runs-on: ubuntu-latest
@@ -441,10 +410,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: |
-        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-io-threads:
     runs-on: ubuntu-latest
@@ -474,9 +439,6 @@ jobs:
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --config io-threads 4 --accurate --verbose --tags "network iothreads psync2 repl failover" --dump-logs ${{github.event.inputs.test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster --config io-threads 4 ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-client-compression:
     runs-on: ubuntu-latest
@@ -511,9 +473,6 @@ jobs:
       # This is similar to why we run tsan with only 1 client which is even
       # more extreme case
       run: ./runtest --clients 2 --config io-threads 4 --config repl-compression 1 --compression --accurate --verbose --tags "repl network iothreads psync2" --dump-logs ${{github.event.inputs.test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster --config io-threads 4 --config repl-compression 1 --compression ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-reclaim-cache:
     runs-on: ubuntu-latest
@@ -546,17 +505,44 @@ jobs:
     - name: warm up
       run: |
         ./src/redis-server --daemonize yes --logfile /dev/null
+        # Wait up to 10 seconds for the daemonized child to finish startup after its parent exit
+        for attempt in {1..100}; do
+          ./src/redis-cli ping 2>/dev/null | grep -q PONG && break
+          if [ "$attempt" -eq 100 ]; then
+            echo "Redis on port 6379 did not become ready"
+            exit 1
+          fi
+          sleep 0.1
+        done
+
         ./src/redis-benchmark -n 1 > /dev/null
         ./src/redis-cli save | grep OK > /dev/null
         vmtouch -v ./dump.rdb > /dev/null
     - name: test
       run: |
+        wait_for_redis_start() {
+          local port="$1"
+          for attempt in {1..100}; do
+            ./src/redis-cli -p "$port" ping 2>/dev/null | grep -q PONG && return 0
+            if [ "$attempt" -eq 100 ]; then
+              echo "Redis on port $port did not become ready"
+              return 1
+            fi
+            sleep 0.1
+          done
+        }
+
         echo "test SAVE doesn't increase cache"
         CACHE0=$(grep -w file /sys/fs/cgroup/memory.stat | awk '{print $2}')
         echo "$CACHE0"
         ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080 --repl-diskless-sync no --pidfile /tmp/master/redis.pid --rdbcompression no --enable-debug-command yes
+        
+        # Runtime TSC calibration can delay startup on x86, while the daemonized
+        # parent exits before the child listens. Wait before the first command.
+        wait_for_redis_start 8080
         ./src/redis-cli -p 8080 debug populate 10000 k 102400
         ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/slave --port 8081 --repl-diskless-load disabled --rdbcompression no
+        wait_for_redis_start 8081
         ./src/redis-cli -p 8080 save > /dev/null
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
@@ -584,8 +570,22 @@ jobs:
         kill -15 $PID
         while [ -x /proc/${PID} ]; do sleep 1; done
         ./src/redis-server --daemonize yes --logfile /dev/null --dir /tmp/master --port 8080
-        while [ $(./src/redis-cli -p 8080 info persistence | grep "loading:1") ]; do sleep 1; done;
+        
+        # The daemonized parent can exit before the child listens, so tolerate
+        # connection failures until INFO is available, then wait for RDB loading.
+        for attempt in {1..600}; do
+          if ./src/redis-cli -p 8080 info persistence 2>/dev/null |
+            grep "^loading:0" > /dev/null; then
+            break
+          fi
+          sleep 1
+          if [ "$attempt" -eq 600 ]; then
+            echo "Redis on port 8080 did not finish loading within 10 minutes"
+            exit 1
+          fi
+        done
         sleep 1 # wait for the completion of cache reclaim bio
+        
         VMOUT=$(vmtouch -v /tmp/master/dump.rdb)
         echo $VMOUT
         grep -q " 0%" <<< $VMOUT
@@ -757,9 +757,6 @@ jobs:
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all
@@ -798,9 +795,6 @@ jobs:
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all
@@ -842,9 +836,6 @@ jobs:
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: ./src/redis-server test all --accurate
@@ -889,9 +880,6 @@ jobs:
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
         run: ./runtest-sentinel --tsan ${{github.event.inputs.cluster_test_args}}
-      - name: cluster tests
-        if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: ./runtest-cluster --config io-threads 2 ${{github.event.inputs.cluster_test_args}}
 
   test-centos-jemalloc:
     runs-on: ubuntu-latest
@@ -928,9 +916,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-centos-tls-module:
     runs-on: ubuntu-latest
@@ -970,10 +955,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: |
-        ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
 
   test-centos-tls-module-no-tls:
     runs-on: ubuntu-latest
@@ -1013,10 +994,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: |
-        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-macos-latest:
     runs-on: macos-latest
@@ -1070,32 +1047,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
 
-  test-macos-latest-cluster:
-    runs-on: macos-latest
-    if: |
-      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
-      !contains(github.event.inputs.skipjobs, 'macos') && !contains(github.event.inputs.skiptests, 'cluster')
-    timeout-minutes: 360
-    steps:
-    - name: prep
-      if: github.event_name == 'workflow_dispatch'
-      run: |
-        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
-        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
-        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
-        echo "skiptests: ${{github.event.inputs.skiptests}}"
-        echo "test_args: ${{github.event.inputs.test_args}}"
-        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
-    - uses: actions/checkout@v6
-      with:
-        repository: ${{ env.GITHUB_REPOSITORY }}
-        ref: ${{ env.GITHUB_HEAD_REF }}
-    - name: make
-      run: make REDIS_CFLAGS='-Werror'
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
-
   build-macos:
     strategy:
       matrix:
@@ -1142,15 +1093,28 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v1.0.0
+      uses: cross-platform-actions/action@v1.6.0
       with:
         operating_system: freebsd
         environment_variables: MAKE
-        version: 13.2
+        version: 15.1
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
           gmake
+          # The unit/networking test "Prefetch works with maximum batch size
+          # of 128 and client number larger than batch size" creates 300 Tcl
+          # clients in one run. Each client asks the kernel to choose an
+          # ephemeral local port (port 0). FreeBSD 15
+          # changed the local-port allocation/lookup implementation; under
+          # this workload its randomized selection can transiently choose a
+          # port/connection tuple that is still present in the socket table,
+          # and the client creation fails with EADDRINUSE before the Redis
+          # assertion runs. Disable randomized selection for this disposable
+          # CI VM as a workaround. This does not change Redis's listening
+          # port or the ephemeral-port range, and the setting is lost at
+          # reboot.
+          sudo sysctl net.inet.ip.portrange.randomized=0
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
   test-alpine-jemalloc:
@@ -1185,9 +1149,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-alpine-libc-malloc:
     runs-on: ubuntu-latest
@@ -1221,9 +1182,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   reply-schemas-validator:
     runs-on: ubuntu-latest
@@ -1255,9 +1213,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -1267,7 +1222,7 @@ jobs:
     - name: Install Python dependencies
       run: python -m pip install -r ./utils/req-res-validator/requirements.txt
     - name: validator
-      run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
+      run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
 
   test-old-chain-jemalloc:
     runs-on: ubuntu-latest
@@ -1310,9 +1265,6 @@ jobs:
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-old-chain-tls-module:
     runs-on: ubuntu-latest
@@ -1359,10 +1311,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: |
-        ./runtest-cluster --tls-module ${{github.event.inputs.cluster_test_args}}
 
   test-old-chain-tls-module-no-tls:
     runs-on: ubuntu-latest
@@ -1409,10 +1357,6 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: |
         ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
-    - name: cluster tests
-      if: true && !contains(github.event.inputs.skiptests, 'cluster')
-      run: |
-        ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-sanitizer-force-defrag:
     runs-on: ubuntu-latest

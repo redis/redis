@@ -60,6 +60,22 @@ newer OpenSSL, or define TLS_NO_PEER_NAME_VERIFICATION to build without peer \
 certificate name verification."
 #endif
 
+/* TLS groups rely on SSL_CTX_set1_groups_list(), or on the
+ * older SSL_CTX_set1_curves_list() name. Build failure is intentional when the
+ * OpenSSL headers expose neither API, so Redis does not silently ignore this
+ * TLS policy option. Define TLS_NO_GROUPS to compile the feature out. */
+#if defined(TLS_NO_GROUPS)
+#define CONN_TLS_SUPPORTS_GROUPS 0
+#elif defined(SSL_CTX_set1_groups_list)
+#define CONN_TLS_SUPPORTS_GROUPS 1
+#define redisTlsCtxSetGroupsList(ctx, list) SSL_CTX_set1_groups_list((ctx), (list))
+#elif defined(SSL_CTX_set1_curves_list)
+#define CONN_TLS_SUPPORTS_GROUPS 1
+#define redisTlsCtxSetGroupsList(ctx, list) SSL_CTX_set1_curves_list((ctx), (list))
+#else
+#error "tls-groups requires OpenSSL with SSL_CTX_set1_groups_list or SSL_CTX_set1_curves_list. Define TLS_NO_GROUPS to build without TLS groups."
+#endif
+
 SSL_CTX *redis_tls_ctx = NULL;
 SSL_CTX *redis_tls_client_ctx = NULL;
 
@@ -268,6 +284,18 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
         goto error;
     }
 #endif
+
+    if (ctx_config->groups) {
+#if CONN_TLS_SUPPORTS_GROUPS
+        if (!redisTlsCtxSetGroupsList(ctx, ctx_config->groups)) {
+            serverLog(LL_WARNING, "Failed to configure TLS groups: %s", ctx_config->groups);
+            goto error;
+        }
+#else
+        serverLog(LL_WARNING, "Failed to configure TLS groups: not supported by this build");
+        goto error;
+#endif
+    }
 
     return ctx;
 
@@ -540,6 +568,15 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                 if (conn->ssl_error) zfree(conn->ssl_error);
                 conn->ssl_error = errno ? zstrdup(strerror(errno)) : NULL;
                 break;
+            case SSL_ERROR_ZERO_RETURN:
+                /* The peer sent a close_notify alert: a graceful TLS shutdown,
+                 * the equivalent of a zero-length read on a plain socket. This
+                 * is not an error and the OpenSSL error queue is empty here, so
+                 * it must not be formatted (that yields the meaningless
+                 * "error:00000000:lib(0)::reason(0)"). Leave ssl_error untouched
+                 * and let the caller report a clean EOF. */
+                conn->c.last_errno = 0;
+                break;
             default:
                 /* Error! */
                 updateTLSError(conn);
@@ -652,8 +689,10 @@ static void tlsPendingRemove(tls_connection *conn) {
     }
 }
 
-static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t outlen) {
-    if (!cert || !field || !out) return 0;
+/* Returns the requested certificate subject field as a newly allocated,
+ * binary-safe sds, or NULL on failure. */
+static sds getCertFieldByName(X509 *cert, const char *field) {
+    if (!cert || !field) return NULL;
 
     int nid = -1;
 
@@ -663,12 +702,34 @@ static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t o
         nid = NID_organizationName;
     /* Add more mappings here as needed */
 
-    if (nid == -1) return 0;
+    if (nid == -1) return NULL;
 
-    X509_NAME *subject = X509_get_subject_name(cert);
-    if (!subject) return 0;
+    /* The subject (e.g. "CN=alice, O=redis"), its entries and their values
+     * are all owned by the cert, don't free them. They are deliberately not
+     * held in typed locals: the const-ness of these accessors differs between
+     * OpenSSL 1.0.2, 3.x and 4.0, and chaining the calls keeps every version
+     * warning-free. */
+    if (!X509_get_subject_name(cert)) return NULL;
 
-    return X509_NAME_get_text_by_NID(subject, nid, out, outlen) > 0;
+    /* Find the first entry of type nid (e.g. CN), searching from the start
+     * (-1). Returns its index, or -1 if not found. */
+    int index = X509_NAME_get_index_by_NID(X509_get_subject_name(cert), nid, -1);
+    if (index < 0) return NULL;
+
+    /* Decode the entry's ASN.1 string (UTF8String, BMPString, ...) into UTF-8.
+     * The name may contain embedded NULs, so use the returned length, not
+     * strlen, to build the proper binary-safe string. */
+    unsigned char *utf8 = NULL;
+    int len = ASN1_STRING_to_UTF8(&utf8,
+        X509_NAME_ENTRY_get_data(X509_NAME_get_entry(X509_get_subject_name(cert), index)));
+    if (len <= 0) {
+        OPENSSL_free(utf8);
+        return NULL;
+    }
+
+    sds result = sdstrynewlen(utf8, len);
+    OPENSSL_free(utf8);
+    return result;
 }
 
 sds tlsGetPeerUsername(connection *conn_) {
@@ -690,14 +751,9 @@ sds tlsGetPeerUsername(connection *conn_) {
     X509 *cert = SSL_get_peer_certificate(conn->ssl);
     if (!cert) return NULL;
 
-    char field_value[256];
-    sds result = NULL;
-
-    if (getCertFieldByName(cert, field, field_value, sizeof(field_value))) {
-        result = sdsnew(field_value);
-    } else {
+    sds result = getCertFieldByName(cert, field);
+    if (!result)
         serverLog(LL_NOTICE, "TLS: Failed to extract field '%s' from certificate", field);
-    }
 
     X509_free(cert);
     return result;
@@ -1129,7 +1185,13 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, buf_len);
-    return updateStateAfterSSLIO(conn, ret, 1);
+    ret = updateStateAfterSSLIO(conn, ret, 1);
+    /* A graceful TLS shutdown (peer close_notify) leaves the connection in the
+     * CLOSED state and returns -1. Report it as a zero-length read so callers
+     * treat it as a clean EOF -- matching a plain socket read() returning 0 --
+     * rather than as an error disconnect. */
+    if (ret == -1 && conn->c.state == CONN_STATE_CLOSED) return 0;
+    return ret;
 }
 
 static const char *connTLSGetLastError(connection *conn_) {
@@ -1270,15 +1332,14 @@ static int tlsHasPendingData(struct aeEventLoop *el) {
 }
 
 static int tlsProcessPendingData(struct aeEventLoop *el) {
-    listIter li;
-    listNode *ln;
-
     list *pending_list = el->privdata[1];
     if (!pending_list) return 0;
     int processed = listLength(pending_list);
-    listRewind(pending_list,&li);
-    while((ln = listNext(&li))) {
+    for (int i = 0; i < processed; i++) {
+        listNode *ln = listFirst(pending_list);
+        if (!ln) break;
         tls_connection *conn = listNodeValue(ln);
+        tlsPendingRemove(conn);
         tlsHandleEvent(conn, AE_READABLE);
     }
     return processed;
