@@ -2086,8 +2086,6 @@ void bitrangeintarrayCommand(client *c) {
         addReplyError(c, end_err);
         return;
     }
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
-    if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
     uint64_t count = 0;
     if (end != -1) {
         if (start > end) {
@@ -2097,10 +2095,12 @@ void bitrangeintarrayCommand(client *c) {
         /* Widen the inclusive span so 0..UINT32_MAX cannot wrap past the limit. */
         count = (uint64_t)(end - start) + 1;
         if (count > 100000000) {
-            addReplyError(c, "-Roaring: range too large: maximum 100000000 elements");
+            addReplyError(c, "range too large: maximum 100000000 elements");
             return;
         }
     }
+    robj *o = lookupKeyRead(c->db, c->argv[1]);
+    if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
     if (o == NULL) {
         addReply(c, shared.emptyarray);
         return;

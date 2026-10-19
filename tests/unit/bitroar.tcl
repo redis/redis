@@ -4987,10 +4987,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
                 assert_error {WRONGTYPE Operation against a key holding the wrong kind of value} {
                     r bitrangeintarray $key 0 0
                 }
-                # Valid ranks still require the correct key type before
-                # handling a reversed range or enforcing the range cap.
-                foreach bounds {{0 4294967295} {1 0}} {
-                    assert_error {WRONGTYPE Operation against a key holding the wrong kind of value} {
+                # Bounded-range checks run before looking up the key.
+                assert_equal {} [r bitrangeintarray $key 1 0]
+                foreach bounds {{0 100000000} {0 4294967295}} {
+                    assert_error {ERR range too large: maximum 100000000 elements} {
                         r bitrangeintarray $key {*}$bounds
                     }
                 }
@@ -5035,7 +5035,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         foreach key {intarray:cap intarray:missing intarray:empty} {
             foreach bounds {{0 100000000} {1 100000001} {0 4294967295}
                             {4194967295 4294967295}} {
-                assert_error {Roaring: range too large: maximum 100000000 elements} {
+                assert_error {ERR range too large: maximum 100000000 elements} {
                     r bitrangeintarray $key {*}$bounds
                 }
             }
