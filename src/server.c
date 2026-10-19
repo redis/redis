@@ -7596,10 +7596,14 @@ sds getVersion(void) {
     return version;
 }
 
+sds getShortVersion(void) {
+    return sdscatprintf(sdsempty(), "v=%s", REDIS_VERSION);
+}
+
 void usage(void) {
     fprintf(stderr,"Usage: ./redis-server [/path/to/redis.conf] [options] [-]\n");
     fprintf(stderr,"       ./redis-server - (read config from stdin)\n");
-    fprintf(stderr,"       ./redis-server -v or --version\n");
+    fprintf(stderr,"       ./redis-server -v or --version [--short|-s]\n");
     fprintf(stderr,"       ./redis-server -h or --help\n");
     fprintf(stderr,"       ./redis-server --test-memory <megabytes>\n");
     fprintf(stderr,"       ./redis-server --check-system\n");
@@ -8481,7 +8485,21 @@ int main(int argc, char **argv) {
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0)
         {
-            sds version = getVersion();
+            int short_version = 0;
+            if (argc == 3 && (!strcmp(argv[2], "--short") || !strcmp(argv[2], "-s"))) {
+                short_version = 1;
+            } else if (argc > 2) {
+                usage();
+            }
+            sds version = short_version ? getShortVersion() : getVersion();
+            printf("Redis server %s\n", version);
+            sdsfree(version);
+            exit(0);
+        }
+        if ((!strcmp(argv[1], "-s") || !strcmp(argv[1], "--short")) &&
+            argc == 3 && (!strcmp(argv[2], "-v") || !strcmp(argv[2], "--version")))
+        {
+            sds version = getShortVersion();
             printf("Redis server %s\n", version);
             sdsfree(version);
             exit(0);
