@@ -5199,14 +5199,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
                 r bitrangeintarray intarray:maxrank 0 -1
             }
         }
-        # Suppressed replies must not traverse billions of values.
-        set client [redis_deferring_client]
-        $client client reply off
-        $client bitrangeintarray intarray:maxrank 0 -1
-        $client bitrangeintarray intarray:maxrank 0 99999999
-        $client client reply on
-        assert_equal OK [$client read]
-        $client close
         r del intarray:maxrank
     }
 

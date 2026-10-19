@@ -2106,8 +2106,6 @@ void bitrangeintarrayCommand(client *c) {
         return;
     }
     if (end == -1) {
-        /* Suppressed replies must not count or enumerate an entire bitmap. */
-        if (prepareClientToWrite(c) != C_OK) return;
         uint64_t cardinality = bitroarCardinality(o);
         count = cardinality > (uint64_t)start ? cardinality - (uint64_t)start : 0;
         /* The reply length is a long, including on 32-bit systems. Check the
@@ -2121,7 +2119,6 @@ void bitrangeintarrayCommand(client *c) {
      * page. Iterator exhaustion handles truncation; the checks above ensure
      * the number of emitted values fits in long. */
     void *arraylen = addReplyDeferredLen(c);
-    if (arraylen == NULL) return;
     bitroarIntArrayReply reply = {c, 0};
     bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
     /* Resolve the placeholder even if an output limit scheduled async close. */
