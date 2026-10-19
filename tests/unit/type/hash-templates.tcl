@@ -2856,6 +2856,8 @@ start_server {tags {"hash" "repl" "needs:repl" "needs:debug" "cluster:skip" "ext
                     assert_match {template-*} [$replica object encoding k]
 
                     # Survives an RDB reload with all fields/values intact.
+                    # Replica sync can finish before the master reaps its RDB child.
+                    waitForBgsave r
                     r debug reload
                     assert_match {template-*} [r object encoding k]
                     assert_equal $expected [lsort [r hgetall k]]
