@@ -1172,6 +1172,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 
 start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled mem stream-idmp-duration 1}} {
     test "CLUSTER SLOT-STATS memory-bytes follows IDMP expiry after DEL" {
+        # Keep one key in the slot and record its memory as the baseline.
         set drained_keeper "{idmp-expiry-drained}keep"
         set drained_stream "{idmp-expiry-drained}stream"
         R 0 SET $drained_keeper value
@@ -1179,6 +1180,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $drained_slot $drained_slot]
         set drained_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
+        # Add one producer and let cron expire it completely.
         R 0 XADD $drained_stream IDMP p0 i0 * f v
         wait_for_condition 100 50 {
             [dict get [R 0 XINFO STREAM $drained_stream] pids-tracked] == 0
@@ -1186,10 +1188,12 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
             fail "IDMP producer did not expire"
         }
 
+        # Deleting the drained stream should leave only the keeper's charge.
         R 0 DEL $drained_stream
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $drained_slot $drained_slot]
         set drained_actual [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
+        # Use a separate slot to record another keeper-only baseline.
         set partial_keeper "{idmp-expiry-partial}keep"
         set partial_stream "{idmp-expiry-partial}stream"
         R 0 SET $partial_keeper value
@@ -1197,23 +1201,28 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $partial_slot $partial_slot]
         set partial_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
+        # Stagger two producers so expiry removes the older one first.
         R 0 XADD $partial_stream * f v
         R 0 XCFGSET $partial_stream IDMP-DURATION 10
         R 0 XADD $partial_stream IDMP p0 old-request * f v
+        # Age the first producer before adding the newer producer.
         after 2000
         assert_equal 1 [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked]
         R 0 XADD $partial_stream IDMP p1 new-request * f v
         assert_equal 2 [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked]
+        # Wait for the older producer to expire while the newer one stays tracked.
         wait_for_condition 200 50 {
             [dict get [R 0 XINFO STREAM $partial_stream] pids-tracked] == 1
         } else {
             fail "IDMP expiry did not leave the newer producer tracked"
         }
 
+        # Deleting the stream should leave its keeper-only charge for the final comparison.
         R 0 DEL $partial_stream
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $partial_slot $partial_slot]
         set partial_actual [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
+        # Both post-delete slot charges must match their keeper-only baselines.
         set expected [list $drained_baseline $partial_baseline]
         set actual [list $drained_actual $partial_actual]
         assert_equal $expected $actual
