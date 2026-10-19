@@ -194,6 +194,7 @@ static void blessGetCommand(client *c) {
 /* ---- BLESS SCAN ---- */
 
 typedef struct {
+    redisDb *db;
     vec *keys;     /* matches collected so far (index's own sds, not copied) */
     long sampled;  /* entries visited so far, bounds COUNT like SCAN does */
 } blessScanData;
@@ -202,10 +203,7 @@ static void blessScanCallback(void *privdata, const dictEntry *de, dictEntryLink
     UNUSED(plink);
     blessScanData *d = privdata;
     d->sampled++;
-    /* Match INFO's blessed_keys count: both describe entries still present in
-     * the blessed index. Expired keys remain indexed until expiration reclaims
-     * them, and checking every key's TTL here would make SCAN disagree with the
-     * O(1) count exposed by INFO. */
+    if (keyIsExpired(d->db, dictGetKey(de), NULL)) return;
     vecPush(d->keys, dictGetKey(de));
 }
 
@@ -244,7 +242,7 @@ static void blessScanCommand(client *c) {
 
     vec keys;
     vecInit(&keys, NULL, 0);
-    blessScanData data = { .keys = &keys };
+    blessScanData data = { .db = c->db, .keys = &keys };
     long maxiterations = (count > LONG_MAX / 10) ? LONG_MAX : count * 10;
     do {
         cursor = kvstoreScan(c->db->blessed_keys, cursor, -1, blessScanCallback,
