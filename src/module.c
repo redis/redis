@@ -7739,8 +7739,14 @@ int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
     setKey(key->ctx->client,key->db,key->key, &o,SETKEY_NO_SIGNAL);
-    key->kv = o;
-    if (noevict) blessSetNoEvict(key->db, key->kv, 1);
+    /* Keyspace notification callbacks may reallocate the new kvobj by
+     * attaching metadata, so don't use the pointer returned by setKey. */
+    key->kv = dbFind(key->db, key->key->ptr);
+    if (noevict && key->kv && key->kv->type == OBJ_MODULE) {
+        moduleValue *mv = key->kv->ptr;
+        if (mv->type == mt && mv->value == value && !blessIsNoEvict(key->kv))
+            blessSetNoEvict(key->db, key->kv, 1);
+    }
     return REDISMODULE_OK;
 }
 
