@@ -399,20 +399,20 @@ proc test_scan {type} {
         } {} {resp3}
 
         test {B+ tree ZSCAN headers preserve queued reply order} {
-            r del zset
+            r del zset{t}
             for {set j 0} {$j < 129} {incr j} {
-                r zadd zset 1.25 member:$j
+                r zadd zset{t} 1.25 member:$j
             }
-            assert_encoding btree zset
+            assert_encoding btree zset{t}
             foreach proto {2 3} {
                 r hello $proto
                 foreach size {0 1024 65536} {
                     set preceding [string repeat x $size]
-                    r set preceding $preceding
+                    r set preceding{t} $preceding
                     r multi
-                    r getrange preceding 0 -1
-                    r zscan zset 0 count 10000 match absent:*
-                    r zscan zset 0 count 10000
+                    r getrange preceding{t} 0 -1
+                    r zscan zset{t} 0 count 10000 match absent:*
+                    r zscan zset{t} 0 count 10000
                     r ping
                     set replies [r exec]
                     assert_equal $preceding [lindex $replies 0]
