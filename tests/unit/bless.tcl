@@ -357,6 +357,8 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
 foreach lazy {no yes} {
     test "BLESS NO-EVICT key is not evicted under memory pressure (lazyfree-lazy-eviction $lazy)" {
         r flushall
+        # evicted_keys is cumulative; reset it so the check below reflects this case.
+        r config resetstat
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
         r config set lazyfree-lazy-eviction $lazy
@@ -537,6 +539,8 @@ foreach policy {noeviction volatile-lru} {
     foreach policy {volatile-lru volatile-lfu volatile-ttl volatile-random volatile-lrm} {
         test "BLESS NO-EVICT protects a key with a TTL under $policy" {
             r flushall
+            # evicted_keys is cumulative; reset it so the check below reflects this case.
+            r config resetstat
             r config set maxmemory 0
             r config set maxmemory-policy $policy
             r set precious [string repeat x 2000]
@@ -559,6 +563,8 @@ foreach policy {noeviction volatile-lru} {
 foreach policy {allkeys-lfu allkeys-lrm} {
     test "BLESS NO-EVICT key is not evicted under $policy" {
         r flushall
+        # evicted_keys is cumulative; reset it so the check below reflects this case.
+        r config resetstat
         r config set maxmemory 0
         r config set maxmemory-policy $policy
         r set precious [string repeat x 2000]
