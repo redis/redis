@@ -3651,7 +3651,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 /* Attach expiry to the hash field and register in hash private HFE DS */
                 if ((ret != DICT_ERR) && expireAt) {
                     htMetadataEx *m = htGetMetadataEx(d);
-                    ret = ebAdd(&m->hfe, &hashFieldExpireBucketsType, hEntry, expireAt);
+                    ret = ebAdd(&m->elemExpires, &hashFieldExpireBucketsType, hEntry, expireAt);
                 }
 
                 if (ret == DICT_ERR) {

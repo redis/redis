@@ -4176,7 +4176,8 @@ typedef struct htMetadataEx {
                                 subexpires DB with next minimum hash-field to expire.
                                 TTL value might be inaccurate up-to few seconds due
                                 to optimization consideration. */
-    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
+    ebuckets elemExpires;    /* DS of hash fields / set members Expiration,
+                                associated to each key */
 } htMetadataEx;
 
 /* hash metadata helpers */

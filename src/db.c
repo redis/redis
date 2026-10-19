@@ -1715,9 +1715,6 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         keyStr = zslGetNodeElement(znode);
     } else {
         keyStr = dictGetKey(de);
-        /* A set member that is logically expired is not returned. */
-        if (o->type == OBJ_SET && sEntryIsExpired((SetEntry *)keyStr))
-            return;
     }
     
     /* Filter element if it does not match the pattern. */
@@ -1748,6 +1745,8 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         key = keyStr;
     } else if (o->type == OBJ_SET) {
         key = keyStr;
+        if (sEntryIsExpired((const SetEntry *)keyStr)) /* ignore expired members */
+            return;
     } else if (o->type == OBJ_HASH) {
         key = keyStr;
         val = hEntryGetValue(hEntry);

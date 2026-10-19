@@ -806,7 +806,7 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
     /* We need to grow kv to add a new 8-byte metadata slot. This may reallocate
      * the object, so we must carefully preserve and restore:
      * - The key's expires dictionary entry (if TTL is set)
-     * - The global Hash Field Expires (HFE) registration for hash objects
+     * - The global subexpires (HFE/SME) registration for hash/set objects
      * - All existing metadata values (including expire value)
      */
 
@@ -852,7 +852,7 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
         kvstoreDictSetAtLink(db->expires, slot, kv, &exLink, 0);
     }
 
-    /* Re-register in HFE if needed. */
+    /* Re-register in subexpires if needed. */
     if (subexpiry != EB_EXPIRE_TIME_INVALID)
         estoreAdd(db->subexpires, slot, kv, subexpiry);
 

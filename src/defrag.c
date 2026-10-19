@@ -327,7 +327,7 @@ static unsigned long activeDefragSetExpireBuckets(dict *d, unsigned long cursor)
         .defragAlloc = activeDefragAlloc,
         .defragItem = activeDefragSetEntryAndUpdateRef
     };
-    ebuckets *eb = &htGetMetadataEx(d)->hfe;
+    ebuckets *eb = &htGetMetadataEx(d)->elemExpires;
     ebScanDefrag(eb, &setMemberExpireBucketsType, &cursor, &eb_defragfns, d);
     return cursor;
 }
