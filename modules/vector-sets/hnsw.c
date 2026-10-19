@@ -2720,13 +2720,13 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
 }
 
 /* MurmurHash3's 64-bit finalizer function. */
-static inline uint64_t hnsw_fmix64(uint64_t x) {
-    x ^= x >> 33;
-    x *= 0xff51afd7ed558ccd;
-    x ^= x >> 33;
-    x *= 0xc4ceb9fe1a85ec53;
-    x ^= x >> 33;
-    return x;
+static inline uint64_t hnsw_fmix64(uint64_t id) {
+    id ^= id >> 33;
+    id *= 0xff51afd7ed558ccd;
+    id ^= id >> 33;
+    id *= 0xc4ceb9fe1a85ec53;
+    id ^= id >> 33;
+    return id;
 }
 
 /* Salted integer hashing, used by hnsw_deserialize_index(). */
