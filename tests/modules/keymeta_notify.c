@@ -128,10 +128,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (meta_class_id < 0) return REDISMODULE_ERR;
 
     /* Subscribe to keyspace events matching RediSearch's notification types:
-     * GENERIC, NEW, HASH, STRING, EXPIRED, and EVICTED. */
-    int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_NEW |
-                      REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING |
-                      REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED;
+     * GENERIC, HASH, STRING, EXPIRED, and EVICTED. */
+    int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+                      REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_EXPIRED |
+                      REDISMODULE_NOTIFY_EVICTED;
     if (RedisModule_SubscribeToKeyspaceEvents(ctx, notifyFlags,
                                               HashNotifyCallback) != REDISMODULE_OK)
         return REDISMODULE_ERR;

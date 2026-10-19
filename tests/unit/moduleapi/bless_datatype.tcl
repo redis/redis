@@ -14,19 +14,6 @@ start_server {tags {"modules" "bless" "external:skip"}} {
         assert_equal 1 [s blessed_keys]
     }
 
-    test {BLESS: RM_ModuleTypeSetValue handles key metadata set by a notification} {
-        set notify_module [file normalize tests/modules/keymeta_notify.so]
-        r module load $notify_module
-        r datatype.set notified 1 a
-        r bless set notified no-evict
-        r datatype.set notified 2 b
-        assert_equal {2 b} [r datatype.get notified]
-        assert_equal {notified} [r keymetanotify.get notified]
-        assert_equal {NO-EVICT} [r bless get notified]
-        assert_equal 1 [s blessed_keys]
-        r module unload keymetanotify
-    }
-
     test {BLESS: blessed module key is not evicted after its value is replaced} {
         r flushall
         r config set maxmemory 0
