@@ -6332,22 +6332,8 @@ static void initLatencyPercentileContext(latencyPercentileContext *ctx, const do
         size_t l = snprintf(ctx->entries[j].label, sizeof(ctx->entries[j].label), "%f", percentiles[j]);
         trimDoubleString(ctx->entries[j].label, l);
     }
-    /* Sort and format labels once for all command and subcommand histograms.
-     * Insertion sort is cheap for the default three percentiles; use qsort
-     * for larger configurations to avoid quadratic initialization work. */
-    if (len <= LATENCY_PERCENTILE_STACK_MAX) {
-        for (int j = 1; j < len; j++) {
-            latencyPercentile entry = ctx->entries[j];
-            int k = j;
-            while (k > 0 && ctx->entries[k-1].percentile > entry.percentile) {
-                ctx->entries[k] = ctx->entries[k-1];
-                k--;
-            }
-            ctx->entries[k] = entry;
-        }
-    } else {
-        qsort(ctx->entries, len, sizeof(*ctx->entries), compareLatencyPercentiles);
-    }
+    /* Sort once for all command and subcommand histograms. */
+    qsort(ctx->entries, len, sizeof(*ctx->entries), compareLatencyPercentiles);
     for (int j = 0; j < len; j++) {
         ctx->percentiles[j] = ctx->entries[j].percentile;
         ctx->order[ctx->entries[j].index] = j;
@@ -6507,12 +6493,8 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
                     c->slowlog_count, (double)c->slowlog_time_us_sum / 1000,
                     (double)c->slowlog_time_us_max / 1000);
             } else {
-                /* Hot path (no slowlog): avoid sdscatprintf's full printf-format
-                 * parse of this long format string for every command (hundreds on
-                 * a busy server). Pre-render the single float field, then use
-                 * sdscatfmt's lightweight scanner (%I = long long) for the integer
-                 * fields. Byte-identical: identical (float)-cast %.2f and integer
-                 * digits; only the formatter machinery changes. */
+                /* Hot path: sdscatfmt is cheaper than sdscatprintf but has no %f,
+                 * so format usec_per_call separately. */
                 char upc[64];
                 snprintf(upc, sizeof(upc), "%.2f",
                     (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
