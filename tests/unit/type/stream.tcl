@@ -3945,6 +3945,31 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-
     }
 }
 
+start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble yes}} {
+    test {XADD IDMP deduplicated request does not append after the record expires on AOF reload} {
+        r XADD idmp-expire * seed 1
+        r XCFGSET idmp-expire IDMP-DURATION 5
+        set id [r XADD idmp-expire IDMP p1 req-1 * item book]
+
+        # The rewrite stores the record in the RDB base, but the record expires
+        # before the AOF is loaded, so the replay cannot look it up.
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        assert_equal $id [r XADD idmp-expire IDMP p1 req-1 * item book]
+
+        wait_for_condition 100 100 {
+            [dict get [r XINFO STREAM idmp-expire] iids-tracked] == 0
+        } else {
+            fail "IDMP record did not expire"
+        }
+
+        r debug loadaof
+        assert_equal 2 [r XLEN idmp-expire]
+        assert_equal 1 [dict get [r XINFO STREAM idmp-expire] iids-duplicates]
+        assert_equal $id [dict get [r XINFO STREAM idmp-expire] last-generated-id]
+    }
+}
+
 start_server {tags {"stream"}} {
     test {XGROUP HELP should not have unexpected options} {
         catch {r XGROUP help xxx} e
