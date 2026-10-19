@@ -128,10 +128,12 @@ The identity is taken from the most explicit source available:
 
 1. `--tls-expected-peer-name <names>` (redis-cli, redis-benchmark) or the
    `tls-expected-peer-name` config (Sentinel): an explicit identity, independent
-   of the address dialed — a space-separated list of DNS names (any match
-   succeeds) or a single IP address. This fits deployments where every node's
-   certificate carries a shared cluster-identity SAN, including cluster mode
-   where node addresses are learned from the cluster itself.
+   of the address dialed — a space-separated list of DNS names, any of which
+   may match. The tools' flag additionally accepts a single IP address; the
+   server config takes DNS names only (see its section below). This fits
+   deployments where every node's certificate carries a shared cluster-identity
+   SAN, including cluster mode where node addresses are learned from the
+   cluster itself.
 2. `--sni <name>`: the declared logical name of the server. When you connect to
    an address but the server is known by a name, `--sni` both announces that
    name to the server and is the identity the certificate is verified against.
@@ -140,10 +142,14 @@ The identity is taken from the most explicit source available:
    certificate's `IP` SAN entries, a DNS name against its `DNS` entries (with
    the Common Name as a fallback when the certificate has no DNS entries).
 
-When the dialed host is a DNS name it is also sent as SNI by default. Redis itself
-serves a single certificate and ignores SNI, so this matters for a TLS proxy or
-load balancer in front of Redis, which may route the connection by SNI or present
-the certificate issued for that name — the identity that is then verified.
+Sentinel has no `--sni` equivalent, so for it the choice is simply: the configured
+`tls-expected-peer-name` if there is one, otherwise the instance's address.
+
+Separately from which identity is verified, the dialed host — for Sentinel, the
+instance's address — is also sent to the server as SNI whenever it is a DNS name.
+Redis itself serves a single certificate and ignores SNI, so this matters for a
+TLS proxy or load balancer in front of Redis, which may route the connection by
+SNI or present the certificate issued for that name.
 
 The three verification levels, and how to select them:
 
@@ -176,6 +182,8 @@ lose every link with nothing but DEBUG-level reconnection events to show for it.
 `sentinel tls-verify-hostnames` can be changed at runtime with
 `SENTINEL CONFIG SET`; since the identity is checked when a link is established,
 the change applies to connections made from then on, not to links already up.
+It governs only the address check: a configured `tls-expected-peer-name` is
+verified whether it is `yes` or `no`.
 
 A name beginning with a dot given to `--tls-expected-peer-name` is a parent-domain
 pattern (see the note under `tls-expected-peer-name` below); the tools accept it
@@ -248,6 +256,11 @@ Notes:
 * Multiple names may be supplied as a single space-separated value (quote it in
   the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
   a match against any one of them succeeds.
+* Only DNS names are accepted. An IP address would be compared as a host name,
+  never matching a certificate's IP address entries, so it is rejected at
+  configuration time rather than silently rejecting every peer. To verify a peer
+  by its address, use Sentinel's `tls-verify-hostnames` or the identity check
+  the tools perform by default.
 * Wildcards are matched from the **certificate**, not from this option: a
   certificate whose SAN is a full-label wildcard (`*.example.com`) matches a
   concrete name configured here (`node.example.com`), while a partial-label

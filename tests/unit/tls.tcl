@@ -635,6 +635,18 @@ if {$::tls} {
             assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
             r config set tls-expected-peer-name ""
         }
+
+        test {TLS: tls-expected-peer-name rejects IP addresses} {
+            # The option takes DNS names only: an IP address would be compared as
+            # a host name, never matching a certificate's IP SAN entries, so every
+            # peer would be rejected with nothing to explain it. Refuse it at config
+            # time instead -- alone or mixed with names, IPv4 or IPv6.
+            foreach val {"127.0.0.1" "10.0.0.1 redis.local" "redis.local ::1"} {
+                catch {r config set tls-expected-peer-name $val} e
+                assert_match {*DNS names only*} $e
+            }
+            assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
+        }
     }
 }
 

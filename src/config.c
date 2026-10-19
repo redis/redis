@@ -2975,6 +2975,33 @@ static int isValidTlsExpectedPeerName(char *val, const char **err) {
         return 0;
     }
 
+    /* X509_VERIFY_PARAM_set1_host() compares a name against the certificate's
+     * DNS SAN entries (or its CN), never against its IP address entries, so an
+     * IP address given here could not match any certificate: every peer would be
+     * rejected, with nothing but "certificate verify failed" to explain it. The
+     * option takes DNS names only; refuse an IP address so the mistake surfaces
+     * at configuration time. Verifying a peer by its address is what Sentinel's
+     * tls-verify-hostnames and the tools' default identity check are for. */
+    int count = 0;
+    unsigned char addr_buf[sizeof(struct in6_addr)];
+    sds *tokens = sdssplitlen(val, strlen(val), " ", 1, &count);
+    if (!tokens) {
+        *err = "tls-expected-peer-name could not be parsed";
+        return 0;
+    }
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* runs of spaces */
+        if (inet_pton(AF_INET, tokens[i], addr_buf) == 1 ||
+            inet_pton(AF_INET6, tokens[i], addr_buf) == 1)
+        {
+            sdsfreesplitres(tokens, count);
+            *err = "tls-expected-peer-name accepts DNS names only: an IP address is "
+                   "compared as a host name and would never match a certificate";
+            return 0;
+        }
+    }
+    sdsfreesplitres(tokens, count);
+
     return 1;
 }
 
