@@ -34,3 +34,31 @@ jobs:
         disable_search: true
         fail_ci_if_error: true
 
+  code-coverage-32bit:
+    if: ${{ github.repository == 'redis/redis' }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Build and test 32-bit bitmap enumeration
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libc6-dev-i386 gcc-multilib lcov tcl8.6 tclx
+        make gcov CFLAGS='-m32' LDFLAGS='-m32' MALLOC=libc SKIP_VEC_SETS=yes
+        ./runtest --single unit/bitroar --only '/^(BITRANGEINTARRAY|Integer-array)' --clients 1 --verbose --dump-logs
+        cd src
+        geninfo --rc geninfo_unexecuted_blocks=1 -o redis.info .
+
+    # Merge both reports for this commit to cover the 32-bit LONG_MAX guard.
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      with:
+        name: 32bit
+        files: ./src/redis.info
+        disable_search: true
+        fail_ci_if_error: true
+
