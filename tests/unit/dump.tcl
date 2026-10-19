@@ -233,23 +233,6 @@ start_server {tags {"dump"}} {
         }
     } {} {external:skip}
 
-    test {MIGRATE preserves BLESS NO-EVICT} {
-        set first [srv 0 client]
-        r set key "Some Value"
-        r bless set key no-evict
-        start_server {tags {"repl"}} {
-            set second [srv 0 client]
-            set second_host [srv 0 host]
-            set second_port [srv 0 port]
-
-            assert_equal {OK} [r -1 migrate $second_host $second_port key 9 5000]
-            assert_equal 0 [$first exists key]
-            assert_equal "Some Value" [$second get key]
-            assert_equal {NO-EVICT} [$second bless get key]
-            assert_equal 1 [getInfoProperty [$second info] blessed_keys]
-        }
-    } {} {external:skip}
-
     test {MIGRATE is able to copy a key between two instances} {
         set first [srv 0 client]
         r del list
