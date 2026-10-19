@@ -3224,7 +3224,7 @@ typedef struct {
 } listTypeEntry;
 
 /* Structure to hold set iteration abstraction. */
-typedef struct _setTypeOps setTypeOps; /* defined in t_set_encoding.h */
+typedef struct _setTypeOps setTypeOps; /* defined in t_set.c */
 
 typedef struct {
     robj *subject;
