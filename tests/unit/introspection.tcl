@@ -1420,6 +1420,52 @@ test {CONFIG REWRITE compares boolean and string config values} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE compares percentage configuration values} {
+    set include_file [file normalize [tmpfile config-rewrite-percent-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {maxmemory-clients 50%}
+    close $fd
+    start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
+        set config_file [srv 0 config_file]
+        # The file parser stores percentages as negative numbers internally,
+        # while CONFIG GET exposes the normalized value with a percent sign.
+        assert_equal {maxmemory-clients 50%} [r config get maxmemory-clients]
+        r config rewrite
+        set fd [open $config_file r]
+        set contents [read $fd]
+        close $fd
+        assert_equal 0 [regexp -line {^maxmemory-clients } $contents]
+
+        r config set maxmemory-clients 25%
+        r config rewrite
+        set fd [open $config_file r]
+        set contents [read $fd]
+        close $fd
+        # The changed percentage is written after the include and survives restart.
+        assert {[string last "include \"$include_file\"" $contents] < [string last {maxmemory-clients 25%} $contents]}
+        restart_server 0 true false
+        assert_equal {maxmemory-clients 25%} [r config get maxmemory-clients]
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE compares octal configuration values} {
+    set include_file [file normalize [tmpfile config-rewrite-octal-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {unixsocketperm 0700}
+    close $fd
+    start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
+        set config_file [srv 0 config_file]
+        # 0700 is parsed as octal and normalized to the getter's value, 700.
+        assert_equal {unixsocketperm 700} [r config get unixsocketperm]
+        r config rewrite
+        set fd [open $config_file r]
+        set contents [read $fd]
+        close $fd
+        # The unchanged include value should not be copied into main.conf.
+        assert_equal 0 [regexp -line {^unixsocketperm } $contents]
+    }
+} {} {external:skip}
+
 test {CONFIG REWRITE compares special configuration values} {
     # Exercise special parsers with unchanged include values, then change the
     # mutable options and verify rewrite preserves their effective values.
@@ -1482,11 +1528,30 @@ test {CONFIG REWRITE compares special configuration values} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE compares quoted multi-argument enum values from includes} {
+    set include_file [file normalize [tmpfile config-rewrite-enum-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {cluster-slot-stats-enabled "cpu mem"}
+    close $fd
+    start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
+        # The enum combines multiple names into one bitflag value.
+        assert_equal {cluster-slot-stats-enabled {cpu mem}} [r config get cluster-slot-stats-enabled]
+
+        r config rewrite
+        set fd [open [srv 0 config_file] r]
+        set contents [read $fd]
+        close $fd
+        # An unchanged quoted enum from an include should not be copied.
+        assert_equal 0 [regexp -line {^cluster-slot-stats-enabled } $contents]
+    }
+} {} {external:skip}
+
 test {CONFIG REWRITE compares aggregated save rules from includes} {
     set include_file [file normalize [tmpfile config-rewrite-aggregates.conf]]
     set fd [open $include_file w]
-    puts $fd {save 100 1}
-    puts $fd {save 200 2}
+    # Startup accepts each multi-argument save rule in one quoted argument.
+    puts $fd {save "100 1"}
+    puts $fd {save "200 2"}
     close $fd
     start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
         # Multiple save directives contribute to one aggregate getter value.
@@ -1517,7 +1582,8 @@ if {[string tolower [exec uname -s]] eq {linux}} {
     test {CONFIG REWRITE compares oom-score-adj-values} {
         set include_file [file normalize [tmpfile config-rewrite-oom-include.conf]]
         set fd [open $include_file w]
-        puts $fd {oom-score-adj-values 0 200 800}
+        # This MULTI_ARG_CONFIG form is also split by startup loading.
+        puts $fd {oom-score-adj-values "0 200 800"}
         close $fd
         start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
             set config_file [srv 0 config_file]

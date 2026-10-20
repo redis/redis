@@ -2457,8 +2457,8 @@ static int numericParseString(standardConfig *config, sds value, const char **er
  * This is deliberately read-only: it validates and normalizes file arguments
  * without invoking the setter or changing the running server. old_file_value
  * is used by aggregate directives such as client-output-buffer-limit. */
-static sds rewriteConfigNormalizeFileValue(standardConfig *config, sds *argv, int argc, sds *cwd,
-                                          rewriteFileValue *old_file_value) {
+static sds rewriteConfigNormalizeFileArgs(standardConfig *config, sds *argv, int argc, sds *cwd,
+                                         rewriteFileValue *old_file_value) {
     const char *err = NULL;
     int nargs = argc - 1;
     sds value = NULL;
@@ -2659,6 +2659,31 @@ static sds rewriteConfigNormalizeFileValue(standardConfig *config, sds *argv, in
         return value;
     }
     return NULL;
+}
+
+/* Normalize file arguments into the same argument form passed to config
+ * setters. Startup splits a single quoted MULTI_ARG_CONFIG value before
+ * calling its setter; do that here too before interpreting the directive. */
+static sds rewriteConfigNormalizeFileValue(standardConfig *config, sds *argv, int argc, sds *cwd,
+                                          rewriteFileValue *old_file_value) {
+    if ((config->flags & MULTI_ARG_CONFIG) && argc == 2 && sdslen(argv[1])) {
+        int split_argc;
+        sds *split_args = sdssplitargs(argv[1], &split_argc);
+        if (split_args) {
+            int normalized_argc = split_argc + 1;
+            sds *normalized_argv = zmalloc(sizeof(sds) * normalized_argc);
+            normalized_argv[0] = sdsdup(argv[0]);
+            for (int i = 0; i < split_argc; i++)
+                normalized_argv[i + 1] = sdsdup(split_args[i]);
+
+            sds value = rewriteConfigNormalizeFileArgs(config, normalized_argv,
+                                                       normalized_argc, cwd, old_file_value);
+            sdsfreesplitres(split_args, split_argc);
+            sdsfreesplitres(normalized_argv, normalized_argc);
+            return value;
+        }
+    }
+    return rewriteConfigNormalizeFileArgs(config, argv, argc, cwd, old_file_value);
 }
 
 /* Return the comparison baseline for a config absent from the parsed files.
