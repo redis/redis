@@ -5274,7 +5274,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         for (int k = 0; k < N; k++) {
             int i = order[k];
             if (i % 5 == 0) ZBT_TEST_DEL(zs, i);
-            else if (i % 3 == 0) ZBT_TEST_SET(zs, i, -(double)i / 7);
+            else if (i % 3 == 0) ZBT_TEST_SET(zs, i, -(double)i / 8);
         }
         /* Reload the way RDB does: descending order into a new set. */
         zbtreeSet *loaded = zbtreeCreate();
@@ -5306,7 +5306,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         while (zbtreeIteratorNext(&it, 0, &e, &len, &score)) {
             int i = atoi((const char *)e);
             intact = intact && i % 20 == 1 && !gone[i] &&
-                     score == (i % 3 == 0 ? -(double)i / 7 : i % 997);
+                     score == (i % 3 == 0 ? -(double)i / 8 : i % 997);
             if (pe) intact = intact &&
                 zbtScoreCompare(pscore, pe, plen, score, e, len) < 0;
             pe = e; plen = len; pscore = score;
