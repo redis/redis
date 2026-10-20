@@ -2546,6 +2546,7 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
                 int send_slot_info = 0;
 
                 kvstoreInitDictIterator(&kvs_di, server.db->keys, k);
+                kvstoreDictIteratorEnablePrefetch(&kvs_di);
                 while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
                     /* Send slot info before the first key in the slot */
                     if (!send_slot_info) {

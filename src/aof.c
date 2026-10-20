@@ -3077,6 +3077,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
         kvstoreIteratorInit(&kvs_it, db->keys);
+        kvstoreIteratorEnablePrefetch(&kvs_it);
         int last_slot = -1;
         /* Iterate this DB writing every entry */
         while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
