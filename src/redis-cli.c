@@ -634,21 +634,19 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
 
 /* Initialize a command help entry for the command/subcommand described in 'specs'.
  * 'next' points to the next help entry to be filled in.
- * 'end' points one past the last usable entry (the end of the allocation); this
- * function never writes at or beyond it, so a reply that would produce more
- * entries than were counted by cliCountCommands() is truncated rather than
- * overflowing the buffer.
  * 'groups' is a set of command group names to be filled in.
  * Returns a pointer to the next available position in the help entries table.
  * If the command has subcommands, this is called recursively for the subcommands.
  */
 static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
-                                          helpEntry *next, helpEntry *end,
-                                          redisReply *specs, dict *groups) {
+                                          helpEntry *next, redisReply *specs,
+                                          dict *groups) {
     /* Defensive bound: the reply is untrusted, and if for any reason it yields
      * more entries than cliCountCommands() allocated, stop instead of writing
-     * past the end of the helpEntries array. */
-    if (next >= end) return next;
+     * past the end of the helpEntries array. helpEntriesLen still holds the
+     * allocated count here; cliInitCommandHelpEntries() trims it only after
+     * the fill. */
+    if (next >= helpEntries + helpEntriesLen) return next;
     helpEntry *help = next++;
     cliFillInCommandHelpEntry(help, cmdname, subcommandname);
 
@@ -691,7 +689,7 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
                 assert(subcommand->type == REDIS_REPLY_MAP || subcommand->type == REDIS_REPLY_ARRAY);
-                next = cliInitCommandHelpEntry(cmdname, subcommandname, next, end, subcommand, groups);
+                next = cliInitCommandHelpEntry(cmdname, subcommandname, next, subcommand, groups);
             }
         }
     }
@@ -769,7 +767,6 @@ void cliInitGroupHelpEntries(dict *groups) {
 /* Initializes help entries for all commands in the COMMAND DOCS reply. */
 void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
     helpEntry *next = helpEntries;
-    helpEntry *end = helpEntries + helpEntriesLen;
     for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
         char *cmdname = commandTable->element[i]->str;
@@ -777,7 +774,7 @@ void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
                commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *cmdspecs = commandTable->element[i + 1];
-        next = cliInitCommandHelpEntry(cmdname, NULL, next, end, cmdspecs, groups);
+        next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs, groups);
     }
     /* The number actually filled in may be lower than the count returned by
      * cliCountCommands() if the reply was malformed. Trim helpEntriesLen so we
