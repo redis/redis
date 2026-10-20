@@ -1806,8 +1806,18 @@ static ExpireMeta *setMemberGetExpireMeta(const eItem item) {
 }
 
 static void setDictEntryDestructor(dict *d, void *entry) {
-    size_t usable;
     size_t *alloc_size = htGetMetadataSize(d);
+
+    /* A dict without the metadata of the expirations holds only plain members
+     * (they are SetEntry only once the dict has the metadata, see
+     * htRawAddCommon()), so there is nothing to unlink: the common case. */
+    if (!htHasExpire(d)) {
+        *alloc_size -= sdsAllocSize(entry);
+        sdsfree(entry);
+        return;
+    }
+
+    size_t usable;
 
     /* If the member has an expiration, remove it from the private ebuckets. */
     if (sEntryGetExpiry(entry) != EB_EXPIRE_TIME_INVALID) {
