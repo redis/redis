@@ -1117,39 +1117,29 @@ test {CONFIG REWRITE compares main-file values and preserves equivalent syntax} 
     start_server [list tags {external:skip} config_lines [list maxmemory "\"64mb\""]] {
         set config_file [srv 0 config_file]
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         assert_equal 1 [regexp -line {^maxmemory "64mb"$} $contents]
 
         r config set maxmemory 128mb
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         assert_equal 1 [regexp -line {^maxmemory 128mb$} $contents]
         # A -> B -> A still needs a rewrite, even though the final value
         # equals the startup value.
         r config set maxmemory 64mb
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         assert_equal 1 [regexp -line {^maxmemory 64mb$} $contents]
         r config set maxmemory 128mb
         r config rewrite
 
         # Equivalent file syntax compares equal and keeps its spelling.
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         set fd [open $config_file w]
         puts -nonewline $fd [string map {{maxmemory 128mb} {maxmemory 131072kb}} $contents]
         close $fd
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         assert_equal 1 [regexp -line {^maxmemory 131072kb$} $contents]
         restart_server 0 true false
         assert_equal 134217728 [lindex [r config get maxmemory] 1]
@@ -1160,23 +1150,17 @@ test {CONFIG REWRITE does not persist CLI values, including after CONFIG SET} {
     # CLI remains the startup override, even after CONFIG SET changes memory.
     start_server [list tags {external:skip} config_lines [list maxmemory 64mb] args {--maxmemory 128mb}] {
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         # CLI overrides remain on the startup command and are not persisted.
         assert_equal 1 [regexp -line {^maxmemory 64mb$} $contents]
         # A failed update must not disturb the CLI source either.
         assert_error {*} {r config set maxmemory 256mb maxmemory-policy invalid}
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^maxmemory 64mb$} $contents]
         r config set maxmemory 256mb
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^maxmemory 64mb$} $contents]
         restart_server 0 true false
         assert_equal 67108864 [lindex [r config get maxmemory] 1]
@@ -1194,23 +1178,17 @@ test {CONFIG REWRITE skips unchanged include values and persists changed values 
         # maxmemory is not changed during running
         set config_file [srv 0 config_file]
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         assert_equal 0 [regexp -line {^maxmemory } $contents]
 
         r config set maxmemory 128mb
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         assert_equal 1 [regexp -line {^maxmemory 128mb$} $contents]
         assert {[string last "include \"$include_file\"" $contents] < [string last {maxmemory 128mb} $contents]}
         restart_server 0 true false
         assert_equal 134217728 [lindex [r config get maxmemory] 1]
-        set fd [open $include_file r]
-        set include_contents [read $fd]
-        close $fd
+        set include_contents [read_file $include_file]
         assert_equal "maxmemory 64mb\n" $include_contents
     }
 } {} {external:skip}
@@ -1228,11 +1206,25 @@ test {CONFIG REWRITE rereads include values from disk} {
         puts $fd {maxmemory 128mb}
         close $fd
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         # The effective value on disk now matches memory, so don't copy it.
         assert_equal 0 [regexp -line {^maxmemory } $contents]
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE recreates a missing main config file} {
+    start_server [list tags {external:skip} config_lines [list maxmemory 64mb]] {
+        set config_file [srv 0 config_file]
+        r config set maxmemory 128mb
+        file delete $config_file
+
+        r config rewrite
+        assert {[file exists $config_file]}
+        set contents [read_file $config_file]
+        assert_equal 1 [regexp -line {^maxmemory 128mb$} $contents]
+
+        restart_server 0 true false
+        assert_equal 134217728 [lindex [r config get maxmemory] 1]
     }
 } {} {external:skip}
 
@@ -1248,9 +1240,7 @@ test {CONFIG REWRITE distinguishes CLI includes from following CLI options} {
         assert_equal 67108864 [lindex [r config get maxmemory] 1]
         assert_equal 13 [lindex [r config get timeout] 1]
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^maxmemory 64mb$} $contents]
         assert_equal 1 [regexp -line {^timeout 0$} $contents]
 
@@ -1273,9 +1263,7 @@ test {CONFIG REWRITE persists a default value overriding an include} {
     start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
         r config set maxmemory 0
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^maxmemory 0$} $contents]
         restart_server 0 true false
         assert_equal 0 [lindex [r config get maxmemory] 1]
@@ -1301,9 +1289,7 @@ test {CONFIG REWRITE persists default and empty values overriding includes} {
         r config set masterauth {}
         r config rewrite
 
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert {[string last "include \"$include_file\"" $contents] < [string last {bind * -::*} $contents]}
         assert {[string last "include \"$include_file\"" $contents] < [string last {replicaof no one} $contents]}
         assert {[string last "include \"$include_file\"" $contents] < [string last {replica-announce-ip ""} $contents]}
@@ -1329,9 +1315,7 @@ test {CONFIG REWRITE preserves a main value shadowed by an unchanged include} {
     start_server [list tags {external:skip} config_lines [list maxmemory 32mb include "\"$include_file\""]] {
         assert_equal 67108864 [lindex [r config get maxmemory] 1]
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^maxmemory 32mb$} $contents]
         assert_equal 1 [regexp -all -line {^maxmemory } $contents]
     }
@@ -1349,9 +1333,7 @@ test {CONFIG REWRITE appends a changed main value after an earlier include} {
         assert_equal 67108864 [lindex [r config get maxmemory] 1]
         r config set maxmemory 96mb
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         # The changed value must follow the include so it wins on restart.
         assert_equal 1 [regexp -all -line {^maxmemory } $contents]
         assert {[string last "include \"$include_file\"" $contents] < [string last {maxmemory 96mb} $contents]}
@@ -1365,9 +1347,7 @@ test {CONFIG REWRITE keeps CLI provenance for an aliased config} {
     start_server [list tags {external:skip} overrides {hash-max-listpack-entries 16} \
         args {--hash-max-ziplist-entries 32}] {
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_match {*hash-max-listpack-entries 16*} $contents
         r config set hash-max-ziplist-entries 32
         r config rewrite
@@ -1383,16 +1363,12 @@ test {CONFIG REWRITE does not persist runtime REPLICAOF changes over a CLI value
         # owns persistence for this option.
         r replicaof 127.0.0.1 3
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_match {*replicaof 127.0.0.1 1*} $contents
 
         r replicaof 127.0.0.1 2
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_match {*replicaof 127.0.0.1 1*} $contents
     }
 } {} {external:skip}
@@ -1401,9 +1377,7 @@ test {CONFIG REWRITE compares boolean and string config values} {
     start_server [list tags {external:skip} config_lines [list hz 10 protected-mode yes replica-announce-ip 127.0.0.1]] {
         set config_file [srv 0 config_file]
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         # Equivalent boolean spellings and unchanged strings are left alone.
         assert_equal 1 [regexp -line {^hz 10$} $contents]
         assert_equal 1 [regexp -line {^protected-mode yes$} $contents]
@@ -1431,16 +1405,12 @@ test {CONFIG REWRITE compares percentage configuration values} {
         # while CONFIG GET exposes the normalized value with a percent sign.
         assert_equal {maxmemory-clients 50%} [r config get maxmemory-clients]
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         assert_equal 0 [regexp -line {^maxmemory-clients } $contents]
 
         r config set maxmemory-clients 25%
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         # The changed percentage is written after the include and survives restart.
         assert {[string last "include \"$include_file\"" $contents] < [string last {maxmemory-clients 25%} $contents]}
         restart_server 0 true false
@@ -1458,9 +1428,7 @@ test {CONFIG REWRITE compares octal configuration values} {
         # 0700 is parsed as octal and normalized to the getter's value, 700.
         assert_equal {unixsocketperm 700} [r config get unixsocketperm]
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         # The unchanged include value should not be copied into main.conf.
         assert_equal 0 [regexp -line {^unixsocketperm } $contents]
     }
@@ -1480,14 +1448,10 @@ test {CONFIG REWRITE compares special configuration values} {
     close $fd
     start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
         set config_file [srv 0 config_file]
-        set fd [open $config_file r]
-        set initial_contents [read $fd]
-        close $fd
+        set initial_contents [read_file $config_file]
         set initial_dir_line [regexp -line -inline {^dir .*$} $initial_contents]
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         # The test config already contains save, notify, bind, and dir lines.
         # Equal include values must not add duplicates, and the relative dir
         # spelling must remain untouched when it resolves to the live value.
@@ -1508,9 +1472,7 @@ test {CONFIG REWRITE compares special configuration values} {
         set expected_obuf [lindex [r config get client-output-buffer-limit] 1]
         set expected_percentiles [lindex [r config get latency-tracking-info-percentiles] 1]
         r config rewrite
-        set fd [open $config_file r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file $config_file]
         # save is cumulative, so an empty directive clears include rules before
         # the changed rule is appended. Other special values are also appended
         # after include to take precedence over it.
@@ -1538,9 +1500,7 @@ test {CONFIG REWRITE compares quoted multi-argument enum values from includes} {
         assert_equal {cluster-slot-stats-enabled {cpu mem}} [r config get cluster-slot-stats-enabled]
 
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         # An unchanged quoted enum from an include should not be copied.
         assert_equal 0 [regexp -line {^cluster-slot-stats-enabled } $contents]
     }
@@ -1558,17 +1518,13 @@ test {CONFIG REWRITE compares aggregated save rules from includes} {
         assert_equal {100 1 200 2} [lindex [r config get save] 1]
 
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         # Unchanged save rules from include should stay in that file.
         assert_equal {} [regexp -all -inline -line {^save (100 1|200 2)$} $contents]
 
         r config set save {300 1}
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         # save needs an explicit clear before its replacement rule.
         assert_match {*save ""*} $contents
         assert_match {*save 300 1*} $contents
@@ -1589,16 +1545,12 @@ if {[string tolower [exec uname -s]] eq {linux}} {
             set config_file [srv 0 config_file]
             # An unchanged value from the include should not be copied to main.conf.
             r config rewrite
-            set fd [open $config_file r]
-            set contents [read $fd]
-            close $fd
+            set contents [read_file $config_file]
             assert_equal 0 [regexp -line {^oom-score-adj-values } $contents]
 
             r config set oom-score-adj-values {10 20 30}
             r config rewrite
-            set fd [open $config_file r]
-            set contents [read $fd]
-            close $fd
+            set contents [read_file $config_file]
             # Put the changed value after the include so it takes precedence.
             assert {[string last "include \"$include_file\"" $contents] < [string last {oom-score-adj-values 10 20 30} $contents]}
             restart_server 0 true false
@@ -1618,9 +1570,7 @@ test {CONFIG REWRITE does not copy CLI or included ACL users into the main file}
         config_lines [list include "\"$include_file\"" user {main-user on nopass ~* +@all}] \
         args {--user cli-user on nopass ~* +@all}] {
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         # include-user and cli-user should not exist in main.conf
         assert_equal 1 [regexp -line {^user main-user } $contents]
         assert_equal 0 [regexp -line {^user include-user } $contents]
@@ -1632,9 +1582,7 @@ test {CONFIG REWRITE persists runtime ACL users when no ACL file is configured} 
     start_server [list tags {external:skip} config_lines [list user {main-user on nopass ~* +@all}]] {
         r ACL SETUSER runtime-user on nopass ~* +@all
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^user main-user } $contents]
         assert_equal 1 [regexp -line {^user runtime-user } $contents]
 
@@ -1650,26 +1598,20 @@ test {CONFIG REWRITE leaves ACL file users and file contents unchanged} {
     puts $fd {user default on nopass ~* +@all}
     puts $fd {user file-user on nopass ~* +@all}
     close $fd
-    set fd [open $acl_file r]
-    set initial_acl_contents [read $fd]
-    close $fd
+    set initial_acl_contents [read_file $acl_file]
 
     start_server [list tags {external:skip} config_lines [list aclfile "\"$acl_file\""]] {
         # Runtime ACL changes are not serialized by CONFIG REWRITE when users
         # are managed through a separate ACL file.
         r ACL SETUSER runtime-user on nopass ~* +@all
         r config rewrite
-        set fd [open [srv 0 config_file] r]
-        set contents [read $fd]
-        close $fd
+        set contents [read_file [srv 0 config_file]]
         assert_equal $acl_file [lindex [r config get aclfile] 1]
         assert {[string first $acl_file $contents] >= 0}
         assert_equal 0 [regexp -line {^user } $contents]
         assert {[r ACL GETUSER runtime-user] ne {}}
         # acl file is not changed
-        set fd [open $acl_file r]
-        set rewritten_acl_contents [read $fd]
-        close $fd
+        set rewritten_acl_contents [read_file $acl_file]
         assert_equal $initial_acl_contents $rewritten_acl_contents
 
         # CONFIG REWRITE does not save runtime ACL changes; the ACL file remains

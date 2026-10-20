@@ -2783,9 +2783,10 @@ static sds rewriteResolvePath(const sds cwd, const sds path) {
  * Includes recurse immediately, so later directives replace earlier ones just
  * as they do at startup. `source` identifies the file-origin class for values
  * read from this file; included files are passed CONFIG_SOURCE_INCLUDE. */
-static int rewriteConfigParseFile(const sds path, configSource source, dict *values, sds *cwd) {
+static int rewriteConfigParseFile(const sds path, configSource source, dict *values, sds *cwd,
+                                 int allow_missing) {
     FILE *fp = fopen(path, "r");
-    if (!fp) return C_ERR;
+    if (!fp) return allow_missing && errno == ENOENT ? C_OK : C_ERR;
 
     /* Read the complete file first, like loadServerConfig(), then use the
      * same line splitting and argument parsing rules as normal loading. */
@@ -2833,7 +2834,7 @@ static int rewriteConfigParseFile(const sds path, configSource source, dict *val
                 for (size_t i = 0; i < matches.gl_pathc; i++) {
                     sds include_path = sdsnew(matches.gl_pathv[i]);
                     if (rewriteConfigParseFile(include_path, CONFIG_SOURCE_INCLUDE,
-                                               values, cwd) == C_ERR)
+                                               values, cwd, 0) == C_ERR)
                     {
                         result = C_ERR;
                     }
@@ -2887,7 +2888,9 @@ static dict *rewriteConfigReadFileValues(const char *path) {
     sds path_sds = sdsnew(path);
     sds root = path[0] == '/' ? sdsdup(path_sds) : rewriteResolvePath(cwd, path_sds);
     sdsfree(path_sds);
-    int result = rewriteConfigParseFile(root, CONFIG_SOURCE_MAIN, values, &cwd);
+    /* A deleted main config is an empty baseline, matching the rewrite-state
+     * reader; missing files referenced by include remain errors. */
+    int result = rewriteConfigParseFile(root, CONFIG_SOURCE_MAIN, values, &cwd, 1);
     sdsfree(root);
     sdsfree(cwd);
     if (result == C_ERR) {

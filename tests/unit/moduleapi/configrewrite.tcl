@@ -1,13 +1,6 @@
 set rewrite_module [file normalize tests/modules/moduleconfigs.so]
 set rewrite_module_two [file normalize tests/modules/moduleconfigstwo.so]
 
-proc rewrite_read_file {path} {
-    set fd [open $path r]
-    set contents [read $fd]
-    close $fd
-    return $contents
-}
-
 set rewrite_dir [file normalize [tmpdir config-rewrite-sources]]
 set rewrite_leaf $rewrite_dir/leaf.conf
 set rewrite_include $rewrite_dir/include.conf
@@ -23,11 +16,11 @@ start_server [list tags {modules external:skip} config_lines [list include "\"$r
     test {CONFIG REWRITE does not copy nested include modules, even on repeated rewrites} {
         # These values belong to nested include files and must not be copied
         # into the main file, even when rewrite is repeated.
-        set before [rewrite_read_file $rewrite_leaf]
+        set before [read_file $rewrite_leaf]
         r config rewrite
-        assert_equal 0 [regexp -line {^loadmodule } [rewrite_read_file [srv 0 config_file]]]
-        assert_equal $before [rewrite_read_file $rewrite_leaf]
-        assert_equal 0 [regexp -line {^moduleconfigs.string } [rewrite_read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
+        assert_equal $before [read_file $rewrite_leaf]
+        assert_equal 0 [regexp -line {^moduleconfigs.string } [read_file [srv 0 config_file]]]
         assert_equal included-value [lindex [r config get moduleconfigs.string] 1]
         restart_server 0 true false
         assert {[lsearch -exact [lmap m [r module list] {dict get $m name}] moduleconfigs] >= 0}
@@ -39,7 +32,7 @@ start_server [list tags {modules external:skip} config_lines [list include "\"$r
         # The included module is already active before this runtime load.
         r module load $rewrite_module_two arg1 arg2
         r config rewrite
-        set contents [rewrite_read_file [srv 0 config_file]]
+        set contents [read_file [srv 0 config_file]]
         # The main file should contain only the runtime module's load directive.
         assert_equal 1 [regexp -all -line {^loadmodule } $contents]
         assert_equal -1 [string first $rewrite_module $contents]
@@ -66,7 +59,7 @@ start_server [list tags {modules external:skip} config_lines [list include "\"$r
         file delete $rewrite_include
         file rename $rewrite_include.saved $rewrite_include
         assert_equal OK [r config rewrite]
-        assert_equal 0 [regexp -line {^loadmodule } [rewrite_read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
     }
 }
 
@@ -76,7 +69,7 @@ start_server [list tags {modules external:skip} args [list --loadmodule $rewrite
         # module loaded at runtime should be persisted in main.conf.
         r module load $rewrite_module_two
         r config rewrite
-        set contents [rewrite_read_file [srv 0 config_file]]
+        set contents [read_file [srv 0 config_file]]
         assert_equal -1 [string first $rewrite_module $contents]
         assert {[string first $rewrite_module_two $contents] >= 0}
         # Start with the exact generated module directive and the original CLI.
@@ -97,10 +90,10 @@ start_server [list tags {modules external:skip} args [list --loadmodule $rewrite
 start_server [list tags {modules external:skip} config_lines [list loadmodule "  '$rewrite_module'"]] {
     test {CONFIG REWRITE keeps existing main-file module serialization and unload cleanup} {
         r config rewrite
-        assert {[string first "loadmodule $rewrite_module\n" [rewrite_read_file [srv 0 config_file]]] >= 0}
+        assert {[string first "loadmodule $rewrite_module\n" [read_file [srv 0 config_file]]] >= 0}
         r module unload moduleconfigs
         r config rewrite
-        assert_equal 0 [regexp -line {^loadmodule } [rewrite_read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
     }
 }
 
@@ -108,7 +101,7 @@ start_server [list tags {modules external:skip} config_lines [list dir $rewrite_
     test {CONFIG REWRITE skips modules loaded from relative includes} {
         # Relative include resolution must use the startup dir as loading does.
         r config rewrite
-        assert_equal 0 [regexp -line {^loadmodule } [rewrite_read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
         restart_server 0 true false
         # The module should still load from the relative include after restart,
         # even though CONFIG REWRITE did not copy its directive to main.conf.
@@ -126,13 +119,13 @@ start_server [list tags {modules external:skip} config_lines [list loadmodule "\
         # Rewrite uses the canonical option name, but must not persist a value
         # that originated from the CLI.
         r config rewrite
-        assert_equal 0 [regexp -line {^unprefix-string } [rewrite_read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^unprefix-string } [read_file [srv 0 config_file]]]
 
         # Changing the CLI-sourced option through its alias must not make it
         # eligible for CONFIG REWRITE persistence.
         r config set unprefix.string-alias changed-cli-value
         r config rewrite
-        assert_equal 0 [regexp -line {^unprefix-string } [rewrite_read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^unprefix-string } [read_file [srv 0 config_file]]]
 
         # The restart helper omits the CLI argument, so the option returns to
         # the module's default instead of either CLI-provided value.
@@ -150,14 +143,14 @@ start_server [list tags {modules external:skip} config_lines [list loadmodule "\
         set config_file [srv 0 config_file]
         # The main file stores this memory value as a byte count. Keep its line
         # so we can verify an equivalent getter value leaves it untouched.
-        set initial_line [regexp -line -inline {^moduleconfigs\.memory_numeric .*$} [rewrite_read_file $config_file]]
+        set initial_line [regexp -line -inline {^moduleconfigs\.memory_numeric .*$} [read_file $config_file]]
         r config rewrite
-        assert_equal $initial_line [regexp -line -inline {^moduleconfigs\.memory_numeric .*$} [rewrite_read_file $config_file]]
+        assert_equal $initial_line [regexp -line -inline {^moduleconfigs\.memory_numeric .*$} [read_file $config_file]]
 
         # A runtime change must be serialized and survive a restart.
         r config set moduleconfigs.memory_numeric 4096
         r config rewrite
-        assert_match {*moduleconfigs.memory_numeric 4kb*} [rewrite_read_file $config_file]
+        assert_match {*moduleconfigs.memory_numeric 4kb*} [read_file $config_file]
         restart_server 0 true false
         assert_equal 4096 [lindex [r config get moduleconfigs.memory_numeric] 1]
     }
@@ -169,7 +162,7 @@ start_server [list tags {modules external:skip} config_lines [list loadmodule "\
         # main file.
         assert_equal 2048 [lindex [r config get moduleconfigs.memory_numeric] 1]
         r config rewrite
-        assert_equal 0 [regexp -line {^moduleconfigs.memory_numeric } [rewrite_read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^moduleconfigs.memory_numeric } [read_file [srv 0 config_file]]]
     }
 
     test {CONFIG REWRITE appends changed included module config values after includes} {
@@ -177,7 +170,7 @@ start_server [list tags {modules external:skip} config_lines [list loadmodule "\
         # restart, while the original include remains unchanged.
         r config set moduleconfigs.memory_numeric 4096
         r config rewrite
-        set contents [rewrite_read_file [srv 0 config_file]]
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -all -line {^moduleconfigs.memory_numeric 4kb$} $contents]
         assert {[string last "include \"$module_value_include\"" $contents] < [string last {moduleconfigs.memory_numeric 4kb} $contents]}
         restart_server 0 true false
@@ -199,12 +192,12 @@ start_server [list tags {modules external:skip} config_lines [list loadmodule "\
         # The final queued value and source must both be CLI: keep the original
         # MAIN line, but do not persist the CLI or INCLUDE value into main.conf.
         r config rewrite
-        set contents [rewrite_read_file [srv 0 config_file]]
+        set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^moduleconfigs\.string main-value$} $contents]
         assert_equal 0 [regexp -line {^moduleconfigs\.string (include-value|cli-value)$} $contents]
 
         # The included source file remains untouched by CONFIG REWRITE.
-        assert_equal "moduleconfigs.string include-value\n" [rewrite_read_file $queued_source_include]
+        assert_equal "moduleconfigs.string include-value\n" [read_file $queued_source_include]
     }
 }
 
@@ -222,9 +215,9 @@ start_server [list tags {modules external:skip} args [list --include $cli_includ
         # no file baseline and compares this value with the module default.
         # It writes the non-default config, but does not copy loadmodule.
         r config rewrite
-        set contents [rewrite_read_file [srv 0 config_file]]
+        set contents [read_file [srv 0 config_file]]
         assert_equal 0 [regexp -line {^loadmodule } $contents]
         assert_equal 1 [regexp -line {^moduleconfigs\.string "?included-value"?$} $contents]
-        assert_equal "include \"$rewrite_leaf\"\n" [rewrite_read_file $cli_include]
+        assert_equal "include \"$rewrite_leaf\"\n" [read_file $cli_include]
     }
 }
