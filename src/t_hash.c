@@ -2163,9 +2163,9 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         notifyKeyspaceEventWithSubkeys(NOTIFY_HASH, "hexpired", keyObj, db->id, farr, 1);
     }
     if ((length == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
+        dbDelete(db,keyObj);
         if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
-        dbDelete(db,keyObj);
         o = NULL;
         res = GETF_EXPIRED_HASH;
     }
@@ -3993,8 +3993,8 @@ uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexp
         }
 
         if (hashTypeLength(o, 0) == 0) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, db->id);
             dbDelete(db, key);
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, db->id);
             noExpireLeftRes = 0;
             deleted = 1;
         } else {

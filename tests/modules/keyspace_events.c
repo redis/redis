@@ -692,6 +692,66 @@ static int GetKeyTypeCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+/* Log of "<event> <type> <length>" entries, describing the key state as
+ * observed from inside the notification callback, for keys with the
+ * "post_state:" prefix. Used to verify that notifications are fired only after
+ * the command has modified the key. */
+#define POST_STATE_LOG_MAX 64
+#define POST_STATE_LOG_LINE 128
+static char post_state_log[POST_STATE_LOG_MAX][POST_STATE_LOG_LINE];
+static int post_state_log_count = 0;
+
+static const char *PostStateKeyTypeName(int type) {
+    switch (type) {
+    case REDISMODULE_KEYTYPE_EMPTY: return "none";
+    case REDISMODULE_KEYTYPE_HASH: return "hash";
+    case REDISMODULE_KEYTYPE_SET: return "set";
+    case REDISMODULE_KEYTYPE_ZSET: return "zset";
+    default: return "other";
+    }
+}
+
+static int KeySpace_NotificationPostState(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    static const char prefix[] = "post_state:";
+    size_t len;
+    const char *key_str = RedisModule_StringPtrLen(key, &len);
+    if (len < sizeof(prefix) - 1 || memcmp(key_str, prefix, sizeof(prefix) - 1) != 0 ||
+        post_state_log_count == POST_STATE_LOG_MAX)
+    {
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key,
+        REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY);
+    snprintf(post_state_log[post_state_log_count], POST_STATE_LOG_LINE, "%s %s %zu",
+             event, PostStateKeyTypeName(RedisModule_KeyType(redis_key)),
+             RedisModule_ValueLength(redis_key));
+    post_state_log_count++;
+    RedisModule_CloseKey(redis_key);
+    return REDISMODULE_OK;
+}
+
+static int cmdGetPostStateLog(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModule_ReplyWithArray(ctx, post_state_log_count);
+    for (int i = 0; i < post_state_log_count; i++)
+        RedisModule_ReplyWithCString(ctx, post_state_log[i]);
+    return REDISMODULE_OK;
+}
+
+static int cmdResetPostStateLog(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    post_state_log_count = 0;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 static int CmdUnsub(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
         return RedisModule_WrongArity(ctx);
@@ -774,6 +834,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx,
+        REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+        REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_ZSET,
+        KeySpace_NotificationPostState) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -845,6 +912,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.key_type", GetKeyTypeCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_post_state_log", cmdGetPostStateLog, "readonly", 0, 0, 0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.reset_post_state_log", cmdResetPostStateLog, "", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
