@@ -89,6 +89,35 @@ start_server {tags {"tls"}} {
             set e
         } {*I/O error*}
 
+        test {TLS: a graceful client shutdown is not logged as a connection error} {
+            # Regression test for #15745. Since #14721 redis-cli performs a
+            # graceful SSL_shutdown (sends close_notify) on exit. On the server
+            # that surfaces as SSL_ERROR_ZERO_RETURN with an empty OpenSSL error
+            # queue, which used to be formatted into a meaningless
+            # "Reading from client: error:00000000:lib(0)::reason(0)" log line.
+            # A peer close_notify is a clean EOF and must be logged as such,
+            # exactly like a plain socket read() returning 0.
+            set tlsdir [file join [pwd] tests tls]
+            set stdout [srv 0 stdout]
+            set loglines [count_log_lines 0]
+
+            assert_match {*PONG*} [exec src/redis-cli \
+                -h [srv 0 host] -p [srv 0 port] --tls \
+                --cert [file join $tlsdir client.crt] \
+                --key [file join $tlsdir client.key] \
+                --cacert [file join $tlsdir ca.crt] \
+                PING 2>@1]
+
+            # The disconnect must be handled through the clean-close path...
+            wait_for_log_messages 0 {"*Client closed connection*"} $loglines 50 100
+
+            # ...and never through the error path that formatted the empty
+            # OpenSSL error queue.
+            set newlog [exec tail -n +[expr {$loglines + 1}] < $stdout]
+            assert_no_match {*error:00000000*} $newlog
+            assert_no_match {*Reading from client*} $newlog
+        }
+
         test {TLS: Verify tls-auth-clients behaves as expected} {
             set s [redis [srv 0 host] [srv 0 port]]
             ::tls::import [$s channel]
@@ -500,6 +529,93 @@ if {$::tls} {
             assert_equal {node.cluster.local} [lindex [r config get tls-expected-peer-name] 1]
             r config set tls-expected-peer-name ""
             assert_equal {} [lindex [r config get tls-expected-peer-name] 1]
+        }
+
+        test {TLS: tls-expected-peer-name warns about parent-domain entries} {
+            # A leading dot is a legitimate OpenSSL parent-domain pattern, but it
+            # matches subdomains at any depth, so its scope is surfaced in the log
+            # rather than left silent.
+            set base [count_log_message 0 "beginning with a dot"]
+
+            r config set tls-expected-peer-name ".example.com"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 1 entry beginning with a dot"]
+
+            # An explicit host name adds no advisory.
+            r config set tls-expected-peer-name "redis.local"
+            assert_equal [expr {$base + 1}] [count_log_message 0 "beginning with a dot"]
+
+            # Several parent-domain entries are reported on one line, with their number.
+            r config set tls-expected-peer-name "redis.local .a.example.com .b.example.com"
+            assert_equal [expr {$base + 2}] [count_log_message 0 "beginning with a dot"]
+            assert_equal 1 [count_log_message 0 "has 2 entries beginning with a dot"]
+
+            r config set tls-expected-peer-name ""
+        }
+
+        test {TLS: parent-domain advisory is logged at startup} {
+            # The advisory is emitted from the post-load config checks, so it appears
+            # for a value that comes from the config file, not only from CONFIG SET.
+            start_server [list overrides [list tls-expected-peer-name ".local"]] {
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                assert_equal {.local} [lindex [r config get tls-expected-peer-name] 1]
+            }
+        }
+
+        test {TLS: parent-domain advisory is not repeated for included configs} {
+            # "include" recursively reloads an entire config file, so an advisory
+            # emitted once per completed load is repeated for every nesting level.
+            # It must be reported once for the configured value instead.
+            # The path must be absolute: the generated config sets "dir" before the
+            # overrides, and that chdir()s the server away from the test root.
+            set inner [file normalize [tmpfile "peer-name-include"]]
+            set fd [open $inner w]
+            puts $fd "tls-expected-peer-name .example.com"
+            close $fd
+
+            start_server [list overrides [list include $inner]] {
+                assert_equal {.example.com} [lindex [r config get tls-expected-peer-name] 1]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+            }
+            file delete $inner
+        }
+
+        test {TLS: parent-domain advisory is not repeated when TLS is enabled later} {
+            # The advisory is reported when the option is set; configuring TLS
+            # afterwards must not repeat it. Boot with TLS fully disabled and
+            # talk over the plain port (the suite's servers configure TLS at
+            # startup): set the option, then enable TLS. Exactly one advisory.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com"
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                # srv 0 port is the overridden tls-port (0), so allocate a fresh one.
+                $rr config set tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
+        }
+
+        test {TLS: parent-domain advisory is not repeated for a combined CONFIG SET} {
+            # A single command setting both the option and tls-port applies the
+            # option and performs the initial TLS configuration in one go.
+            # Still exactly one advisory.
+            start_server [list overrides [list tls-port 0 tls-replication no tls-cluster no] wait_ready false] {
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Ready to accept"] > 0
+                } else {
+                    fail "Server did not start"
+                }
+                set rr [redis [srv 0 host] [srv 0 pport] 0 0]
+                $rr config set tls-expected-peer-name ".example.com" tls-port [find_available_port $::baseport $::portcount]
+                assert_equal 1 [count_log_message 0 "beginning with a dot"]
+                $rr close
+            }
         }
 
         test {TLS: tls-expected-peer-name rejects a whitespace-only value} {

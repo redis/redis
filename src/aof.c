@@ -39,6 +39,9 @@ void aof_background_fsync_and_close(int fd);
  * the temp INCR AOF. This variable is used to record the start offset, and
  * set the start offset of the real INCR AOF when the AOFRW is done. */
 static long long tempIncAofStartReplOffset = 0;
+/* Parent snapshot of aof_cmd_duration at BGREWRITEAOF fork. Restored if
+ * rewrite fails and the old AOF is still in use. */
+static long long aof_cmd_duration_at_rewrite = 0;
 
 /* ----------------------------------------------------------------------------
  * AOF Manifest file implementation.
@@ -1259,18 +1262,24 @@ void killAppendOnlyChild(void) {
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
-    flushAppendOnlyFile(1);
-    if (redis_fsync(server.aof_fd) == -1) {
-        serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
-    } else {
-        server.aof_last_fsync = server.mstime;
+    /* AOF may be in AOF_WAIT_REWRITE with no file opened yet when another
+     * background operation has postponed the initial rewrite. */
+    if (server.aof_fd != -1) {
+        flushAppendOnlyFile(1);
+        if (redis_fsync(server.aof_fd) == -1) {
+            serverLog(LL_WARNING, "Fail to fsync the AOF file: %s", strerror(errno));
+        } else {
+            server.aof_last_fsync = server.mstime;
+        }
+        close(server.aof_fd);
     }
-    close(server.aof_fd);
     updateCurIncrAofEndOffset();
 
     server.aof_fd = -1;
     server.aof_selected_db = -1;
     server.aof_state = AOF_OFF;
+    server.aof_cmd_duration = 0;
+    aof_cmd_duration_at_rewrite = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_last_incr_size = 0;
     server.aof_last_incr_fsync_offset = 0;
@@ -1658,7 +1667,7 @@ sds genAofTimestampAnnotationIfNeeded(int force) {
  * argv   - The command to write to the aof.
  * argc   - Number of values in argv
  */
-void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
+void feedAppendOnlyFile(int dictid, robj **argv, int argc, long long duration) {
     sds buf = sdsempty();
 
     serverAssert(dictid == -1 || (dictid >= 0 && dictid < server.dbnum));
@@ -1694,6 +1703,7 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
         (server.aof_state == AOF_WAIT_REWRITE && server.child_type == CHILD_TYPE_AOF))
     {
         server.aof_buf = sdscatlen(server.aof_buf, buf, sdslen(buf));
+        server.aof_cmd_duration += duration;
     }
 
     sdsfree(buf);
@@ -1812,6 +1822,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     struct redis_stat sb;
     int old_aof_state = server.aof_state;
     long loops = 0;
+    long long start = ustime();
     off_t valid_up_to = 0; /* Offset of latest well-formed command loaded. */
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
@@ -1837,6 +1848,11 @@ int loadSingleAppendOnlyFile(char *filename) {
         sdsfree(aof_filepath);
         return AOF_EMPTY;
     }
+
+#ifdef HAVE_FADVISE
+    /* The file is read sequentially: let the kernel use a larger read-ahead window. */
+    posix_fadvise(fileno(fp), 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
 
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
      * to the same file we're about to read. */
@@ -2029,6 +2045,8 @@ int loadSingleAppendOnlyFile(char *filename) {
 loaded_ok: /* DB loaded, cleanup and return success (AOF_OK or AOF_TRUNCATED). */
     loadingIncrProgress(ftello(fp) - last_progress_report_size);
     server.aof_state = old_aof_state;
+    /* Accumulate this file's load wall-clock into the estimate (usec). */
+    server.aof_cmd_duration += ustime() - start;
     goto cleanup;
 
 readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
@@ -2140,6 +2158,8 @@ int loadAppendOnlyFiles(aofManifest *am) {
     }
 
     startLoading(total_size, RDBFLAGS_AOF_PREAMBLE, 0);
+    /* Fresh estimate from this load; each file accumulates below. */
+    server.aof_cmd_duration = 0;
 
     /* Load BASE AOF if needed. */
     if (am->base_aof_info) {
@@ -2834,6 +2854,22 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     return io.error ? 0 : 1;
 }
 
+int rewriteBitmapObject(rio *r, robj *key, robj *o, int dbid) {
+    rio payload;
+    /* KeyMeta is emitted below through its AOF callbacks, so the RESTORE
+     * payload must not contain another copy. */
+    createDumpPayload(&payload, o, key, dbid, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+
+    int ok = rioWriteBulkCount(r,'*',5) &&
+             rioWriteBulkString(r,"RESTORE",7) &&
+             rioWriteBulkObject(r,key) &&
+             rioWriteBulkString(r,"0",1) &&
+             rioWriteBulkString(r,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)) &&
+             rioWriteBulkString(r,"REPLACE",7);
+    sdsfree(payload.io.buffer.ptr);
+    return ok;
+}
+
 static int rewriteFunctions(rio *aof) {
     dict *functions = functionsLibGet();
     dictIterator iter;
@@ -2989,6 +3025,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
 #endif
     } else if (o->type == OBJ_ARRAY) {
         if (rewriteArrayObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_BITMAP) {
+        if (rewriteBitmapObject(r,key,o,dbid) == 0) return C_ERR;
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {
@@ -3002,6 +3040,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rioWriteBulkObject(r,key) == 0) return C_ERR;
         if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
     }
+
+    if (blessRewrite(r, key, o) == C_ERR) return C_ERR;
 
     /* If modules metadata is available */
     if ((getModuleMetaBits(o->metabits)) && (keyMetaOnAof(r, key, o, dbid) == 0))
@@ -3264,6 +3304,10 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %ld",(long) childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
+        /* Restart the estimate from commands going into the new INCR.
+         * Remember the old value in case rewrite fails and old AOF remains. */
+        aof_cmd_duration_at_rewrite = server.aof_cmd_duration;
+        server.aof_cmd_duration = 0;
         return C_OK;
     }
     return C_OK; /* unreached */
@@ -4007,6 +4051,14 @@ cleanup:
         server.aof_buf = sdsempty();
         aofDelTempIncrAofFile();
     }
+    if (server.aof_state == AOF_WAIT_REWRITE) {
+        /* Temp INCR was discarded; nothing durable to replay. */
+        server.aof_cmd_duration = 0;
+    } else if (!rewrite_success) {
+        /* Old AOF still on disk; put its estimate back. Keep incr-during-rewrite. */
+        server.aof_cmd_duration += aof_cmd_duration_at_rewrite;
+    }
+    aof_cmd_duration_at_rewrite = 0;
     server.aof_rewrite_time_last = time(NULL)-server.aof_rewrite_time_start;
     server.aof_rewrite_time_start = -1;
     /* Schedule a new rewrite only when AOF is enabled by config. BACKUP's

@@ -19,6 +19,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -780,6 +781,17 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
 }
 
+void defragBitmapObject(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_BITMAP);
+    /* Only the threshold decision is needed here. Avoid a full main-thread
+     * ART walk before scheduling a large bitmap for incremental defrag. */
+    if (bitroarContainerCountUpTo(ob, server.active_defrag_max_scan_fields + 1) >
+        server.active_defrag_max_scan_fields)
+        defragLater(ctx, ob);
+    else
+        bitroarDefrag(ob);
+}
+
 /* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
  * hashtable/set/array paths) so a wide template hash can't stall defrag. */
 void defragTmplArray(defragKeysCtx *ctx, kvobj *ob) {
@@ -1244,6 +1256,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+    } else if (ob->type == OBJ_BITMAP) {
+        defragBitmapObject(ctx, ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1366,6 +1380,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
             ob->ptr = ar;
+        } else if (ob->type == OBJ_BITMAP) {
+            *cursor = bitroarDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
         }
@@ -1594,6 +1610,25 @@ static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
         .defragAlloc = activeDefragAlloc,
         .defragKey = NULL, /* Not needed for expires (just a ref) */
         .defragVal = NULL, /* Not needed for expires (no value) */
+    };
+    return defragStageKvstoreHelper(endtime, ctx,
+        scanCallbackCountScanned, NULL, &defragfns);
+}
+
+static doneStatus defragStageBlessedKvstore(void *ctx, monotime endtime) {
+    defragKeysCtx *defrag_keys_ctx = ctx;
+    redisDb *db = &server.db[defrag_keys_ctx->dbid];
+    if (db->blessed_keys != defrag_keys_ctx->kvstate.kvs) {
+        /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
+        return DEFRAG_DONE;
+    }
+
+    static dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        /* Unlike expires, the blessed-keys index owns its sds key (sdsdup), so it
+         * must be relocated here. Values are NULL, so there is nothing to defrag. */
+        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragVal = NULL,
     };
     return defragStageKvstoreHelper(endtime, ctx,
         scanCallbackCountScanned, NULL, &defragfns);
@@ -2063,6 +2098,12 @@ static void beginDefragCycle(void) {
         defrag_expires_ctx->kvstate = INIT_KVSTORE_STATE(db->expires);
         defrag_expires_ctx->dbid = dbid;
         addDefragStage(defragStageExpiresKvstore, freeDefragKeysContext, defrag_expires_ctx);
+
+        /* Add stage for the blessed-keys index. */
+        defragKeysCtx *defrag_blessed_ctx = zcalloc(sizeof(defragKeysCtx));
+        defrag_blessed_ctx->kvstate = INIT_KVSTORE_STATE(db->blessed_keys);
+        defrag_blessed_ctx->dbid = dbid;
+        addDefragStage(defragStageBlessedKvstore, freeDefragKeysContext, defrag_blessed_ctx);
 
         /* Add stage for subexpires. */
         defragSubexpiresCtx *defrag_subexpires_ctx = zcalloc(sizeof(defragSubexpiresCtx));

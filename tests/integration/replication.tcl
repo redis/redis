@@ -767,6 +767,10 @@ test {diskless loading short read} {
 
             set has_vector_sets [server_has_command vadd]
 
+            # Make SETBIT create native Roaring bitmaps, and convert the
+            # dense string bitmaps below into them
+            r config set bitmap-default-roaring yes
+
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
                     r set "$k int_$i" [expr {int(rand()*10000)}]
@@ -782,6 +786,9 @@ test {diskless loading short read} {
                     r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
                     r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
                     r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+                    r setbit "$k bitmap_sparse" [expr {int(rand()*100000000)}] 1
+                    r set "$k bitmap_large_$i" [string repeat A [expr {int(rand()*1000000)}]]
+                    r setbit "$k bitmap_large_$i" 0 1
 
                     if {$has_vector_sets} {
                         r vadd "$k vector_set" VALUES 3 [expr {rand()}] [expr {rand()}] [expr {rand()}] [string repeat A [expr {int(rand()*1000)}]]

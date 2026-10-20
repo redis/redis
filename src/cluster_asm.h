@@ -31,7 +31,8 @@ int asmImportInProgress(void);
 void asmFeedMigrationClient(robj **argv, int argc);
 int asmDebugSetFailPoint(char * channel, char *state);
 int asmDebugSetTrimMethod(const char *method, int active_trim_delay);
-
+unsigned long long asmGetTaskTotalKeys(struct asmTask *task);
+void asmImportIncrReceivedBytes(struct asmTask *task, size_t bytes);
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
 size_t asmGetPeakSyncBufferSize(void);
@@ -56,13 +57,6 @@ int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc
 void asmActiveTrimCycle(void);
 int asmIsKeyInTrimJob(sds keyname);
 int asmModulePropagateForSlotMigration(struct redisCommand *cmd, robj **argv, int argc);
-int asmTrimSlots(struct asmTrimCtx *ctx, uint64_t client_id, int migration_cleanup);
+int asmTrimSlots(struct slotRangeArray *slots, uint64_t client_id, int migration_cleanup);
 int asmIsBgTrimRunning(void);
-void asmBgTrimCounterDecr(void);
-void asmBgTrimCounterIncr(void);
-
-/* Context for ASM background trim */
-struct asmTrimCtx *asmTrimCtxCreate(struct slotRangeArray *slots, kvstore *target_kvstore);
-void asmTrimCtxRetain(struct asmTrimCtx *ctx);
-void asmTrimCtxRelease(struct asmTrimCtx *ctx);
 #endif

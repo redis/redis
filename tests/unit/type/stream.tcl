@@ -52,6 +52,9 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
+    # Also cover the INFO Streams bookkeeping: XADD/XTRIM/XDEL/XSETID paths.
+    arm_stream_stats_assert
+
     test "XADD wrong number of args" {
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
@@ -2805,6 +2808,19 @@ start_server {
         assert_equal [r XRANGE mystream - +] {{1641544570597-0 {f v}} {1641544570597-1 {f v}}}
     }
 
+    test {XTRIM MINID frees a node left with no live entries} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XDEL mystream 2-0
+        r XTRIM mystream MINID = 2-0
+        assert {[r XLEN mystream] == 0}
+        assert {[dict get [r xinfo stream mystream] radix-tree-keys] == 0}
+        r DEBUG RELOAD
+        assert {[r XLEN mystream] == 0}
+        assert_equal 2-0 [dict get [r xinfo stream mystream] max-deleted-entry-id]
+    } {} {needs:debug}
+
     proc insert_into_stream_key {key {count 10000}} {
         r multi
         for {set j 0} {$j < $count} {incr j} {
@@ -3633,6 +3649,84 @@ start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-
         incr j
         assert {[r xlen mystream] == 91}
     }
+}
+
+start_server {tags {"stream needs:debug"} overrides {appendonly yes stream-node-max-entries 100}} {
+    test {XTRIM with ~ MINID and DELREF can reload from AOF correctly} {
+        # DELREF removes both the entries and their pending references. Replaying
+        # the rewritten command must not bring either back. See #15934.
+        foreach id {1-0 2-0 3-0 4-0} {
+            r XADD mystream $id f v
+        }
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 3 STREAMS mystream >
+        assert_equal 2 [r XTRIM mystream MINID ~ 3-0 DELREF]
+        assert_equal {{3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 1 [lindex [r XPENDING mystream mygroup] 0]
+        r debug loadaof
+        assert_equal {{3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal 1 [lindex [r XPENDING mystream mygroup] 0]
+    }
+}
+
+start_server {tags {"stream"} overrides {stream-node-max-entries 2}} {
+    test {XADD with ~ MINID propagates the successor of the largest deleted ID} {
+        # With stream-node-max-entries 2 the six entries form three nodes.
+        # ACKED + LIMIT 3: the trim deletes 1-0 (acked, node 1), skips 2-0
+        # (pending, node 1), then deletes 3-0 and 4-0 (acked, node 2). The
+        # budget is exhausted before node 3, so 5-0 (acked) survives. The
+        # largest deleted ID is 4-0, and its successor 4-1 is propagated.
+        foreach id {1-0 2-0 3-0 4-0 5-0 6-0} {
+            r XADD trimmed $id f v
+        }
+        r XGROUP CREATE trimmed mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 6 STREAMS trimmed >
+        r XACK trimmed mygroup 1-0 3-0 4-0 5-0
+        set repl [attach_to_replication_stream]
+        r XADD trimmed ACKED MINID ~ 6-0 LIMIT 3 7-0 f v
+        assert_replication_stream $repl {
+            {select *}
+            {xadd trimmed ACKED MINID = 4-1 LIMIT 3 7-0 f v}
+        }
+        close_replication_stream $repl
+        assert_equal {{2-0 {f v}} {5-0 {f v}} {6-0 {f v}} {7-0 {f v}}} [r XRANGE trimmed - +]
+        assert_equal 2 [lindex [r XPENDING trimmed mygroup] 0]
+    } {} {needs:repl}
+
+    test {XADD with ~ MINID propagates a no-op boundary when nothing was deleted} {
+        # Two entries in one node, LIMIT 1 stops the trim before examining it,
+        # so nothing is deleted. The propagated MINID is the stream's first
+        # live ID (1-0), making replay a no-op.
+        foreach id {1-0 2-0} {
+            r XADD nochange $id f v
+        }
+        set repl [attach_to_replication_stream]
+        r XADD nochange ACKED MINID ~ 3-0 LIMIT 1 3-0 f v
+        assert_replication_stream $repl {
+            {select *}
+            {xadd nochange ACKED MINID = 1-0 LIMIT 1 3-0 f v}
+        }
+        close_replication_stream $repl
+        assert_equal {{1-0 {f v}} {2-0 {f v}} {3-0 {f v}}} [r XRANGE nochange - +]
+    } {} {needs:repl}
+
+    test {XTRIM with ~ MINID can propagate the last ID of a removed node that is a tombstone} {
+        # 2-0 was deleted before, so the node removed by the trim ends with a
+        # tombstone. Its successor is still exact: there is nothing live between
+        # 1-0 and 2-0, and the next node starts at 3-0.
+        foreach id {1-0 2-0 3-0} {
+            r XADD tombstone $id f v
+        }
+        r XDEL tombstone 2-0
+        set repl [attach_to_replication_stream]
+        assert_equal 1 [r XTRIM tombstone MINID ~ 3-0 KEEPREF]
+        assert_replication_stream $repl {
+            {select *}
+            {xtrim tombstone MINID = 2-1 KEEPREF}
+        }
+        close_replication_stream $repl
+        assert_equal {{3-0 {f v}}} [r XRANGE tombstone - +]
+    } {} {needs:repl}
 }
 
 start_server {tags {"stream"}} {
