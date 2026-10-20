@@ -56,6 +56,7 @@ set ::sme_ttl_cmds {STTL SPTTL SEXPIRETIME SPEXPIRETIME}
 start_server {tags {"external:skip needs:debug"}} {
 
     test "SEXPIRE family - Returns an array of -2 if the key does not exist" {
+        r flushall
         r del myset
         foreach cmd $::sme_set_expire_cmds {
             assert_equal [r $cmd myset 1000 MEMBERS 1 a] [list $E_NO_MEMBER]
@@ -65,6 +66,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "STTL family and SPERSIST - Return an array of -2 if the key does not exist" {
+        r flushall
         r del myset
         foreach cmd [concat $::sme_ttl_cmds SPERSIST] {
             assert_equal [r $cmd myset MEMBERS 1 a] [list $E_NO_MEMBER]
@@ -73,6 +75,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SADDEX - MXX on a missing key replies 0 and does not create the key" {
+        r flushall
         r del myset
         assert_equal [r saddex myset MXX MEMBERS 1 a] 0
         assert_equal [r exists myset] 0
@@ -95,6 +98,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SEXPIRE family - Verify the expire time does not overflow" {
+        r flushall
         r del myset
         r sadd myset a
         # The expire time can't be negative.
@@ -109,6 +113,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SEXPIRE family - Argument errors" {
+        r flushall
         r del myset
         r sadd myset a b c
         foreach cmd $::sme_set_expire_cmds {
@@ -135,6 +140,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SEXPIRE family - Keywords can come in any order, as in the HEXPIRE family" {
+        r flushall
         r del myset
         # A missing key makes the replies independent of the stored expirations.
         foreach cmd $::sme_set_expire_cmds {
@@ -145,6 +151,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "STTL family and SPERSIST - Argument errors" {
+        r flushall
         r del myset
         r sadd myset a b
         foreach cmd [concat $::sme_ttl_cmds SPERSIST] {
@@ -161,6 +168,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SADDEX - Minimum valid command and arity" {
+        r flushall
         r del myset
         # The minimum command has 5 tokens (there is no value, unlike HSETEX).
         r saddex myset MXX MEMBERS 1 a
@@ -171,6 +179,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SADDEX - Argument errors" {
+        r flushall
         r del myset
         r sadd myset a b
         assert_error {ERR missing MEMBERS argument} {r saddex myset EX 100 MXX}
@@ -192,6 +201,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SADDEX - Verify the expire time does not overflow" {
+        r flushall
         r del myset
         assert_error {ERR invalid expire time, must be >= 0} {r saddex myset EX -1 MEMBERS 1 a}
         assert_error {ERR invalid expire time, must be >= 0} {r saddex myset PXAT -1 MEMBERS 1 a}
@@ -204,6 +214,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "SADDEX - Keywords can come in any order" {
+        r flushall
         r del myset
         assert_equal [r saddex myset MXX EX 100 MEMBERS 1 a] 0
         assert_equal [r saddex myset EX 100 MXX MEMBERS 1 a] 0
@@ -310,6 +321,7 @@ start_server {tags {"external:skip needs:debug"}} {
         set plain_enc [expr {$enc eq "hashtable" ? "hashtable" : "listpack"}]
 
         test "SEXPIRE family - Set the expiration of members, the set gets the expiration encoding ($enc)" {
+            r flushall
             sme_create_set r myset {a b c}
             assert_encoding $plain_enc myset
             assert_equal [r sexpire myset 1000 MEMBERS 2 a b] [list $E_OK $E_OK]
@@ -319,6 +331,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SEXPIRE family - All forms set the same kind of expiration ($enc)" {
+            r flushall
             sme_create_set r myset {a b c d}
             set now_ms [clock milliseconds]
             assert_equal [r sexpire myset 1000 MEMBERS 1 a] [list $E_OK]
@@ -338,6 +351,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SEXPIRE family and the getters - Missing members and members without expiration ($enc)" {
+            r flushall
             sme_create_set r myset {a b c}
             r sexpire myset 1000 MEMBERS 1 a
             assert_equal [r sexpire myset 1000 MEMBERS 3 nosuch b nosuch2] [list $E_NO_MEMBER $E_OK $E_NO_MEMBER]
@@ -350,6 +364,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SEXPIRE family - NX, XX, GT and LT are evaluated per member ($enc)" {
+            r flushall
             sme_create_set r myset {a b c}
             set base [expr {[clock milliseconds] + 100000000}]
             r spexpireat myset $base MEMBERS 1 b
@@ -376,6 +391,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SEXPIRE family - An expiration in the past deletes the members ($enc)" {
+            r flushall
             sme_create_set r myset {a b c}
             r sexpire myset 1000 MEMBERS 1 a
             assert_equal [r sexpireat myset 1 MEMBERS 2 a nosuch] [list $E_DELETED $E_NO_MEMBER]
@@ -385,6 +401,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SEXPIRE family - The set keeps its own key expiration ($enc)" {
+            r flushall
             sme_create_set r myset {a b}
             r expire myset 1000
             r sexpire myset 100 MEMBERS 1 a
@@ -396,6 +413,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SPERSIST - Removes the expiration of members ($enc)" {
+            r flushall
             sme_create_set r myset {a b c}
             r sexpire myset 1000 MEMBERS 2 a b
             assert_equal [r spersist myset MEMBERS 4 a c nosuch b] [list $E_OK $E_NO_TTL $E_NO_MEMBER $E_OK]
@@ -406,6 +424,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "Members that are logically expired are treated as missing by the TTL commands ($enc)" {
+            r flushall
             r debug set-active-expire 0
             sme_create_set r myset {a b c}
             r sexpire myset 1000 MEMBERS 1 c
@@ -423,6 +442,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "Members are ordered by expiration, whatever the order they were set in ($enc)" {
+            r flushall
             sme_create_set r myset {a b c d e}
             set base [expr {[clock milliseconds] + 100000000}]
             r spexpireat myset [expr {$base + 50}] MEMBERS 1 c
@@ -439,6 +459,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SADDEX - Adds members with an expiration ($enc)" {
+            r flushall
             r del myset
             assert_equal [r saddex myset EX 1000 MEMBERS 3 a b c] 1
             assert_encoding $enc myset
@@ -457,6 +478,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SADDEX - An existing member gets the new expiration, or loses it without an option ($enc)" {
+            r flushall
             sme_create_set r myset {a b c}
             r sexpire myset 1000 MEMBERS 3 a b c
             assert_equal [r saddex myset EX 5000 MEMBERS 1 a] 1
@@ -471,6 +493,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SADDEX - MNX and MXX apply to the whole command ($enc)" {
+            r flushall
             sme_create_set r myset {a b}
             assert_equal [r saddex myset MNX EX 1000 MEMBERS 2 a x] 0
             assert_equal [r sismember myset x] 0
@@ -483,6 +506,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SADDEX - An expiration in the past deletes existing members and adds none ($enc)" {
+            r flushall
             sme_create_set r myset {a b c}
             assert_equal [r saddex myset PXAT 1 MEMBERS 2 a new] 1
             assert_equal [lsort [r smembers myset]] {b c}
@@ -497,6 +521,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SADDEX - Replies 0 when nothing was modified ($enc)" {
+            r flushall
             # An expiration in the past, and none of the members exists.
             sme_create_set r myset {a b}
             assert_equal [r saddex myset PXAT 1 MEMBERS 2 x y] 0
@@ -520,6 +545,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SADDEX - Without an expiration option it is SADD for sets that do not expire ($enc)" {
+            r flushall
             r del myset
             assert_equal [r saddex myset MEMBERS 3 a b c] 1
             assert_equal [lsort [r smembers myset]] {a b c}
@@ -527,6 +553,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "A logically expired member is treated as new by SADDEX ($enc)" {
+            r flushall
             r debug set-active-expire 0
             sme_create_set r myset {a b}
             r sexpire myset 1000 MEMBERS 1 b
@@ -542,6 +569,7 @@ start_server {tags {"external:skip needs:debug"}} {
 # Intset-encoded sets convert to the expiration encoding on their first expiration.
 start_server {tags {"external:skip needs:debug"}} {
     test "An intset converts to the listpack with expirations on the first expiration" {
+        r flushall
         r del myset
         r sadd myset 1 2 3 40
         assert_encoding intset myset
@@ -553,6 +581,7 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "A first expiration in the past or one that is not set does not convert the set" {
+        r flushall
         r del myset
         r sadd myset a b c
         assert_equal [r sexpire myset 1000 XX MEMBERS 1 a] [list $E_FAIL]
@@ -565,6 +594,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
 start_server {tags {"external:skip needs:debug"}} {
     test "Keyspace notifications of the SME commands" {
+        r flushall
         set db 9
         r config set notify-keyspace-events Ksg
         r del myset
@@ -592,8 +622,8 @@ start_server {tags {"external:skip needs:debug"}} {
 
     test "SADDEX - Members that do not change fire no events and are not counted as dirty" {
         set db 9
+        r flushall
         r config set notify-keyspace-events Ksg
-        r del myset
         r saddex myset PXAT 4102444800000 MEMBERS 2 a b
         r sadd plain x
         set rd1 [redis_deferring_client]
@@ -619,6 +649,7 @@ start_server {tags {"external:skip needs:debug"}} {
 
 start_server {tags {"external:skip needs:repl needs:debug"}} {
     test "SADDEX - A command that modifies nothing is not propagated" {
+        r flushall
         set repl [attach_to_replication_stream]
         r saddex n1 PXAT 4102444800000 MEMBERS 2 a b
         r saddex n1 PXAT 4102444800000 MEMBERS 2 a b       ;# same expiration: nothing
@@ -634,6 +665,7 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
     } {} {needs:repl}
 
     test "SME commands propagate in canonical form" {
+        r flushall
         set repl [attach_to_replication_stream]
         r sadd s1 a b c
         r sexpire s1 100 MEMBERS 2 a b
@@ -682,6 +714,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SISMEMBER and SMISMEMBER - A logically expired member is not a member, and is removed ($enc)" {
+            r flushall
             sme_mixed_set r
             assert_equal [r scard myset] 5
             assert_equal [r sismember myset x1] 1
@@ -694,6 +727,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SISMEMBER - Removing the last member, expired, deletes the key ($enc)" {
+            r flushall
             r debug set-active-expire 0
             sme_create_set r myset {a}
             sme_make_expired r myset {a}
@@ -704,6 +738,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SMEMBERS and SSCAN - Skip the expired members and do not remove them ($enc)" {
+            r flushall
             sme_mixed_set r
             assert_equal [lsort [r smembers myset]] {x1 x2 x3}
             lassign [r sscan myset 0] cursor members
@@ -719,12 +754,14 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SCARD is approximate: it counts the expired members that are not removed yet ($enc)" {
+            r flushall
             sme_mixed_set r
             assert_equal [r scard myset] 5
             r debug set-active-expire 1
         }
 
         test "SADD - A logically expired member is added as a new member ($enc)" {
+            r flushall
             sme_mixed_set r
             assert_equal [r sadd myset e1 x1 new] 2
             assert_equal [r sttl myset MEMBERS 3 e1 x1 new] [list $E_NO_TTL [r sttl myset MEMBERS 1 x1] $E_NO_TTL]
@@ -733,6 +770,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SREM - Removes a logically expired member and counts it ($enc)" {
+            r flushall
             sme_mixed_set r
             assert_equal [r srem myset e1 nosuch x1] 2
             assert_equal [r scard myset] 3
@@ -740,6 +778,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SPOP - Never returns an expired member and removes them first ($enc)" {
+            r flushall
             foreach cmd {{spop myset} {spop myset 2} {spop myset 3} {spop myset 100}} {
                 sme_mixed_set r
                 set res [r {*}$cmd]
@@ -754,6 +793,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SPOP - A set with only expired members is deleted ($enc)" {
+            r flushall
             r debug set-active-expire 0
             sme_create_set r myset {a b}
             sme_make_expired r myset {a b}
@@ -767,6 +807,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SPOP with a count keeps the expirations of the members that remain ($enc)" {
+            r flushall
             # CASE 3 (the move strategy) builds a new set with the remaining members.
             r debug set-active-expire 0
             r del myset
@@ -783,6 +824,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SRANDMEMBER - Never returns an expired member, in every form ($enc)" {
+            r flushall
             sme_mixed_set r
             for {set i 0} {$i < 20} {incr i} {
                 foreach m [concat [r srandmember myset 3] [r srandmember myset -10] [r srandmember myset 100] [r srandmember myset 1] [list [r srandmember myset]]] {
@@ -794,6 +836,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SRANDMEMBER - A set with only expired members is deleted ($enc)" {
+            r flushall
             r debug set-active-expire 0
             sme_create_set r myset {a b}
             sme_make_expired r myset {a b}
@@ -807,6 +850,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SINTER, SUNION, SDIFF and their variants - Ignore the expired members ($enc)" {
+            r flushall
             sme_mixed_set r
             r del other
             r sadd other x1 e1 e2 y
@@ -828,6 +872,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SMOVE - The member moves with its expiration ($enc)" {
+            r flushall
             r del src dst
             r sadd src a b
             r sadd dst z
@@ -850,6 +895,7 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SMOVE - A logically expired source member is not moved, and a destination one is replaced ($enc)" {
+            r flushall
             r debug set-active-expire 0
             r del src dst
             sme_create_set r src {a b}
@@ -869,6 +915,9 @@ start_server {tags {"external:skip needs:debug"}} {
         }
 
         test "SMOVE - Events for the expiration of the moved member ($enc)" {
+            # The active expiry of the members that the previous tests left expired in
+            # other keys must not fire its events into the window of this test.
+            r flushall
             r config set notify-keyspace-events Ksg
             set rd1 [redis_deferring_client]
             assert_equal {1} [psubscribe $rd1 *]
@@ -933,6 +982,7 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
         wait_for_condition 50 100 {[lindex [$replica role] 0] eq {slave} && [string match {*connected*} [$replica role]]} else {fail "no sync"}
 
         test "A replica hides the expired members but only the master removes them" {
+            $master flushall
             $master debug set-active-expire 0
             $replica debug set-active-expire 0
             $master del myset
@@ -1004,6 +1054,7 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
         sme_force_encoding r $enc
 
         test "Lazy expiration propagates an explicit SREM and counts the expired members ($enc)" {
+            r flushall
             r debug set-active-expire 0
             r del myset other
             set before [s expired_subkeys]
@@ -1285,6 +1336,7 @@ start_server {tags {"external:skip needs:debug"}} {
 # Active expiration in a cluster node: the sets live in different slots.
 start_cluster 1 0 {tags {external:skip cluster needs:debug}} {
     test "Active expiration works for sets in different slots of a cluster node" {
+        R 0 flushall
         R 0 debug set-active-expire 1
         for {set i 0} {$i < 50} {incr i} {
             R 0 sadd "{slot$i}set" a b c
@@ -2127,6 +2179,7 @@ start_server {tags {"external:skip needs:repl"}} {
     start_server {} {
         set master [srv 0 client]
         test "A random dataset with member expirations is the same on the replica" {
+            $master flushall
             $replica replicaof [srv 0 host] [srv 0 port]
             wait_for_condition 100 100 {[s -1 master_link_status] eq {up}} else {fail "no sync"}
             $master debug set-active-expire 0
