@@ -2838,7 +2838,11 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 uint64_t bucket = hnsw_hash_node_id(linked_id, salt0, salt1) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
-                    /* No deletions: an empty slot ends the probe chain. */
+                    /* The table is insert-only, so every slot between an
+                     * ID's home bucket and its position is occupied: an
+                     * empty slot means the ID is not in the table. This is
+                     * only an early exit, the result is the same as
+                     * scanning the whole table. */
                     if (table[bucket] == NULL) break;
                     if (table[bucket]->id == linked_id) {
                         neighbor = table[bucket];
