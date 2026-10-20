@@ -51,7 +51,7 @@ jobs:
         cd src
         geninfo --rc geninfo_unexecuted_blocks=1 -o redis.info .
 
-    # Merge both reports for this commit to cover the 32-bit LONG_MAX guard.
+    # Merge both reports to exercise rank handling on 32-bit and 64-bit systems.
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
       env:

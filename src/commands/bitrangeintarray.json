@@ -48,7 +48,7 @@
             }
         ],
         "reply_schema": {
-            "description": "Set-bit offsets at the inclusive ranks in ascending order. An end of -1 includes all remaining set bits. Missing or empty bitmaps, reversed bounded ranges, and starts beyond the last rank return an empty array.",
+            "description": "Set-bit offsets at the inclusive ranks in ascending order. Negative ranks count from the end, with -1 selecting the last set bit. Ranges are limited to 100000000 elements. Missing or empty bitmaps, reversed ranges after normalization, and starts beyond the last rank return an empty array.",
             "type": "array",
             "uniqueItems": true,
             "items": {

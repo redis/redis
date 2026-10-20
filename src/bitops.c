@@ -2062,32 +2062,32 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
     bitroarIntArrayReply *reply = privdata;
     client *c = reply->c;
     for (size_t i = 0; i < count; i++) {
-        if (c->flags & CLIENT_CLOSE_ASAP) return 0;
         addReplyLongLong(c, values[i]);
         reply->emitted++;
+        if (c->flags & CLIENT_CLOSE_ASAP) return 0;
     }
-    return !(c->flags & CLIENT_CLOSE_ASAP);
+    return 1;
 }
 
 /* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval.
- * Ranks are unsigned 32-bit integers, with end=-1 selecting through the last
- * rank. Returned native bitmap offsets can be wider than the rank arguments. */
+ * Nonnegative ranks are unsigned 32-bit integers; negative ranks count from
+ * the end. Returned native bitmap offsets can be wider than rank arguments. */
 void bitrangeintarrayCommand(client *c) {
     long long start, end;
-    const char *start_err = "invalid start: must be an unsigned 32 bit integer";
-    const char *end_err = "invalid end: must be -1 or an unsigned 32 bit integer";
+    const char *start_err = "invalid start: must be an integer no greater than 4294967295";
+    const char *end_err = "invalid end: must be an integer no greater than 4294967295";
     if (getLongLongFromObjectOrReply(c, c->argv[2], &start, start_err) != C_OK) return;
-    if (start < 0 || start > UINT32_MAX) {
+    if (start > UINT32_MAX) {
         addReplyError(c, start_err);
         return;
     }
     if (getLongLongFromObjectOrReply(c, c->argv[3], &end, end_err) != C_OK) return;
-    if (end < -1 || end > UINT32_MAX) {
+    if (end > UINT32_MAX) {
         addReplyError(c, end_err);
         return;
     }
     uint64_t count = 0;
-    if (end != -1) {
+    if (start >= 0 && end >= 0) {
         if (start > end) {
             addReply(c, shared.emptyarray);
             return;
@@ -2099,25 +2099,29 @@ void bitrangeintarrayCommand(client *c) {
             return;
         }
     }
-    robj *o = lookupKeyRead(c->db, c->argv[1]);
-    if (o != NULL && checkType(c, o, OBJ_BITMAP)) return;
-    if (o == NULL) {
-        addReply(c, shared.emptyarray);
-        return;
-    }
-    if (end == -1) {
-        uint64_t cardinality = bitroarCardinality(o);
-        count = cardinality > (uint64_t)start ? cardinality - (uint64_t)start : 0;
-        /* The reply length is a long, including on 32-bit systems. Check the
-         * remaining result rather than rejecting a large bitmap outright. */
-        if (count > LONG_MAX) {
-            addReplyError(c, "result is too large, use a bounded BITRANGEINTARRAY range");
+    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
+    if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
+    if (start < 0 || end < 0) {
+        /* Native bitmap length bounds keep cardinality below LLONG_MAX.
+         * Adding a negative rank is safe, including LLONG_MIN. */
+        long long cardinality = bitroarCardinality(o);
+        if (start < 0) start += cardinality;
+        if (end < 0) end += cardinality;
+        if (start < 0) start = 0;
+        /* With start >= 0, this also rejects an end still below zero. */
+        if (start > end || start >= cardinality) {
+            addReply(c, shared.emptyarray);
+            return;
+        }
+        count = (uint64_t)(end - start) + 1;
+        if (count > 100000000) {
+            addReplyError(c, "range too large: maximum 100000000 elements");
             return;
         }
     }
-    /* Bounded requests avoid counting every container just to return a small
-     * page. Iterator exhaustion handles truncation; the checks above ensure
-     * the number of emitted values fits in long. */
+    /* Nonnegative ranges avoid counting every container to return a small
+     * page. Iterator exhaustion handles truncation; the shared span limit
+     * keeps the number of emitted values within long even on 32-bit systems. */
     void *arraylen = addReplyDeferredLen(c);
     bitroarIntArrayReply reply = {c, 0};
     bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);

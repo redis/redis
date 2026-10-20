@@ -12,6 +12,7 @@ python3 tools/bitroar-intarray-bench.py --json-out /tmp/intarray-native.json
 The retained `get-all` workload label now uses `BITRANGEINTARRAY key 0 -1`
 for native full reads and `R.GETINTARRAY` or `R64.GETINTARRAY` for the module.
 The `range-all` workload uses explicit first/last ranks on both backends.
+Native ranges, including full reads, are limited to 100,000,000 elements.
 
 To compare with a built redis-roaring module, supply its shared library and
 compatible Redis binaries. Use matching compiler and optimization settings,
