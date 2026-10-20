@@ -2940,7 +2940,13 @@ void zbtreeFree(zbtreeSet *zs) {
         zbtFreeAllocation(zs, zs->member_rehash);
     }
     if (zs->score_leaf_by_id) zbtFreeAllocation(zs, zs->score_leaf_by_id);
+    /* Every allocation but the header has been returned. Leak checkers are
+     * told to ignore external members (see zbtExternalIgnoreLeak()), so this
+     * is what catches one that was dropped without being freed. */
+    size_t leftover = zs->alloc_size;
     zfree_usable(zs, &self);
+    debugServerAssert(leftover == self);
+    UNUSED(leftover);
 }
 
 /* Return the number of members. */
