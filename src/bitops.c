@@ -2050,6 +2050,8 @@ void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
+#define BITRANGEINTARRAY_MAX_ELEMENTS 100000000
+
 typedef struct bitroarIntArrayReply {
     client *c;
     long emitted;
@@ -2086,19 +2088,7 @@ void bitrangeintarrayCommand(client *c) {
         addReplyError(c, end_err);
         return;
     }
-    uint64_t count = 0;
-    if (start >= 0 && end >= 0) {
-        if (start > end) {
-            addReply(c, shared.emptyarray);
-            return;
-        }
-        /* Widen the inclusive span so 0..UINT32_MAX cannot wrap past the limit. */
-        count = (uint64_t)(end - start) + 1;
-        if (count > 100000000) {
-            addReplyError(c, "range too large: maximum 100000000 elements");
-            return;
-        }
-    }
+
     robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
     if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
     if (start < 0 || end < 0) {
@@ -2108,17 +2098,24 @@ void bitrangeintarrayCommand(client *c) {
         if (start < 0) start += cardinality;
         if (end < 0) end += cardinality;
         if (start < 0) start = 0;
-        /* With start >= 0, this also rejects an end still below zero. */
-        if (start > end || start >= cardinality) {
+        if (start >= cardinality) {
             addReply(c, shared.emptyarray);
             return;
         }
-        count = (uint64_t)(end - start) + 1;
-        if (count > 100000000) {
-            addReplyError(c, "range too large: maximum 100000000 elements");
-            return;
-        }
     }
+    /* With start >= 0, this also rejects an end still below zero. */
+    if (start > end) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    /* Widen the inclusive span so 0..UINT32_MAX cannot wrap past the limit. */
+    uint64_t count = (uint64_t)(end - start) + 1;
+    if (count > BITRANGEINTARRAY_MAX_ELEMENTS) {
+        addReplyErrorFormat(c, "range too large: maximum %d elements",
+                            BITRANGEINTARRAY_MAX_ELEMENTS);
+        return;
+    }
+
     /* Nonnegative ranges avoid counting every container to return a small
      * page. Iterator exhaustion handles truncation; the shared span limit
      * keeps the number of emitted values within long even on 32-bit systems. */
