@@ -2584,6 +2584,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
         } else if (!link->pc->err && server.tls_replication &&
                 (instanceLinkNegotiateTLS(link->pc, ri) == C_ERR)) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #Failed to initialize TLS");
+            /* Close it like the command link above: a context left in link->pc
+             * is never attached to the event loop, yet counts as connected
+             * below, so the Pub/Sub link would never be retried. */
+            instanceLinkCloseConnection(link,link->pc);
         } else if (link->pc->err) {
             sentinelEvent(LL_DEBUG,"-pubsub-link-reconnection",ri,"%@ #%s",
                 link->pc->errstr);
