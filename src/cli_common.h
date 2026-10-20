@@ -20,11 +20,14 @@
 #define CLI_TLS_SUPPORTS_GROUPS 0
 #endif
 
-/* Whether server certificate identity verification is available in this build
- * (OpenSSL >= 1.0.2, not compiled out with TLS_NO_PEER_NAME_VERIFICATION); the
- * gate itself is shared with tls.c and sentinel.c through tlshelpers.h. */
-#ifdef USE_OPENSSL
+/* Peer identity helpers shared with tls.c and sentinel.c: the address-literal
+ * test (always available) and, with OpenSSL, the build gate and the function
+ * that binds an identity to the verification parameters. */
 #include "tlshelpers.h"
+
+/* Whether server certificate identity verification is available in this build
+ * (OpenSSL >= 1.0.2, not compiled out with TLS_NO_PEER_NAME_VERIFICATION). */
+#ifdef USE_OPENSSL
 #define CLI_TLS_SUPPORTS_VERIFY_NAME CONN_TLS_SUPPORTS_VERIFY_NAME
 #else
 #define CLI_TLS_SUPPORTS_VERIFY_NAME 0

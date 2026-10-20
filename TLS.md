@@ -256,11 +256,12 @@ Notes:
 * Multiple names may be supplied as a single space-separated value (quote it in
   the config file, e.g. `tls-expected-peer-name "a.example.com b.example.com"`);
   a match against any one of them succeeds.
-* Only DNS names are accepted. An IP address would be compared as a host name,
-  never matching a certificate's IP address entries, so it is rejected at
-  configuration time rather than silently rejecting every peer. To verify a peer
-  by its address, use Sentinel's `tls-verify-hostnames` or the identity check
-  the tools perform by default.
+* Only DNS names are accepted; an IP address is rejected at configuration time.
+  This option names peers by stable DNS identities, and OpenSSL holds a single
+  expected IP address that must match in addition to any host names, which does
+  not fit a list where any entry may match. To verify a peer by its address, use
+  Sentinel's `tls-verify-hostnames` or the identity check the tools perform by
+  default.
 * Wildcards are matched from the **certificate**, not from this option: a
   certificate whose SAN is a full-label wildcard (`*.example.com`) matches a
   concrete name configured here (`node.example.com`), while a partial-label

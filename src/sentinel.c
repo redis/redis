@@ -2479,10 +2479,7 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context, sentinelRedisIns
      * address is an IP unless resolve-hostnames or announced hostnames are in
      * use. */
     const char *addr = ri->addr->hostname;
-    unsigned char addr_buf[sizeof(struct in6_addr)];
-    int addr_is_ip = inet_pton(AF_INET, addr, addr_buf) == 1 ||
-                     inet_pton(AF_INET6, addr, addr_buf) == 1;
-    if (!addr_is_ip) SSL_set_tlsext_host_name(ssl, addr);
+    if (!tlsIsIPAddressLiteral(addr)) SSL_set_tlsext_host_name(ssl, addr);
 
     const char *peer_name = server.tls_ctx_config.expected_peer_name;
     int rc = C_OK, verifying = 0;

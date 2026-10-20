@@ -22,12 +22,10 @@
 #include <unistd.h>
 #include <string.h>
 #include <ctype.h>
-#include <arpa/inet.h>
 #ifdef USE_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
-#include <openssl/x509v3.h>
 #include <hiredis_ssl.h>
 #endif
 
@@ -35,13 +33,6 @@
 
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
-
-/* Return 1 if `name` is an IPv4/IPv6 address literal, 0 otherwise. */
-static int isIPAddressLiteral(const char *name) {
-    struct in_addr a4;
-    struct in6_addr a6;
-    return inet_pton(AF_INET, name, &a4) == 1 || inet_pton(AF_INET6, name, &a6) == 1;
-}
 
 /* Validate a space-separated list of expected TLS peer names as given to
  * --tls-expected-peer-name, before any connection is attempted. Mirrors the
@@ -71,7 +62,7 @@ const char *cliValidateExpectedPeerNames(const char *names, int *parent_domain_e
     for (int i = 0; i < count; i++) {
         if (sdslen(tokens[i]) == 0) continue; /* runs of spaces */
         nnames++;
-        if (isIPAddressLiteral(tokens[i])) nips++;
+        if (tlsIsIPAddressLiteral(tokens[i])) nips++;
         else if (tokens[i][0] == '.') ndots++;
     }
     sdsfreesplitres(tokens, count);
@@ -87,19 +78,15 @@ const char *cliValidateExpectedPeerNames(const char *names, int *parent_domain_e
 
 #if defined(USE_OPENSSL) && CLI_TLS_SUPPORTS_VERIFY_NAME
 /* Bind the SSL object to the expected peer identity(-ies): the server
- * certificate must carry one of the space-separated `names` (DNS names matched
- * against its SAN entries, with the CN as a fallback per OpenSSL rules, or a
- * single IP address literal matched against its IP SAN entries) in addition to
- * chaining to the trusted CA. Applied per SSL object rather than on the shared
- * SSL_CTX: the context is a process-wide static, while the identity is a
- * per-connection property (e.g. each node the cluster manager dials). Returns
- * REDIS_OK, or REDIS_ERR with *err set. */
+ * certificate must carry one of the space-separated `names` (DNS names, or a
+ * single IP address literal; see tlsVerifyParamAddIdentity() for how each kind
+ * is matched) in addition to chaining to the trusted CA. Applied per SSL object
+ * rather than on the shared SSL_CTX: the context is a process-wide static, while
+ * the identity is a per-connection property (e.g. each node the cluster manager
+ * dials). The names have been validated by cliValidateExpectedPeerNames().
+ * Returns REDIS_OK, or REDIS_ERR with *err set. */
 static int cliSSLSetVerifyNames(SSL *ssl, const char *names, const char **err) {
     X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
-
-    /* Reject partial-label wildcards in the certificate (e.g. "f*.example.com");
-     * a full-label "*.example.com" still matches. */
-    X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 
     int count = 0;
     sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
@@ -108,21 +95,13 @@ static int cliSSLSetVerifyNames(SSL *ssl, const char *names, const char **err) {
         return REDIS_ERR;
     }
 
-    int applied = 0, first_host = 1, ok = 1;
+    /* The first name replaces the expected host list, each subsequent one is
+     * appended, so a match against any listed name succeeds. */
+    int applied = 0, first = 1, ok = 1;
     for (int i = 0; i < count; i++) {
         if (sdslen(tokens[i]) == 0) continue; /* runs of spaces */
-        int r;
-        if (isIPAddressLiteral(tokens[i])) {
-            r = X509_VERIFY_PARAM_set1_ip_asc(param, tokens[i]);
-        } else {
-            /* First name via set1_host (replaces), each subsequent via
-             * add1_host (appends); a match against any listed name succeeds.
-             * The length is passed explicitly rather than as 0: OpenSSL reads 0
-             * as "call strlen", but BoringSSL rejects a zero length outright. */
-            r = first_host ? X509_VERIFY_PARAM_set1_host(param, tokens[i], sdslen(tokens[i]))
-                           : X509_VERIFY_PARAM_add1_host(param, tokens[i], sdslen(tokens[i]));
-            first_host = 0;
-        }
+        int r = tlsVerifyParamAddIdentity(param, tokens[i], sdslen(tokens[i]), first);
+        first = 0;
         if (r != 1) {
             ok = 0;
             break;
@@ -217,7 +196,7 @@ int cliSecureConnection(redisContext *c, cliSSLconfig config, const char **err) 
      * for that name -- the identity verified below. c->tcp.host is NULL for
      * unix-socket connections. */
     const char *sni = config.sni;
-    if (sni == NULL && c->tcp.host && !isIPAddressLiteral(c->tcp.host))
+    if (sni == NULL && c->tcp.host && !tlsIsIPAddressLiteral(c->tcp.host))
         sni = c->tcp.host;
     if (sni && !SSL_set_tlsext_host_name(ssl, sni)) {
         *err = "Failed to configure SNI";

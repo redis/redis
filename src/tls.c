@@ -996,29 +996,20 @@ static int connTLSAccept(connection *_conn, ConnectionCallbackFunc accept_handle
  * module build leaves no undefined reference. */
 int tlsSetVerifyName(SSL *ssl, const char *names) {
 #if CONN_TLS_SUPPORTS_VERIFY_NAME
-    /* Use the X509_VERIFY_PARAM_* host API (available since OpenSSL 1.0.2) rather
-     * than the SSL_set1_host()/SSL_add1_host()/SSL_set_hostflags() convenience
-     * wrappers (introduced only in OpenSSL 1.1.0). This keeps certificate name
-     * verification available on every OpenSSL version that actually provides the
-     * hostname-checking machinery, matching the older versions the rest of this
-     * file still supports. */
     X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
-
-    /* Reject partial-label wildcards (e.g. "f*.example.com"); a full-label
-     * "*.example.com" still matches. */
-    X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
 
     int count = 0;
     sds *tokens = sdssplitlen(names, strlen(names), " ", 1, &count);
     if (!tokens) return C_ERR;
 
+    /* The first name replaces the expected host list, each subsequent one is
+     * appended, so a match against any listed name succeeds. The config
+     * validator admits DNS names only, so the shared helper's IP branch is never
+     * taken here. */
     int first = 1, ok = 1;
     for (int i = 0; i < count; i++) {
         if (sdslen(tokens[i]) == 0) continue; /* skip empty tokens from runs of spaces */
-        /* First name via set1_host (replaces), each subsequent via add1_host
-         * (appends); a match against any listed name succeeds. */
-        int r = first ? X509_VERIFY_PARAM_set1_host(param, tokens[i], 0)
-                      : X509_VERIFY_PARAM_add1_host(param, tokens[i], 0);
+        int r = tlsVerifyParamAddIdentity(param, tokens[i], sdslen(tokens[i]), first);
         first = 0;
         if (r != 1) { ok = 0; break; }
     }
@@ -1055,15 +1046,7 @@ int tlsSetVerifyIdentity(SSL *ssl, const char *name) {
     if (!name || !name[0]) return C_ERR;
 #if CONN_TLS_SUPPORTS_VERIFY_NAME
     X509_VERIFY_PARAM *param = SSL_get0_param(ssl);
-    X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-
-    unsigned char addr_buf[sizeof(struct in6_addr)];
-    if (inet_pton(AF_INET, name, addr_buf) == 1 || inet_pton(AF_INET6, name, addr_buf) == 1)
-        return X509_VERIFY_PARAM_set1_ip_asc(param, name) == 1 ? C_OK : C_ERR;
-
-    /* Pass the length explicitly rather than 0: OpenSSL reads 0 as "call
-     * strlen", but BoringSSL rejects a zero length outright. */
-    return X509_VERIFY_PARAM_set1_host(param, name, strlen(name)) == 1 ? C_OK : C_ERR;
+    return tlsVerifyParamAddIdentity(param, name, strlen(name), 1) == 1 ? C_OK : C_ERR;
 #else
     UNUSED(ssl);
     serverLog(LL_WARNING,
