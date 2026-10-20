@@ -1501,15 +1501,30 @@ void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *opti
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite a NULL string/SDS value. Without an include override, omitting the
+ * option restores NULL on restart. After an include, write `option ""` to
+ * override its value: argument parsing yields an empty string, and configs
+ * using EMPTY_STRING_IS_NULL convert it back to NULL. */
+static void rewriteConfigClearStringOption(struct rewriteConfigState *state, const char *option) {
+    if (!state->append_after_include) {
+        rewriteConfigMarkAsProcessed(state, option);
+        return;
+    }
+
+    sds line = sdscatprintf(sdsempty(), "%s \"\"", option);
+    rewriteConfigRewriteLine(state, option, line, 1);
+}
+
 /* Rewrite a string option. */
 void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue) {
     int force = 1;
     sds line;
 
-    /* String options set to NULL need to be not present at all in the
-     * configuration file to be set to NULL again at the next reboot. */
+    /* String options set to NULL are normally omitted so they become NULL
+     * again at restart. If an include still sets the option, write an empty
+     * value after it to override that included value. */
     if (value == NULL) {
-        rewriteConfigMarkAsProcessed(state,option);
+        rewriteConfigClearStringOption(state, option);
         return;
     }
 
@@ -1528,10 +1543,10 @@ void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option
     int force = 1;
     sds line;
 
-    /* If there is no value set, we don't want the SDS option
-     * to be present in the configuration at all. */
+    /* SDS options set to NULL are normally omitted. When an include still
+     * sets the option, write an empty value after it to override that value. */
     if (value == NULL) {
-        rewriteConfigMarkAsProcessed(state, option);
+        rewriteConfigClearStringOption(state, option);
         return;
     }
 
@@ -1667,6 +1682,13 @@ void rewriteConfigReplicaOfOption(standardConfig *config, const char *name, stru
      * in the file to be removed. Note that if this is a cluster instance
      * we don't want a slaveof directive inside redis.conf. */
     if (server.cluster_enabled || server.masterhost == NULL) {
+        if (!server.cluster_enabled && state->append_after_include) {
+            /* The included replicaof directive would reconfigure this node
+             * as a replica on restart, so persist the explicit promotion. */
+            line = sdscatprintf(sdsempty(), "%s no one", name);
+            rewriteConfigRewriteLine(state, name, line, 1);
+            return;
+        }
         rewriteConfigMarkAsProcessed(state, name);
         return;
     }
@@ -1756,7 +1778,7 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
         }
     }
 
-    if (is_default) {
+    if (is_default && !state->append_after_include) {
         rewriteConfigMarkAsProcessed(state,name);
         return;
     }
@@ -1985,14 +2007,6 @@ int rewriteConfig(char *path, int force_write) {
          * updates. CLI-provided values will be applied again on restart. */
         if (!force_write && config->source == CONFIG_SOURCE_CLI) continue;
         rewriteFileValue *file_value = dictFetchValue(file_values, dictGetKey(de));
-        /* A module config can come from an include that is not reachable from
-         * main.conf (for example, a CLI --include). In that case the rewrite
-         * parser has no file baseline. Comparing against the module default
-         * could copy the setting into main.conf without its loadmodule
-         * directive, so skip this module-specific case. */
-        if (!force_write && (config->flags & MODULE_CONFIG) &&
-            config->source == CONFIG_SOURCE_INCLUDE && !file_value)
-            continue;
         if (!force_write) {
             /* Compare the current value with the effective value loaded from
              * the main config and its includes. If the option was absent

@@ -30,8 +30,10 @@ user *DefaultUser;  /* Global reference to the default user.
 list *UsersToLoad;  /* This is a list of users found in the configuration file
                        that we'll need to load in the final stage of Redis
                        initialization, after all the modules are already
-                       loaded. Each entry contains the NULL terminated
-                       username and ACL rules, along with their config source. */
+                       loaded. Each list element is a NULL-terminated array of
+                       SDS pointers: the first is the username, and the
+                       remaining pointers are ACL rules in the same format as
+                       ACLSetUser(). The entry also records the config source. */
 
 typedef struct aclUserConfigEntry {
     sds *rules;

@@ -1282,6 +1282,43 @@ test {CONFIG REWRITE persists a default value overriding an include} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE persists default and empty values overriding includes} {
+    # A callback must emit an explicit override when removing an included
+    # value would otherwise let it take effect again on restart.
+    set include_file [file normalize [tmpfile config-rewrite-empty-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {bind 127.0.0.1}
+    puts $fd {replicaof 127.0.0.1 1}
+    puts $fd {replica-announce-ip 127.0.0.2}
+    puts $fd {masterauth include-secret}
+    close $fd
+    start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
+        # Reset these values to their defaults/empty state, then persist them
+        # after the include so its original values cannot win on restart.
+        r config set bind {* -::*}
+        r replicaof no one
+        r config set replica-announce-ip {}
+        r config set masterauth {}
+        r config rewrite
+
+        set fd [open [srv 0 config_file] r]
+        set contents [read $fd]
+        close $fd
+        assert {[string last "include \"$include_file\"" $contents] < [string last {bind * -::*} $contents]}
+        assert {[string last "include \"$include_file\"" $contents] < [string last {replicaof no one} $contents]}
+        assert {[string last "include \"$include_file\"" $contents] < [string last {replica-announce-ip ""} $contents]}
+        assert {[string last "include \"$include_file\"" $contents] < [string last {masterauth ""} $contents]}
+
+        # After restart, these values must reflect the overrides in the main
+        # config, not the original values from the included file.
+        restart_server 0 true false
+        assert_equal {* -::*} [lindex [r config get bind] 1]
+        assert_equal {} [lindex [r config get replicaof] 1]
+        assert_equal {} [lindex [r config get replica-announce-ip] 1]
+        assert_equal {} [lindex [r config get masterauth] 1]
+    }
+} {} {external:skip}
+
 test {CONFIG REWRITE preserves a main value shadowed by an unchanged include} {
     # The include still wins at startup, so preserve the distinct MAIN value
     # without copying the unchanged effective value into the main file.
