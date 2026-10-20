@@ -4983,6 +4983,35 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         }
     }
 
+    test {BITRANGEINTARRAY matches LRANGE through empty and singleton transitions} {
+        seed_roaring_bitmap intarray:small {}
+        set previous {}
+        foreach bits {{} {0} {0 65535} {0 65535 65536} {0 65536} {65536} {}} {
+            foreach bit $previous {r setbit intarray:small $bit 0}
+            foreach bit $bits {r setbit intarray:small $bit 1}
+            set previous $bits
+            r del intarray:small:list
+            if {[llength $bits]} {r rpush intarray:small:list {*}$bits}
+            assert_equal bitmap [r type intarray:small]
+            assert_equal [llength $bits] [r bitcount intarray:small]
+
+            # Exhaust every pair around both ends, including a negative end
+            # before the first rank. LRANGE provides independent normalization.
+            set edge [expr {[llength $bits] + 2}]
+            set bounds {}
+            for {set rank [expr {-$edge}]} {$rank <= $edge} {incr rank} {
+                lappend bounds $rank
+            }
+            foreach start $bounds {
+                foreach end $bounds {
+                    assert_equal [r lrange intarray:small:list $start $end] \
+                        [r bitrangeintarray intarray:small $start $end] \
+                        "bits $bits, ranks $start $end"
+                }
+            }
+        }
+    }
+
     test {BITRANGEINTARRAY returns empty arrays for missing and empty native keys} {
         r del intarray:missing
         seed_roaring_bitmap intarray:empty {}
@@ -5111,10 +5140,14 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         $client client reply off
         $client bitrangeintarray intarray:suppressed 0 -1
         $client bitrangeintarray intarray:suppressed 1 9
+        $client bitrangeintarray intarray:suppressed -2 -1
+        $client bitrangeintarray intarray:suppressed 0 -4
         $client client reply on
         assert_equal OK [$client read]
         foreach args {{bitrangeintarray intarray:suppressed 0 -1}
-                      {bitrangeintarray intarray:suppressed 1 9}} {
+                      {bitrangeintarray intarray:suppressed 1 9}
+                      {bitrangeintarray intarray:suppressed -2 -1}
+                      {bitrangeintarray intarray:suppressed 0 -4}} {
             $client client reply skip
             $client {*}$args
             $client ping
@@ -5268,7 +5301,26 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
             assert_equal $expected [r bitrangeintarray intarray:restored 0 -1]
             assert_equal [lrange $expected 1 end] \
                 [r bitrangeintarray intarray:restored 1 99]
+            assert_equal [lrange $expected end-1 end] \
+                [r bitrangeintarray intarray:restored -2 -1]
         }
+    }
+
+    test {BITRANGEINTARRAY normalizes ranks after preceding transaction mutations} {
+        seed_roaring_bitmap intarray:transaction {10 20}
+        r multi
+        r bitrangeintarray intarray:transaction -1 -1
+        r setbit intarray:transaction 30 1
+        r bitrangeintarray intarray:transaction -2 -1
+        r setbit intarray:transaction 20 0
+        r bitrangeintarray intarray:transaction -2 -1
+        r setbit intarray:transaction 10 0
+        r setbit intarray:transaction 30 0
+        r bitrangeintarray intarray:transaction -1 -1
+        r setbit intarray:transaction 65536 1
+        r bitrangeintarray intarray:transaction -1 -1
+        assert_equal [list {20} 0 {20 30} 1 {10 30} 1 1 {} 0 {65536}] [r exec]
+        assert_equal PONG [r ping]
     }
 
     test {BITRANGEINTARRAY metadata declares one read-only key} {
@@ -5345,33 +5397,37 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     test {Integer-array streaming stops when the client output limit closes the connection} {
         set old_bitmap [config_get_set bitmap-default-roaring yes]
         r del intarray:outputlimit
-        # Exactly the cap is accepted, including negative ranges. The compact
-        # run bitmap and output limit avoid building a 100-million-value reply.
+        # Exactly the cap is accepted, including shifted negative ranges in
+        # a bitmap larger than the cap. Compact runs and the output limit
+        # avoid building a 100-million-value reply.
         r setbit intarray:outputlimit 99999999 0
         r bitop not intarray:outputlimit intarray:outputlimit
         r config set bitmap-default-roaring $old_bitmap
-        assert_equal 100000000 [r bitcount intarray:outputlimit]
         set old_limit [config_get_set client-output-buffer-limit {normal 100000 0 0}]
-        foreach args {{bitrangeintarray intarray:outputlimit 0 -1}
-                      {bitrangeintarray intarray:outputlimit -100000000 -1}
-                      {bitrangeintarray intarray:outputlimit 0 99999999}
-                      {bitrangeintarray intarray:outputlimit 0 1048575}} {
-            set client [redis_deferring_client]
-            $client client setname intarray-output-limit
-            assert_equal OK [$client read]
-            $client {*}$args
-            $client flush
-            wait_for_condition 100 10 {
-                ![string match {*name=intarray-output-limit*} [r client list]]
+        foreach extra_bit {0 1} {
+            if {$extra_bit} {
+                r setbit intarray:outputlimit 100000000 1
+                set ranges {{1 -1} {-100000000 -1} {0 -2}}
             } else {
-                fail "Integer-array reply did not enforce the client output limit"
+                set ranges {{0 -1} {-100000000 -1} {0 99999999} {0 1048575}}
             }
-            assert_equal {} [$client rawread]
-            $client close
+            assert_equal [expr {100000000 + $extra_bit}] [r bitcount intarray:outputlimit]
+            foreach bounds $ranges {
+                set client [redis_deferring_client]
+                $client client setname intarray-output-limit
+                assert_equal OK [$client read]
+                $client bitrangeintarray intarray:outputlimit {*}$bounds
+                $client flush
+                wait_for_condition 100 10 {
+                    ![string match {*name=intarray-output-limit*} [r client list]]
+                } else {
+                    fail "Integer-array reply did not enforce the client output limit"
+                }
+                assert_equal {} [$client rawread]
+                $client close
+            }
         }
         r config set client-output-buffer-limit $old_limit
-        r setbit intarray:outputlimit 100000000 1
-        assert_equal 100000001 [r bitcount intarray:outputlimit]
         foreach bounds {{0 -1} {-100000001 -1}
                         {-9223372036854775808 -1} {0 100000000}} {
             assert_error {ERR range too large: maximum 100000000 elements} {
