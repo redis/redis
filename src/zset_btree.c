@@ -711,6 +711,25 @@ static void zbtFreeAllocation(zbtreeSet *zs, void *ptr) {
     zs->alloc_size -= usable;
 }
 
+/* The only pointer to an external member lives unaligned inside a packed
+ * leaf record, where LeakSanitizer does not look, so it would report every
+ * external member still in a set as leaked. Valgrind is handled by
+ * src/valgrind.sup. */
+#if defined(__SANITIZE_ADDRESS__)
+#define ZBT_LSAN_IGNORE 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define ZBT_LSAN_IGNORE 1
+#endif
+#endif
+
+#ifdef ZBT_LSAN_IGNORE
+#include <sanitizer/lsan_interface.h>
+#define zbtExternalIgnoreLeak(ptr) __lsan_ignore_object(ptr)
+#else
+#define zbtExternalIgnoreLeak(ptr) ((void)(ptr))
+#endif
+
 /* Return true when a build entry already refers to an external allocation or
  * is long enough that a new one should be made. Existing external records
  * retain their form when a leaf is rebuilt. */
@@ -749,6 +768,7 @@ static int zbtBuildElementWrite(zbtreeSet *zs, unsigned char *record,
     unsigned char *external = ele->external;
     if (external == NULL) {
         external = zbtAlloc(zs, ele->len);
+        zbtExternalIgnoreLeak(external);
         memcpy(external, ele->ptr, ele->len);
     }
 
@@ -2843,6 +2863,7 @@ static zbtScoreNode *zbtScoreDupTree(zbtreeSet *dst,
                 unsigned char *oldptr = zbtExternalPointer(record);
                 serverAssert(oldptr != NULL);
                 unsigned char *newptr = zbtAlloc(dst, len);
+                zbtExternalIgnoreLeak(newptr);
                 memcpy(newptr, oldptr, len);
                 zbtExternalSetPointer(record, newptr);
             }
@@ -3087,6 +3108,7 @@ static void zbtDefragExternalMember(
     size_t old_size = zmalloc_usable_size(oldptr);
     unsigned char *newptr = defrag_alloc(oldptr);
     if (newptr) {
+        zbtExternalIgnoreLeak(newptr);
         zbtDefragAdjustSize(zs, old_size, newptr);
         zbtExternalSetPointer(record, newptr);
         defrag_free(oldptr);
@@ -3480,6 +3502,7 @@ void zbtreeAppendBatchAddWithHash(zbtreeAppendBatch *b, double score,
          * "external == NULL" branch). Pre-setting ->external here makes that
          * later call adopt this allocation instead of copying again. */
         unsigned char *external = zbtAlloc(b->zs, elelen);
+        zbtExternalIgnoreLeak(external);
         memcpy(external, ele, elelen);
         b->elems[i].ptr = external;
         b->elems[i].len = elelen;
