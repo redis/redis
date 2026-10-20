@@ -90,7 +90,6 @@
 #define RDB_TYPE_SET_METADATA 35              /* Set with member expirations. Attach min TTL at start */
 #ifdef ENABLE_GCRA
 #define RDB_TYPE_GCRA 36                      /* GCRA object */
->>>>>>> upstream/unstable
 #endif
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
