@@ -117,7 +117,8 @@
 /* Algorithm parameters. */
 
 #define HNSW_P 0.25         /* Probability of level increase. */
-#define HNSW_MAX_LEVEL 16   /* Max level nodes can reach. */
+/* HNSW_MAX_LEVEL is defined in hnsw.h (needed by callers to bound
+ * deserialization). */
 #define HNSW_EF_C 200       /* Default size of dynamic candidate list while
                              * inserting a new node, in case 0 is passed to
                              * the 'ef' argument while inserting. This is also
@@ -1708,13 +1709,13 @@ void hnsw_reconnect_nodes(HNSW *index, hnswNode **nodes, int count, uint32_t lay
 
     // Step 5: Pair nodes greedily based on scores.
     int *used = hmalloc(count*sizeof(int));
-    memset(used,0,count*sizeof(int));
     if (!used) {
         hfree(distances);
         hfree(row_avgs);
         hfree(scores);
         return;
     }
+    memset(used,0,count*sizeof(int));
 
     /* Scan the matrix looking each time for the potential
      * link with the best score. */
@@ -2632,9 +2633,12 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
 
-        /* Sanity check: links should be less than max links and
-         * in general a reasonable amount. */
-        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+        /* Sanity check: links should be less than max links, and max links
+         * must not exceed what select_neighbors() can ever grow a layer to.
+         * A larger fan-out can only come from tampered data, and deleting
+         * such a node makes hnsw_reconnect_nodes() quadratic in its size. */
+        uint32_t links_limit = i == 0 ? index->M * 3 : index->M * 2;
+        if (num_links > max_links || max_links > links_limit) {
             hnsw_node_free(node);
             return NULL;
         }

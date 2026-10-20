@@ -74,8 +74,8 @@
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
-    "address (ie. 120.0.0.1:7000) or space separated IP " \
-    "and port (ie. 120.0.0.1 7000)\n"
+    "address (ie. 120.0.0.1:7000 or [::1]:7000) or space " \
+    "separated IP and port (ie. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
@@ -3388,11 +3388,17 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
+            /* The previous connection used RESP3 via HELLO 3; temporarily promote resp3
+            * so cliConnect() re-sends HELLO 3 for this reconnect only. */
+            int resend_resp3 = config.current_resp3 && config.resp3 == 0;
+            if (resend_resp3) config.resp3 = 2;
             if (cliConnect(CC_FORCE) != REDIS_OK) {
+                if (resend_resp3) config.resp3 = 0;
                 cliPrintContextError();
                 config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
+            if (resend_resp3) config.resp3 = 0;
             /* Reset dbnum after reconnecting so we can re-select the previous db in cliSelect(). */
             config.dbnum = 0;
             cliSelect();
@@ -4110,12 +4116,21 @@ static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
         if (bus_port_ptr != NULL)
             *bus_port_ptr = atoi(c + 1);
     }
-    c = strrchr(addr, ':');
-    if (c != NULL) {
+
+    if (addr[0] == '[') {
+        /* [IPv6]:port */
+        c = strchr(addr, ']');
+        if (c == NULL || c[1] != ':') return 0;
+        *c = '\0';
+        *ip_ptr = addr + 1;
+        *port_ptr = atoi(c + 2);
+    } else {
+        c = strrchr(addr, ':');
+        if (c == NULL) return 0;
         *c = '\0';
         *ip_ptr = addr;
-        *port_ptr = atoi(++c);
-    } else return 0;
+        *port_ptr = atoi(c + 1);
+    }
     return 1;
 }
 
@@ -9776,6 +9791,7 @@ typeinfo type_set = { "set", "SCARD", "members" };
 typeinfo type_hash = { "hash", "HLEN", "fields" };
 typeinfo type_zset = { "zset", "ZCARD", "members" };
 typeinfo type_stream = { "stream", "XLEN", "entries" };
+typeinfo type_bitmap = { "bitmap", "BITCOUNT", "set bits" };
 typeinfo type_other = { "other", NULL, "?" };
 
 static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) {
@@ -9922,6 +9938,17 @@ static void sendReadOnly(void) {
     freeReplyObject(read_reply);
 }
 
+/* Try to avoid updating LRU/LFU metadata while inspecting keys. Ignore error
+ * replies for compatibility with servers that don't support CLIENT NO-TOUCH. */
+static void sendNoTouch(void) {
+    redisReply *reply = redisCommand(context, "CLIENT NO-TOUCH ON");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    }
+    freeReplyObject(reply);
+}
+
 static int displayKeyStatsProgressbar(unsigned long long sampled,
                                       unsigned long long total_keys);
 
@@ -9942,6 +9969,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     typeinfo_add(types_dict, "hash", &type_hash);
     typeinfo_add(types_dict, "zset", &type_zset);
     typeinfo_add(types_dict, "stream", &type_stream);
+    typeinfo_add(types_dict, "bitmap", &type_bitmap);
 
     signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
@@ -9954,6 +9982,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {
@@ -11125,6 +11154,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(memkeys_types_dict, "hash", &type_hash);
     typeinfo_add(memkeys_types_dict, "zset", &type_zset);
     typeinfo_add(memkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(memkeys_types_dict, "bitmap", &type_bitmap);
 
     /* We could use only one typeinfo dictionary if we add new fields to save
      * both memkey and bigkey info. Not sure it would make sense in findBigKeys(). */
@@ -11135,6 +11165,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(bigkeys_types_dict, "hash", &type_hash);
     typeinfo_add(bigkeys_types_dict, "zset", &type_zset);
     typeinfo_add(bigkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(bigkeys_types_dict, "bitmap", &type_bitmap);
 
     size_dist key_length_dist;
     size_dist_entry distribution[] = {
@@ -11171,6 +11202,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
 
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {

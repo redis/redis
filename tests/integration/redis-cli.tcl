@@ -888,6 +888,92 @@ start_server {tags {"cli external:skip"}} {
 }
 
 start_server {tags {"cli external:skip"}} {
+    test "key size analysis does not alter key LRU metadata" {
+        foreach mode {--bigkeys --memkeys --keystats} {
+            r set key value
+            after 1100
+            set idle_before [r object idletime key]
+
+            set cmd [rediscli [srv host] [srv port] [list -n $::dbnum $mode]]
+            exec {*}$cmd
+
+            assert_morethan_equal [r object idletime key] $idle_before
+        }
+        r del key
+    }
+
+    test "key analysis modes do not alter key LFU metadata" {
+        r config set maxmemory-policy allkeys-lfu
+        r config set lfu-log-factor 0
+
+        foreach mode {--bigkeys --memkeys --keystats --hotkeys} {
+            r set key value
+            set freq_before [r object freq key]
+
+            set cmd [rediscli [srv host] [srv port] [list -n $::dbnum $mode]]
+            exec {*}$cmd
+
+            assert_equal [r object freq key] $freq_before
+        }
+
+        r del key
+        r config set maxmemory-policy noeviction
+        r config set lfu-log-factor 10
+    }
+
+    test "key size analysis continues when CLIENT NO-TOUCH is unavailable" {
+        r acl setuser keystats-user on >password ~* +@all -client
+        r set key value
+
+        set cmd [rediscli [srv host] [srv port] \
+            [list -n $::dbnum --user keystats-user -a password --no-auth-warning --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match "*Scanning the entire keyspace*" $result
+
+        r del key
+        r acl deluser keystats-user
+    }
+}
+
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "RESP3 upgrade persists across a forced reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=3}
+
+        # kill server and restart to force redis-cli's forced-reconnect path
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # without retyping HELLO, the reconnect should have re-negotiated RESP3
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=3}
+    }
+}
+
+if {!$::force_resp3} {
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "explicit HELLO 2 downgrade is not silently reverted by a later reconnect" {
+        run_command_until $fd "HELLO 3\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "HELLO 2\x0D" {127\.0\.0\.1:[0-9]*(\[[0-9]+\])?>}
+        run_command_until $fd "CLIENT INFO\x0D" {resp=2}
+
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]}
+        restart_server 0 true false 0
+
+        # must stay on RESP2 -- the explicit downgrade must not be re-promoted
+        write_cli $fd "CLIENT INFO\x0D"
+        after 100
+        read_cli_until $fd {resp=2}
+    }
+}
+}
+
+start_server {tags {"cli external:skip"}} {
     test "keystats on empty database should not produce garbage stats" {
         # On an empty DB the keystats histogram has total_count = 0. Verify hdr_mean(), hdr_stddev(),
         # and the percentile calculation handle this gracefully.
@@ -898,6 +984,61 @@ start_server {tags {"cli external:skip"}} {
         # The "Note:" line with Mean/StdDeviation is only printed when displayKeyStatsSizeDist()
         # compute stats. When keysize_histogram->total_count == 0, it should be skipped entirely.
         assert_match "*No key size samples collected*" $result
+    }
+}
+
+start_server {tags {"cli" "bitmap" "bitmap-roaring" "external:skip"}} {
+    test "bigkeys reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:large" has 5 set bits*} $result
+        assert_match {*2 bitmaps with 7 set bits*avg size 3.50*} $result
+        assert_no_match {*bitmaps with 0 ?*} $result
+    }
+
+    test "keystats reports native bitmap cardinality" {
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:small 0 1
+        r setbit bitmap:small 64 1
+        for {set bit 0} {$bit < 5} {incr bit} {
+            r setbit bitmap:large $bit 1
+        }
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:small]
+        assert_equal bitmap-roaring [r object encoding bitmap:large]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*"bitmap:large" has 5 set bits*} $result
+        assert_match {*bitmap*7 set bits*3.50*} $result
+    }
+
+    test "bigkeys and keystats report a zero-cardinality native bitmap" {
+        r flushdb
+        r config set bitmap-default-roaring yes
+        r setbit bitmap:zero 0 0
+        r config set bitmap-default-roaring no
+        assert_equal bitmap-roaring [r object encoding bitmap:zero]
+        assert_equal 0 [r bitcount bitmap:zero]
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --bigkeys]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*Biggest bitmap found "bitmap:zero" has 0 set bits*} $result
+        assert_match {*1 bitmaps with 0 set bits*avg size 0.00*} $result
+
+        set cmd [rediscli [srv host] [srv port] [list -n $::dbnum --keystats]]
+        assert_equal 0 [catch {exec {*}$cmd 2>@1} result]
+        assert_match {*bitmap*"bitmap:zero" has 0 set bits*} $result
     }
 }
 

@@ -59,16 +59,17 @@ RedisModuleKeyMetaClassId class_ids[8] = { 0 };
 typedef struct {
     char name[5];  /* 4 chars + null terminator */
     RedisModuleKeyMetaClassId class_id;
+    int callback_ordinal;
 } ClassMapping;
 
 #define MAX_CLASS_MAPPINGS 8
 static ClassMapping class_mappings[MAX_CLASS_MAPPINGS];
 static int num_class_mappings = 0;
 
-/* Reverse lookup: given a class_id, find the 4-char-id name */
-static const char* lookupClassName(RedisModuleKeyMetaClassId class_id) {
+/* Reverse lookup: given an AOF callback ordinal, find the 4-char-id name */
+static const char* lookupClassName(int callback_ordinal) {
     for (int i = 0; i < num_class_mappings; i++) {
-        if (class_mappings[i].class_id == class_id) {
+        if (class_mappings[i].callback_ordinal == callback_ordinal) {
             return class_mappings[i].name;
         }
     }
@@ -81,13 +82,14 @@ static long long active_metadata_count = 0;
 /* Helper functions for class mapping */
 
 /* Add a mapping from 4-char-id to class-id */
-static int addClassMapping(const char *name, RedisModuleKeyMetaClassId class_id) {
+static int addClassMapping(const char *name, RedisModuleKeyMetaClassId class_id, int callback_ordinal) {
     if (num_class_mappings >= MAX_CLASS_MAPPINGS) {
         return 0; /* No space */
     }
     strncpy(class_mappings[num_class_mappings].name, name, 4);
     class_mappings[num_class_mappings].name[4] = '\0';
     class_mappings[num_class_mappings].class_id = class_id;
+    class_mappings[num_class_mappings].callback_ordinal = callback_ordinal;
     num_class_mappings++;
     return 1;
 }
@@ -255,9 +257,9 @@ static int KeyMetaRDBLoadCallback(RedisModuleIO *rdb, uint64_t *meta, int encver
  *   - aof: RedisModuleIO context for writing to AOF
  *   - reserved: Reserved for future use
  *   - meta: The 8-byte metadata value (pointer to our string)
- *   - class_id: The class ID for this metadata
+ *   - callback_ordinal: The fixed callback wrapper ordinal for this metadata
  */
-static void KeyMetaAOFRewriteCallback_Class(RedisModuleIO *aof, void *reserved, uint64_t meta, RedisModuleKeyMetaClassId class_id) {
+static void KeyMetaAOFRewriteCallback_Class(RedisModuleIO *aof, void *reserved, uint64_t meta, int callback_ordinal) {
     REDISMODULE_NOT_USED(reserved);
 
     /* If metadata is NULL (reset_value), don't emit anything */
@@ -266,8 +268,8 @@ static void KeyMetaAOFRewriteCallback_Class(RedisModuleIO *aof, void *reserved, 
     /* Extract the string from the metadata pointer */
     char *metadata_string = (char *)meta;
 
-    /* Lookup the 9-byte-id name for this class */
-    const char *class_name = lookupClassName(class_id);
+    /* Lookup the 9-byte-id name for this callback wrapper */
+    const char *class_name = lookupClassName(callback_ordinal);
     if (!class_name) {
         /* This shouldn't happen, but handle gracefully */
         return;
@@ -361,7 +363,8 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     config.reset_value = (uint64_t)NULL;  /* NULL pointer means no resource to free */
     config.rdb_load = rdb_load ? KeyMetaRDBLoadCallback : NULL;
     config.rdb_save = rdb_save ? KeyMetaRDBSaveCallback : NULL;
-    switch (aof_rewrite ? num_class_mappings + 1 : 0) { /* distinct cb per class */
+    int callback_ordinal = aof_rewrite ? num_class_mappings + 1 : 0;
+    switch (callback_ordinal) { /* distinct cb per class */
         case 1: config.aof_rewrite = KeyMetaAOFRewriteCb1; break;
         case 2: config.aof_rewrite = KeyMetaAOFRewriteCb2; break;
         case 3: config.aof_rewrite = KeyMetaAOFRewriteCb3; break;
@@ -388,7 +391,7 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
         return REDISMODULE_OK;
     } else {
         /* Store the mapping from 9-byte-id to class-id */
-        if (!addClassMapping(metaname, class_id)) {
+        if (!addClassMapping(metaname, class_id, callback_ordinal)) {
             RedisModule_ReplyWithError(ctx, "ERR failed to store class mapping");
             return REDISMODULE_OK;
         }

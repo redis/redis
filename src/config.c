@@ -452,8 +452,50 @@ static int reading_config_file;
  * post-load advisories must run only when the outermost load finishes. */
 static int config_load_depth;
 
+/* Previous value of tls-cluster. This variable is used to detect if the
+ * value actually changed after a CONFIG SET. configSetCommand() calls every
+ * apply callback again on rollback even when nothing changed, so without it,
+ * things like TLS setup below would run again for no reason. */
+static int prev_tls_cluster;
+
 /* Defined with the TLS config hooks below; used by the post-load checks. */
 static void tlsWarnExpectedPeerNameScope(void);
+
+/* The cluster bus protocol has no authentication of its own: any host that can
+ * reach the port can speak it and threaten the whole cluster - a MEET from an
+ * unknown host is enough to have it added as a node, with its gossip trusted.
+ * Enabling tls-cluster is what authenticates the bus: a peer then has to present,
+ * in either direction, a certificate that verifies against the CA that
+ * tls-cluster makes mandatory. It does so regardless of tls-auth-clients, which
+ * governs the client port only - clusterAcceptHandler() always demands a peer
+ * certificate.
+ *
+ * cluster-bus-port-protected-mode therefore refuses an unauthenticated bus by
+ * default, and makes running one an explicit choice, exactly as protected-mode
+ * does for unauthenticated client access. Only cluster mode opens the bus port,
+ * so a standalone instance is never affected.
+ *
+ * Returns non-zero when the current configuration leaves the bus unprotected
+ * while protected mode asks for it. */
+static int clusterBusPortProtectionUnmet(void) {
+    return server.cluster_enabled && server.cluster_bus_port_protected_mode && !server.tls_cluster;
+}
+
+/* Counterpart of the check above: report a cluster node whose bus port is left
+ * unauthenticated once the operator has waived protected mode. Called when the
+ * outermost config load finishes and from the tls-cluster apply callback, which
+ * covers every way the bus can lose its authentication at runtime (leaving TLS
+ * always changes tls-cluster, whether alone or together with
+ * cluster_bus_port_protected_mode). */
+static void clusterBusWarnIfUnprotected(void) {
+    if (!server.cluster_enabled || server.tls_cluster || server.cluster_bus_port_protected_mode) return;
+
+    serverLog(LL_WARNING,
+        "WARNING: the cluster bus port is not authenticated: 'tls-cluster' is disabled and "
+        "protected mode was waived with 'cluster-bus-port-protected-mode no'. Any host able "
+        "to reach the cluster bus port can speak the cluster protocol, so make sure the port "
+        "is reachable by trusted hosts only.");
+}
 
 void loadServerConfigFromString(char *config) {
     deprecatedConfig deprecated_configs[] = {
@@ -644,11 +686,33 @@ void loadServerConfigFromString(char *config) {
      * been parsed. */
     config_load_depth--;
     if (config_load_depth == 0) {
+        /* Refuse a cluster node whose bus port would be left unauthenticated,
+         * unless the operator waived protection. Checked before anything else in
+         * this block so that a fatal error is not preceded by unrelated warnings.
+         * The CONFIG SET path reports the option it refuses to change instead. */
+        if (clusterBusPortProtectionUnmet()) {
+            err = "cluster-bus-port-protected-mode is enabled but tls-cluster is "
+                  "disabled, which leaves the cluster bus port of this node "
+                  "unauthenticated: any host able to reach the port can join the "
+                  "cluster and speak the cluster protocol, and threaten the whole "
+                  "cluster. Either set 'tls-cluster yes', which makes every cluster "
+                  "bus peer present a certificate verified against your CA, or set "
+                  "'cluster-bus-port-protected-mode no' to acknowledge that the "
+                  "cluster bus port is reachable by trusted hosts only, for instance "
+                  "because a firewall blocks it.";
+            goto loaderr;
+        }
+
         /* in case cluster mode is enabled dbnum must be 1 */
         if (server.cluster_enabled && server.dbnum > 1) {
             serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
             server.dbnum = 1;
         }
+        /* The startup value is the one in force: initListeners() configures TLS
+         * from it, and the server exits if that fails. */
+        prev_tls_cluster = server.tls_cluster;
+
+        clusterBusWarnIfUnprotected();
         tlsWarnExpectedPeerNameScope();
     }
 
@@ -2932,12 +2996,49 @@ static int applyTlsCfg(const char **err) {
 }
 
 static int applyTlsCluster(const char **err) {
+    /* Checked before any side effect, so a rejected CONFIG SET leaves the TLS
+     * context and the module topology notifications untouched. The check reads
+     * cluster-bus-port-protected-mode as it is *after* the whole CONFIG SET was
+     * stored: configSetCommand() runs every setter before the first apply
+     * callback, so a single command disabling both options is accepted whatever
+     * the order of its arguments, while disabling tls-cluster alone is not. */
+    if (clusterBusPortProtectionUnmet()) {
+        *err = "can't disable tls-cluster while cluster-bus-port-protected-mode is enabled, "
+               "as that would leave the cluster bus port unauthenticated; disable "
+               "cluster-bus-port-protected-mode first, or in the same CONFIG SET command";
+        return 0;
+    }
+
+    /* Nothing below may run when the value did not effectively move, which is
+     * what configSetCommand() hands us after it has restored a refused set: both
+     * steps are observable - reconfiguring TLS rebuilds the SSL_CTX, discarding
+     * the session cache held on it, and clusterNotifyTopologyChanged() reports a
+     * NODE change to modules - so a refused set would otherwise not be the no-op
+     * it reports being. */
+    if (server.tls_cluster == prev_tls_cluster) return 1;
+
     if (!applyTlsCfg(err)) return 0;
 
     /* tls-cluster selects which client port is advertised by the cluster.
      * Modules cache that topology through the cluster module APIs, so notify
      * them when the preferred port changes. */
     clusterNotifyTopologyChanged(CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE, NULL);
+
+    prev_tls_cluster = server.tls_cluster;
+    clusterBusWarnIfUnprotected();
+    return 1;
+}
+
+/* Apply callback for cluster-bus-port-protected-mode. The value drives no
+ * machinery of its own, it only has to stay consistent with tls-cluster; see
+ * applyTlsCluster() for why the check belongs here rather than in a set handler. */
+static int applyClusterBusPortProtectedMode(const char **err) {
+    if (clusterBusPortProtectionUnmet()) {
+        *err = "can't enable cluster-bus-port-protected-mode while tls-cluster is disabled, "
+               "as that leaves the cluster bus port unauthenticated; enable tls-cluster "
+               "first, or in the same CONFIG SET command";
+        return 0;
+    }
     return 1;
 }
 
@@ -3341,6 +3442,34 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
+/* Disabling stream-stats stops the bookkeeping and hides the section; the
+ * per-db INFO Streams rows are kept. Re-enabling keeps them if no stream
+ * changed meanwhile (stream_stats_needs_reset is clear) and otherwise starts a
+ * new generation, filling in lazily. Apply hooks run only on runtime CONFIG
+ * SET, so the dbs are always initialized here. */
+static int applyStreamStats(const char **err) {
+    UNUSED(err);
+    if (!server.stream_stats) return 1;
+    if (server.stream_stats_needs_reset) {
+        /* Streams changed while tracking was off, so the rows fell behind.
+         * Zeroing them starts a new generation of each db's rows
+         * (streamStatsResetMeta() bumps the db's epoch): every stream and
+         * group is uncounted until next touched, and an async slot-trim delta
+         * scheduled against the old contents is discarded on completion. */
+        for (int j = 0; j < server.dbnum; j++)
+            streamStatsResetMeta(kvstoreGetMetadata(server.db[j].keys));
+        server.stream_stats_needs_reset = 0;
+    }
+    if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
+        /* Enabling at runtime deliberately does not rescan, so the gauges are
+         * legitimately behind until each group is next touched, which DEBUG
+         * STREAM-STATS-ASSERT would report as corruption on this very command.
+         * Re-prime an exact baseline while the assertion is armed. */
+        streamStatsRebuild();
+    }
+    return 1;
+}
+
 standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -3377,6 +3506,7 @@ standardConfig static_configs[] = {
     createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
+    createBoolConfig("cluster-bus-port-protected-mode", NULL, MODIFIABLE_CONFIG, server.cluster_bus_port_protected_mode, 1, NULL, applyClusterBusPortProtectedMode),
     createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),
@@ -3394,6 +3524,8 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("bitmap-default-roaring", NULL, MODIFIABLE_CONFIG, server.bitmap_default_roaring, 0, NULL, NULL),
+    createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 0, NULL, applyStreamStats),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),

@@ -4909,7 +4909,7 @@ int replicationCountAOFAcksByOffset(long long offset) {
 /* WAIT for N replicas to acknowledge the processing of our latest
  * write command (and all the previous commands). */
 void waitCommand(client *c) {
-    mstime_t timeout;
+    uint64_t timeout;
     long numreplicas, ackreplicas;
     long long offset = c->woff;
 
@@ -4921,7 +4921,7 @@ void waitCommand(client *c) {
     /* Argument parsing. */
     if (getLongFromObjectOrReply(c,c->argv[1],&numreplicas,NULL) != C_OK)
         return;
-    if (getTimeoutFromObjectOrReply(c,c->argv[2],&timeout,UNIT_MILLISECONDS)
+    if (getMonotonicTimeoutFromObjectOrReply(c,c->argv[2],&timeout,UNIT_MILLISECONDS)
         != C_OK) return;
 
     /* First try without blocking at all. */
@@ -4943,7 +4943,7 @@ void waitCommand(client *c) {
 /* WAIT for N replicas and / or local master to acknowledge our latest
  * write command got synced to the disk. */
 void waitaofCommand(client *c) {
-    mstime_t timeout;
+    uint64_t timeout;
     long numreplicas, numlocal, ackreplicas, acklocal;
 
     /* Argument parsing. */
@@ -4951,7 +4951,7 @@ void waitaofCommand(client *c) {
         return;
     if (getPositiveLongFromObjectOrReply(c,c->argv[2],&numreplicas,NULL) != C_OK)
         return;
-    if (getTimeoutFromObjectOrReply(c,c->argv[3],&timeout,UNIT_MILLISECONDS) != C_OK)
+    if (getMonotonicTimeoutFromObjectOrReply(c, c->argv[3], &timeout, UNIT_MILLISECONDS) != C_OK)
         return;
 
     if (server.masterhost) {

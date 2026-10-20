@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
@@ -433,7 +434,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable
 
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
-    if (lzf_decompress(c,clen,val,len) != len) {
+    if (lzf_decompress2(c,clen,val,len) != len) {
         rdbReportCorruptRDB("Invalid LZF compressed string");
         goto err;
     }
@@ -752,6 +753,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     case OBJ_ARRAY:
         return rdbSaveType(rdb,RDB_TYPE_ARRAY);
+    case OBJ_BITMAP:
+        return rdbSaveType(rdb,RDB_TYPE_BITMAP);
     default:
         serverPanic("Unknown object type");
     }
@@ -1134,6 +1137,69 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     }
 
     return nwritten;
+}
+
+/* OBJ_BITMAP persistence (RDB_TYPE_BITMAP): the bitmap's logical byte
+ * length, then an RDB string holding CRoaring's 64-bit portable
+ * serialization (RoaringFormatSpec, canonical little-endian fields on every
+ * architecture). The logical length travels separately because trailing
+ * zero bits are observable through bitmap commands but are not represented
+ * by Roaring containers. The payload size is proportional to the resident
+ * containers, never to the highest set bit, and the same format is shared
+ * by RDB snapshots, DUMP/RESTORE, and the RDB payloads used by AOF. */
+static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
+    ssize_t n, nwritten = 0;
+    uint64_t byte_len = bitroarLen(o);
+    sds payload;
+
+    if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
+    nwritten += n;
+
+    payload = bitroarSerializePortable(o);
+    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload, sdslen(payload))) == -1) {
+        sdsfree(payload);
+        return -1;
+    }
+    nwritten += n;
+    sdsfree(payload);
+
+    return nwritten;
+}
+
+/* Load a RDB_TYPE_BITMAP value. As for the other types, a read failure returns
+ * NULL without reporting it, so the caller handles it as a short read (which
+ * is not fatal when loading from a socket). Only a value that fails validation
+ * is reported as corruption. */
+static robj *rdbLoadBitmapObject(rio *rdb) {
+    uint64_t byte_len;
+    size_t payload_len;
+    sds payload;
+    robj *o;
+
+    if ((byte_len = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+    if (byte_len > BITROAR_MAX_BYTES) goto toolarge;
+#if SIZE_MAX < UINT64_MAX
+    if (byte_len > (uint64_t)SIZE_MAX) goto toolarge;
+#endif
+
+    payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
+    if (payload == NULL) return NULL;
+    /* bitroarCreateFromPortable() validates the payload and rejects a byte_len
+     * that cannot hold the highest set bit. A byte_len beyond the highest set
+     * bit is legitimate: trailing zero bytes contain no set bits, yet extend
+     * the logical length. */
+    o = bitroarCreateFromPortable((unsigned char *)payload, payload_len, byte_len);
+    sdsfree(payload);
+    if (o == NULL) {
+        rdbReportCorruptRDB("Invalid bitmap RDB payload");
+        return NULL;
+    }
+    return o;
+
+toolarge:
+    rdbReportCorruptRDB("Bitmap byte length %llu too large",
+        (unsigned long long)byte_len);
+    return NULL;
 }
 
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
@@ -1667,6 +1733,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
             }
         }
+    } else if (o->type == OBJ_BITMAP) {
+        if ((n = rdbSaveBitmapObject(rdb, o)) == -1) return -1;
+        nwritten += n;
     } else {
         serverPanic("Unknown object type");
     }
@@ -1715,6 +1784,9 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
         if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) return -1;
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
     }
+
+    if (blessIsNoEvict(val) && rdbSaveType(rdb, RDB_OPCODE_KEY_NOEVICT) == -1)
+        return -1;
 
     /* if needed save key metadata  */
     if (getModuleMetaBits(val->metabits)) {
@@ -2337,27 +2409,27 @@ error:
     return null_on_error ? NULL : createStringObject("module-dummy-value",18);
 }
 
-/* Load object type and optional key metadata (into `keymeta`) from RDB stream.
+/* Load object type and optional key metadata (into `spec`) from RDB stream.
  * This function handles the RDB_OPCODE_KEY_META opcode that may appear before
  * the actual object type in RDB streams (both regular RDB files and DUMP payloads).
  * The `type` parameter is updated with the actual object type.
  * 
  * Returns: 0 on success, -1 on error
  */
-int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
+int rdbResolveKeyType(rio *rdb, int *type, int dbid, kvSpec *spec) {
     if (*type == RDB_OPCODE_KEY_META) {
         /* Load key metadata from RDB */
         uint64_t numClasses;
         if ((numClasses = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
             return -1;
         }
-        if (rdbLoadKeyMetadata(rdb, dbid, numClasses, keymeta) == -1) {
+        if (rdbLoadKeyMetadata(rdb, dbid, numClasses, spec) == -1) {
             return -1;
         }
         /* Read the actual object type after metadata */
         *type = rdbLoadObjectType(rdb);
         if (*type == -1) {
-            keyMetaSpecCleanup(keymeta);
+            kvSpecCleanup(spec);
             return -1;
         }
     } else if (!rdbIsObjectType(*type)) {
@@ -4488,6 +4560,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             arSet(ar, idx, v);
         }
+    } else if (rdbtype == RDB_TYPE_BITMAP) {
+        if ((o = rdbLoadBitmapObject(rdb)) == NULL) return NULL;
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
@@ -4601,7 +4675,10 @@ void stopSaving(int success) {
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
-    if (server.rdb_checksum && !server.loading_skip_checksum)
+    /* When RIO_FLAG_CKSUM_AT_SOURCE is set, the rio's read() method already
+     * folded these bytes into the checksum itself (see rioInitWithFileLoad);
+     * doing it again here would checksum every byte twice. */
+    if (server.rdb_checksum && !server.loading_skip_checksum && !(r->flags & RIO_FLAG_CKSUM_AT_SOURCE))
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
@@ -4701,8 +4778,8 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
     /* Key-specific attributes, set by opcodes before the key type. */
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
-    KeyMetaSpec keyMeta; /* Updated by OPCODE_KEY_META and OPCODE_EXPIRETIME */
-    keyMetaSpecInit(&keyMeta);
+    kvSpec spec; /* Key attributes populated by RDB opcodes. */
+    kvSpecInit(&spec);
 
     while(1) {
         sds key;
@@ -4718,14 +4795,14 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
              * load the actual type, and continue. */
             expiretime = rdbLoadTime(rdb);
             expiretime *= 1000;
-            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
+            kvSpecAddMeta(&spec, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             expiretime = rdbLoadMillisecondTime(rdb,rdbver);
-            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
+            kvSpecAddMeta(&spec, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
@@ -4739,6 +4816,9 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             uint64_t qword;
             if ((qword = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
             lru_idle = qword;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_KEY_NOEVICT) {
+            spec.no_evict = 1;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
@@ -4943,12 +5023,12 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
         }
 
         /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
-        if (rdbResolveKeyType(rdb, &type, dbid, &keyMeta) == -1) 
+        if (rdbResolveKeyType(rdb, &type, dbid, &spec) == -1)
             goto eoferr;
 
         /* Read key */
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&spec);
             goto eoferr;
         }
         /* Read value */
@@ -4963,7 +5043,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
          * the keys they are, since the log of operations in the incr AOF
          * is assumed to work in the exact keyspace state. */
         if (val == NULL) {
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&spec);
             /* Since we used to have bug that could lead to empty keys
              * (See #8453), we rather not fail when empty key is encountered
              * in an RDB file, instead we will silently discard it and
@@ -4994,14 +5074,14 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
             }
             sdsfree(key);
             decrRefCount(val);
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&spec);
             server.rdb_last_load_keys_expired++;
         } else {
             robj keyobj;
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
-            kvobj *kv = dbAddRDBLoad(db, key, &val, &keyMeta);
+            kvobj *kv = dbAddRDBLoad(db, key, &val, &spec);
             server.rdb_last_load_keys_loaded++;
             if (!kv) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -5009,7 +5089,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    kv = dbAddRDBLoad(db, key, &val, &keyMeta);
+                    kv = dbAddRDBLoad(db, key, &val, &spec);
                     serverAssert(kv != NULL);
                 } else {
                     serverLog(LL_WARNING,
@@ -5053,7 +5133,7 @@ static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo 
         expiretime = -1;
         lfu_freq = -1;
         lru_idle = -1;
-        keyMetaSpecInit(&keyMeta);
+        kvSpecInit(&spec);
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5) {
@@ -5152,7 +5232,8 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
         return RDB_FAILED;
     }
 
-    if (fstat(fileno(fp), &sb) == -1)
+    int have_filesize = fstat(fileno(fp), &sb) != -1;
+    if (!have_filesize)
         sb.st_size = 0;
 
     loadingSetFlags(filename, sb.st_size, 0);
@@ -5161,10 +5242,22 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
     if (emptyDbFunc)
         emptyDbFunc(); /* Flush existing db. */
     loadingFireEvent(rdbflags);
-    rioInitWithFile(&rdb,fp);
+    /* rioInitWithFileLoad() needs a real file size to know where the
+     * trailing checksum footer begins; fall back to the plain rio in the
+     * rare case fstat() failed on an already-open fd. */
+    if (have_filesize)
+        rioInitWithFileLoad(&rdb,fp,sb.st_size,server.rdb_checksum && !server.loading_skip_checksum);
+    else
+        rioInitWithFile(&rdb,fp);
+
+#ifdef HAVE_FADVISE
+    /* The file is read sequentially: let the kernel use a larger read-ahead window. */
+    posix_fadvise(fileno(fp), 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
 
+    if (have_filesize) rioFreeFileLoad(&rdb);
     fclose(fp);
     if (retval != C_OK && emptyDbFunc)
         emptyDbFunc(); /* Clean up partial db. */
@@ -5296,6 +5389,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     int pipefds[2], rdb_pipe_write = 0, safe_to_exit_pipe = 0;
     int rdb_channel = server.repl_rdb_channel && (req & SLAVE_REQ_RDB_CHANNEL);
     int slots_req = req & SLAVE_REQ_SLOTS_SNAPSHOT;
+    unsigned long long slots_keys = 0;
 
     if (hasActiveChildProcess()) return C_ERR;
 
@@ -5335,6 +5429,9 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             if (slave->slave_req != req)
                 continue;
             replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
+            /* In replicationSetupSlaveForFullResync, we would update the total keys
+             * of the current task. */
+            if (slots_req) slots_keys = asmGetTaskTotalKeys(slave->task);
             conns[numconns++] = slave->conn;
             if (rdb_channel) {
                 /* Put the socket in blocking mode to simplify RDB transfer. */
@@ -5441,6 +5538,8 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                     serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
                 }
             }
+            /* redisFork() defaults to all server keys. ASM saves only its slots. */
+            if (slots_req) server.stat_current_save_keys_total = slots_keys;
         }
         if (rdb_channel)
             zfree(conns);

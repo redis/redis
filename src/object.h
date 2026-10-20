@@ -89,20 +89,21 @@ struct RedisModuleType;
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
 #define OBJ_ENCODING_TMPL_LP 14 /* Hash with shared template, values in listpack */
 #define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
+#define OBJ_ENCODING_BITMAP_ROARING 16 /* Bitmap encoded as a Roaring bitmap. */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
 #define OBJ_NUM_KVMETA_BITS 8
-#define OBJ_REFCOUNT_BITS 23
+#define OBJ_REFCOUNT_BITS 22
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 
 struct redisObject {
     unsigned type:4;
-    unsigned encoding:4;
+    unsigned encoding:5;
     unsigned refcount : OBJ_REFCOUNT_BITS;
     unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
     
@@ -121,13 +122,13 @@ typedef struct redisObject robj;
 typedef struct redisObject kvobj;
 
 /* Whenever an robj serves as a kvobj base (iskvobj=1), a single byte of extra
- * bits is allocated right after it, before the embedded key. Only 2 bits are
- * used for now, the remaining 6 are free for future use. */
+ * bits is allocated right after it, before the embedded key. */
 typedef struct __attribute__ ((__packed__)) kvBits {
     /* SDS header type of the embedded key: SDS_TYPE_5/8/16 or 32 (values 0..3). 
      * Keys are never longer than 4GB, so SDS_TYPE_64 is not needed. */
     unsigned key_sds_type : 2;
-    unsigned unused : 6;       /* Free bits. Available for future use. */
+    unsigned no_evict : 1;    /* Protected from maxmemory eviction. */
+    unsigned unused : 5;       /* Free bits. Available for future use. */
 } kvBits;
 
 /* Returns the kvBits that follow the robj. Valid only if kv->iskvobj is set.
@@ -188,6 +189,7 @@ int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(struct client *c, robj *o, int type);
+int checkStringOrBitmapType(struct client *c, robj *o);
 int getLongLongFromObjectOrReply(struct client *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(struct client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);

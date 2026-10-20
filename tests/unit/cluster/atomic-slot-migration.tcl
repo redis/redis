@@ -123,6 +123,39 @@ proc failover_and_wait_for_done {node_id {failover_arg ""}} {
     fail "Failover did not complete after $max_attempts attempts for node $node_id"
 }
 
+# Return 1 if the given node owns every slot in the range, from that node's own
+# view of the cluster. CLUSTER SLOTS reports one range per owner, so a node that
+# owns the whole range covers it with a single entry.
+proc node_owns_slots {node_id start_slot end_slot} {
+    set myid [R $node_id cluster myid]
+    foreach range [R $node_id cluster slots] {
+        lassign $range start end node
+        if {[lindex $node 2] eq $myid && $start <= $start_slot && $end_slot <= $end} {
+            return 1
+        }
+    }
+    return 0
+}
+
+# Move a slot range to a node, unless it owns all of it already. A range split
+# across owners is left to the server, which rejects the import with "slots
+# belong to different source nodes".
+proc move_slots_to_node {node_id start_slot end_slot} {
+    if {![node_owns_slots $node_id $start_slot $end_slot]} {
+        set task_id [R $node_id CLUSTER MIGRATION IMPORT $start_slot $end_slot]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status $node_id $task_id state]]
+        } else {
+            fail "could not move slots $start_slot-$end_slot to node $node_id -
+                 ([migration_status $node_id $task_id state]
+                  [migration_status $node_id $task_id last_error])"
+        }
+    }
+    # $node_id reaching "completed" only reflects its own view; wait for the source to
+    # settle and the topology change to propagate cluster-wide before callers rely on it.
+    wait_for_asm_done
+}
+
 proc migration_status {node_id task_id field} {
     set status [R $node_id CLUSTER MIGRATION STATUS ID $task_id]
 
@@ -151,6 +184,10 @@ proc migration_status {node_id task_id field} {
 # Setup slot migration test with keys and delay, then start migration
 # Returns the task_id for the migration
 proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {keys 2} {delay 1000000}} {
+    # This populates the range on src_node and imports it to dst_node, so the
+    # range has to be on src_node to begin with.
+    move_slots_to_node $src_node $start_slot $end_slot
+
     # Two keys on the start slot
     populate_slot $keys -idx $src_node -slot $start_slot
 
@@ -182,6 +219,17 @@ proc reset_default_trim_method {} {
     }
 }
 
+# Return an INFO `streams` per-cgroup histogram (e.g. stream_distrib_cgroups_pel) for a
+# node's db (e.g. "1=1,4=1"), or "" if absent.
+proc stream_cgroups_hist {node_id metric {dbnum 0}} {
+    foreach line [split [R $node_id info streams] "\n"] {
+        set line [string trim $line "\r"]
+        if {[regexp "^db${dbnum}_${metric}:(.*)$" $line -> val]} { return $val }
+    }
+    return ""
+}
+proc stream_pel_hist {node_id {dbnum 0}} { return [stream_cgroups_hist $node_id stream_distrib_cgroups_pel $dbnum] }
+
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
         test "Simple slot migration (trim method: $trim_method)" {
@@ -194,7 +242,12 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 0 set $slot1_key "b"
             set slot101_key [slot_key 101 mykey]
             R 0 set $slot101_key "c"
-            # 3 keys cost 3s to save
+            # Exercise both command-format (string) and RESTORE (small list) migration.
+            R 0 bless set $slot0_key no-evict
+            set protected_list [slot_key 0 protected-list]
+            R 0 rpush $protected_list a b
+            R 0 bless set $protected_list no-evict
+            # 4 keys cost 4s to save
             R 0 config set rdb-key-save-delay 1000000
 
             # load a function
@@ -242,6 +295,14 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             assert_equal [string repeat b 100] [R 4 get $slot1_key]
             assert_equal [R 0 function dump] [R 4 function dump]
 
+            foreach node {1 4} {
+                assert_equal {NO-EVICT} [R $node bless get $slot0_key]
+                assert_equal {NO-EVICT} [R $node bless get $protected_list]
+                assert_equal {} [R $node bless get $slot1_key]
+                assert_equal {a b} [R $node lrange $protected_list 0 -1]
+                assert_equal 2 [llength [lindex [R $node bless scan 0 no-evict] 1]]
+            }
+
             # verify key that was not in the slot range is not migrated
             assert_equal [string repeat c 100] [R 0 get $slot101_key]
             # verify changes in replica
@@ -259,6 +320,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             wait_for_asm_done
         }
     }
+
 }
 
 # Skip most of the tests when running under valgrind since it is hard to
@@ -408,7 +470,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                 # Verify field order
                 set expected_fields {id slots source dest operation state
                                     last_error retries create_time start_time
-                                    end_time write_pause_ms}
+                                    end_time write_pause_ms phase snapshot_progress_perc
+                                    incremental_progress_perc snapshot_total_keys
+                                    snapshot_processed_keys incremental_lag_bytes}
                 for {set j 0} {$j < [llength $expected_fields]} {incr j} {
                     set expected_field [lindex $expected_fields $j]
                     set actual_field [lindex $task [expr $j * 2]]
@@ -589,6 +653,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Verify expire time is migrated correctly" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
 
@@ -628,6 +693,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Slot migration with complex data types can work well" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
 
@@ -661,6 +727,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Slot migration preserves template-encoded hashes" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
         R 0 config set hash-min-template-entries 0
@@ -717,6 +784,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     proc asm_basic_error_handling_test {operation channel all_states} {
+        move_slots_to_node 1 0 100
+
         foreach state $all_states {
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
 
@@ -813,6 +882,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Migration will be successful after fail points are cleared" {
+        move_slots_to_node 1 0 100
         R 0 flushall
         R 1 flushall
         set slot0_key [slot_key 0 mykey]
@@ -925,6 +995,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Expired key is not deleted and SCAN/KEYS/RANDOMKEY/CLUSTER GETKEYSINSLOT filter keys in importing slots" {
+        move_slots_to_node 1 0 100
         set slot0_key [slot_key 0 mykey]
         set slot1_key [slot_key 1 mykey]
         set slot2_key [slot_key 2 mykey]
@@ -1600,9 +1671,177 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
     }
+
+    # The calls elsewhere in this file only take the no-op path, since in an
+    # ordered run the slots are already on the node that needs them.
+    test "move_slots_to_node migrates a range that is not on the target node" {
+        move_slots_to_node 1 0 100
+        move_slots_to_node 0 0 100
+        assert_equal 1 [node_owns_slots 0 0 100]
+        assert_equal 0 [node_owns_slots 1 0 100]
+        move_slots_to_node 1 0 100
+        assert_equal 1 [node_owns_slots 1 0 100]
+    }
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    foreach trim_method {"active" "bg"} {
+        test "Slot trim updates stream_distrib_cgroups_pel histogram (trim method: $trim_method)" {
+            R 0 debug asm-trim-method $trim_method
+            R 0 flushall
+            R 1 flushall
+            R 0 config set stream-stats yes
+            R 1 config set stream-stats yes
+
+            # Streams in slots migrated away (0-100) and one that stays (101).
+            # Each has a group with a partial read, giving distinct PEL bins:
+            #   key   entries read -> PEL
+            #   s0    4       1       1
+            #   s1    8       4       4
+            #   s101  2       1       1
+            set s0 [slot_key 0 strm]
+            set s1 [slot_key 1 strm]
+            set s101 [slot_key 101 strm]
+            foreach {key n r} [list $s0 4 1 $s1 8 4 $s101 2 1] {
+                for {set i 1} {$i <= $n} {incr i} { R 0 xadd $key $i-1 f v }
+                R 0 xgroup create $key g 0
+                R 0 xreadgroup group g c count $r streams $key >
+            }
+            assert_equal "1=2,4=1" [stream_pel_hist 0]     ;# PEL 1,4,1
+
+            # Migrate slots 0-100 to R 1; slot 101 stays on R 0.
+            R 1 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+
+            # Trimming the migrated slots frees their stream keys (and groups) --
+            # with the bg method off-thread, bypassing streamKeyRemoved -- so
+            # R 0's histogram must drop to just the slot-101 group.
+            wait_for_condition 1000 50 {
+                [stream_pel_hist 0] eq "1=1"
+            } else {
+                fail "R0 histogram not trimmed: pel=[stream_pel_hist 0]"
+            }
+
+            # The importing node counts the migrated groups as they load.
+            assert_equal "1=1,4=1" [stream_pel_hist 1]
+
+            # cleanup: flush and migrate the slots back to R 0.
+            R 0 flushall
+            R 1 flushall
+            R 0 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+            R 0 config set stream-stats no
+            R 1 config set stream-stats no
+        }
+    }
+
+    # A background trim tallies its histogram delta on the BIO thread against
+    # the generation it was scheduled for. A synchronous FLUSH empties the
+    # kvstore in place, zeroing the histograms without changing the kvstore
+    # identity, and does not cancel a trim already handed to BIO. Without the
+    # generation check that trim's stale delta would be subtracted from samples
+    # created after the FLUSH. The replacement group is put in the same PEL bin
+    # as the trimmed one so a stale subtraction removes the fresh sample rather
+    # than merely driving an empty bin negative; the keysizes rows are checked
+    # the same way. Timing-dependent by design: the trim must still be in flight
+    # when the FLUSH lands.
+    # Timing-dependent by design and too slow to be reliable under the thread
+    # sanitizer, hence tsan:skip.
+    test "Slot bg-trim delta is not applied when a sync FLUSH resets the histogram" {
+        R 0 debug asm-trim-method bg
+        R 0 flushall
+        R 1 flushall
+        R 0 config set stream-stats yes
+
+        # Create a group in a slot that will be migrated. Give it one pending entry
+        # so its PEL histogram contribution is in bin "1".
+        set mig [slot_key 3 strm]
+        for {set i 1} {$i <= 3} {incr i} { R 0 xadd $mig $i-1 f v }
+        R 0 xgroup create $mig g 0
+        R 0 xreadgroup group g c count 1 streams $mig >
+        assert_equal "1=1" [stream_pel_hist 0]
+
+        # Keep the background trim busy long enough to cross the synchronous
+        # FLUSH: one hash with many fields gives the BIO thread a long free
+        # while the keyspace stays tiny, so builds that re-verify the keysizes
+        # histograms after every command (DEBUG_ASSERT_KEYSPACE) are not slowed.
+        set filler [slot_key 3 bighash]
+        for {set chunk 0} {$chunk < 40} {incr chunk} {
+            set args {}
+            for {set i 0} {$i < 10000} {incr i} {
+                lappend args f[expr {$chunk * 10000 + $i}] v
+            }
+            R 0 hset $filler {*}$args
+        }
+
+        set freed_before [getInfoProperty [R 0 info memory] lazyfreed_objects]
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+
+        # Wait until the background trim has been handed to the BIO thread:
+        # lazyfree_pending_objects is raised on the main thread at schedule and
+        # drops back to zero once the detached slot has been freed. That window
+        # is the few tens of milliseconds spent freeing the filler, so poll
+        # every 5 ms, but allow seconds for the migration before it: on
+        # instrumented builds shipping the filler alone exceeds a second. Also
+        # stop once lazyfreed_objects has advanced, i.e. the free already
+        # finished: the check after the FLUSH then reports the missed window.
+        wait_for_condition 2000 5 {
+            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0 ||
+            [getInfoProperty [R 0 info memory] lazyfreed_objects] > $freed_before
+        } else {
+            fail "background trim did not start"
+        }
+
+        # MULTI forces FLUSHALL SYNC to run synchronously, in place.
+        R 0 multi
+        R 0 flushall sync
+        R 0 exec
+
+        # The BIO thread must still be freeing the trimmed slot after the
+        # histogram reset. Otherwise the completion callback did not span the
+        # reset and this run would not exercise the bug.
+        assert {[getInfoProperty [R 0 info memory] lazyfree_pending_objects] > 0}
+
+        # Add a fresh group in the same PEL bin that the stale delta would
+        # decrement.
+        set keep [slot_key 101 strm]
+        for {set i 1} {$i <= 3} {incr i} {
+            R 0 xadd $keep $i-1 f v
+        }
+        R 0 xgroup create $keep g 0
+        R 0 xreadgroup group g c count 1 streams $keep >
+        assert_equal "1=1" [stream_pel_hist 0]
+
+        # Wait for the BIO thread to finish freeing the trimmed slot, then give
+        # the main thread time to run the completion callback that performs the
+        # epoch check. There is no observable for the callback itself; a late
+        # callback could only hide the bug, never fail a correct build.
+        wait_for_condition 1000 10 {
+            [getInfoProperty [R 0 info memory] lazyfree_pending_objects] == 0
+        } else {
+            fail "background trim did not finish"
+        }
+        after 100
+
+        assert_equal "1=1" [stream_pel_hist 0]
+        # Same for INFO keysizes: the fresh 3-entry stream is the only key, so the
+        # hashes row (the trimmed 400k-field filler) must stay absent and the
+        # streams row must still hold the fresh sample, bin "2" for 3 entries.
+        assert_equal {} [getInfoProperty [R 0 info keysizes] db0_distrib_hashes_sizes]
+        assert_equal "2=1" [getInfoProperty [R 0 info keysizes] db0_distrib_streams_items]
+
+        # Cleanup: flush and migrate the slots back to R 0.
+        R 0 flushall
+        R 1 flushall
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 config set stream-stats no
+        # Disabled: the rows are hidden. Also the test's last command: the
+        # tags argument below needs an expected result, and {} means the body
+        # must return an empty string, which this assertion does.
+        assert_equal "" [stream_pel_hist 0]
+    } {} {tsan:skip}
+
     test "Test bgtrim after a successful migration" {
         R 0 debug asm-trim-method bg
         R 3 debug asm-trim-method bg
@@ -3453,6 +3692,7 @@ start_cluster 3 0 [list tags {external:skip cluster tls:skip modules} config_lin
     test "redis-cli --cluster rebalance automatically uses atomic slot migration" {
         # Rebalance distributes 16384 slots evenly across the 3 nodes.
         # (0-999) will be moved back to node 0.
+        move_slots_to_node 1 0 999
         clear_module_event_log
         exec src/redis-cli --cluster rebalance 127.0.0.1:[get_port 0] --cluster-yes
         wait_for_asm_done
@@ -3541,6 +3781,49 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
     }
 
+    test "ASM forwards config-selected BITOP representation" {
+        R 0 flushall
+        R 1 flushall
+
+        set source1 [slot_key 0 bitop:s1]
+        set source2 [slot_key 0 bitop:s2]
+        set dest [slot_key 0 bitop:out]
+        set old_source_default [lindex [R 0 config get bitmap-default-roaring] 1]
+        set old_dest_default [lindex [R 1 config get bitmap-default-roaring] 1]
+
+        R 0 config set bitmap-default-roaring yes
+        R 1 config set bitmap-default-roaring no
+        R 0 set $source1 [binary format H* f0]
+        R 0 set $source2 [binary format H* 0f]
+
+        # Keep the slot in the streaming phase while the live BITOP is issued.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 2 1000000]
+        assert_equal 1 [R 0 bitop or $dest $source1 $source2]
+        assert_equal bitmap [R 0 type $dest]
+        set source_digest [R 0 debug digest-value $source1 $source2 $dest]
+
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        # BITROAROP carries the destination and sources through the import
+        # stream, preserving the source-selected representation despite the
+        # destination's opposite local default.
+        assert_equal bitmap [R 1 type $dest]
+        assert_equal [binary format H* ff] [R 1 debug bitmap-raw $dest]
+        assert_equal $source_digest [R 1 debug digest-value $source1 $source2 $dest]
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal bitmap [R 4 type $dest]
+        assert_equal $source_digest [R 4 debug digest-value $source1 $source2 $dest]
+
+        R 0 config set bitmap-default-roaring $old_source_default
+        R 1 config set bitmap-default-roaring $old_dest_default
+
+        # Restore slot ownership for the following tests.
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
+
     test "ASM stress: 4000 template keys, half streamed live during migration" {
         # Create template keys on node 0 in slot 0. Each template is shared by 2 keys
         proc asm_load_tmpl_keys {lo hi} {
@@ -3596,5 +3879,228 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Byte-identical end to end: source-before == dest master == dest replica.
         assert_equal $src_digest [R 1 debug digest]
         assert_equal $src_digest [R 4 debug digest]
+    }
+}
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    test "BLESS level survives atomic slot migration" {
+        # Keys in slot 0 (owned by node 0): a blessed string, a plain string, and
+        # a blessed small list. The list is a small non-string object, so ASM
+        # migrates it via the RESTORE (dump) path + a follow-up BLESS SET command,
+        # unlike the string which uses the AOF/rewrite path - covers both.
+        set kb [slot_key 0 blessed]
+        set kp [slot_key 0 plain]
+        set kl [slot_key 0 blessedlist]
+        R 0 set $kb v0
+        R 0 set $kp v1
+        R 0 rpush $kl a b c
+        assert_equal 1 [R 0 bless set $kb no-evict]
+        assert_equal 1 [R 0 bless set $kl no-evict]
+        assert_equal 2 [llength [lindex [R 0 bless scan 0 no-evict] 1]]
+
+        # Atomically migrate slots 0-100 from node 0 to node 1.
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+        wait_for_asm_done
+        assert_equal "completed" [migration_status 1 $task_id state]
+
+        # New owner (node 1): data and bless level carried over the ASM channel,
+        # for both the string (AOF path) and the list (RESTORE + follow-up BLESS).
+        assert_equal v0 [R 1 get $kb]
+        assert_equal {a b c} [R 1 lrange $kl 0 -1]
+        assert_equal {NO-EVICT} [R 1 bless get $kb]
+        assert_equal {NO-EVICT} [R 1 bless get $kl]
+        assert_equal {}         [R 1 bless get $kp]
+        assert_equal 2 [llength [lindex [R 1 bless scan 0 no-evict] 1]]
+
+        # Its replica (node 4) received the bless too. GET isn't a write command,
+        # so a READONLY-mode client is served locally by the replica in cluster mode.
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        R 4 readonly
+        assert_equal {NO-EVICT} [R 4 bless get $kb]
+
+        # Former owner (node 0) drops the migrated key from its index once the
+        # source trim runs (background trim moves the slot-partitioned index).
+        wait_for_condition 50 100 {
+            [llength [lindex [R 0 bless scan 0 no-evict] 1]] == 0
+        } else {
+            fail "former owner still lists [llength [lindex [R 0 bless scan 0 no-evict] 1]] blessed key(s) after migration+trim"
+        }
+    }
+}
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
+    test "ASM reports snapshot progress" {
+        # Keys in slot 1 should stay on the source and not count toward snapshot progress.
+        populate_slot 4 -idx 0 -slot 1
+
+        # Use enough keys for multiple child-info reports, with at least one second per 1024 keys.
+        # With a total of 4096, key-count percentages are exactly representable in binary floating point.
+        set total_keys 4096
+        R 0 debug asm-failpoint migrate-main-channel handoff-prep
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 $total_keys 1000]
+
+        # Wait until the source reports processed keys and the destination starts importing them.
+        wait_for_condition 1000 10 {
+            [S 0 current_save_keys_processed] > 0 &&
+            [migration_status 0 $task_id snapshot_progress_perc] > 0 &&
+            [migration_status 1 $task_id snapshot_progress_perc] > 0 &&
+            [migration_status 0 $task_id incremental_progress_perc] == 0 &&
+            [migration_status 1 $task_id incremental_progress_perc] == 0
+        } else {
+            fail "ASM did not report partial snapshot progress"
+        }
+        assert_equal $total_keys [S 0 current_save_keys_total]
+
+        # Source side:
+        # Bound source progress by the processed key counts read before and after STATUS.
+        # This allows a child-info update between commands without requiring identical samples.
+        set processed_before [S 0 current_save_keys_processed]
+        set task [lindex [R 0 cluster migration status id $task_id] 0]
+        set progress [dict get $task snapshot_progress_perc]
+        set processed_after [S 0 current_save_keys_processed]
+        set expected_min [expr {100.0 * $processed_before / $total_keys}]
+        set expected_max [expr {100.0 * $processed_after / $total_keys}]
+        assert {$progress >= $expected_min && $progress <= $expected_max}
+        assert_equal $total_keys [dict get $task snapshot_total_keys]
+        assert {[dict get $task snapshot_processed_keys] >= $processed_before &&
+                [dict get $task snapshot_processed_keys] <= $processed_after}
+
+        # Destination side:
+        # INFO includes importing keys, sample the destination key count and progress atomically.
+        R 1 multi
+        R 1 cluster migration status id $task_id
+        R 1 info keyspace
+        lassign [R 1 exec] tasks info
+        scan [getInfoProperty $info db0] "keys=%d" keys
+        assert {[dict get [lindex $tasks 0] snapshot_progress_perc] == 100.0 * $keys / $total_keys}
+        assert_equal $total_keys [dict get [lindex $tasks 0] snapshot_total_keys]
+        assert_equal $keys [dict get [lindex $tasks 0] snapshot_processed_keys]
+
+        # Snapshot progress should stay at 100% after entering the incremental phase.
+        wait_for_condition 1000 10 {
+            [migration_status 0 $task_id phase] eq "incremental" &&
+            [migration_status 1 $task_id phase] eq "incremental"
+        } else {
+            fail "ASM did not finish the snapshot phase"
+        }
+        foreach node {0 1} {
+            assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+            assert_equal $total_keys [migration_status $node $task_id snapshot_processed_keys]
+        }
+
+        # Finish the migration and verify that all progresses are 100%.
+        R 0 config set rdb-key-save-delay 0
+        R 0 debug asm-failpoint "" ""
+        wait_for_asm_done
+        foreach node {0 1} {
+            assert_equal completed [migration_status $node $task_id state]
+            assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+            assert_equal 100 [migration_status $node $task_id incremental_progress_perc]
+        }
+
+        # Clearup
+        R 0 flushall
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
+    }
+
+    test "ASM canceled import retains snapshot progress after trimming" {
+        # Cancel while only part of the snapshot has reached the destination.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0 8 500000]
+        wait_for_condition 1000 10 {
+            [migration_status 1 $task_id snapshot_progress_perc] > 0 &&
+            [migration_status 1 $task_id snapshot_progress_perc] < 100
+        } else {
+            fail "ASM did not report partial snapshot progress"
+        }
+        R 1 cluster migration cancel id $task_id
+        R 0 cluster migration cancel id $task_id
+
+        # The archived task must retain its progress after imported keys are removed.
+        set progress [migration_status 1 $task_id snapshot_progress_perc]
+        set processed [migration_status 1 $task_id snapshot_processed_keys]
+        assert {$progress > 0 && $progress < 100}
+        assert {$processed > 0 && $processed < 8}
+        wait_for_asm_done
+        assert_equal 0 [R 1 dbsize]
+        assert_equal canceled [migration_status 1 $task_id state]
+        assert_equal snapshot [migration_status 1 $task_id phase]
+        assert_equal $progress [migration_status 1 $task_id snapshot_progress_perc]
+        assert_equal 0 [migration_status 1 $task_id incremental_progress_perc]
+        assert_equal $processed [migration_status 1 $task_id snapshot_processed_keys]
+
+        # cleanup.
+        R 0 config set rdb-key-save-delay 0
+        R 0 flushall
+    }
+
+    test "ASM reports incremental progress while streaming buffer" {
+        # Slow buffer replay and yield frequently so STATUS can observe intermediate progress.
+        set event_interval [lindex [R 1 config get loading-process-events-interval-bytes] 1]
+        R 1 config set loading-process-events-interval-bytes 16384
+        R 1 config set key-load-delay 20000
+        R 0 debug asm-failpoint migrate-main-channel handoff-prep
+
+        # Accumulate about 2 MB of incremental writes while the snapshot is being sent.
+        set task_id [setup_slot_migration_with_delay 0 1 0 0]
+        populate_slot 128 -idx 0 -slot 0 -size 16384
+
+        # Both sides should report partial progress during buffer replay.
+        # Stay below 50% here to leave time for another progress sample.
+        wait_for_condition 1000 10 {
+            [migration_status 1 $task_id state] eq "streaming-buffer" &&
+            [migration_status 1 $task_id incremental_progress_perc] > 0 &&
+            [migration_status 1 $task_id incremental_progress_perc] < 50 &&
+            [migration_status 0 $task_id incremental_progress_perc] > 0 &&
+            [migration_status 0 $task_id incremental_progress_perc] < 50
+        } else {
+            fail "ASM did not report intermediate progress while streaming buffer"
+        }
+        foreach node {0 1} {
+            assert_equal incremental [migration_status $node $task_id phase]
+            assert_equal 100 [migration_status $node $task_id snapshot_progress_perc]
+            # Incremental writes must not inflate the completed snapshot counters.
+            assert_equal 2 [migration_status $node $task_id snapshot_total_keys]
+            assert_equal 2 [migration_status $node $task_id snapshot_processed_keys]
+            assert {[migration_status $node $task_id incremental_lag_bytes] > 0}
+        }
+
+        # With no more writes, replay should advance before reaching the live stream.
+        set progress [migration_status 1 $task_id incremental_progress_perc]
+        wait_for_condition 1000 10 {
+            [migration_status 1 $task_id state] eq "streaming-buffer" &&
+            [migration_status 1 $task_id incremental_progress_perc] > $progress &&
+            [migration_status 1 $task_id incremental_progress_perc] < 99.99 &&
+            [migration_status 0 $task_id incremental_progress_perc] > $progress &&
+            [migration_status 0 $task_id incremental_progress_perc] < 99.99
+        } else {
+            fail "ASM incremental progress did not advance during buffer replay"
+        }
+
+        # Draining the buffer reports 99.99%; only a completed migration reports 100%.
+        wait_for_condition 2000 10 {
+            [migration_status 1 $task_id state] eq "wait-stream-eof" &&
+            [migration_status 0 $task_id incremental_progress_perc] == 99.99 &&
+            [migration_status 1 $task_id incremental_progress_perc] == 99.99 &&
+            [migration_status 0 $task_id incremental_lag_bytes] == 0 &&
+            [migration_status 1 $task_id incremental_lag_bytes] == 0
+        } else {
+            fail "ASM did not catch up after streaming buffer"
+        }
+        # Let ASM task complete
+        R 0 config set rdb-key-save-delay 0
+        R 1 config set key-load-delay 0
+        R 1 config set loading-process-events-interval-bytes $event_interval
+        R 0 debug asm-failpoint "" ""
+        wait_for_asm_done
+        foreach node {0 1} {
+            assert_equal 100 [migration_status $node $task_id incremental_progress_perc]
+        }
+
+        # cleanup
+        R 1 flushall
+        R 0 cluster migration import 0 0
+        wait_for_asm_done
     }
 }

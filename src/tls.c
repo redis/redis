@@ -568,6 +568,15 @@ static int handleSSLReturnCode(tls_connection *conn, int ret_value, WantIOType *
                 if (conn->ssl_error) zfree(conn->ssl_error);
                 conn->ssl_error = errno ? zstrdup(strerror(errno)) : NULL;
                 break;
+            case SSL_ERROR_ZERO_RETURN:
+                /* The peer sent a close_notify alert: a graceful TLS shutdown,
+                 * the equivalent of a zero-length read on a plain socket. This
+                 * is not an error and the OpenSSL error queue is empty here, so
+                 * it must not be formatted (that yields the meaningless
+                 * "error:00000000:lib(0)::reason(0)"). Leave ssl_error untouched
+                 * and let the caller report a clean EOF. */
+                conn->c.last_errno = 0;
+                break;
             default:
                 /* Error! */
                 updateTLSError(conn);
@@ -695,16 +704,32 @@ static sds getCertFieldByName(X509 *cert, const char *field) {
 
     if (nid == -1) return NULL;
 
-    X509_NAME *subject = X509_get_subject_name(cert);
-    if (!subject) return NULL;
+    /* The subject (e.g. "CN=alice, O=redis"), its entries and their values
+     * are all owned by the cert, don't free them. They are deliberately not
+     * held in typed locals: the const-ness of these accessors differs between
+     * OpenSSL 1.0.2, 3.x and 4.0, and chaining the calls keeps every version
+     * warning-free. */
+    if (!X509_get_subject_name(cert)) return NULL;
 
-    /* The name may contain embedded NULs, so use the returned length, not
+    /* Find the first entry of type nid (e.g. CN), searching from the start
+     * (-1). Returns its index, or -1 if not found. */
+    int index = X509_NAME_get_index_by_NID(X509_get_subject_name(cert), nid, -1);
+    if (index < 0) return NULL;
+
+    /* Decode the entry's ASN.1 string (UTF8String, BMPString, ...) into UTF-8.
+     * The name may contain embedded NULs, so use the returned length, not
      * strlen, to build the proper binary-safe string. */
-    char buf[256];
-    int len = X509_NAME_get_text_by_NID(subject, nid, buf, sizeof(buf));
-    if (len <= 0) return NULL;
+    unsigned char *utf8 = NULL;
+    int len = ASN1_STRING_to_UTF8(&utf8,
+        X509_NAME_ENTRY_get_data(X509_NAME_get_entry(X509_get_subject_name(cert), index)));
+    if (len <= 0) {
+        OPENSSL_free(utf8);
+        return NULL;
+    }
 
-    return sdstrynewlen(buf, len);
+    sds result = sdstrynewlen(utf8, len);
+    OPENSSL_free(utf8);
+    return result;
 }
 
 sds tlsGetPeerUsername(connection *conn_) {
@@ -1160,7 +1185,13 @@ static int connTLSRead(connection *conn_, void *buf, size_t buf_len) {
     if (conn->c.state != CONN_STATE_CONNECTED) return -1;
     ERR_clear_error();
     ret = SSL_read(conn->ssl, buf, buf_len);
-    return updateStateAfterSSLIO(conn, ret, 1);
+    ret = updateStateAfterSSLIO(conn, ret, 1);
+    /* A graceful TLS shutdown (peer close_notify) leaves the connection in the
+     * CLOSED state and returns -1. Report it as a zero-length read so callers
+     * treat it as a clean EOF -- matching a plain socket read() returning 0 --
+     * rather than as an error disconnect. */
+    if (ret == -1 && conn->c.state == CONN_STATE_CLOSED) return 0;
+    return ret;
 }
 
 static const char *connTLSGetLastError(connection *conn_) {
