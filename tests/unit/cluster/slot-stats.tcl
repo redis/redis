@@ -1170,13 +1170,15 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS memory-bytes with IDMP expiry.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled mem stream-idmp-duration 1}} {
+start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled mem stream-idmp-duration 1}} {
+    # Check slot memory accounting after every command.
+    R 0 DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+
     test "CLUSTER SLOT-STATS memory-bytes follows IDMP expiry after DEL" {
         # Keep one key in the slot and record its memory as the baseline.
-        set drained_keeper "{idmp-expiry-drained}keep"
         set drained_stream "{idmp-expiry-drained}stream"
-        R 0 SET $drained_keeper value
-        set drained_slot [R 0 CLUSTER KEYSLOT $drained_keeper]
+        R 0 SET "{idmp-expiry-drained}keep" value
+        set drained_slot [R 0 CLUSTER KEYSLOT "{idmp-expiry-drained}keep"]
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $drained_slot $drained_slot]
         set drained_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
@@ -1194,10 +1196,9 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         set drained_actual [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
         # Use a separate slot to record another keeper-only baseline.
-        set partial_keeper "{idmp-expiry-partial}keep"
         set partial_stream "{idmp-expiry-partial}stream"
-        R 0 SET $partial_keeper value
-        set partial_slot [R 0 CLUSTER KEYSLOT $partial_keeper]
+        R 0 SET "{idmp-expiry-partial}keep" value
+        set partial_slot [R 0 CLUSTER KEYSLOT "{idmp-expiry-partial}keep"]
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE $partial_slot $partial_slot]
         set partial_baseline [dict get [lindex [lindex $slot_stats 0] 1] memory-bytes]
 
