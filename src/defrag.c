@@ -20,6 +20,14 @@
 
 #include "server.h"
 #include "bitroar.h"
+#ifndef DISABLENEON
+#define DISABLENEON 1
+#endif
+#ifndef ROARING_DISABLE_X64
+#define ROARING_DISABLE_X64 1
+#endif
+#include "setroaring.h"
+#include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -755,6 +763,29 @@ void defragSet(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = newd;
 }
 
+static void defragSetRoaring(robj *ob) {
+    setRoaring *set = ob->ptr;
+    dict *strings = setRoaringStrings(set), *sparse = setRoaringSparse(set);
+    dict *newdict;
+    dictIterator di;
+    dictEntry *de;
+    activeDefragSdsDict(strings, DEFRAG_SDS_DICT_NO_VAL);
+    if ((newdict = dictDefragTables(strings))) set->strings = newdict;
+    dictInitIterator(&di, sparse);
+    while ((de = dictNext(&di)) != NULL) {
+        void *bucket = dictGetVal(de), *moved = activeDefragAlloc(bucket);
+        if (moved) dictSetVal(sparse, de, moved);
+    }
+    dictResetIterator(&di);
+    if ((newdict = dictDefragTables(sparse))) set->sparse = newdict;
+    robj *integers = set->integers;
+    robj *newintegers = activeDefragAlloc(integers);
+    if (newintegers) set->integers = integers = newintegers;
+    bitroarDefrag(integers);
+    setRoaring *newset = activeDefragAlloc(set);
+    if (newset) ob->ptr = newset;
+}
+
 /* Arrays can be expensive to defrag in one shot because they may contain many
  * independently allocated slices. Small arrays are defragmented immediately,
  * while large arrays are queued for later and processed one slice per step. */
@@ -1203,6 +1234,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     } else if (ob->type == OBJ_SET) {
         if (ob->encoding == OBJ_ENCODING_HT) {
             defragSet(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_SET_ROARING) {
+            defragSetRoaring(ob);
         } else if (ob->encoding == OBJ_ENCODING_INTSET ||
                    ob->encoding == OBJ_ENCODING_LISTPACK)
         {

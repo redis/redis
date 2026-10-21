@@ -1052,6 +1052,46 @@ int bitroarSetBit(robj *o, uint64_t bitoffset, int on) {
     return C_OK;
 }
 
+/* The set encoding reuses this merged Roaring64 object as an integer map.
+ * These adapters intentionally bypass bitmap bit-offset/byte-length rules. */
+int bitroarAddRawValue(robj *o, uint64_t value) {
+    bitroar *bitmap = bitroarGet(o);
+    int added = roaring64_bitmap_add_checked(bitmap->roaring, value);
+    if (added) bitmap->alloc_size = BITROAR_ALLOC_SIZE_UNKNOWN;
+    return added;
+}
+
+int bitroarRemoveRawValue(robj *o, uint64_t value) {
+    bitroar *bitmap = bitroarGet(o);
+    int removed = roaring64_bitmap_remove_checked(bitmap->roaring, value);
+    if (removed) bitmap->alloc_size = BITROAR_ALLOC_SIZE_UNKNOWN;
+    return removed;
+}
+
+int bitroarContainsRawValue(const robj *o, uint64_t value) {
+    return roaring64_bitmap_contains(bitroarGet(o)->roaring, value);
+}
+
+int bitroarSelectRawValue(const robj *o, uint64_t rank, uint64_t *value) {
+    return roaring64_bitmap_select(bitroarGet(o)->roaring, rank, value);
+}
+
+void *bitroarRawIteratorCreate(const robj *o) {
+    return roaring64_iterator_create(bitroarGet(o)->roaring);
+}
+
+int bitroarRawIteratorNext(void *iterator, uint64_t *value) {
+    roaring64_iterator_t *it = iterator;
+    if (!roaring64_iterator_has_value(it)) return 0;
+    *value = roaring64_iterator_value(it);
+    roaring64_iterator_advance(it);
+    return 1;
+}
+
+void bitroarRawIteratorFree(void *iterator) {
+    roaring64_iterator_free(iterator);
+}
+
 uint64_t bitroarGetUnsignedBitfield(const robj *o, uint64_t offset, uint64_t bits) {
     bitroar *bitmap = bitroarGet(o);
     uint64_t bit_len = bitmap->byte_len * 8;

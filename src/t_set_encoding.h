@@ -72,5 +72,6 @@ struct _setTypeOps {
 extern const setTypeOps setTypeOpsIntset;
 extern const setTypeOps setTypeOpsListpack;
 extern const setTypeOps setTypeOpsHT;
+extern const setTypeOps setTypeOpsRoaring;
 
 #endif

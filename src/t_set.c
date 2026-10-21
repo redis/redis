@@ -16,6 +16,7 @@
 #include "intset.h"  /* Compact integer set structure */
 #include "hyperloglog.h"
 #include "t_set_encoding.h"
+#include "setroaring.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -34,6 +35,7 @@ static const setTypeOps *setTypeGetOps(int encoding) {
     case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
     case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
     case OBJ_ENCODING_HT: return &setTypeOpsHT;
+    case OBJ_ENCODING_SET_ROARING: return &setTypeOpsRoaring;
     default: serverPanic("Unknown set encoding");
     }
 }
@@ -58,8 +60,14 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
  * The size hint indicates approximately how many items will be added which is
  * used to determine the initial representation. */
 robj *setTypeCreate(sds value, size_t size_hint) {
-    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK && size_hint <= server.set_max_intset_entries)
-        return createIntsetObject();
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK) {
+        if (size_hint <= server.set_max_intset_entries) return createIntsetObject();
+        if (server.set_roaring_enabled) {
+            robj *o = createObject(OBJ_SET, setRoaringCreate());
+            o->encoding = OBJ_ENCODING_SET_ROARING;
+            return o;
+        }
+    }
     if (size_hint <= server.set_max_listpack_entries)
         return createSetListpackObject();
 
@@ -76,7 +84,9 @@ void setTypeMaybeConvert(robj *set, size_t size_hint) {
     if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint > server.set_max_listpack_entries)
         || (set->encoding == OBJ_ENCODING_INTSET && size_hint > server.set_max_intset_entries))
     {
-        setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
+        int enc = set->encoding == OBJ_ENCODING_INTSET && server.set_roaring_enabled ?
+                  OBJ_ENCODING_SET_ROARING : OBJ_ENCODING_HT;
+        setTypeConvertAndExpand(set, enc, size_hint, 1);
     }
 }
 
@@ -92,7 +102,7 @@ static size_t intsetMaxEntries(void) {
 static void maybeConvertIntset(robj *subject) {
     serverAssert(subject->encoding == OBJ_ENCODING_INTSET);
     if (intsetLen(subject->ptr) > intsetMaxEntries())
-        setTypeConvert(subject,OBJ_ENCODING_HT);
+        setTypeConvert(subject, server.set_roaring_enabled ? OBJ_ENCODING_SET_ROARING : OBJ_ENCODING_HT);
 }
 
 /* When you know all set elements are integers, call this to convert the set to
@@ -336,7 +346,7 @@ void setTypeConvert(robj *setobj, int enc) {
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
-    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK) {
+    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK && enc != OBJ_ENCODING_SET_ROARING) {
         serverPanic("Unsupported set conversion");
     }
 

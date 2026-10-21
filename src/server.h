@@ -2647,6 +2647,7 @@ struct redisServer {
                                        * only, not RESTORE/DUMP. 0 disables. */
     struct hashTemplateRegistry *htemplates;   /* Global template registry */
     size_t set_max_intset_entries;
+    int set_roaring_enabled;
     size_t set_max_listpack_entries;
     size_t set_max_listpack_value;
     size_t zset_max_listpack_entries;
@@ -3237,6 +3238,14 @@ typedef struct {
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
+    /* Hybrid Roaring set iterator state (opaque to common set code). */
+    int roaring_phase;
+    void *roaring_iter;
+    dictIterator roaring_promoted_di;
+    dictIterator roaring_sparse_di;
+    dictEntry *roaring_promoted_entry;
+    dictEntry *roaring_sparse_entry;
+    unsigned int roaring_sparse_index;
 } setTypeIterator;
 
 /* Structure to hold hash iteration abstraction. Note that iteration over

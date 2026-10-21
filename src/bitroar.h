@@ -94,6 +94,14 @@ int bitroarBitopNotWithinMissingChunkLimit(const robj *o, uint64_t max_missing);
 /* Write operations */
 int bitroarSetBit(robj *o, uint64_t bitoffset, int on);
 int bitroarSetUnsignedBitfield(robj *o, uint64_t offset, uint64_t bits, uint64_t value);
+/* Internal integer-set adapter: treats the Roaring keys as opaque uint64 values. */
+int bitroarAddRawValue(robj *o, uint64_t value);
+int bitroarRemoveRawValue(robj *o, uint64_t value);
+int bitroarContainsRawValue(const robj *o, uint64_t value);
+int bitroarSelectRawValue(const robj *o, uint64_t rank, uint64_t *value);
+void *bitroarRawIteratorCreate(const robj *o);
+int bitroarRawIteratorNext(void *iterator, uint64_t *value);
+void bitroarRawIteratorFree(void *iterator);
 robj *bitroarApplyOp(bitroarOp op, robj **objects, size_t numkeys, uint64_t maxlen,
                      int try_alloc);
 

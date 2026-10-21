@@ -90,6 +90,7 @@ struct RedisModuleType;
 #define OBJ_ENCODING_TMPL_LP 14 /* Hash with shared template, values in listpack */
 #define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
 #define OBJ_ENCODING_BITMAP_ROARING 16 /* Bitmap encoded as a Roaring bitmap. */
+#define OBJ_ENCODING_SET_ROARING 17 /* Integer/string set using Roaring and hash storage. */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */

@@ -18,6 +18,8 @@
 static int isResolveEncodingForAdd(robj *set, size_t len) {
     size_t maxelelen = 0, totsize = 0;
     unsigned long n = intsetLen(set->ptr);
+    if (server.set_roaring_enabled && n >= server.set_max_intset_entries)
+        return OBJ_ENCODING_SET_ROARING;
     if (n != 0) {
         size_t elelen1 = sdigits10(intsetMax(set->ptr));
         size_t elelen2 = sdigits10(intsetMin(set->ptr));

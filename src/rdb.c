@@ -708,6 +708,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_SET);
         else if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK);
+        else if (o->encoding == OBJ_ENCODING_SET_ROARING)
+            return rdbSaveType(rdb,RDB_TYPE_SET);
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
@@ -1270,6 +1272,19 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
             }
             dictResetIterator(&di);
+        } else if (o->encoding == OBJ_ENCODING_SET_ROARING) {
+            if ((n = rdbSaveLen(rdb, setTypeSize(o))) == -1) return -1;
+            nwritten += n;
+            setTypeIterator si;
+            setTypeInitIterator(&si, o);
+            sds member;
+            while ((member = setTypeNextObject(&si)) != NULL) {
+                n = rdbSaveRawString(rdb, (unsigned char *)member, sdslen(member));
+                sdsfree(member);
+                if (n == -1) { setTypeResetIterator(&si); return -1; }
+                nwritten += n;
+            }
+            setTypeResetIterator(&si);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             size_t l = intsetBlobLen((intset*)o->ptr);
 
@@ -3794,7 +3809,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 o->type = OBJ_SET;
                 o->encoding = OBJ_ENCODING_INTSET;
                 if (intsetLen(o->ptr) > server.set_max_intset_entries)
-                    setTypeConvert(o, OBJ_ENCODING_HT);
+                    setTypeConvert(o, server.set_roaring_enabled ? OBJ_ENCODING_SET_ROARING : OBJ_ENCODING_HT);
                 break;
             case RDB_TYPE_SET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
