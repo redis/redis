@@ -3261,7 +3261,7 @@ void syncWithMaster(connection *conn) {
 
         /* Request compression only if the upstream connection can use an IO worker. */
         if (server.repl_compression > 0 &&
-            canUseReplCompression(IO_THREADS_CLIENT_TYPE_PRIMARY | IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED))
+            canUseReplCompression(IO_THREADS_CLIENT_TYPE_MASTER | IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED))
         {
             sds level = sdsfromlonglong(server.repl_compression);
             err = sendCommand(conn, "REPLCONF", "compression", level, NULL);
@@ -3269,7 +3269,7 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         } else if (server.repl_compression > 0) {
             serverLog(LL_NOTICE, "Not requesting replication compression from master: "
-                                "no eligible IO thread for primary connections.");
+                                "no eligible IO thread for master connections.");
         }
 
         /* Inform the master of our (slave) capabilities.
@@ -3359,7 +3359,7 @@ void syncWithMaster(connection *conn) {
 
     if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP &&
         (server.repl_compression <= 0 ||
-         !canUseReplCompression(IO_THREADS_CLIENT_TYPE_PRIMARY | IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED)))
+         !canUseReplCompression(IO_THREADS_CLIENT_TYPE_MASTER | IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED)))
     {
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
     }

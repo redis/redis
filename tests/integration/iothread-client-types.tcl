@@ -37,10 +37,10 @@ start_server {tags {repl iothreads external:skip} overrides {io-threads 4} omit 
     test {Compression-only IO thread selectors require enabled compression} {
         foreach client_types {
             replica-compressed
-            primary-compressed
+            master-compressed
             replication-compressed
             {normal replica-compressed}
-            {replica primary-compressed}
+            {replica master-compressed}
         } {
             catch {exec src/redis-server --port 0 --io-threads 4 --io-threads-client-types $client_types} err
             assert_match {*io-threads-client-types compression-only selectors require compression support and repl-compression > 0*} $err
@@ -75,26 +75,26 @@ start_server {tags {repl iothreads external:skip} overrides {io-threads 4} omit 
 set selector_cases {
     0 normal normal                                               1 1 0 0 0
     0 replica replica                                             0 0 1 0 0
-    0 primary primary                                             0 0 0 1 0
+    0 master master                                             0 0 0 1 0
     0 replication replication                                     0 0 1 1 0
     0 all all                                                     1 1 1 1 0
-    0 {replica primary} {replica primary}                           0 0 1 1 0
-    0 {normal replica} {normal primary}                            1 1 1 1 0
-    0 {replica replica-compressed} {primary primary-compressed}   0 0 1 1 0
+    0 {replica master} {replica master}                           0 0 1 1 0
+    0 {normal replica} {normal master}                            1 1 1 1 0
+    0 {replica replica-compressed} {master master-compressed}   0 0 1 1 0
 }
 if {$::compression} {
     lappend selector_cases \
         1 replica all                                             0 1 1 1 1 \
-        1 all primary                                             1 0 1 1 1 \
+        1 all master                                             1 0 1 1 1 \
         1 replication replication                                 0 0 1 1 1 \
         1 replica-compressed all                                 0 1 1 1 1 \
-        1 all primary-compressed                                 1 0 1 1 1 \
+        1 all master-compressed                                 1 0 1 1 1 \
         1 replication-compressed replication-compressed         0 0 1 1 1 \
         1 all all                                                 1 1 1 1 1 \
-        1 {replica-compressed primary-compressed} {replica-compressed primary-compressed} 0 0 1 1 1 \
-        1 {normal replica primary-compressed} {normal replica primary-compressed} 1 1 1 1 1 \
+        1 {replica-compressed master-compressed} {replica-compressed master-compressed} 0 0 1 1 1 \
+        1 {normal replica master-compressed} {normal replica master-compressed} 1 1 1 1 1 \
         1 replica replica                                         0 0 1 0 0 \
-        1 primary primary                                         0 0 0 1 0
+        1 master master                                         0 0 0 1 0
 }
 foreach {compression_level master_types replica_types master_normal_worker replica_normal_worker replica_worker primary_worker compressed} $selector_cases {
     set overrides [list io-threads 4 io-threads-client-types $master_types save ""]
@@ -103,7 +103,7 @@ foreach {compression_level master_types replica_types master_normal_worker repli
         lappend overrides repl-compression $compression_level repl-compression-max-latency 10
         set omit {}
     }
-    set context "primary-types=$master_types replica-types=$replica_types compression=$compression_level"
+    set context "master-types=$master_types replica-types=$replica_types compression=$compression_level"
 
     start_server [list tags {repl iothreads external:skip} overrides $overrides omit $omit] {
         start_server [list overrides [concat $overrides [list io-threads-client-types $replica_types]] omit $omit] {
@@ -115,9 +115,9 @@ foreach {compression_level master_types replica_types master_normal_worker repli
                 # accepted by the configuration parser in every build.
                 foreach client [list $master $replica] client_types [list $master_types $replica_types] {
                     set expected_types $client_types
-                    if {$client_types eq "replica primary"} {
+                    if {$client_types eq "replica master"} {
                         set expected_types replication
-                    } elseif {$client_types eq "replica-compressed primary-compressed"} {
+                    } elseif {$client_types eq "replica-compressed master-compressed"} {
                         set expected_types replication-compressed
                     }
                     if {[llength $client_types] == 1 || $expected_types ne $client_types} {

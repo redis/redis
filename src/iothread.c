@@ -299,8 +299,8 @@ int isClientMustHandledByMainThread(client *c) {
             type = IO_THREADS_CLIENT_TYPE_REPLICA;
             if (c->compression_level > 0) type |= IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED;
         } else if (c->flags & CLIENT_MASTER) {
-            type = IO_THREADS_CLIENT_TYPE_PRIMARY;
-            if (server.repl_master_compression_level > 0) type |= IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED;
+            type = IO_THREADS_CLIENT_TYPE_MASTER;
+            if (server.repl_master_compression_level > 0) type |= IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED;
         }
         if (!(server.io_threads_client_types & type)) return 1;
     }

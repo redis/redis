@@ -108,10 +108,10 @@ configEnum cluster_slot_stats_enum[] = {
 configEnum io_threads_client_types_enum[] = {
     {"all", IO_THREADS_CLIENT_TYPE_ALL},
     {"replication-compressed", IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED},
-    {"primary-compressed", IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED},
+    {"master-compressed", IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED},
     {"replica-compressed", IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED},
     {"replication", IO_THREADS_CLIENT_TYPE_REPLICATION},
-    {"primary", IO_THREADS_CLIENT_TYPE_PRIMARY},
+    {"master", IO_THREADS_CLIENT_TYPE_MASTER},
     {"replica", IO_THREADS_CLIENT_TYPE_REPLICA},
     {"normal", IO_THREADS_CLIENT_TYPE_NORMAL},
     {NULL, 0}
@@ -719,8 +719,8 @@ void loadServerConfigFromString(char *config) {
         int compression_only =
             ((client_types & IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED) &&
              !(client_types & IO_THREADS_CLIENT_TYPE_REPLICA)) ||
-            ((client_types & IO_THREADS_CLIENT_TYPE_PRIMARY_COMPRESSED) &&
-             !(client_types & IO_THREADS_CLIENT_TYPE_PRIMARY));
+            ((client_types & IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_MASTER));
         if (compression_only && server.repl_compression == 0) {
             err = "io-threads-client-types compression-only selectors require compression support and repl-compression > 0";
             goto loaderr;
