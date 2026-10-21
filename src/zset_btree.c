@@ -4121,24 +4121,6 @@ unsigned long zbtreeCountByScore(const zbtreeSet *zs, double min, int minex,
     return last > first ? last - first : 0;
 }
 
-/* Return whether a lookup for hash examines target before an empty bucket ends
- * its search. This is used only when several members in one leaf share a tag
- * and a table slot alone cannot tell which member it represents. */
-static int zbtIndexHashReachesBucket(const zbtIndexTable *table, uint32_t hash,
-                                     const zbtIndexBucket *target)
-{
-    unsigned long mask = table->size - 1;
-    unsigned long index = hash & mask;
-
-    for (unsigned long probes = 0; probes < table->size; probes++) {
-        zbtIndexBucket *bucket = zbtIndexBucketAt(table, index);
-        if (bucket == target) return 1;
-        if (zbtIndexTagMask(zbtIndexTags(bucket), 0)) return 0;
-        index = (index + 1) & mask;
-    }
-    return 0;
-}
-
 /* Load eight leaf tags so that numeric byte i is tags[i] on every host. This
  * is the lane order zbtIndexTagMask() and zbtIndexFirstTag() assume; bucket
  * tags have it because they are built with shifts. Without the conversion a
@@ -4183,7 +4165,9 @@ static inline unsigned int zbtLeafTagMatches(const uint8_t *tags,
 
 /* Return the members represented by one physical table slot. If home_end is
  * nonzero, only return members whose home bucket is in [home_start,home_end).
- * Tags may represent several members in a leaf; duplicates are allowed. */
+ * When several members of a leaf share the slot's tag, their slots look alike,
+ * so each such member is returned only by the first of them on its probe
+ * path. Otherwise every slot would return all of them. */
 static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
                                       zbtIndexTable *table,
                                       zbtIndexBucket *bucket,
@@ -4229,17 +4213,23 @@ static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
     unsigned long emitted = 0;
     for (unsigned int i = 0; i < count; i++) {
         /* The real (expensive, re-hashed) member hash is only needed to
-         * disambiguate a genuine same-tag collision inside this leaf via
-         * zbtIndexHashReachesBucket() -- whether a same-tag member actually
-         * probes through this bucket or only landed here via open-
-         * addressing chaining. A single match needs no such check. */
+         * disambiguate a genuine same-tag collision inside this leaf. Such
+         * members are returned at the first alike slot on their probe path,
+         * which the scan of their home group always visits, since the table
+         * does not change during a scan call. A single match needs no such
+         * check. */
         if (count > 1 || home_end) {
             uint32_t hash = zbtScoreLeafHash(leaf, positions[i]);
             unsigned long home = hash & (table->size - 1);
             if (home_end && (home < home_start || home >= home_end))
                 continue;
-            if (count > 1 && !zbtIndexHashReachesBucket(table, hash, bucket))
-                continue;
+            if (count > 1) {
+                zbtIndexBucket *first;
+                unsigned int first_pos;
+                if (!zbtIndexTableFindReference(table, hash, id, &first, &first_pos) ||
+                    first != bucket || first_pos != slot_pos)
+                    continue;
+            }
         }
         size_t len;
         const unsigned char *ele =
@@ -4247,7 +4237,9 @@ static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
         fn(privdata, ele, len, zbtScoreLeafScore(leaf, positions[i]));
         emitted++;
     }
-    serverAssert(home_end || emitted != 0);
+    /* With alike slots, one may return nothing: several members can share
+     * the same first slot. */
+    serverAssert(home_end || count > 1 || emitted != 0);
     return emitted;
 }
 
@@ -5993,6 +5985,41 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
                   cursor == 0 && seen[0] && seen[1] && seen[2]);
         zfree(seen);
         zbtreeFree(tiny);
+
+        /* Two members of one leaf with the same tag and home bucket have
+         * alike slots, each of which could stand for either member. A full
+         * scan must still return each of them once. */
+        int a = -1, b = -1;
+        char abuf[32], bbuf[32];
+        for (int j = 1; j < 4096 && a < 0; j++) {
+            snprintf(bbuf, sizeof(bbuf), "member:%d", j);
+            uint32_t hb = zbtTestHash(bbuf);
+            for (int i = 0; i < j; i++) {
+                snprintf(abuf, sizeof(abuf), "member:%d", i);
+                uint32_t ha = zbtTestHash(abuf);
+                if (zbtIndexTag(ha) == zbtIndexTag(hb) &&
+                    ((ha ^ hb) & (ZBT_INDEX_INITIAL_BUCKETS - 1)) == 0)
+                {
+                    a = i;
+                    b = j;
+                    break;
+                }
+            }
+        }
+        test_cond("ZSCAN test found two members with alike slots", a >= 0);
+        if (a >= 0) {
+            zbtreeSet *alike = zbtreeCreate();
+            zbtTestPopulateRange(alike, a, a + 1);
+            zbtTestPopulateRange(alike, b, b + 1);
+            seen = zcalloc(sizeof(int) * (b + 1));
+            pd = (zbtScanTestPrivdata){seen, b + 1};
+            cursor = zbtreeScan(alike, 0, 100, zbtScanTestMarkSeen, &pd);
+            test_cond("ZSCAN returns members with alike slots once",
+                      zbtTestLeafOf(alike, abuf) == zbtTestLeafOf(alike, bbuf) &&
+                      cursor == 0 && seen[a] == 1 && seen[b] == 1);
+            zfree(seen);
+            zbtreeFree(alike);
+        }
         zbtreeFree(zs);
     }
 
