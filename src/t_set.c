@@ -81,7 +81,7 @@ struct _setTypeOps {
 
     /* Builds a fresh instance of this encoding from the contents of an
      * existing set, to be assigned to the converted object's ptr by the
-     * caller (see setTypeConvertAndExpand() in t_set.c). Iterates 'set'
+     * caller (see setTypeConvertAndExpand()). Iterates 'set'
      * internally (initializing and resetting its own iterator). 'cap' is
      * the number of elements to presize for; encodings that need a
      * different unit internally (e.g. the listpack's byte size estimate)
@@ -89,7 +89,7 @@ struct _setTypeOps {
      * allocation failed; the encodings that always panic on OOM (i.e.
      * everything but the hash table) ignore 'panic'. NULL for encodings
      * that setTypeConvertAndExpand() never targets (currently intset - see
-     * maybeConvertToIntset() in t_set.c instead). */
+     * maybeConvertToIntset() instead). */
     void *(*convertFrom)(robj *set, unsigned long cap, int panic);
 
     /* Member expiration. The following are NULL for the encodings that cannot
@@ -1152,7 +1152,7 @@ const setTypeOps setTypeOpsIntset = {
     .dup = isSetDup,
     .free = isFree,
     .convertFrom = NULL, /* .convertFrom intentionally left NULL: setTypeConvertAndExpand()
-                          * never targets intset (see maybeConvertToIntset() in t_set.c). */
+                          * never targets intset (see maybeConvertToIntset()). */
 };
 
 /*=============================================================================
@@ -4116,8 +4116,8 @@ void spersistCommand(client *c) {
  *       [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]
  *       MEMBERS nummembers member [member ...]
  *
- * Reply: Integer 0 if no member was added or updated (due to MNX or MXX),
- *        1 if all the members were added or updated.
+ * Reply: Integer 0 if no member was added, updated or deleted (MNX/MXX condition
+ *        not met, or nothing changed), 1 if at least one member was.
  *----------------------------------------------------------------------------*/
 
 /* Parses the SADDEX arguments, in any order of the keywords. Returns C_OK on

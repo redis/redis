@@ -38,7 +38,7 @@
             }
         ],
         "reply_schema": {
-            "description": "Array of results. Returns empty array if the key does not exist.",
+            "description": "Array of results, one per member. If the key does not exist, every member is reported as -2.",
             "type": "array",
             "minItems": 0,
             "maxItems": 4294967295,
@@ -55,7 +55,7 @@
                     {
                         "description": "TTL in seconds.",
                         "type": "integer",
-                        "minimum": 1
+                        "minimum": 0
                     }
                 ]
             }

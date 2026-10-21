@@ -37,11 +37,11 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "No member was added or updated (due to MXX or MNX flags).",
+                    "description": "No member was added, updated or deleted (MNX/MXX condition not met, or nothing changed).",
                     "const": 0
                 },
                 {
-                    "description": "All the members were added or updated.",
+                    "description": "At least one member was added, updated or deleted.",
                     "const": 1
                 }
             ]
