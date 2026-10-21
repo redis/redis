@@ -3656,6 +3656,12 @@ int sdiffcardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRes
     return genericGetKeys(0, 1, 2, 1, argv, argc, result);
 }
 
+/* MSETEX <num-keys> <key> <value> [<key> <value> ...] <options>: a value follows each key. */
+int msetexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 2, argv, argc, result);
+}
+
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(1, 2, 3, 1, argv, argc, result);
