@@ -933,6 +933,11 @@ static inline unsigned char *lpFindCbInternal(unsigned char *lp, unsigned char *
          * p + 8 < lp + lp_bytes implies p < lp + lp_bytes. */
         if (p + 8 >= lp + lp_bytes)
             lpAssertValidEntry(lp, lp_bytes, p);
+#if UINTPTR_MAX == 0xffffffff
+        /* On 32-bit a corrupt entry length can wrap `p` below the header. */
+        else
+            assert(p >= lp + LP_HDR_SIZE);
+#endif
         if (p[0] == LP_EOF) break;
     }
 
