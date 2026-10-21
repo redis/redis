@@ -3676,6 +3676,9 @@ standardConfig static_configs[] = {
 
     createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
     createBoolConfig("set-roaring-enabled", NULL, MODIFIABLE_CONFIG, server.set_roaring_enabled, 0, NULL, NULL),
+    createSizeTConfig("set-roaring-promotion-threshold", NULL, MODIFIABLE_CONFIG, 1, 65535, server.set_roaring_promotion_threshold, 64, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("set-roaring-promotion-density", NULL, MODIFIABLE_CONFIG, 0, 100, server.set_roaring_promotion_density, 0, INTEGER_CONFIG, NULL, NULL),
+    createSizeTConfig("set-roaring-group-bits", NULL, MODIFIABLE_CONFIG, 16, 32, server.set_roaring_group_bits, 24, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("set-max-listpack-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("set-max-listpack-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_listpack_value, 64, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("zset-max-listpack-entries", "zset-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),

@@ -1583,3 +1583,40 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
 } ;# skip 32bit builds
 }
 } ;# run_solo
+
+start_server {
+    tags {set roaring}
+    overrides {
+        "set-roaring-enabled" yes
+        "set-roaring-group-bits" 24
+        "set-roaring-promotion-threshold" 64
+        "set-roaring-promotion-density" 0
+    }
+} {
+    test {Hybrid Roaring set keeps sparse slices and promotes dense slices} {
+        r del sparse
+        for {set i 0} {$i < 600} {incr i} {
+            r sadd sparse [expr {$i * 1000003}]
+        }
+        assert_encoding hybrid-roaring sparse
+        assert_equal 600 [r scard sparse]
+        assert_equal 1 [r sismember sparse [expr {599 * 1000003}]]
+
+        # These values share a 24-bit slice and reach the promotion threshold.
+        for {set i 0} {$i < 100} {incr i} {
+            r sadd sparse [expr {1000 + $i * 1000}]
+        }
+        assert_equal 700 [r scard sparse]
+        assert_equal 1 [r sismember sparse 1000]
+        assert_equal 1 [r sismember sparse 100000]
+
+        # Canonical integer 1 and string "01" remain separate set members.
+        assert_equal 3 [r sadd sparse 01 1 word]
+        assert_equal 1 [r sismember sparse 01]
+        assert_equal 1 [r sismember sparse 1]
+        assert_equal 1 [r sismember sparse word]
+        assert_equal 703 [r scard sparse]
+        assert_equal 1 [r copy sparse copy]
+        assert_equal [lsort [r smembers sparse]] [lsort [r smembers copy]]
+    }
+}

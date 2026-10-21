@@ -61,6 +61,7 @@ static void srIterReset(setTypeIterator *si) {
 
 static int srIterNext(setTypeIterator *si, char **str, size_t *len,
                       int64_t *llele) {
+    setRoaring *set = si->subject->ptr;
     if (si->roaring_phase == 0) {
         uint64_t encoded;
         if (bitroarRawIteratorNext(si->roaring_iter, &encoded)) {
@@ -76,7 +77,7 @@ static int srIterNext(setTypeIterator *si, char **str, size_t *len,
         if (si->roaring_sparse_entry) {
             setRoaringSparseBucket *bucket = dictGetVal(si->roaring_sparse_entry);
             if (si->roaring_sparse_index < bucket->count) {
-                uint64_t encoded = setRoaringSparseEncodedValue(si->roaring_sparse_entry,
+                uint64_t encoded = setRoaringSparseEncodedValue(set, si->roaring_sparse_entry,
                     bucket->values[si->roaring_sparse_index++]);
                 *llele = setRoaringDecodeValue(encoded);
                 *str = NULL;
@@ -87,7 +88,7 @@ static int srIterNext(setTypeIterator *si, char **str, size_t *len,
         si->roaring_sparse_index = 0;
         if (si->roaring_sparse_entry) {
             setRoaringSparseBucket *bucket = dictGetVal(si->roaring_sparse_entry);
-            uint64_t encoded = setRoaringSparseEncodedValue(si->roaring_sparse_entry,
+            uint64_t encoded = setRoaringSparseEncodedValue(si->subject->ptr, si->roaring_sparse_entry,
                 bucket->values[si->roaring_sparse_index++]);
             *llele = setRoaringDecodeValue(encoded);
             *str = NULL;

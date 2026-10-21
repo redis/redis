@@ -76,6 +76,9 @@ def values_for(count, pattern):
         return [str(-(i + 1) * 1000003) for i in range(count)]
     if pattern == "high-range":
         return [str(-(1 << 62) + i * 1000003) for i in range(count)]
+    if pattern.startswith("stride-"):
+        stride = int(pattern.removeprefix("stride-"))
+        return [str(i * stride) for i in range(count)]
     raise ValueError(pattern)
 
 
@@ -86,13 +89,18 @@ def rate(client, commands, repeats=1):
     return len(commands) * repeats / (time.perf_counter() - start)
 
 
-def bench(binary, label, roaring, sizes, patterns, writer, run_number):
+def bench(binary, label, roaring, sizes, patterns, writer, run_number,
+          candidate_threshold, candidate_density, candidate_group_bits):
     port = free_port()
     directory = tempfile.mkdtemp(prefix=f"redis-pure-integer-{label}-")
     args = [binary, "--port", str(port), "--bind", "127.0.0.1", "--protected-mode", "no",
             "--save", "", "--appendonly", "no", "--dir", directory, "--loglevel", "warning"]
     if roaring:
         args.extend(("--set-roaring-enabled", "yes"))
+        if label == "candidate":
+            args.extend(("--set-roaring-promotion-threshold", str(candidate_threshold),
+                         "--set-roaring-promotion-density", str(candidate_density),
+                         "--set-roaring-group-bits", str(candidate_group_bits)))
     process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     client = Client(port)
     try:
@@ -167,8 +175,17 @@ def main():
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--sizes", default="512,513,4096,32768,100000")
-    parser.add_argument("--patterns", default="dense,negative-dense,sparse,negative-sparse,high-range")
+    parser.add_argument("--patterns", default="dense,negative-dense,sparse,negative-sparse,high-range",
+                        help="also accepts stride-N to test values spaced N apart")
     parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--baseline-roaring-enabled", action="store_true",
+                        help="enable set-roaring on the baseline binary for POC-to-POC comparisons")
+    parser.add_argument("--candidate-threshold", type=int, default=64,
+                        help="per-slice promotion member threshold (default: 64)")
+    parser.add_argument("--candidate-density-percent", type=int, default=0,
+                        help="also require this local density to promote early; 0 disables the gate")
+    parser.add_argument("--candidate-group-bits", type=int, default=24,
+                        help="low-bit slice width used for sparse staging (16-32; default: 24)")
     args = parser.parse_args()
     sizes = [int(value) for value in args.sizes.split(",")]
     patterns = args.patterns.split(",")
@@ -180,11 +197,14 @@ def main():
         writer = csv.DictWriter(output, fieldnames=fields)
         writer.writeheader()
         for run_number in range(1, args.repetitions + 1):
-            builds = [(args.baseline, "baseline", False), (args.candidate, "candidate", True)]
+            builds = [(args.baseline, "baseline", args.baseline_roaring_enabled),
+                      (args.candidate, "candidate", True)]
             if run_number % 2 == 0:
                 builds.reverse()
             for binary, label, roaring in builds:
-                bench(binary, label, roaring, sizes, patterns, writer, run_number)
+                bench(binary, label, roaring, sizes, patterns, writer, run_number,
+                      args.candidate_threshold, args.candidate_density_percent,
+                      args.candidate_group_bits)
 
 
 if __name__ == "__main__":

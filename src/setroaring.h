@@ -20,18 +20,17 @@ typedef struct setRoaring {
     dict *sparse;
     uint64_t sparse_count;
     dict *strings;
+    uint8_t group_bits; /* Number of low bits kept in each sparse slice. */
 } setRoaring;
 
-/* Unpromoted 16-bit values sharing one upper 48-bit prefix. */
+/* Unpromoted low-bit values sharing one high-bit prefix. */
 typedef struct setRoaringSparseBucket {
-    uint16_t count;
-    uint16_t capacity;
-    uint16_t values[];
+    size_t count;
+    size_t capacity;
+    uint32_t min_value;
+    uint32_t max_value;
+    uint32_t values[];
 } setRoaringSparseBucket;
-
-#ifndef SETROARING_PROMOTE_THRESHOLD
-#define SETROARING_PROMOTE_THRESHOLD 64
-#endif
 
 void setRoaringInit(void);
 setRoaring *setRoaringCreate(void);
@@ -49,8 +48,7 @@ uint64_t setRoaringSize(const setRoaring *set);
 int setRoaringSelectInt(const setRoaring *set, uint64_t rank, int64_t *value);
 dict *setRoaringSparse(setRoaring *set);
 robj *setRoaringIntegers(setRoaring *set);
-uint64_t setRoaringSparseKey(uint64_t encoded);
-uint64_t setRoaringSparseEncodedValue(const dictEntry *entry, uint16_t low);
+uint64_t setRoaringSparseEncodedValue(const setRoaring *set, const dictEntry *entry, uint32_t low);
 int64_t setRoaringDecodeValue(uint64_t value);
 uint64_t setRoaringAllocSize(const setRoaring *set);
 dict *setRoaringStrings(setRoaring *set);

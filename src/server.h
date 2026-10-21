@@ -2648,6 +2648,9 @@ struct redisServer {
     struct hashTemplateRegistry *htemplates;   /* Global template registry */
     size_t set_max_intset_entries;
     int set_roaring_enabled;
+    size_t set_roaring_promotion_threshold;
+    size_t set_roaring_promotion_density;
+    size_t set_roaring_group_bits;
     size_t set_max_listpack_entries;
     size_t set_max_listpack_value;
     size_t zset_max_listpack_entries;
