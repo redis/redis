@@ -11,6 +11,10 @@ start_server {
         foreach entry $entries { r sadd $key $entry }
     }
 
+    test {SET Roaring is enabled by default} {
+        assert_equal yes [lindex [r config get set-roaring-enabled] 1]
+    }
+
     # Values for initialing sets, per encoding.
     array set initelems {listpack {foo} hashtable {foo}}
     for {set i 0} {$i < 130} {incr i} {
@@ -136,7 +140,7 @@ foreach type {single multiple single_multiple} {
         assert_encoding intset myset
         assert_equal 512 [r scard myset]
         assert_equal 1 [r sadd myset 512]
-        assert_encoding hashtable myset
+        assert_encoding hybrid-roaring myset
     }
 
     test "SADD overflows the maximum allowed elements in a listpack - $type" {
@@ -185,7 +189,7 @@ foreach type {single multiple single_multiple} {
         for {set i 0} {$i <   50} {incr i} { r sadd mysmallset [format "i%03d" $i] }
         for {set i 0} {$i <  256} {incr i} { r sadd myhashset [format "i%03d" $i] }
         assert_encoding intset myintset
-        assert_encoding hashtable mylargeintset
+        assert_encoding hybrid-roaring mylargeintset
         assert_encoding listpack mysmallset
         assert_encoding hashtable myhashset
 

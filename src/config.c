@@ -3675,7 +3675,7 @@ standardConfig static_configs[] = {
     createSizeTConfig("hash-rdb-load-template-disassembly-threshold", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_rdb_load_template_disassembly_threshold, 0, INTEGER_CONFIG, NULL, NULL),
 
     createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
-    createBoolConfig("set-roaring-enabled", NULL, MODIFIABLE_CONFIG, server.set_roaring_enabled, 0, NULL, NULL),
+    createBoolConfig("set-roaring-enabled", NULL, MODIFIABLE_CONFIG, server.set_roaring_enabled, 1, NULL, NULL),
     createSizeTConfig("set-roaring-promotion-threshold", NULL, MODIFIABLE_CONFIG, 1, 65535, server.set_roaring_promotion_threshold, 64, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("set-roaring-promotion-density", NULL, MODIFIABLE_CONFIG, 0, 100, server.set_roaring_promotion_density, 0, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("set-roaring-group-bits", NULL, MODIFIABLE_CONFIG, 16, 32, server.set_roaring_group_bits, 24, INTEGER_CONFIG, NULL, NULL),
