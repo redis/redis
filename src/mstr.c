@@ -420,6 +420,16 @@ int mstrTest(int argc, char **argv, int flags) {
         mstrFree(&kind_mymstr, s, NULL);
     }
 
+    TEST_CONTEXT("mstrGetFlag on mstr without metadata")
+    {
+        char *str = "foo";
+        mstr s = mstrNew(str, strlen(str), 0, NULL);
+
+        test_cond("mstrGetFlag returns 0 when no metadata is attached",
+                  mstrGetFlag(s, 0) == 0);
+        mstrFree(&kind_mymstr, s, NULL);
+    }
+
     TEST_CONTEXT("Create simple 40 bytes mstr")
     {
         char *str = "0123456789012345678901234567890123456789"; // 40 bytes
