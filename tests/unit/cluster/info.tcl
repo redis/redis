@@ -13,6 +13,39 @@ proc errorstat {instance cmd} {
     return [errorrstat $cmd $instance]
 }
 
+test "cluster bus byte counters grow after a PING/PONG exchange" {
+    foreach instance {0 1} {
+        wait_for_condition 100 100 {
+            [CI $instance cluster_stats_bytes_sent] > 0 &&
+            [CI $instance cluster_stats_bytes_received] > 0
+        } else {
+            fail "cluster bus byte counters did not become positive on node $instance"
+        }
+    }
+
+    wait_for_condition 100 100 {
+        [CI 0 cluster_stats_messages_ping_sent] ne {}
+    } else {
+        fail "node 0 did not send a cluster PING"
+    }
+
+    set ping_before [CI 0 cluster_stats_messages_ping_sent]
+    set sent0_before [CI 0 cluster_stats_bytes_sent]
+    set received0_before [CI 0 cluster_stats_bytes_received]
+    set sent1_before [CI 1 cluster_stats_bytes_sent]
+    set received1_before [CI 1 cluster_stats_bytes_received]
+
+    wait_for_condition 100 100 {
+        [CI 0 cluster_stats_messages_ping_sent] > $ping_before &&
+        [CI 0 cluster_stats_bytes_sent] > $sent0_before &&
+        [CI 0 cluster_stats_bytes_received] > $received0_before &&
+        [CI 1 cluster_stats_bytes_sent] > $sent1_before &&
+        [CI 1 cluster_stats_bytes_received] > $received1_before
+    } else {
+        fail "cluster bus byte counters did not grow after a PING/PONG exchange"
+    }
+}
+
 test "errorstats: rejected call due to MOVED Redirection" {
     $primary1 config resetstat
     $primary2 config resetstat
