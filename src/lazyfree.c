@@ -1,4 +1,5 @@
 #include "server.h"
+#include "bitroar.h"
 #include "bio.h"
 #include "atomicvar.h"
 #include "functions.h"
@@ -122,6 +123,13 @@ void lazyfreeResetStats(void) {
     atomicSet(lazyfreed_objects,0);
 }
 
+/* If there are enough allocations to free the value object asynchronously, it
+ * may be put into a lazy free list instead of being freed synchronously. The
+ * lazy free list will be reclaimed in a different bio.c thread. If the value is
+ * composed of a few allocations, to free in a lazy way is actually just
+ * slower... So under a certain limit we just free the object synchronously. */
+#define LAZYFREE_THRESHOLD 64
+
 /* Return the amount of work needed in order to free an object.
  * The return value is not always the actual number of allocations the
  * object is composed of, but a number proportional to it.
@@ -185,17 +193,19 @@ size_t lazyfreeGetFreeEffort(robj *key, robj *obj, int dbid) {
     } else if (obj->type == OBJ_ARRAY) {
         redisArray *ar = obj->ptr;
         return arCount(ar);
+    } else if (obj->type == OBJ_BITMAP) {
+        /* The caller only compares the returned effort with
+         * LAZYFREE_THRESHOLD. Stop at the first container count that exceeds
+         * it instead of walking every leaf of a large sparse bitmap. */
+        size_t container_limit = (LAZYFREE_THRESHOLD - 2) / 2 + 1;
+        size_t containers = bitroarContainerCountUpTo(obj, container_limit);
+        /* Each Roaring container owns at least one allocation for the container
+         * and often another for its payload, plus top-level bitmap metadata. */
+        return containers == 0 ? 1 : containers * 2 + 2;
     } else {
         return 1; /* Everything else is a single allocation. */
     }
 }
-
-/* If there are enough allocations to free the value object asynchronously, it
- * may be put into a lazy free list instead of being freed synchronously. The
- * lazy free list will be reclaimed in a different bio.c thread. If the value is
- * composed of a few allocations, to free in a lazy way is actually just
- * slower... So under a certain limit we just free the object synchronously. */
-#define LAZYFREE_THRESHOLD 64
 
 /* Free an object, if the object is huge enough, free it in async way. */
 void freeObjAsync(robj *key, robj *obj, int dbid) {
@@ -226,7 +236,7 @@ static void protectClientReplyObjects(void) {
     /* Pause all IO threads to safely duplicate string objects. */
     int allpaused = 0;
     if (server.io_threads_num > 1) {
-        serverAssert(pthread_equal(server.main_thread_id, pthread_self()));
+        serverAssert(pthread_equal(server.main_thread_id, pthread_self()) || moduleThreadHoldsGIL());
         allpaused = 1;
         pauseAllIOThreads();
     }

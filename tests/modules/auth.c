@@ -14,6 +14,11 @@
 static RedisModuleUser *global = NULL;
 static long long client_change_delta = 0;
 static pthread_t tid;
+static RedisModuleBlockedClient *pending_auth_bc;
+static uint64_t pending_auth_client_id;
+static long long auth_reply_count;
+static long long auth_free_count;
+static long long auth_disconnected_count;
 
 void UserChangedCallback(uint64_t client_id, void *privdata) {
     REDISMODULE_NOT_USED(privdata);
@@ -152,6 +157,7 @@ cleanup:
  * Reply callback for a blocking AUTH command. This is called when the client is unblocked.
  */
 int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err) {
+    auth_reply_count++;
     REDISMODULE_NOT_USED(password);
     void **targ = RedisModule_GetBlockedClientPrivateData(ctx);
     int result = (uintptr_t) targ[0];
@@ -177,7 +183,8 @@ int AuthBlock_Reply(RedisModuleCtx *ctx, RedisModuleString *username, RedisModul
 
 /* Private data freeing callback for Module Auth. */
 void AuthBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
-    REDISMODULE_NOT_USED(ctx);
+    auth_free_count++;
+    if (RedisModule_BlockedClientDisconnected(ctx)) auth_disconnected_count++;
     RedisModule_Free(privdata);
 }
 
@@ -197,6 +204,13 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     if (ctx_flags & REDISMODULE_CTX_FLAGS_MULTI || ctx_flags & REDISMODULE_CTX_FLAGS_LUA) {
         /* Clean up by using RedisModule_UnblockClient since we attempted blocking the client. */
         RedisModule_UnblockClient(bc, NULL);
+        return REDISMODULE_AUTH_HANDLED;
+    }
+
+    if (!strcmp(RedisModule_StringPtrLen(password, NULL), "block_disconnect")) {
+        RedisModule_Assert(pending_auth_bc == NULL);
+        pending_auth_bc = bc;
+        pending_auth_client_id = RedisModule_GetClientId(ctx);
         return REDISMODULE_AUTH_HANDLED;
     }
 
@@ -224,6 +238,39 @@ int blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString *username, RedisModu
     }
 
     return REDISMODULE_AUTH_HANDLED;
+}
+
+static int kill_unblocked_auth_reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    long long replies = auth_reply_count;
+    long long frees = auth_free_count;
+    long long disconnected = auth_disconnected_count;
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "CLIENT", "ccl",
+                                                 "KILL", "ID", (long long)pending_auth_client_id);
+    RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER);
+    RedisModule_Assert(RedisModule_CallReplyInteger(reply) == 1);
+    RedisModule_FreeCallReply(reply);
+    RedisModule_ReplyWithArray(ctx, 3);
+    RedisModule_ReplyWithLongLong(ctx, auth_free_count - frees);
+    RedisModule_ReplyWithLongLong(ctx, auth_reply_count - replies);
+    RedisModule_ReplyWithLongLong(ctx, auth_disconnected_count - disconnected);
+    return REDISMODULE_OK;
+}
+
+static int kill_unblocked_auth(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    if (!pending_auth_bc) return RedisModule_ReplyWithError(ctx, "ERR no pending auth");
+    void **replyarg = RedisModule_Alloc(sizeof(void*));
+    replyarg[0] = (void *)(uintptr_t)1;
+    /* Both unblocks are queued before Redis can retry AUTH. The second reply
+     * callback kills the client after the auth handle is retained for retry. */
+    RedisModule_UnblockClient(pending_auth_bc, replyarg);
+    pending_auth_bc = NULL;
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, kill_unblocked_auth_reply, NULL, NULL, 0);
+    RedisModule_UnblockClient(bc, NULL);
+    return REDISMODULE_OK;
 }
 
 int test_rm_register_blocking_auth_cb(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -269,6 +316,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"testmoduleone.rm_register_blocking_auth_cb",
         test_rm_register_blocking_auth_cb,"",0,0,0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"testmoduleone.kill_unblocked_auth",
+        kill_unblocked_auth,"",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
