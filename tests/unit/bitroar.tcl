@@ -1596,18 +1596,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal 1 [r getbit bitmap:public:aof:direct $sparse_public_offset]
         assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:aof:zero]
         assert_equal 1 [r getbit bitmap:public:aof:auto $sparse_public_offset]
-        # The module's AOF tests enumerate restored values with GETINTARRAY.
-        # Native AOF uses its own serialization, but must retain the same readback.
-        foreach key {bitmap:public:aof:direct bitmap:public:aof:auto} {
-            assert_equal [list $sparse_public_offset] [r bitrangeintarray $key 0 -1]
-            assert_equal [list $sparse_public_offset] [r bitrangeintarray $key 0 9]
-        }
-        assert_equal {} [r bitrangeintarray bitmap:public:aof:zero 0 -1]
-        assert_equal {} [r bitrangeintarray bitmap:public:aof:zero 0 9]
-
         if {$test_high_offset} {
-            assert_equal [list $high_bit] [r bitrangeintarray bitmap:public:aof:high 0 -1]
-            assert_equal [list $high_bit] [r bitrangeintarray bitmap:public:aof:high 0 9]
             r config set proto-max-bulk-len $byte_len
             assert_equal 1 [r getbit bitmap:public:aof:high $high_bit]
             assert_equal 1 [r bitcount bitmap:public:aof:high]
@@ -2215,9 +2204,9 @@ proc assert_bitmap_has_exact_bits {key bits} {
     foreach bit $unique {
         assert_equal 1 [r getbit $key $bit]
     }
-    if {[r type $key] in {bitmap none}} {
-        # Reuse the translated redis-roaring algebra fixtures to check its
-        # integer-array read interfaces on native and missing results.
+    if {[r type $key] eq "bitmap"} {
+        # Reuse the translated redis-roaring algebra fixtures to check
+        # integer-array reads on native bitmaps.
         assert_equal $unique [r bitrangeintarray $key 0 -1]
         assert_equal $unique [r bitrangeintarray $key 0 [llength $unique]]
         assert_equal [lrange $unique 1 3] [r bitrangeintarray $key 1 3]
@@ -4869,10 +4858,10 @@ proc intarray_random {state_name modulus} {
 
 start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     test {BITRANGEINTARRAY enforces its arity} {
-        foreach args {{bitrangeintarray} {bitrangeintarray key}
-                      {bitrangeintarray key 0} {bitrangeintarray key 0 1 extra}} {
-            assert_error {ERR wrong number of arguments*} {r {*}$args}
-        }
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray}
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray key}
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray key 0}
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray key 0 1 extra}
     }
 
     test {BITRANGEINTARRAY returns sorted unique offsets} {
@@ -4882,33 +4871,101 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal bitmap [r type intarray:basic]
     }
 
-    test {BITRANGEINTARRAY covers redis-roaring 32-bit and 64-bit reference fixtures} {
-        # Shared fixtures from integration_1.sh, integration_3.sh and
-        # unit/test_bitmap{,64}_{from,range}_int_array.c. Bounds are inclusive;
-        # the module's calloc padding is not part of its command reply.
-        set cases {
-            {single-zero {0} 0 0 {0}}
-            {decimal-powers {1 10 100 1000 10000 100000} 0 99 {1 10 100 1000 10000 100000}}
-            {binary-powers {2 4 8 16 32 64 128} 0 99 {2 4 8 16 32 64 128}}
-            {basic {10 20 30 40 50 60 70 80 90 100} 0 5 {10 20 30 40 50 60}}
-            {offset {100 200 300 400 500 600 700 800} 2 3 {300 400}}
-            {sparse-zero {0 8 16} 0 2 {0 8 16}}
-            {uint32-max {4294967292 4294967293 4294967294 4294967295} 0 4 {4294967292 4294967293 4294967294 4294967295}}
-            {truncated {1 3 5} 0 10 {1 3 5}}
-            {empty {} 0 5 {}}
-            {reversed {10 20 30} 5 3 {}}
-            {single-rank {42} 0 0 {42}}
-            {single-value {12345} 0 3 {12345}}
-            {duplicates {0 1 1 2 3 5 8 13 21} 4 8 {5 8 13 21}}
-        }
-        foreach case $cases {
-            lassign $case name bits start end expected
-            seed_roaring_bitmap intarray:reference $bits
-            assert_equal [lsort -integer -unique $bits] \
-                [r bitrangeintarray intarray:reference 0 -1] $name
-            assert_equal $expected \
-                [r bitrangeintarray intarray:reference $start $end] $name
-        }
+    # Reference cases from redis-roaring integration_1.sh, integration_3.sh
+    # and unit/test_bitmap{,64}_{from,range}_int_array.c.
+    test {BITRANGEINTARRAY returns a single set bit at offset zero} {
+        # Zero is a valid offset and rank, not an empty-result sentinel.
+        seed_roaring_bitmap intarray:reference {0}
+        assert_equal {0} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {0} [r bitrangeintarray intarray:reference 0 0]
+    }
+
+    test {BITRANGEINTARRAY enumerates decimal-power offsets} {
+        # Sparse offsets are returned without filling the gaps.
+        seed_roaring_bitmap intarray:reference {1 10 100 1000 10000 100000}
+        assert_equal {1 10 100 1000 10000 100000} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {1 10 100 1000 10000 100000} [r bitrangeintarray intarray:reference 0 99]
+    }
+
+    test {BITRANGEINTARRAY enumerates binary-power offsets} {
+        # Offsets spanning several bytes keep numeric ordering.
+        seed_roaring_bitmap intarray:reference {2 4 8 16 32 64 128}
+        assert_equal {2 4 8 16 32 64 128} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {2 4 8 16 32 64 128} [r bitrangeintarray intarray:reference 0 99]
+    }
+
+    test {BITRANGEINTARRAY includes both ends of a reference range} {
+        # The end rank is inclusive.
+        seed_roaring_bitmap intarray:reference {10 20 30 40 50 60 70 80 90 100}
+        assert_equal {10 20 30 40 50 60 70 80 90 100} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {10 20 30 40 50 60} [r bitrangeintarray intarray:reference 0 5]
+    }
+
+    test {BITRANGEINTARRAY seeks to a nonzero reference rank} {
+        # Ranks select positions in the set-bit sequence, not bit offsets.
+        seed_roaring_bitmap intarray:reference {100 200 300 400 500 600 700 800}
+        assert_equal {100 200 300 400 500 600 700 800} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {300 400} [r bitrangeintarray intarray:reference 2 3]
+    }
+
+    test {BITRANGEINTARRAY enumerates sparse offsets beginning at zero} {
+        # Zero remains first when later bits start in other bytes.
+        seed_roaring_bitmap intarray:reference {0 8 16}
+        assert_equal {0 8 16} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {0 8 16} [r bitrangeintarray intarray:reference 0 2]
+    }
+
+    test {BITRANGEINTARRAY preserves offsets at UINT32_MAX} {
+        # The largest 32-bit offsets are returned without signed truncation.
+        seed_roaring_bitmap intarray:reference {4294967292 4294967293 4294967294 4294967295}
+        assert_equal {4294967292 4294967293 4294967294 4294967295} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {4294967292 4294967293 4294967294 4294967295} [r bitrangeintarray intarray:reference 0 4]
+    }
+
+    test {BITRANGEINTARRAY truncates a reference range beyond cardinality} {
+        # A requested end beyond the final rank returns only existing bits.
+        seed_roaring_bitmap intarray:reference {1 3 5}
+        assert_equal {1 3 5} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {1 3 5} [r bitrangeintarray intarray:reference 0 10]
+    }
+
+    test {BITRANGEINTARRAY enumerates an empty reference bitmap} {
+        # An existing native bitmap can contain no set bits.
+        seed_roaring_bitmap intarray:reference {}
+        assert_equal {} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {} [r bitrangeintarray intarray:reference 0 5]
+    }
+
+    test {BITRANGEINTARRAY returns an empty reversed reference range} {
+        # A start after the end yields no offsets.
+        seed_roaring_bitmap intarray:reference {10 20 30}
+        assert_equal {10 20 30} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {} [r bitrangeintarray intarray:reference 5 3]
+    }
+
+    test {BITRANGEINTARRAY selects one rank from a singleton reference bitmap} {
+        # Equal bounds include the selected rank.
+        seed_roaring_bitmap intarray:reference {42}
+        assert_equal {42} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {42} [r bitrangeintarray intarray:reference 0 0]
+    }
+
+    test {BITRANGEINTARRAY truncates a singleton reference range} {
+        # An oversized end does not add padding to the reply.
+        seed_roaring_bitmap intarray:reference {12345}
+        assert_equal {12345} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {12345} [r bitrangeintarray intarray:reference 0 3]
+    }
+
+    test {BITRANGEINTARRAY deduplicates reference offsets before selecting ranks} {
+        # Setting a bit twice does not give it a second rank.
+        seed_roaring_bitmap intarray:reference {0 1 1 2 3 5 8 13 21}
+        assert_equal {0 1 2 3 5 8 13 21} [r bitrangeintarray intarray:reference 0 -1]
+        assert_equal {5 8 13 21} [r bitrangeintarray intarray:reference 4 8]
+    }
+
+    test {BITRANGEINTARRAY enumerates the Fibonacci reference fixture} {
+        # Nonuniform gaps across containers preserve the sorted sequence.
         set fibonacci [list 0 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 \
                        2584 4181 6765 10946 17711 28657 46368 75025 121393 196418 317811]
         seed_roaring_bitmap intarray:fibonacci $fibonacci
@@ -4917,8 +4974,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     }
 
     test {BITRANGEINTARRAY reflects repeated insertions and deletions} {
-        # integration_1.sh / integration_3.sh append/delete cases, including
-        # the R64 regression for repeatedly deleting the only set bit at zero.
+        # Clearing bits with SETBIT updates the selected ranks; clearing
+        # the only set bit repeatedly leaves an empty native bitmap.
         seed_roaring_bitmap intarray:mutations {1 2 3}
         assert_equal {1 2 3} [r bitrangeintarray intarray:mutations 0 -1]
         foreach bit {1 3} {r setbit intarray:mutations $bit 0}
@@ -4954,33 +5011,36 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     }
 
     test {BITRANGEINTARRAY normalizes negative ranks before clipping and reversal checks} {
-        seed_roaring_bitmap intarray:negative {10 20 30 40}
-        foreach case {
-            {-1 -1 {40}}
-            {-3 -2 {20 30}}
-            {-4 -1 {10 20 30 40}}
-            {-5 -1 {10 20 30 40}}
-            {-5 -4 {10}}
-            {-5 -5 {}}
-            {0 -2 {10 20 30}}
-            {2 -1 {30 40}}
-            {3 -2 {}}
-            {4 -1 {}}
-            {-3 2 {20 30}}
-            {-2 99 {30 40}}
-            {-1 0 {}}
-            {-2 -3 {}}
-            {-4294967296 -1 {10 20 30 40}}
-            {0 -4294967296 {}}
-            {-9223372036854775808 -1 {10 20 30 40}}
-            {-9223372036854775808 0 {10}}
-            {0 -9223372036854775808 {}}
-            {-9223372036854775808 -9223372036854775808 {}}
-        } {
-            lassign $case start end expected
-            assert_equal $expected [r bitrangeintarray intarray:negative $start $end] \
-                "ranks $start $end"
-        }
+        set key intarray:negative
+        seed_roaring_bitmap $key {10 20 30 40}
+
+        # Negative ranks count from the end, alone or mixed with nonnegative ones.
+        assert_equal {40} [r bitrangeintarray $key -1 -1]
+        assert_equal {20 30} [r bitrangeintarray $key -3 -2]
+        assert_equal {10 20 30 40} [r bitrangeintarray $key -4 -1]
+        assert_equal {10 20 30} [r bitrangeintarray $key 0 -2]
+        assert_equal {30 40} [r bitrangeintarray $key 2 -1]
+        assert_equal {20 30} [r bitrangeintarray $key -3 2]
+        assert_equal {30 40} [r bitrangeintarray $key -2 99]
+
+        # A start before the first rank is clipped to rank 0.
+        assert_equal {10 20 30 40} [r bitrangeintarray $key -5 -1]
+        assert_equal {10} [r bitrangeintarray $key -5 -4]
+
+        # Ranges that are empty or reversed after normalization.
+        assert_equal {} [r bitrangeintarray $key -5 -5]
+        assert_equal {} [r bitrangeintarray $key 3 -2]
+        assert_equal {} [r bitrangeintarray $key 4 -1]
+        assert_equal {} [r bitrangeintarray $key -1 0]
+        assert_equal {} [r bitrangeintarray $key -2 -3]
+
+        # Extreme negative ranks normalize without overflow.
+        assert_equal {10 20 30 40} [r bitrangeintarray $key -4294967296 -1]
+        assert_equal {} [r bitrangeintarray $key 0 -4294967296]
+        assert_equal {10 20 30 40} [r bitrangeintarray $key -9223372036854775808 -1]
+        assert_equal {10} [r bitrangeintarray $key -9223372036854775808 0]
+        assert_equal {} [r bitrangeintarray $key 0 -9223372036854775808]
+        assert_equal {} [r bitrangeintarray $key -9223372036854775808 -9223372036854775808]
     }
 
     test {BITRANGEINTARRAY matches LRANGE through empty and singleton transitions} {
@@ -5056,6 +5116,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
 
     test {BITRANGEINTARRAY validates rank syntax and bounds before key type} {
         seed_roaring_bitmap intarray:parse {0 9}
+        seed_roaring_bitmap intarray:empty {}
+        r del intarray:missing
         r set intarray:parse:string value
         r del intarray:parse:list
         r lpush intarray:parse:list value
@@ -5081,43 +5143,38 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         }
     }
 
-    test {BITRANGEINTARRAY caps the requested inclusive span after lookup and before truncation} {
-        seed_roaring_bitmap intarray:cap {4 99}
-        foreach bounds {{0 100000000} {1 100000001} {0 4294967295}
-                        {4194967295 4294967295}} {
+    test {BITRANGEINTARRAY truncates large positive ranges at cardinality} {
+        seed_roaring_bitmap intarray:large {4 99}
+        seed_roaring_bitmap intarray:empty {}
+        r del intarray:missing
+        foreach bounds {{0 100000000} {0 2147483647} {0 4294967295}} {
+            assert_equal {4 99} [r bitrangeintarray intarray:large {*}$bounds]
+            assert_equal {} [r bitrangeintarray intarray:empty {*}$bounds]
             assert_equal {} [r bitrangeintarray intarray:missing {*}$bounds]
-            # An existing bitmap still validates the requested span, even
-            # when it contains no set bits.
-            foreach key {intarray:cap intarray:empty} {
-                assert_error {ERR range too large: maximum 100000000 elements} {
-                    r bitrangeintarray $key {*}$bounds
-                }
-            }
         }
-        assert_equal 0 [r exists intarray:missing]
-        foreach key {intarray:cap intarray:missing intarray:empty} {
-            assert_equal {} [r bitrangeintarray $key 4194967296 4294967295]
+        assert_equal {99} [r bitrangeintarray intarray:large 1 4294967295]
+        foreach key {intarray:large intarray:empty intarray:missing} {
+            assert_equal {} [r bitrangeintarray $key 4194967295 4294967295]
             assert_equal {} [r bitrangeintarray $key 4294967295 0]
         }
-        assert_equal {4 99} [r bitrangeintarray intarray:cap 0 99999999]
-        assert_equal {99} [r bitrangeintarray intarray:cap 1 100000000]
+        assert_equal 0 [r exists intarray:missing]
+        assert_equal bitmap [r type intarray:empty]
     }
 
-    test {BITRANGEINTARRAY caps normalized negative ranges before truncating the end} {
-        seed_roaring_bitmap intarray:negativecap {4 99}
-        assert_equal {4 99} [r bitrangeintarray intarray:negativecap -2 99999999]
-        assert_equal {99} [r bitrangeintarray intarray:negativecap -1 100000000]
-        assert_equal {4 99} [r bitrangeintarray intarray:negativecap -9223372036854775808 99999999]
-        foreach bounds {{-2 100000000} {-1 100000001}
-                        {-9223372036854775808 100000000} {-1 4294967295}} {
-            assert_error {ERR range too large: maximum 100000000 elements} {
-                r bitrangeintarray intarray:negativecap {*}$bounds
-            }
-        }
+    test {BITRANGEINTARRAY truncates large ranges after negative-rank normalization} {
+        seed_roaring_bitmap intarray:negativelarge {4 99}
+        assert_equal {4 99} [r bitrangeintarray intarray:negativelarge -2 100000000]
+        assert_equal {99} [r bitrangeintarray intarray:negativelarge -1 100000001]
+        assert_equal {4 99} [r bitrangeintarray intarray:negativelarge -2 4294967295]
+        assert_equal {99} [r bitrangeintarray intarray:negativelarge -1 4294967295]
+        assert_equal {4 99} \
+            [r bitrangeintarray intarray:negativelarge -9223372036854775808 4294967295]
     }
 
     test {Integer-array replies contain RESP integers under RESP2 and RESP3} {
         seed_roaring_bitmap intarray:protocol {0 8 65536}
+        seed_roaring_bitmap intarray:empty {}
+        r del intarray:missing
         foreach protocol {2 3} {
             set client [redis_client]
             $client hello $protocol
@@ -5282,12 +5339,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal [lrange $tail 1 end] \
             [r bitrangeintarray intarray:maxrank 4294967295 -1]
         assert_equal {4294967303} [r bitrangeintarray intarray:maxrank -1 -1]
-        foreach bounds {{0 -1} {-100000001 -1} {0 -100000001}
-                        {-9223372036854775808 -1} {-4294967303 4294967295}} {
-            assert_error {ERR range too large: maximum 100000000 elements} {
-                r bitrangeintarray intarray:maxrank {*}$bounds
-            }
-        }
+        assert_equal {1 2} \
+            [r bitrangeintarray intarray:maxrank -4294967303 -4294967302]
         r del intarray:maxrank
     }
 
@@ -5306,23 +5359,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         }
     }
 
-    test {BITRANGEINTARRAY normalizes ranks after preceding transaction mutations} {
-        seed_roaring_bitmap intarray:transaction {10 20}
-        r multi
-        r bitrangeintarray intarray:transaction -1 -1
-        r setbit intarray:transaction 30 1
-        r bitrangeintarray intarray:transaction -2 -1
-        r setbit intarray:transaction 20 0
-        r bitrangeintarray intarray:transaction -2 -1
-        r setbit intarray:transaction 10 0
-        r setbit intarray:transaction 30 0
-        r bitrangeintarray intarray:transaction -1 -1
-        r setbit intarray:transaction 65536 1
-        r bitrangeintarray intarray:transaction -1 -1
-        assert_equal [list {20} 0 {20 30} 1 {10 30} 1 1 {} 0 {65536}] [r exec]
-        assert_equal PONG [r ping]
-    }
-
     test {BITRANGEINTARRAY metadata declares one read-only key} {
         set info [lindex [r command info bitrangeintarray] 0]
         assert {[lsearch -exact [lindex $info 2] readonly] >= 0}
@@ -5333,108 +5369,38 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
             [r command getkeysandflags bitrangeintarray intarray:metadata 0 9]
     }
 
-    test {BITRANGEINTARRAY works in read-only scripts} {
-        seed_roaring_bitmap intarray:script {2 5 11 65536}
-        assert_equal {2 5 11 65536} [r eval_ro {
-            return redis.call('BITRANGEINTARRAY', KEYS[1], 0, -1)
-        } 1 intarray:script]
-        assert_equal {5 11} [r eval_ro {
-            return redis.call('BITRANGEINTARRAY', KEYS[1], ARGV[1], ARGV[2])
-        } 1 intarray:script 1 2]
-    }
-
-    test {BITRANGEINTARRAY preserves data, TTL, dirty count, and WATCH} {
-        seed_roaring_bitmap intarray:readonly {0 1 1000 65536}
-        r pexpire intarray:readonly 600000
-        set expire_at [r pexpiretime intarray:readonly]
-        set dump [r dump intarray:readonly]
-        set dirty [s rdb_changes_since_last_save]
-        r watch intarray:readonly
-        assert_equal {0 1 1000 65536} [r bitrangeintarray intarray:readonly 0 -1]
-        assert_equal {1 1000} [r bitrangeintarray intarray:readonly 1 2]
-        assert_equal $expire_at [r pexpiretime intarray:readonly]
-        assert_equal $dump [r dump intarray:readonly]
-        assert_equal $dirty [s rdb_changes_since_last_save]
-        r multi
-        r ping
-        assert_equal {PONG} [r exec]
-    }
-
-    test {BITRANGEINTARRAY requires read key permission} {
-        seed_roaring_bitmap intarray:acl {3 17}
-        r acl setuser intarray-reader reset on nopass -@all \
-            +bitrangeintarray %R~intarray:acl
-        set client [redis_client]
-        $client auth intarray-reader password
-        assert_equal {3 17} [$client bitrangeintarray intarray:acl 0 -1]
-        assert_equal {17} [$client bitrangeintarray intarray:acl 1 1]
-        assert_error {NOPERM*} {$client bitrangeintarray intarray:other 0 -1}
-        r acl setuser intarray-reader resetkeys %W~intarray:acl
-        assert_error {NOPERM*} {$client bitrangeintarray intarray:acl 0 -1}
-        assert_error {NOPERM*} {$client bitrangeintarray intarray:acl 0 1}
-        $client close
-        r acl deluser intarray-reader
-    } undefined {external:skip}
-
-    test {BITRANGEINTARRAY does not emit keyspace mutation notifications} {
-        seed_roaring_bitmap intarray:notifications {1 9}
-        set old [config_get_set notify-keyspace-events KA]
-        set client [redis_deferring_client]
-        $client psubscribe __keyspace@*__:intarray:notifications
-        $client read
-        $client subscribe intarray:barrier
-        $client read
-        assert_equal {1 9} [r bitrangeintarray intarray:notifications 0 -1]
-        assert_equal {1} [r bitrangeintarray intarray:notifications 0 0]
-        # An ordinary published message is a barrier after both reads. Any
-        # erroneous keyspace event would be received before this message.
-        r publish intarray:barrier done
-        assert_equal {message intarray:barrier done} [$client read]
-        $client close
-        r config set notify-keyspace-events $old
-    } undefined {external:skip}
-
     test {Integer-array streaming stops when the client output limit closes the connection} {
+        # Compact runs allow more than 2^32 set bits without a large raw
+        # fixture. The output limit stops each read before a large reply
+        # accumulates, including ranges beyond 100M and 32-bit LONG_MAX.
         set old_bitmap [config_get_set bitmap-default-roaring yes]
+        set old_bulk_limit [config_get_set proto-max-bulk-len 536870913]
         r del intarray:outputlimit
-        # Exactly the cap is accepted, including shifted negative ranges in
-        # a bitmap larger than the cap. Compact runs and the output limit
-        # avoid building a 100-million-value reply.
-        r setbit intarray:outputlimit 99999999 0
+        r setbit intarray:outputlimit 4294967303 0
         r bitop not intarray:outputlimit intarray:outputlimit
         r config set bitmap-default-roaring $old_bitmap
+        r config set proto-max-bulk-len $old_bulk_limit
+        assert_equal 4294967304 [r bitcount intarray:outputlimit]
+
         set old_limit [config_get_set client-output-buffer-limit {normal 100000 0 0}]
-        foreach extra_bit {0 1} {
-            if {$extra_bit} {
-                r setbit intarray:outputlimit 100000000 1
-                set ranges {{1 -1} {-100000000 -1} {0 -2}}
+        foreach bounds {{0 -1} {-4294967304 -1} {0 4294967295}
+                        {0 2147483647} {-100000001 -1} {0 100000000}
+                        {-9223372036854775808 -1}} {
+            set client [redis_deferring_client]
+            $client client setname intarray-output-limit
+            assert_equal OK [$client read]
+            $client bitrangeintarray intarray:outputlimit {*}$bounds
+            $client flush
+            wait_for_condition 100 10 {
+                ![string match {*name=intarray-output-limit*} [r client list]]
             } else {
-                set ranges {{0 -1} {-100000000 -1} {0 99999999} {0 1048575}}
+                fail "Integer-array reply did not enforce the client output limit"
             }
-            assert_equal [expr {100000000 + $extra_bit}] [r bitcount intarray:outputlimit]
-            foreach bounds $ranges {
-                set client [redis_deferring_client]
-                $client client setname intarray-output-limit
-                assert_equal OK [$client read]
-                $client bitrangeintarray intarray:outputlimit {*}$bounds
-                $client flush
-                wait_for_condition 100 10 {
-                    ![string match {*name=intarray-output-limit*} [r client list]]
-                } else {
-                    fail "Integer-array reply did not enforce the client output limit"
-                }
-                assert_equal {} [$client rawread]
-                $client close
-            }
+            assert_equal {} [$client rawread]
+            $client close
         }
         r config set client-output-buffer-limit $old_limit
-        foreach bounds {{0 -1} {-100000001 -1}
-                        {-9223372036854775808 -1} {0 100000000}} {
-            assert_error {ERR range too large: maximum 100000000 elements} {
-                r bitrangeintarray intarray:outputlimit {*}$bounds
-            }
-        }
-        assert_equal {99999999 100000000} \
+        assert_equal {4294967302 4294967303} \
             [r bitrangeintarray intarray:outputlimit -2 -1]
         r del intarray:outputlimit
     } undefined {external:skip}

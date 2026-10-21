@@ -2050,11 +2050,9 @@ void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
-#define BITRANGEINTARRAY_MAX_ELEMENTS 100000000
-
 typedef struct bitroarIntArrayReply {
     client *c;
-    long emitted;
+    long long emitted;
 } bitroarIntArrayReply;
 
 /* Stream set-bit offsets into the reply without allocating a second array
@@ -2097,6 +2095,8 @@ void bitrangeintarrayCommand(client *c) {
         long long cardinality = bitroarCardinality(o);
         if (start < 0) start += cardinality;
         if (end < 0) end += cardinality;
+        /* A start before the first rank is clipped, but an end before it
+         * must leave the range empty, matching LRANGE semantics. */
         if (start < 0) start = 0;
         if (start >= cardinality) {
             addReply(c, shared.emptyarray);
@@ -2108,17 +2108,11 @@ void bitrangeintarrayCommand(client *c) {
         addReply(c, shared.emptyarray);
         return;
     }
-    /* Widen the inclusive span so 0..UINT32_MAX cannot wrap past the limit. */
+    /* Widen the inclusive span so 0..UINT32_MAX includes all 2^32 ranks. */
     uint64_t count = (uint64_t)(end - start) + 1;
-    if (count > BITRANGEINTARRAY_MAX_ELEMENTS) {
-        addReplyErrorFormat(c, "range too large: maximum %d elements",
-                            BITRANGEINTARRAY_MAX_ELEMENTS);
-        return;
-    }
 
     /* Nonnegative ranges avoid counting every container to return a small
-     * page. Iterator exhaustion handles truncation; the shared span limit
-     * keeps the number of emitted values within long even on 32-bit systems. */
+     * page. Iterator exhaustion truncates an end beyond the last rank. */
     void *arraylen = addReplyDeferredLen(c);
     bitroarIntArrayReply reply = {c, 0};
     bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
