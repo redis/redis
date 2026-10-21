@@ -4756,6 +4756,9 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.master = server.cached_master;
     server.cached_master = NULL;
     server.master->conn = conn;
+    connEnableTcpNoDelay(conn);
+    if (server.tcpkeepalive)
+        connKeepAlive(conn,server.tcpkeepalive);
     connSetPrivateData(server.master->conn, server.master);
     server.master->flags &= ~(CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP);
     server.master->authenticated = 1;

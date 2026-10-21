@@ -843,6 +843,7 @@ typedef enum {
 #define NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_KEY_TRIMMED (1<<17)     /* module only key space notification, indicates a key trimmed during slot migration */
+#define NOTIFY_BITMAP (1<<18)          /* b, bitmap notification */
 #define NOTIFY_SUBKEYSPACE (1<<19)       /* S, subkey-level keyspace notification */
 #define NOTIFY_SUBKEYEVENT (1<<20)       /* T, subkey-level keyevent notification */
 #define NOTIFY_SUBKEYSPACEITEM (1<<21)   /* I, subkey-level notification per item: channel=key\nsubkey */
@@ -851,7 +852,7 @@ typedef enum {
 #ifdef ENABLE_GCRA
 #define NOTIFY_RATE_LIMIT (1<<24)        /* r, notify rate limit event (Note: excluded from NOTIFY_ALL)*/
 #endif
-#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_ARRAY) /* A flag */
+#define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE | NOTIFY_BITMAP | NOTIFY_ARRAY) /* A flag */
 
 #define _run_with_period(_cronloops_, _ms_, _hz_) if (((_ms_) <= 1000/(_hz_)) || !((_cronloops_)%((_ms_)/(1000/(_hz_)))))
 
@@ -920,11 +921,12 @@ typedef enum {
 #define OBJ_MODULE 5    /* Module object. */
 #define OBJ_STREAM 6    /* Stream object. */
 #define OBJ_ARRAY 7     /* Array object. */
+#define OBJ_BITMAP 8    /* Bitmap object. */
 #ifdef ENABLE_GCRA
-#define OBJ_GCRA 8      /* GCRA object. */
-#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
+#define OBJ_GCRA 9      /* GCRA object. */
+#define OBJ_TYPE_MAX 10 /* Maximum number of object types */
 #else
-#define OBJ_TYPE_MAX 8  /* Maximum number of object types */
+#define OBJ_TYPE_MAX 9  /* Maximum number of object types */
 #endif
 
 /* NOTE: adding a new object requires changes in the following places:
@@ -1060,6 +1062,7 @@ struct RedisModule {
     int in_hook;    /* Hooks callback nesting level for this module (0 or 1). */
     int options;    /* Module options and capabilities. */
     int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
+    size_t reply_buffers;        /* Owned reply buffers keep the module loaded. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
     RedisModuleDefragFunc2 defrag_cb_2; /* Version 2 callback for global data defrag. */
@@ -1265,11 +1268,12 @@ typedef struct redisDb {
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
 } redisDb;
 
-/* maximum number of bins of keysizes histogram */
+/* Maximum number of bins of keysizes histogram. Sizes beyond the final bin's
+ * range, for any data type, saturate into the final bin. */
 #define MAX_KEYSIZES_BINS 60
 
 /* Per-type keysizes/allocsizes histograms: one row per tracked type, i.e. the
- * basic types plus streams. Rows are addressed with keysizesHistRow() rather
+ * basic types plus streams and bitmaps. Rows are addressed with keysizesHistRow() rather
  * than by object type, so untracked types in between (OBJ_MODULE) cost no row
  * and the histogram stays plain storage: zeroing initializes it, and it can be
  * copied or moved like any other array. */
@@ -1280,14 +1284,34 @@ enum {
     KEYSIZES_ROW_ZSET,
     KEYSIZES_ROW_HASH,
     KEYSIZES_ROW_STREAM,
+    KEYSIZES_ROW_BITMAP,
     MAX_KEYSIZES_ROWS   /* must stay last */
 };
 typedef int64_t keysizesHist[MAX_KEYSIZES_ROWS][MAX_KEYSIZES_BINS];
+
+/* INFO Streams histogram rows, one per metric, named stream_distrib_<unit>_
+ * <property>. */
+typedef enum {
+    /* Per-stream metrics: one sample per stream key. */
+    STREAM_DISTRIB_STREAMS_CGROUPS = 0, /* stream_distrib_streams_cgroups */
+    /* Per-group metrics: one sample per consumer group. */
+    STREAM_DISTRIB_CGROUPS_PEL,         /* stream_distrib_cgroups_pel */
+    STREAM_DISTRIB_CGROUPS_CONSUMERS,   /* stream_distrib_cgroups_consumers */
+    STREAM_DISTRIB_MAX
+} streamDistribMetric;
+/* Same bins as keysizesHist, and plain storage like it: zeroing resets it. */
+typedef int64_t streamStatsHist[STREAM_DISTRIB_MAX][MAX_KEYSIZES_BINS];
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
 typedef struct {
     keysizesHist keysizes_hist;
     keysizesHist allocsizes_hist;
+    streamStatsHist stream_hist;   /* INFO Streams: one row per metric. */
+    uint32_t keysizes_stats_epoch; /* Bumped on an in-place empty; a pending
+                                      slot-trim delta is then discarded. */
+    uint32_t stream_stats_epoch;   /* Set on each reset of stream_hist from a
+                                      server-wide counter, so no two dbs share
+                                      one; a stamp counts while it matches. */
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -1572,6 +1596,7 @@ typedef struct client {
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     unsigned long long reply_bytes_shared; /* Bytes shared with keyspace objects in reply list. */
     unsigned long long reply_bytes_unshared; /* Cached subset of reply_bytes_shared solely owned by this client. */
+    mstime_t last_unshared_refresh; /* Timestamp of last reply_bytes_unshared recompute */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
@@ -1675,6 +1700,8 @@ typedef struct client {
      * before adding it the new value. */
     size_t last_memory_usage;
     int last_memory_type;
+    size_t last_memory_shared;
+    size_t last_memory_unshared;
 
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
@@ -2268,6 +2295,8 @@ struct redisServer {
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
     size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    size_t stat_clients_shared_memory;   /* Sum of clients' reply_bytes_shared */
+    size_t stat_clients_unshared_memory; /* Sum of clients' reply_bytes_unshared */
     size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -2561,6 +2590,7 @@ struct redisServer {
     int lfu_log_factor;             /* LFU logarithmic counter factor. */
     int lfu_decay_time;             /* LFU counter decay factor. */
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
+    int bitmap_default_roaring;     /* If true, bitmap writes default to Roaring bitmaps. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
     int disable_thp;                              /* If true, disable THP by syscall */
@@ -2617,9 +2647,9 @@ struct redisServer {
                                        * only, not RESTORE/DUMP. 0 disables. */
     struct hashTemplateRegistry *htemplates;   /* Global template registry */
     size_t set_max_intset_entries;
+    int set_roaring_enabled;
     size_t set_max_listpack_entries;
     size_t set_max_listpack_value;
-    int set_roaring_enabled;
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
@@ -2628,6 +2658,9 @@ struct redisServer {
     /* Stream IDMP parameters */
     long long stream_idmp_duration;     /* Default IDMP duration in seconds. */
     long long stream_idmp_maxsize;      /* Default IDMP max entries. */
+    int stream_stats;                   /* Enable stream stats for INFO Streams section. */
+    int stream_stats_needs_reset;       /* Streams changed while stream_stats was off. */
+    uint32_t stream_stats_generation;   /* Last generation handed to a db's stream_hist. */
     /* Array parameters */
     uint32_t array_slice_size;          /* Slice size for new arrays */
     uint32_t array_sparse_kmax;         /* Max elements before sparse->dense */
@@ -2756,6 +2789,7 @@ struct redisServer {
 /* Debug assertion flags for server.dbg_assert_flags */
 #define DBG_ASSERT_KEYSIZES    (1 << 0) /* Assert keysizes histogram */
 #define DBG_ASSERT_ALLOC_SLOT  (1 << 1) /* Assert per-slot alloc_size */
+#define DBG_ASSERT_STREAM_STATS (1 << 2) /* Assert INFO Streams histograms */
 
 /* we use 6 so that all getKeyResult fits a cacheline */
 #define MAX_KEYS_BUFFER 6
@@ -3194,22 +3228,24 @@ typedef struct {
     quicklistEntry entry; /* Entry in quicklist */
 } listTypeEntry;
 
-typedef struct roaring_uint32_iterator_s roaring_uint32_iterator_t;
-
 /* Structure to hold set iteration abstraction. */
+typedef struct _setTypeOps setTypeOps; /* defined in t_set_encoding.h */
+
 typedef struct {
     robj *subject;
     int encoding;
+    const setTypeOps *typeOps; /* encoding-specific ops struct, to avoid re-fetching it for every next call */
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
-    roaring_uint32_iterator_t *ri32; /* current promoted group iterator */
-    dictIterator promoted_di;
-    dictEntry *promoted_entry;
-    dictIterator sparse_di; /* unpromoted integer containers */
-    dictEntry *sparse_entry;
-    uint16_t sparse_index;
-    int phase; /* hybrid set: roaring, sparse integers, then strings */
+    /* Hybrid Roaring set iterator state (opaque to common set code). */
+    int roaring_phase;
+    void *roaring_iter;
+    dictIterator roaring_promoted_di;
+    dictIterator roaring_sparse_di;
+    dictEntry *roaring_promoted_entry;
+    dictEntry *roaring_sparse_entry;
+    unsigned int roaring_sparse_index;
 } setTypeIterator;
 
 /* Structure to hold hash iteration abstraction. Note that iteration over
@@ -3301,6 +3337,7 @@ void moduleCallCommandUnblockedHandler(client *c);
 int isModuleClientUnblocked(client *c);
 void unblockClientFromModule(client *c);
 void moduleHandleBlockedClients(void);
+void moduleFreeAuthBlockedClient(client *c);
 void moduleBlockedClientTimedOut(client *c);
 void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask);
 size_t moduleCount(void);
@@ -3399,6 +3436,7 @@ void addReplyBool(client *c, int b);
 void addReplyVerbatim(client *c, const char *s, size_t len, const char *ext);
 void addReplyProto(client *c, const char *s, size_t len);
 void AddReplyFromClient(client *c, client *src);
+void AddReplyFromModuleClient(client *dst, client *src);
 void addReplyBulk(client *c, robj *obj);
 void addReplyBulkWithFlag(client *c, robj *obj, int avoid_copy);
 void addReplyBulkCString(client *c, const char *s);
@@ -3458,7 +3496,6 @@ size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c);
 void updateClientUnsharedReplyBytes(client *c);
-void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);
@@ -3499,6 +3536,7 @@ getKeysResult *getClientCachedKeyResult(pendingCommand *pcmd);
 /* iothread.c - the threaded io implementation */
 void initThreadedIO(void);
 void killIOThreads(void);
+int isIOThreadPaused(int id);
 void pauseIOThread(int id);
 void resumeIOThread(int id);
 void pauseAllIOThreads(void);
@@ -4006,8 +4044,8 @@ unsigned long setTypeSize(const robj *subject);
 size_t setTypeAllocSize(const robj *o);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
-void setTypeMaybeConvertToRoaring(robj *setobj);
 robj *setTypeDup(robj *o);
+void setTypeFree(robj *o);
 
 /* Data structure for OBJ_ENCODING_LISTPACK_EX for hash. It contains listpack
  * and metadata fields for hash field expiration.*/
@@ -4446,6 +4484,7 @@ int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc, getKeysR
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int sunioncardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int sdiffcardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int msetexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -4626,6 +4665,7 @@ void delCommand(client *c);
 void delexCommand(client *c);
 void unlinkCommand(client *c);
 void existsCommand(client *c);
+void bitconvertCommand(client *c);
 void blessCommand(client *c);
 void setbitCommand(client *c);
 void getbitCommand(client *c);
@@ -4850,6 +4890,7 @@ void functionRestoreCommand(client *c);
 void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
+void bitroaropCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);
@@ -4942,6 +4983,7 @@ void _serverPanic(const char *file, int line, const char *msg, ...);
 void serverLogObjectDebugInfo(const robj *o);
 void setupDebugSigHandlers(void);
 void setupSigSegvHandler(void);
+void crashWatchdogInit(void);
 void removeSigSegvHandlers(void);
 const char *getSafeInfoString(const char *s, size_t len, char **tmp);
 dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything);

@@ -89,7 +89,8 @@ struct RedisModuleType;
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
 #define OBJ_ENCODING_TMPL_LP 14 /* Hash with shared template, values in listpack */
 #define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
-#define OBJ_ENCODING_SET_ROARING 16 /* Integer/string partitions using grouped Roaring32 and a hash table */
+#define OBJ_ENCODING_BITMAP_ROARING 16 /* Bitmap encoded as a Roaring bitmap. */
+#define OBJ_ENCODING_SET_ROARING 17 /* Integer/string set using Roaring and hash storage. */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
@@ -189,6 +190,7 @@ int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(struct client *c, robj *o, int type);
+int checkStringOrBitmapType(struct client *c, robj *o);
 int getLongLongFromObjectOrReply(struct client *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(struct client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);

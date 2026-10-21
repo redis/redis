@@ -418,84 +418,84 @@ We also have a C++ interface:
 Below is an overview of the main functions provided by CRoaring in C, covering both 32-bit (`roaring.h`) and 64-bit (`roaring64.h`) bitmaps. For more details, see the header files in `include/roaring/` or the Doxygen documentation.
 
 ## Creation and Destruction
-- `roaring_bitmap_t *roaring_bitmap_create(void);`
+- `roaring_bitmap_t *roaring_bitmap_create(void);`  
   Create a new empty 32-bit bitmap.
-- `roaring64_bitmap_t *roaring64_bitmap_create(void);`
+- `roaring64_bitmap_t *roaring64_bitmap_create(void);`  
   Create a new empty 64-bit bitmap.
-- `void roaring_bitmap_free(roaring_bitmap_t *r);`
+- `void roaring_bitmap_free(roaring_bitmap_t *r);`  
   Free a 32-bit bitmap.
-- `void roaring64_bitmap_free(roaring64_bitmap_t *r);`
+- `void roaring64_bitmap_free(roaring64_bitmap_t *r);`  
   Free a 64-bit bitmap.
 
 ## Adding and Removing Values
-- `void roaring_bitmap_add(roaring_bitmap_t *r, uint32_t x);`
+- `void roaring_bitmap_add(roaring_bitmap_t *r, uint32_t x);`  
   Add value `x` to a 32-bit bitmap.
-- `void roaring64_bitmap_add(roaring64_bitmap_t *r, uint64_t x);`
+- `void roaring64_bitmap_add(roaring64_bitmap_t *r, uint64_t x);`  
   Add value `x` to a 64-bit bitmap.
-- `void roaring_bitmap_remove(roaring_bitmap_t *r, uint32_t x);`
+- `void roaring_bitmap_remove(roaring_bitmap_t *r, uint32_t x);`  
   Remove value `x` from a 32-bit bitmap.
-- `void roaring64_bitmap_remove(roaring64_bitmap_t *r, uint64_t x);`
+- `void roaring64_bitmap_remove(roaring64_bitmap_t *r, uint64_t x);`  
   Remove value `x` from a 64-bit bitmap.
 
 ## Queries and Cardinality
-- `bool roaring_bitmap_contains(const roaring_bitmap_t *r, uint32_t x);`
+- `bool roaring_bitmap_contains(const roaring_bitmap_t *r, uint32_t x);`  
   Check if `x` is present in a 32-bit bitmap.
-- `bool roaring64_bitmap_contains(const roaring64_bitmap_t *r, uint64_t x);`
+- `bool roaring64_bitmap_contains(const roaring64_bitmap_t *r, uint64_t x);`  
   Check if `x` is present in a 64-bit bitmap.
-- `uint64_t roaring_bitmap_get_cardinality(const roaring_bitmap_t *r);`
+- `uint64_t roaring_bitmap_get_cardinality(const roaring_bitmap_t *r);`  
   Get the number of elements in a 32-bit bitmap.
-- `uint64_t roaring64_bitmap_get_cardinality(const roaring64_bitmap_t *r);`
+- `uint64_t roaring64_bitmap_get_cardinality(const roaring64_bitmap_t *r);`  
   Get the number of elements in a 64-bit bitmap.
 
 ## Iteration
-- `bool roaring_iterate(const roaring_bitmap_t *r, roaring_iterator iterator, void *param);`
+- `bool roaring_iterate(const roaring_bitmap_t *r, roaring_iterator iterator, void *param);`  
   Iterate over all values in a 32-bit bitmap, calling `iterator` for each value.
-- `bool roaring64_bitmap_iterate(const roaring64_bitmap_t *r, roaring_iterator64 iterator, void *param);`
+- `bool roaring64_bitmap_iterate(const roaring64_bitmap_t *r, roaring_iterator64 iterator, void *param);`  
   Iterate over all values in a 64-bit bitmap.
 
 ## Set Operations
-- `roaring_bitmap_t *roaring_bitmap_and(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`
+- `roaring_bitmap_t *roaring_bitmap_and(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`  
   Intersection (AND) of two 32-bit bitmaps.
-- `roaring64_bitmap_t *roaring64_bitmap_and(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`
+- `roaring64_bitmap_t *roaring64_bitmap_and(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`  
   Intersection (AND) of two 64-bit bitmaps.
-- `roaring_bitmap_t *roaring_bitmap_or(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`
+- `roaring_bitmap_t *roaring_bitmap_or(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`  
   Union (OR) of two 32-bit bitmaps.
-- `roaring64_bitmap_t *roaring64_bitmap_or(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`
+- `roaring64_bitmap_t *roaring64_bitmap_or(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`  
   Union (OR) of two 64-bit bitmaps.
-- `roaring_bitmap_t *roaring_bitmap_xor(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`
+- `roaring_bitmap_t *roaring_bitmap_xor(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`  
   Symmetric difference (XOR) of two 32-bit bitmaps.
-- `roaring64_bitmap_t *roaring64_bitmap_xor(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`
+- `roaring64_bitmap_t *roaring64_bitmap_xor(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`  
   Symmetric difference (XOR) of two 64-bit bitmaps.
-- `roaring_bitmap_t *roaring_bitmap_andnot(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`
+- `roaring_bitmap_t *roaring_bitmap_andnot(const roaring_bitmap_t *r1, const roaring_bitmap_t *r2);`  
   Difference (r1 \ r2) for 32-bit bitmaps.
-- `roaring64_bitmap_t *roaring64_bitmap_andnot(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`
+- `roaring64_bitmap_t *roaring64_bitmap_andnot(const roaring64_bitmap_t *r1, const roaring64_bitmap_t *r2);`  
   Difference (r1 \ r2) for 64-bit bitmaps.
 
 ## Serialization and Deserialization
-- `size_t roaring_bitmap_portable_size_in_bytes(const roaring_bitmap_t *r);`
+- `size_t roaring_bitmap_portable_size_in_bytes(const roaring_bitmap_t *r);`  
   Get the number of bytes required to serialize a 32-bit bitmap.
-- `size_t roaring64_bitmap_portable_size_in_bytes(const roaring64_bitmap_t *r);`
+- `size_t roaring64_bitmap_portable_size_in_bytes(const roaring64_bitmap_t *r);`  
   Get the number of bytes required to serialize a 64-bit bitmap.
-- `size_t roaring_bitmap_portable_serialize(const roaring_bitmap_t *r, char *buf);`
+- `size_t roaring_bitmap_portable_serialize(const roaring_bitmap_t *r, char *buf);`  
   Serialize a 32-bit bitmap to a buffer (portable format).
-- `size_t roaring64_bitmap_portable_serialize(const roaring64_bitmap_t *r, char *buf);`
+- `size_t roaring64_bitmap_portable_serialize(const roaring64_bitmap_t *r, char *buf);`  
   Serialize a 64-bit bitmap to a buffer (portable format).
-- `roaring_bitmap_t *roaring_bitmap_portable_deserialize(const char *buf);`
+- `roaring_bitmap_t *roaring_bitmap_portable_deserialize(const char *buf);`  
   Deserialize a 32-bit bitmap from a buffer. This is unsafe: it assumes `buf` points to a valid serialized bitmap and may read out of bounds otherwise. Prefer the safe variant below for untrusted input.
 - The 64-bit API does not provide an unsafe deserializer; use `roaring64_bitmap_portable_deserialize_safe` (below) instead.
-- `roaring_bitmap_t *roaring_bitmap_portable_deserialize_safe(const char *buf, size_t maxbytes);`
+- `roaring_bitmap_t *roaring_bitmap_portable_deserialize_safe(const char *buf, size_t maxbytes);`  
   Safe deserialization of a 32-bit bitmap (will not read past `maxbytes`). If you are loading data from an untrusted source, you should call `roaring_bitmap_internal_validate` prior to using the `roaring_bitmap_t`.
-- `roaring64_bitmap_t *roaring64_bitmap_portable_deserialize_safe(const char *buf, size_t maxbytes);`
+- `roaring64_bitmap_t *roaring64_bitmap_portable_deserialize_safe(const char *buf, size_t maxbytes);`  
   Safe deserialization of a 64-bit bitmap (will not read past `maxbytes`).  If you are loading data from an untrusted source, you should call `roaring64_bitmap_internal_validate` prior to using the `roaring64_bitmap_t`.
-- `size_t roaring_bitmap_portable_deserialize_size(const char *buf, size_t maxbytes);`
+- `size_t roaring_bitmap_portable_deserialize_size(const char *buf, size_t maxbytes);`  
   Get the size of a serialized 32-bit bitmap (returns 0 if invalid).
-- `size_t roaring64_bitmap_portable_deserialize_size(const char *buf, size_t maxbytes);`
+- `size_t roaring64_bitmap_portable_deserialize_size(const char *buf, size_t maxbytes);`  
   Get the size of a serialized 64-bit bitmap (returns 0 if invalid).
 
 ## Validation
-- `bool roaring_bitmap_internal_validate(const roaring_bitmap_t *r, const char **reason);`
+- `bool roaring_bitmap_internal_validate(const roaring_bitmap_t *r, const char **reason);`  
   Validate the internal structure of a 32-bit bitmap. Returns `true` if valid, `false` otherwise. If invalid, `reason` points to a string describing the problem.
-- `bool roaring64_bitmap_internal_validate(const roaring64_bitmap_t *r, const char **reason);`
+- `bool roaring64_bitmap_internal_validate(const roaring64_bitmap_t *r, const char **reason);`  
   Validate the internal structure of a 64-bit bitmap.
 
 ## Notes

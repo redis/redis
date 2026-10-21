@@ -3442,6 +3442,34 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
+/* Disabling stream-stats stops the bookkeeping and hides the section; the
+ * per-db INFO Streams rows are kept. Re-enabling keeps them if no stream
+ * changed meanwhile (stream_stats_needs_reset is clear) and otherwise starts a
+ * new generation, filling in lazily. Apply hooks run only on runtime CONFIG
+ * SET, so the dbs are always initialized here. */
+static int applyStreamStats(const char **err) {
+    UNUSED(err);
+    if (!server.stream_stats) return 1;
+    if (server.stream_stats_needs_reset) {
+        /* Streams changed while tracking was off, so the rows fell behind.
+         * Zeroing them starts a new generation of each db's rows
+         * (streamStatsResetMeta() bumps the db's epoch): every stream and
+         * group is uncounted until next touched, and an async slot-trim delta
+         * scheduled against the old contents is discarded on completion. */
+        for (int j = 0; j < server.dbnum; j++)
+            streamStatsResetMeta(kvstoreGetMetadata(server.db[j].keys));
+        server.stream_stats_needs_reset = 0;
+    }
+    if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
+        /* Enabling at runtime deliberately does not rescan, so the gauges are
+         * legitimately behind until each group is next touched, which DEBUG
+         * STREAM-STATS-ASSERT would report as corruption on this very command.
+         * Re-prime an exact baseline while the assertion is armed. */
+        streamStatsRebuild();
+    }
+    return 1;
+}
+
 standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -3496,6 +3524,8 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("bitmap-default-roaring", NULL, MODIFIABLE_CONFIG, server.bitmap_default_roaring, 0, NULL, NULL),
+    createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 0, NULL, applyStreamStats),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -3645,9 +3675,9 @@ standardConfig static_configs[] = {
     createSizeTConfig("hash-rdb-load-template-disassembly-threshold", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_rdb_load_template_disassembly_threshold, 0, INTEGER_CONFIG, NULL, NULL),
 
     createSizeTConfig("set-max-intset-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_intset_entries, 512, INTEGER_CONFIG, NULL, NULL),
+    createBoolConfig("set-roaring-enabled", NULL, MODIFIABLE_CONFIG, server.set_roaring_enabled, 0, NULL, NULL),
     createSizeTConfig("set-max-listpack-entries", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("set-max-listpack-value", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.set_max_listpack_value, 64, INTEGER_CONFIG, NULL, NULL),
-    createBoolConfig("set-roaring-enabled", NULL, IMMUTABLE_CONFIG, server.set_roaring_enabled, 0, NULL, NULL),
     createSizeTConfig("zset-max-listpack-entries", "zset-max-ziplist-entries", MODIFIABLE_CONFIG, 0, LONG_MAX, server.zset_max_listpack_entries, 128, INTEGER_CONFIG, NULL, NULL),
     createSizeTConfig("active-defrag-ignore-bytes", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.active_defrag_ignore_bytes, 100<<20, MEMORY_CONFIG, NULL, NULL), /* Default: don't defrag if frag overhead is below 100mb */
     createSizeTConfig("hash-max-listpack-value", "hash-max-ziplist-value", MODIFIABLE_CONFIG, 0, LONG_MAX, server.hash_max_listpack_value, 64, MEMORY_CONFIG, NULL, NULL),

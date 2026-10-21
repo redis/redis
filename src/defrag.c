@@ -19,6 +19,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #ifndef DISABLENEON
 #define DISABLENEON 1
 #endif
@@ -26,11 +27,7 @@
 #define ROARING_DISABLE_X64 1
 #endif
 #include "setroaring.h"
-#include <roaring/containers/array.h>
-#include <roaring/containers/bitset.h>
-#include <roaring/containers/containers.h>
-#include <roaring/containers/run.h>
-#include <roaring/roaring_array.h>
+#include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
 
@@ -768,71 +765,24 @@ void defragSet(defragKeysCtx *ctx, kvobj *ob) {
 
 static void defragSetRoaring(robj *ob) {
     setRoaring *set = ob->ptr;
-    setRoaring *newset;
+    dict *strings = setRoaringStrings(set), *sparse = setRoaringSparse(set);
     dict *newdict;
     dictIterator di;
     dictEntry *de;
-    activeDefragSdsDict(setRoaringStrings(set), DEFRAG_SDS_DICT_NO_VAL);
-    if ((newdict = dictDefragTables(setRoaringStrings(set))))
-        set->strings = newdict;
-
-    dictInitIterator(&di, setRoaringSparse(set));
+    activeDefragSdsDict(strings, DEFRAG_SDS_DICT_NO_VAL);
+    if ((newdict = dictDefragTables(strings))) set->strings = newdict;
+    dictInitIterator(&di, sparse);
     while ((de = dictNext(&di)) != NULL) {
-        void *bucket = dictGetVal(de);
-        void *moved_bucket = activeDefragAlloc(bucket);
-        if (moved_bucket) dictSetVal(setRoaringSparse(set), de, moved_bucket);
+        void *bucket = dictGetVal(de), *moved = activeDefragAlloc(bucket);
+        if (moved) dictSetVal(sparse, de, moved);
     }
     dictResetIterator(&di);
-    if ((newdict = dictDefragTables(setRoaringSparse(set))))
-        set->sparse = newdict;
-
-    dictInitIterator(&di, setRoaringPromoted(set));
-    while ((de = dictNext(&di)) != NULL) {
-        roaring_bitmap_t *bitmap = dictGetVal(de);
-        void *moved = activeDefragAlloc(bitmap);
-        if (moved) dictSetVal(setRoaringPromoted(set), de, bitmap = moved);
-        roaring_array_t *array = &bitmap->high_low_container;
-        if (array->containers && (moved = activeDefragAlloc(array->containers))) array->containers = moved;
-        if (array->keys && (moved = activeDefragAlloc(array->keys))) array->keys = moved;
-        if (array->typecodes && (moved = activeDefragAlloc(array->typecodes))) array->typecodes = moved;
-        for (int i = 0; i < array->size; i++) {
-        uint8_t type = array->typecodes[i];
-        container_t *container = array->containers[i];
-        void *newcontainer = activeDefragAlloc(container);
-        if (newcontainer) container = newcontainer;
-        if (type == ARRAY_CONTAINER_TYPE) {
-            array_container_t *array = CAST_array(container);
-            if (array->array && (moved = activeDefragAlloc(array->array))) array->array = moved;
-        } else if (type == BITSET_CONTAINER_TYPE) {
-            bitset_container_t *bitset = CAST_bitset(container);
-            if (bitset->words) {
-                void *base = ((void **)bitset->words)[-1];
-                size_t oldoff = (char *)bitset->words - (char *)base;
-                void *newbase = activeDefragAlloc(base);
-                if (newbase) {
-                    uintptr_t aligned = ((uintptr_t)newbase + sizeof(void *) + 31) & ~(uintptr_t)31;
-                    size_t newoff = aligned - (uintptr_t)newbase;
-                    if (newoff != oldoff)
-                        memmove((char *)newbase + newoff, (char *)newbase + oldoff,
-                                BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t));
-                    ((void **)aligned)[-1] = newbase;
-                    bitset->words = (uint64_t *)aligned;
-                }
-            }
-        } else if (type == RUN_CONTAINER_TYPE) {
-            run_container_t *run = CAST_run(container);
-            if (run->runs && (moved = activeDefragAlloc(run->runs))) run->runs = moved;
-        } else {
-            serverPanic("Unknown Roaring container type during defrag");
-        }
-        if (newcontainer) array->containers[i] = newcontainer;
-        }
-    }
-    dictResetIterator(&di);
-    if ((newdict = dictDefragTables(setRoaringPromoted(set))))
-        set->promoted = newdict;
-
-    newset = activeDefragAlloc(set);
+    if ((newdict = dictDefragTables(sparse))) set->sparse = newdict;
+    robj *integers = set->integers;
+    robj *newintegers = activeDefragAlloc(integers);
+    if (newintegers) set->integers = integers = newintegers;
+    bitroarDefrag(integers);
+    setRoaring *newset = activeDefragAlloc(set);
     if (newset) ob->ptr = newset;
 }
 
@@ -860,6 +810,17 @@ void defragArray(defragKeysCtx *ctx, kvobj *ob) {
         defragLater(ctx, ob);
     else
         ob->ptr = arDefrag(ob->ptr, activeDefragAlloc);
+}
+
+void defragBitmapObject(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_BITMAP);
+    /* Only the threshold decision is needed here. Avoid a full main-thread
+     * ART walk before scheduling a large bitmap for incremental defrag. */
+    if (bitroarContainerCountUpTo(ob, server.active_defrag_max_scan_fields + 1) >
+        server.active_defrag_max_scan_fields)
+        defragLater(ctx, ob);
+    else
+        bitroarDefrag(ob);
 }
 
 /* Defrag a TMPL_ARRAY hash: small in one shot, large incrementally (like the
@@ -1328,6 +1289,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         defragModule(ctx,db, ob);
     } else if (ob->type == OBJ_ARRAY) {
         defragArray(ctx, ob);
+    } else if (ob->type == OBJ_BITMAP) {
+        defragBitmapObject(ctx, ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -1450,6 +1413,8 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
             ob->ptr = ar;
+        } else if (ob->type == OBJ_BITMAP) {
+            *cursor = bitroarDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
         }

@@ -3,6 +3,7 @@
 #define __SETROARING_H
 
 #include "dict.h"
+#include "object.h"
 #include "sds.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -12,10 +13,9 @@
 #ifndef ROARING_DISABLE_X64
 #define ROARING_DISABLE_X64 1
 #endif
-#include <roaring/roaring.h>
 
 typedef struct setRoaring {
-    dict *promoted; /* upper-48-bit group key -> Roaring32 bitmap of low 16 bits */
+    robj *integers; /* The existing Redis Roaring64 bitmap, storing encoded integers. */
     uint64_t promoted_count;
     dict *sparse;
     uint64_t sparse_count;
@@ -48,7 +48,7 @@ uint64_t setRoaringIntCount(const setRoaring *set);
 uint64_t setRoaringSize(const setRoaring *set);
 int setRoaringSelectInt(const setRoaring *set, uint64_t rank, int64_t *value);
 dict *setRoaringSparse(setRoaring *set);
-dict *setRoaringPromoted(setRoaring *set);
+robj *setRoaringIntegers(setRoaring *set);
 uint64_t setRoaringSparseKey(uint64_t encoded);
 uint64_t setRoaringSparseEncodedValue(const dictEntry *entry, uint16_t low);
 int64_t setRoaringDecodeValue(uint64_t value);
