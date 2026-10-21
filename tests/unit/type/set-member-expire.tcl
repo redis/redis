@@ -806,6 +806,28 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
+        # A node that must not remove the expired members (a writable replica here)
+        # keeps them in the set, and a member added over one replaces it in place.
+        test "SADD and SMOVE over an expired member that was not removed keep the keysizes exact ($enc)" {
+            r flushall
+            r debug set-active-expire 0
+            r config set replica-read-only no
+            r replicaof 127.0.0.1 1
+            sme_mixed_set r {v} {e1 e2}
+            assert_equal [r sadd myset e1] 1        ;# replaced in place: the size is the same
+            assert_equal [r scard myset] 3
+            r del src dst
+            r sadd src e1 m
+            sme_create_set r dst {e1 z}
+            sme_make_expired r dst {e1}
+            assert_equal [r smove src dst e1] 1
+            assert_equal [r scard dst] 2
+            assert_equal [r scard src] 1
+            r replicaof no one
+            r config set replica-read-only yes
+            r debug set-active-expire 1
+        }
+
         test "SPOP with a count keeps the expirations of the members that remain ($enc)" {
             r flushall
             # CASE 3 (the move strategy) builds a new set with the remaining members.
@@ -996,12 +1018,6 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
             assert_equal [$replica smismember myset a c] {0 1}
             assert_equal [lsort [$replica smembers myset]] {c d}
             assert_equal [$replica scard myset] 4
-            for {set i 0} {$i < 30} {incr i} {
-                foreach m [concat [$replica srandmember myset 2] [$replica srandmember myset -5] [list [$replica srandmember myset]]] {
-                    assert {$m eq "c" || $m eq "d"}
-                }
-            }
-            assert_equal [lsort [$replica srandmember myset 10]] {c d}
             assert_equal [$replica sttl myset MEMBERS 2 a c] [list $E_NO_MEMBER [$replica sttl myset MEMBERS 1 c]]
             # Still there.
             assert_equal [$replica scard myset] 4

@@ -972,7 +972,12 @@ uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubex
 /* Deletes all the expired members of the set (and the set itself if it is left
  * empty) unless this node must not delete expired data right now. This is a
  * sweep, used by the commands that sample members, to not pick among many
- * expired members. Returns 1 if the whole set was deleted. */
+ * expired members. Returns 1 if the whole set was deleted.
+ *
+ * Known limitation, as of HRANDFIELD for the hash fields: if this node must not
+ * delete expired data right now (a replica, loading, expirations paused, or
+ * access to expired data allowed), nothing is swept and the commands that
+ * sample (SPOP, SRANDMEMBER) can pick a logically expired member. */
 int setTypeExpireIfNeeded(redisDb *db, kvobj *set) {
     const setTypeOps *ops = setTypeGetOps(set->encoding);
     if (ops->minExpire == NULL) return 0;
@@ -2189,6 +2194,9 @@ void saddCommand(client *c) {
 
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
+    /* A logically expired member that is added again is replaced in place, so
+     * the number of added members is not the growth of the set. */
+    unsigned long oldlen = setTypeSize(set);
     for (j = 2; j < c->argc; j++) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
     }
@@ -2196,7 +2204,7 @@ void saddCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
     if (added) {
         unsigned long size = setTypeSize(set);
-        updateKeysizesHist(c->db, OBJ_SET, size - added, size);
+        if (size != oldlen) updateKeysizesHist(c->db, OBJ_SET, oldlen, size);
         keyModified(c,c->db,c->argv[1],set,1);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
     }
@@ -2337,6 +2345,9 @@ void smoveCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldDstAllocSize = kvobjAllocSize(dstset);
     int added, expireChanged = 0, persisted = 0;
+    /* A destination member that is logically expired and could not be removed
+     * above is replaced in place, so 'added' is not always a growth of the set. */
+    unsigned long dstOldLen = setTypeSize(dstset);
     if (srcExpire != EB_EXPIRE_TIME_INVALID) {
         setTypeConvertToExpireEncoding(dstset);
         added = setTypeAddExAux(dstset, ele->ptr, sdslen(ele->ptr), 0, 1, srcExpire);
@@ -2354,7 +2365,7 @@ void smoveCommand(client *c) {
     /* An extra key has changed when ele was successfully added to dstset */
     if (added) {
         unsigned long dstLen = setTypeSize(dstset);
-        updateKeysizesHist(c->db, OBJ_SET, dstLen - 1, dstLen);
+        if (dstLen != dstOldLen) updateKeysizesHist(c->db, OBJ_SET, dstOldLen, dstLen);
     }
     if (added || expireChanged || persisted) {
         if (expireChanged || persisted) setTypeUpdateSubexpiry(c->db, dstset);
@@ -2737,61 +2748,6 @@ void spopCommand(client *c) {
  * the number of randoms per time. */
 #define SRANDFIELD_RANDOM_SAMPLE_LIMIT 1000
 
-/* Returns 1 if the set has logically expired members that are still in it. */
-static int setHasElapsedMembers(robj *set) {
-    uint64_t min = setTypeGetMinExpire(set, 1);
-    return min != EB_EXPIRE_TIME_INVALID && setTypeExpireTimeElapsed(min);
-}
-
-/* SRANDMEMBER on a set that has logically expired members that were not
- * removed, because this node is not allowed to remove them right now (a
- * replica, for example). The expired members are never returned: the members
- * are sampled among the live ones, which are collected for that.
- *
- * With 'hasCount' the reply is an array and 'count' has the same meaning as
- * in SRANDMEMBER: positive for unique members, negative for repeated ones. */
-static void srandmemberFromLiveMembers(client *c, robj *set, int hasCount, long count) {
-    unsigned long live = 0, cap = setTypeSize(set);
-    sds *members = zmalloc(sizeof(sds) * (cap ? cap : 1));
-    char *str;
-    size_t len = 0;
-    int64_t llele = 0;
-    setTypeIterator si;
-    setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
-    while (setTypeNext(&si, &str, &len, &llele) != -1 && live < cap)
-        members[live++] = str ? sdsnewlen(str, len) : sdsfromlonglong(llele);
-    setTypeResetIterator(&si);
-
-    if (!hasCount) {
-        if (live == 0) addReplyNull(c);
-        else {
-            sds m = members[rand() % live];
-            addReplyBulkCBuffer(c, m, sdslen(m));
-        }
-    } else if (count < 0) {
-        /* Repeated members: sample with replacement. */
-        unsigned long n = (unsigned long)(-count);
-        addReplyArrayLen(c, live ? n : 0);
-        while (live && n--) {
-            sds m = members[rand() % live];
-            addReplyBulkCBuffer(c, m, sdslen(m));
-            if (c->flags & CLIENT_CLOSE_ASAP) break;
-        }
-    } else {
-        /* Unique members: a partial shuffle, then the first 'count'. */
-        unsigned long n = (unsigned long)count < live ? (unsigned long)count : live;
-        addReplyArrayLen(c, n);
-        for (unsigned long i = 0; i < n; i++) {
-            unsigned long j = i + rand() % (live - i);
-            sds tmp = members[i]; members[i] = members[j]; members[j] = tmp;
-            addReplyBulkCBuffer(c, members[i], sdslen(members[i]));
-        }
-    }
-
-    for (unsigned long i = 0; i < live; i++) sdsfree(members[i]);
-    zfree(members);
-}
-
 void srandmemberWithCountCommand(client *c) {
     long l;
     unsigned long count, size;
@@ -2821,12 +2777,6 @@ void srandmemberWithCountCommand(client *c) {
          * expired, the key is gone. */
         if (setTypeExpireIfNeeded(c->db, set)) {
             addReply(c,shared.emptyarray);
-            return;
-        }
-        /* If some expired members are left because they could not be removed
-         * (on a replica, for example), none of them may be returned. */
-        if (setHasElapsedMembers(set)) {
-            srandmemberFromLiveMembers(c, set, 1, l);
             return;
         }
     }
@@ -3035,10 +2985,6 @@ void srandmemberCommand(client *c) {
         /* Same as for the variant with a count. */
         if (setTypeExpireIfNeeded(c->db, set)) {
             addReplyNull(c);
-            return;
-        }
-        if (setHasElapsedMembers(set)) {
-            srandmemberFromLiveMembers(c, set, 0, 0);
             return;
         }
     }
