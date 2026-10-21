@@ -1693,8 +1693,9 @@ static int cliSwitchProto(void) {
         }
     }
 
-    /* Retrieve server version string for later use. */
-    for (size_t i = 0; i < reply->elements; i += 2) {
+    /* Retrieve server version string for later use. The reply is untrusted,
+     * so make sure each key has a value before reading it. */
+    for (size_t i = 0; i + 1 < reply->elements; i += 2) {
         assert(reply->element[i]->type == REDIS_REPLY_STRING);
         char *key = reply->element[i]->str;
         if (!strcmp(key, "version")) {

@@ -915,6 +915,28 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         run_cmddocs_test wellformed \
             {{"SYNPARENT " "parentkey"} {"SYNPARENT CHILD " "childval"}}
     }
+
+    # cliSwitchProto() walks the HELLO 3 reply in key/value pairs; a
+    # dangling "version" key must not make it read past the element array.
+    test "redis-cli survives an odd-length HELLO 3 reply" {
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+        set hello [cmddocs_array [list \
+            [cmddocs_bulk server] [cmddocs_bulk redis] \
+            [cmddocs_bulk version]]]
+        set pid [exec $tclsh $script $port \
+            "HELLO 3" [string range $hello 0 end-1] "PING" "+PONG" &]
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port]}] == 0
+        } else {
+            catch {exec kill $pid}
+            fail "Failed to start fake Redis node"
+        }
+        catch {exec {*}[rediscli "127.0.0.1" $port {-3 -n 0 PING}] 2>@1} output
+        catch {exec kill $pid}
+        assert_equal "PONG" $output
+    }
 }
 
     proc test_redis_cli_rdb_dump {functions_only} {
