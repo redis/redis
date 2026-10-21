@@ -45,6 +45,10 @@ For 100k-member sets, add, remove, membership, and full iteration were broadly f
 
 The set unit suite passes, including the new POC regression test. Targeted live-server checks also passed for slice widths 16, 24, 28, and 32 with sparse and promoted integers, negative and high-magnitude values, strings, reads, removals, random operations, set algebra, `COPY`, and key TTL. A 100k-member sparse-slice stress run passed after widening sparse bucket counters from 16 bits to `size_t`.
 
+Member-level expiry is still out of scope; existing key-level expiry works across the encoding. A per-member expiry index would need one deadline record for each expiring member. A rough 64-bit hash-index estimate is 32–48 additional bytes per expiring member for the index entry, bucket share, and deadline storage, before any copied string key or allocator rounding. A packed integer index could be closer to 16 bytes per member for an 8-byte value plus an 8-byte deadline, but would need its own lookup and expiry-processing design. These are structural estimates, not benchmark measurements; the overhead could erase Roaring's savings when most members expire individually.
+
+Changing `set-roaring-group-bits` affects sets created after the change. Each existing hybrid set keeps the slice width it was created with.
+
 The first POC checkpoint is commit `add3021260a29942445904f356baef5d612be056` on branch `set-roaring-bitmap-reuse`. POC 2 is based on its PR update at `91a42a8c980edf75196f1371c70276be8309d8c1`; it has not replaced that checkpoint.
 
 Before a production decision, rerun the best 24-bit configuration on the primary x86 and ARM bare-metal benchmark hosts with at least three repetitions, especially `SINTERSTORE` and the intset-to-hybrid transition. The local runs do not justify a claim about fleet-wide latency.
