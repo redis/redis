@@ -4226,9 +4226,12 @@ static unsigned long zbtIndexScanSlot(const zbtreeSet *zs,
             if (count > 1) {
                 zbtIndexBucket *first;
                 unsigned int first_pos;
-                if (!zbtIndexTableFindReference(table, hash, id, &first, &first_pos) ||
-                    first != bucket || first_pos != slot_pos)
-                    continue;
+                /* Every member in the table is reachable from its home, or
+                 * lookups would miss it too: the table is corrupt. */
+                int found = zbtIndexTableFindReference(table, hash, id,
+                                                       &first, &first_pos);
+                serverAssert(found);
+                if (first != bucket || first_pos != slot_pos) continue;
             }
         }
         size_t len;
