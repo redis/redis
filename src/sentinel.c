@@ -165,6 +165,10 @@ typedef struct instanceLink {
                                    the link was down. */
     mstime_t last_tls_identity_warn; /* Last time a TLS identity mismatch was
                                         logged for this link (rate limiting). */
+    int tls_identity_err;  /* X509 error recorded by sentinelTLSVerifyCallback()
+                              when a certificate on this link failed the identity
+                              check, 0 if none. Reported through a live instance,
+                              and reset, by sentinelReportTLSIdentityMismatch(). */
 } instanceLink;
 
 typedef struct sentinelRedisInstance {
@@ -1040,6 +1044,7 @@ instanceLink *createInstanceLink(void) {
     link->pc_conn_time = 0;
     link->last_reconn_time = 0;
     link->last_tls_identity_warn = 0;
+    link->tls_identity_err = 0;
     link->pc_last_activity = 0;
     /* We set the act_ping_time to "now" even if we actually don't have yet
      * a connection with the node, nor we sent a ping.
@@ -2427,11 +2432,20 @@ static const char *sentinelInstanceExpectedTLSIdentity(sentinelRedisInstance *ri
 }
 
 /* OpenSSL verify callback installed on every instance link. It changes no
- * verdict -- the handshake still fails on a mismatch -- it only makes an
- * identity mismatch visible: otherwise the failure would surface as nothing
- * more than a DEBUG-level link reconnection event, and a Sentinel monitoring
- * instances whose certificates lack their address would go dark silently.
- * Rate limited per link, since a down link is retried every second. */
+ * verdict -- the handshake still fails on a mismatch -- it only records an
+ * identity mismatch on the link, for sentinelReportTLSIdentityMismatch() to
+ * report: otherwise the failure would surface as nothing more than a
+ * DEBUG-level link reconnection event, and a Sentinel monitoring instances
+ * whose certificates lack their address would go dark silently.
+ *
+ * The callback is handed the link, never an instance. Links to other
+ * Sentinels are shared between the masters that know them, and the instance
+ * that negotiated a connection can be released -- SENTINEL REMOVE or RESET of
+ * its master, an address switch -- while the handshake is still pending, with
+ * the link kept alive by another master's instance. The link does outlive the
+ * connection: it owns the hiredis context that owns this SSL object, and
+ * releaseInstanceLink() frees the contexts before the link itself, just as the
+ * contexts' own data pointer relies on. */
 static int sentinelTLSVerifyCallback(int preverify_ok, X509_STORE_CTX *store_ctx) {
     if (preverify_ok) return 1;
 
@@ -2440,24 +2454,37 @@ static int sentinelTLSVerifyCallback(int preverify_ok, X509_STORE_CTX *store_ctx
         return preverify_ok;
 
     SSL *ssl = X509_STORE_CTX_get_ex_data(store_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
-    sentinelRedisInstance *ri = ssl ? SSL_get_app_data(ssl) : NULL;
-    if (ri) {
-        mstime_t now = mstime();
-        if (now - ri->link->last_tls_identity_warn >= SENTINEL_TLS_IDENTITY_WARN_PERIOD) {
-            ri->link->last_tls_identity_warn = now;
-            const char *expected = sentinelInstanceExpectedTLSIdentity(ri);
-            sentinelEvent(LL_WARNING, "-tls-identity-mismatch", ri,
-                "%@ #%s: the certificate does not carry the expected identity '%s'. "
-                "Reissue it with that name in its Subject Alternative Name, set "
-                "tls-expected-peer-name to a name every instance carries, or set "
-                "'sentinel tls-verify-hostnames no' to verify only the CA chain.",
-                X509_verify_cert_error_string(err), expected ? expected : "?");
-        }
-    }
+    instanceLink *link = ssl ? SSL_get_app_data(ssl) : NULL;
+    if (link) link->tls_identity_err = err;
     return preverify_ok;
 }
 #endif
 #endif
+
+/* Report the TLS identity mismatch that sentinelTLSVerifyCallback() recorded
+ * on this instance's link, if any, then clear it. Called from
+ * sentinelReconnectInstance(), which runs for every instance holding a down
+ * link and so always has a live instance to name in the event -- unlike the
+ * callback, see there. Rate limited per link, since a down link is retried
+ * every second. */
+static void sentinelReportTLSIdentityMismatch(sentinelRedisInstance *ri) {
+    instanceLink *link = ri->link;
+    int err = link->tls_identity_err;
+    if (!err) return;
+    link->tls_identity_err = 0;
+#if USE_OPENSSL == 1 && CONN_TLS_SUPPORTS_VERIFY_NAME
+    mstime_t now = mstime();
+    if (now - link->last_tls_identity_warn < SENTINEL_TLS_IDENTITY_WARN_PERIOD) return;
+    link->last_tls_identity_warn = now;
+    const char *expected = sentinelInstanceExpectedTLSIdentity(ri);
+    sentinelEvent(LL_WARNING, "-tls-identity-mismatch", ri,
+        "%@ #%s: the certificate does not carry the expected identity '%s'. "
+        "Reissue it with that name in its Subject Alternative Name, set "
+        "tls-expected-peer-name to a name every instance carries, or set "
+        "'sentinel tls-verify-hostnames no' to verify only the CA chain.",
+        X509_verify_cert_error_string(err), expected ? expected : "?");
+#endif
+}
 
 /* Negotiate TLS on a freshly connected link to `ri`. Besides the CA chain
  * validation the shared context performs, the instance's certificate must
@@ -2498,7 +2525,8 @@ static int instanceLinkNegotiateTLS(redisAsyncContext *context, sentinelRedisIns
     }
 #if CONN_TLS_SUPPORTS_VERIFY_NAME
     if (verifying) {
-        SSL_set_app_data(ssl, ri);
+        /* The link, not the instance: see sentinelTLSVerifyCallback(). */
+        SSL_set_app_data(ssl, ri->link);
         SSL_set_verify(ssl, SSL_get_verify_mode(ssl), sentinelTLSVerifyCallback);
     }
 #else
@@ -2530,6 +2558,10 @@ void sentinelReconnectInstance(sentinelRedisInstance *ri) {
 
     if (now - ri->link->last_reconn_time < sentinel_ping_period) return;
     ri->link->last_reconn_time = now;
+
+    /* A TLS identity mismatch that brought this link down is reported here,
+     * through an instance that is certainly alive. */
+    sentinelReportTLSIdentityMismatch(ri);
 
     /* Commands connection. */
     if (link->cc == NULL) {
