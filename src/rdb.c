@@ -707,6 +707,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
             return rdbSaveType(rdb,RDB_TYPE_SET);
         else if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK);
+        else if (o->encoding == OBJ_ENCODING_SET_ROARING)
+            return rdbSaveType(rdb,RDB_TYPE_SET);
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
@@ -1182,28 +1184,29 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         }
     } else if (o->type == OBJ_SET) {
         /* Save a set value */
-        if (o->encoding == OBJ_ENCODING_HT) {
-            dict *set = o->ptr;
-            dictIterator di;
-            dictEntry *de;
-
-            if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) {
+        if (o->encoding == OBJ_ENCODING_HT || o->encoding == OBJ_ENCODING_SET_ROARING) {
+            if ((n = rdbSaveLen(rdb,setTypeSize(o))) == -1) {
                 return -1;
             }
             nwritten += n;
 
-            dictInitIterator(&di, set);
-            while((de = dictNext(&di)) != NULL) {
-                sds ele = dictGetKey(de);
-                if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
-                    == -1)
-                {
-                    dictResetIterator(&di);
+            setTypeIterator si;
+            setTypeInitIterator(&si, o);
+            char *str;
+            size_t len = 0;
+            int64_t value = 0;
+            while (setTypeNext(&si, &str, &len, &value) != -1) {
+                if (str)
+                    n = rdbSaveRawString(rdb, (unsigned char *)str, len);
+                else
+                    n = rdbSaveLongLongAsStringObject(rdb, value);
+                if (n == -1) {
+                    setTypeResetIterator(&si);
                     return -1;
                 }
                 nwritten += n;
             }
-            dictResetIterator(&di);
+            setTypeResetIterator(&si);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             size_t l = intsetBlobLen((intset*)o->ptr);
 
@@ -3043,6 +3046,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 sdsfree(sdsele);
             }
         }
+        setTypeMaybeConvertToRoaring(o);
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read sorted set value. */
         uint64_t zsetlen;

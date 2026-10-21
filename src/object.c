@@ -14,6 +14,7 @@
 #include "server.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "setroaring.h"
 #include "cluster_asm.h"
 #include <math.h>
 #include <ctype.h>
@@ -585,6 +586,9 @@ void freeSetObject(robj *o) {
     case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
         break;
+    case OBJ_ENCODING_SET_ROARING:
+        setRoaringFree(o->ptr);
+        break;
     default:
         serverPanic("Unknown set encoding type");
     }
@@ -757,6 +761,8 @@ void dismissSetObject(robj *o, size_t size_hint) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char *)o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_SET_ROARING) {
+        setRoaringDismiss(o->ptr, size_hint);
     } else {
         serverPanic("Unknown set encoding type");
     }
@@ -1323,6 +1329,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
 	case OBJ_ENCODING_TMPL_LP: return "template-listpack";
 	case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
+    case OBJ_ENCODING_SET_ROARING: return "hybrid-roaring";
     default: return "unknown";
     }
 }

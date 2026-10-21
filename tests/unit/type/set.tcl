@@ -1582,4 +1582,91 @@ if {[lindex [r config get proto-max-bulk-len] 1] == 10000000000} {
 
 } ;# skip 32bit builds
 }
+start_server {
+    tags {set roaring}
+    overrides {
+        "set-roaring-enabled" yes
+        "set-max-intset-entries" 2
+        "set-max-listpack-entries" 3
+        "set-max-listpack-value" 64
+    }
+} {
+    test {Hybrid Roaring sets preserve mixed set semantics} {
+        r del roaring-forward roaring-reverse
+        # Exercise the bucket promotion boundary and continued insertion into
+        # a group after it has been promoted to Roaring.
+        set dense_values {}
+        for {set i 0} {$i < 80} {incr i} { lappend dense_values $i }
+        r sadd roaring-forward {*}$dense_values
+        assert_encoding hybrid-roaring roaring-forward
+        assert_equal 80 [r scard roaring-forward]
+        assert_equal 0 [r sadd roaring-forward 40]
+        assert_equal 1 [r sadd roaring-forward 81]
+        assert_equal 1 [r sismember roaring-forward 81]
+        assert_equal 1 [r srem roaring-forward 41]
+        assert_equal 0 [r sismember roaring-forward 41]
+        r del roaring-forward
+
+        # Pure integer sets use intset up to set-max-intset-entries, then
+        # promote to Roaring instead of a hashtable when the feature is enabled.
+        r sadd roaring-integer-only 1 2
+        assert_encoding intset roaring-integer-only
+        r sadd roaring-integer-only 3 4 5
+        assert_encoding hybrid-roaring roaring-integer-only
+        assert_equal 5 [r scard roaring-integer-only]
+        assert_equal 1 [r sismember roaring-integer-only 5]
+        assert_equal 1 [r srem roaring-integer-only 4]
+        assert_equal 0 [r sismember roaring-integer-only 4]
+
+        r sadd roaring-forward -1
+        r sadd roaring-forward alpha beta
+        r sadd roaring-forward 9223372036854775807 01
+        assert_encoding hybrid-roaring roaring-forward
+        assert_equal 5 [r scard roaring-forward]
+        assert_equal 1 [r sismember roaring-forward -1]
+        assert_equal 1 [r sismember roaring-forward 9223372036854775807]
+        assert_equal 1 [r sismember roaring-forward 01]
+        assert_equal 0 [r sismember roaring-forward 1]
+
+        r sadd roaring-reverse alpha beta 01
+        r sadd roaring-reverse -9223372036854775808 1
+        assert_encoding hybrid-roaring roaring-reverse
+        assert_equal 1 [r sismember roaring-reverse -9223372036854775808]
+        assert_equal 1 [r sismember roaring-reverse 01]
+
+        r sdiffstore roaring-difference roaring-forward roaring-reverse
+        assert_equal 2 [r scard roaring-difference]
+        assert_equal 1 [r sismember roaring-difference -1]
+        assert_equal 1 [r sismember roaring-difference 9223372036854775807]
+        assert_equal 0 [r sismember roaring-difference alpha]
+
+        r copy roaring-forward roaring-copy
+        assert_encoding hybrid-roaring roaring-copy
+        assert_equal [lsort [r smembers roaring-forward]] [lsort [r smembers roaring-copy]]
+        r sinterstore roaring-intersection roaring-forward roaring-reverse
+        assert_equal 1 [r sismember roaring-intersection alpha]
+        assert_equal 3 [r scard roaring-intersection]
+        r sunionstore roaring-union roaring-forward roaring-reverse
+        assert_encoding hybrid-roaring roaring-union
+        assert_equal 7 [r scard roaring-union]
+        set random_member [r srandmember roaring-forward]
+        assert_equal 1 [r sismember roaring-forward $random_member]
+        assert_equal 1 [r srem roaring-copy -1]
+        assert_equal 0 [r sismember roaring-copy -1]
+        set popped [r spop roaring-copy]
+        assert_equal 0 [r sismember roaring-copy $popped]
+        assert_equal 3 [r scard roaring-copy]
+
+        r pexpire roaring-forward 600000
+        assert { [r pttl roaring-forward] > 0 }
+        r debug reload
+        assert_encoding hybrid-roaring roaring-forward
+        assert_equal 1 [r sismember roaring-forward 9223372036854775807]
+        assert_encoding hybrid-roaring roaring-integer-only
+        assert_equal 1 [r sismember roaring-integer-only 5]
+        assert { [r pttl roaring-forward] > 0 }
+        r pexpire roaring-forward 1
+        wait_for_condition 30 100 { [r exists roaring-forward] == 0 } else { fail "hybrid set key did not expire" }
+    } {} {needs:debug}
+}
 } ;# run_solo

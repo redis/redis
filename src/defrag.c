@@ -19,6 +19,18 @@
  */
 
 #include "server.h"
+#ifndef DISABLENEON
+#define DISABLENEON 1
+#endif
+#ifndef ROARING_DISABLE_X64
+#define ROARING_DISABLE_X64 1
+#endif
+#include "setroaring.h"
+#include <roaring/containers/array.h>
+#include <roaring/containers/bitset.h>
+#include <roaring/containers/containers.h>
+#include <roaring/containers/run.h>
+#include <roaring/roaring_array.h>
 #include <stddef.h>
 #include <math.h>
 
@@ -754,6 +766,76 @@ void defragSet(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = newd;
 }
 
+static void defragSetRoaring(robj *ob) {
+    setRoaring *set = ob->ptr;
+    setRoaring *newset;
+    dict *newdict;
+    dictIterator di;
+    dictEntry *de;
+    activeDefragSdsDict(setRoaringStrings(set), DEFRAG_SDS_DICT_NO_VAL);
+    if ((newdict = dictDefragTables(setRoaringStrings(set))))
+        set->strings = newdict;
+
+    dictInitIterator(&di, setRoaringSparse(set));
+    while ((de = dictNext(&di)) != NULL) {
+        void *bucket = dictGetVal(de);
+        void *moved_bucket = activeDefragAlloc(bucket);
+        if (moved_bucket) dictSetVal(setRoaringSparse(set), de, moved_bucket);
+    }
+    dictResetIterator(&di);
+    if ((newdict = dictDefragTables(setRoaringSparse(set))))
+        set->sparse = newdict;
+
+    dictInitIterator(&di, setRoaringPromoted(set));
+    while ((de = dictNext(&di)) != NULL) {
+        roaring_bitmap_t *bitmap = dictGetVal(de);
+        void *moved = activeDefragAlloc(bitmap);
+        if (moved) dictSetVal(setRoaringPromoted(set), de, bitmap = moved);
+        roaring_array_t *array = &bitmap->high_low_container;
+        if (array->containers && (moved = activeDefragAlloc(array->containers))) array->containers = moved;
+        if (array->keys && (moved = activeDefragAlloc(array->keys))) array->keys = moved;
+        if (array->typecodes && (moved = activeDefragAlloc(array->typecodes))) array->typecodes = moved;
+        for (int i = 0; i < array->size; i++) {
+        uint8_t type = array->typecodes[i];
+        container_t *container = array->containers[i];
+        void *newcontainer = activeDefragAlloc(container);
+        if (newcontainer) container = newcontainer;
+        if (type == ARRAY_CONTAINER_TYPE) {
+            array_container_t *array = CAST_array(container);
+            if (array->array && (moved = activeDefragAlloc(array->array))) array->array = moved;
+        } else if (type == BITSET_CONTAINER_TYPE) {
+            bitset_container_t *bitset = CAST_bitset(container);
+            if (bitset->words) {
+                void *base = ((void **)bitset->words)[-1];
+                size_t oldoff = (char *)bitset->words - (char *)base;
+                void *newbase = activeDefragAlloc(base);
+                if (newbase) {
+                    uintptr_t aligned = ((uintptr_t)newbase + sizeof(void *) + 31) & ~(uintptr_t)31;
+                    size_t newoff = aligned - (uintptr_t)newbase;
+                    if (newoff != oldoff)
+                        memmove((char *)newbase + newoff, (char *)newbase + oldoff,
+                                BITSET_CONTAINER_SIZE_IN_WORDS * sizeof(uint64_t));
+                    ((void **)aligned)[-1] = newbase;
+                    bitset->words = (uint64_t *)aligned;
+                }
+            }
+        } else if (type == RUN_CONTAINER_TYPE) {
+            run_container_t *run = CAST_run(container);
+            if (run->runs && (moved = activeDefragAlloc(run->runs))) run->runs = moved;
+        } else {
+            serverPanic("Unknown Roaring container type during defrag");
+        }
+        if (newcontainer) array->containers[i] = newcontainer;
+        }
+    }
+    dictResetIterator(&di);
+    if ((newdict = dictDefragTables(setRoaringPromoted(set))))
+        set->promoted = newdict;
+
+    newset = activeDefragAlloc(set);
+    if (newset) ob->ptr = newset;
+}
+
 /* Arrays can be expensive to defrag in one shot because they may contain many
  * independently allocated slices. Small arrays are defragmented immediately,
  * while large arrays are queued for later and processed one slice per step. */
@@ -1191,6 +1273,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     } else if (ob->type == OBJ_SET) {
         if (ob->encoding == OBJ_ENCODING_HT) {
             defragSet(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_SET_ROARING) {
+            defragSetRoaring(ob);
         } else if (ob->encoding == OBJ_ENCODING_INTSET ||
                    ob->encoding == OBJ_ENCODING_LISTPACK)
         {

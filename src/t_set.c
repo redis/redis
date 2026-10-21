@@ -15,6 +15,7 @@
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "hyperloglog.h"
+#include "setroaring.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
@@ -36,6 +37,8 @@
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op,
                               int cardinality_only, int approx, long limit);
+
+static int listpackHasInteger(unsigned char *lp);
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a listpack
@@ -62,7 +65,10 @@ void setTypeMaybeConvert(robj *set, size_t size_hint) {
     if ((set->encoding == OBJ_ENCODING_LISTPACK && size_hint > server.set_max_listpack_entries)
         || (set->encoding == OBJ_ENCODING_INTSET && size_hint > server.set_max_intset_entries))
     {
-        setTypeConvertAndExpand(set, OBJ_ENCODING_HT, size_hint, 1);
+        int enc = server.set_roaring_enabled && set->encoding == OBJ_ENCODING_LISTPACK &&
+                  listpackHasInteger(set->ptr) ?
+                  OBJ_ENCODING_SET_ROARING : OBJ_ENCODING_HT;
+        setTypeConvertAndExpand(set, enc, size_hint, 1);
     }
 }
 
@@ -78,7 +84,32 @@ static size_t intsetMaxEntries(void) {
 static void maybeConvertIntset(robj *subject) {
     serverAssert(subject->encoding == OBJ_ENCODING_INTSET);
     if (intsetLen(subject->ptr) > intsetMaxEntries())
-        setTypeConvert(subject,OBJ_ENCODING_HT);
+        setTypeConvert(subject, server.set_roaring_enabled ? OBJ_ENCODING_SET_ROARING : OBJ_ENCODING_HT);
+}
+
+/* Detect the mixed listpack case before its normal promotion to a hash table. */
+static int listpackHasInteger(unsigned char *lp) {
+    unsigned char *p = lpFirst(lp);
+    while (p) {
+        unsigned int len;
+        long long value;
+        char *str = (char *)lpGetValue(p, &len, &value);
+        if (!str) return 1;
+        p = lpNext(lp, p);
+    }
+    return 0;
+}
+
+static int listpackHasString(unsigned char *lp) {
+    unsigned char *p = lpFirst(lp);
+    while (p) {
+        unsigned int len;
+        long long value;
+        char *str = (char *)lpGetValue(p, &len, &value);
+        if (str) return 1;
+        p = lpNext(lp, p);
+    }
+    return 0;
 }
 
 /* When you know all set elements are integers, call this to convert the set to
@@ -86,7 +117,26 @@ static void maybeConvertIntset(robj *subject) {
  * intset. */
 static void maybeConvertToIntset(robj *set) {
     if (set->encoding == OBJ_ENCODING_INTSET) return; /* already intset */
-    if (setTypeSize(set) > intsetMaxEntries()) return; /* can't use intset */
+    if (setTypeSize(set) > intsetMaxEntries()) {
+        /* Large integer-only results should use Roaring when enabled. Mixed
+         * results keep the existing hybrid conversion path. */
+        if (!server.set_roaring_enabled || set->encoding == OBJ_ENCODING_SET_ROARING) return;
+        int only_integers = 1;
+        char *str;
+        size_t len = 0;
+        int64_t value = 0;
+        setTypeIterator si;
+        setTypeInitIterator(&si, set);
+        while (setTypeNext(&si, &str, &len, &value) != -1) {
+            if (str && !string2ll(str, len, (long long *)&value)) {
+                only_integers = 0;
+                break;
+            }
+        }
+        setTypeResetIterator(&si);
+        if (only_integers) setTypeConvert(set, OBJ_ENCODING_SET_ROARING);
+        return;
+    }
     intset *is = intsetNew();
     char *str;
     size_t len = 0;
@@ -125,6 +175,15 @@ int setTypeAdd(robj *subject, sds value) {
  * Returns 1 if the value was added and 0 if it was already a member. */
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
+    if (set->encoding == OBJ_ENCODING_SET_ROARING) {
+        if (!str) return setRoaringAddInt(set->ptr, llval);
+        long long integer;
+        if (string2ll(str, len, &integer)) return setRoaringAddInt(set->ptr, integer);
+        sds member = str_is_sds ? sdsdup((sds)str) : sdsnewlen(str, len);
+        int added = setRoaringAddString(set->ptr, member);
+        if (!added) sdsfree(member);
+        return added;
+    }
     if (!str) {
         if (set->encoding == OBJ_ENCODING_INTSET) {
             uint8_t success = 0;
@@ -149,6 +208,11 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             if (sdsval == str) sdsval = sdsdup(sdsval);
             dictSetKeyAtLink(ht, sdsval, &bucket, 1);
             *htGetMetadataSize(ht) += sdsAllocSize(sdsval);
+                if (server.set_roaring_enabled && string2ll(str, len, (long long *)&llval)) {
+                    /* The first integer added to a large hash set enables an
+                     * order-independent transition to the hybrid encoding. */
+                    setTypeConvert(set, OBJ_ENCODING_SET_ROARING);
+                }
             return 1;
         } else if (sdsval != str) {
             /* String is already a member. Free our temporary sds copy. */
@@ -176,10 +240,23 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 set->ptr = lp;
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
-                setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
-                sds newval = sdsnewlen(str,len);
-                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
+                int has_int = listpackHasInteger(lp);
+                int has_string = listpackHasString(lp);
+                long long new_integer;
+                int new_is_integer = string2ll(str, len, &new_integer);
+                int mixed = (has_int && (has_string || !new_is_integer)) ||
+                            (has_string && new_is_integer);
+                int enc = server.set_roaring_enabled && mixed ?
+                          OBJ_ENCODING_SET_ROARING : OBJ_ENCODING_HT;
+                setTypeConvertAndExpand(set, enc, lpLength(lp) + 1, 1);
+                if (enc == OBJ_ENCODING_SET_ROARING) {
+                    if (new_is_integer) setRoaringAddInt(set->ptr, new_integer);
+                    else setRoaringAddString(set->ptr, sdsnewlen(str, len));
+                } else {
+                    sds newval = sdsnewlen(str,len);
+                    serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
+                    *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
+                }
             }
             return 1;
         }
@@ -219,13 +296,17 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 set->ptr = lp;
                 return 1;
             } else {
-                setTypeConvertAndExpand(set, OBJ_ENCODING_HT,
+                setTypeConvertAndExpand(set, server.set_roaring_enabled ? OBJ_ENCODING_SET_ROARING : OBJ_ENCODING_HT,
                                         intsetLen(set->ptr) + 1, 1);
                 /* The set *was* an intset and this value is not integer
                  * encodable, so dictAdd should always work. */
-                sds newval = sdsnewlen(str,len);
-                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
+                if (set->encoding == OBJ_ENCODING_SET_ROARING)
+                    setRoaringAddString(set->ptr, sdsnewlen(str, len));
+                else {
+                    sds newval = sdsnewlen(str,len);
+                    serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
+                    *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
+                }
                 return 1;
             }
         }
@@ -255,6 +336,8 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
             setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
             return success;
         }
+        if (setobj->encoding == OBJ_ENCODING_SET_ROARING)
+            return setRoaringRemoveInt(setobj->ptr, llval);
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
@@ -282,6 +365,11 @@ int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str
             setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
             if (success) return 1;
         }
+    } else if (setobj->encoding == OBJ_ENCODING_SET_ROARING) {
+        long long llval;
+        if (string2ll(str, len, &llval))
+            return setRoaringRemoveInt(setobj->ptr, llval);
+        return setRoaringRemoveString(setobj->ptr, str, len);
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -305,6 +393,8 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     if (!str) {
         if (set->encoding == OBJ_ENCODING_INTSET)
             return intsetFind(set->ptr, llval);
+        if (set->encoding == OBJ_ENCODING_SET_ROARING)
+            return setRoaringFindInt(set->ptr, llval);
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
@@ -317,6 +407,10 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
         long long llval;
         return string2ll(str, len, &llval) && intsetFind(set->ptr, llval);
+    } else if (set->encoding == OBJ_ENCODING_SET_ROARING) {
+        long long llval;
+        if (string2ll(str, len, &llval)) return setRoaringFindInt(set->ptr, llval);
+        return setRoaringFindString(set->ptr, str, len);
     } else if (set->encoding == OBJ_ENCODING_HT && str_is_sds) {
         return dictFind(set->ptr, (sds)str) != NULL;
     } else if (set->encoding == OBJ_ENCODING_HT) {
@@ -338,6 +432,16 @@ void setTypeInitIterator(setTypeIterator *si, robj *subject) {
         si->ii = 0;
     } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
         si->lpi = NULL;
+    } else if (si->encoding == OBJ_ENCODING_SET_ROARING) {
+        setRoaring *set = si->subject->ptr;
+        si->phase = 0;
+        si->ri32 = NULL;
+        dictInitIterator(&si->promoted_di, setRoaringPromoted(set));
+        si->promoted_entry = NULL;
+        dictInitIterator(&si->sparse_di, setRoaringSparse(set));
+        si->sparse_entry = NULL;
+        si->sparse_index = 0;
+        dictInitIterator(&si->di, set->strings);
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -346,6 +450,12 @@ void setTypeInitIterator(setTypeIterator *si, robj *subject) {
 void setTypeResetIterator(setTypeIterator *si) {
     if (si->encoding == OBJ_ENCODING_HT)
         dictResetIterator(&si->di);
+    else if (si->encoding == OBJ_ENCODING_SET_ROARING) {
+        if (si->ri32) roaring_uint32_iterator_free(si->ri32);
+        dictResetIterator(&si->promoted_di);
+        dictResetIterator(&si->sparse_di);
+        dictResetIterator(&si->di);
+    }
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -393,6 +503,61 @@ int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
         unsigned int l = 0;
         *str = (char *)lpGetValue(lpi, &l, (long long *)llele);
         *len = (size_t)l;
+    } else if (si->encoding == OBJ_ENCODING_SET_ROARING) {
+        if (si->phase == 0) {
+            while (1) {
+                if (si->ri32 && si->ri32->has_value) {
+                    uint64_t encoded = (((uint64_t)(uintptr_t)dictGetKey(si->promoted_entry) - 1) << 16) |
+                                       si->ri32->current_value;
+                    *llele = setRoaringDecodeValue(encoded);
+                    *str = NULL;
+                    roaring_uint32_iterator_advance(si->ri32);
+                    return si->encoding;
+                }
+                if (si->ri32) {
+                    roaring_uint32_iterator_free(si->ri32);
+                    si->ri32 = NULL;
+                }
+                si->promoted_entry = dictNext(&si->promoted_di);
+                if (!si->promoted_entry) {
+                    si->phase = 1;
+                    break;
+                }
+                si->ri32 = roaring_iterator_create(dictGetVal(si->promoted_entry));
+                serverAssert(si->ri32 != NULL);
+            }
+        }
+        if (si->phase == 1) {
+            setRoaring *set = si->subject->ptr;
+            if (si->sparse_entry) {
+                setRoaringSparseBucket *bucket = dictGetVal(si->sparse_entry);
+                if (si->sparse_index < bucket->count) {
+                    uint64_t encoded = setRoaringSparseEncodedValue(si->sparse_entry,
+                                                                    bucket->values[si->sparse_index++]);
+                    *llele = setRoaringDecodeValue(encoded);
+                    *str = NULL;
+                    return si->encoding;
+                }
+            }
+            si->sparse_entry = dictNext(&si->sparse_di);
+            si->sparse_index = 0;
+            if (si->sparse_entry) {
+                setRoaringSparseBucket *bucket = dictGetVal(si->sparse_entry);
+                uint64_t encoded = setRoaringSparseEncodedValue(si->sparse_entry, bucket->values[si->sparse_index++]);
+                *llele = setRoaringDecodeValue(encoded);
+                *str = NULL;
+                return si->encoding;
+            }
+            si->phase = 2;
+            UNUSED(set);
+        }
+        if (si->phase == 2) {
+            dictEntry *de = dictNext(&si->di);
+            if (de == NULL) return -1;
+            *str = dictGetKey(de);
+            *len = sdslen(*str);
+            *llele = -123456789;
+        }
     } else {
         serverPanic("Wrong set encoding in setTypeNext");
     }
@@ -445,6 +610,19 @@ int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) 
         unsigned int l;
         *str = (char *)lpGetValue(p, &l, (long long *)llele);
         *len = (size_t)l;
+    } else if (setobj->encoding == OBJ_ENCODING_SET_ROARING) {
+        setRoaring *set = setobj->ptr;
+        uint64_t ints = setRoaringIntCount(set), total = setRoaringSize(set);
+        uint64_t rank = (uint64_t)rand() % total;
+        if (rank < ints) {
+            serverAssert(setRoaringSelectInt(set, rank, llele));
+            *str = NULL;
+        } else {
+            dictEntry *de = dictGetFairRandomKey(set->strings);
+            *str = dictGetKey(de);
+            *len = sdslen(*str);
+            *llele = -123456789;
+        }
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -487,6 +665,8 @@ unsigned long setTypeSize(const robj *subject) {
         return intsetLen((const intset*)subject->ptr);
     } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
         return lpLength((unsigned char *)subject->ptr);
+    } else if (subject->encoding == OBJ_ENCODING_SET_ROARING) {
+        return setRoaringSize(subject->ptr);
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -502,6 +682,8 @@ size_t setTypeAllocSize(const robj *o) {
         size = intsetAllocSize(o->ptr);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         size = lpBytes(o->ptr);
+    } else if (o->encoding == OBJ_ENCODING_SET_ROARING) {
+        size = setRoaringAllocSize(o->ptr);
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -513,6 +695,29 @@ size_t setTypeAllocSize(const robj *o) {
  * set. */
 void setTypeConvert(robj *setobj, int enc) {
     setTypeConvertAndExpand(setobj, enc, setTypeSize(setobj), 1);
+}
+
+/* Used by RDB loading and other bulk constructors which insert directly into
+ * the backing dictionary instead of going through setTypeAdd(). */
+void setTypeMaybeConvertToRoaring(robj *setobj) {
+    if (!server.set_roaring_enabled || setobj->encoding != OBJ_ENCODING_HT) return;
+    dict *d = setobj->ptr;
+    dictIterator di;
+    dictInitIterator(&di, d);
+    dictEntry *de;
+    int has_integer = 0, has_string = 0;
+    while ((de = dictNext(&di)) != NULL) {
+        sds value = dictGetKey(de);
+        long long integer;
+        if (string2ll(value, sdslen(value), &integer)) {
+            has_integer = 1;
+        } else has_string = 1;
+        if (has_integer && has_string) break;
+    }
+    dictResetIterator(&di);
+    if ((has_integer && has_string) ||
+        (has_integer && dictSize(d) > intsetMaxEntries()))
+        setTypeConvert(setobj, OBJ_ENCODING_SET_ROARING);
 }
 
 /* Converts a set to the specified encoding, pre-sizing it for 'cap' elements.
@@ -548,6 +753,29 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         freeSetObject(setobj); /* frees the internals but not setobj itself */
         setobj->encoding = OBJ_ENCODING_HT;
         setobj->ptr = d;
+    } else if (enc == OBJ_ENCODING_SET_ROARING) {
+        setRoaring *set = setRoaringCreate();
+        if (!set) {
+            if (panic) serverPanic("Out of memory creating hybrid set");
+            return C_ERR;
+        }
+        if (cap > 0) dictTryExpand(set->strings, cap);
+        char *str;
+        size_t len = 0;
+        int64_t value = 0;
+        setTypeInitIterator(&si, setobj);
+        while (setTypeNext(&si, &str, &len, &value) != -1) {
+            if (!str || string2ll(str, len, (long long *)&value)) {
+                setRoaringAddInt(set, value);
+            } else {
+                sds member = sdsnewlen(str, len);
+                serverAssert(setRoaringAddString(set, member));
+            }
+        }
+        setTypeResetIterator(&si);
+        freeSetObject(setobj);
+        setobj->encoding = OBJ_ENCODING_SET_ROARING;
+        setobj->ptr = set;
     } else if (enc == OBJ_ENCODING_LISTPACK) {
         /* Preallocate the minimum two bytes per element (enc/value + backlen) */
         size_t estcap = cap * 2;
@@ -597,6 +825,9 @@ robj *setTypeDup(robj *o) {
         memcpy(newis,is,size);
         set = createObject(OBJ_SET, newis);
         set->encoding = OBJ_ENCODING_INTSET;
+    } else if (o->encoding == OBJ_ENCODING_SET_ROARING) {
+        set = createObject(OBJ_SET, setRoaringDup(o->ptr));
+        set->encoding = OBJ_ENCODING_SET_ROARING;
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = o->ptr;
         size_t sz = lpBytes(lp);

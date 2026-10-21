@@ -1,0 +1,9 @@
+build,cardinality,integer_ratio,distribution,encoding,bytes_per_member,add_ops_sec,membership_ops_sec,incremental_add_ops_sec,remove_ops_sec,smembers_members_sec,sunionstore_us,sdiffstore_us,sinterstore_us,sismember_median_us,sismember_p95_us
+baseline,32768,0.9,dense,hashtable,31.66,1244707,1148729,885478,963083,4687896,2732.1,2113.4,1484.1,57.0,73.3
+baseline,32768,0.9,sparse,hashtable,37.06,1415495,1310735,1005615,1131327,4743085,2536.4,2074.3,1549.1,62.0,72.3
+baseline,32768,0.9,negative,hashtable,37.96,1460887,1365758,1022321,1154846,4804428,2572.5,2187.6,1562.3,61.6,67.6
+baseline,32768,0.9,high,hashtable,45.5,1433980,1340907,1005446,1146789,4890929,2504.0,2228.2,1704.7,60.3,76.9
+candidate,32768,0.9,dense,hybrid-roaring,5.13,1119900,1092747,913938,924073,4669525,1100.4,890.7,597.3,51.9,55.7
+candidate,32768,0.9,sparse,hybrid-roaring,48.81,1342506,1272737,1088533,1086463,4678553,2983.2,2326.5,1698.8,68.1,70.9
+candidate,32768,0.9,negative,hybrid-roaring,48.81,1375461,1281298,1074596,1041124,4732866,3026.5,2334.1,1673.4,64.5,71.2
+candidate,32768,0.9,high,hybrid-roaring,48.81,1253490,1166748,1067995,1017640,4272647,3079.7,2388.0,1749.7,57.8,71.8

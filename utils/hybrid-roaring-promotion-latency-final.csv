@@ -1,0 +1,6 @@
+build,compile_threshold,group_occupancy,repetitions,before_p50_us,before_p95_us,before_p99_us,before_server_avg_us,before_server_p99_us,crossing_p50_us,crossing_p95_us,crossing_p99_us,crossing_max_us,crossing_server_avg_us,crossing_server_p99_us,post_p50_us,post_p95_us,post_p99_us,post_server_avg_us,post_server_p99_us
+baseline,baseline,16,300,60.44,71.88,77.71,0.46,,49.71,56.5,57.58,61.67,0.33,,19.33,24.38,28.67,0.26,
+baseline,baseline,32,300,19.52,23.71,28.46,0.3,,19.62,23.83,26.08,52.25,0.29,,19.83,24.92,29.08,0.31,
+baseline,baseline,64,300,20.08,24.88,29.12,0.26,,20.06,26.33,30.83,42.08,0.32,,19.88,24.46,28.67,0.33,
+baseline,baseline,128,300,19.75,23.46,26.46,0.28,,20.0,27.42,30.67,36.25,0.33,,20.12,25.17,29.88,0.43,
+64,64,64,300,22.54,29.5,38.79,0.19,,21.71,31.33,39.17,47.33,2.84,,21.08,27.29,32.29,1.98,

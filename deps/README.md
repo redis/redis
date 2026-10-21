@@ -6,6 +6,7 @@ should be provided by the operating system.
 * **linenoise** is a readline replacement. It is developed by the same authors of Redis but is managed as a separated project and updated as needed.
 * **lua** is Lua 5.1 with minor changes for security and additional libraries.
 * **hdr_histogram** Used for per-command latency tracking histograms.
+* **CRoaring** Used by the experimental Roaring set encoding. The vendored version is 4.7.2.
 
 How to upgrade the above dependencies
 ===

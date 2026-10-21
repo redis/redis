@@ -2619,6 +2619,7 @@ struct redisServer {
     size_t set_max_intset_entries;
     size_t set_max_listpack_entries;
     size_t set_max_listpack_value;
+    int set_roaring_enabled;
     size_t zset_max_listpack_entries;
     size_t zset_max_listpack_value;
     size_t hll_sparse_max_bytes;
@@ -3193,6 +3194,8 @@ typedef struct {
     quicklistEntry entry; /* Entry in quicklist */
 } listTypeEntry;
 
+typedef struct roaring_uint32_iterator_s roaring_uint32_iterator_t;
+
 /* Structure to hold set iteration abstraction. */
 typedef struct {
     robj *subject;
@@ -3200,6 +3203,13 @@ typedef struct {
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
+    roaring_uint32_iterator_t *ri32; /* current promoted group iterator */
+    dictIterator promoted_di;
+    dictEntry *promoted_entry;
+    dictIterator sparse_di; /* unpromoted integer containers */
+    dictEntry *sparse_entry;
+    uint16_t sparse_index;
+    int phase; /* hybrid set: roaring, sparse integers, then strings */
 } setTypeIterator;
 
 /* Structure to hold hash iteration abstraction. Note that iteration over
@@ -3996,6 +4006,7 @@ unsigned long setTypeSize(const robj *subject);
 size_t setTypeAllocSize(const robj *o);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
+void setTypeMaybeConvertToRoaring(robj *setobj);
 robj *setTypeDup(robj *o);
 
 /* Data structure for OBJ_ENCODING_LISTPACK_EX for hash. It contains listpack

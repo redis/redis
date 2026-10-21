@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "setroaring.h"
 #include "monotonic.h"
 #include "cluster.h"
 #include "cluster_slot_stats.h"
@@ -3028,6 +3029,7 @@ void initServer(void) {
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
     ThreadsManager_init();
+    setRoaringInit();
     makeThreadKillable();
 
     if (server.syslog_enabled) {
