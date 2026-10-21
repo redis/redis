@@ -2108,11 +2108,11 @@ void bitrangeintarrayCommand(client *c) {
         addReply(c, shared.emptyarray);
         return;
     }
-    /* Widen the inclusive span so 0..UINT32_MAX includes all 2^32 ranks. */
-    uint64_t count = (uint64_t)(end - start) + 1;
 
     /* Nonnegative ranges avoid counting every container to return a small
-     * page. Iterator exhaustion truncates an end beyond the last rank. */
+     * page. Iterator exhaustion truncates an end beyond the last rank. Widen
+     * the inclusive span so 0..UINT32_MAX includes all 2^32 ranks. */
+    uint64_t count = (uint64_t)(end - start) + 1;
     void *arraylen = addReplyDeferredLen(c);
     bitroarIntArrayReply reply = {c, 0};
     bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
