@@ -1228,12 +1228,12 @@ test {CONFIG REWRITE recreates a missing main config file} {
     }
 } {} {external:skip}
 
-test {CONFIG REWRITE distinguishes CLI includes from following CLI options} {
+test {CONFIG REWRITE skips CLI includes and following CLI options} {
     set include_file [file normalize [tmpfile config-rewrite-cli-include.conf]]
     set fd [open $include_file w]
     puts $fd {maxmemory 64mb}
     close $fd
-    start_server [list tags {external:skip} overrides {maxmemory 32mb timeout 0} \
+    start_server [list tags {external:skip} config_lines [list maxmemory 32mb timeout 0] \
         args [list --maxmemory 128mb --include $include_file --timeout 13]] {
         # The included file applies at its position in the CLI stream; the
         # later timeout argument remains a CLI override.
@@ -1241,16 +1241,105 @@ test {CONFIG REWRITE distinguishes CLI includes from following CLI options} {
         assert_equal 13 [lindex [r config get timeout] 1]
         r config rewrite
         set contents [read_file [srv 0 config_file]]
-        assert_equal 1 [regexp -line {^maxmemory 64mb$} $contents]
+        # Both the CLI include and options after it are CLI-controlled; keep
+        # the main file's original values instead of copying either source.
+        assert_equal 1 [regexp -line {^maxmemory 32mb$} $contents]
         assert_equal 1 [regexp -line {^timeout 0$} $contents]
+        assert_equal 0 [regexp -line {^maxmemory 64mb$} $contents]
+        assert_equal 0 [regexp -line {^timeout 13$} $contents]
 
-        # A changed included value can be persisted; the CLI timeout stays
-        # owned by the startup command.
+        # Runtime changes to CLI-controlled values remain in memory, but are
+        # not written to the main file because the startup arguments win again.
         r config set maxmemory 96mb
         r config rewrite
-        restart_server 0 true false
+        set contents [read_file [srv 0 config_file]]
+        assert_equal 1 [regexp -line {^maxmemory 32mb$} $contents]
+        assert_equal 0 [regexp -line {^maxmemory 96mb$} $contents]
         assert_equal 100663296 [lindex [r config get maxmemory] 1]
-        assert_equal 0 [lindex [r config get timeout] 1]
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE skips config values supplied directly through stdin} {
+    set stdin_file [file normalize [tmpfile config-rewrite-stdin-direct.conf]]
+    set fd [open $stdin_file w]
+    puts $fd {maxmemory 64mb}
+    close $fd
+
+    set port [find_available_port $::baseport $::portcount]
+    set dir [tmpdir config-rewrite-stdin-direct]
+    set config_file [file normalize [tmpfile config-rewrite-stdin-direct-main.conf]]
+    set fd [open $config_file w]
+    # No trailing newline: stdin starts immediately after this file's bytes.
+    puts -nonewline $fd "bind 127.0.0.1\ndir $dir"
+    close $fd
+    set log_file [file normalize [tmpfile config-rewrite-stdin-direct-server.log]]
+
+    set client ""
+    set test_error [catch {
+        exec src/redis-server $config_file --port $port --daemonize yes --logfile $log_file - < $stdin_file
+        wait_for_condition 100 50 {
+            [count_message_lines $log_file "Ready to accept"] > 0
+        } else {
+            fail "Server did not start; log: $log_file"
+        }
+        set client [redis 127.0.0.1 $port 0 0]
+        # maxmemory config from stdin_file
+        assert_equal 67108864 [lindex [$client config get maxmemory] 1]
+
+        $client config rewrite
+        set contents [read_file $config_file]
+        # A stdin-only option must not be introduced into the main file.
+        assert_equal 0 [regexp -line {^maxmemory } $contents]
+    } test_error]
+    catch {$client shutdown nosave}
+    catch {$client close}
+    if {$test_error} {
+        error $test_error
+    }
+} {} {external:skip}
+
+test {CONFIG REWRITE skips include values supplied through stdin} {
+    set include_file [file normalize [tmpfile config-rewrite-stdin-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {maxmemory 64mb}
+    close $fd
+
+    set stdin_file [file normalize [tmpfile config-rewrite-stdin.conf]]
+    set fd [open $stdin_file w]
+    puts $fd "include \"$include_file\""
+    close $fd
+
+    set port [find_available_port $::baseport $::portcount]
+    set dir [tmpdir config-rewrite-stdin]
+    set config_file [file normalize [tmpfile config-rewrite-stdin-main.conf]]
+    set fd [open $config_file w]
+    puts $fd "bind 127.0.0.1\ndir $dir\nmaxmemory 32mb"
+    close $fd
+    set log_file [file normalize [tmpfile config-rewrite-stdin-server.log]]
+
+    set client ""
+    set test_error [catch {
+        exec src/redis-server $config_file --port $port --daemonize yes --logfile $log_file - < $stdin_file
+        wait_for_condition 100 50 {
+            [count_message_lines $log_file "Ready to accept"] > 0
+        } else {
+            fail "Server did not start; log: $log_file"
+        }
+        set client [redis 127.0.0.1 $port 0 0]
+        # maxmemory config from stdin include file
+        assert_equal 67108864 [lindex [$client config get maxmemory] 1]
+
+        # The stdin include overrides the main file at startup, but rewrite
+        # must not copy that CLI-supplied value into the main file.
+        $client config rewrite
+        set contents [read_file $config_file]
+        assert_equal 1 [regexp -line {^maxmemory 32mb$} $contents]
+        assert_equal 0 [regexp -line {^maxmemory 64mb$} $contents]
+    } test_error]
+    catch {$client shutdown nosave}
+    catch {$client close}
+    if {$test_error} {
+        error $test_error
     }
 } {} {external:skip}
 

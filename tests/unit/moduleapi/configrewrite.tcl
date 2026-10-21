@@ -206,18 +206,17 @@ set fd [open $cli_include w]
 puts $fd "include \"$rewrite_leaf\""
 close $fd
 start_server [list tags {modules external:skip} args [list --include $cli_include]] {
-    test {CONFIG REWRITE compares module configs from CLI includes with defaults} {
+    test {CONFIG REWRITE skips module configs from CLI includes} {
         # CLI supplies only the include path. Directives read from the included
-        # leaf file still have INCLUDE provenance, including its module load.
+        # leaf file inherit CLI provenance, including its module load.
         assert_equal included-value [lindex [r config get moduleconfigs.string] 1]
 
-        # The CLI include is outside main.conf's include tree, so rewrite has
-        # no file baseline and compares this value with the module default.
-        # It writes the non-default config, but does not copy loadmodule.
+        # Neither the module load nor its configuration is copied from the
+        # CLI-controlled include into main.conf.
         r config rewrite
         set contents [read_file [srv 0 config_file]]
         assert_equal 0 [regexp -line {^loadmodule } $contents]
-        assert_equal 1 [regexp -line {^moduleconfigs\.string "?included-value"?$} $contents]
+        assert_equal 0 [regexp -line {^moduleconfigs\.string } $contents]
         assert_equal "include \"$rewrite_leaf\"\n" [read_file $cli_include]
     }
 }

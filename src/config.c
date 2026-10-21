@@ -531,7 +531,7 @@ static void clusterBusWarnIfUnprotected(void) {
         "is reachable by trusted hosts only.");
 }
 
-static void loadServerConfigFromString(char *config, int cli_start_line) {
+static void loadServerConfigFromString(char *config, int cli_start_line, configSource inherited_source) {
     deprecatedConfig deprecated_configs[] = {
         {"list-max-ziplist-entries", 2, 2},
         {"list-max-ziplist-value", 2, 2},
@@ -572,11 +572,10 @@ static void loadServerConfigFromString(char *config, int cli_start_line) {
         }
         sdstolower(argv[0]);
 
-        /* The CLI boundary applies only to this text. Files loaded through
-         * include have INCLUDE source, even when include itself is on the CLI. */
+        /* Stdin and CLI options share the CLI source. Otherwise use the
+         * source inherited from the file being parsed. */
         int from_cli = cli_start_line >= 0 && i >= cli_start_line;
-        configSource source = from_cli ? CONFIG_SOURCE_CLI :
-            (config_load_depth > 1 ? CONFIG_SOURCE_INCLUDE : CONFIG_SOURCE_MAIN);
+        configSource source = from_cli ? CONFIG_SOURCE_CLI : inherited_source;
 
         /* Iterate the configs that are standard */
         standardConfig *config = lookupConfig(argv[0]);
@@ -631,7 +630,9 @@ static void loadServerConfigFromString(char *config, int cli_start_line) {
 
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1], 0, NULL);
+            configSource include_source = source == CONFIG_SOURCE_CLI ?
+                CONFIG_SOURCE_CLI : CONFIG_SOURCE_INCLUDE;
+            loadServerConfig(argv[1], 0, NULL, include_source);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
@@ -779,9 +780,11 @@ loaderr:
  *
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
- * just load a string. */
+ * just load a string. source is the provenance inherited by the loaded file:
+ * the top-level caller passes MAIN, while include directives pass INCLUDE or
+ * CLI depending on where the directive appeared. */
 #define CONFIG_READ_LEN 1024
-void loadServerConfig(char *filename, char config_from_stdin, char *options) {
+void loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source) {
     sds config = sdsempty();
     char buf[CONFIG_READ_LEN+1];
     FILE *fp;
@@ -844,6 +847,19 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
         }
     }
 
+    /* Stdin and CLI options are CLI-sourced. End the file content at a line
+     * boundary, then use the newline count as the zero-based start line. */
+    int cli_start_line = -1;
+    if (config_from_stdin || options) {
+        if (sdslen(config) && config[sdslen(config)-1] != '\n')
+            config = sdscatlen(config, "\n", 1);
+
+        cli_start_line = 0;
+        for (size_t i = 0; i < sdslen(config); i++) {
+            if (config[i] == '\n') cli_start_line++;
+        }
+    }
+
     /* Append content from stdin */
     if (config_from_stdin) {
         serverLog(LL_NOTICE,"Reading config from stdin");
@@ -852,20 +868,12 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
             config = sdscat(config,buf);
     }
 
-    /* Keep the CLI boundary without splitting the outermost load/advisories. */
-    int cli_start_line = -1;
-    if (options) {
-        cli_start_line = 1;
-        for (size_t i = 0; i < sdslen(config); i++)
-            if (config[i] == '\n') cli_start_line++;
-    }
-
     /* Append the additional options */
     if (options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
-    loadServerConfigFromString(config, cli_start_line);
+    loadServerConfigFromString(config, cli_start_line, source);
     sdsfree(config);
 }
 
