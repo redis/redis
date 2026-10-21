@@ -1124,6 +1124,7 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
         /* 'p' is now pointing to the first entry inside the listpack.
          * We have to run entry after entry, marking entries as deleted
          * if they are already not deleted. */
+        int stop = 0;
         while (p) {
             /* We keep a copy of p (which point to flags part) in order to
              * update it after (and if) we actually remove the entry */
@@ -1142,7 +1143,6 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
             currid.ms = master_id.ms + ms_delta;
             currid.seq = master_id.seq + seq_delta;
 
-            int stop;
             if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
                 stop = s->length <= maxlen;
             } else {
@@ -1218,10 +1218,10 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
         /* Update the node with the new pointer. */
         raxIteratorSetData(&ri,lp);
 
-        /* If the node is eligible for removal but we couldn't remove it due to delete strategy
-         * constraints (we need to check each entry individually), continue to the next node
-         * instead of stopping here. */
-        if (node_eligible_for_remove)
+        /* If we didn't reach the trim limit within this node (it was eligible for removal,
+         * or some entries were skipped because they are still referenced), continue to the
+         * next node instead of stopping here. */
+        if (!stop)
             continue;
 
         break; /* If we are here, there was enough to delete in the current
