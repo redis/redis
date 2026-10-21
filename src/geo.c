@@ -325,8 +325,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
         const unsigned char *ele;
         size_t len;
         double score;
-        if (!zbtreeIteratorSeekScore(zobj->ptr, range.min, range.minex,
-                                     0, &iter, NULL))
+        if (!zbtreeIteratorSeekScore(zobj->ptr, range.min, range.minex, 0, &iter, NULL))
             return 0;
         while (zbtreeIteratorNext(&iter, 0, &ele, &len, &score)) {
             double xy[2];
@@ -832,8 +831,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
             gp->dist /= shape.conversion; /* Fix according to unit. */
             double score = storedist ? gp->dist : gp->score;
             int out_flags;
-            serverAssert(zsetAdd(zobj, score, gp->member, ZADD_IN_NONE,
-                                 &out_flags, NULL));
+            serverAssert(zsetAdd(zobj, score, gp->member, ZADD_IN_NONE, &out_flags, NULL));
             serverAssert(out_flags & ZADD_OUT_ADDED);
             sdsfree(gp->member);
             gp->member = NULL;

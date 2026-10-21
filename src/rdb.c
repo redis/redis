@@ -2633,7 +2633,7 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
  * Whether tuple is of size 1 (set), 2 (field-value) or 3 (field-value[-ttl]),
  * first element in the tuple must be unique */
 static int lpValidateIntegrityAndDupsEx(unsigned char *lp, size_t size,
-                                      int deep, int tuple_len, int validate_scores)
+                                        int deep, int tuple_len, int validate_scores)
 {
     if (!deep && !validate_scores)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
@@ -3194,8 +3194,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             int out_flags;
-            serverAssert(zsetAdd(o, score, sdsele, ZADD_IN_NX,
-                                 &out_flags, NULL));
+            serverAssert(zsetAdd(o, score, sdsele, ZADD_IN_NX, &out_flags, NULL));
             if (!(out_flags & ZADD_OUT_ADDED)) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
                 decrRefCount(o);
@@ -3876,7 +3875,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
                 if (!lpValidateIntegrityAndDupsEx(encoded, encoded_len,
-                                                deep_integrity_validation, 2, 1)) {
+                                                  deep_integrity_validation, 2, 1)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;

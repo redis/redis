@@ -1900,8 +1900,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 sdslen(ele) > server.zset_max_listpack_value ||
                 !lpSafeToAdd(zobj->ptr, sdslen(ele)))
             {
-                zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE,
-                                     zsetLength(zobj) + 1);
+                zsetConvertAndExpand(zobj, OBJ_ENCODING_BTREE, zsetLength(zobj) + 1);
             } else {
                 zobj->ptr = zzlInsert(zobj->ptr,ele,score);
                 if (newscore) *newscore = score;
@@ -2866,8 +2865,7 @@ int zuiNext(zsetopsrc *op, zsetopval *val) {
         } else if (op->encoding == OBJ_ENCODING_BTREE) {
             const unsigned char *ele;
             size_t len;
-            if (!zbtreeIteratorNext(&it->bt.iter, 1, &ele, &len,
-                                    &val->score))
+            if (!zbtreeIteratorNext(&it->bt.iter, 1, &ele, &len, &val->score))
                 return 0;
             val->estr = (unsigned char *)ele;
             val->elen = len;
@@ -2959,8 +2957,7 @@ int zuiFind(zsetopsrc *op, zsetopval *val, double *score) {
     } else if (op->type == OBJ_ZSET) {
         if (op->encoding == OBJ_ENCODING_BTREE) {
             zuiBufferFromValue(val);
-            return zbtreeScoreRaw(op->subject->ptr, val->estr, val->elen,
-                                  score);
+            return zbtreeScoreRaw(op->subject->ptr, val->estr, val->elen, score);
         }
 
         zuiSdsFromValue(val);
@@ -3909,9 +3906,7 @@ static void zrangeResultHandlerDestinationKeySet (zrange_result_handler *handler
  * results arrive in ascending (score, member) order -- the only direction
  * the descent-free B+tree append fast path is valid for. Harmless (and
  * unused) for the CLIENT-reply handler. */
-static void zrangeResultHandlerDirectionSet(zrange_result_handler *handler,
-    int reverse)
-{
+static void zrangeResultHandlerDirectionSet(zrange_result_handler *handler, int reverse) {
     handler->reverse = reverse;
 }
 
@@ -4008,8 +4003,7 @@ void genericZrangebyrankCommand(zrange_result_handler *handler,
         unsigned long rank = reverse ? llen - start - 1 : start;
         serverAssert(zbtreeIteratorSeekRank(zobj->ptr, rank, &iter));
         while (rangelen--) {
-            serverAssert(zbtreeIteratorNext(&iter, reverse, &ele, &len,
-                                             &score));
+            serverAssert(zbtreeIteratorNext(&iter, reverse, &ele, &len, &score));
             handler->emitResultFromCBuffer(handler, ele, len, score);
         }
     } else {
@@ -4485,9 +4479,7 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
             }
         }
 
-        while (found && limit &&
-               zbtreeIteratorNext(&iter, reverse, &ele, &len, &score))
-        {
+        while (found && limit && zbtreeIteratorNext(&iter, reverse, &ele, &len, &score)) {
             /* The seek already placed the iterator inside the near bound, so
              * only the bound we are moving towards has to be rechecked. */
             if (reverse ? !zbtLexValueGteMin(ele, len, range) :
@@ -4945,10 +4937,9 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             zbtreeIterator iter;
             const unsigned char *raw;
             size_t len;
-            serverAssert(zbtreeIteratorStart(zobj->ptr,
-                                              where == ZSET_MAX, &iter));
+            serverAssert(zbtreeIteratorStart(zobj->ptr, where == ZSET_MAX, &iter));
             serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX,
-                                             &raw, &len, &score));
+                                            &raw, &len, &score));
             /* Copy the reply before deletion invalidates the leaf bytes. */
             if (use_nested_array) addReplyArrayLen(c, 2);
             addReplyBulkCBuffer(c, raw, len);
@@ -4987,13 +4978,12 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
                 const unsigned char *raw;
                 size_t len;
                 serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX,
-                                                 &raw, &len, &score));
+                                                &raw, &len, &score));
                 if (use_nested_array) addReplyArrayLen(c, 2);
                 addReplyBulkCBuffer(c, raw, len);
                 addReplyDouble(c, score);
             }
-            unsigned long start = where == ZSET_MAX ?
-                zbtreeLength(zs) - remaining : 0;
+            unsigned long start = where == ZSET_MAX ? zbtreeLength(zs) - remaining : 0;
             serverAssert(zbtreeDeleteRangeByRank(zs, start,
                 start + remaining - 1) == (unsigned long)remaining);
             result_count += remaining;
@@ -5232,8 +5222,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             while (count--) {
                 listpackEntry key;
                 double score;
-                zsetTypeRandomElement(zsetobj, size, &key,
-                                      withscores ? &score : NULL);
+                zsetTypeRandomElement(zsetobj, size, &key, withscores ? &score : NULL);
                 if (withscores && c->resp > 2)
                     addReplyArrayLen(c,2);
                 addReplyBulkCBuffer(c, key.sval, key.slen);

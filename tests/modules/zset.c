@@ -134,8 +134,7 @@ int zset_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     long count = 0;
     while (!RedisModule_ZsetRangeEndReached(key)) {
         double score;
-        RedisModuleString *member =
-            RedisModule_ZsetRangeCurrentElement(key, &score);
+        RedisModuleString *member = RedisModule_ZsetRangeCurrentElement(key, &score);
         if (member == NULL) break;
         RedisModule_ReplyWithString(ctx, member);
         RedisModule_ReplyWithDouble(ctx, score);

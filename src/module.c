@@ -5520,13 +5520,10 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
         unsigned long rank;
         double score;
         int found = first ?
-            zbtreeIteratorSeekScore(key->kv->ptr, min, minex, 0,
-                                    &iter, &rank) :
-            zbtreeIteratorSeekScore(key->kv->ptr, max, maxex, 1,
-                                    &iter, &rank);
+            zbtreeIteratorSeekScore(key->kv->ptr, min, minex, 0, &iter, &rank) :
+            zbtreeIteratorSeekScore(key->kv->ptr, max, maxex, 1, &iter, &rank);
         if (found) {
-            serverAssert(moduleZsetBtreeElementAtRank(key, rank, NULL, NULL,
-                                                      &score));
+            serverAssert(moduleZsetBtreeElementAtRank(key, rank, NULL, NULL, &score));
             /* Module callers can pass NaN bounds, so check both sides. */
             if (zslValueGteMin(score, zrs) && zslValueLteMax(score, zrs))
                 key->u.zset.current = (void *)(uintptr_t)(rank + 1);
@@ -5599,15 +5596,12 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
         zbtreeIterator iter;
         unsigned long rank;
         int found = first ?
-            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->min, zlrs->minex,
-                                  0, &iter, &rank) :
-            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->max, zlrs->maxex,
-                                  1, &iter, &rank);
+            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->min, zlrs->minex, 0, &iter, &rank) :
+            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->max, zlrs->maxex, 1, &iter, &rank);
         if (found) {
             const unsigned char *ele;
             size_t len;
-            serverAssert(moduleZsetBtreeElementAtRank(key, rank, &ele, &len,
-                                                      NULL));
+            serverAssert(moduleZsetBtreeElementAtRank(key, rank, &ele, &len, NULL));
             sds value = sdsnewlen(ele, len);
             int in_range = zslLexValueGteMin(value, zlrs) &&
                            zslLexValueLteMax(value, zlrs);
@@ -12608,8 +12602,7 @@ static void moduleBtreeScanCollect(void *privdata, const unsigned char *ele,
     BtreeScanData *data = privdata;
     if (data->count == data->capacity) {
         data->capacity = data->capacity ? data->capacity * 2 : 64;
-        data->items = zrealloc(data->items,
-                               data->capacity * sizeof(*data->items));
+        data->items = zrealloc(data->items, data->capacity * sizeof(*data->items));
     }
 
     data->items[data->count].field = createStringObject((char *)ele, len);
@@ -12767,12 +12760,9 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;
-    } else if (kv->type == OBJ_ZSET &&
-               kv->encoding == OBJ_ENCODING_BTREE)
-    {
+    } else if (kv->type == OBJ_ZSET && kv->encoding == OBJ_ENCODING_BTREE) {
         BtreeScanData data = {0};
-        cursor->cursor = zbtreeScan(kv->ptr, cursor->cursor, 64,
-                                    moduleBtreeScanCollect, &data);
+        cursor->cursor = zbtreeScan(kv->ptr, cursor->cursor, 64, moduleBtreeScanCollect, &data);
 
         size_t i = 0;
         for (; i < data.count; i++) {

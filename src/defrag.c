@@ -734,8 +734,7 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
 /* Defragment a B+ tree now, or schedule its pages for incremental work. */
 void defragZsetBtree(defragKeysCtx *ctx, kvobj *ob) {
     zbtreeSet *zs = ob->ptr;
-    serverAssert(ob->type == OBJ_ZSET &&
-                 ob->encoding == OBJ_ENCODING_BTREE);
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE);
 
     ob->ptr = zs = zbtreeDefragStart(zs, activeDefragAlloc);
     if (zbtreeLength(zs) > server.active_defrag_max_scan_fields) {
@@ -1386,8 +1385,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
 int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid,
                     zbtreeDefragState *zset_btree_state)
 {
-    int is_btree = ob && ob->type == OBJ_ZSET &&
-                   ob->encoding == OBJ_ENCODING_BTREE;
+    int is_btree = ob && ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE;
     if (!is_btree && zset_btree_state->tree) {
         zbtreeDefragStateReset(zset_btree_state);
         *cursor = 0;
@@ -1400,9 +1398,7 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             scanLaterSet(ob, cursor);
         } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST) {
             scanLaterZset(ob, cursor);
-        } else if (ob->type == OBJ_ZSET &&
-                   ob->encoding == OBJ_ENCODING_BTREE)
-        {
+        } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE) {
             if (*cursor == 0)
                 zbtreeDefragStateReset(zset_btree_state);
             unsigned long scanned;

@@ -340,9 +340,7 @@ void sortCommandGeneric(client *c, int readonly) {
     }
 
     /* Destructively convert listpack encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET &&
-        sortval->encoding == OBJ_ENCODING_LISTPACK)
-    {
+    if (sortval->type == OBJ_ZSET && sortval->encoding == OBJ_ENCODING_LISTPACK) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_BTREE);
@@ -459,8 +457,7 @@ void sortCommandGeneric(client *c, int readonly) {
                        (unsigned long)start;
             serverAssert(zbtreeIteratorSeekRank(sortval->ptr, rank, &iter));
             while(rangelen--) {
-                serverAssert(zbtreeIteratorNext(&iter, desc, &ele, &len,
-                                                 NULL));
+                serverAssert(zbtreeIteratorNext(&iter, desc, &ele, &len, NULL));
                 vector[j].obj = createStringObject((char *)ele,len);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
