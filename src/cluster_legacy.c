@@ -3316,13 +3316,16 @@ void handleLinkIOError(clusterLink *link) {
     freeClusterLink(link);
 }
 
-/* Send the messages queued for the link. */
+/* Send the messages queued for the link.
+ *
+ * Unlike normal clients, we don't stop after NET_MAX_WRITES_PER_EVENT bytes:
+ * a single event loop cycle may queue far more than that under broadcast-heavy
+ * loads (e.g. PUBLISH), and the queue would grow without bound. */
 void clusterWriteHandler(connection *conn) {
     clusterLink *link = connGetPrivateData(conn);
     ssize_t nwritten;
-    size_t totwritten = 0;
 
-    while (totwritten < NET_MAX_WRITES_PER_EVENT && listLength(link->send_msg_queue) > 0) {
+    while (listLength(link->send_msg_queue) > 0) {
         listNode *head = listFirst(link->send_msg_queue);
         clusterMsgSendBlock *msgblock = (clusterMsgSendBlock*)head->value;
         clusterMsg *msg = getMessageFromSendBlock(msgblock);
@@ -3331,6 +3334,8 @@ void clusterWriteHandler(connection *conn) {
 
         nwritten = connWrite(conn, (char*)msg + msg_offset, msg_len - msg_offset);
         if (nwritten <= 0) {
+            /* EAGAIN: the socket is full, retry when it becomes writable. */
+            if (nwritten == -1 && connGetState(conn) == CONN_STATE_CONNECTED) return;
             serverLog(LL_DEBUG,"I/O error writing to node link: %s",
                 (nwritten == -1) ? connGetLastError(conn) : "short write");
             handleLinkIOError(link);
@@ -3350,8 +3355,6 @@ void clusterWriteHandler(connection *conn) {
         listDelNode(link->send_msg_queue, head);
         server.stat_cluster_links_memory -= sizeof(listNode);
         link->send_msg_queue_mem -= sizeof(listNode) + blocklen;
-
-        totwritten += nwritten;
     }
 
     if (listLength(link->send_msg_queue) == 0)
