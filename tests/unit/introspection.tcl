@@ -1394,6 +1394,30 @@ test {CONFIG REWRITE persists default and empty values overriding includes} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE compares aliased config values from includes} {
+    # `slaveof` is an alias for `replicaof`; an unchanged included value must
+    # not be mistaken for a missing file value and copied into the main file.
+    set include_file [file normalize [tmpfile config-rewrite-alias-include.conf]]
+    set fd [open $include_file w]
+    puts $fd {slaveof 127.0.0.1 1}
+    close $fd
+
+    start_server [list tags {external:skip} config_lines [list include "\"$include_file\""]] {
+        r config rewrite
+        set contents [read_file [srv 0 config_file]]
+        assert_equal 0 [regexp -line {^(replicaof|slaveof) } $contents]
+
+        # Promotion clears the effective value; persist an explicit override
+        # after the include so its legacy alias cannot make Redis a replica again.
+        r replicaof no one
+        r config rewrite
+        set contents [read_file [srv 0 config_file]]
+        assert {[string last "include \"$include_file\"" $contents] < [string last {replicaof no one} $contents]}
+        restart_server 0 true false
+        assert_equal {} [lindex [r config get replicaof] 1]
+    }
+} {} {external:skip}
+
 test {CONFIG REWRITE preserves a main value shadowed by an unchanged include} {
     # The include still wins at startup, so preserve the distinct MAIN value
     # without copying the unchanged effective value into the main file.

@@ -2856,6 +2856,13 @@ static int rewriteConfigParseFile(const sds path, configSource source, dict *val
             sdsfree(pattern);
         } else {
             standardConfig *config = lookupConfig(argv[0]);
+            /* Aliases share the primary config's value. Record file values
+             * under the primary name so rewrite compares one canonical key. */
+            if (config && (config->flags & ALIAS_CONFIG)) {
+                sds primary_name = sdsnew(config->alias);
+                config = lookupConfig(primary_name);
+                sdsfree(primary_name);
+            }
             if (config && !(config->flags & ALIAS_CONFIG)) {
                 /* The value dictionary uses SDS keys, while config->name is
                  * a plain C string. Build a temporary SDS for the lookup. */

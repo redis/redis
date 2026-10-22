@@ -178,7 +178,6 @@ start_server [list tags {modules external:skip} config_lines [list loadmodule "\
     }
 }
 
-
 set queued_source_include [file normalize [tmpfile module-config-source.conf]]
 set fd [open $queued_source_include w]
 puts $fd {moduleconfigs.string include-value}
