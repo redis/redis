@@ -2844,6 +2844,10 @@ zbtreeSet *zbtreeCreate(void) {
  * a member is presized: a set emptied by deletion keeps its leaf ID counter,
  * which decides the width of its next table. Other sets succeed unchanged.
  *
+ * A leaf holds at most ZBT_SCORE_LEAF_MAX members, so a count that needs at
+ * least ZBT_INDEX_WIDE_ID_AT leaves will widen the table while the set is
+ * built. Such a table starts wide instead, which avoids copying it again.
+ *
  * The count check keeps zbtIndexBucketsForElements() from overflowing before
  * the count is narrowed to unsigned long; zbtIndexTableAlloc() checks the
  * bucket bytes. A fallible call returns zero when the count is too large or
@@ -2855,9 +2859,10 @@ static int zbtIndexReserve(zbtreeSet *zs, uint64_t count, int fallible) {
     if (count > (ULONG_MAX - (ZBT_INDEX_MAX_LOAD_NUM - 1)) /
                 ZBT_INDEX_MAX_LOAD_DEN)
         return 0;
+    int wide_ids = count / ZBT_SCORE_LEAF_MAX >= ZBT_INDEX_WIDE_ID_AT;
     if (!zbtIndexTableAlloc(zs, &zs->member_index,
                             zbtIndexBucketsForElements((unsigned long)count),
-                            0, fallible))
+                            wide_ids, fallible))
         return 0;
     zs->member_revision = zbtIndexNextRevision();
     return 1;
@@ -4921,6 +4926,25 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         test_cond("TryReserve leaves a populated tree intact",
             zbtreeTryReserve(zs, UINT64_MAX) &&
             zs->alloc_size == populated_size && zbtTestCheck(zs));
+        zbtreeFree(zs);
+    }
+
+    {
+        /* Only a count that fills ZBT_INDEX_WIDE_ID_AT full leaves is sure to
+         * widen the table, so only such a count starts it wide. */
+        const uint64_t wide_at =
+            (uint64_t)ZBT_SCORE_LEAF_MAX * ZBT_INDEX_WIDE_ID_AT;
+        zbtreeSet *zs = zbtreeCreate();
+        test_cond("A reservation that cannot need wide leaf IDs stays narrow",
+            zbtreeTryReserve(zs, wide_at - 1) && !zs->member_index.wide_ids);
+        zbtreeFree(zs);
+        zs = zbtreeCreate();
+        test_cond("A reservation that will need wide leaf IDs starts wide",
+            zbtreeTryReserve(zs, wide_at) && zs->member_index.wide_ids);
+        zbtTestPopulate(zs, 10000);
+        test_cond("A wide reserved index holds members with small leaf IDs",
+            zbtreeLength(zs) == 10000 && zs->member_rehash == NULL &&
+            zbtTestCheck(zs));
         zbtreeFree(zs);
     }
 
