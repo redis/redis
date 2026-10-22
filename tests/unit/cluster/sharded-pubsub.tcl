@@ -92,3 +92,22 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         $rd_sub close
     }
 }
+
+run_solo {cluster-pubsub-large-memory} {
+start_cluster 1 0 {tags {external:skip cluster large-memory}} {
+    foreach cmd {PUBLISH SPUBLISH} {
+        test "$cmd rejects message that is too large for cluster propagation" {
+            r config set proto-max-bulk-len 10000000000 ;#10gb
+            r config set client-query-buffer-limit 10000000000 ;#10gb
+            r write "*3\r\n\$[string length $cmd]\r\n$cmd\r\n\$2\r\nch\r\n"
+            catch {
+                write_big_bulk 4294967295 ;#4gb-1
+            } err
+            assert_match {*too large for cluster propagation*} $err
+
+            # Normal sized messages are still published.
+            assert_equal 0 [r $cmd ch hello]
+        }
+    }
+}
+}
