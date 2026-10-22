@@ -730,6 +730,17 @@ static void zbtFreeAllocation(zbtreeSet *zs, void *ptr) {
 #define zbtExternalIgnoreLeak(ptr) ((void)(ptr))
 #endif
 
+/* Copy a long member into its own external allocation. Every new external
+ * member is allocated here, and src/valgrind.sup suppresses only this frame,
+ * so no other allocation is hidden from Valgrind. */
+__attribute__((noinline))
+static unsigned char *zbtExternalDup(zbtreeSet *zs, const unsigned char *src, size_t len) {
+    unsigned char *external = zbtAlloc(zs, len);
+    zbtExternalIgnoreLeak(external);
+    memcpy(external, src, len);
+    return external;
+}
+
 /* Return true when a build entry already refers to an external allocation or
  * is long enough that a new one should be made. Existing external records
  * retain their form when a leaf is rebuilt. */
@@ -766,11 +777,7 @@ static int zbtBuildElementWrite(zbtreeSet *zs, unsigned char *record,
     }
 
     unsigned char *external = ele->external;
-    if (external == NULL) {
-        external = zbtAlloc(zs, ele->len);
-        zbtExternalIgnoreLeak(external);
-        memcpy(external, ele->ptr, ele->len);
-    }
+    if (external == NULL) external = zbtExternalDup(zs, ele->ptr, ele->len);
 
     uint64_t len = ele->len;
     record[0] = ZBT_PACKED_EXTERNAL;
@@ -2862,10 +2869,7 @@ static zbtScoreNode *zbtScoreDupTree(zbtreeSet *dst,
                 size_t len = zbtExternalLength(record);
                 unsigned char *oldptr = zbtExternalPointer(record);
                 serverAssert(oldptr != NULL);
-                unsigned char *newptr = zbtAlloc(dst, len);
-                zbtExternalIgnoreLeak(newptr);
-                memcpy(newptr, oldptr, len);
-                zbtExternalSetPointer(record, newptr);
+                zbtExternalSetPointer(record, zbtExternalDup(dst, oldptr, len));
             }
         }
         leaf->prev = dst->score_last;
@@ -3507,9 +3511,7 @@ void zbtreeAppendBatchAddWithHash(zbtreeAppendBatch *b, double score,
          * for a fresh external member with no prior allocation (see its
          * "external == NULL" branch). Pre-setting ->external here makes that
          * later call adopt this allocation instead of copying again. */
-        unsigned char *external = zbtAlloc(b->zs, elelen);
-        zbtExternalIgnoreLeak(external);
-        memcpy(external, ele, elelen);
+        unsigned char *external = zbtExternalDup(b->zs, ele, elelen);
         b->elems[i].ptr = external;
         b->elems[i].len = elelen;
         b->elems[i].hash = hash;
