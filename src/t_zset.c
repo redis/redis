@@ -4330,11 +4330,6 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
-        if (result_count == 0) { /* Do this only for the first iteration. */
-            char *events[2] = {"zpopmin","zpopmax"};
-            notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
-        }
-
         if (use_nested_array) {
             addReplyArrayLen(c,2);
         }
@@ -4343,6 +4338,13 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         sdsfree(ele);
         ++result_count;
     } while(--rangelen);
+
+    /* Notify after all the elements have been removed so that subscribers
+     * observe the post-command state. */
+    {
+        char *events[2] = {"zpopmin","zpopmax"};
+        notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
+    }
 
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));

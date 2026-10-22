@@ -605,8 +605,6 @@ void spopWithCountCommand(client *c) {
     size = setTypeSize(set);
     toRemove = (count >= size) ? size : count;
 
-    /* Generate an SPOP keyspace notification */
-    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
     server.dirty += toRemove;
 
     /* CASE 1:
@@ -618,9 +616,11 @@ void spopWithCountCommand(client *c) {
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
-        /* todo: Move the spop notification to be executed after the command logic. */
+        /* Notify after the key has been modified so subscribers observe the
+         * post-command state, keeping 'spop' before 'del'. */
+        notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 
         /* Propagate this command as a DEL or UNLINK operation */
         robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
@@ -789,6 +789,10 @@ void spopWithCountCommand(client *c) {
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
         set = newset;
     }
+
+    /* All removal strategies above are complete at this point: notify after
+     * the key has been modified so subscribers observe the post-SPOP state. */
+    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
     /* Replicate/AOF the remaining elements as an SREM operation */
     if (propindex != 2) {

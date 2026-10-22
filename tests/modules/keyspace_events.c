@@ -35,6 +35,41 @@ static size_t dels = 0;
 static char subkey_log[SUBKEY_LOG_MAX][SUBKEY_LOG_LINE];
 static int subkey_log_count = 0;
 
+/* Post-command state audit log: records the key state visible inside module
+ * keyspace callbacks, to verify notifications fire after the write. Only
+ * keys with the KS_AUDIT_KEY_PREFIX prefix are logged. Each entry is
+ * "<event> <key> <len>" or "<event> <key> missing" when the key is gone. */
+#define KS_AUDIT_LOG_MAX 64
+#define KS_AUDIT_LOG_ENTRY_MAX 128
+#define KS_AUDIT_KEY_PREFIX "ksaudit:"
+static char ks_audit_log[KS_AUDIT_LOG_MAX][KS_AUDIT_LOG_ENTRY_MAX];
+static int ks_audit_log_count = 0;
+
+static int KeySpace_NotificationSetAudit(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+
+    size_t keylen;
+    const char *key_str = RedisModule_StringPtrLen(key, &keylen);
+    if (keylen < sizeof(KS_AUDIT_KEY_PREFIX) - 1 ||
+        memcmp(key_str, KS_AUDIT_KEY_PREFIX, sizeof(KS_AUDIT_KEY_PREFIX) - 1) != 0)
+    {
+        return REDISMODULE_OK;
+    }
+    if (ks_audit_log_count >= KS_AUDIT_LOG_MAX) return REDISMODULE_OK;
+
+    RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    if (RedisModule_KeyType(redis_key) == REDISMODULE_KEYTYPE_EMPTY) {
+        snprintf(ks_audit_log[ks_audit_log_count], KS_AUDIT_LOG_ENTRY_MAX,
+                 "%s %s missing", event, key_str);
+    } else {
+        snprintf(ks_audit_log[ks_audit_log_count], KS_AUDIT_LOG_ENTRY_MAX,
+                 "%s %s %zu", event, key_str, RedisModule_ValueLength(redis_key));
+    }
+    ks_audit_log_count++;
+    RedisModule_CloseKey(redis_key);
+    return REDISMODULE_OK;
+}
+
 static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key){
     REDISMODULE_NOT_USED(ctx);
     REDISMODULE_NOT_USED(type);
@@ -606,6 +641,25 @@ static int cmdUnsubscribeRequireSubkeys(RedisModuleCtx *ctx, RedisModuleString *
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/* keyspace.reset_ks_audit — clear the post-command state audit log */
+static int cmdResetKsAudit(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    ks_audit_log_count = 0;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* keyspace.get_ks_audit — return all logged audit entries as an array */
+static int cmdGetKsAudit(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    RedisModule_ReplyWithArray(ctx, ks_audit_log_count);
+    for (int i = 0; i < ks_audit_log_count; i++) {
+        RedisModule_ReplyWithCString(ctx, ks_audit_log[i]);
+    }
+    return REDISMODULE_OK;
+}
+
 static RedisModuleNotificationFunc get_callback_for_event(int event_mask) {
     switch(event_mask) {
     case REDISMODULE_NOTIFY_LOADED:
@@ -774,6 +828,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_ZSET, KeySpace_NotificationSetAudit) != REDISMODULE_OK){
+        return REDISMODULE_ERR;
+    }
+
     if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -873,6 +931,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe_require_subkeys", cmdUnsubscribeRequireSubkeys, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.reset_ks_audit", cmdResetKsAudit, "", 0, 0, 0) == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.get_ks_audit", cmdGetKsAudit, "readonly", 0, 0, 0) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
 

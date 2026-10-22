@@ -551,6 +551,59 @@ tags "modules external:skip" {
             r keyspace.unsubscribe_require_subkeys
         }
 
+        test "Keyspace notifications: SPOP subscribers see post-command state" {
+            # Listpack fast path: small string set, pop a few.
+            r del ksaudit:lp
+            r sadd ksaudit:lp a b c d e f g h i j k l m n o p q r s t
+            assert_equal "listpack" [r object encoding ksaudit:lp]
+            r keyspace.reset_ks_audit
+            assert_equal 2 [llength [r spop ksaudit:lp 2]]
+            assert_equal {{spop ksaudit:lp 18}} [r keyspace.get_ks_audit]
+
+            # Small-count random removal path: intset encoding.
+            r del ksaudit:is
+            r sadd ksaudit:is 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+            assert_equal "intset" [r object encoding ksaudit:is]
+            r keyspace.reset_ks_audit
+            assert_equal 2 [llength [r spop ksaudit:is 2]]
+            assert_equal {{spop ksaudit:is 18}} [r keyspace.get_ks_audit]
+
+            # Large-count reconstruction path: pop almost everything.
+            r del ksaudit:big
+            r sadd ksaudit:big 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+            r keyspace.reset_ks_audit
+            assert_equal 18 [llength [r spop ksaudit:big 18]]
+            assert_equal {{spop ksaudit:big 2}} [r keyspace.get_ks_audit]
+
+            # Whole set popped: the key is deleted, subscribers see it gone.
+            r del ksaudit:all
+            r sadd ksaudit:all x y z
+            r keyspace.reset_ks_audit
+            assert_equal 3 [llength [r spop ksaudit:all 5]]
+            assert_equal 0 [r exists ksaudit:all]
+            assert_equal {{spop ksaudit:all missing}} [r keyspace.get_ks_audit]
+
+            # Plain SPOP without COUNT.
+            r del ksaudit:one
+            r sadd ksaudit:one x y z
+            r keyspace.reset_ks_audit
+            r spop ksaudit:one
+            assert_equal {{spop ksaudit:one 2}} [r keyspace.get_ks_audit]
+
+            r del ksaudit:lp ksaudit:is ksaudit:big ksaudit:all ksaudit:one
+        }
+
+        test "Keyspace notifications: ZPOPMIN with COUNT subscribers see post-command state" {
+            r del ksaudit:z
+            for {set i 1} {$i <= 20} {incr i} {
+                r zadd ksaudit:z $i m$i
+            }
+            r keyspace.reset_ks_audit
+            r zpopmin ksaudit:z 5
+            assert_equal {{zpopmin ksaudit:z 15}} [r keyspace.get_ks_audit]
+            r del ksaudit:z
+        }
+
         test "Unload the module - testkeyspace" {
             assert_equal {OK} [r module unload testkeyspace]
         }
