@@ -855,17 +855,13 @@ static int zbtLexCompare(const unsigned char *value, size_t len, sds bound) {
 }
 
 /* Test a packed B+ tree member against the lower lexical bound. */
-static int zbtLexValueGteMin(const unsigned char *value, size_t len,
-                             zlexrangespec *spec)
-{
+static int zbtLexValueGteMin(const unsigned char *value, size_t len, zlexrangespec *spec) {
     int cmp = zbtLexCompare(value, len, spec->min);
     return spec->minex ? cmp > 0 : cmp >= 0;
 }
 
 /* Test a packed B+ tree member against the upper lexical bound. */
-static int zbtLexValueLteMax(const unsigned char *value, size_t len,
-                             zlexrangespec *spec)
-{
+static int zbtLexValueLteMax(const unsigned char *value, size_t len, zlexrangespec *spec) {
     int cmp = zbtLexCompare(value, len, spec->max);
     return spec->maxex ? cmp < 0 : cmp <= 0;
 }
@@ -1517,8 +1513,7 @@ static int zzlIsSortedNoDup(unsigned char *zl) {
                 size_t prevrawlen, rawlen;
                 const unsigned char *prevraw = zzlDecodeElement(
                     preveptr, prevbuf, sizeof(prevbuf), &prevrawlen);
-                const unsigned char *raw = zzlDecodeElement(
-                    eptr, buf, sizeof(buf), &rawlen);
+                const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
                 size_t minlen = prevrawlen < rawlen ? prevrawlen : rawlen;
                 cmp = memcmp(prevraw, raw, minlen);
                 if (cmp == 0)
@@ -1592,8 +1587,7 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
                     serverAssert(!isnan(score));
                     char buf[LONG_STR_SIZE];
                     size_t rawlen;
-                    const unsigned char *raw =
-                        zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
+                    const unsigned char *raw = zzlDecodeElement(eptr, buf, sizeof(buf), &rawlen);
                     zbtreeAppendBatchAdd(batch, score, raw, rawlen);
                     zzlNext(zl,&eptr,&sptr);
                 }
@@ -1680,8 +1674,7 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
                  * precondition holds by construction: zslInsert never
                  * produces (score, member) out of order or duplicated). */
                 sds ele = zslGetNodeElement(node);
-                zbtreeAppendBatchAdd(batch, node->score,
-                                     (unsigned char *)ele, sdslen(ele));
+                zbtreeAppendBatchAdd(batch, node->score, (unsigned char *)ele, sdslen(ele));
                 node = node->level[0].forward;
             }
             zbtreeAppendBatchFinish(batch);
@@ -1768,8 +1761,7 @@ void zsetConvertAfterBulkInsert(robj *zobj, size_t maxelelen, size_t totelelen) 
         lpSafeToAdd(NULL, totelelen))
     {
         zsetConvert(zobj,OBJ_ENCODING_LISTPACK);
-    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST)
-    {
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
         zsetConvert(zobj,OBJ_ENCODING_BTREE);
     }
 }
@@ -2559,16 +2551,13 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             deleted = zbtreeDeleteRangeByRank(zs, start, end);
             break;
         case ZRANGE_SCORE:
-            deleted = zbtreeDeleteRangeByScore(zs, range.min, range.minex,
-                                               range.max, range.maxex);
+            deleted = zbtreeDeleteRangeByScore(zs, range.min, range.minex, range.max, range.maxex);
             break;
         case ZRANGE_LEX: {
             zbtreeIterator first_iter, last_iter;
             unsigned long first, last;
-            if (zbtreeIteratorSeekLex(zs, lexrange.min, lexrange.minex,
-                                      0, &first_iter, &first) &&
-                zbtreeIteratorSeekLex(zs, lexrange.max, lexrange.maxex,
-                                      1, &last_iter, &last) &&
+            if (zbtreeIteratorSeekLex(zs, lexrange.min, lexrange.minex, 0, &first_iter, &first) &&
+                zbtreeIteratorSeekLex(zs, lexrange.max, lexrange.maxex, 1, &last_iter, &last) &&
                 last >= first)
             {
                 deleted = zbtreeDeleteRangeByRank(zs, first, last);
@@ -2578,8 +2567,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         }
         if (zbtreeLength(zs) == 0) {
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj,
-                                    oldsize, kvobjAllocSize(zobj));
+                updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
             dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         }
@@ -4141,10 +4129,8 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
         double score;
         unsigned long rank;
         int found = reverse ?
-            zbtreeIteratorSeekScore(zobj->ptr, range->max, range->maxex,
-                                    1, &iter, &rank) :
-            zbtreeIteratorSeekScore(zobj->ptr, range->min, range->minex,
-                                    0, &iter, &rank);
+            zbtreeIteratorSeekScore(zobj->ptr, range->max, range->maxex, 1, &iter, &rank) :
+            zbtreeIteratorSeekScore(zobj->ptr, range->min, range->minex, 0, &iter, &rank);
 
         if (found && offset) {
             if ((!reverse && rank + offset >= zsetLength(zobj)) ||
@@ -4258,8 +4244,7 @@ void zcountCommand(client *c) {
             }
         }
     } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
-        count = zbtreeCountByScore(zobj->ptr, range.min, range.minex,
-                                   range.max, range.maxex);
+        count = zbtreeCountByScore(zobj->ptr, range.min, range.minex, range.max, range.maxex);
     } else {
         serverPanic("Unknown sorted set encoding");
     }
@@ -4463,10 +4448,8 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
         double score;
         unsigned long rank;
         int found = reverse ?
-            zbtreeIteratorSeekLex(zobj->ptr, range->max, range->maxex,
-                                  1, &iter, &rank) :
-            zbtreeIteratorSeekLex(zobj->ptr, range->min, range->minex,
-                                  0, &iter, &rank);
+            zbtreeIteratorSeekLex(zobj->ptr, range->max, range->maxex, 1, &iter, &rank) :
+            zbtreeIteratorSeekLex(zobj->ptr, range->min, range->minex, 0, &iter, &rank);
 
         if (found && offset) {
             if ((!reverse && rank + offset >= zsetLength(zobj)) ||
@@ -4938,8 +4921,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             const unsigned char *raw;
             size_t len;
             serverAssert(zbtreeIteratorStart(zobj->ptr, where == ZSET_MAX, &iter));
-            serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX,
-                                            &raw, &len, &score));
+            serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX, &raw, &len, &score));
             /* Copy the reply before deletion invalidates the leaf bytes. */
             if (use_nested_array) addReplyArrayLen(c, 2);
             addReplyBulkCBuffer(c, raw, len);
@@ -4977,8 +4959,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             for (long i = 0; i < remaining; i++) {
                 const unsigned char *raw;
                 size_t len;
-                serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX,
-                                                &raw, &len, &score));
+                serverAssert(zbtreeIteratorNext(&iter, where == ZSET_MAX, &raw, &len, &score));
                 if (use_nested_array) addReplyArrayLen(c, 2);
                 addReplyBulkCBuffer(c, raw, len);
                 addReplyDouble(c, score);

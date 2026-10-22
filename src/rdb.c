@@ -1329,8 +1329,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             nwritten += n;
             zbtreeIteratorStart(o->ptr, 1, &iter);
             while (zbtreeIteratorNext(&iter, 1, &ele, &len, &score)) {
-                if ((n = rdbSaveRawString(rdb, (unsigned char *)ele,
-                                          len)) == -1)
+                if ((n = rdbSaveRawString(rdb, (unsigned char *)ele, len)) == -1)
                     return -1;
                 nwritten += n;
                 if ((n = rdbSaveBinaryDoubleValue(rdb, score)) == -1)

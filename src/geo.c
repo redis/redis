@@ -332,8 +332,7 @@ int geoGetPointsInRange(robj *zobj, double min, double max, GeoShape *shape, geo
             double distance = 0;
             if (!zslValueLteMax(score, &range)) break;
             if (geoWithinShape(shape, score, xy, &distance) == C_OK)
-                geoArrayAppend(ga, xy, distance, score,
-                               sdsnewlen(ele, len));
+                geoArrayAppend(ga, xy, distance, score, sdsnewlen(ele, len));
             if (ga->used && limit && ga->used >= limit) break;
         }
     }

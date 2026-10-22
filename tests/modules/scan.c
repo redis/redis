@@ -135,8 +135,7 @@ int scan_key_delete(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1],
-                                              REDISMODULE_READ | REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
     if (!key) return RedisModule_ReplyWithError(ctx, "not found");
 
     scan_key_delete_pd pd = {.ctx = ctx};

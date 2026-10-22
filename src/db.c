@@ -1687,9 +1687,7 @@ typedef struct {
     } buffered[32];
 } zsetBtreeScanData;
 
-static void zsetBtreeScanAddReply(client *c, const unsigned char *ele,
-                                  size_t len, double score)
-{
+static void zsetBtreeScanAddReply(client *c, const unsigned char *ele, size_t len, double score) {
     addReplyBulkCBuffer(c, ele, len);
     char buf[MAX_D2STRING_CHARS];
     int scorelen = d2string(buf, sizeof(buf), score);
@@ -2081,8 +2079,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         char cursor_buf[LONG_STR_SIZE];
         int cursor_len = ull2string(cursor_buf, sizeof(cursor_buf), next);
         if (data.streaming) {
-            setDeferredReplyBulkSds(c, data.cursor_reply,
-                                    sdsnewlen(cursor_buf, cursor_len));
+            setDeferredReplyBulkSds(c, data.cursor_reply, sdsnewlen(cursor_buf, cursor_len));
             setDeferredArrayLen(c, data.replylen, data.emitted);
         } else {
             addReplyBulkCBuffer(c, cursor_buf, cursor_len);

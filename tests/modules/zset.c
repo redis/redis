@@ -156,8 +156,7 @@ int zset_range_mutate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
     RedisModule_AutoMemory(ctx);
 
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1],
-                                              REDISMODULE_READ | REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
     if (RedisModule_ZsetLastInScoreRange(key, REDISMODULE_NEGATIVE_INFINITE,
                                          REDISMODULE_POSITIVE_INFINITE, 0, 0) == REDISMODULE_ERR)
         return RedisModule_ReplyWithError(ctx, "ERR range setup failed");
