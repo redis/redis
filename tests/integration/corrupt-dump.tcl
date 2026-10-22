@@ -18,6 +18,25 @@ set run_oom_tests [expr {($arch_name == "x86_64" || $arch_name == "aarch64") && 
 
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
+test {corrupt payload: zset reservation rejects oversized counts} {
+    start_server {overrides {loglevel verbose}} {
+        r debug set-skip-checksum-validation 1
+        r set target preserved
+        # Both legacy ZSET and ZSET_2 use the same 64-bit count. These values
+        # exercise sizing overflow and allocator rejection without attempting
+        # a large allocation. The footer has RDB version 9 and a dummy CRC.
+        foreach type {03 05} {
+            foreach count {fffffffffffffffe 1fffffffffffffff 1000000000000000} {
+                set payload [binary format H* "${type}81${count}09000000000000000000"]
+                assert_error {*Bad data format*} {r restore target 0 $payload replace}
+                assert_equal preserved [r get target]
+                assert_equal PONG [r ping]
+            }
+        }
+        verify_log_message 0 "*Unable to reserve zset index*" 0
+    }
+}
+
 test {Zset listpack scores are validated before loading or conversion} {
     start_server {} {
         r zadd score-source 1.5 a 2.5 b

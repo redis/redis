@@ -1382,9 +1382,9 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
  * and 1 if time is up and more work is needed. */
-int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid,
-                    zbtreeDefragState *zset_btree_state)
-{
+int defragLaterItem(defragKeysCtx *ctx, kvobj *ob, monotime endtime) {
+    unsigned long *cursor = &ctx->defrag_later_cursor;
+    zbtreeDefragState *zset_btree_state = &ctx->zset_btree_state;
     int is_btree = ob && ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE;
     if (!is_btree && zset_btree_state->tree) {
         zbtreeDefragStateReset(zset_btree_state);
@@ -1416,7 +1416,7 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
         } else if (ob->type == OBJ_MODULE) {
             robj keyobj;
             initStaticStringObject(keyobj, kvobjGetKey(ob));
-            return moduleLateDefrag(&keyobj, ob, cursor, endtime, dbid);
+            return moduleLateDefrag(&keyobj, ob, cursor, endtime, ctx->dbid);
         } else if (ob->type == OBJ_ARRAY) {
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
@@ -1458,10 +1458,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
         long long key_defragged = server.stat_active_defrag_hits;
         if (server.memory_tracking_enabled && kv)
             oldsize = kvobjAllocSize(kv);
-        int timeout = (defragLaterItem(kv,
-                        &defrag_keys_ctx->defrag_later_cursor, endtime,
-                        defrag_keys_ctx->dbid,
-                        &defrag_keys_ctx->zset_btree_state) == 1);
+        int timeout = (defragLaterItem(defrag_keys_ctx, kv, endtime) == 1);
         if (server.memory_tracking_enabled && kv)
             updateSlotAllocSize(db, slot, kv, oldsize, kvobjAllocSize(kv));
         if (key_defragged != server.stat_active_defrag_hits) {

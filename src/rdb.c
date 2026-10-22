@@ -3162,6 +3162,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
          * temporary listpack would normalize -0 before a later long member
          * promotes the object, changing the final B+tree's score bits. */
         o = createZsetBtreeObject();
+        if (!zbtreeTryReserve(o->ptr, zsetlen)) {
+            rdbReportCorruptRDB("Unable to reserve zset index for %llu elements",
+                                (unsigned long long)zsetlen);
+            decrRefCount(o);
+            return NULL;
+        }
 
         /* Load every single element of the sorted set. */
         while(zsetlen--) {

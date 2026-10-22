@@ -75,8 +75,7 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntryLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
-static dictEntryLink dictFindLinkInternalWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket);
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket);
 dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
 static dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link);
 
@@ -764,7 +763,7 @@ void dictRelease(dict *d)
  * 
  * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
  */
-static dictEntryLink dictFindLinkInternalWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
     dictCmpCache cmpCache = {0};
     dictEntryLink link;
     uint64_t idx;
@@ -800,12 +799,6 @@ static dictEntryLink dictFindLinkInternalWithHash(dict *d, const void *key, uint
         }
     }
     return NULL;
-}
-
-/* Same as dictFindLinkInternalWithHash(), computing the hash internally via
- * the dict's own hash function. */
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
-    return dictFindLinkInternalWithHash(d, key, dictGetHash(d, key), bucket);
 }
 
 dictEntry *dictFind(dict *d, const void *key)
@@ -871,7 +864,7 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
     if (unlikely(dictSize(d) == 0))
         return NULL;
     
-    return dictFindLinkInternal(d, key, bucket);
+    return dictFindLinkInternal(d, key, dictGetHash(d, key), bucket);
 }
 
 /* Same as dictFindLink(), but for a caller that already computed this exact
@@ -884,7 +877,7 @@ dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dict
     if (unlikely(dictSize(d) == 0))
         return NULL;
 
-    return dictFindLinkInternalWithHash(d, key, hash, bucket);
+    return dictFindLinkInternal(d, key, hash, bucket);
 }
 
 /* Set the key with link
@@ -912,7 +905,8 @@ void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int 
         if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
             dictEntryLink bucket;
             /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
-            *link = dictFindLinkInternal(d, dictStoredKey2Key(d, key), &bucket);
+            const void *lookup_key = dictStoredKey2Key(d, key);
+            *link = dictFindLinkInternal(d, lookup_key, dictGetHash(d, lookup_key), &bucket);
             assert(bucket != NULL);
             assert(*link == NULL);
             *link = bucket; /* On newItem the link should be the bucket */

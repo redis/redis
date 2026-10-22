@@ -2841,7 +2841,8 @@ zbtreeSet *zbtreeCreate(void) {
  * which is exactly the DoS shape the RDB loader's other presize calls
  * (e.g. dictTryExpand() for RDB_TYPE_SET) guard against with a checked,
  * gracefully-failing call. This function intentionally has no such check,
- * so it must only be called with a count the server itself computed.
+ * so it must only be called with a count the server itself computed. Use
+ * zbtreeTryReserve() for an untrusted count instead.
  *
  * A no-op on anything but a genuinely fresh set. */
 void zbtreeReserve(zbtreeSet *zs, unsigned long count) {
@@ -2854,6 +2855,31 @@ void zbtreeReserve(zbtreeSet *zs, unsigned long count) {
         zs->next_score_leaf_id != 0 || count == 0)
         return;
     zbtIndexExpandIfNeeded(zs, count);
+}
+
+/* Presize a fresh set from an RDB count. Check the sizing helper's multiply
+ * and rounding addition before narrowing to unsigned long. That bound also
+ * keeps its slot rounding and power-of-two loop from overflowing. Bucket
+ * bytes need their own check, including on platforms with a smaller size_t.
+ * Publish the allocation only after it succeeds so failure leaves zs intact. */
+int zbtreeTryReserve(zbtreeSet *zs, uint64_t count) {
+    if (zs->length != 0 || zs->member_index.size != 0 ||
+        zs->next_score_leaf_id != 0 || count == 0)
+        return 1;
+    if (count > (ULONG_MAX - (ZBT_INDEX_MAX_LOAD_NUM - 1)) /
+                ZBT_INDEX_MAX_LOAD_DEN)
+        return 0;
+    unsigned long buckets = zbtIndexBucketsForElements((unsigned long)count);
+    if (buckets > SIZE_MAX / sizeof(zbtIndexBucket16)) return 0;
+
+    size_t usable;
+    zbtIndexBucket *table = ztrycalloc_usable(
+        buckets * sizeof(zbtIndexBucket16), &usable);
+    if (table == NULL) return 0;
+    zs->member_index = (zbtIndexTable){.buckets = table, .size = buckets};
+    zs->alloc_size += usable;
+    zs->member_revision = zbtIndexNextRevision();
+    return 1;
 }
 
 /* Copy a score tree while repairing every pointer between its pages. Leaves
@@ -4869,6 +4895,40 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
     UNUSED(flags);
 
     printf("Testing B+ tree zbtreeReserve()\n");
+
+    {
+        zbtreeSet *zs = zbtreeCreate();
+        size_t initial_size = zs->alloc_size;
+        uint32_t initial_revision = zs->member_revision;
+        test_cond("Zero reservation does not allocate an index",
+            zbtreeTryReserve(zs, 0) && zs->member_index.buckets == NULL &&
+            zs->alloc_size == initial_size);
+
+        /* Exercise count arithmetic, bucket-byte overflow, and an allocation
+         * rejected by ztrycalloc_usable's SIZE_MAX/2 guard on 64-bit builds.
+         * On 32-bit builds the last count fails before narrowing instead. */
+        const uint64_t invalid_counts[] = {
+            UINT64_MAX, ULONG_MAX / 8, UINT64_C(1) << 60
+        };
+        for (unsigned int i = 0; i < sizeof(invalid_counts) / sizeof(*invalid_counts); i++) {
+            test_cond("Failed reservation leaves the fresh tree unchanged",
+                !zbtreeTryReserve(zs, invalid_counts[i]) &&
+                zs->member_index.buckets == NULL && zs->member_index.size == 0 &&
+                zs->alloc_size == initial_size &&
+                zs->member_revision == initial_revision);
+        }
+
+        test_cond("A failed reservation can be retried with a valid count",
+            zbtreeTryReserve(zs, 10000) && zbtTestCheck(zs));
+        zbtTestPopulate(zs, 10000);
+        test_cond("TryReserve holds the requested members without rehashing",
+            zbtreeLength(zs) == 10000 && zs->member_rehash == NULL && zbtTestCheck(zs));
+        size_t populated_size = zs->alloc_size;
+        test_cond("TryReserve leaves a populated tree intact",
+            zbtreeTryReserve(zs, UINT64_MAX) &&
+            zs->alloc_size == populated_size && zbtTestCheck(zs));
+        zbtreeFree(zs);
+    }
 
     {
         zbtreeSet *zs = zbtreeCreate();
