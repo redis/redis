@@ -3939,6 +3939,26 @@ void clusterBroadcastPong(int target) {
     dictResetIterator(&di);
 }
 
+/* Compute the length of a PUBLISH message into '*msglen'. Returns C_ERR if
+ * the channel and message are too large to fit in a cluster bus message. */
+int clusterGetPublishMessageLength(robj *channel, robj *message, uint32_t *msglen) {
+    size_t channel_len = stringObjectLen(channel);
+    size_t message_len = stringObjectLen(message);
+    size_t base_len = sizeof(clusterMsg)-sizeof(union clusterMsgData) +
+                      sizeof(clusterMsgDataPublish) - 8;
+    size_t max_msglen = UINT32_MAX - sizeof(clusterMsgSendBlock);
+
+    if (channel_len > UINT32_MAX || message_len > UINT32_MAX ||
+        channel_len > max_msglen - base_len ||
+        message_len > max_msglen - base_len - channel_len)
+    {
+        return C_ERR;
+    }
+
+    *msglen = base_len + channel_len + message_len;
+    return C_OK;
+}
+
 /* Create a PUBLISH message block.
  *
  * Sanitizer suppression: In clusterMsgDataPublish, sizeof(bulk_data) is 8.
@@ -3949,14 +3969,16 @@ REDIS_NO_SANITIZE("bounds")
 clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, uint16_t type) {
 
     uint32_t channel_len, message_len;
+    uint32_t msglen;
+
+    if (clusterGetPublishMessageLength(channel, message, &msglen) == C_ERR)
+        return NULL;
 
     channel = getDecodedObject(channel);
     message = getDecodedObject(message);
     channel_len = sdslen(channel->ptr);
     message_len = sdslen(message->ptr);
 
-    size_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
-    msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, msglen);
 
     clusterMsg *hdr = getMessageFromSendBlock(msgblock);
@@ -4069,6 +4091,7 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
 
     if (!sharded) {
         msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISH);
+        if (msgblock == NULL) return;
         clusterBroadcastMessage(msgblock);
         clusterMsgSendBlockDecrRefCount(msgblock);
         return;
@@ -4080,6 +4103,7 @@ void clusterPropagatePublish(robj *channel, robj *message, int sharded) {
     serverAssert(nodes_for_slot != NULL);
     listRewind(nodes_for_slot, &li);
     msgblock = clusterCreatePublishMsgBlock(channel, message, CLUSTERMSG_TYPE_PUBLISHSHARD);
+    if (msgblock == NULL) return;
     while((ln = listNext(&li))) {
         clusterNode *node = listNodeValue(ln);
         if (node->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
