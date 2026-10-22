@@ -617,6 +617,8 @@ start_server {tags {"bless" "repl" "external:skip"}} {
             $master expire h 100000
             $master set plain v
             foreach k {s l h} { $master bless set $k no-evict }
+            # One blessed key in a second DB: the swap must carry the index of
+            # every DB, not only the selected one (the test client uses DB 9).
             $master select 10
             $master set other v
             $master bless set other no-evict
@@ -634,6 +636,8 @@ start_server {tags {"bless" "repl" "external:skip"}} {
             $replica select 10
             assert_equal {NO-EVICT} [$replica bless get other]
             $replica select 9
+            # Exactly the 4 synced blessed keys (s, l, h in DB 9, other in DB 10):
+            # the replica's pre-sync key (stale) must not be counted any more.
             assert_equal 4 [status $replica blessed_keys]
         }
     }
