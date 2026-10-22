@@ -26,25 +26,25 @@ test {Zset listpack scores are validated before loading or conversion} {
         # Mutate only the score text; bypass the now-stale DUMP checksum so
         # the test exercises semantic validation of a well-formed listpack.
         r debug set-skip-checksum-validation 1
-        foreach sanitize {yes no} {
+        # Without sanitization a listpack that stays one is trusted, as for
+        # other types. A conversion still checks every score first.
+        foreach {sanitize limit} {yes 128 yes 1 no 1} {
             r config set sanitize-dump-payload $sanitize
-            foreach limit {128 1} {
-                r config set zset-max-listpack-entries $limit
-                foreach score {nan NaN abc 1.x} {
-                    set invalid [string map [list 1.5 $score] $payload]
-                    assert_error {*Bad data format*} {r restore invalid-score 0 $invalid}
-                    assert_equal 0 [r exists invalid-score]
-                    assert_equal PONG [r ping]
-                }
-                # Both infinities are legal and must remain reloadable.
-                foreach score {inf -inf} {
-                    # -inf needs four bytes, so use ZADD's genuine payload.
-                    r del score-valid
-                    r zadd score-valid $score a 2.5 b
-                    set valid [r dump score-valid]
-                    r restore score-roundtrip 0 $valid replace
-                    assert_equal $score [r zscore score-roundtrip a]
-                }
+            r config set zset-max-listpack-entries $limit
+            foreach score {nan NaN abc 1.x} {
+                set invalid [string map [list 1.5 $score] $payload]
+                assert_error {*Bad data format*} {r restore invalid-score 0 $invalid}
+                assert_equal 0 [r exists invalid-score]
+                assert_equal PONG [r ping]
+            }
+            # Both infinities are legal and must remain reloadable.
+            foreach score {inf -inf} {
+                # -inf needs four bytes, so use ZADD's genuine payload.
+                r del score-valid
+                r zadd score-valid $score a 2.5 b
+                set valid [r dump score-valid]
+                r restore score-roundtrip 0 $valid replace
+                assert_equal $score [r zscore score-roundtrip a]
             }
         }
         r debug set-skip-checksum-validation 0
@@ -1009,16 +1009,14 @@ test {corrupt payload: fuzzer findings - set with invalid length causes sscan to
     }
 }
 
-test {corrupt payload: zset listpack with invalid length is rejected without sanitization} {
+test {corrupt payload: zset listpack encoded with invalid length causes zscan to hang} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
-        assert_error {*Bad data format*} {
-            r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81\x61\x02\x01\x01\x81\x62\x02\x02\x01\x81\x63\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd\x31\x22\x6c\xef\xf7" replace
-        }
-        assert_equal 0 [r exists _zset]
-        assert_equal PONG [r ping]
+        assert_equal {OK} [r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81\x61\x02\x01\x01\x81\x62\x02\x02\x01\x81\x63\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd\x31\x22\x6c\xef\xf7" replace]
+        assert_encoding listpack _zset
+        catch { r ZSCAN _zset 0 } err
         assert_equal [count_log_message 0 "crashed by signal"] 0
-        assert_equal [count_log_message 0 "ASSERTION FAILED"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
 }
 

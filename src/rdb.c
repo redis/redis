@@ -3848,8 +3848,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
-                    if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp) ||
-                        !lpValidateIntegrityAndDupsEx(lp, lpBytes(lp), 0, 2, 1)) {
+                    int valid = ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp);
+                    /* See RDB_TYPE_ZSET_LISTPACK below for when scores are parsed. */
+                    if (valid && (deep_integrity_validation ||
+                                  lpLength(lp) / 2 > server.zset_max_listpack_entries))
+                        valid = lpValidateIntegrityAndDupsEx(lp, lpBytes(lp), 0, 2, 1);
+                    if (!valid) {
                         rdbReportCorruptRDB("Zset ziplist integrity check failed.");
                         zfree(lp);
                         zfree(encoded);
@@ -3876,7 +3880,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
                 if (!lpValidateIntegrityAndDupsEx(encoded, encoded_len,
-                                                  deep_integrity_validation, 2, 1)) {
+                                                  deep_integrity_validation, 2,
+                                                  deep_integrity_validation)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -3890,8 +3895,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     goto emptykey;
                 }
 
-                if (zsetLength(o) > server.zset_max_listpack_entries)
+                if (zsetLength(o) > server.zset_max_listpack_entries) {
+                    /* Parsing every score costs a full walk, so a listpack
+                     * that stays one is checked only by deep sanitization.
+                     * A conversion parses every score anyway and must not
+                     * store an invalid one, so check them first. */
+                    if (!deep_integrity_validation &&
+                        !lpValidateIntegrityAndDupsEx(encoded, encoded_len, 0, 2, 1)) {
+                        rdbReportCorruptRDB("Zset listpack integrity check failed.");
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        return NULL;
+                    }
                     zsetConvert(o, OBJ_ENCODING_BTREE);
+                }
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
                 {
