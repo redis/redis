@@ -5094,7 +5094,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal bitmap [r type intarray:zero]
     }
 
-    test {BITRANGEINTARRAY rejects strings and other types without conversion} {
+    test {BITRANGEINTARRAY rejects strings and other types with bitmap-default-roaring no} {
+        r config set bitmap-default-roaring no
         r set intarray:string [binary format H* 8040]
         r set intarray:integer 123
         r set intarray:emptystring {}
@@ -5112,6 +5113,16 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal string [r type intarray:integer]
         assert_equal {} [r get intarray:emptystring]
         assert_equal {value} [r lrange intarray:list 0 -1]
+    }
+
+    test {BITRANGEINTARRAY reads strings through a temporary bitmap with bitmap-default-roaring yes} {
+        r config set bitmap-default-roaring yes
+        r set intarray:string [binary format H* 8040]
+        assert_equal {0 9} [r bitrangeintarray intarray:string 0 -1]
+        assert_equal string [r type intarray:string]
+        r config set bitmap-default-roaring no
+        # Without the config, the same string is rejected.
+        assert_error {WRONGTYPE*} {r bitrangeintarray intarray:string 0 -1}
     }
 
     test {BITRANGEINTARRAY validates rank syntax and bounds before key type} {

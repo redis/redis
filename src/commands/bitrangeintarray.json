@@ -1,6 +1,6 @@
 {
     "BITRANGEINTARRAY": {
-        "summary": "Returns an inclusive range of set-bit offsets by their zero-based ranks in a native bitmap.",
+        "summary": "Returns an inclusive range of set-bit offsets by their zero-based ranks in a bitmap.",
         "complexity": "O(C + M) where C is the number of bitmap containers and M is the number of returned integers.",
         "group": "bitmap",
         "since": "8.12.0",

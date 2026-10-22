@@ -2088,7 +2088,23 @@ void bitrangeintarrayCommand(client *c) {
     }
 
     robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
-    if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
+    if (o == NULL) return;
+
+    /* With bitmap-default-roaring enabled, read a string through a temporary
+     * Roaring bitmap and leave the stored value untouched. A read changes no
+     * keyspace state, so unlike writes this need not defer to the master. */
+    robj *tmp = NULL;
+    if (o->type == OBJ_STRING && server.bitmap_default_roaring) {
+        if (bitroarStringTooLarge(o)) {
+            addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
+            return;
+        }
+        tmp = o = bitroarFromStringObject(o);
+        serverAssert(o != NULL);
+    } else if (checkType(c, o, OBJ_BITMAP)) {
+        return;
+    }
+
     if (start < 0 || end < 0) {
         /* Native bitmap length bounds keep cardinality below LLONG_MAX.
          * Adding a negative rank is safe, including LLONG_MIN. */
@@ -2100,13 +2116,13 @@ void bitrangeintarrayCommand(client *c) {
         if (start < 0) start = 0;
         if (start >= cardinality) {
             addReply(c, shared.emptyarray);
-            return;
+            goto cleanup;
         }
     }
     /* With start >= 0, this also rejects an end still below zero. */
     if (start > end) {
         addReply(c, shared.emptyarray);
-        return;
+        goto cleanup;
     }
 
     /* Nonnegative ranges avoid counting every container to return a small
@@ -2118,6 +2134,9 @@ void bitrangeintarrayCommand(client *c) {
     bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
     /* Resolve the placeholder even if an output limit scheduled async close. */
     setDeferredArrayLen(c, arraylen, reply.emitted);
+
+cleanup:
+    if (tmp) decrRefCount(tmp);
 }
 
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
