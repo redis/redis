@@ -3810,7 +3810,10 @@ unsigned long zbtreeDeleteRangeByRank(zbtreeSet *zs, unsigned long start,
     }
 
     /* Take as long a run as one leaf holds, so a range that fits in a leaf
-     * is one rebuild rather than one shift per element. */
+     * is one rebuild rather than one shift per element. No member is looked
+     * up by name here, so advance a member index resize by one step for each
+     * deleted member, as ZREM does. Otherwise a shrink started by an earlier
+     * deletion may never finish. */
     unsigned long remaining = deleted;
     while (remaining) {
         zbtreeIterator iter;
@@ -3820,6 +3823,7 @@ unsigned long zbtreeDeleteRangeByRank(zbtreeSet *zs, unsigned long start,
         if (run > remaining) run = remaining;
         zbtScoreDeleteRun(zs, leaf, iter.pos, run, 1, 1);
         remaining -= run;
+        zbtIndexRehashStep(zs, (int)run);
     }
     zbtIndexShrinkIfNeeded(zs);
     return deleted;
@@ -5368,6 +5372,29 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
                   zbtreeLength(zs) == 1 && zs->score_first == zs->score_last &&
                   zmalloc_usable_size(zs->score_first) < 1024 &&
                   zbtScoreLeafScore(zs->score_first, 0) == (reverse ? 0 : 95));
+        zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree member index shrinking during range deletions\n");
+    {
+        /* Each range stays below a tenth of the set, so it never rebuilds
+         * the member index and only incremental resizes can shrink it. Range
+         * deletion looks no member up by name; unless it advances a resize
+         * as fast as ZREM would, the shrink cannot keep up with it. */
+        const int N = 1000000, B = 3072, K = 96;
+        zbtreeSet *zs = zbtreeCreate();
+        zbtTestPopulate(zs, N);
+        int bounded = 1;
+        for (int s = 0; s < N; s += B) {
+            zbtreeDeleteRangeByScore(zs, s + K, 0, s + B - 1, 0);
+            unsigned long buckets = zs->member_index.size;
+            if (zs->member_rehash) buckets += zs->member_rehash->table.size;
+            if (buckets > 16 * zbtIndexBucketsForElements(zbtreeLength(zs)))
+                bounded = 0;
+        }
+        test_cond("Range deletions shrink the member index as they go",
+                  bounded && zbtTestCheck(zs) &&
+                  zbtreeLength(zs) == (unsigned long)(N + B - 1) / B * K);
         zbtreeFree(zs);
     }
 
