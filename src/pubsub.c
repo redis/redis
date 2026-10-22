@@ -610,6 +610,12 @@ void punsubscribeCommand(client *c) {
 /* This function wraps pubsubPublishMessage and also propagates the message to cluster.
  * Used by the commands PUBLISH/SPUBLISH and their respective module APIs.*/
 int pubsubPublishMessageAndPropagateToCluster(robj *channel, robj *message, int sharded) {
+    if (server.cluster_enabled) {
+        uint32_t msglen;
+        if (clusterGetPublishMessageLength(channel, message, &msglen) == C_ERR)
+            return C_ERR;
+    }
+
     int receivers = pubsubPublishMessage(channel, message, sharded);
     if (server.cluster_enabled)
         clusterPropagatePublish(channel, message, sharded);
@@ -624,6 +630,10 @@ void publishCommand(client *c) {
     }
 
     int receivers = pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[2],0);
+    if (receivers == C_ERR) {
+        addReplyError(c,"Publish message is too large for cluster propagation");
+        return;
+    }
     if (!server.cluster_enabled)
         forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);
@@ -720,6 +730,10 @@ void channelList(client *c, sds pat, kvstore *pubsub_channels) {
 /* SPUBLISH <shardchannel> <message> */
 void spublishCommand(client *c) {
     int receivers = pubsubPublishMessageAndPropagateToCluster(c->argv[1],c->argv[2],1);
+    if (receivers == C_ERR) {
+        addReplyError(c,"Publish message is too large for cluster propagation");
+        return;
+    }
     if (!server.cluster_enabled)
         forceCommandPropagation(c,PROPAGATE_REPL);
     addReplyLongLong(c,receivers);
