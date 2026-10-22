@@ -15,7 +15,11 @@
 #                                   fixture for the negative tests.
 #   tests/tls/san.{crt,key}         A certificate carrying subjectAltName DNS entries
 #                                   (redis.local, cluster.local), used to exercise
-#                                   tls-expected-peer-name verification.
+#                                   tls-expected-peer-name verification, plus two
+#                                   wildcard entries for the wildcard rules: the
+#                                   full-label "*.wild.local" matches any one label,
+#                                   the partial-label "f*.partial.local" is rejected
+#                                   (X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS).
 #   tests/tls/redis.dh              DH Params file.
 
 generate_cert() {
@@ -63,7 +67,7 @@ nsCertType = client
 
 [ san_cert ]
 keyUsage = digitalSignature, keyEncipherment
-subjectAltName = DNS:redis.local, DNS:cluster.local
+subjectAltName = DNS:redis.local, DNS:cluster.local, DNS:*.wild.local, DNS:f*.partial.local
 _END_
 
 generate_cert server "Server-only" "-extfile tests/tls/openssl.cnf -extensions server_cert"

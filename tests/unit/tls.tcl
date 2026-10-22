@@ -456,6 +456,34 @@ if {$::tls} {
             }
         }
 
+        test {TLS: tls-expected-peer-name honors a full-label wildcard SAN but not a partial one} {
+            # Wildcards are matched from the certificate, not from the option: the
+            # cert's "*.wild.local" matches the concrete name node.wild.local, ...
+            start_server [list overrides [list tls-expected-peer-name "node.wild.local"]] {
+                set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]]
+                } else {
+                    fail "Replication link did not come up through the certificate's full-label wildcard"
+                }
+            }
+            # ... while its partial-label "f*.partial.local" never matches, although
+            # OpenSSL would accept foo.partial.local without
+            # X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS.
+            start_server [list overrides [list tls-expected-peer-name "foo.partial.local"]] {
+                set replica [srv 0 client]
+                $replica replicaof $master_host $master_port
+                wait_for_condition 50 100 {
+                    [string match {*master_link_status:up*} [$replica info replication]] ||
+                    [count_log_message 0 "certificate verify failed"] > 0
+                } else {
+                    fail "Replica never resolved its connection attempt (neither up nor errored)"
+                }
+                assert_no_match {*master_link_status:up*} [$replica info replication]
+            }
+        }
+
         test {TLS: tls-expected-peer-name matches any of multiple listed names} {
             # Start with a single non-matching name so the link stays down; then set a
             # space-separated list via CONFIG SET (a single argument, so it is not split)
@@ -777,6 +805,15 @@ if {$::tls} {
                 assert_equal PONG [exec {*}[rediscli $bhost $bport [list --tls-expected-peer-name "absent.local cluster.local"]] PING]
                 catch {exec {*}[rediscli $bhost $bport {--tls-expected-peer-name absent.local}] PING} e
                 assert_match {*does not carry the expected identity 'absent.local'*} $e
+            }
+
+            test {TLS: --tls-expected-peer-name honors a full-label wildcard SAN but not a partial one} {
+                # Same wildcard rules as the server's option, through the shared
+                # helper: "*.wild.local" in the cert matches node.wild.local, the
+                # partial-label "f*.partial.local" does not match foo.partial.local.
+                assert_equal PONG [exec {*}[rediscli $bhost $bport {--tls-expected-peer-name node.wild.local}] PING]
+                catch {exec {*}[rediscli $bhost $bport {--tls-expected-peer-name foo.partial.local}] PING} e
+                assert_match {*does not carry the expected identity 'foo.partial.local'*} $e
             }
 
             test {TLS: --tls-expected-peer-name warns about parent-domain entries} {
