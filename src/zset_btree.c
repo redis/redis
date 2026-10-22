@@ -1893,16 +1893,30 @@ static unsigned long zbtIndexBucketsForElements(unsigned long elements) {
         (slots + ZBT_INDEX_BUCKET_ITEMS - 1) / ZBT_INDEX_BUCKET_ITEMS);
 }
 
-/* Allocate and clear a narrow or wide member-index table. */
+/* Allocate and clear a narrow or wide member-index table. A fallible call
+ * returns zero instead of aborting when the table cannot be allocated, and
+ * leaves 'table' unchanged. */
+static int zbtIndexTableAlloc(zbtreeSet *zs, zbtIndexTable *table,
+                              unsigned long buckets, int wide_ids,
+                              int fallible)
+{
+    zbtIndexTable t = {.size = zbtIndexNextPower(buckets),
+                       .wide_ids = wide_ids};
+    if (t.size > SIZE_MAX / zbtIndexBucketBytes(&t)) return 0;
+    size_t bytes = zbtIndexTableBytes(&t), usable;
+    t.buckets = fallible ? ztrycalloc_usable(bytes, &usable) :
+                           zcalloc_usable(bytes, &usable);
+    if (t.buckets == NULL) return 0;
+    zs->alloc_size += usable;
+    *table = t;
+    return 1;
+}
+
+/* Allocate a member-index table, aborting on out of memory. */
 static void zbtIndexTableInit(zbtreeSet *zs, zbtIndexTable *table,
                               unsigned long buckets, int wide_ids)
 {
-    memset(table, 0, sizeof(*table));
-    table->size = zbtIndexNextPower(buckets);
-    table->wide_ids = wide_ids;
-    size_t bytes = zbtIndexTableBytes(table);
-    table->buckets = zbtAlloc(zs, bytes);
-    memset(table->buckets, 0, bytes);
+    serverAssert(zbtIndexTableAlloc(zs, table, buckets, wide_ids, 0));
 }
 
 /* Release a member-index table and clear its descriptor. */
@@ -2825,61 +2839,41 @@ zbtreeSet *zbtreeCreate(void) {
     return zs;
 }
 
-/* Pre-size the member-index table for a known upcoming insertion count on a
- * genuinely fresh set that has never held a member. Sizing the table once up
- * front reaches the same target zbtIndexExpandIfNeeded() would reach through
- * repeated single-element calls, but without starting the incremental
- * member_rehash copy those calls trigger partway through the run.
+/* Size the member index of a fresh set for 'count' insertions at once, so
+ * that building it starts no incremental resize. Only a set that never held
+ * a member is presized: a set emptied by deletion keeps its leaf ID counter,
+ * which decides the width of its next table. Other sets succeed unchanged.
  *
- * Callers must only use this with a count they trust: it feeds directly into
- * one eager, non-fallible allocation (zbtIndexTableInit() via zbtAlloc(),
- * which aborts the process on OOM like the rest of this file's allocations,
- * not a checked ztrymalloc). Do not wire this into any path where 'count'
- * can be an unvalidated size taken from a client payload or a replication/
- * RDB stream -- a corrupt or hostile declared length would turn into a single
- * disproportionate allocation attempt before a real element is ever read,
- * which is exactly the DoS shape the RDB loader's other presize calls
- * (e.g. dictTryExpand() for RDB_TYPE_SET) guard against with a checked,
- * gracefully-failing call. This function intentionally has no such check,
- * so it must only be called with a count the server itself computed. Use
- * zbtreeTryReserve() for an untrusted count instead.
- *
- * A no-op on anything but a genuinely fresh set. */
-void zbtreeReserve(zbtreeSet *zs, unsigned long count) {
-    /* length/member_index.size cover the "has an index" invariant the rest
-     * of this file already relies on. next_score_leaf_id also rules out a
-     * set that was emptied by deletion and shrunk (zbtIndexShrinkIfNeeded())
-     * but not yet compacted. Its new table would take its width from the
-     * leftover leaf-id counter, but only a genuinely fresh set is presized. */
-    if (zs->length != 0 || zs->member_index.size != 0 ||
-        zs->next_score_leaf_id != 0 || count == 0)
-        return;
-    zbtIndexExpandIfNeeded(zs, count);
-}
-
-/* Presize a fresh set from an RDB count. Check the sizing helper's multiply
- * and rounding addition before narrowing to unsigned long. That bound also
- * keeps its slot rounding and power-of-two loop from overflowing. Bucket
- * bytes need their own check, including on platforms with a smaller size_t.
- * Publish the allocation only after it succeeds so failure leaves zs intact. */
-int zbtreeTryReserve(zbtreeSet *zs, uint64_t count) {
+ * The count check keeps zbtIndexBucketsForElements() from overflowing before
+ * the count is narrowed to unsigned long; zbtIndexTableAlloc() checks the
+ * bucket bytes. A fallible call returns zero when the count is too large or
+ * the table cannot be allocated, and then leaves the set unchanged. */
+static int zbtIndexReserve(zbtreeSet *zs, uint64_t count, int fallible) {
     if (zs->length != 0 || zs->member_index.size != 0 ||
         zs->next_score_leaf_id != 0 || count == 0)
         return 1;
     if (count > (ULONG_MAX - (ZBT_INDEX_MAX_LOAD_NUM - 1)) /
                 ZBT_INDEX_MAX_LOAD_DEN)
         return 0;
-    unsigned long buckets = zbtIndexBucketsForElements((unsigned long)count);
-    if (buckets > SIZE_MAX / sizeof(zbtIndexBucket16)) return 0;
-
-    size_t usable;
-    zbtIndexBucket *table = ztrycalloc_usable(
-        buckets * sizeof(zbtIndexBucket16), &usable);
-    if (table == NULL) return 0;
-    zs->member_index = (zbtIndexTable){.buckets = table, .size = buckets};
-    zs->alloc_size += usable;
+    if (!zbtIndexTableAlloc(zs, &zs->member_index,
+                            zbtIndexBucketsForElements((unsigned long)count),
+                            0, fallible))
+        return 0;
     zs->member_revision = zbtIndexNextRevision();
     return 1;
+}
+
+/* Presize a fresh set for a count the server computed itself. Out of memory
+ * aborts, so never pass a length read from a client or an RDB stream: use
+ * zbtreeTryReserve() for those. */
+void zbtreeReserve(zbtreeSet *zs, unsigned long count) {
+    zbtIndexReserve(zs, count, 0);
+}
+
+/* Presize a fresh set for an untrusted count, such as an RDB length. Return
+ * zero, leaving the set unchanged, when the table cannot be allocated. */
+int zbtreeTryReserve(zbtreeSet *zs, uint64_t count) {
+    return zbtIndexReserve(zs, count, 1);
 }
 
 /* Copy a score tree while repairing every pointer between its pages. Leaves
