@@ -2089,7 +2089,6 @@ void bitrangeintarrayCommand(client *c) {
 
     robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
     if (o == NULL) return;
-
     /* With bitmap-default-roaring enabled, read a string through a temporary
      * Roaring bitmap and leave the stored value untouched. A read changes no
      * keyspace state, so unlike writes this need not defer to the master. */
