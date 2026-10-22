@@ -3702,7 +3702,7 @@ int replicationCheckHasMainChannel(client *slave);
 unsigned long replicationLogicalReplicaCount(void);
 void replDataBufInit(replDataBuf *buf);
 void replDataBufClear(replDataBuf *buf);
-void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_handler)(connection *conn));
+void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_handler)(connection *conn, int eof));
 int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx);
 int replicaFromIOThreadHasPendingRead(client *c);
 void putReplicasInPendingClientsToIOThreads(void);

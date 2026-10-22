@@ -2605,14 +2605,17 @@ werr:
     return C_ERR;
 }
 
-/* Read error handler for sync buffer */
-static void asmReadSyncBufferErrorHandler(connection *conn) {
+/* Read failure handler for the sync buffer. EOF is a closed connection, not
+ * a system error; report it without consulting the connection's last error. */
+static void asmReadSyncBufferErrorHandler(connection *conn, int eof) {
     if (listLength(asmManager->tasks) == 0) return;
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
     if (task->state != ASM_ACCUMULATE_BUF && task->state != ASM_STREAMING_BUF) return;
 
     if (task->state == ASM_STREAMING_BUF) {
         freeClient(connGetPrivateData(conn));
+    } else if (eof) {
+        asmTaskSetFailed(task, "Main channel - Connection closed by source node");
     } else {
         asmTaskSetFailed(task, "Main channel - Read error: %s", connGetLastError(conn));
     }
