@@ -624,9 +624,9 @@ tags "modules external:skip" {
                         fail "Failed to wait for set to be replicated"
                     }
 
-                    # Currently the `del` command comes after the notification.
-                    # When we fix spop to fire notification at the end (like all other commands),
-                    # the `del` will come first.
+                    # The `spop` and `del` notifications are fired at the end of the
+                    # command, but the `incr` they replicate still precedes the `del`,
+                    # since the command itself is propagated only after it returns.
                     assert_replication_stream $repl {
                         {multi}
                         {select *}

@@ -551,6 +551,137 @@ tags "modules external:skip" {
             r keyspace.unsubscribe_require_subkeys
         }
 
+        # The module reads the key from inside the notification callback and
+        # logs "<event> <type> <length>", so these tests verify that events are
+        # fired only after the command has modified the key.
+        test "Keyspace notifications observe post-command state: SPOP with count" {
+            set strs {}
+            for {set j 0} {$j < 200} {incr j} { lappend strs "e$j" }
+            set ints {1 2 3 4 5 6 7 8 9 10}
+            set lpstrs {a b c d e f g h i j}
+
+            # encoding, members, count, remaining. The first three cases extract
+            # random elements (with a specialized listpack path), the last three
+            # rebuild the set out of the remaining elements.
+            set cases [list \
+                [list listpack $lpstrs 2 8] \
+                [list intset $ints 2 8] \
+                [list hashtable $strs 10 190] \
+                [list listpack $lpstrs 9 1] \
+                [list intset $ints 9 1] \
+                [list hashtable $strs 190 10] \
+            ]
+            foreach c $cases {
+                lassign $c enc members count remaining
+                r del post_state:s
+                r sadd post_state:s {*}$members
+                assert_encoding $enc post_state:s
+                r keyspace.reset_post_state_log
+                assert_equal $count [llength [r spop post_state:s $count]]
+                assert_equal [list "spop set $remaining"] [r keyspace.get_post_state_log]
+                assert_equal $remaining [r scard post_state:s]
+            }
+
+            # Popping the whole set: 'spop' is fired after the set is deleted,
+            # followed by 'del'.
+            r del post_state:s
+            r sadd post_state:s a b c
+            r keyspace.reset_post_state_log
+            assert_equal 3 [llength [r spop post_state:s 5]]
+            assert_equal {{spop none 0} {del none 0}} [r keyspace.get_post_state_log]
+        }
+
+        test "Keyspace notifications observe post-command state: SPOP without count" {
+            r del post_state:s
+            r sadd post_state:s a b c
+            r keyspace.reset_post_state_log
+            r spop post_state:s
+            assert_equal {{spop set 2}} [r keyspace.get_post_state_log]
+
+            r del post_state:s
+            r sadd post_state:s a
+            r keyspace.reset_post_state_log
+            r spop post_state:s
+            assert_equal {{spop none 0} {del none 0}} [r keyspace.get_post_state_log]
+        }
+
+        test "Keyspace notifications observe post-command state: SMOVE" {
+            r del post_state:src post_state:dst
+            r sadd post_state:src a b
+            r keyspace.reset_post_state_log
+            assert_equal 1 [r smove post_state:src post_state:dst a]
+            assert_equal {{srem set 1} {sadd set 1}} [r keyspace.get_post_state_log]
+
+            r keyspace.reset_post_state_log
+            assert_equal 1 [r smove post_state:src post_state:dst b]
+            assert_equal {{srem none 0} {del none 0} {sadd set 2}} [r keyspace.get_post_state_log]
+            r del post_state:dst
+        }
+
+        test "Keyspace notifications observe post-command state: SREM, S*STORE" {
+            r del post_state:s post_state:a post_state:b
+            r sadd post_state:s a b c
+            r keyspace.reset_post_state_log
+            r srem post_state:s a b
+            assert_equal {{srem set 1}} [r keyspace.get_post_state_log]
+            r keyspace.reset_post_state_log
+            r srem post_state:s c
+            assert_equal {{srem none 0} {del none 0}} [r keyspace.get_post_state_log]
+
+            r sadd post_state:a 1 2 3
+            r sadd post_state:b 2 3 4
+            r keyspace.reset_post_state_log
+            r sinterstore post_state:s post_state:a post_state:b
+            r sunionstore post_state:s post_state:a post_state:b
+            r sdiffstore post_state:s post_state:a post_state:b
+            assert_equal {{sinterstore set 2} {sunionstore set 4} {sdiffstore set 1}} \
+                [r keyspace.get_post_state_log]
+            r del post_state:s post_state:a post_state:b
+        }
+
+        test "Keyspace notifications observe post-command state: ZPOPMIN/ZPOPMAX/ZMPOP with count" {
+            r del post_state:z
+            r zadd post_state:z 1 a 2 b 3 c 4 d 5 e
+            r keyspace.reset_post_state_log
+            r zpopmin post_state:z 2
+            assert_equal {{zpopmin zset 3}} [r keyspace.get_post_state_log]
+
+            r keyspace.reset_post_state_log
+            r zmpop 1 post_state:z MAX COUNT 2
+            assert_equal {{zpopmax zset 1}} [r keyspace.get_post_state_log]
+
+            r keyspace.reset_post_state_log
+            r zpopmax post_state:z 5
+            assert_equal {{zpopmax none 0} {del none 0}} [r keyspace.get_post_state_log]
+        }
+
+        test "Keyspace notifications observe post-command state: lazy hash field expiry" {
+            r debug set-active-expire 0
+            r del post_state:h
+            r hset post_state:h f1 v1
+            r hpexpire post_state:h 10 FIELDS 1 f1
+            after 50
+            r keyspace.reset_post_state_log
+            assert_equal {} [r hget post_state:h f1]
+            set log [r keyspace.get_post_state_log]
+            r debug set-active-expire 1
+            assert_equal {del none 0} [lindex $log end]
+            r ping
+        } {PONG} {needs:debug}
+
+        test "Keyspace notifications observe post-command state: active hash field expiry" {
+            r del post_state:h
+            r hset post_state:h f1 v1
+            r keyspace.reset_post_state_log
+            r hpexpire post_state:h 10 FIELDS 1 f1
+            wait_for_condition 50 100 {
+                [r exists post_state:h] == 0
+            } else {
+                fail "Fields not expired by active expiry"
+            }
+            assert_equal {del none 0} [lindex [r keyspace.get_post_state_log] end]
+        }
+
         test "Unload the module - testkeyspace" {
             assert_equal {OK} [r module unload testkeyspace]
         }

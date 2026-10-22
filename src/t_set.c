@@ -489,7 +489,6 @@ void smoveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
 
     /* Update keysizes histogram */
     int64_t srcNewLen = setTypeSize(srcset), srcOldLen = srcNewLen + 1;
@@ -498,7 +497,6 @@ void smoveCommand(client *c) {
     if (srcNewLen == 0) {
         dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
         srcNewLen = -1; /* removed */
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
     updateKeysizesHist(c->db, OBJ_SET, srcOldLen, srcNewLen);
 
@@ -514,15 +512,23 @@ void smoveCommand(client *c) {
     if (server.memory_tracking_enabled)
         oldDstAllocSize = kvobjAllocSize(dstset);
     /* An extra key has changed when ele was successfully added to dstset */
-    if (setTypeAdd(dstset,ele->ptr)) {
+    int added = setTypeAdd(dstset,ele->ptr);
+    if (added) {
         unsigned long dstLen = setTypeSize(dstset);
         updateKeysizesHist(c->db, OBJ_SET, dstLen - 1, dstLen);
         server.dirty++;
         keyModified(c,c->db,c->argv[2],dstset,1);
-        notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), dstset, oldDstAllocSize, kvobjAllocSize(dstset));
+
+    /* Generate the keyspace notifications only after both keys have been
+     * modified, so that subscribers observe the post-command state. */
+    notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
+    if (srcNewLen == -1)
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+    if (added)
+        notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     addReply(c,shared.cone);
 }
 
@@ -604,9 +610,6 @@ void spopWithCountCommand(client *c) {
 
     size = setTypeSize(set);
     toRemove = (count >= size) ? size : count;
-
-    /* Generate an SPOP keyspace notification */
-    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
     server.dirty += toRemove;
 
     /* CASE 1:
@@ -618,14 +621,16 @@ void spopWithCountCommand(client *c) {
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
-
-        /* todo: Move the spop notification to be executed after the command logic. */
 
         /* Propagate this command as a DEL or UNLINK operation */
         robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
         rewriteClientCommandVector(c, 2, aux, c->argv[1]);
         keyModified(c,c->db,c->argv[1],NULL,1);
+
+        /* Generate the keyspace notifications only now that the set is gone,
+         * so that subscribers observe the post-command state. */
+        notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         return;
     }
 
@@ -806,6 +811,10 @@ void spopWithCountCommand(client *c) {
      * the alsoPropagate() API. */
     preventCommandPropagation(c);
     keyModified(c,c->db,c->argv[1],set,1);
+
+    /* Generate the SPOP keyspace notification after the elements have been
+     * removed, so that subscribers observe the post-command state. */
+    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 }
 
 void spopCommand(client *c) {
@@ -838,8 +847,6 @@ void spopCommand(client *c) {
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
 
-    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
-
     /* Replicate/AOF this command as an SREM operation */
     rewriteClientCommandVector(c,3,shared.srem,c->argv[1],ele);
 
@@ -852,12 +859,18 @@ void spopCommand(client *c) {
     if (setTypeSize(kv) == 0) {
         deleted = 1;
         dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
     /* Set has been modified */
     keyModified(c, c->db, c->argv[1], deleted ? NULL : kv, 1);
     server.dirty++;
+
+    /* Generate the keyspace notifications after the set has been modified (and
+     * deleted if it became empty), so that subscribers observe the
+     * post-command state. */
+    notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
+    if (deleted)
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
 }
 
 /* handle the "SRANDMEMBER key <count>" variant. The normal version of the

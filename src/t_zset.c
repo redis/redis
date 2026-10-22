@@ -4330,11 +4330,6 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
-        if (result_count == 0) { /* Do this only for the first iteration. */
-            char *events[2] = {"zpopmin","zpopmax"};
-            notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
-        }
-
         if (use_nested_array) {
             addReplyArrayLen(c,2);
         }
@@ -4354,12 +4349,18 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         if (deleted) *deleted = 1;
 
         dbDeleteSkipKeysizesUpdate(c->db, key);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-
         newlen = -1; 
     }
     updateKeysizesHist(c->db, OBJ_ZSET, oldlen, newlen);
     keyModified(c, c->db, key, (newlen > 0) ? zobj : NULL, 1);
+
+    /* Generate the events only after all the elements have been popped (and
+     * the key deleted if it became empty), so that subscribers observe the
+     * post-command state. */
+    char *events[2] = {"zpopmin","zpopmax"};
+    notifyKeyspaceEvent(NOTIFY_ZSET,events[where],key,c->db->id);
+    if (newlen == -1)
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
 
     if (c->cmd->proc == zmpopCommand) {
         /* Always replicate it as ZPOP[MIN|MAX] with COUNT option instead of ZMPOP. */
