@@ -20,7 +20,10 @@
  * unconditionally. */
 
 #include <string.h>
-#include <arpa/inet.h>
+#include <sys/types.h>
+#include <sys/socket.h>  /* AF_INET, AF_INET6 */
+#include <netinet/in.h>  /* struct in6_addr */
+#include <arpa/inet.h>   /* inet_pton(); on FreeBSD it provides none of the above */
 
 /* Return 1 if `name` is an IPv4 or IPv6 address literal, 0 otherwise. This
  * decides whether an identity is matched against a certificate's IP or DNS
