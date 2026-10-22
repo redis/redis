@@ -1195,5 +1195,23 @@ test {corrupt payload: stream consumer group with overflowing entries_read} {
     }
 }
 
+# Stream DUMP (RDB_TYPE_STREAM_LISTPACKS) with 6 entries (IDs 1-0..6-0,
+# field f). The first entry's flags element is stored as a 64-bit integer
+# (LP_ENCODING_64BIT_INT) instead of the minimal 7-bit encoding. CRC is stale;
+# tests skip checksum validation.
+set ::stream_nonminimal_flags "\x0f\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x40\x62\x62\x00\x00\x00\x23\x00\x06\x01\x00\x01\x01\x01\x81\x66\x02\x00\x01\xf4\x02\x00\x00\x00\x00\x00\x00\x00\x09\x00\x01\x00\x01\x82\x76\x30\x03\x04\x01\x02\x01\x01\x01\x00\x01\x82\x76\x31\x03\x04\x01\x02\x01\x02\x01\x00\x01\x82\x76\x32\x03\x04\x01\x02\x01\x03\x01\x00\x01\x82\x76\x33\x03\x04\x01\x02\x01\x04\x01\x00\x01\x82\x76\x34\x03\x04\x01\x02\x01\x05\x01\x00\x01\x82\x76\x35\x03\x04\x01\xff\x06\x06\x00\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+test {corrupt payload: stream XTRIM with non-minimally encoded flags} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        assert_equal {OK} [r restore key 0 $::stream_nonminimal_flags]
+        assert_equal 6 [r xlen key]
+        r xtrim key maxlen 1
+        assert_equal 1 [r xlen key]
+        r ping
+    }
+}
+
 } ;# tags
 
