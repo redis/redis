@@ -17,9 +17,10 @@
  * Sorted set API
  *----------------------------------------------------------------------------*/
 
-/* Large ZSETs normally use the packed B+ tree and compact member hash index
- * implemented in zset_btree.c. The skiplist below remains available for
- * explicit conversions and as a temporary structure used by bulk commands.
+/* Large ZSETs use the packed B+ tree and compact member hash index
+ * implemented in zset_btree.c. The skiplist below is only used as a
+ * temporary structure by ZUNION/ZINTER/ZDIFF and their STORE variants:
+ * a SKIPLIST-encoded zset is never stored in the keyspace.
  *
  * The skiplist holds every element in both a hash table and a skiplist. The
  * hash table finds a member directly, while the skiplist keeps score order.

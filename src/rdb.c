@@ -1285,7 +1285,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
-        /* Save a sorted set value */
+        /* Save a sorted set value. SKIPLIST is only a temporary encoding,
+         * keyspace zsets are LISTPACK or BTREE. */
+        debugServerAssert(o->encoding != OBJ_ENCODING_SKIPLIST);
         if (o->encoding == OBJ_ENCODING_LISTPACK) {
             size_t l = lpBytes((unsigned char*)o->ptr);
 
