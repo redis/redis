@@ -13393,7 +13393,8 @@ void queueModuleConfig(sds name, sds value, configSource source) {
     moduleConfigEntry *entry = zmalloc(sizeof(*entry));
     entry->value = value;
     entry->source = source;
-    if (!dictReplace(server.module_configs_queue, name, entry)) sdsfree(name);
+    if (!dictReplace(server.module_configs_queue, name, entry))
+        sdsfree(name);
 }
 
 void moduleInitModulesSystem(void) {

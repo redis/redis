@@ -1399,11 +1399,11 @@ typedef struct pendingCommandPool {
 } pendingCommandPool;
 
 typedef enum {
-    CONFIG_SOURCE_DEFAULT, /* Zero-initialized configuration definitions. */
-    CONFIG_SOURCE_MAIN,
-    CONFIG_SOURCE_INCLUDE,
-    CONFIG_SOURCE_CLI,
-    CONFIG_SOURCE_RUNTIME
+    CONFIG_SOURCE_DEFAULT, /* No explicit source has been recorded. */
+    CONFIG_SOURCE_MAIN,    /* Loaded from the main configuration file. */
+    CONFIG_SOURCE_INCLUDE, /* Loaded from a file referenced by include. */
+    CONFIG_SOURCE_CLI,     /* Supplied through CLI options or stdin. */
+    CONFIG_SOURCE_RUNTIME  /* Added or set by a runtime command or API. */
 } configSource;
 
 /* This structure represents a Redis user. This is useful for ACLs, the

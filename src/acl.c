@@ -27,18 +27,15 @@ user *DefaultUser;  /* Global reference to the default user.
                        AUTH or HELLO is used to authenticate with a
                        different user. */
 
-list *UsersToLoad;  /* This is a list of users found in the configuration file
-                       that we'll need to load in the final stage of Redis
-                       initialization, after all the modules are already
-                       loaded. Each list element is a NULL-terminated array of
-                       SDS pointers: the first is the username, and the
-                       remaining pointers are ACL rules in the same format as
-                       ACLSetUser(). The entry also records the config source. */
-
 typedef struct aclUserConfigEntry {
-    sds *rules;
-    configSource source;
+    sds *rules;            /* NULL-terminated SDS array: username first, then
+                            * ACL rules in ACLSetUser() argument format. */
+    configSource source;   /* Source of the user directive, retained for
+                            * CONFIG REWRITE source handling. */
 } aclUserConfigEntry;
+
+list *UsersToLoad;  /* Pending startup users, applied after modules are loaded.
+                       Each list node contains an aclUserConfigEntry. */
 
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
@@ -2215,8 +2212,7 @@ cleanup:
  * When an error is detected and C_ERR is returned, the function populates
  * by reference (if not set to NULL) the argc_err argument with the index
  * of the argv vector that caused the error. */
-int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err,
-                            configSource source) {
+int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err, configSource source) {
     if (argc < 2 || strcasecmp(argv[0],"user")) {
         if (argc_err) *argc_err = 0;
         return C_ERR;
@@ -2256,7 +2252,8 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err,
     aclUserConfigEntry *entry = zmalloc(sizeof(*entry));
     entry->rules = zmalloc(sizeof(sds)*(merged_argc + 2));
     entry->rules[0] = sdsdup(argv[1]);
-    for (int j = 0; j < merged_argc; j++) entry->rules[j+1] = sdsdup(acl_args[j]);
+    for (int j = 0; j < merged_argc; j++)
+        entry->rules[j+1] = sdsdup(acl_args[j]);
     entry->rules[merged_argc + 1] = NULL;
     entry->source = source;
     listAddNodeTail(UsersToLoad,entry);
