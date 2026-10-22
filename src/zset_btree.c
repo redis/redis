@@ -4450,7 +4450,7 @@ static void zbtTestPopulate(zbtreeSet *zs, int n) {
     zbtTestPopulateRange(zs, 0, n);
 }
 
-/* Helpers for the M1 same-tag scan regression. */
+/* Helpers for the same-tag ZSCAN regression test. */
 static uint32_t zbtTestHash(const char *s) {
     return (uint32_t)dictGenHashFunction((const unsigned char *)s, strlen(s));
 }
@@ -4765,7 +4765,7 @@ static uint64_t zbtTestRand(uint64_t *r) {
     return *r >> 17;
 }
 
-/* Members of the U-01 and U-09 tests: "m:<i>" padded to a chosen length. */
+/* Test members: "m:<i>:" padded to a chosen length. */
 static size_t zbtTestMember(char *buf, int i, size_t len) {
     int n = snprintf(buf, 32, "m:%d:", i);
     if (len < (size_t)n) len = n;
@@ -5137,7 +5137,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         zbtreeFree(slow);
     }
 
-    printf("Testing B+ tree ZSCAN across a same-tag slot exchange (M1)\n");
+    printf("Testing B+ tree ZSCAN across a same-tag slot exchange\n");
 
     /* Deterministic regression for a ZSCAN omission. X and Y have the same
      * folded 8 bit index tag. Y's slot b1 lies on X's probe path before X's
@@ -5223,7 +5223,7 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
                 }
             }
         }
-        test_cond("M1: found X/Y with same tag and overlapping probe runs",
+        test_cond("Same-tag scan: found X/Y with same tag and overlapping probe runs",
                   X >= 0);
         if (X >= 0) {
             snprintf(xbuf, sizeof(xbuf), "member:%d", X);
@@ -5242,23 +5242,23 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
                                           b1 / ZBT_SCAN_BUCKETS_PER_STEP));
             serverAssert(!zbtTestGroupVisited(cursor,
                                               b2 / ZBT_SCAN_BUCKETS_PER_STEP));
-            test_cond("M1: cursor is between b1 and b2",
+            test_cond("Same-tag scan: cursor is between b1 and b2",
                       seen[Y] > 0);
 
             /* Move X into Y's leaf: just below Y, far from X's neighbors. */
             zbtTestSetScore(zs, xbuf, (double)Y - 0.5);
-            test_cond("M1: X now lives in Y's leaf",
+            test_cond("Same-tag scan: X now lives in Y's leaf",
                       zbtTestLeafOf(zs, xbuf)->id == ly_id);
             zbtIndexBucket *s1 = zbtIndexBucketAt(t, b1);
             zbtIndexBucket *s2 = zbtIndexBucketAt(t, b2);
-            test_cond("M1: both slots now name Y's leaf",
+            test_cond("Same-tag scan: both slots now name Y's leaf",
                       zbtIndexGetId(t, s1, p1) == ly_id &&
                       zbtIndexGetId(t, s2, p2) == ly_id);
 
             /* Move X out to the right edge. */
             zbtTestSetScore(zs, xbuf, 1e9);
             uint32_t lr_id = zbtTestLeafOf(zs, xbuf)->id;
-            test_cond("M1: X moved to another leaf", lr_id != ly_id);
+            test_cond("Same-tag scan: X moved to another leaf", lr_id != ly_id);
             printf("    after moves: slot b1 -> leaf %u, slot b2 -> leaf %u,"
                    " X leaf %u\n", zbtIndexGetId(t, s1, p1),
                    zbtIndexGetId(t, s2, p2), lr_id);
