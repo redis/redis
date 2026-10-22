@@ -449,6 +449,7 @@ void sortCommandGeneric(client *c, int readonly) {
 
         int rangelen = vectorlen;
         if (sortval->encoding == OBJ_ENCODING_BTREE) {
+            serverAssert(zsetLength(sortval) > 0);
             zbtreeIterator iter;
             const unsigned char *ele;
             size_t len;
