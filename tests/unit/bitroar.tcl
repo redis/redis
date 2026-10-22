@@ -1596,6 +1596,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "external:skip" "clu
         assert_equal 1 [r getbit bitmap:public:aof:direct $sparse_public_offset]
         assert_equal [binary format H* 00] [r debug bitmap-raw bitmap:public:aof:zero]
         assert_equal 1 [r getbit bitmap:public:aof:auto $sparse_public_offset]
+
         if {$test_high_offset} {
             r config set proto-max-bulk-len $byte_len
             assert_equal 1 [r getbit bitmap:public:aof:high $high_bit]
@@ -4846,7 +4847,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
 }
 } ;# run_solo
 
-# Fixtures port redis-roaring R.GETINTARRAY / R.RANGEINTARRAY semantics.
+# BITRANGEINTARRAY returns sorted set-bit offsets by rank.
 # Native full enumeration uses BITRANGEINTARRAY key 0 -1. Ranges address
 # inclusive ranks in the sorted set-bit offsets, which may exceed 32 bits.
 # Negative ranks count backward from the final set-bit offset.
@@ -5043,7 +5044,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal {} [r bitrangeintarray $key -9223372036854775808 -9223372036854775808]
     }
 
-    test {BITRANGEINTARRAY matches LRANGE through empty and singleton transitions} {
+    test {BITRANGEINTARRAY matches LRANGE through transitions and mutations} {
+        # Exhaust ranges across empty, singleton, and small bitmap transitions.
         seed_roaring_bitmap intarray:small {}
         set previous {}
         foreach bits {{} {0} {0 65535} {0 65535 65536} {0 65536} {65536} {}} {
@@ -5068,6 +5070,37 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
                         [r bitrangeintarray intarray:small $start $end] \
                         "bits $bits, ranks $start $end"
                 }
+            }
+        }
+
+        # Check deterministic mutations against a sorted list of remaining bits.
+        set state 15331
+        for {set trial 0} {$trial < 30} {incr trial} {
+            set bits {}
+            for {set i 0} {$i < 90} {incr i} {
+                set container [intarray_random state 12]
+                set offset [intarray_random state 65536]
+                lappend bits [expr {$container * 65536 + $offset}]
+                if {$i % 7 == 0} {lappend bits [lindex $bits end]}
+            }
+            seed_roaring_bitmap intarray:oracle $bits
+            set present [dict create]
+            foreach bit $bits {dict set present $bit 1}
+            for {set i 0} {$i < [llength $bits]} {incr i 4} {
+                set bit [lindex $bits $i]
+                r setbit intarray:oracle $bit 0
+                dict unset present $bit
+            }
+            set expected [lsort -integer [dict keys $present]]
+            assert_equal $expected [r bitrangeintarray intarray:oracle 0 -1]
+            assert_equal [llength $expected] [r bitcount intarray:oracle]
+            r del intarray:oracle:list
+            r rpush intarray:oracle:list {*}$expected
+            for {set query 0} {$query < 15} {incr query} {
+                set start [expr {[intarray_random state 220] - 110}]
+                set end [expr {[intarray_random state 220] - 110}]
+                assert_equal [r lrange intarray:oracle:list $start $end] \
+                    [r bitrangeintarray intarray:oracle $start $end]
             }
         }
     }
@@ -5268,38 +5301,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal {8190 8191} [r bitrangeintarray intarray:run 8190 9000]
     }
 
-    test {BITRANGEINTARRAY agrees with a deterministic sorted-set oracle after mutations} {
-        set state 15331
-        for {set trial 0} {$trial < 30} {incr trial} {
-            set bits {}
-            for {set i 0} {$i < 90} {incr i} {
-                set container [intarray_random state 12]
-                set offset [intarray_random state 65536]
-                lappend bits [expr {$container * 65536 + $offset}]
-                if {$i % 7 == 0} {lappend bits [lindex $bits end]}
-            }
-            seed_roaring_bitmap intarray:oracle $bits
-            set present [dict create]
-            foreach bit $bits {dict set present $bit 1}
-            for {set i 0} {$i < [llength $bits]} {incr i 4} {
-                set bit [lindex $bits $i]
-                r setbit intarray:oracle $bit 0
-                dict unset present $bit
-            }
-            set expected [lsort -integer [dict keys $present]]
-            assert_equal $expected [r bitrangeintarray intarray:oracle 0 -1]
-            assert_equal [llength $expected] [r bitcount intarray:oracle]
-            r del intarray:oracle:list
-            r rpush intarray:oracle:list {*}$expected
-            for {set query 0} {$query < 15} {incr query} {
-                set start [expr {[intarray_random state 220] - 110}]
-                set end [expr {[intarray_random state 220] - 110}]
-                assert_equal [r lrange intarray:oracle:list $start $end] \
-                    [r bitrangeintarray intarray:oracle $start $end]
-            }
-        }
-    }
-
     if {[s arch_bits] == 64} {
         test {BITRANGEINTARRAY preserves 64-bit offsets up to the native bitmap limit} {
             set max_bytes [expr {(1 << 60) - 1}]
@@ -5383,7 +5384,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     test {Integer-array streaming stops when the client output limit closes the connection} {
         # Compact runs allow more than 2^32 set bits without a large raw
         # fixture. The output limit stops each read before a large reply
-        # accumulates, including ranges beyond 100M and 32-bit LONG_MAX.
+        # accumulates, including ranges beyond 32-bit LONG_MAX.
         set old_bitmap [config_get_set bitmap-default-roaring yes]
         set old_bulk_limit [config_get_set proto-max-bulk-len 536870913]
         r del intarray:outputlimit
