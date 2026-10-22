@@ -2070,12 +2070,24 @@ static int zbtIndexTableFindReference(zbtIndexTable *table, uint32_t hash,
     return 0;
 }
 
-/* Start copying the member index into a table sized for 'elements'. */
+/* Start copying the member index into a table sized for 'elements'.
+ *
+ * Every later insertion copies at least one more score leaf, so the table
+ * also leaves room for one insertion per leaf. The copy then finishes before
+ * the destination fills, and zbtIndexExpandIfNeeded() does not have to
+ * complete it at once. Without this, a tombstone clean-up of a set close to
+ * the maximum load gets a same-sized table with almost no room. Leaf IDs
+ * bound the number of leaves, and so does the member count. */
 static int zbtIndexStartResize(zbtreeSet *zs, unsigned long elements,
                                int allow_same_size)
 {
     if (zs->member_rehash) return 0;
-    unsigned long buckets = zbtIndexBucketsForElements(elements);
+    unsigned long room = 0;
+    if (zs->length) {
+        room = zs->next_score_leaf_id;
+        if (room > elements) room = elements;
+    }
+    unsigned long buckets = zbtIndexBucketsForElements(elements + room);
     if (buckets == zs->member_index.size && !allow_same_size) return 0;
 
     /* A size hint may underestimate the first batch. There are no leaves
@@ -5395,6 +5407,51 @@ int zsetBtreeTest(int argc, char **argv, int flags) {
         test_cond("Range deletions shrink the member index as they go",
                   bounded && zbtTestCheck(zs) &&
                   zbtreeLength(zs) == (unsigned long)(N + B - 1) / B * K);
+        zbtreeFree(zs);
+    }
+
+    printf("Testing B+ tree member index clean-up close to the maximum load\n");
+    {
+        /* Replacing members fills the table with tombstones until a clean-up
+         * resize starts. Here the set is then close to the maximum load of
+         * its table. Adding members must still let the copy proceed a few
+         * leaves at a time instead of finishing it within one insertion. */
+        const unsigned long buckets = 4096;
+        const unsigned long max_live = buckets * ZBT_INDEX_BUCKET_ITEMS *
+            ZBT_INDEX_MAX_LOAD_NUM / ZBT_INDEX_MAX_LOAD_DEN;
+        char buf[32];
+        int oldest = 0, next = (int)max_live - 32;
+        zbtreeSet *zs = zbtreeCreate();
+        zbtTestPopulate(zs, next);
+        int sized = zs->member_index.size == buckets && !zs->member_rehash;
+        while (sized && !zs->member_rehash) {
+            snprintf(buf, sizeof(buf), "member:%d", oldest++);
+            sds ele = sdsnew(buf);
+            serverAssert(zbtreeDelete(zs, ele));
+            sdsfree(ele);
+            zbtTestPopulateRange(zs, next, next + 1);
+            next++;
+        }
+        /* One insertion copies at most three leaves: one step in its lookup,
+         * its own leaf, and one step after it. A finished copy may be
+         * followed at once by a larger resize, so compare resize numbers. */
+        int bounded = 1;
+        while (sized && zbtreeLength(zs) <= 2 * max_live) {
+            unsigned long pending = 0;
+            uint16_t resize_id = 0;
+            if (zs->member_rehash) {
+                resize_id = zs->member_rehash->resize_id;
+                for (zbtScoreLeaf *l = zs->score_first; l; l = l->next)
+                    if (!zbtIndexLeafMigrated(zs, l)) pending++;
+            }
+            zbtTestPopulateRange(zs, next, next + 1);
+            next++;
+            if (pending > 3 && (!zs->member_rehash ||
+                                zs->member_rehash->resize_id != resize_id))
+                bounded = 0;
+        }
+        test_cond("A clean-up resize next to the maximum load stays incremental",
+                  sized && bounded && zbtTestCheck(zs));
         zbtreeFree(zs);
     }
 
