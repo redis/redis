@@ -10970,10 +10970,13 @@ int RM_SetModuleUserACLString(RedisModuleCtx *ctx, RedisModuleUser *user, const 
 
     int argc;
     sds *argv = sdssplitargs(acl, &argc);
-
-    sds err = ACLStringSetUser(user->user, NULL, argv, argc);
-
-    sdsfreesplitres(argv, argc);
+    sds err = NULL;
+    if (!argv) {
+        err = sdsnew("Unbalanced quotes in ACL string");
+    } else {
+        err = ACLStringSetUser(user->user, NULL, argv, argc);
+        sdsfreesplitres(argv, argc);
+    }
 
     if (err) {
         if (error) {
