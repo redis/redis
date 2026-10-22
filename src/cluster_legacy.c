@@ -1092,6 +1092,13 @@ void clusterReset(int hard) {
         clusterSetNodeAsMaster(myself);
         replicationUnsetMaster();
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
+        /* emptyData() only empties memory. Propagate a FLUSHALL so that the AOF
+         * (which would otherwise resurrect the old dataset on restart) and any
+         * sub-replicas (which keep their link across replicationUnsetMaster) are
+         * emptied too. */
+        robj *flushall = createStringObject("FLUSHALL",8);
+        alsoPropagate(-1,&flushall,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        decrRefCount(flushall);
     }
 
     /* Close slots, reset manual failover state. */
