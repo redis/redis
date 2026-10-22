@@ -1113,6 +1113,55 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 config set rdb-key-save-delay 0
     }
 
+    test "BLESS SCAN filters keys in importing slots and BLESS changes during migration are applied" {
+        move_slots_to_node 1 0 100
+        R 1 flushall
+        R 0 flushall
+
+        # one key per slot, so with the delay below they are transferred one per second
+        set k0 [slot_key 0 bless]
+        set k1 [slot_key 1 bless]
+        set k2 [slot_key 2 bless]
+        foreach k [list $k0 $k1 $k2] { R 1 set $k v }
+        R 1 bless set $k0 no-evict
+        R 1 bless set $k1 no-evict
+        R 1 config set rdb-key-save-delay 1000000
+
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
+        wait_for_condition 2000 10 {
+            [string match {*send-bulk-and-stream*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not start"
+        }
+
+        # changed after the snapshot started, so they reach node 0 via the incremental stream
+        R 1 bless clear $k1 no-evict
+        R 1 bless set $k2 no-evict
+
+        # an imported blessed key is in the index, but BLESS SCAN can't find it yet
+        R 3 readonly
+        foreach id {0 3} { ;# 0 is the master, 3 is the replica
+            wait_for_condition 100 50 {
+                [S $id blessed_keys] >= 1
+            } else {
+                fail "no blessed key imported on node $id"
+            }
+            assert_equal {0 {}} [R $id bless scan 0 no-evict]
+        }
+
+        wait_for_asm_done
+        wait_for_ofs_sync [Rn 0] [Rn 3]
+        foreach id {0 3} {
+            assert_equal {NO-EVICT} [R $id bless get $k0]
+            assert_equal {} [R $id bless get $k1]
+            assert_equal {NO-EVICT} [R $id bless get $k2]
+            assert_equal [lsort [list $k0 $k2]] [lsort [lindex [R $id bless scan 0 no-evict] 1]]
+            assert_equal 2 [S $id blessed_keys]
+        }
+
+        R 1 config set rdb-key-save-delay 0
+    }
+
     test "Eviction does not evict keys in importing slots" {
         set slot0_key [slot_key 0 mykey]
         set slot1_key [slot_key 1 mykey]
@@ -1407,6 +1456,51 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # reset config
         R 0 config set key-load-delay 0
         R 1 config set key-load-delay 0
+    }
+
+    test "Cancel import task trims the imported keys from the BLESS index" {
+        move_slots_to_node 1 0 100
+        R 1 flushall
+        R 0 flushall
+
+        # a blessed key in a slot node 0 owns, which the trim must not touch
+        set own_key [slot_key 101 bless]
+        R 0 set $own_key v
+        R 0 bless set $own_key no-evict
+        set overhead [dict get [dict get [R 0 memory stats] db.0] overhead.hashtable.blessed]
+
+        set keys [list [slot_key 0 bless] [slot_key 1 bless] [slot_key 2 bless]]
+        foreach k $keys {
+            R 1 set $k v
+            R 1 bless set $k no-evict
+        }
+        R 1 config set rdb-key-save-delay 1000000
+
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
+        wait_for_condition 100 50 {
+            [S 0 blessed_keys] >= 2 && [S 3 blessed_keys] >= 2
+        } else {
+            fail "no blessed key imported"
+        }
+        R 0 cluster migration cancel id $task_id
+
+        foreach id {0 3} { ;# 0 is the master, 3 is the replica
+            wait_for_condition 100 50 {
+                [S $id blessed_keys] == 1
+            } else {
+                fail "node $id has [S $id blessed_keys] blessed keys after the cancel"
+            }
+        }
+        assert_equal $overhead [dict get [dict get [R 0 memory stats] db.0] overhead.hashtable.blessed]
+        R 3 readonly
+        assert_equal {NO-EVICT} [R 3 bless get $own_key]
+
+        # the source keeps its keys and their flags
+        foreach k $keys { assert_equal {NO-EVICT} [R 1 bless get $k] }
+        assert_equal 3 [S 1 blessed_keys]
+
+        R 1 config set rdb-key-save-delay 0
+        wait_for_asm_done
     }
 
     test "Destination node main channel timeout when waiting stream EOF" {
