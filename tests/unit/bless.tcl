@@ -352,10 +352,17 @@ start_server {tags {"bless"}} {
 }
 
 start_server {tags {"bless" "maxmemory" "external:skip"}} {
-    test {BLESS NO-EVICT key is not evicted under memory pressure} {
+# With lazyfree-lazy-eviction and a low tenacity, eviction runs in time-boxed
+# slices (and from evictionTimeProc), a separate path that must skip blessed keys too.
+foreach lazy {no yes} {
+    test "BLESS NO-EVICT key is not evicted under memory pressure (lazyfree-lazy-eviction $lazy)" {
         r flushall
+        # evicted_keys is cumulative; reset it so the check below reflects this case.
+        r config resetstat
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-random
+        r config set lazyfree-lazy-eviction $lazy
+        if {$lazy} { r config set maxmemory-eviction-tenacity 0 }
         r set precious [string repeat x 2000]
         r bless set precious no-evict
         set used [s used_memory]
@@ -368,7 +375,10 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         assert_equal 1 [r exists precious]
         assert_equal {NO-EVICT} [r bless get precious]
         r config set maxmemory 0
+        r config set lazyfree-lazy-eviction no
+        r config set maxmemory-eviction-tenacity 10
     }
+}
 
     test {Blessing a key already in the LRU eviction pool still protects it} {
         r flushall
@@ -425,12 +435,17 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         r config set maxmemory 0
     }
 
-    test {All-blessed: bounded overshoot tolerated, OOM past the factor, unbless relieves} {
+# The overshoot is documented to apply to every eviction policy. Under
+# volatile-* only keys with a TTL are sampled, so give every key a TTL there.
+foreach policy {allkeys-random allkeys-lru allkeys-lfu allkeys-lrm
+                volatile-random volatile-lru volatile-lfu volatile-ttl volatile-lrm} {
+    test "All-blessed: bounded overshoot tolerated, OOM past the factor, unbless relieves ($policy)" {
         r flushall
         r config set maxmemory 0
-        r config set maxmemory-policy allkeys-random
+        r config set maxmemory-policy $policy
+        set ttl [expr {[string match volatile-* $policy] ? {ex 100000} : {}}]
         for {set j 0} {$j < 500} {incr j} {
-            r set b:$j [string repeat y 1000]
+            r set b:$j [string repeat y 1000] {*}$ttl
             r bless set b:$j no-evict
         }
         assert_equal 500 [llength [lindex [r bless scan 0 no-evict] 1]]
@@ -452,6 +467,27 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         assert_equal OK [r set afterunbless v]
         r config set maxmemory 0
     }
+}
+
+# The overshoot is only tolerated when eviction sampled keys and all of them
+# were blessed. With noeviction, or under volatile-* when the blessed keys have
+# no TTL, nothing is ever sampled, so the plain maxmemory limit applies.
+foreach policy {noeviction volatile-lru} {
+    test "No overshoot when no blessed key is an eviction candidate ($policy)" {
+        r flushall
+        r config set maxmemory 0
+        r config set maxmemory-policy $policy
+        for {set j 0} {$j < 500} {incr j} {
+            r set b:$j [string repeat y 1000]
+            r bless set b:$j no-evict
+        }
+        set used [s used_memory]
+        # Same 0.9x limit the overshoot test tolerates, but here the write fails.
+        r config set maxmemory [expr {int($used * 0.9)}]
+        assert_error {*OOM*} {r set small [string repeat z 100]}
+        r config set maxmemory 0
+    }
+}
 
     test {Blessed overshoot: tolerated just under the 1.25x factor, OOM just over it} {
         r flushall
@@ -500,9 +536,11 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
     # Under volatile-* only keys WITH a TTL are candidates, so the blessed key and
     # the flood both get TTLs. volatile-lru/ttl use the pool branch, volatile-random
     # the random branch - both sample db->expires, and both must skip the blessed key.
-    foreach policy {volatile-lru volatile-ttl volatile-random} {
+    foreach policy {volatile-lru volatile-lfu volatile-ttl volatile-random volatile-lrm} {
         test "BLESS NO-EVICT protects a key with a TTL under $policy" {
             r flushall
+            # evicted_keys is cumulative; reset it so the check below reflects this case.
+            r config resetstat
             r config set maxmemory 0
             r config set maxmemory-policy $policy
             r set precious [string repeat x 2000]
@@ -520,12 +558,15 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         }
     }
 
-    # LFU shares the pool branch with LRU but computes idle differently; make sure
-    # the blessed-key skip holds on that path too.
-    test {BLESS NO-EVICT key is not evicted under allkeys-lfu} {
+# LFU and LRM share the pool branch with LRU but compute idle differently; make
+# sure the blessed-key skip holds on those paths too.
+foreach policy {allkeys-lfu allkeys-lrm} {
+    test "BLESS NO-EVICT key is not evicted under $policy" {
         r flushall
+        # evicted_keys is cumulative; reset it so the check below reflects this case.
+        r config resetstat
         r config set maxmemory 0
-        r config set maxmemory-policy allkeys-lfu
+        r config set maxmemory-policy $policy
         r set precious [string repeat x 2000]
         r bless set precious no-evict
         set used [s used_memory]
@@ -536,6 +577,7 @@ start_server {tags {"bless" "maxmemory" "external:skip"}} {
         assert_equal {NO-EVICT} [r bless get precious]
         r config set maxmemory 0
     }
+}
 
     # A large blessed majority with a small unblessed minority. The blessed-only
     # sampling retry must not permanently give up on the (few) real victims: under
