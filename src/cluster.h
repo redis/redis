@@ -100,6 +100,7 @@ void clusterUpdateMyselfHostname(void);
 void clusterUpdateMyselfAnnouncedPorts(void);
 void clusterUpdateMyselfHumanNodename(void);
 
+int clusterGetPublishMessageLength(robj *channel, robj *message, uint32_t *msglen);
 void clusterPropagatePublish(robj *channel, robj *message, int sharded);
 
 unsigned long getClusterConnectionsCount(void);
