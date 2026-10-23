@@ -3404,7 +3404,7 @@ void freeClientDeferredObjects(client *c, int free_array);
 void freeClientIODeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
-void setDeferredArrayLen(client *c, void *node, long long length);
+void setDeferredArrayLen(client *c, void *node, long length);
 void setDeferredMapLen(client *c, void *node, long length);
 void setDeferredSetLen(client *c, void *node, long length);
 void setDeferredAttributeLen(client *c, void *node, long length);

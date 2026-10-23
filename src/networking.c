@@ -1049,7 +1049,7 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
 }
 
 /* Populate the length object and try gluing it to the next chunk. */
-void setDeferredAggregateLen(client *c, void *node, long long length, char prefix) {
+void setDeferredAggregateLen(client *c, void *node, long length, char prefix) {
     serverAssert(length >= 0);
 
     /* Abort when *node is NULL: when the client should not accept writes
@@ -1075,11 +1075,11 @@ void setDeferredAggregateLen(client *c, void *node, long long length, char prefi
     }
 
     char lenstr[128];
-    size_t lenstr_len = snprintf(lenstr, sizeof(lenstr), "%c%lld\r\n", prefix, length);
+    size_t lenstr_len = snprintf(lenstr, sizeof(lenstr), "%c%ld\r\n", prefix, length);
     setDeferredReply(c, node, lenstr, lenstr_len);
 }
 
-void setDeferredArrayLen(client *c, void *node, long long length) {
+void setDeferredArrayLen(client *c, void *node, long length) {
     setDeferredAggregateLen(c,node,length,'*');
 }
 

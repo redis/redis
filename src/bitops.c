@@ -2055,7 +2055,7 @@ void bitroaropCommand(client *c) {
 
 typedef struct bitroarIntArrayReply {
     client *c;
-    long long emitted;
+    long emitted;
 } bitroarIntArrayReply;
 
 /* Stream set-bit offsets into the reply without allocating a second array
