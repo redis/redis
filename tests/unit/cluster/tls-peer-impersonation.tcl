@@ -108,6 +108,128 @@ if {$::tls} {
             assert_equal [R 0 PING] {PONG}
         }
 
+        # --- TLS session resumption and the cluster-bus identity check ---------
+        #
+        # Background for the two tests below. A TLS connection starts with a
+        # "handshake": the server presents its certificate, the client presents
+        # its own when asked, and each side checks the other's. That check is
+        # where the cluster bus verifies that the connecting peer's certificate
+        # carries the expected identity (tls-expected-peer-name). The handshake
+        # is expensive, so TLS lets a client that has connected once come back
+        # and "resume" the earlier session: the server hands out a token (a
+        # session ID in TLS 1.2, a "ticket" in TLS 1.2 and 1.3), and a client
+        # presenting that token later gets a short handshake in which NO
+        # certificate is checked at all. OpenSSL simply restores the verdict it
+        # stored with the original session.
+        #
+        # The node has two TLS listeners: the client port, where a client
+        # certificate is required only as tls-auth-clients says, and the
+        # cluster bus port, where one is always required and, here, must carry
+        # the expected identity as well. A session obtained on the client port
+        # must therefore never be accepted as a resumption on the bus, or those
+        # checks are skipped. The bus accepts with a server context of its
+        # own, so a client-port session is unknown there: not in its cache,
+        # and sealed with a ticket key it does not have. The first test below
+        # checks this; cluster-bus-tls.tcl does the same for a session
+        # obtained without any certificate. Separately, the server tags the
+        # sessions of every accepted connection with a "session ID context"
+        # derived from the way that connection verifies (its
+        # client-certificate requirement and its expected names), and OpenSSL
+        # only resumes a session whose tag matches. That is what stops
+        # resumption across a change of tls-expected-peer-name, which rebuilds
+        # no context, as the second test below shows.
+        #
+        # The tests drive this with the openssl command line client, s_client,
+        # through the openssl_s_client helper in tests/support/util.tcl. It
+        # connects, performs the handshake, prints a report and exits. Two
+        # lines of that report matter here: "New, TLSv1.x" means a full
+        # handshake took place, "Reused, TLSv1.x" means the session was resumed.
+        # With -sess_out FILE it saves the session token it received; with
+        # -sess_in FILE it tries to resume from a saved token.
+
+        test "A client-port TLS session cannot be resumed on the cluster bus" {
+            # The attacker holds redis.crt: issued by the trusted CA, so it
+            # passes the CA chain check, but carrying no identity, so the bus
+            # rejects it in a full handshake (previous test). Here the attacker
+            # tries to avoid the full handshake altogether.
+            #
+            # Repeated for both protocol versions, because they resume
+            # differently: TLS 1.2 by session ID or ticket, TLS 1.3 by a
+            # pre-shared key carried in the ticket. The fix must hold for both.
+            set sess [file join [pwd] tests/tmp resumed.[pid].pem]
+            foreach ver {-tls1_3 -tls1_2} {
+                # Step 1: connect to the ordinary CLIENT port with the attacker
+                # certificate. Only the CA chain is checked there, so the
+                # handshake succeeds ("New") and s_client saves the session
+                # token the server handed out.
+                set out [openssl_s_client $target_host [srv 0 port] $ver \
+                    -cert $::tlsdir/redis.crt -key $::tlsdir/redis.key -sess_out $sess]
+                assert_match {*New, TLSv1*} $out
+                assert {[file size $sess] > 0}
+
+                # Step 2: connect to the CLUSTER BUS port presenting that token.
+                # Without the fix the server would accept it as a resumption,
+                # skip the certificate check, and the attacker would be on the
+                # bus. Count the bus rejections logged so far, to detect a new
+                # one below.
+                set rejected [count_log_message 0 "Error accepting cluster node connection"]
+                set out [openssl_s_client $target_host $target_bus_port $ver \
+                    -cert $::tlsdir/redis.crt -key $::tlsdir/redis.key -sess_in $sess]
+
+                # Step 3: the server must have refused to resume and run a full
+                # handshake instead: s_client must not report "Reused" ...
+                assert_no_match {*Reused, TLSv1*} $out
+                # ... and that full handshake must have failed on the missing
+                # identity, which the server logs as a rejected bus connection.
+                wait_for_condition 50 100 {
+                    [count_log_message 0 "Error accepting cluster node connection"] > $rejected
+                } else {
+                    fail "the bus did not run a full, verified handshake for the resumed session ($ver)"
+                }
+            }
+            file delete $sess
+        }
+
+        test "A bus TLS session is not resumed after tls-expected-peer-name changes" {
+            # The other way a resumption could skip a check: a legitimate member
+            # connected while one identity policy was in force, and the policy
+            # was then changed with CONFIG SET. Its old session must not be
+            # resumed under the new policy, since nothing has verified the peer
+            # against the new names yet. The member certificate san.crt carries
+            # both names used below, so every full handshake succeeds; what is
+            # asserted is only whether a resumption happened or not.
+            set sess [file join [pwd] tests/tmp policy.[pid].pem]
+
+            # Step 1: a full handshake on the bus with the member certificate,
+            # under the current policy (redis.local), saving the session token.
+            set out [openssl_s_client $target_host $target_bus_port -tls1_3 \
+                -cert $::tlsdir/san.crt -key $::tlsdir/san.key -sess_out $sess]
+            assert_match {*New, TLSv1.3*} $out
+            assert {[file size $sess] > 0}
+
+            # Step 2: same policy, present the token again. Resumption is fine
+            # here, the peer was verified against the very same names, and
+            # s_client reports "Reused". This also proves the token is good, so
+            # the next step cannot pass by accident.
+            set out [openssl_s_client $target_host $target_bus_port -tls1_3 \
+                -cert $::tlsdir/san.crt -key $::tlsdir/san.key -sess_in $sess]
+            assert_match {*Reused, TLSv1.3*} $out
+
+            # Step 3: change the policy, then present the same token. The
+            # session ID context now differs, so the server must decline the
+            # resumption and run a full handshake ("New", not "Reused"), which
+            # verifies the peer against the new name.
+            R 0 config set tls-expected-peer-name cluster.local
+            set out [openssl_s_client $target_host $target_bus_port -tls1_3 \
+                -cert $::tlsdir/san.crt -key $::tlsdir/san.key -sess_in $sess]
+            assert_no_match {*Reused, TLSv1.3*} $out
+            assert_match {*New, TLSv1.3*} $out
+
+            # Restore the policy the rest of the file expects.
+            R 0 config set tls-expected-peer-name redis.local
+            file delete $sess
+        }
+
         test "The same forged FAIL is processed when the cert carries the SAN (positive control)" {
             # Positive control for the previous test: it proves the forged packet is
             # well-formed and acted upon, and that "FAIL message received" is the

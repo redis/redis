@@ -20,6 +20,7 @@
 
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
+#include <openssl/sha.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/err.h>
@@ -538,6 +539,53 @@ static void updateTLSError(tls_connection *conn) {
     ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
 }
 
+/* Bind an accepted connection's resumable sessions to the way it verifies.
+ *
+ * Certificate verification runs during a full handshake only: when a client
+ * resumes a TLS session, OpenSSL restores the verification result stored with
+ * that session and verifies nothing again. The cluster bus accepts with its
+ * own server context, so a client-port session is unknown there: not in its
+ * cache, and sealed with a ticket key it does not have. Within one context,
+ * though, the checks differ per connection and over time: the client port
+ * asks for a client certificate only as tls-auth-clients says, and the bus,
+ * with tls-expected-peer-name, requires that it carry an expected identity.
+ * Both settings change at runtime without a context rebuild. A session
+ * established under weaker checks could therefore be resumed where stronger
+ * ones apply and skip them: a certificate-less session issued while
+ * tls-auth-clients was no would keep resuming after it is set to yes, and a
+ * bus session would keep resuming after the expected names are narrowed.
+ *
+ * OpenSSL resumes a session only if its session-ID context matches the
+ * connection's, so derive the context from the settings the connection
+ * verifies with: the verify mode set by connCreateAcceptedTLS() and the
+ * expected names bound by connTLSSetVerifyName(). Sessions then resume only
+ * between connections that verify the same way; any other combination, which
+ * includes a tls-auth-clients or tls-expected-peer-name change at runtime,
+ * goes through a full, verified handshake. The context is a label, not a
+ * secret: hashing only brings an unbounded names list down to the 32 bytes
+ * SSL_MAX_SID_CTX_LENGTH allows, without the collisions truncation would
+ * cause between policies sharing a prefix. */
+static int tlsSetSessionIdContext(SSL *ssl, const char *names) {
+    _Static_assert(SHA256_DIGEST_LENGTH <= SSL_MAX_SID_CTX_LENGTH,
+                   "the session-ID context must fit SSL_MAX_SID_CTX_LENGTH");
+    unsigned char sid_ctx[SHA256_DIGEST_LENGTH];
+    sds tagged = sdscatprintf(sdsempty(), "redis:accept:%d:%s",
+                              SSL_get_verify_mode(ssl), names ? names : "");
+    /* SHA256() can fail from OpenSSL 3.0 on, when the digest comes from a
+     * provider, and then sid_ctx is unset. Fail closed and log here: the
+     * callers refuse the connection but log at verbose level only. */
+    int ok = SHA256((const unsigned char *) tagged, sdslen(tagged), sid_ctx) != NULL &&
+             SSL_set_session_id_context(ssl, sid_ctx, sizeof(sid_ctx)) == 1;
+    sdsfree(tagged);
+    if (!ok) {
+        char errbuf[256];
+        ERR_error_string_n(ERR_peek_last_error(), errbuf, sizeof(errbuf));
+        serverLog(LL_WARNING, "Failed to set the TLS session ID context: %s", errbuf);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 /* Create a new TLS connection that is already associated with
  * an accepted underlying file descriptor.
  *
@@ -572,6 +620,13 @@ static connection *connCreateAcceptedTLS(struct aeEventLoop *el, int fd, void *p
         default: /* TLS_CLIENT_AUTH_YES, also fall-secure */
             SSL_set_verify(conn->ssl, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
             break;
+    }
+
+    /* Resumable only by connections that verify the same way. */
+    if (tlsSetSessionIdContext(conn->ssl, NULL) != C_OK) {
+        updateTLSError(conn);
+        conn->c.state = CONN_STATE_ERROR;
+        return (connection *) conn;
     }
 
     SSL_set_fd(conn->ssl, conn->c.fd);
@@ -1109,7 +1164,13 @@ int tlsSetVerifyIdentity(SSL *ssl, const char *name) {
 
 /* Set the expected peer name(s) to verify on an already-created SSL connection.
  * Used on the accepting side (e.g. the cluster bus) to verify the connecting
- * peer's client certificate. No-op when name is empty. */
+ * peer's client certificate. No-op when name is empty.
+ *
+ * The names become part of the way this connection verifies, so its
+ * session-ID context is derived again to include them: a session established
+ * without this policy, or under a previous one, cannot be resumed here and
+ * must go through a full handshake that verifies the names (see
+ * tlsSetSessionIdContext()). */
 static int connTLSSetVerifyName(connection *conn_, const char *name) {
     tls_connection *conn = (tls_connection *) conn_;
     if (!conn->ssl || !name || !name[0]) return C_OK;
@@ -1117,6 +1178,7 @@ static int connTLSSetVerifyName(connection *conn_, const char *name) {
         serverLog(LL_WARNING, "Failed to set expected TLS peer name on accepted connection");
         return C_ERR;
     }
+    if (tlsSetSessionIdContext(conn->ssl, name) != C_OK) return C_ERR;
     return C_OK;
 }
 
