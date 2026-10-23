@@ -12494,19 +12494,23 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
     robj *field = NULL;
     robj *value = NULL;
     if (kv->type == OBJ_SET) {
+        /* A member that is logically expired is not returned, unless asked. */
+        if ((!(data->key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
+            sEntryIsExpired((SetEntry *)key))
+            return;
         field = createStringObject(key, sdslen(key));
         value = NULL;
     } else if (kv->type == OBJ_HASH) {
-        Entry *e = (Entry *) key;
+        HashEntry *hE = (HashEntry *) key;
 
         /* If field is expired and not indicated to access expired, then ignore */
         if ((!(data->key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
-            (entryIsExpired(e)))
+            (hEntryIsExpired(hE)))
             return;
 
         /* For hash, the value is stored in the entry (field), not in the dict entry */
-        sds fieldStr = entryGetField(e);
-        sds val = entryGetValue(e);
+        sds fieldStr = hEntryGetField(hE);
+        sds val = hEntryGetValue(hE);
 
         field = createStringObject(fieldStr, sdslen(fieldStr));
         value = createStringObject(val, sdslen(val));
@@ -12601,7 +12605,7 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
     } else if (kv->type == OBJ_SET) {
         setTypeIterator si;
         sds sdsele;
-        setTypeInitIterator(&si, kv);
+        setTypeInitIterator(&si, kv, key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED ? SET_ITER_RAW : SET_ITER_SKIP_EXPIRED);
         while ((sdsele = setTypeNextObject(&si)) != NULL) {
             robj *field = createObject(OBJ_STRING, sdsele);
             fn(key, field, NULL, privdata);

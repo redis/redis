@@ -350,7 +350,21 @@ void sortCommandGeneric(client *c, int readonly) {
     /* Obtain the length of the object to sort. */
     switch(sortval->type) {
     case OBJ_LIST: vectorlen = listTypeLength(sortval); break;
-    case OBJ_SET: vectorlen =  setTypeSize(sortval); break;
+    case OBJ_SET:
+        vectorlen = setTypeSize(sortval);
+        if (setTypeHasExpireSupport(sortval)) {
+            /* The members that are logically expired are not sorted, so count
+             * the others. */
+            setTypeIterator lsi;
+            char *lstr;
+            size_t llen;
+            int64_t lll;
+            vectorlen = 0;
+            setTypeInitIterator(&lsi, sortval, SET_ITER_SKIP_EXPIRED);
+            while (setTypeNext(&lsi, &lstr, &llen, &lll) != -1) vectorlen++;
+            setTypeResetIterator(&lsi);
+        }
+        break;
     case OBJ_ZSET: vectorlen = dictSize(((zset*)sortval->ptr)->dict); break;
     default: vectorlen = 0; serverPanic("Bad SORT type"); /* Avoid GCC warning */
     }
@@ -428,7 +442,7 @@ void sortCommandGeneric(client *c, int readonly) {
             oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
         sds sdsele;
-        setTypeInitIterator(&si, sortval);
+        setTypeInitIterator(&si, sortval, SET_ITER_SKIP_EXPIRED);
         while((sdsele = setTypeNextObject(&si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
