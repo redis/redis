@@ -75,7 +75,7 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntryLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket);
 dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
 static dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link);
 
@@ -763,20 +763,19 @@ void dictRelease(dict *d)
  * 
  * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
  */
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
     dictCmpCache cmpCache = {0};
     dictEntryLink link;
     uint64_t idx;
     int table;
-    
+
     if (bucket) {
         *bucket = NULL;
     } else {
         /* If dict is empty and no need to find bucket, return NULL */
-        if (dictSize(d) == 0) return NULL; 
+        if (dictSize(d) == 0) return NULL;
     }
 
-    const uint64_t hash = dictGetHash(d, key);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
@@ -865,10 +864,23 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
     if (unlikely(dictSize(d) == 0))
         return NULL;
     
-    return dictFindLinkInternal(d, key, bucket);
+    return dictFindLinkInternal(d, key, dictGetHash(d, key), bucket);
 }
 
-/* Set the key with link 
+/* Same as dictFindLink(), but for a caller that already computed this exact
+ * key's hash (via dictGetHash(d, key)) for another purpose and wants to avoid
+ * paying for the dict type's hashFunction() a second time. The hash is not
+ * validated against key -- passing a mismatched hash silently searches the
+ * wrong bucket. */
+dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
+    if (bucket) *bucket = NULL;
+    if (unlikely(dictSize(d) == 0))
+        return NULL;
+
+    return dictFindLinkInternal(d, key, hash, bucket);
+}
+
+/* Set the key with link
  *
  * link:    - When `newItem` is set, `link` points to the bucket of the key.
  *          - When `newItem` is not set, `link` points to the link of the key.
@@ -893,7 +905,8 @@ void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int 
         if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
             dictEntryLink bucket;
             /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
-            *link = dictFindLinkInternal(d, dictStoredKey2Key(d, key), &bucket);
+            const void *lookup_key = dictStoredKey2Key(d, key);
+            *link = dictFindLinkInternal(d, lookup_key, dictGetHash(d, lookup_key), &bucket);
             assert(bucket != NULL);
             assert(*link == NULL);
             *link = bucket; /* On newItem the link should be the bucket */
