@@ -2507,6 +2507,65 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $original_max
     }
 
+    test {ZRANGESTORE forward large skiplist destination - ZRANK + span integrity} {
+        # Exercises the tail-append fast path on a skiplist destination
+        # pre-sized from the range length. Verifies that span bookkeeping
+        # stays consistent by checking rank-based operations (ZRANK,
+        # ZRANGEBYSCORE LIMIT, ZCOUNT) on every 100th element.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 128
+        r del z1{t} z2{t}
+        # 500 elements -> destination starts as skiplist directly (above threshold).
+        for {set i 0} {$i < 500} {incr i} { r zadd z1{t} $i "e$i" }
+        assert_equal 500 [r zrangestore z2{t} z1{t} 0 -1]
+        assert_encoding skiplist z2{t}
+        assert_equal 500 [r zcard z2{t}]
+        # Probe rank at several positions. ZRANK walks level-i spans to find
+        # an element's 0-indexed rank; any span off-by-one shows up here.
+        foreach idx {0 1 99 100 249 250 498 499} {
+            assert_equal $idx [r zrank z2{t} "e$idx"]
+            assert_equal [expr {499 - $idx}] [r zrevrank z2{t} "e$idx"]
+        }
+        # ZRANGEBYSCORE LIMIT stresses rank-based offset traversal.
+        assert_equal {e100 e101 e102} [r zrangebyscore z2{t} -inf +inf LIMIT 100 3]
+        assert_equal 101 [r zcount z2{t} 200 300]
+        r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZRANGESTORE mid-store listpack->skiplist conversion - fast path init} {
+        # Covers the corner case where the destination is created as
+        # listpack (BYSCORE / BYLEX pass 0 as length hint to zsetTypeCreate),
+        # fills past zset-max-listpack-entries, converts to skiplist
+        # mid-store, and the tail-append fast path then activates. Must
+        # not corrupt the existing chain and must keep span bookkeeping
+        # consistent for ZRANK.
+        set original_max [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 64
+        r del z1{t} z2{t} z3{t}
+        for {set i 0} {$i < 300} {incr i} { r zadd z1{t} $i "m$i" }
+        # BYSCORE: length is not known upfront, so the destination starts
+        # as listpack and converts to skiplist when it crosses 64 elements.
+        assert_equal 300 [r zrangestore z2{t} z1{t} 0 299 BYSCORE]
+        assert_encoding skiplist z2{t}
+        assert_equal 300 [r zcard z2{t}]
+        foreach idx {0 1 63 64 65 150 298 299} {
+            assert_equal $idx [r zrank z2{t} "m$idx"]
+        }
+        assert_equal {m64 m65 m66} [r zrangebyscore z2{t} 64 66]
+        # BYLEX path (all-equal-score zset so lex range is well-defined):
+        # exercises the same mid-store conversion + fast-path init when
+        # the destination starts as listpack.
+        r del z3{t} z4{t}
+        for {set i 0} {$i < 300} {incr i} { r zadd z3{t} 0 [format "x%03d" $i] }
+        assert_equal 300 [r zrangestore z4{t} z3{t} \[x000 \[x299 BYLEX]
+        assert_encoding skiplist z4{t}
+        assert_equal 300 [r zcard z4{t}]
+        foreach idx {0 1 63 64 65 150 298 299} {
+            assert_equal $idx [r zrank z4{t} [format "x%03d" $idx]]
+        }
+        r config set zset-max-listpack-entries $original_max
+    }
+
     test {ZRANGE invalid syntax} {
         catch {r zrange z1{t} 0 -1 limit 1 2} err
         assert_match "*syntax*" $err
