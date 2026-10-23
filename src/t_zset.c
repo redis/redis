@@ -389,6 +389,25 @@ static void zslDelete(zskiplist *zsl, zskiplistNode *node) {
     zslFreeNode(zsl, node);
 }
 
+/* Unlink an edge node without freeing it, so its element can be used in a reply. */
+static zskiplistNode *zslPopEdge(zskiplist *zsl, int where) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL];
+    zskiplistNode *node = where == ZSET_MAX ? zsl->tail : zsl->header->level[0].forward;
+    zskiplistNode *x = zsl->header;
+
+    serverAssert(node != NULL);
+    for (int i = zsl->level-1; i >= 0; i--) {
+        if (where == ZSET_MAX) {
+            while (x->level[i].forward && x->level[i].forward != node)
+                x = x->level[i].forward;
+        }
+        update[i] = x;
+    }
+
+    zslUnlinkNode(zsl, node, update);
+    return node;
+}
+
 /* Update the score of an element inside the sorted set skiplist.
  * If the new score would keep the node in its current position, updates in-place and returns NULL.
  * Otherwise, unlinks the node, updates score, reinserts at correct position, and returns node.
@@ -4290,6 +4309,8 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
 
     /* Remove the element. */
     do {
+        zskiplistNode *popped = NULL;
+        zskiplist *zsl = NULL;
         if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
             unsigned char *zl = zobj->ptr;
             unsigned char *eptr, *sptr;
@@ -4312,22 +4333,16 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
             score = zzlGetScore(sptr);
         } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = zobj->ptr;
-            zskiplist *zsl = zs->zsl;
-            zskiplistNode *zln;
-
-            /* Get the first or last element in the sorted set. */
-            zln = (where == ZSET_MAX ? zsl->tail :
-                                       zsl->header->level[0].forward);
-
-            /* There must be an element in the sorted set. */
-            serverAssertWithInfo(c,zobj,zln != NULL);
-            ele = sdsdup(zslGetNodeElement(zln));
-            score = zln->score;
+            zsl = zs->zsl;
+            popped = zslPopEdge(zsl, where);
+            ele = zslGetNodeElement(popped);
+            score = popped->score;
+            serverAssertWithInfo(c,zobj,dictDelete(zs->dict,ele) == DICT_OK);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
 
-        serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
+        if (popped == NULL) serverAssertWithInfo(c,zobj,zsetDel(zobj,ele));
         server.dirty++;
 
         if (result_count == 0) { /* Do this only for the first iteration. */
@@ -4340,7 +4355,8 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         }
         addReplyBulkCBuffer(c,ele,sdslen(ele));
         addReplyDouble(c,score);
-        sdsfree(ele);
+        if (popped) zslFreeNode(zsl, popped);
+        else sdsfree(ele);
         ++result_count;
     } while(--rangelen);
 
