@@ -2172,14 +2172,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "extern
     }
 }
 
-# Note: the notify-race tests that mutated the key from a module keyspace
-# notification callback ("new", "overwritten" and "type_changed" variants,
-# via tests/modules/bitmap_notify.c) are removed. With dbAddInternal() and
-# setKeyByLink() restored to the upstream shape, such a mutation hits the
-# pre-existing upstream use-after-free (the post-notification bookkeeping
-# dereferences the possibly freed value). Re-add them once the upstream fix
-# lands.
-
 proc seed_string_bitmap {key bits} {
     r del $key
     r set $key ""
@@ -2205,8 +2197,7 @@ proc assert_bitmap_has_exact_bits {key bits} {
     foreach bit $unique {
         assert_equal 1 [r getbit $key $bit]
     }
-    # Reuse the translated redis-roaring algebra fixtures to check
-    # integer-array reads on both string and native bitmaps.
+    # Check integer-array reads on both string and native bitmaps.
     assert_equal $unique [r bitrangeintarray $key]
     assert_equal $unique [r bitrangeintarray $key 0 -1]
     if {[llength $unique] >= 4} {
@@ -5124,8 +5115,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
             set max_bytes [expr {(1 << 60) - 1}]
             set max_bit [expr {$max_bytes * 8 - 1}]
             set old_limit [config_get_set proto-max-bulk-len $max_bytes]
-            # Adapt the module's unsigned-64 maximum fixture to native
-            # bitmaps' supported offset limit.
+            # Offsets around 2^32 and the largest offsets a native bitmap allows.
             set tail [list [expr {$max_bit - 3}] [expr {$max_bit - 2}] \
                 [expr {$max_bit - 1}] $max_bit]
             set expected [list 0 4294967295 4294967296 1099511627776 {*}$tail]
@@ -5162,8 +5152,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     }
 
     test {BITRANGEINTARRAY enumerates restored bitmaps} {
-        # Port the GETINTARRAY round trips from integration_6.py and the
-        # serialization fixtures in test_bitmap{,64}_from_int_array.c.
         foreach bits {{0 1 2} {317811 196418 121393 233 144 89 55 34 21} {}} {
             seed_roaring_bitmap bitmap:serialize $bits
             r restore bitmap:restored 0 [r dump bitmap:serialize] replace
