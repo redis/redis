@@ -4885,7 +4885,7 @@ proc intarray_expected {offsets len start end unit} {
     return $result
 }
 
-start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
+start_server {tags {"bitmap" "bitmap-roaring"}} {
     test {BITRANGEINTARRAY validates its arguments} {
         seed_roaring_bitmap bitmap:bitmap {0 9}
         assert_error {ERR wrong number of arguments*} {r bitrangeintarray}
@@ -4978,7 +4978,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         # The same random bits in a string and in a native bitmap.
         set bits {}
         for {set i 0} {$i < 200} {incr i} {lappend bits [randomInt 100000]}
-        r del bitmap:str bitmap:native
+        r del bitmap:str
         foreach bit $bits {r setbit bitmap:str $bit 1}
         seed_roaring_bitmap bitmap:native $bits
 
@@ -5001,7 +5001,7 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     test {BITRANGEINTARRAY returns empty arrays for missing keys and values without set bits} {
         # A missing key, an empty native bitmap, a native bitmap whose only bit
         # was cleared, an empty string, and a string of zero bytes.
-        r del bitmap:missing bitmap:empty bitmap:zero bitmap:emptystring bitmap:zerostring
+        r del bitmap:missing
         seed_roaring_bitmap bitmap:empty {}
         seed_roaring_bitmap bitmap:zero {8192}
         r setbit bitmap:zero 8192 0
