@@ -1,10 +1,10 @@
 {
     "BITRANGEINTARRAY": {
-        "summary": "Returns an inclusive range of set-bit offsets by their zero-based ranks in a bitmap.",
-        "complexity": "O(C + M) where C is the number of bitmap containers, or the length in bytes for a string, and M is the number of returned integers.",
+        "summary": "Returns the offsets of the set bits in a range of a bitmap.",
+        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range, and M is the number of returned integers.",
         "group": "bitmap",
         "since": "8.12.0",
-        "arity": 4,
+        "arity": -2,
         "function": "bitrangeintarrayCommand",
         "command_flags": [
             "READONLY"
@@ -39,16 +39,40 @@
                 "key_spec_index": 0
             },
             {
-                "name": "start",
-                "type": "integer"
-            },
-            {
-                "name": "end",
-                "type": "integer"
+                "name": "range",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "start",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "end",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "unit",
+                        "type": "oneof",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "byte",
+                                "type": "pure-token",
+                                "token": "BYTE"
+                            },
+                            {
+                                "name": "bit",
+                                "type": "pure-token",
+                                "token": "BIT"
+                            }
+                        ]
+                    }
+                ]
             }
         ],
         "reply_schema": {
-            "description": "Set-bit offsets at the inclusive ranks in ascending order. Negative ranks count from the end, with -1 selecting the last set bit. Missing keys, bitmaps or strings without set bits, reversed ranges after normalization, and starts beyond the last rank return an empty array.",
+            "description": "Offsets of the set bits in the range, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. Missing keys and empty ranges return an empty array.",
             "type": "array",
             "uniqueItems": true,
             "items": {

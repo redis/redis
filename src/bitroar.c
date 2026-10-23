@@ -864,33 +864,30 @@ void bitroarVisitSetBitRanges(const robj *o,
     roaring64_iterator_free(it);
 }
 
-/* Visit at most 'count' set bits starting at the zero-based 'start_rank', in
- * ascending offset order. Select skips whole containers by cardinality rather
- * than enumerating every preceding value, and iteration uses a fixed buffer
- * instead of allocating an array proportional to the result size. */
-void bitroarVisitSetBits(const robj *o, uint64_t start_rank, uint64_t count,
+/* Visit the set bits in the half-open bit interval [start, end), in ascending
+ * offset order. The iterator seeks directly to 'start' and uses a fixed
+ * buffer instead of allocating an array proportional to the result size. */
+void bitroarVisitSetBits(const robj *o, uint64_t start, uint64_t end,
                         bitroarValuesCallback *callback, void *privdata)
 {
-    if (count == 0) return;
+    if (start >= end) return;
 
     bitroar *bitmap = bitroarGet(o);
-    uint64_t first = 0;
-    if (start_rank != 0 &&
-        !roaring64_bitmap_select(bitmap->roaring, start_rank, &first)) return;
-
     roaring64_iterator_t *it = roaring64_iterator_create(bitmap->roaring);
-    if (start_rank != 0) {
-        int found = roaring64_iterator_move_equalorlarger(it, first);
-        serverAssert(found);
+    if (!roaring64_iterator_move_equalorlarger(it, start)) {
+        roaring64_iterator_free(it);
+        return;
     }
 
     uint64_t values[256];
-    while (count != 0) {
-        uint64_t requested = min(count, sizeof(values) / sizeof(values[0]));
+    const uint64_t requested = sizeof(values) / sizeof(values[0]);
+    while (1) {
         uint64_t read = roaring64_iterator_read(it, values, requested);
-        if (read == 0 || !callback(values, (size_t)read, privdata)) break;
-        count -= read;
-        if (read < requested) break;
+        /* Drop the values at or beyond 'end' from the last batch. */
+        uint64_t inrange = read;
+        while (inrange != 0 && values[inrange - 1] >= end) inrange--;
+        if (inrange == 0 || !callback(values, (size_t)inrange, privdata)) break;
+        if (inrange < requested) break;
     }
 
     roaring64_iterator_free(it);

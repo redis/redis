@@ -46,6 +46,9 @@
 #define BITOPS_USE_AVX512_POPCOUNT  0
 #endif
 
+static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
+                              uint64_t *bit_end, unsigned char *first_byte_neg_mask,
+                              unsigned char *last_byte_neg_mask, long long strlen, int isbit);
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -2069,123 +2072,99 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
     return 1;
 }
 
-/* Emit up to 'count' set-bit offsets of a string bitmap, beginning at rank
- * 'start', in ascending order. Offsets follow GETBIT: bit 0 is the most
- * significant bit of the first byte. Returns the number of emitted offsets
- * and stops early if the output buffer limit closes the client. */
-static long long bitrangeintarrayString(client *c, const unsigned char *p, long len,
-                                        uint64_t start, uint64_t count)
+/* Stream the set-bit offsets of a string in the half-open bit interval
+ * [start, end). Offsets follow GETBIT: bit 0 is the most significant bit of
+ * the first byte. */
+static void bitrangeintarrayString(bitroarIntArrayReply *reply, const unsigned char *p,
+                                   uint64_t start, uint64_t end)
 {
-    long long emitted = 0;
-    long i = 0;
-
-    /* Skip whole blocks with the vectorized popcount before scanning bytes. */
-    while (i < len) {
-        long chunk = len - i < 4096 ? len - i : 4096;
-        long long bits = redisPopcount((void *)(p + i), chunk);
-        if ((uint64_t)bits > start) break;
-        start -= bits;
-        i += chunk;
-    }
-
-    for (; i < len && count; i++) {
-        unsigned char byte = p[i];
-        if (byte == 0) continue;
-        int bits = __builtin_popcount(byte);
-        if (start >= (uint64_t)bits) {
-            start -= bits;
-            continue;
-        }
-        for (int j = 0; j < 8 && count; j++) {
-            if (!(byte & (0x80 >> j))) continue;
-            if (start) {
-                start--;
-                continue;
-            }
-            addReplyLongLong(c, (long long)i * 8 + j);
-            emitted++;
-            count--;
-            if (c->flags & CLIENT_CLOSE_ASAP) return emitted;
+    client *c = reply->c;
+    for (uint64_t i = start >> 3; i < (end + 7) >> 3; i++) {
+        if (p[i] == 0) continue;
+        for (int j = 0; j < 8; j++) {
+            uint64_t offset = i * 8 + j;
+            if (!(p[i] & (0x80 >> j)) || offset < start || offset >= end) continue;
+            addReplyLongLong(c, (long long)offset);
+            reply->emitted++;
+            if (c->flags & CLIENT_CLOSE_ASAP) return;
         }
     }
-    return emitted;
 }
 
-/* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval.
- * Nonnegative ranks are unsigned 32-bit integers; negative ranks count from
- * the end. Both string and native bitmap values are supported, and returned
- * offsets can be wider than rank arguments. */
+/* BITRANGEINTARRAY key [start end [BIT|BYTE]]
+ * Returns the offsets of the set bits in the range, in ascending order. The
+ * range is interpreted as in BITCOUNT, so both commands cover the same bits.
+ * Strings are read in place and native bitmaps are iterated directly. */
 void bitrangeintarrayCommand(client *c) {
-    long long start, end;
-    const char *start_err = "invalid start: must be an integer no greater than 4294967295";
-    const char *end_err = "invalid end: must be an integer no greater than 4294967295";
-    if (getLongLongFromObjectOrReply(c, c->argv[2], &start, start_err) != C_OK) return;
-    if (start > UINT32_MAX) {
-        addReplyError(c, start_err);
-        return;
-    }
-    if (getLongLongFromObjectOrReply(c, c->argv[3], &end, end_err) != C_OK) return;
-    if (end > UINT32_MAX) {
-        addReplyError(c, end_err);
-        return;
-    }
-
-    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
-    if (o == NULL) return;
-    /* Strings are scanned in place, independent of bitmap-default-roaring,
-     * so a read never converts or copies the stored value. */
-    int isstr = o->type == OBJ_STRING;
+    kvobj *o;
+    long long start = 0, end = -1, strlen;
+    long slen;
     unsigned char *p = NULL;
-    long strlen = 0;
     char llbuf[LONG_STR_SIZE];
-    if (isstr) {
-        p = getObjectReadOnlyString(o, &strlen, llbuf);
-    } else if (checkType(c, o, OBJ_BITMAP)) {
+    uint64_t bit_start, bit_end;
+    int isbit = 0;
+
+    /* Parse start/end range if any. */
+    if (c->argc == 4 || c->argc == 5) {
+        if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
+            return;
+        if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
+            return;
+        if (c->argc == 5) {
+            if (!strcasecmp(c->argv[4]->ptr,"bit")) isbit = 1;
+            else if (!strcasecmp(c->argv[4]->ptr,"byte")) isbit = 0;
+            else {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+        }
+    } else if (c->argc != 2) {
+        addReplyErrorObject(c,shared.syntaxerr);
         return;
     }
 
-    if (start < 0 || end < 0) {
-        /* String and native bitmap length bounds keep cardinality below LLONG_MAX
-         * Adding a negative rank is safe, including LLONG_MIN. */
-        long long cardinality = isstr ? redisPopcount(p, strlen) : (long long)bitroarCardinality(o);
-        if (start < 0) start += cardinality;
-        if (end < 0) end += cardinality;
-        /* A start before the first rank is clipped, but an end before it
-         * must leave the range empty, matching LRANGE semantics. */
-        if (start < 0) start = 0;
-        if (start >= cardinality) {
-            addReply(c, shared.emptyarray);
-            return;
-        }
+    /* Lookup, check for type. */
+    o = lookupKeyRead(c->db, c->argv[1]);
+    if (checkStringOrBitmapType(c, o)) return;
+    if (o == NULL) {
+        addReply(c, shared.emptyarray);
+        return;
     }
-    /* With start >= 0, this also rejects an end still below zero. */
+    if (o->type == OBJ_BITMAP) {
+        strlen = (long long)bitroarLen(o);
+    } else {
+        p = getObjectReadOnlyString(o,&slen,llbuf);
+        strlen = slen;
+    }
+
+    /* Like BITCOUNT, a range with both ends negative and reversed is empty
+     * even when both ends would clamp to the first byte or bit. */
+    if (start < 0 && end < 0 && start > end) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
+    normalizeBitRange(&start, &end, &bit_start, &bit_end, NULL, NULL, strlen, isbit);
     if (start > end) {
         addReply(c, shared.emptyarray);
         return;
     }
 
-    /* Nonnegative ranges avoid counting every container or byte to return a
-     * small page. Exhaustion truncates an end beyond the last rank. Widen
-     * the inclusive span so 0..UINT32_MAX includes all 2^32 ranks. */
-    uint64_t count = (uint64_t)(end - start) + 1;
     void *arraylen = addReplyDeferredLen(c);
-    long long emitted;
-    if (isstr) {
-        emitted = bitrangeintarrayString(c, p, strlen, start, count);
-    } else {
-        bitroarIntArrayReply reply = {c, 0};
-        bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
-        emitted = reply.emitted;
-    }
+    bitroarIntArrayReply reply = {c, 0};
+    if (o->type == OBJ_BITMAP)
+        bitroarVisitSetBits(o, bit_start, bit_end, bitroarReplySetBits, &reply);
+    else
+        bitrangeintarrayString(&reply, p, bit_start, bit_end);
     /* Resolve the placeholder even if an output limit scheduled async close. */
-    setDeferredArrayLen(c, arraylen, emitted);
+    setDeferredArrayLen(c, arraylen, reply.emitted);
 }
 
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
  * clamping 'start'/'end' to byte coordinates, and derive the half-open bit
  * interval used by Roaring bitmap range operations ('bit_start'/'bit_end')
  * along with the bits to ignore in the first/last byte of byte-backed values
- * for bit-addressed ranges. */
+ * for bit-addressed ranges. Callers that only need the bit interval may pass
+ * NULL for 'first_byte_neg_mask' and 'last_byte_neg_mask'. */
 static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_start,
                               uint64_t *bit_end, unsigned char *first_byte_neg_mask,
                               unsigned char *last_byte_neg_mask, long long strlen, int isbit)
@@ -2201,8 +2180,8 @@ static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_st
     if (*end < 0) *end = 0;
     if (*end >= totlen) *end = totlen-1;
 
-    *first_byte_neg_mask = 0;
-    *last_byte_neg_mask = 0;
+    if (first_byte_neg_mask) *first_byte_neg_mask = 0;
+    if (last_byte_neg_mask) *last_byte_neg_mask = 0;
     *bit_start = 0;
     *bit_end = 0;
     if (*start > *end) return;
@@ -2210,8 +2189,10 @@ static void normalizeBitRange(long long *start, long long *end, uint64_t *bit_st
     if (isbit) {
         *bit_start = (uint64_t)*start;
         *bit_end = (uint64_t)*end + 1;
-        *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
-        *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
+        if (first_byte_neg_mask)
+            *first_byte_neg_mask = ~((1<<(8-(*start&7)))-1) & 0xFF;
+        if (last_byte_neg_mask)
+            *last_byte_neg_mask = (1<<(7-(*end&7)))-1;
         *start >>= 3;
         *end >>= 3;
     } else {

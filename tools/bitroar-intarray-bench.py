@@ -137,11 +137,12 @@ def seed(client, backend, key, values):
 
 
 def workloads(values):
+    # Each range workload gives the module's ranks and the equivalent native
+    # BIT range, whose ends are the first and last selected offsets.
     count = len(values)
-    # Preserve the historical label; native full reads now use RANGE 0 -1.
-    yield "get-all", None, values
+    yield "get-all", None, None, values
     if not count:
-        yield "range-empty", (0, 15), []
+        yield "range-empty", (0, 15), (0, 15), []
         return
     middle = count // 2
     for name, start, end in [
@@ -149,9 +150,9 @@ def workloads(values):
         ("range-middle1pct", middle, min(count - 1, middle + max(1, count // 100) - 1)),
         ("range-last16", max(0, count - 16), count - 1),
         ("range-all", 0, count - 1),
-        ("range-empty", count, count + 15),
     ]:
-        yield name, (start, end), values[start:end + 1]
+        yield name, (start, end), (values[start], values[end]), values[start:end + 1]
+    yield "range-empty", (count, count + 15), (values[-1] + 1, values[-1] + 16), []
 
 
 def command_stats(client, command):
@@ -257,14 +258,16 @@ def main():
             key = "bench:intarray:" + dataset
             for backend, (client, _) in backends.items():
                 seed(client, backend, key, values)
-            for workload, ranks, expected in workloads(values):
+            for workload, ranks, offsets, expected in workloads(values):
                 reply_bytes = len(f"*{len(expected)}\r\n") + sum(len(f":{value}\r\n") for value in expected)
                 commands = {}
                 calibration = {}
                 samples = {backend: [] for backend in backends}
                 for backend, (client, path) in backends.items():
                     if backend == "native":
-                        command = ["BITRANGEINTARRAY", key, *(ranks if ranks is not None else (0, -1))]
+                        command = ["BITRANGEINTARRAY", key]
+                        if offsets is not None:
+                            command += [*offsets, "BIT"]
                     else:
                         prefix = "R64." if values and values[-1] > 0xffffffff else "R."
                         command = [prefix + ("GETINTARRAY" if ranks is None else "RANGEINTARRAY"), key]
