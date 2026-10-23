@@ -2074,20 +2074,49 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
 
 /* Stream the set-bit offsets of a string in the half-open bit interval
  * [start, end). Offsets follow GETBIT: bit 0 is the most significant bit of
- * the first byte. */
+ * the first byte.
+ *
+ * Scan 64-bit words so that zero regions are skipped a word at a time. Each
+ * word is loaded big-endian, so its most significant bit is the lowest
+ * offset, and only its set bits are visited, using clz. */
 static void bitrangeintarrayString(bitroarIntArrayReply *reply, const unsigned char *p,
                                    uint64_t start, uint64_t end)
 {
     client *c = reply->c;
-    for (uint64_t i = start >> 3; i < (end + 7) >> 3; i++) {
-        if (p[i] == 0) continue;
-        for (int j = 0; j < 8; j++) {
-            uint64_t offset = i * 8 + j;
-            if (!(p[i] & (0x80 >> j)) || offset < start || offset >= end) continue;
-            addReplyLongLong(c, (long long)offset);
+    uint64_t last = (end + 7) >> 3; /* One past the last byte in the range. */
+    uint64_t i = start >> 3;
+
+    while (i < last) {
+        uint64_t word = 0;
+        /* Skip zero words in a tight loop, kept apart from the reply calls
+         * below so the compiler can keep it in registers. */
+        while (last - i >= 8) {
+            memcpy(&word, p + i, sizeof(word));
+            if (word != 0) break;
+            i += 8;
+        }
+        if (word != 0) {
+            word = htonu64(word);
+        } else {
+            /* Fewer than 8 bytes remain: zero-pad them on the right. */
+            for (uint64_t j = 0; i + j < last; j++)
+                word |= (uint64_t)p[i + j] << (56 - 8 * j);
+            if (word == 0) break;
+        }
+
+        /* Clear the bits before 'start' and from 'end' within this word. */
+        uint64_t base = i * 8;
+        if (start > base) word &= ~0ULL >> (start - base);
+        if (end < base + 64) word &= ~(~0ULL >> (end - base));
+
+        while (word) {
+            int bit = __builtin_clzll(word);
+            addReplyLongLong(c, (long long)(base + bit));
             reply->emitted++;
             if (c->flags & CLIENT_CLOSE_ASAP) return;
+            word &= ~((1ULL << 63) >> bit);
         }
+        i += 8;
     }
 }
 

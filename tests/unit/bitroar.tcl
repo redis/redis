@@ -4952,6 +4952,32 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         }
     }
 
+    test {BITRANGEINTARRAY string scan handles word boundaries and partial words} {
+        # 19 bytes: a mixed 64-bit word, a zero word, and a 3-byte tail. Try
+        # every bit range so both ends land at each position within a word.
+        set value [binary format H* ffa500813c000180[string repeat 00 8]c3007f]
+        binary scan $value B* binary
+        set offsets {}
+        for {set i 0} {$i < [string length $binary]} {incr i} {
+            if {[string index $binary $i]} {lappend offsets $i}
+        }
+        r set intarray:words $value
+        set len [string length $value]
+        assert_equal $offsets [r bitrangeintarray intarray:words]
+        for {set start 0} {$start < $len * 8} {incr start} {
+            for {set end [expr {$start - 1}]} {$end < $len * 8} {incr end} {
+                assert_equal [intarray_expected $offsets $len $start $end bit] \
+                    [r bitrangeintarray intarray:words $start $end bit] "bits $start $end"
+            }
+        }
+        for {set start 0} {$start < $len} {incr start} {
+            for {set end $start} {$end < $len} {incr end} {
+                assert_equal [intarray_expected $offsets $len $start $end byte] \
+                    [r bitrangeintarray intarray:words $start $end] "bytes $start $end"
+            }
+        }
+    }
+
     test {BITRANGEINTARRAY on strings and native bitmaps matches the reference} {
         # Each trial sets the same random bits in a string and in a native
         # bitmap of the same length, then checks random byte and bit ranges
