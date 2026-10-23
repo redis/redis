@@ -1870,26 +1870,11 @@ void streamLastValidID(stream *s, streamID *maxid)
     streamIteratorStop(&si);
 }
 
-/* Maximum size for a stream ID string. In theory 20*2+1 should be enough,
- * But to avoid chance for off by one issues and null-term, in case this will
- * be used as parsing buffer, we use a slightly larger buffer. On the other
- * hand considering sds header is gonna add 4 bytes, we wanna keep below the
- * allocator's 48 bytes bin. */
-#define STREAM_ID_STR_LEN 44
-
-sds createStreamIDString(streamID *id) {
-    /* Optimization: pre-allocate a big enough buffer to avoid reallocs. */
-    sds str = sdsnewlen(SDS_NOINIT, STREAM_ID_STR_LEN);
-    sdssetlen(str, 0);
-    return sdscatfmt(str,"%U-%U", id->ms,id->seq);
-}
-
 /* Format a Stream ID as <ms>-<seq> into 'buf', which must be at least
- * STREAM_ID_STR_LEN bytes, and return its length. The reply paths below use
- * this instead of createStreamIDString(): an ID is bounded in length, so it
- * belongs on the stack, and going through an sds cost a malloc, a
- * format-string pass over "%U-%U" and a free for every ID of every reply. */
-static size_t streamIDToBuffer(char *buf, streamID *id) {
+ * STREAM_ID_STR_LEN bytes, and return its length. An ID is bounded in length,
+ * so every caller formats it on the stack: going through an sds cost a malloc,
+ * a format-string pass over "%U-%U" and a free for every ID. */
+size_t streamIDToBuffer(char *buf, streamID *id) {
     size_t len = ull2string(buf, STREAM_ID_STR_LEN, id->ms);
     buf[len++] = '-';
     len += ull2string(buf + len, STREAM_ID_STR_LEN - len, id->seq);
@@ -1910,9 +1895,11 @@ void setDeferredReplyStreamID(client *c, void *dr, streamID *id) {
 }
 
 /* Similar to the above function, but just creates an object, usually useful
- * for replication purposes to create arguments. */
+ * for replication purposes to create arguments. An ID always fits in an
+ * embedded string, so this is a single allocation. */
 robj *createObjectFromStreamID(streamID *id) {
-    return createObject(OBJ_STRING, createStreamIDString(id));
+    char buf[STREAM_ID_STR_LEN];
+    return createStringObject(buf, streamIDToBuffer(buf, id));
 }
 
 /* Returns non-zero if the ID is 0-0. */

@@ -2510,12 +2510,8 @@ reHashEnd:
 /* Helper for rewriteStreamObject() that generates a bulk string into the
  * AOF representing the ID 'id'. */
 int rioWriteBulkStreamID(rio *r,streamID *id) {
-    int retval;
-
-    sds replyid = sdscatfmt(sdsempty(),"%U-%U",id->ms,id->seq);
-    retval = rioWriteBulkString(r,replyid,sdslen(replyid));
-    sdsfree(replyid);
-    return retval;
+    char buf[STREAM_ID_STR_LEN];
+    return rioWriteBulkString(r,buf,streamIDToBuffer(buf,id));
 }
 
 /* Helper for rewriteStreamObject(): emit the XCLAIM needed in order to
