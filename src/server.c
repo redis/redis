@@ -8414,6 +8414,10 @@ int main(int argc, char **argv) {
         if (strcmp(argv[1], "-v") == 0 ||
             strcmp(argv[1], "--version") == 0)
         {
+            if (argc == 3 && strcmp(argv[2], "--short") == 0) {
+                printf("%s\n", REDIS_VERSION);
+                exit(0);
+            }
             sds version = getVersion();
             printf("Redis server %s\n", version);
             sdsfree(version);
