@@ -7762,7 +7762,10 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         }
     }
 
-    if (reply) freeReplyObject(reply);
+    if (reply) {
+        freeReplyObject(reply);
+        reply = NULL;
+    }
 
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
