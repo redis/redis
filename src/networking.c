@@ -1463,6 +1463,12 @@ void setDeferredReplyBulkCBuffer(client *c, void *node, const char *p, size_t le
     if (frame != stackbuf) zfree(frame);
 }
 
+/* Set sds to a deferred reply (for symmetry with addReplyBulkSds it also frees the sds) */
+void setDeferredReplyBulkSds(client *c, void *node, sds s) {
+    setDeferredReplyBulkCBuffer(c, node, s, sdslen(s));
+    sdsfree(s);
+}
+
 /* Add a C null term string as bulk reply */
 void addReplyBulkCString(client *c, const char *s) {
     if (s == NULL) {
