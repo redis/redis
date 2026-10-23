@@ -2648,8 +2648,9 @@ void xaddCommand(client *c) {
         idmpEntryFree(entry, &s->alloc_size);
         return;
     }
-    sds replyid = createStreamIDString(&id);
-    addReplyBulkCBuffer(c, replyid, sdslen(replyid));
+    char replyid[STREAM_ID_STR_LEN];
+    size_t replyid_len = streamIDToBuffer(replyid, &id);
+    addReplyBulkCBuffer(c, replyid, replyid_len);
 
     /* IDMP: Insert the entry now that we have the actual ID */
     if (parsed_args.idmp_pid != NULL) {
@@ -2685,11 +2686,9 @@ void xaddCommand(client *c) {
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
     if (!parsed_args.id_given || !parsed_args.seq_given) {
-        robj *idarg = createObject(OBJ_STRING, replyid);
+        robj *idarg = createStringObject(replyid, replyid_len);
         rewriteClientCommandArgument(c, idpos, idarg);
         decrRefCount(idarg);
-    } else {
-        sdsfree(replyid);
     }
 
     /* We need to signal to blocked clients that there is new data on this
