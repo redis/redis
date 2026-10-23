@@ -475,8 +475,8 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
 
     test {DEBUG DIGEST for fragmented Roaring bitmaps is history independent} {
         # Alternating bits give one set-bit run per two bits, so 1MB holds 4M
-        # runs. The debug C unit test checks that their digest does not pay a
-        # SHA1 finalization for every run.
+        # runs. Verify that identical bits have the same digest across
+        # different construction histories and DUMP/RESTORE round-trips.
         set bytes 1048576
         set raw [string repeat [binary format H* 55] $bytes]
         r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
