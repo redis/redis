@@ -1447,6 +1447,25 @@ void setDeferredReplyBulkSds(client *c, void *node, sds s) {
     sdsfree(s);
 }
 
+/* Set a C buffer as a deferred bulk reply. The "$<len>\r\n<payload>\r\n" frame
+ * is assembled on the stack when it fits, so short payloads cost no allocation. */
+void setDeferredReplyBulkCBuffer(client *c, void *node, const char *p, size_t len) {
+    char stackbuf[128];
+    size_t framelen = 1 + LONG_STR_SIZE + 2 + len + 2;
+    char *frame = framelen <= sizeof(stackbuf) ? stackbuf : zmalloc(framelen);
+    size_t n = 0;
+    frame[n++] = '$';
+    n += ll2string(frame + n, LONG_STR_SIZE, (long long)len);
+    frame[n++] = '\r';
+    frame[n++] = '\n';
+    memcpy(frame + n, p, len);
+    n += len;
+    frame[n++] = '\r';
+    frame[n++] = '\n';
+    setDeferredReply(c, node, frame, n);
+    if (frame != stackbuf) zfree(frame);
+}
+
 /* Add a C null term string as bulk reply */
 void addReplyBulkCString(client *c, const char *s) {
     if (s == NULL) {
