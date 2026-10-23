@@ -510,16 +510,18 @@ proc check_cluster_node_mark {flag ref_node_index instance_id_to_check} {
 # extensions/flags/mflags0 fields are supplied by the caller; everything else
 # (epochs, slots, etc.) is fixed boilerplate. The extensions/flags/mflags0
 # fields default to 0 for callers that don't need them (e.g. a PING carrying
-# extension data overrides them). Message-type-specific payload is appended
-# after this header.
-proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type totlen {num_extensions 0} {flags 0} {mflags0 0}} {
+# extension data overrides them). 'myip' is the announced sender address,
+# NUL-padded (or truncated) to its 46 bytes, and empty by default. 'count' is
+# the number of gossip entries the caller appends. Message-type-specific
+# payload is appended after this header.
+proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type totlen {num_extensions 0} {flags 0} {mflags0 0} {myip ""} {count 0}} {
     set CLUSTER_NAMELEN 40
     set NET_IP_STR_LEN 46
 
     set sender_padded [binary format a${CLUSTER_NAMELEN} $sender_name]
     set myslots [string repeat \x00 [expr {16384/8}]]
     set slaveof [string repeat \x00 $CLUSTER_NAMELEN]
-    set myip [string repeat \x00 $NET_IP_STR_LEN]
+    set myip [binary format a${NET_IP_STR_LEN} $myip]
     set notused1 [string repeat \x00 30]
 
     set hdr ""
@@ -528,7 +530,7 @@ proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type tot
     append hdr [binary format S 1]                  ;# ver
     append hdr [binary format S $sender_port]       ;# port
     append hdr [binary format S $msg_type]          ;# type
-    append hdr [binary format S 0]                  ;# count
+    append hdr [binary format S $count]             ;# count
     append hdr [binary format W 1]                  ;# currentEpoch
     append hdr [binary format W 2]                  ;# configEpoch
     append hdr [binary format W 0]                  ;# offset
@@ -545,4 +547,40 @@ proc build_cluster_bus_header {sender_name sender_port sender_cport msg_type tot
     append hdr [binary format ccc $mflags0 0 0]     ;# mflags
 
     return $hdr
+}
+
+# Build one 104-byte gossip entry (clusterMsgDataGossip) for a PING, PONG or
+# MEET. 'ip' is NUL-padded (or truncated) to its 46 bytes.
+proc build_cluster_bus_gossip_entry {node_name ip port cport {flags 0}} {
+    set entry [binary format a40 $node_name]
+    append entry [binary format I 0]                ;# ping_sent
+    append entry [binary format I 0]                ;# pong_received
+    append entry [binary format a46 $ip]            ;# ip
+    append entry [binary format S $port]            ;# port
+    append entry [binary format S $cport]           ;# cport
+    append entry [binary format S $flags]           ;# flags
+    append entry [binary format S 0]                ;# pport
+    append entry [binary format S 0]                ;# notused1
+    return $entry
+}
+
+# Open a connection to the cluster bus port of server 'srv_idx', send 'packet'
+# and return the socket. The caller closes it once it has observed the effect,
+# so that the server is not racing a closed link while processing the packet.
+proc send_cluster_bus_packet {srv_idx packet} {
+    set host [srv $srv_idx host]
+    set bus_port [expr {[srv $srv_idx port] + 10000}]
+    if {$::tls} {
+        set fd [::tls::socket \
+            -cafile "$::tlsdir/ca.crt" \
+            -certfile "$::tlsdir/client.crt" \
+            -keyfile "$::tlsdir/client.key" \
+            $host $bus_port]
+    } else {
+        set fd [socket $host $bus_port]
+    }
+    fconfigure $fd -translation binary -buffering full
+    puts -nonewline $fd $packet
+    flush $fd
+    return $fd
 }

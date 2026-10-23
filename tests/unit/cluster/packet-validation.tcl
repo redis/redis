@@ -1,3 +1,14 @@
+# Return the "ip:port@cport[,hostname]" field that server 'srv_idx' shows for
+# 'node_id' in CLUSTER NODES.
+proc cluster_node_address {srv_idx node_id} {
+    foreach line [split [R $srv_idx CLUSTER NODES] "\n"] {
+        if {[lindex [split $line " "] 0] eq $node_id} {
+            return [lindex [split $line " "] 1]
+        }
+    }
+    fail "Node $node_id not found in CLUSTER NODES of server $srv_idx"
+}
+
 start_cluster 2 0 {tags {external:skip cluster}} {
 
 test "PUBLISH with channel_len + message_len overflow is rejected" {
@@ -133,6 +144,105 @@ test "FORGOTTEN_NODE cannot delete the active packet sender" {
     assert_equal [R 0 PING] {PONG}
     assert_match "*$node_id*" [R 0 CLUSTER NODES]
     wait_for_cluster_state "ok"
+}
+
+
+test "PING with an invalid sender address is rejected" {
+    set CLUSTERMSG_TYPE_PING 0
+    set CLUSTER_NODE_MASTER 1
+    set CLUSTERMSG_MIN_LEN 2256
+
+    set node_id [R 1 CLUSTER MYID]
+    set sender_port [srv -1 port]
+    set sender_cport [expr {$sender_port + 10000}]
+    set addr_before [cluster_node_address 0 $node_id]
+
+    # Freeze node 1 so that its own PINGs cannot restore its address, which
+    # would hide an accepted packet.
+    set node1_pid [srv -1 pid]
+    pause_process $node1_pid
+
+    # A CRLF that would end up in -MOVED replies and split the nodes.conf
+    # line, characters valid in neither an IP nor a hostname, and a field
+    # without a NUL terminator in its 46 bytes.
+    set bad_ips [list "127.0.0.1\r\n+PWN" "127.0.0.1 x" "host:1" \
+                      [string repeat 1 46]]
+    foreach bad_ip $bad_ips {
+        set loglines [count_log_lines 0]
+        set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
+            $CLUSTERMSG_TYPE_PING $CLUSTERMSG_MIN_LEN 0 $CLUSTER_NODE_MASTER 0 $bad_ip]
+        set fd [send_cluster_bus_packet 0 $packet]
+        wait_for_log_messages 0 {"*Received ping packet with invalid sender address*"} $loglines 50 100
+        close $fd
+        assert_equal $addr_before [cluster_node_address 0 $node_id]
+    }
+
+    resume_process $node1_pid
+    wait_for_cluster_state ok
+}
+
+test "PING announcing a hostname as sender address is accepted" {
+    set CLUSTERMSG_TYPE_PING 0
+    set CLUSTER_NODE_MASTER 1
+    set CLUSTERMSG_MIN_LEN 2256
+
+    set node_id [R 1 CLUSTER MYID]
+    set sender_port [srv -1 port]
+    set sender_cport [expr {$sender_port + 10000}]
+    set addr_before [cluster_node_address 0 $node_id]
+
+    # cluster-announce-ip accepts a hostname, so the bus must keep accepting
+    # one. Freeze node 1 so that the announced address stays observable.
+    set node1_pid [srv -1 pid]
+    pause_process $node1_pid
+
+    set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
+        $CLUSTERMSG_TYPE_PING $CLUSTERMSG_MIN_LEN 0 $CLUSTER_NODE_MASTER 0 "localhost"]
+    set fd [send_cluster_bus_packet 0 $packet]
+    wait_for_condition 50 100 {
+        [string match "localhost:*" [cluster_node_address 0 $node_id]]
+    } else {
+        fail "The announced hostname was not accepted: [cluster_node_address 0 $node_id]"
+    }
+    close $fd
+
+    # Node 1's own PINGs announce no address, so node 0 goes back to the
+    # socket address.
+    resume_process $node1_pid
+    wait_for_condition 50 100 {
+        [cluster_node_address 0 $node_id] eq $addr_before
+    } else {
+        fail "Node 1 address was not restored: [cluster_node_address 0 $node_id]"
+    }
+    wait_for_cluster_state ok
+}
+
+test "PING with an invalid address in the gossip section is rejected" {
+    set CLUSTERMSG_TYPE_PING 0
+    set CLUSTER_NODE_MASTER 1
+    set CLUSTERMSG_MIN_LEN 2256
+    set GOSSIP_ENTRY_LEN 104
+
+    set node_id [R 1 CLUSTER MYID]
+    set sender_port [srv -1 port]
+    set sender_cport [expr {$sender_port + 10000}]
+
+    # Gossip about a node unknown to node 0, which node 0 would otherwise add
+    # with the gossiped address.
+    set gossiped_id [string repeat abcd1234 5]
+    set totlen [expr {$CLUSTERMSG_MIN_LEN + $GOSSIP_ENTRY_LEN}]
+
+    set loglines [count_log_lines 0]
+    set packet [build_cluster_bus_header $node_id $sender_port $sender_cport \
+        $CLUSTERMSG_TYPE_PING $totlen 0 $CLUSTER_NODE_MASTER 0 "" 1]
+    append packet [build_cluster_bus_gossip_entry $gossiped_id \
+        "127.0.0.1\r\n+PWN" 30000 40000 $CLUSTER_NODE_MASTER]
+    set fd [send_cluster_bus_packet 0 $packet]
+    wait_for_log_messages 0 {"*Received ping packet with invalid address in gossip section*"} $loglines 50 100
+    close $fd
+
+    assert_no_match "*$gossiped_id*" [R 0 CLUSTER NODES]
+    wait_for_cluster_state ok
 }
 
 }
