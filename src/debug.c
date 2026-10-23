@@ -164,6 +164,18 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret);
 
 /* ================================= Debugging ============================== */
 
+#ifdef REDIS_TEST
+static uint64_t digest_sha1_finals; /* Read by debugTest(). */
+#endif
+
+/* Finish a SHA1 of the digest helpers below. Test builds count the calls. */
+static inline void digestSha1Final(unsigned char *digest, SHA1_CTX *ctx) {
+#ifdef REDIS_TEST
+    digest_sha1_finals++;
+#endif
+    SHA1Final(digest, ctx);
+}
+
 /* Compute the sha1 of string at 's' with 'len' bytes long.
  * The SHA1 is then xored against the string pointed by digest.
  * Since xor is commutative, this operation is used in order to
@@ -177,7 +189,7 @@ void xorDigest(unsigned char *digest, const void *ptr, size_t len) {
 
     SHA1Init(&ctx);
     SHA1Update(&ctx,ptr,len);
-    SHA1Final(hash,&ctx);
+    digestSha1Final(hash,&ctx);
 
     for (j = 0; j < 20; j++)
         digest[j] ^= hash[j];
@@ -209,7 +221,7 @@ void mixDigest(unsigned char *digest, const void *ptr, size_t len) {
     xorDigest(digest,ptr,len);
     SHA1Init(&ctx);
     SHA1Update(&ctx,digest,20);
-    SHA1Final(digest,&ctx);
+    digestSha1Final(digest,&ctx);
 }
 
 void mixStringObjectDigest(unsigned char *digest, robj *o) {
@@ -241,9 +253,61 @@ void mixBitmapObjectDigest(unsigned char *digest, robj *o) {
     SHA1Init(&ctx);
     SHA1Update(&ctx, (unsigned char *)&len, sizeof(len));
     bitroarVisitSetBitRanges(o, mixBitmapObjectRangeDigest, &ctx);
-    SHA1Final(hash, &ctx);
+    digestSha1Final(hash, &ctx);
     mixDigest(digest, hash, sizeof(hash));
 }
+
+#ifdef REDIS_TEST
+#include "testhelp.h"
+
+static void countBitmapRange(uint64_t start, uint64_t end, void *privdata) {
+    UNUSED(start);
+    UNUSED(end);
+    (*(uint64_t *)privdata)++;
+}
+
+/* Digest a Roaring bitmap made of 'len' copies of 'byte'. Return the SHA1
+ * finalizations it took, and set '*runs' to its number of set-bit runs. */
+static uint64_t bitmapDigestSha1Finals(unsigned char byte, size_t len, uint64_t *runs) {
+    unsigned char *raw = zmalloc(len);
+    memset(raw, byte, len);
+    robj *o = bitroarCreateFromString(raw, len);
+    zfree(raw);
+
+    unsigned char digest[20] = {0};
+    *runs = 0;
+    bitroarVisitSetBitRanges(o, countBitmapRange, runs);
+    uint64_t before = digest_sha1_finals;
+    mixBitmapObjectDigest(digest, o);
+    decrRefCount(o);
+    return digest_sha1_finals - before;
+}
+
+int debugTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+
+    bitroarInit();
+
+    /* Bitmap digests stream all set-bit runs into one SHA1, so the number of
+     * SHA1 finalizations must not grow with the runs. 0x55 bytes give one
+     * singleton run per two bits. */
+    const size_t bytes = 65536;
+    uint64_t one_run, frag_runs;
+    uint64_t one_finals = bitmapDigestSha1Finals(0x01, 1, &one_run);
+    uint64_t frag_finals = bitmapDigestSha1Finals(0x55, bytes, &frag_runs);
+    if (flags & REDIS_TEST_VERBOSE)
+        printf("SHA1 finalizations: %llu for 1 run, %llu for %llu runs\n",
+               (unsigned long long)one_finals, (unsigned long long)frag_finals,
+               (unsigned long long)frag_runs);
+    test_cond("Bitmap digest input has one run", one_run == 1);
+    test_cond("Bitmap digest input has one run per two bits",
+              frag_runs == bytes * 4);
+    test_cond("Bitmap digest SHA1 finalizations do not grow with runs",
+              frag_finals == one_finals);
+    return 0;
+}
+#endif
 
 #ifdef ENABLE_GCRA
 void mixGCRAObjectDigest(unsigned char *digest, robj *o) {

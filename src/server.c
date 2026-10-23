@@ -8229,6 +8229,7 @@ int __test_num = 0;
 * --large-memory: Enables tests that consume more than 100mb. */
 typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
+int debugTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
 int lzfTest(int argc, char **argv, int flags);
@@ -8257,6 +8258,7 @@ struct redisTest {
     {"ebuckets", ebucketsTest},
     {"vector", vectorTest},
     {"bitmap", bitopsTest},
+    {"debug", debugTest},
     {"rax", raxTest},
     {"zset", zsetTest},
     {"topk", chkTopKTest},
