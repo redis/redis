@@ -2069,9 +2069,52 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
     return 1;
 }
 
+/* Emit up to 'count' set-bit offsets of a string bitmap, beginning at rank
+ * 'start', in ascending order. Offsets follow GETBIT: bit 0 is the most
+ * significant bit of the first byte. Returns the number of emitted offsets
+ * and stops early if the output buffer limit closes the client. */
+static long long bitrangeintarrayString(client *c, const unsigned char *p, long len,
+                                        uint64_t start, uint64_t count)
+{
+    long long emitted = 0;
+    long i = 0;
+
+    /* Skip whole blocks with the vectorized popcount before scanning bytes. */
+    while (i < len) {
+        long chunk = len - i < 4096 ? len - i : 4096;
+        long long bits = redisPopcount((void *)(p + i), chunk);
+        if ((uint64_t)bits > start) break;
+        start -= bits;
+        i += chunk;
+    }
+
+    for (; i < len && count; i++) {
+        unsigned char byte = p[i];
+        if (byte == 0) continue;
+        int bits = __builtin_popcount(byte);
+        if (start >= (uint64_t)bits) {
+            start -= bits;
+            continue;
+        }
+        for (int j = 0; j < 8 && count; j++) {
+            if (!(byte & (0x80 >> j))) continue;
+            if (start) {
+                start--;
+                continue;
+            }
+            addReplyLongLong(c, (long long)i * 8 + j);
+            emitted++;
+            count--;
+            if (c->flags & CLIENT_CLOSE_ASAP) return emitted;
+        }
+    }
+    return emitted;
+}
+
 /* BITRANGEINTARRAY key start end -- inclusive ranks, not a value interval.
  * Nonnegative ranks are unsigned 32-bit integers; negative ranks count from
- * the end. Returned native bitmap offsets can be wider than rank arguments. */
+ * the end. Both string and native bitmap values are supported, and returned
+ * offsets can be wider than rank arguments. */
 void bitrangeintarrayCommand(client *c) {
     long long start, end;
     const char *start_err = "invalid start: must be an integer no greater than 4294967295";
@@ -2089,25 +2132,22 @@ void bitrangeintarrayCommand(client *c) {
 
     robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray);
     if (o == NULL) return;
-    /* With bitmap-default-roaring enabled, read a string through a temporary
-     * Roaring bitmap and leave the stored value untouched. A read changes no
-     * keyspace state, so unlike writes this need not defer to the master. */
-    robj *tmp = NULL;
-    if (o->type == OBJ_STRING && server.bitmap_default_roaring) {
-        if (bitroarStringTooLarge(o)) {
-            addReplyError(c, "bitmap length exceeds Roaring bitmap limit");
-            return;
-        }
-        tmp = o = bitroarFromStringObject(o);
-        serverAssert(o != NULL);
+    /* Strings are scanned in place, independent of bitmap-default-roaring,
+     * so a read never converts or copies the stored value. */
+    int isstr = o->type == OBJ_STRING;
+    unsigned char *p = NULL;
+    long strlen = 0;
+    char llbuf[LONG_STR_SIZE];
+    if (isstr) {
+        p = getObjectReadOnlyString(o, &strlen, llbuf);
     } else if (checkType(c, o, OBJ_BITMAP)) {
         return;
     }
 
     if (start < 0 || end < 0) {
-        /* Native bitmap length bounds keep cardinality below LLONG_MAX.
+        /* String and native bitmap length bounds keep cardinality below LLONG_MAX
          * Adding a negative rank is safe, including LLONG_MIN. */
-        long long cardinality = bitroarCardinality(o);
+        long long cardinality = isstr ? redisPopcount(p, strlen) : (long long)bitroarCardinality(o);
         if (start < 0) start += cardinality;
         if (end < 0) end += cardinality;
         /* A start before the first rank is clipped, but an end before it
@@ -2115,27 +2155,30 @@ void bitrangeintarrayCommand(client *c) {
         if (start < 0) start = 0;
         if (start >= cardinality) {
             addReply(c, shared.emptyarray);
-            goto cleanup;
+            return;
         }
     }
     /* With start >= 0, this also rejects an end still below zero. */
     if (start > end) {
         addReply(c, shared.emptyarray);
-        goto cleanup;
+        return;
     }
 
-    /* Nonnegative ranges avoid counting every container to return a small
-     * page. Iterator exhaustion truncates an end beyond the last rank. Widen
+    /* Nonnegative ranges avoid counting every container or byte to return a
+     * small page. Exhaustion truncates an end beyond the last rank. Widen
      * the inclusive span so 0..UINT32_MAX includes all 2^32 ranks. */
     uint64_t count = (uint64_t)(end - start) + 1;
     void *arraylen = addReplyDeferredLen(c);
-    bitroarIntArrayReply reply = {c, 0};
-    bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
+    long long emitted;
+    if (isstr) {
+        emitted = bitrangeintarrayString(c, p, strlen, start, count);
+    } else {
+        bitroarIntArrayReply reply = {c, 0};
+        bitroarVisitSetBits(o, start, count, bitroarReplySetBits, &reply);
+        emitted = reply.emitted;
+    }
     /* Resolve the placeholder even if an output limit scheduled async close. */
-    setDeferredArrayLen(c, arraylen, reply.emitted);
-
-cleanup:
-    if (tmp) decrRefCount(tmp);
+    setDeferredArrayLen(c, arraylen, emitted);
 }
 
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,

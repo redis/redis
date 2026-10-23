@@ -2205,13 +2205,11 @@ proc assert_bitmap_has_exact_bits {key bits} {
     foreach bit $unique {
         assert_equal 1 [r getbit $key $bit]
     }
-    if {[r type $key] eq "bitmap"} {
-        # Reuse the translated redis-roaring algebra fixtures to check
-        # integer-array reads on native bitmaps.
-        assert_equal $unique [r bitrangeintarray $key 0 -1]
-        assert_equal $unique [r bitrangeintarray $key 0 [llength $unique]]
-        assert_equal [lrange $unique 1 3] [r bitrangeintarray $key 1 3]
-    }
+    # Reuse the translated redis-roaring algebra fixtures to check
+    # integer-array reads on both string and native bitmaps.
+    assert_equal $unique [r bitrangeintarray $key 0 -1]
+    assert_equal $unique [r bitrangeintarray $key 0 [llength $unique]]
+    assert_equal [lrange $unique 1 3] [r bitrangeintarray $key 1 3]
 }
 
 proc assert_bitmap_translated_jaccard {name left_bits right_bits expected_intersection expected_union expected_ratio} {
@@ -5127,35 +5125,79 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
         assert_equal bitmap [r type intarray:zero]
     }
 
-    test {BITRANGEINTARRAY rejects strings and other types with bitmap-default-roaring no} {
-        r config set bitmap-default-roaring no
-        r set intarray:string [binary format H* 8040]
-        r set intarray:integer 123
-        r set intarray:emptystring {}
+    test {BITRANGEINTARRAY rejects non-bitmap types} {
+        r del intarray:list
         r lpush intarray:list value
-        foreach key {intarray:string intarray:integer intarray:emptystring intarray:list} {
-            foreach bounds {{0 -1} {0 0} {-1 -1} {-1 0} {0 -2}
-                            {-9223372036854775808 -1} {-1 4294967295}
-                            {1 0} {4294967295 0} {0 100000000} {0 4294967295}} {
-                assert_error {WRONGTYPE Operation against a key holding the wrong kind of value} {
-                    r bitrangeintarray $key {*}$bounds
-                }
-            }
-        }
-        assert_equal [binary format H* 8040] [r get intarray:string]
-        assert_equal string [r type intarray:integer]
-        assert_equal {} [r get intarray:emptystring]
+        assert_error {WRONGTYPE*} {r bitrangeintarray intarray:list 0 -1}
+        assert_error {WRONGTYPE*} {r bitrangeintarray intarray:list 0 4294967295}
         assert_equal {value} [r lrange intarray:list 0 -1]
     }
 
-    test {BITRANGEINTARRAY reads strings through a temporary bitmap with bitmap-default-roaring yes} {
-        r config set bitmap-default-roaring yes
-        r set intarray:string [binary format H* 8040]
-        assert_equal {0 9} [r bitrangeintarray intarray:string 0 -1]
-        assert_equal string [r type intarray:string]
+    test {BITRANGEINTARRAY reads strings in place regardless of bitmap-default-roaring} {
+        foreach roaring {no yes} {
+            r config set bitmap-default-roaring $roaring
+            r set intarray:string [binary format H* 8040]
+            r set intarray:integer 123
+            r set intarray:emptystring {}
+            r set intarray:zerostring [binary format H* 0000]
+            assert_equal {0 9} [r bitrangeintarray intarray:string 0 -1]
+            assert_equal {9} [r bitrangeintarray intarray:string -1 -1]
+            assert_equal {0} [r bitrangeintarray intarray:string 0 0]
+            assert_equal {} [r bitrangeintarray intarray:string 2 -1]
+            # Integer-encoded strings expose the bits of their decimal digits.
+            assert_equal {2 3 7 10 11 14 18 19 22 23} \
+                [r bitrangeintarray intarray:integer 0 -1]
+            assert_equal {22 23} [r bitrangeintarray intarray:integer -2 4294967295]
+            foreach key {intarray:emptystring intarray:zerostring} {
+                foreach bounds {{0 -1} {0 0} {-1 -1} {0 4294967295} {4294967295 -1}} {
+                    assert_equal {} [r bitrangeintarray $key {*}$bounds]
+                }
+            }
+            assert_equal string [r type intarray:string]
+            assert_equal [binary format H* 8040] [r get intarray:string]
+            assert_equal int [r object encoding intarray:integer]
+            assert_equal string [r type intarray:emptystring]
+        }
         r config set bitmap-default-roaring no
-        # Without the config, the same string is rejected.
-        assert_error {WRONGTYPE*} {r bitrangeintarray intarray:string 0 -1}
+    }
+
+    test {BITRANGEINTARRAY on strings matches native bitmaps} {
+        # Each trial sets the same random bits in a string and in a native
+        # bitmap, then checks that both return the same offsets for the full
+        # range and for random rank ranges.
+        r config set bitmap-default-roaring no
+        # 100000 bits is about 12KB, so the string spans several 4096-byte
+        # popcount blocks used to skip leading ranks.
+        set maxbit 100000
+        set state 2718
+        for {set trial 0} {$trial < 20} {incr trial} {
+            set bits {}
+            set n [intarray_random state 200]
+            for {set i 0} {$i < $n} {incr i} {
+                lappend bits [intarray_random state $maxbit]
+            }
+            set offsets [lsort -integer -unique $bits]
+
+            # Clearing the last bit fixes the string length, so the key stays
+            # a string with trailing zero bytes even when no bits are set.
+            r del intarray:str
+            r setbit intarray:str $maxbit 0
+            foreach bit $offsets {r setbit intarray:str $bit 1}
+            assert_equal string [r type intarray:str]
+            seed_roaring_bitmap intarray:str:native $offsets
+
+            assert_equal $offsets [r bitrangeintarray intarray:str 0 -1]
+            assert_equal $offsets [r bitrangeintarray intarray:str:native 0 -1]
+
+            # Random rank ranges, including negative ones.
+            for {set query 0} {$query < 20} {incr query} {
+                set start [expr {[intarray_random state 440] - 220}]
+                set end [expr {[intarray_random state 440] - 220}]
+                assert_equal [r bitrangeintarray intarray:str:native $start $end] \
+                    [r bitrangeintarray intarray:str $start $end] \
+                    "trial $trial, ranks $start $end"
+            }
+        }
     }
 
     test {BITRANGEINTARRAY validates rank syntax and bounds before key type} {

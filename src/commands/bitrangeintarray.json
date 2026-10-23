@@ -1,7 +1,7 @@
 {
     "BITRANGEINTARRAY": {
         "summary": "Returns an inclusive range of set-bit offsets by their zero-based ranks in a bitmap.",
-        "complexity": "O(C + M) where C is the number of bitmap containers and M is the number of returned integers.",
+        "complexity": "O(C + M) where C is the number of bitmap containers, or the length in bytes for a string, and M is the number of returned integers.",
         "group": "bitmap",
         "since": "8.12.0",
         "arity": 4,
@@ -48,7 +48,7 @@
             }
         ],
         "reply_schema": {
-            "description": "Set-bit offsets at the inclusive ranks in ascending order. Negative ranks count from the end, with -1 selecting the last set bit. Missing or empty bitmaps, reversed ranges after normalization, and starts beyond the last rank return an empty array.",
+            "description": "Set-bit offsets at the inclusive ranks in ascending order. Negative ranks count from the end, with -1 selecting the last set bit. Missing keys, bitmaps or strings without set bits, reversed ranges after normalization, and starts beyond the last rank return an empty array.",
             "type": "array",
             "uniqueItems": true,
             "items": {
