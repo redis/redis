@@ -240,6 +240,46 @@ proc count_log_message {srv_idx pattern} {
     return [count_message_lines $stdout $pattern]
 }
 
+# Run the openssl command line client against $host:$port with the given extra
+# arguments and return its whole output (stdout and stderr), whatever its exit
+# status. The connection is held open for a second: in TLS 1.3 the server sends
+# session tickets only after the handshake has completed, and a client that
+# disconnects at once would leave without a token to resume from. The report
+# says "New, TLSv1.x" after a full handshake and "Reused, TLSv1.x" after a
+# resumed session; -sess_out FILE saves the session, -sess_in FILE resumes it.
+# The connection is closed before the command returns; openssl_s_client_open
+# keeps one open.
+proc openssl_s_client {host port args} {
+    set cmd "sleep 1 | openssl s_client -connect $host:$port -CAfile $::tlsdir/ca.crt $args 2>&1"
+    catch {exec sh -c $cmd} out
+    return $out
+}
+
+# Like openssl_s_client, but keeps the connection open: s_client's standard
+# input is held, so it neither exits nor shuts the connection down until
+# openssl_s_client_close is called on the returned handle, which then returns
+# the whole output. A session established on the connection stays in the
+# server's cache only while the connection lasts: OpenSSL drops a cached session
+# when its connection is freed without a close_notify having been sent, and the
+# server sends none for a connection its peer closed first. Tickets are
+# unaffected, as the client holds them.
+proc openssl_s_client_open {host port args} {
+    set out [file join [pwd] tests/tmp s_client.[pid].[incr ::openssl_s_client_seq].out]
+    set fd [open "|[list openssl s_client -connect $host:$port -CAfile $::tlsdir/ca.crt {*}$args >& $out]" w]
+    return [list $fd $out]
+}
+
+proc openssl_s_client_close {handle} {
+    lassign $handle fd out
+    # End of input: s_client shuts the connection down and exits.
+    catch {close $fd}
+    set f [open $out]
+    set result [read $f]
+    close $f
+    file delete $out
+    return $result
+}
+
 # verify pattern exists in server's sdtout after a certain line number
 proc verify_log_message {srv_idx pattern from_line} {
     incr from_line

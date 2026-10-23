@@ -827,3 +827,137 @@ if {$::tls} {
         }
     }
 }
+
+# tls-session-caching governs the server side session cache only. Session
+# tickets, which carry the session state to the client under a key only the
+# server holds, are issued and accepted with caching off as well, so clients
+# that support them keep resuming sessions. A session resumes only on a
+# connection with the same client certificate requirements as the one it was
+# established on, and no certificate is exchanged again: the resumed connection
+# stands on the verdict of the full handshake.
+if {$::tls} {
+    start_server {tags {"tls"} overrides {tls-session-caching no}} {
+        set host [srv 0 host]
+        set port [srv 0 port]
+        set sess [file join [pwd] tests/tmp resume.[pid].pem]
+        set client [list -cert $::tlsdir/client.crt -key $::tlsdir/client.key]
+
+        # The lifetime a saved session reports, in seconds.
+        proc saved_session_lifetime {sess} {
+            set saved [exec openssl sess_id -in $sess -noout -text 2>@1]
+            if {![regexp {lifetime hint: (\d+) \(seconds\)} $saved -> lifetime]} {
+                fail "the saved session reports no lifetime"
+            }
+            return $lifetime
+        }
+
+        test {sessions resume by ticket with tls-session-caching no and client certificates required} {
+            # tls-auth-clients is at its default, yes: the suite's client
+            # certificate is verified on the full handshake.
+            assert_equal yes [lindex [r config get tls-auth-clients] 1]
+            foreach ver {-tls1_3 -tls1_2} {
+                file delete $sess
+                set out [openssl_s_client $host $port $ver {*}$client -sess_out $sess]
+                assert_match {*New, TLSv1*} $out
+                # Without a cache there is no cache timeout to apply: the
+                # ticket carries OpenSSL's default lifetime of two hours.
+                assert_equal 7200 [saved_session_lifetime $sess]
+                set out [openssl_s_client $host $port $ver {*}$client -sess_in $sess]
+                assert_match {*Reused, TLSv1*} $out
+            }
+        }
+
+        test {tickets expire after tls-session-cache-timeout with tls-session-caching yes} {
+            set old_session_caching [lindex [r config get tls-session-caching] 1]
+            r config set tls-session-caching yes
+            set timeout [lindex [r config get tls-session-cache-timeout] 1]
+            foreach ver {-tls1_3 -tls1_2} {
+                file delete $sess
+                set out [openssl_s_client $host $port $ver {*}$client -sess_out $sess]
+                assert_match {*New, TLSv1*} $out
+                assert_equal $timeout [saved_session_lifetime $sess]
+            }
+            r config set tls-session-caching $old_session_caching
+            file delete $sess
+        }
+    }
+
+    # tls-auth-clients is read when a connection is accepted and changes
+    # without rebuilding the SSL context, so the sessions issued before a
+    # change stay in the server cache and their tickets stay decryptable. A
+    # session is resumed only on a connection with the same client certificate
+    # requirements as the one it was established on, so tightening the setting
+    # applies to those sessions too: a client that resumed without a
+    # certificate under no or optional runs a full handshake under yes, where
+    # one is required.
+    start_server {tags {"tls"} overrides {tls-auth-clients no}} {
+        set host [srv 0 host]
+        set port [srv 0 port]
+        set sess [file join [pwd] tests/tmp tighten.[pid].pem]
+        set client "-cert $::tlsdir/client.crt -key $::tlsdir/client.key"
+
+        test {tightening tls-auth-clients at runtime applies to the sessions issued before it} {
+            set old_session_caching [lindex [r config get tls-session-caching] 1]
+            r config set tls-session-caching yes
+            set old_auth [lindex [r config get tls-auth-clients] 1]
+            foreach from {no optional} {
+                r config set tls-auth-clients $from
+                foreach {flags proto by} {
+                    {-tls1_3}            TLSv1.3 ticket
+                    {-tls1_2}            TLSv1.2 ticket
+                    {-tls1_2 -no_ticket} TLSv1.2 id
+                } {
+                    # Issue a session without a certificate. The connection is
+                    # kept open until the end: the server drops the cached
+                    # session of a connection its peer closed first.
+                    file delete $sess
+                    set issuing [openssl_s_client_open $host $port {*}$flags -sess_out $sess]
+                    wait_for_condition 50 100 {
+                        [file exists $sess] && ![catch {exec openssl sess_id -in $sess -noout}]
+                    } else {
+                        fail "no session was saved from the client port"
+                    }
+                    set saved [exec openssl sess_id -in $sess -noout -text 2>@1]
+                    assert_match "*Protocol*: $proto*" $saved
+                    if {$by eq "ticket"} {
+                        assert_match {*TLS session ticket:*} $saved
+                    } else {
+                        assert_no_match {*TLS session ticket:*} $saved
+                        assert {[regexp {Session-ID: [0-9A-F]+} $saved]}
+                    }
+
+                    # Require certificates. Presented without one, the session
+                    # is not resumed, and the full handshake run instead is
+                    # refused for the missing certificate.
+                    r config set tls-auth-clients yes
+                    set loglines [count_log_lines 0]
+                    set out [openssl_s_client $host $port {*}$flags -sess_in $sess]
+                    assert_no_match {*Reused, TLSv1*} $out
+                    wait_for_log_messages 0 \
+                        {"*Error accepting a client connection*peer did not return a certificate*"} \
+                        $loglines 50 100
+
+                    # Presented with a certificate, it is not resumed either:
+                    # the certificate is verified in a full handshake, which
+                    # succeeds.
+                    set out [openssl_s_client $host $port {*}$flags {*}$client -sess_in $sess]
+                    assert_match {*New, TLSv1*} $out
+                    assert_no_match {*Reused, TLSv1*} $out
+                    assert_no_match {*alert number*} $out
+
+                    # Positive control: back under the issuing setting the same
+                    # session resumes, so the refusals above were the change at
+                    # work, not a session that had become unusable.
+                    r config set tls-auth-clients $from
+                    set out [openssl_s_client $host $port {*}$flags -sess_in $sess]
+                    assert_match {*Reused, TLSv1*} $out
+
+                    assert_match {*New, TLSv1*} [openssl_s_client_close $issuing]
+                }
+            }
+            r config set tls-auth-clients $old_auth
+            r config set tls-session-caching $old_session_caching
+            file delete $sess
+        }
+    }
+}
