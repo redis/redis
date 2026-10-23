@@ -3398,7 +3398,6 @@ void addReply(client *c, robj *obj);
 void addReplyStatusLength(client *c, const char *s, size_t len);
 void addReplySds(client *c, sds s);
 void addReplyBulkSds(client *c, sds s);
-void setDeferredReplyBulkSds(client *c, void *node, sds s);
 void setDeferredReplyBulkCBuffer(client *c, void *node, const char *p, size_t len);
 void addReplyErrorObject(client *c, robj *err);
 void addReplyOrErrorObject(client *c, robj *reply);
