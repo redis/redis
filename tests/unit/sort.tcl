@@ -264,6 +264,40 @@ foreach command {SORT SORT_RO} {
         r sort myset by score:*
     } {a aa aaa azz b c d e f g h i l m n o p q r s t u v z} {cluster:skip}
 
+    foreach type {list set zset} {
+        test "SORT BY ALPHA sub-sorts lexicographically if weight is the same - $type" {
+            set sorted {a aa aaa azz b c d e f g h i l m n o p q r s t u v z}
+            set score 0
+            r del src dst
+            # Neither the order of insertion nor the order of the scores is
+            # the lexicographic one.
+            foreach ele {m z aaa b t azz a g aa c v d i e s f h l n o p q r u} {
+                switch $type {
+                    list {r rpush src $ele}
+                    set {r sadd src $ele}
+                    zset {r zadd src [incr score] $ele}
+                }
+                r set weight:$ele same
+            }
+            assert_equal $sorted [r sort src by weight:* alpha]
+            assert_equal [lreverse $sorted] [r sort src by weight:* alpha desc]
+            assert_equal {a aa aaa azz b} [r sort src by weight:* alpha limit 0 5]
+            r sort src by weight:* alpha store dst
+            assert_equal $sorted [r lrange dst 0 -1]
+        } {} {cluster:skip}
+    }
+
+    test "SORT BY ALPHA sorts by weight first, then by element" {
+        r del src dst
+        r rpush src c n z a m y b x
+        r mset rank:a 2 rank:b 2 rank:c 2 rank:x 1 rank:y 1 rank:z 1
+        # m and n have no weight: they come first.
+        assert_equal {m n x y z a b c} [r sort src by rank:* alpha]
+        assert_equal {c b a z y x n m} [r sort src by rank:* alpha desc]
+        r sort src by rank:* alpha store dst
+        assert_equal {m n x y z a b c} [r lrange dst 0 -1]
+    } {} {cluster:skip}
+
     test "SORT GET with pattern ending with just -> does not get hash field" {
         r del mylist
         r lpush mylist a
