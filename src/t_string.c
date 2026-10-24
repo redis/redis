@@ -893,7 +893,7 @@ void msetexCommand(client *c) {
     addReply(c, shared.cone);
 }
 
-void incrDecrCommand(client *c, long long incr) {
+void incrDecrCommand(client *c, long long incr, long long max_limit, long long min_limit) {
     long long value, oldvalue;
     robj *new;
     dictEntryLink link;
@@ -908,6 +908,12 @@ void incrDecrCommand(client *c, long long incr) {
         return;
     }
     value += incr;
+
+    /* Check min and max limits */
+    if (value > max_limit || value < min_limit) {
+        addReplyError(c,"increment or decrement would exceed limit");
+        return;
+    }
 
     if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
         value >= LONG_MIN && value <= LONG_MAX)
@@ -933,23 +939,64 @@ void incrDecrCommand(client *c, long long incr) {
     server.dirty++;
 }
 
+/* Parse optional max and min parameters */
+int parseLimitArgumentsOrReply(client *c, long long *max_limit, long long *min_limit) {
+    int has_max = 0;
+    int has_min = 0;
+
+    for (int j = 3; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int args = (c->argc-1) - j;
+
+        if (!strcasecmp(opt, "max") && args) {
+          if (getLongLongFromObjectOrReply(c, c->argv[j + 1], max_limit,
+                                           NULL) != C_OK)
+            return C_ERR;
+          has_max = 1;
+          j++;
+        } else if (!strcasecmp(opt, "min") && args) {
+          if (getLongLongFromObjectOrReply(c, c->argv[j + 1], min_limit,
+                                           NULL) != C_OK)
+            return C_ERR;
+          has_min = 1;
+          j++;
+        } else {
+          addReplyErrorObject(c, shared.syntaxerr);
+          return C_ERR;
+        }
+    }
+
+    /* Only validate min <= max when both parameters are provided */
+    if (has_min && has_max && *min_limit > *max_limit) {
+        addReplyError(c, "min value cannot be greater than max value");
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 void incrCommand(client *c) {
-    incrDecrCommand(c,1);
+    incrDecrCommand(c,1, LLONG_MAX, LLONG_MIN);
 }
 
 void decrCommand(client *c) {
-    incrDecrCommand(c,-1);
+    incrDecrCommand(c,-1, LLONG_MAX, LLONG_MIN);
 }
 
 void incrbyCommand(client *c) {
     long long incr;
+    long long max_limit = LLONG_MAX;
+    long long min_limit = LLONG_MIN;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
-    incrDecrCommand(c,incr);
+    if (parseLimitArgumentsOrReply(c, &max_limit, &min_limit) != C_OK) return;
+
+    incrDecrCommand(c, incr, max_limit, min_limit);
 }
 
 void decrbyCommand(client *c) {
     long long incr;
+    long long max_limit = LLONG_MAX;
+    long long min_limit = LLONG_MIN;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
     /* Overflow check: negating LLONG_MIN will cause an overflow */
@@ -957,7 +1004,8 @@ void decrbyCommand(client *c) {
         addReplyError(c, "decrement would overflow");
         return;
     }
-    incrDecrCommand(c,-incr);
+    if (parseLimitArgumentsOrReply(c, &max_limit, &min_limit) != C_OK) return;
+    incrDecrCommand(c, -incr, max_limit, min_limit);
 }
 
 void incrbyfloatCommand(client *c) {
