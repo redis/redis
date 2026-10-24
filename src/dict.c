@@ -195,15 +195,21 @@ static void _dictReset(dict *d, int htidx)
     d->ht_used[htidx] = 0;
 }
 
-/* Create a new hash table */
-dict *dictCreate(dictType *type)
-{
+/* Initialize a hash table in caller-owned storage. */
+void dictInit(dict *d, dictType *type) {
     size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL) : 0;
-    dict *d = zmalloc(sizeof(*d)+metasize);
     if (metasize > 0) {
         memset(dictMetadata(d), 0, metasize);
     }
     _dictInit(d,type);
+}
+
+/* Create a new hash table. */
+dict *dictCreate(dictType *type)
+{
+    size_t metasize = type->dictMetadataBytes ? type->dictMetadataBytes(NULL) : 0;
+    dict *d = zmalloc(sizeof(*d)+metasize);
+    dictInit(d,type);
     return d;
 }
 
@@ -737,9 +743,8 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
     return DICT_OK; /* never fails */
 }
 
-/* Clear & Release the hash table */
-void dictRelease(dict *d)
-{
+/* Clear a hash table without releasing the dict allocation itself. */
+void dictDestroy(dict *d) {
     /* Someone may be monitoring a dict that started rehashing, before
      * destroying the dict fake completion. */
     if (dictIsRehashing(d) && d->type->rehashingCompleted)
@@ -754,6 +759,12 @@ void dictRelease(dict *d)
 
     _dictClear(d,0,NULL);
     _dictClear(d,1,NULL);
+}
+
+/* Clear & Release the hash table */
+void dictRelease(dict *d)
+{
+    dictDestroy(d);
     zfree(d);
 }
 
