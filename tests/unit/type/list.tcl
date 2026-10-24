@@ -1334,6 +1334,12 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
             $rd close
         }
 
+        test "$pop: with timeout that can't be converted to an integer" {
+            assert_error "ERR *is negative*" {bpop_command r $pop blist1 -inf}
+            assert_error "ERR *out of range*" {bpop_command r $pop blist1 9223372036854775.807}
+            assert_error "ERR *out of range*" {bpop_command r $pop blist1 inf}
+        }
+
         test "$pop: with negative timeout" {
             set rd [redis_deferring_client]
             bpop_command $rd $pop blist1 -1
@@ -1590,6 +1596,16 @@ foreach type {listpack quicklist} {
         assert_equal "" [r lindex not-a-key 10]
     }
 
+    foreach {type large} [array get largevalue] {
+        test "LINDEX and LSET with LLONG_MIN index - $type" {
+            create_$type llminlist "a $large c"
+            assert_equal {} [r lindex llminlist -9223372036854775808]
+            assert_error "ERR index out of range" {r lset llminlist -9223372036854775808 x}
+            assert_equal c [r lindex llminlist -1]
+            r del llminlist
+        }
+    }
+
     test {LPUSH against non-list value error} {
         assert_error WRONGTYPE* {r lpush mylist 0}
     }
@@ -1817,6 +1833,8 @@ foreach {type large} [array get largevalue] {
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} COUNT}
         assert_error "ERR syntax error*" {r lmpop 1 mylist{t} LEFT COUNT 1 COUNT 2}
         assert_error "ERR syntax error*" {r lmpop 2 mylist{t} mylist2{t} bad_arg}
+        assert_error "ERR syntax error*" {r lmpop 9223372036854775807 mylist{t} LEFT}
+        assert_error "ERR syntax error*" {r blmpop 0 9223372036854775807 mylist{t} LEFT}
 
         assert_error "ERR count*" {r lmpop 1 mylist{t} LEFT COUNT 0}
         assert_error "ERR count*" {r lmpop 1 mylist{t} RIGHT COUNT a}
