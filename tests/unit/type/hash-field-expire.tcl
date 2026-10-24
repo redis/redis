@@ -1949,6 +1949,39 @@ start_server {tags {"external:skip needs:debug"}} {
             } {} {needs:debug}
         }
 
+        test "AOF loading does not treat already-passed field TTLs as expired ($type)" {
+            start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
+                r config set hash-max-listpack-entries [expr {$type eq "ht" ? 0 : 512}]
+                # Fields that carry a short TTL which has passed by the time the
+                # AOF is loaded, but that were made persistent or re-armed
+                # before it passed.
+                r hset persist user alice token t1
+                r hpexpire persist 1500 FIELDS 1 token
+                r hpersist persist FIELDS 1 token
+
+                r hsetex hgetex PX 1500 FIELDS 1 item book
+                r hgetex hgetex PERSIST FIELDS 1 item
+
+                r hsetex fxx PX 1500 FIELDS 1 owner a
+                r hsetex fxx FXX PX 3600000 FIELDS 1 owner b
+
+                r hsetex incr PX 1500 FIELDS 1 qty 10
+                r hincrby incr qty 5
+                r hpexpire incr 3600000 FIELDS 1 qty
+
+                after 1700
+                r debug loadaof
+                assert_equal [lsort [r hgetall persist]] [lsort {user alice token t1}]
+                assert_equal [r hget hgetex item] book
+                assert_equal [r hget fxx owner] b
+                assert_equal [r hget incr qty] 15
+                assert_equal [r httl persist FIELDS 1 token] -1
+                assert_equal [r httl hgetex FIELDS 1 item] -1
+                assert_range [r httl incr FIELDS 1 qty] 3500 3600
+                assert_range [r httl fxx FIELDS 1 owner] 3500 3600
+            }
+        } {} {needs:debug}
+
         # Based on test, with same name, at expire.tcl:
         test {All TTL in commands are propagated as absolute timestamp in replication stream} {
             # Make sure that both relative and absolute expire commands are propagated
