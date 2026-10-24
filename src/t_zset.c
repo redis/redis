@@ -389,17 +389,31 @@ static void zslDelete(zskiplist *zsl, zskiplistNode *node) {
     zslFreeNode(zsl, node);
 }
 
+/* Returns true if node would still be strictly between its level-0 neighbors
+ * after changing its score. The sorted-set order is (score, element), so equal
+ * scores still need the lexicographic tie-breaker. */
+static int zslNodeCanKeepPosition(zskiplistNode *node, double newscore) {
+    sds ele = zslGetNodeElement(node);
+    zskiplistNode *prev = node->backward;
+    zskiplistNode *next = node->level[0].forward;
+
+    if (prev != NULL && zslCompareWithNode(newscore, ele, prev) <= 0)
+        return 0;
+    if (next != NULL && zslCompareWithNode(newscore, ele, next) >= 0)
+        return 0;
+    return 1;
+}
+
 /* Update the score of an element inside the sorted set skiplist.
- * If the new score would keep the node in its current position, updates in-place and returns NULL.
- * Otherwise, unlinks the node, updates score, reinserts at correct position, and returns node.
- * Anyway, the node pointer stays the same (no dict update needed). */
+ * If the new score would keep the node in its current position, update it
+ * in-place. Otherwise, unlink the node, update the score, and reinsert it at
+ * the correct position. The node pointer stays the same (no dict update
+ * needed). */
 static void zslUpdateScore(zskiplist *zsl, zskiplistNode *node, double newscore) {
     /* Fast path: if the node, after the score update, would be still exactly
      * at the same position, we can just update the score without
      * actually removing and re-inserting the element in the skiplist. */
-    if ((node->backward == NULL || node->backward->score < newscore) &&
-        (node->level[0].forward == NULL || node->level[0].forward->score > newscore))
-    {
+    if (zslNodeCanKeepPosition(node, newscore)) {
         node->score = newscore;
         return;
     }
