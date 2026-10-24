@@ -32,6 +32,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <hiredis_ssl.h>
+#include <arpa/inet.h>
 #endif
 #include <sdscompat.h> /* Use hiredis' sds compat header that maps sds calls to their hi_ variants */
 #include <sds.h> /* use sds.h from hiredis, so that only one set of sds functions will be present in the binary */
@@ -1726,6 +1727,24 @@ static int cliSetName(void) {
     return result;
 }
 
+/* Returns a copy of the TLS configuration where the SNI host, if not
+ * explicitly provided via --sni, is derived from the target hostname. This
+ * matches the behavior of TLS client libraries. Literal IP addresses are
+ * skipped because they are not valid SNI values (RFC 6066), mirroring what
+ * the server does for its outbound TLS connections. */
+static cliSSLconfig cliSslConfigWithDerivedSni(void) {
+    cliSSLconfig sslconfig = config.sslconfig;
+#ifdef USE_OPENSSL
+    unsigned char addr_buf[sizeof(struct in6_addr)];
+    if (!sslconfig.sni &&
+        inet_pton(AF_INET, config.conn_info.hostip, addr_buf) != 1 &&
+        inet_pton(AF_INET6, config.conn_info.hostip, addr_buf) != 1) {
+        sslconfig.sni = config.conn_info.hostip;
+    }
+#endif
+    return sslconfig;
+}
+
 /* Connect to the server. It is possible to pass certain flags to the function:
  *      CC_FORCE: The connection is performed even if there is already
  *                a connected socket.
@@ -1751,7 +1770,8 @@ static int cliConnect(int flags) {
 
         if (!context->err && config.tls) {
             const char *err = NULL;
-            if (cliSecureConnection(context, config.sslconfig, &err) == REDIS_ERR && err) {
+            cliSSLconfig sslconfig = cliSslConfigWithDerivedSni();
+            if (cliSecureConnection(context, sslconfig, &err) == REDIS_ERR && err) {
                 fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
                 redisFree(context);
                 context = NULL;
@@ -2695,7 +2715,8 @@ static redisReply *reconnectingRedisCommand(redisContext *c, const char *fmt, ..
                                     config.connect_timeout);
             if (!c->err && config.tls) {
                 const char *err = NULL;
-                if (cliSecureConnection(c, config.sslconfig, &err) == REDIS_ERR && err) {
+                cliSSLconfig sslconfig = cliSslConfigWithDerivedSni();
+                if (cliSecureConnection(c, sslconfig, &err) == REDIS_ERR && err) {
                     fprintf(stderr, "TLS Error: %s\n", err);
                     exit(1);
                 }
@@ -3201,6 +3222,8 @@ static void usage(int err) {
 #ifdef USE_OPENSSL
 "  --tls              Establish a secure TLS connection.\n"
 "  --sni <host>       Server name indication for TLS.\n"
+"                     Defaults to the target hostname when it is not a literal\n"
+"                     IP address.\n"
 "  --cacert <file>    CA Certificate file to verify with.\n"
 "  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                     If neither cacert nor cacertdir are specified, the default\n"
