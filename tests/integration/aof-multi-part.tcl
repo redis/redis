@@ -1535,4 +1535,36 @@ tags {"external:skip"} {
             wait_load_handlers_disconnected
         }
     }
+
+    start_server {overrides {appendonly yes appendfilename appendonly.aof appenddirname appendonlydir auto-aof-rewrite-percentage 0}} {
+        test {Multi Part AOF rewrite stays consistent when the manifest directory fsync fails} {
+            waitForBgrewriteaof r
+            r set k1 v1
+
+            set dir [lindex [r config get dir] 1]
+            set aofdir [file join $dir [lindex [r config get appenddirname] 1]]
+
+            # Make the AOF directory reject the O_RDONLY open that fsyncFileDir()
+            # performs (drop the read bit) while still allowing the manifest
+            # rename (keep write+exec). The post-rename directory fsync then
+            # fails while the rename itself succeeds -- the exact condition in
+            # the bug report.
+            exec chmod 0300 $aofdir
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            exec chmod 0700 $aofdir
+
+            # Before the fix the directory-fsync failure made the whole manifest
+            # write report an error, so the rewrite was rolled back (status err)
+            # and left the on-disk manifest naming a base file that had just been
+            # deleted. The rewrite must instead succeed.
+            assert_equal "ok" [status r aof_last_bgrewrite_status]
+
+            # The base file named in the manifest still exists and the data
+            # reloads from the on-disk AOF.
+            assert_equal 1 [file exists [get_base_aof_path r]]
+            r debug loadaof
+            assert_equal v1 [r get k1]
+        }
+    }
 }
