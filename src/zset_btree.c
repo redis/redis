@@ -2674,6 +2674,7 @@ static void zbtScoreDeleteInPlace(zbtreeSet *zs, zbtScoreLeaf *leaf,
  * scores on every pop. Member records and index references stay in place. */
 static void zbtScoreLeafReverseForPop(zbtScoreLeaf *leaf) {
     unsigned int count = leaf->n.count;
+    serverAssert(count > 0 && count <= ZBT_SCORE_LEAF_MAX);
     double scores[ZBT_SCORE_LEAF_MAX];
     for (unsigned int i = 0; i < count; i++)
         scores[i] = zbtScoreLeafScore(leaf, i);
