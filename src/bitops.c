@@ -1715,11 +1715,16 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
          * proto-max-bulk-len when a source was created under a larger limit
          * (or loaded from RDB/replication). Allocate it with a try-variant so
          * an oversized BITOP fails with an OOM error instead of aborting,
-         * rather than being rejected outright (see bitopUseTryAlloc()). */
+         * rather than being rejected outright (see bitopUseTryAlloc()).
+         *
+         * The destination is fully overwritten below before it is exposed, so
+         * there is no need to pay for zero-filling it here. Every op/path
+         * either writes res[j] for all j in [0,maxlen) or, on the paths that
+         * accumulate into res, zeroes the range it accumulates into first. */
         if (bitopUseTryAlloc(c))
-            res = (unsigned char*) sdstrynewlen(NULL,maxlen);
+            res = (unsigned char*) sdstrynewlen(SDS_NOINIT,maxlen);
         else
-            res = (unsigned char*) sdsnewlen(NULL,maxlen);
+            res = (unsigned char*) sdsnewlen(SDS_NOINIT,maxlen);
         if (res == NULL) {
             addReplyError(c, "BITOP failed allocating the result, out of memory");
             for (j = 0; j < numkeys; j++)
@@ -1776,9 +1781,14 @@ static void bitopCommandGeneric(client *c, int force_roaring) {
              * DIFF, DIFF1 and ANDOR all compute the disjunction of all the
              * source keys but the first one. We first store that disjunction
              * in `lres` and later compute the final operation using the first
-             * source key. */
+             * source key. Since `res` is allocated uninitialized, that
+             * disjunction has to start from an explicit zero here -- this is
+             * the only path that accumulates into `res` rather than writing
+             * it. */
             if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR)
                 memcpy(lres,src[0],minlen);
+            else
+                memset(lres,0,minlen);
 
             /* Different branches per different operations for speed (sorry). */
             if (op == BITOP_AND) {
