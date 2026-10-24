@@ -8,15 +8,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "vector.h"
 #include "redisassert.h"
 #include "zmalloc.h"
-
-#define VEC_DEFAULT_INITCAP 8
 
 /*
  * Vector initialization.
@@ -27,9 +23,10 @@
  * - stack == NULL && initcap == 0: start heap-backed with no initial storage.
  */
 void vecInit(vec *v, void **stack, size_t initcap) {
-    /* If stack is provided, initcap must be > 0 and at the size of the stack */
+    /* If a stack buffer is provided, initcap must be > 0 and must match the
+     * capacity of that buffer (the latter cannot be verified here). */
     assert(initcap > 0 || stack == NULL);
-    
+
     v->size = 0;
     v->cap = initcap;
     v->stack = stack; /* stack is NULL if not used */
@@ -66,12 +63,6 @@ void vecClear(vec *v) {
     v->size = 0;
 }
 
-/* Get element at index. index must be < vecSize(v). */
-void *vecGet(const vec *v, size_t index) {
-    assert(index < v->size);
-    return v->data[index];
-}
-
 /* Ensure capacity is at least mincap. */
 void vecReserve(vec *v, size_t mincap) {
     void **newdata;
@@ -88,16 +79,6 @@ void vecReserve(vec *v, size_t mincap) {
 
     v->data = newdata;
     v->cap = mincap;
-}
-
-/* Append one element, growing storage as needed. */
-void vecPush(vec *v, void *value) {
-    if (unlikely(v->size == v->cap)) {
-        size_t newcap = (v->cap > 0) ? v->cap * 2 : VEC_DEFAULT_INITCAP;
-        vecReserve(v, newcap);
-    }
-
-    v->data[v->size++] = value;
 }
 
 #ifdef REDIS_TEST
@@ -180,6 +161,13 @@ int vectorTest(int argc, char **argv, int flags)
     test_cond("vecPush() works after vecReserve() on empty vector",
               vecSize(&v) == 2 &&
               vecGet(&v, 0) == &five && vecGet(&v, 1) == &six);
+    vecRelease(&v);
+
+    vecInit(&v, NULL, 0);
+    vecPush(&v, &one);
+    test_cond("vecPush() grows empty vector to default capacity",
+              vecSize(&v) == 1 && v.cap == VEC_DEFAULT_INITCAP &&
+              vecGet(&v, 0) == &one);
     vecRelease(&v);
 
     /* vecSetFreeMethod: element free callback is invoked on release. */
