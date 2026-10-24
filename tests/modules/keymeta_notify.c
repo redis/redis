@@ -31,9 +31,17 @@ static long long meta_set_count = 0;
 static int HashNotifyCallback(RedisModuleCtx *ctx, int type, const char *event,
                                RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
-    REDISMODULE_NOT_USED(event);
 
     if (meta_class_id < 0) return REDISMODULE_OK;
+
+    /* Limit NEW notifications to the BLESS regression key. */
+    if (!strcmp(event, "new")) {
+        size_t keylen;
+        const char *keyname = RedisModule_StringPtrLen(key, &keylen);
+        if (keylen != sizeof("bless_notify") - 1 ||
+            memcmp(keyname, "bless_notify", keylen))
+            return REDISMODULE_OK;
+    }
 
     RedisModuleKey *k = RedisModule_OpenKey(ctx, key, REDISMODULE_WRITE);
     if (!k) return REDISMODULE_OK;
@@ -128,10 +136,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (meta_class_id < 0) return REDISMODULE_ERR;
 
     /* Subscribe to keyspace events matching RediSearch's notification types:
-     * GENERIC, HASH, STRING, EXPIRED, and EVICTED. */
-    int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
-                      REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_EXPIRED |
-                      REDISMODULE_NOTIFY_EVICTED;
+     * GENERIC, NEW, HASH, STRING, EXPIRED, and EVICTED. */
+    int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_NEW |
+                      REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_STRING |
+                      REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED;
     if (RedisModule_SubscribeToKeyspaceEvents(ctx, notifyFlags,
                                               HashNotifyCallback) != REDISMODULE_OK)
         return REDISMODULE_ERR;
