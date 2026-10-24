@@ -255,7 +255,14 @@ struct sentinelState {
     char *sentinel_auth_user;    /* Username for ACLs AUTH against other sentinel. */
     int resolve_hostnames;       /* Support use of hostnames, assuming DNS is well configured. */
     int announce_hostnames;      /* Announce hostnames instead of IPs when we have them. */
+    char *state_config_file;     /* Separate file used to persist Sentinel runtime state. When
+                                    NULL (the default) state is kept in the main config file. */
 } sentinel;
+
+/* Non-zero while parsing the separate Sentinel state config file, so that
+ * configuration entries loaded from it can be distinguished from the ones in
+ * the main (administrator managed) config file. See sentinelLoadStateConfigFile(). */
+static int sentinelLoadingStateFile = 0;
 
 /* A script execution job. */
 typedef struct sentinelScriptJob {
@@ -455,7 +462,8 @@ const char *preMonitorCfgName[] = {
     "current-epoch",
     "myid",
     "resolve-hostnames",
-    "announce-hostnames"
+    "announce-hostnames",
+    "state-config-file"
 };
 
 /* Returns 1 if the string contains control characters (0x00-0x1F or 0x7F),
@@ -505,6 +513,7 @@ void initSentinel(void) {
     sentinel.sentinel_auth_user = NULL;
     sentinel.resolve_hostnames = SENTINEL_DEFAULT_RESOLVE_HOSTNAMES;
     sentinel.announce_hostnames = SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES;
+    sentinel.state_config_file = NULL;
     memset(sentinel.myid,0,sizeof(sentinel.myid));
     server.sentinel_config = NULL;
 }
@@ -516,11 +525,50 @@ void sentinelCheckConfigFile(void) {
         serverLog(LL_WARNING,
             "Sentinel needs config file on disk to save state. Exiting...");
         exit(1);
-    } else if (access(server.configfile,W_OK) == -1) {
+    }
+
+    /* A state file pointing at the main config file would defeat the purpose of
+     * the feature: Sentinel would only ever rewrite the "sentinel ..." lines of
+     * that shared file and silently stop persisting other CONFIG SET changes.
+     * Refuse this misconfiguration up front. */
+    if (sentinel.state_config_file != NULL &&
+        !strcmp(sentinel.state_config_file,server.configfile))
+    {
         serverLog(LL_WARNING,
-            "Sentinel config file %s is not writable: %s. Exiting...",
-            server.configfile,strerror(errno));
+            "Sentinel state-config-file must differ from the main config file %s. Exiting...",
+            server.configfile);
         exit(1);
+    }
+
+    /* Sentinel persists its state either into the main config file or, when
+     * configured, into a separate state file. Make sure the file we are going
+     * to write is (or can be) writable. */
+    char *statefile = sentinel.state_config_file ? sentinel.state_config_file : server.configfile;
+    if (access(statefile,F_OK) != -1) {
+        /* The file already exists: it must be writable. */
+        if (access(statefile,W_OK) == -1) {
+            serverLog(LL_WARNING,
+                "Sentinel config file %s is not writable: %s. Exiting...",
+                statefile,strerror(errno));
+            exit(1);
+        }
+    } else {
+        /* The state file does not exist yet (only possible for a separate
+         * state file): make sure we can create it in its directory. */
+        char dirbuf[PATH_MAX];
+        redis_strlcpy(dirbuf,statefile,sizeof(dirbuf));
+        char *slash = strrchr(dirbuf,'/');
+        char *dir = ".";
+        if (slash != NULL) {
+            *slash = '\0';
+            dir = (dirbuf[0] == '\0') ? "/" : dirbuf;
+        }
+        if (access(dir,W_OK) == -1) {
+            serverLog(LL_WARNING,
+                "Sentinel state config file %s cannot be created: directory %s is not writable: %s. Exiting...",
+                statefile,dir,strerror(errno));
+            exit(1);
+        }
     }
 }
 
@@ -1789,11 +1837,20 @@ void queueSentinelConfig(sds *argv, int argc, int linenum, sds line) {
     /* initialize sentinel_config for the first call */
     if (server.sentinel_config == NULL) initializeSentinelConfig();
 
+    /* The state config file path must be known before we load the state file
+     * itself, so capture it as soon as the directive is seen while parsing the
+     * main config file, rather than waiting for loadSentinelConfigFromQueue(). */
+    if (!strcasecmp(argv[0],"state-config-file") && argc >= 2) {
+        sdsfree(sentinel.state_config_file);
+        sentinel.state_config_file = sdsdup(argv[1]);
+    }
+
     entry = zmalloc(sizeof(struct sentinelLoadQueueEntry));
     entry->argv = zmalloc(sizeof(char*)*argc);
     entry->argc = argc;
     entry->linenum = linenum;
     entry->line = sdsdup(line);
+    entry->from_state_file = sentinelLoadingStateFile;
     for (i = 0; i < argc; i++) {
         entry->argv[i] = sdsdup(argv[i]);
     }
@@ -1834,7 +1891,12 @@ void loadSentinelConfigFromQueue(void) {
         listRewind(sentinel_configs[j],&li);
         while((ln = listNext(&li))) {
             struct sentinelLoadQueueEntry *entry = ln->value;
+            /* Let sentinelHandleConfiguration() know whether this entry comes
+             * from the state config file, so that state loaded from it can
+             * override the values declared in the main config file. */
+            sentinelLoadingStateFile = entry->from_state_file;
             err = sentinelHandleConfiguration(entry->argv,entry->argc);
+            sentinelLoadingStateFile = 0;
             if (err) {
                 linenum = entry->linenum;
                 line = entry->line;
@@ -1856,6 +1918,24 @@ loaderr:
     exit(1);
 }
 
+/* When "sentinel state-config-file" is configured, load the Sentinel runtime
+ * state from that separate file. This is called after the main config file has
+ * been parsed (so the path is already known) but before the queued config is
+ * applied, so that the state file entries are queued after, and therefore
+ * override, the ones from the main config file.
+ *
+ * If the state file does not exist yet (e.g. the very first startup, or right
+ * after enabling this feature) we simply skip it: it will be created by the
+ * first sentinelFlushConfig(). */
+void sentinelLoadStateConfigFile(void) {
+    if (sentinel.state_config_file == NULL) return;
+    if (access(sentinel.state_config_file,F_OK) == -1) return;
+
+    sentinelLoadingStateFile = 1;
+    loadServerConfig(sentinel.state_config_file,0,NULL);
+    sentinelLoadingStateFile = 0;
+}
+
 const char *sentinelHandleConfiguration(char **argv, int argc) {
 
     sentinelRedisInstance *ri;
@@ -1865,11 +1945,28 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         int quorum = atoi(argv[4]);
 
         if (quorum <= 0) return "Quorum must be 1 or greater.";
-        if (createSentinelRedisInstance(argv[1],SRI_MASTER,argv[2],
+        ri = sentinelGetMasterByName(argv[1]);
+        if (ri != NULL && sentinelLoadingStateFile) {
+            /* The master was already declared in the main config file. The
+             * state config file carries the current (possibly post-failover)
+             * address and quorum, so update the existing instance in place
+             * instead of failing with a duplicate master error. */
+            sentinelAddr *newaddr = createSentinelAddr(argv[2],atoi(argv[3]),1);
+            if (newaddr == NULL) return "Wrong hostname or port for the sentinel monitor directive.";
+            releaseSentinelAddr(ri->addr);
+            ri->addr = newaddr;
+            ri->quorum = quorum;
+        } else if (createSentinelRedisInstance(argv[1],SRI_MASTER,argv[2],
                                         atoi(argv[3]),quorum,NULL) == NULL)
         {
             return sentinelCheckCreateInstanceErrors(SRI_MASTER);
         }
+    } else if (!strcasecmp(argv[0],"state-config-file") && argc == 2) {
+        /* state-config-file <path>
+         *
+         * The path is captured earlier, in queueSentinelConfig(), because it
+         * has to be known before the state file itself is loaded. Nothing left
+         * to do here except accept the directive. */
     } else if (!strcasecmp(argv[0],"down-after-milliseconds") && argc == 3) {
         /* down-after-milliseconds <name> <milliseconds> */
         ri = sentinelGetMasterByName(argv[1]);
@@ -1896,6 +1993,7 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if (!ri) return "No such master with specified name.";
         if (access(argv[2],X_OK) == -1)
             return "Notification script seems non existing or non executable.";
+        sdsfree(ri->notification_script);
         ri->notification_script = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"client-reconfig-script") && argc == 3) {
         /* client-reconfig-script <name> <path> */
@@ -1904,16 +2002,19 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if (access(argv[2],X_OK) == -1)
             return "Client reconfiguration script seems non existing or "
                    "non executable.";
+        sdsfree(ri->client_reconfig_script);
         ri->client_reconfig_script = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"auth-pass") && argc == 3) {
         /* auth-pass <name> <password> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
+        sdsfree(ri->auth_pass);
         ri->auth_pass = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"auth-user") && argc == 3) {
         /* auth-user <name> <username> */
         ri = sentinelGetMasterByName(argv[1]);
         if (!ri) return "No such master with specified name.";
+        sdsfree(ri->auth_user);
         ri->auth_user = sdsnew(argv[2]);
     } else if (!strcasecmp(argv[0],"current-epoch") && argc == 2) {
         /* current-epoch <epoch> */
@@ -1950,7 +2051,15 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if ((slave = createSentinelRedisInstance(NULL,SRI_SLAVE,argv[2],
                     atoi(argv[3]), ri->quorum, ri)) == NULL)
         {
-            return sentinelCheckCreateInstanceErrors(SRI_SLAVE);
+            /* When loading the separate state file the same replica may already
+             * have been declared in the main config file (e.g. after migrating
+             * a combined config). A duplicate is expected in that case, so we
+             * just keep the existing instance instead of failing. */
+            if (sentinelLoadingStateFile && errno == EBUSY) {
+                /* Already known: nothing to do. */
+            } else {
+                return sentinelCheckCreateInstanceErrors(SRI_SLAVE);
+            }
         }
     } else if (!strcasecmp(argv[0],"known-sentinel") &&
                (argc == 4 || argc == 5)) {
@@ -1963,10 +2072,17 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
             if ((si = createSentinelRedisInstance(argv[4],SRI_SENTINEL,argv[2],
                         atoi(argv[3]), ri->quorum, ri)) == NULL)
             {
-                return sentinelCheckCreateInstanceErrors(SRI_SENTINEL);
+                /* See the known-replica case above: a duplicate coming from the
+                 * state file on top of the main config file is expected. */
+                if (sentinelLoadingStateFile && errno == EBUSY) {
+                    /* Already known: nothing to do. */
+                } else {
+                    return sentinelCheckCreateInstanceErrors(SRI_SENTINEL);
+                }
+            } else {
+                si->runid = sdsnew(argv[4]);
+                sentinelTryConnectionSharing(si);
             }
-            si->runid = sdsnew(argv[4]);
-            sentinelTryConnectionSharing(si);
         }
     } else if (!strcasecmp(argv[0],"rename-command") && argc == 4) {
         /* rename-command <name> <command> <renamed-command> */
@@ -1974,6 +2090,9 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         if (!ri) return "No such master with specified name.";
         sds oldcmd = sdsnew(argv[2]);
         sds newcmd = sdsnew(argv[3]);
+        /* When loading the state file, let it override an identically named
+         * mapping from the main config file rather than failing. */
+        if (sentinelLoadingStateFile) dictDelete(ri->renamed_commands,oldcmd);
         if (dictAdd(ri->renamed_commands,oldcmd,newcmd) != DICT_OK) {
             sdsfree(oldcmd);
             sdsfree(newcmd);
@@ -1981,8 +2100,10 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         }
     } else if (!strcasecmp(argv[0],"announce-ip") && argc == 2) {
         /* announce-ip <ip-address> */
-        if (strlen(argv[1]))
+        if (strlen(argv[1])) {
+            sdsfree(sentinel.announce_ip);
             sentinel.announce_ip = sdsnew(argv[1]);
+        }
     } else if (!strcasecmp(argv[0],"announce-port") && argc == 2) {
         /* announce-port <port> */
         sentinel.announce_port = atoi(argv[1]);
@@ -1994,12 +2115,16 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
         }
     } else if (!strcasecmp(argv[0],"sentinel-user") && argc == 2) {
         /* sentinel-user <user-name> */
-        if (strlen(argv[1]))
+        if (strlen(argv[1])) {
+            sdsfree(sentinel.sentinel_auth_user);
             sentinel.sentinel_auth_user = sdsnew(argv[1]);
+        }
     } else if (!strcasecmp(argv[0],"sentinel-pass") && argc == 2) {
         /* sentinel-pass <password> */
-        if (strlen(argv[1]))
+        if (strlen(argv[1])) {
+            sdsfree(sentinel.sentinel_auth_pass);
             sentinel.sentinel_auth_pass = sdsnew(argv[1]);
+        }
     } else if (!strcasecmp(argv[0],"resolve-hostnames") && argc == 2) {
         /* resolve-hostnames <yes|no> */
         if ((sentinel.resolve_hostnames = yesnotoi(argv[1])) == -1) {
@@ -2292,7 +2417,13 @@ int sentinelFlushConfig(void) {
     int rewrite_status;
 
     server.hz = CONFIG_DEFAULT_HZ;
-    rewrite_status = rewriteConfig(server.configfile, 0);
+    if (sentinel.state_config_file != NULL) {
+        /* Persist only the Sentinel runtime state into the dedicated state
+         * file, leaving the main (administrator managed) config file alone. */
+        rewrite_status = rewriteSentinelStateConfig(sentinel.state_config_file);
+    } else {
+        rewrite_status = rewriteConfig(server.configfile, 0);
+    }
     server.hz = saved_hz;
 
     if (rewrite_status == -1) {
