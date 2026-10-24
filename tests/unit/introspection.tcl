@@ -957,6 +957,45 @@ start_server {tags {"introspection"}} {
         assert_match {*'replicaof "--127.0.0.1"'*wrong number of arguments*} $err
     } {} {external:skip}
 
+    test {redis-server command line arguments - version and short version} {
+        set full_v [exec src/redis-server -v]
+        assert_match {Redis server v=* sha=* malloc=* bits=* build=*} $full_v
+
+        set full_ver [exec src/redis-server --version]
+        assert_match {Redis server v=* sha=* malloc=* bits=* build=*} $full_ver
+
+        set short_v1 [exec src/redis-server -v --short]
+        assert_match {Redis server v=*} $short_v1
+        assert_no_match {*malloc=*} $short_v1
+        assert_no_match {*sha=*} $short_v1
+
+        set short_v2 [exec src/redis-server --version --short]
+        assert_equal $short_v1 $short_v2
+
+        set short_v3 [exec src/redis-server -v -s]
+        assert_equal $short_v1 $short_v3
+
+        set short_v4 [exec src/redis-server --version -s]
+        assert_equal $short_v1 $short_v4
+
+        set short_v5 [exec src/redis-server --short --version]
+        assert_equal $short_v1 $short_v5
+
+        set short_v6 [exec src/redis-server -s -v]
+        assert_equal $short_v1 $short_v6
+
+        catch {exec src/redis-server --version --invalid} err
+        assert_match {*Usage: ./redis-server*} $err
+
+        set aof_v [exec src/redis-check-aof -v --short]
+        assert_match {redis-check-aof v=*} $aof_v
+        assert_no_match {*malloc=*} $aof_v
+
+        set rdb_v [exec src/redis-check-rdb -v --short]
+        assert_match {redis-check-rdb v=*} $rdb_v
+        assert_no_match {*malloc=*} $rdb_v
+    } {} {external:skip}
+
     test {redis-server command line arguments - allow passing option name and option value in the same arg} {
         start_server {config "default.conf" args {"--maxmemory 700mb" "--maxmemory-policy volatile-lru"}} {
             assert_match [r config get maxmemory] {maxmemory 734003200}

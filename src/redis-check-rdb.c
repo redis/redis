@@ -441,14 +441,24 @@ err:
 int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
     struct timeval tv;
 
-    if (argc != 2 && fp == NULL) {
-        fprintf(stderr, "Usage: %s <rdb-file-name>\n", argv[0]);
-        exit(1);
-    } else if (!strcmp(argv[1],"-v") || !strcmp(argv[1], "--version")) {
+    if (argc == 2 && (!strcmp(argv[1],"-v") || !strcmp(argv[1], "--version")) && fp == NULL) {
         sds version = getVersion();
         printf("redis-check-rdb %s\n", version);
         sdsfree(version);
         exit(0);
+    } else if (argc == 3 &&
+               (((!strcmp(argv[1],"-v") || !strcmp(argv[1], "--version")) &&
+                 (!strcmp(argv[2],"-s") || !strcmp(argv[2], "--short"))) ||
+                ((!strcmp(argv[1],"-s") || !strcmp(argv[1], "--short")) &&
+                 (!strcmp(argv[2],"-v") || !strcmp(argv[2], "--version")))) && fp == NULL)
+    {
+        sds version = getShortVersion();
+        printf("redis-check-rdb %s\n", version);
+        sdsfree(version);
+        exit(0);
+    } else if (argc != 2 && fp == NULL) {
+        fprintf(stderr, "Usage: %s <rdb-file-name>\n", argv[0]);
+        exit(1);
     }
 
     gettimeofday(&tv, NULL);
