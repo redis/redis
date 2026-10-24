@@ -34,6 +34,11 @@ start_server {tags {"modules external:skip"}} {
         }
     }
 
+    test {test RedisModule_FreeString with NULL is safe} {
+        # Verify that passing NULL to RedisModule_FreeString does not crash.
+        assert_equal {OK} [r test.freestring_null]
+    }
+
     test "Unload the module - test" {
         assert_equal {OK} [r module unload test]
     }
