@@ -1851,6 +1851,9 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
         return 0;
     }
 
+    /* Store -0 as 0 so the score doesn't depend on the encoding. */
+    if (score == 0) score = 0;
+
     /* Update the sorted set according to its encoding. */
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *eptr;
