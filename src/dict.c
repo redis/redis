@@ -2143,11 +2143,13 @@ dictStats *dictGetStatsHt(dict *d, int htidx, int full) {
 
 /* Generates human readable stats. */
 size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full) {
+    if (bufsize == 0) return 0;
     if (stats->htUsed == 0) {
-        return snprintf(buf,bufsize,
+        snprintf(buf,bufsize,
             "Hash table %d stats (%s):\n"
             "No stats available for empty dictionaries\n",
             stats->htidx, (stats->htidx == 0) ? "main hash table" : "rehashing target");
+        return strlen(buf);
     }
     size_t l = 0;
     l += snprintf(buf + l, bufsize - l,
@@ -2156,7 +2158,9 @@ size_t dictGetStatsMsg(char *buf, size_t bufsize, dictStats *stats, int full) {
                   " number of elements: %lu\n",
                   stats->htidx, (stats->htidx == 0) ? "main hash table" : "rehashing target",
                   stats->htSize, stats->htUsed);
-    if (full) {
+    /* snprintf() returns the length of the whole message, so once it is
+     * truncated l >= bufsize, and bufsize - l would wrap around. */
+    if (full && l < bufsize) {
         l += snprintf(buf + l, bufsize - l,
                       " different slots: %lu\n"
                       " child buckets: %lu\n"
@@ -2187,6 +2191,7 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     char *orig_buf = buf;
     size_t orig_bufsize = bufsize;
 
+    if (bufsize == 0) return;
     dictStats *mainHtStats = dictGetStatsHt(d, 0, full);
     l = dictGetStatsMsg(buf, bufsize, mainHtStats, full);
     dictFreeStats(mainHtStats);
