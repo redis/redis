@@ -1287,16 +1287,42 @@ static void hashTypeTmplAddFields(redisDb *db, robj *o, hashTemplate *tmpl,
                                   tmplNewField *new_fields, int num_new_fields)
 {
     unsigned long long old_field_count = tmpl->field_count;
+    unsigned long long total_field_count = old_field_count + num_new_fields;
+
+    /* hash-max-template-entries is also enforced when a template hash grows.
+     * Convert off the shared template so wide hashes do not stay registered. */
+    if (server.hash_max_template_entries > 0 &&
+        total_field_count > server.hash_max_template_entries)
+    {
+        hashTypeConvert(db, o, OBJ_ENCODING_LISTPACK);
+        for (int i = 0; i < num_new_fields; i++) {
+            /* Size checks ran while still templated, so re-check listpack limits
+             * for the new fields before writing them as plain encoding. */
+            if (o->encoding == OBJ_ENCODING_LISTPACK) {
+                size_t flen = sdslen(new_fields[i].field);
+                size_t vlen = sdslen(new_fields[i].value);
+                if (flen > server.hash_max_listpack_value ||
+                    vlen > server.hash_max_listpack_value ||
+                    !lpSafeToAdd(o->ptr, flen + vlen))
+                {
+                    hashTypeConvert(db, o, OBJ_ENCODING_HT);
+                }
+            }
+            /* Stay off templates while we finish the batch of new fields.
+             * (HASH_SET_NO_TEMPLATE_CONVERT; macro is defined later with hashTypeSet.) */
+            hashTypeSet(db, o, new_fields[i].field, new_fields[i].value, (1<<3));
+        }
+        return;
+    }
 
     /* Check if the listpack needs to be converted to array */
     if (o->encoding == OBJ_ENCODING_TMPL_LP &&
-        old_field_count + num_new_fields > server.hash_max_listpack_entries)
+        total_field_count > server.hash_max_listpack_entries)
     {
         hashTypeConvert(db, o, OBJ_ENCODING_TMPL_ARRAY);
     }
 
     /* Merge old and new names into the new template's field array. */
-    unsigned long long total_field_count = old_field_count + num_new_fields;
     sds stack_fields[HASH_TMPL_STACK_ENTRIES];
     sds *fields_arr = (total_field_count <= HASH_TMPL_STACK_ENTRIES) ? stack_fields :
                                                                      zmalloc(sizeof(sds) * total_field_count);
