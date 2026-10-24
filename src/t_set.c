@@ -881,6 +881,7 @@ void srandmemberWithCountCommand(client *c) {
     char *str;
     size_t len = 0;
     int64_t llele = 0;
+    size_t oldsize = 0;
 
     dict *d;
 
@@ -903,6 +904,9 @@ void srandmemberWithCountCommand(client *c) {
         addReply(c,shared.emptyarray);
         return;
     }
+
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
 
     /* CASE 1: The count was negative, so the extraction method is just:
      * "return N random elements" sampling the whole set every time.
@@ -931,7 +935,7 @@ void srandmemberWithCountCommand(client *c) {
                     break;
             }
             zfree(entries);
-            return;
+            goto out;
         }
 
         while(count--) {
@@ -944,7 +948,7 @@ void srandmemberWithCountCommand(client *c) {
             if (c->flags & CLIENT_CLOSE_ASAP)
                 break;
         }
-        return;
+        goto out;
     }
 
     /* CASE 2:
@@ -964,7 +968,7 @@ void srandmemberWithCountCommand(client *c) {
         }
         setTypeResetIterator(&si);
         serverAssert(size==0);
-        return;
+        goto out;
     }
 
     /* CASE 2.5 listpack only. Sampling unique elements, in non-random order.
@@ -992,7 +996,7 @@ void srandmemberWithCountCommand(client *c) {
             p = lpNext(lp, p);
             i++;
         }
-        return;
+        goto out;
     }
 
     /* For CASE 3 and CASE 4 we need an auxiliary dictionary. */
@@ -1075,6 +1079,9 @@ void srandmemberWithCountCommand(client *c) {
         dictResetIterator(&di);
         dictRelease(d);
     }
+out:
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), set, oldsize, kvobjAllocSize(set));
 }
 
 /* SRANDMEMBER <key> [<count>] */
