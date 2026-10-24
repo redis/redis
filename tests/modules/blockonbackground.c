@@ -157,6 +157,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     if (pthread_create(&tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
+        RedisModule_Free(targ);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
     pthread_detach(tid);
@@ -200,6 +201,7 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
 
     if (pthread_create(&tid,NULL,BlockDebug_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
+        RedisModule_Free(targ);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
     pthread_detach(tid);
@@ -231,6 +233,7 @@ int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
     if (pthread_create(&tid,NULL,DoubleBlock_ThreadMain,targ) != 0) {
         RedisModule_AbortBlock(bc);
+        RedisModule_Free(targ);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
     pthread_detach(tid);
