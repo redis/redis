@@ -895,7 +895,8 @@ void modulePostExecutionUnitOperations(void) {
 /* Free the context after the user function was called. */
 void moduleFreeContext(RedisModuleCtx *ctx) {
     /* See comment in moduleCreateContext */
-    if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+    if (!(ctx->flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND|
+                        REDISMODULE_CTX_KEYS_POS_REQUEST|REDISMODULE_CTX_CHANNELS_POS_REQUEST))) {
         exitExecutionUnit();
         postExecutionUnitOperationsEx(moduleTakeUnaccountedBackgroundDuration(ctx));
     }
@@ -991,8 +992,13 @@ void moduleCreateContext(RedisModuleCtx *out_ctx, RedisModule *module, int ctx_f
      *    In the former, the counter has been already incremented from within
      *    call() and in the latter we don't care about execution_nesting
      * 2. If we are running in a thread (execution_nesting will be dealt with
-     *    when locking/unlocking the GIL) */
-    if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND))) {
+     *    when locking/unlocking the GIL)
+     * 3. Key / channel position requests (getkeys-api / getchannels-api).
+     *    The callback only reports argument positions, and it can be invoked
+     *    from an IO thread (preprocessCommand() -> extractKeysAndSlot()), so it
+     *    must not touch the global execution_nesting / propagation state. */
+    if (!(ctx_flags & (REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_COMMAND|
+                       REDISMODULE_CTX_KEYS_POS_REQUEST|REDISMODULE_CTX_CHANNELS_POS_REQUEST))) {
         enterExecutionUnit(1, 0);
     }
 }
