@@ -314,6 +314,12 @@ int isClientMustHandledByMainThread(client *c) {
         return 1;
     }
 
+    /* While loading synchronously, commands from the master are held in its
+     * query buffer (see processInputBuffer), so keep the client in main thread
+     * where they can be resumed when loading ends. */
+    if (c->flags & CLIENT_MASTER && server.loading && !server.async_loading)
+        return 1;
+
     /* If RDB replication is done it's safe to move the master client to an IO thread.
      * Note that we keep the master client in main thread during failover so as
      * not to slow down the failover process by waiting the master replication
