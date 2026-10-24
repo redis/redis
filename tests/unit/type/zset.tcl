@@ -2547,6 +2547,29 @@ start_server {tags {"zset"}} {
         assert_error "*WRONGTYPE*" {r bzmpop 1 2 foo2{t} foo{t} max count 1}
     }
 
+    foreach {pop} {BZPOPMIN BZMPOP_MIN} {
+        foreach {store storecmd} {
+            ZUNIONSTORE    {zunionstore owzset{t} 1 owsrc{t}}
+            ZRANGESTORE    {zrangestore owzset{t} owsrc{t} 0 -1}
+            GEOSEARCHSTORE {geosearchstore owzset{t} owgeo{t} frommember foo byradius 1 km storedist}
+        } {
+            test "$pop when existing key of another type is overwritten by $store" {
+                set rd [redis_deferring_client]
+                r del owzset{t} owsrc{t} owgeo{t}
+
+                bzpop_command $rd $pop owzset{t} 0
+                wait_for_blocked_client
+                r set owzset{t} placeholder ;# wrong type: client stays blocked
+                r zadd owsrc{t} 0 foo
+                r geoadd owgeo{t} 13.361389 38.115556 foo
+                r {*}$storecmd              ;# owzset{t} overwritten -> sorted set
+                wait_for_blocked_clients_count 0
+                verify_pop_response $pop [$rd read] {owzset{t} foo 0} {owzset{t} {{foo 0}}}
+                $rd close
+            }
+        }
+    }
+
     test "BZMPOP with illegal argument" {
         assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop}
         assert_error "ERR wrong number of arguments for 'bzmpop' command" {r bzmpop 0 1}
