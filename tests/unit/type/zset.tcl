@@ -2428,32 +2428,37 @@ start_server {tags {"zset"}} {
     }
 
         test {BZPOPMIN unblock but the key is expired and then block again - reprocessing command} {
-            r flushall
             r debug set-active-expire 0
-            set rd [redis_deferring_client]
+            assert_with_retry 3 iter {
+                r flushall
+                set rd [redis_deferring_client]
 
-            set start [clock milliseconds]
-            $rd bzpopmin zset{t} 1
-            wait_for_blocked_clients_count 1
+                set start [clock milliseconds]
+                $rd bzpopmin zset{t} 1
+                wait_for_blocked_clients_count 1
 
-            # The exec will try to awake the blocked client, but the key is expired,
-            # so the client will be blocked again during the command reprocessing.
-            r multi
-            r zadd zset{t} 1 one
-            r pexpire zset{t} 100
-            r debug sleep 0.2
-            r exec
+                # The exec will try to awake the blocked client, but the key is expired,
+                # so the client will be blocked again during the command reprocessing.
+                r multi
+                r zadd zset{t} 1 one
+                r pexpire zset{t} 100
+                r debug sleep 0.2
+                r exec
 
-            assert_equal {} [$rd read]
-            set end [clock milliseconds]
+                assert_equal {} [$rd read]
+                set elapsed [expr {[clock milliseconds] - $start}]
+                $rd close
 
-            # Before the fix in #13004, this time would have been 1200+ (i.e. more than 1200ms),
-            # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
-            assert_range [expr $end-$start] 1000 1150
+                # An early timeout is a correctness failure, not a reason to retry.
+                assert_morethan_equal $elapsed 1000
 
+                # Before #13004, reblocking reset the timeout and took 1200+ ms.
+                # Keep the upper bound to detect that regression, but retry slow runs.
+            } {
+                $elapsed <= 1150
+            }
             r debug set-active-expire 1
-            $rd close
-        } {0} {needs:debug}
+        } {OK} {needs:debug}
 
         test "BZPOPMIN with same key multiple times should work" {
             set rd [redis_deferring_client]
