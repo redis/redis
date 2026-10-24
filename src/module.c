@@ -13958,6 +13958,9 @@ void moduleUnregisterCommands(struct RedisModule *module) {
         zfree(cmd);
     }
     dictResetIterator(&di);
+    /* The command tables are not shrunk while the safe iterator is active. */
+    dictShrinkIfNeeded(server.commands);
+    dictShrinkIfNeeded(server.orig_commands);
     resumeAllIOThreads();
 }
 
