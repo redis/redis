@@ -719,4 +719,42 @@ foreach {type lp_entries} {listpack 512 dict 0} {
     }
 }
 
+# Saving an RDB or rewriting the AOF copies small writes into a 64KB buffer
+# and writes larger ones straight to the file. The values below are smaller
+# than the buffer, as large as it, around it, and larger than the 4MB step of
+# the incremental fsync, and the small keys alone make the buffered writes
+# cross that step too. Compression is off so that values keep their size.
+foreach checksum {yes no} {
+    start_server [list tags {"needs:debug"} overrides [list save "" rdbcompression no rdbchecksum $checksum]] {
+        foreach incremental {yes no} {
+            test "RDB save and AOF rewrite with values around the write buffer size (checksum $checksum, incremental fsync $incremental)" {
+                r flushall
+                r config set rdb-save-incremental-fsync $incremental
+                r config set aof-rewrite-incremental-fsync $incremental
+                r debug populate 100000 key 50
+                foreach size {65535 65536 65537 200000 5000000} {
+                    r set big:$size [string repeat v $size]
+                }
+                set digest [debug_digest]
+
+                # DEBUG RELOAD saves and loads the RDB, checking its checksum.
+                assert_equal OK [r debug reload]
+                assert_equal $digest [debug_digest]
+
+                r config set appendonly yes
+                waitForBgrewriteaof r
+                foreach preamble {yes no} {
+                    r config set aof-use-rdb-preamble $preamble
+                    r bgrewriteaof
+                    waitForBgrewriteaof r
+                    assert_equal ok [s aof_last_bgrewrite_status]
+                    assert_equal OK [r debug loadaof]
+                    assert_equal $digest [debug_digest]
+                }
+                r config set appendonly no
+            }
+        }
+    }
+}
+
 } ;# tags
