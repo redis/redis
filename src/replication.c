@@ -4127,7 +4127,7 @@ static void rdbChannelReplDataBufClear(void) {
 
 /* Generic function to read data from connection into the last block. */
 static int replDataBufReadIntoLastBlock(connection *conn, replDataBuf *buf,
-                                    void (*error_handler)(connection *conn))
+                                    void (*error_handler)(connection *conn, int eof))
 {
     atomicIncr(IOThreads[IOTHREAD_MAIN_THREAD_ID].io_reads_processed, 1);
 
@@ -4137,7 +4137,10 @@ static int replDataBufReadIntoLastBlock(connection *conn, replDataBuf *buf,
     int nread = connRead(conn, block->buf + block->used, block->size - block->used);
     if (nread <= 0) {
         if (nread == 0 || connGetState(conn) != CONN_STATE_CONNECTED) {
-            error_handler(conn);
+            /* A zero-byte read or a closed connection indicates EOF.
+             * Pass EOF separately rather than consulting the connection's
+             * last error, which may not describe the closure. */
+            error_handler(conn, nread == 0 || connGetState(conn) == CONN_STATE_CLOSED);
         }
         return -1;
     }
@@ -4149,8 +4152,10 @@ static int replDataBufReadIntoLastBlock(connection *conn, replDataBuf *buf,
     return nread;
 }
 
-/* Generic function to read data from connection into a buffer. */
-void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_handler)(connection *conn)) {
+/* Read data from a connection into a buffer. On failure, error_handler receives
+ * eof=1 for an orderly peer close and eof=0 for a connection error. A temporary
+ * lack of data on a connected socket does not call the handler. */
+void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_handler)(connection *conn, int eof)) {
     const int buflen = 1024 * 1024;
     const int minread = 16 * 1024;
     int nread = 0;
@@ -4212,10 +4217,18 @@ void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_ha
 }
 
 /* Replication: Replica side.
- * Main channel read error handler */
-static void readReplBufferErrorHandler(connection *conn) {
-    serverLog(LL_WARNING, "Main channel error while reading from master: %s",
-              connGetLastError(conn));
+ * Report a closed connection separately from a read error: EOF has no system
+ * error to describe, and connGetLastError() can otherwise report "Success".
+ * The byte count includes buffered changes that have not yet been applied. */
+static void readReplBufferErrorHandler(connection *conn, int eof) {
+    if (eof) {
+        /* RAM buffer size counts allocated capacity; used counts unapplied bytes. */
+        serverLog(LL_WARNING, "Main channel closed by master while reading replication data "
+                  "(%zu bytes accumulated, not yet applied).", server.repl_full_sync_buffer.used);
+    } else {
+        serverLog(LL_WARNING, "Main channel error while reading from master: %s",
+                  connGetLastError(conn));
+    }
     cancelReplicationHandshake(1);
 }
 
