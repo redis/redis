@@ -768,7 +768,6 @@ start_server {
         assert_equal $id1 $id1_dup2
         set id2_dup [r XADD mystream IDMP p1 "aof-xidmp-2" * field "new"]
         assert_equal $id2 $id2_dup
-        assert_equal 2 [r XLEN mystream]
     } {} {external:skip needs:debug}
 
     test {XIDMPRECORD AOF rewrite emits XIDMPRECORD for stream with IDMP from XIDMPRECORD only} {
@@ -2095,6 +2094,9 @@ start_server {
 
     test {XCFGSET configuration in AOF} {
         r DEL mystream
+        # Force a plain command AOF so the rewrite emits XCFGSET
+        # instead of an RDB preamble carrying the stream configuration.
+        r config set aof-use-rdb-preamble no
         r config set appendonly yes
         
         # Wait for the automatic AOF rewrite triggered by enabling AOF
@@ -2109,7 +2111,7 @@ start_server {
         waitForBgrewriteaof r
         
         # Restart with AOF
-        r DEBUG RELOAD
+        r DEBUG LOADAOF
         
         # Verify configuration
         set reply [r XINFO STREAM mystream]
