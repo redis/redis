@@ -80,7 +80,27 @@ redis_strlcat(char *dst, const char *src, size_t dsize)
     return(dlen + (src - osrc));    /* count does not include NUL */
 }
 
+/*
+ * A secure version of memset, meaning despite the compiler/linker optimisations,
+ * memset call is guaranteed to be generated. 
+ * Since performance is involved, it is to be used with parcimony.
+ * For simplicity's sake, we purposely do not use platform specific calls
+ * but use a common technique.
+ *
+ * To dispel the potention LTO optimisation, we add a dummy call then
+ * we generate a low level memory barrier.
+ */
 
+__attribute__((weak)) void redis_memzero_weak(void *src, size_t ssize)
+{
+    (void)src;
+    (void)ssize;
+}
 
-
-
+void
+redis_memzero(void *src, size_t ssize)
+{
+    memset(src, 0, ssize);
+    redis_memzero_weak(src, ssize);
+    __asm__ volatile("" :: "r"(src) : "memory");
+}
