@@ -1873,35 +1873,36 @@ void streamLastValidID(stream *s, streamID *maxid)
     streamIteratorStop(&si);
 }
 
-/* Maximum size for a stream ID string. In theory 20*2+1 should be enough,
- * But to avoid chance for off by one issues and null-term, in case this will
- * be used as parsing buffer, we use a slightly larger buffer. On the other
- * hand considering sds header is gonna add 4 bytes, we wanna keep below the
- * allocator's 48 bytes bin. */
-#define STREAM_ID_STR_LEN 44
-
-sds createStreamIDString(streamID *id) {
-    /* Optimization: pre-allocate a big enough buffer to avoid reallocs. */
-    sds str = sdsnewlen(SDS_NOINIT, STREAM_ID_STR_LEN);
-    sdssetlen(str, 0);
-    return sdscatfmt(str,"%U-%U", id->ms,id->seq);
+/* Format a Stream ID as <ms>-<seq> into 'buf', which must be at least
+ * STREAM_ID_STR_LEN bytes, and return its length. An ID is bounded in length,
+ * so every caller formats it on the stack: going through an sds cost a malloc,
+ * a format-string pass over "%U-%U" and a free for every ID. */
+size_t streamIDToBuffer(char *buf, streamID *id) {
+    size_t len = ull2string(buf, STREAM_ID_STR_LEN, id->ms);
+    buf[len++] = '-';
+    len += ull2string(buf + len, STREAM_ID_STR_LEN - len, id->seq);
+    return len;
 }
 
 /* Emit a reply in the client output buffer by formatting a Stream ID
  * in the standard <ms>-<seq> format, using the simple string protocol
  * of REPL. */
 void addReplyStreamID(client *c, streamID *id) {
-    addReplyBulkSds(c,createStreamIDString(id));
+    char buf[STREAM_ID_STR_LEN];
+    addReplyBulkCBuffer(c, buf, streamIDToBuffer(buf, id));
 }
 
 void setDeferredReplyStreamID(client *c, void *dr, streamID *id) {
-    setDeferredReplyBulkSds(c, dr, createStreamIDString(id));
+    char buf[STREAM_ID_STR_LEN];
+    setDeferredReplyBulkCBuffer(c, dr, buf, streamIDToBuffer(buf, id));
 }
 
 /* Similar to the above function, but just creates an object, usually useful
- * for replication purposes to create arguments. */
+ * for replication purposes to create arguments. An ID always fits in an
+ * embedded string, so this is a single allocation. */
 robj *createObjectFromStreamID(streamID *id) {
-    return createObject(OBJ_STRING, createStreamIDString(id));
+    char buf[STREAM_ID_STR_LEN];
+    return createStringObject(buf, streamIDToBuffer(buf, id));
 }
 
 /* Returns non-zero if the ID is 0-0. */
@@ -2369,9 +2370,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
             streamID pel_id;
             streamIteratorStart(&si,s,&nack->id,&nack->id,rev);
             if (streamIteratorGetID(&si,&pel_id,&numfields)) {
-                robj *idarg = createObjectFromStreamID(&pel_id);
                 addReplyArrayLen(c,4);
-                addReplyBulk(c,idarg);
+                addReplyStreamID(c,&pel_id);
                 addReplyArrayLen(c,numfields*2);
 
                 /* Emit field-value pairs */
@@ -2402,12 +2402,13 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
 
                 /* Propagate as XCLAIM */
                 if (spi) {
+                    robj *idarg = createObjectFromStreamID(&pel_id);
                     robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
                     streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
                     decrRefCount(delivery_count);
+                    decrRefCount(idarg);
                     if (propCount) (*propCount)++;
                 }
-                decrRefCount(idarg);
                 arraylen++;
                 
                 /* Check count limit */
@@ -2489,8 +2490,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
              * the ID, the second is an array of field-value pairs. */
             addReplyArrayLen(c,2);
         }
-        robj *idarg = createObjectFromStreamID(&id);
-        addReplyBulk(c,idarg);
+        addReplyStreamID(c,&id);
         addReplyArrayLen(c,numfields*2);
 
         /* Emit the field-value pairs. */
@@ -2558,13 +2558,14 @@ size_t streamReplyWithRange(client *c, stream *s, streamReplyRangeArgs *args) {
 
             /* Propagate as XCLAIM. */
             if (spi) {
+                robj *idarg = createObjectFromStreamID(&id);
                 robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
                 streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
                 decrRefCount(delivery_count);
+                decrRefCount(idarg);
                 if (propCount) (*propCount)++;
             }
         }
-        decrRefCount(idarg);
         arraylen++;
         if (count && count == arraylen) break;
     }
@@ -2905,8 +2906,9 @@ void xaddCommand(client *c) {
         idmpEntryFree(entry, &s->alloc_size);
         return;
     }
-    sds replyid = createStreamIDString(&id);
-    addReplyBulkCBuffer(c, replyid, sdslen(replyid));
+    char replyid[STREAM_ID_STR_LEN];
+    size_t replyid_len = streamIDToBuffer(replyid, &id);
+    addReplyBulkCBuffer(c, replyid, replyid_len);
 
     /* IDMP: Insert the entry now that we have the actual ID */
     if (parsed_args.idmp_pid != NULL) {
@@ -2945,11 +2947,9 @@ void xaddCommand(client *c) {
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
     if (!parsed_args.id_given || !parsed_args.seq_given) {
-        robj *idarg = createObject(OBJ_STRING, replyid);
+        robj *idarg = createStringObject(replyid, replyid_len);
         rewriteClientCommandArgument(c, idpos, idarg);
         decrRefCount(idarg);
-    } else {
-        sdsfree(replyid);
     }
 
     /* We need to signal to blocked clients that there is new data on this
