@@ -426,7 +426,7 @@ static int scriptVerifyWriteCommandAllow(scriptRunCtx *run_ctx, char **err) {
     if (run_ctx->flags & SCRIPT_READ_ONLY &&
         (run_ctx->c->cmd->flags & (CMD_WRITE|CMD_MAY_REPLICATE)))
     {
-        *err = sdsnew("Write commands are not allowed from read-only scripts.");
+        *err = sdsnew("Write commands are not allowed from read-only scripts");
         return C_ERR;
     }
 
