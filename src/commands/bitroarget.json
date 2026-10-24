@@ -1,0 +1,71 @@
+{
+    "BITROARGET": {
+        "summary": "Returns a native bitmap's logical byte length and 64-bit Roaring portable payload.",
+        "complexity": "O(N) where N is the size of the compressed bitmap data.",
+        "group": "bitmap",
+        "since": "8.12.0",
+        "arity": 2,
+        "function": "bitroargetCommand",
+        "command_flags": [
+            "READONLY"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The key does not exist.",
+                    "type": "null"
+                },
+                {
+                    "description": "The logical byte length and the 64-bit Roaring portable payload, including no Redis-specific header or checksum.",
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": [
+                        {
+                            "description": "Logical length in bytes, including trailing zero bytes.",
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        {
+                            "description": "Binary payload in the 64-bit Roaring portable format.",
+                            "type": "string"
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}

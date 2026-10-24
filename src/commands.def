@@ -812,6 +812,32 @@ struct COMMAND_ARG BITPOS_Args[] = {
 {MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITPOS_range_Subargs},
 };
 
+/********** BITROARGET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BITROARGET history */
+#define BITROARGET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BITROARGET tips */
+const char *BITROARGET_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BITROARGET key specs */
+keySpec BITROARGET_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BITROARGET argument table */
+struct COMMAND_ARG BITROARGET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /********** BITROAROP ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -848,6 +874,33 @@ struct COMMAND_ARG BITROAROP_Args[] = {
 {MAKE_ARG("operation",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,8,NULL),.subargs=BITROAROP_operation_Subargs},
 {MAKE_ARG("destkey",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("key",ARG_TYPE_KEY,1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/********** BITROARSET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* BITROARSET history */
+#define BITROARSET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* BITROARSET tips */
+#define BITROARSET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* BITROARSET key specs */
+keySpec BITROARSET_Keyspecs[1] = {
+{"MERGE reads and updates the existing native bitmap.",CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE|CMD_KEY_VARIABLE_FLAGS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* BITROARSET argument table */
+struct COMMAND_ARG BITROARSET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("length",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("payload",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("merge",ARG_TYPE_PURE_TOKEN,-1,"MERGE",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /********** GETBIT ********************/
@@ -13012,7 +13065,9 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("bitfield_ro","Performs arbitrary read-only bitfield integer operations on strings.","O(1) for each subcommand specified","6.0.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITFIELD_RO_History,0,BITFIELD_RO_Tips,0,bitfieldroCommand,-2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,BITFIELD_RO_Keyspecs,1,NULL,2),.args=BITFIELD_RO_Args},
 {MAKE_CMD("bitop","Performs bitwise operations on multiple strings, and stores the result.","O(N)","2.6.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITOP_History,0,BITOP_Tips,0,bitopCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,BITOP_Keyspecs,2,NULL,3),.args=BITOP_Args},
 {MAKE_CMD("bitpos","Finds the first set (1) or clear (0) bit in a string.","O(N)","2.8.7",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITPOS_History,1,BITPOS_Tips,0,bitposCommand,-3,CMD_READONLY,ACL_CATEGORY_BITMAP,BITPOS_Keyspecs,1,NULL,3),.args=BITPOS_Args},
+{MAKE_CMD("bitroarget","Returns a native bitmap's logical byte length and 64-bit Roaring portable payload.","O(N) where N is the size of the compressed bitmap data.","8.12.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITROARGET_History,0,BITROARGET_Tips,1,bitroargetCommand,2,CMD_READONLY,ACL_CATEGORY_BITMAP,BITROARGET_Keyspecs,1,NULL,1),.args=BITROARGET_Args},
 {MAKE_CMD("bitroarop","Performs a bitwise operation and stores a native bitmap result for replication and AOF replay.","O(N)","8.12.0",CMD_DOC_SYSCMD,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITROAROP_History,0,BITROAROP_Tips,0,bitroaropCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_NOSCRIPT|CMD_INTERNAL,ACL_CATEGORY_BITMAP,BITROAROP_Keyspecs,2,NULL,3),.args=BITROAROP_Args},
+{MAKE_CMD("bitroarset","Imports a native bitmap from a 32-bit or 64-bit Roaring portable payload. Replaces the key by default, or ORs into a native bitmap with MERGE.","O(N) where N is the size of the compressed bitmap data, including the existing bitmap when MERGE is specified.","8.12.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,BITROARSET_History,0,BITROARSET_Tips,0,bitroarsetCommand,-4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,BITROARSET_Keyspecs,1,bitroarsetGetKeys,4),.args=BITROARSET_Args},
 {MAKE_CMD("getbit","Returns a bit value by offset.","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,GETBIT_History,0,GETBIT_Tips,0,getbitCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_BITMAP,GETBIT_Keyspecs,1,NULL,2),.args=GETBIT_Args},
 {MAKE_CMD("setbit","Sets or clears the bit at offset of the string value. Creates the key if it doesn't exist.","O(1)","2.2.0",CMD_DOC_NONE,NULL,NULL,"bitmap",COMMAND_GROUP_BITMAP,SETBIT_History,0,SETBIT_Tips,0,setbitCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_BITMAP,SETBIT_Keyspecs,1,NULL,3),.args=SETBIT_Args},
 /* cluster */

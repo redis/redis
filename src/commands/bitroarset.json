@@ -1,0 +1,65 @@
+{
+    "BITROARSET": {
+        "summary": "Imports a native bitmap from a 32-bit or 64-bit Roaring portable payload. Replaces the key by default, or ORs into a native bitmap with MERGE.",
+        "complexity": "O(N) where N is the size of the compressed bitmap data, including the existing bitmap when MERGE is specified.",
+        "group": "bitmap",
+        "since": "8.12.0",
+        "arity": -4,
+        "function": "bitroarsetCommand",
+        "get_keys_function": "bitroarsetGetKeys",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM"
+        ],
+        "acl_categories": [
+            "BITMAP"
+        ],
+        "key_specs": [
+            {
+                "notes": "MERGE reads and updates the existing native bitmap.",
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE",
+                    "VARIABLE_FLAGS"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "length",
+                "type": "integer"
+            },
+            {
+                "name": "payload",
+                "type": "string"
+            },
+            {
+                "name": "merge",
+                "type": "pure-token",
+                "token": "MERGE",
+                "optional": true
+            }
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

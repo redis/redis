@@ -2034,6 +2034,79 @@ void bitroaropCommand(client *c) {
     bitopCommandGeneric(c, 1);
 }
 
+/* BITROARSET key length payload [MERGE]
+ *
+ * The portable format stores set-bit offsets, but not trailing zero bytes.
+ * Import the logical byte length separately, without materializing those
+ * bytes or applying the offset limit used by SETBIT and BITFIELD. */
+void bitroarsetCommand(client *c) {
+    int merge = 0;
+    long long length;
+    if (c->argc > 5 || (c->argc == 5 && strcasecmp(c->argv[4]->ptr, "MERGE"))) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+    merge = c->argc == 5;
+    if (getLongLongFromObjectOrReply(c, c->argv[2], &length, NULL) != C_OK) return;
+    if (length < 0 || (uint64_t)length > BITROAR_MAX_BYTES ||
+        (uint64_t)length > (uint64_t)SIZE_MAX)
+    {
+        addReplyError(c, "bitmap length is out of range");
+        return;
+    }
+
+    robj *bitmap = bitroarCreateFromPortableAny((unsigned char *)c->argv[3]->ptr,
+                                              sdslen(c->argv[3]->ptr), length);
+    if (bitmap == NULL) {
+        addReplyError(c, "invalid Roaring portable payload or bitmap length");
+        return;
+    }
+
+    /* Perform expiration and its callbacks before retaining the destination
+     * or queueing this command, so any propagated DEL precedes the import. */
+    dictEntryLink link = NULL;
+    kvobj *old = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (merge && old != NULL) {
+        if (checkType(c, old, OBJ_BITMAP)) {
+            decrRefCount(bitmap);
+            return;
+        }
+        uint64_t maxlen = max(bitroarLen(old), (uint64_t)length);
+        robj *sources[2] = {old, bitmap};
+        robj *result = bitroarApplyOp(BITOP_OR, sources, 2, maxlen, bitopUseTryAlloc(c));
+        decrRefCount(bitmap);
+        serverAssert(result != NULL); /* Both operands stay compressed. */
+        bitmap = result;
+    }
+
+    /* Notifications can invoke module writes synchronously. Queue the import
+     * first on primary and replay paths so those writes keep the same order. */
+    bitroarPropagateCurrentCommand(c);
+    if (merge && old != NULL) {
+        /* Chunked loading is a typed update: retain expiration and key metadata
+         * without firing overwrite/unlink callbacks. */
+        dbReplaceValueWithLink(c->db, c->argv[1], &bitmap, link);
+        keyModified(c, c->db, c->argv[1], bitmap, 1);
+    } else {
+        int flags = old ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
+        setKeyByLink(c, c->db, c->argv[1], &bitmap, flags, &link);
+    }
+    server.dirty++;
+    notifyKeyspaceEvent(NOTIFY_BITMAP, "bitroarset", c->argv[1], c->db->id);
+    addReply(c, shared.ok);
+}
+
+/* BITROARGET key -- the payload always uses the 64-bit portable layout. */
+void bitroargetCommand(client *c) {
+    robj *o = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]);
+    if (o == NULL || checkType(c, o, OBJ_BITMAP)) return;
+
+    sds payload = bitroarSerializePortable(o);
+    addReplyArrayLen(c, 2);
+    addReplyLongLong(c, bitroarLen(o));
+    addReplyBulkSds(c, payload);
+}
+
 /* Normalize the raw START/END arguments against a value of 'strlen' bytes,
  * clamping 'start'/'end' to byte coordinates, and derive the half-open bit
  * interval used by Roaring bitmap range operations ('bit_start'/'bit_end')
