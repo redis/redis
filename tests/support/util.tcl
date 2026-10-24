@@ -12,6 +12,14 @@
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
 
+# Read and return the full contents of a file.
+proc read_file {path} {
+    set fd [open $path r]
+    set contents [read $fd]
+    close $fd
+    return $contents
+}
+
 proc randstring {min max {type binary}} {
     set len [expr {$min+int(rand()*($max-$min+1))}]
     set output {}

@@ -2520,18 +2520,19 @@ void initServerConfig(void) {
     server.pause_cron = 0;
     server.dict_resizing = 1;
 
-    server.latency_tracking_info_percentiles_len = 3;
+    server.latency_tracking_info_percentiles_len = configDefaultLatencyTrackingInfoPercentilesLen;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
-    server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
-    server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
-    server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
+    memcpy(server.latency_tracking_info_percentiles,
+           configDefaultLatencyTrackingInfoPercentiles,
+           sizeof(double) * server.latency_tracking_info_percentiles_len);
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
 
-    appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
-    appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
-    appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
+    for (size_t i = 0; i < configDefaultSaveParamsLen; i++) {
+        appendServerSaveParams(configDefaultSaveParams[i].seconds,
+                               configDefaultSaveParams[i].changes);
+    }
 
     /* Replication related */
     server.masterhost = NULL;
@@ -8614,7 +8615,7 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        loadServerConfig(server.configfile, config_from_stdin, options);
+        loadServerConfig(server.configfile, config_from_stdin, options, CONFIG_SOURCE_MAIN);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }
