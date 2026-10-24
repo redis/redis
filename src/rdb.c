@@ -746,7 +746,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_5);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_6);
 #ifdef ENABLE_GCRA
     case OBJ_GCRA:
         return rdbSaveType(rdb,RDB_TYPE_GCRA);
@@ -825,7 +825,7 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
  * Expired entries are filtered out. Producers whose entries all expired are still
  * written with count=0; the load side skips them.
  * Format: num_producers, then for each producer: pid, num_entries, entries... */
-ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
+ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s, int with_recorded_ms) {
     ssize_t n, nwritten = 0;
 
     /* Save the number of producers. */
@@ -855,7 +855,7 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
          * timestamp, so all entries after the first valid one are also valid. */
         idmpEntry *first_valid = producer->idmp_head;
         size_t expired = 0;
-        while (first_valid && first_valid->id.ms <= expire_time) {
+        while (first_valid && first_valid->recorded_ms <= expire_time) {
             first_valid = first_valid->next;
             expired++;
         }
@@ -890,6 +890,12 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
             }
             nwritten += n;
 
+            if (with_recorded_ms && (n = rdbSaveLen(rdb,entry->recorded_ms)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            if (with_recorded_ms) nwritten += n;
+
             entry = entry->next;
         }
     }
@@ -901,7 +907,7 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
  * This loads all the idempotent producer tracking entries (IID -> stream ID mappings)
  * and inserts them into the stream's idmp_producers rax tree.
  * Format: num_producers, then for each producer: pid, num_entries, entries... */
-int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
+int rdbLoadStreamIdmpEntries(rio *rdb, stream *s, int with_recorded_ms) {
     /* Load the number of producers. */
     uint64_t num_producers = rdbLoadLen(rdb, NULL);
     if (num_producers == RDB_LENERR) {
@@ -961,13 +967,16 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             streamID id;
             id.ms = rdbLoadLen(rdb, NULL);
             id.seq = rdbLoadLen(rdb, NULL);
+            uint64_t recorded_ms = server.mstime;
+            if (with_recorded_ms)
+                recorded_ms = rdbLoadLen(rdb, NULL);
             if (rioGetReadError(rdb)) {
                 sdsfree(iid);
                 goto cleanup;
             }
 
             /* Skip entries that have already expired. */
-            if (id.ms <= expire_time) {
+            if (recorded_ms <= expire_time) {
                 sdsfree(iid);
                 continue;
             }
@@ -978,6 +987,7 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
 
             /* Set the stream ID. */
             entry->id = id;
+            entry->recorded_ms = recorded_ms;
             entry->next = NULL;
 
             /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
@@ -1661,7 +1671,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         nwritten += n;
         
         /* Save all IDMP entries. */
-        if ((n = rdbSaveStreamIdmpEntries(rdb,s)) == -1) return -1;
+        if ((n = rdbSaveStreamIdmpEntries(rdb,s,1)) == -1) return -1;
         nwritten += n;
 
         /* Save the all-time count of IIDs added. */
@@ -3996,7 +4006,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_4 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_5)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_5 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_6)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -4424,7 +4435,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Load all IDMP entries. */
-            if (rdbLoadStreamIdmpEntries(rdb,s) == -1) {
+            if (rdbLoadStreamIdmpEntries(rdb,s, rdbtype >= RDB_TYPE_STREAM_LISTPACKS_6) == -1) {
                 rdbReportReadError("Stream IDMP entries loading failed.");
                 decrRefCount(o);
                 return NULL;
