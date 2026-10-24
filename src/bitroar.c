@@ -864,6 +864,35 @@ void bitroarVisitSetBitRanges(const robj *o,
     roaring64_iterator_free(it);
 }
 
+/* Visit the set bits in the half-open bit interval [start, end), in ascending
+ * offset order. The iterator seeks directly to 'start' and uses a fixed
+ * buffer instead of allocating an array proportional to the result size. */
+void bitroarVisitSetBits(const robj *o, uint64_t start, uint64_t end,
+                        bitroarValuesCallback *callback, void *privdata)
+{
+    if (start >= end) return;
+
+    bitroar *bitmap = bitroarGet(o);
+    roaring64_iterator_t *it = roaring64_iterator_create(bitmap->roaring);
+    if (!roaring64_iterator_move_equalorlarger(it, start)) {
+        roaring64_iterator_free(it);
+        return;
+    }
+
+    uint64_t values[256];
+    const uint64_t requested = sizeof(values) / sizeof(values[0]);
+    while (1) {
+        uint64_t read = roaring64_iterator_read(it, values, requested);
+        /* Drop the values at or beyond 'end' from the last batch. */
+        uint64_t inrange = read;
+        while (inrange != 0 && values[inrange - 1] >= end) inrange--;
+        if (inrange == 0 || !callback(values, (size_t)inrange, privdata)) break;
+        if (inrange < requested) break;
+    }
+
+    roaring64_iterator_free(it);
+}
+
 static long long bitroarFirstSetBit(bitroar *bitmap, uint64_t start, uint64_t end) {
     roaring64_bitmap_t *r = bitmap->roaring;
 
