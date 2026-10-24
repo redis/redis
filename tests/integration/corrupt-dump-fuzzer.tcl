@@ -19,6 +19,10 @@ proc generate_collections {suffix elements} {
     set has_vsets [server_has_command vadd]
     if {$has_vsets} {incr numcmd}
 
+    # Keep the source hash alive when its expiring fields are gone so that
+    # the fuzzer's DBSIZE check remains valid.
+    r hset hashmd$suffix __persistent_field__ 1
+
     for {set j 0} {$j < $elements} {incr j} {
         # add both string values and integers
         if {$j % 2 == 0} {set val $j} else {set val "_$j"}
