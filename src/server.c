@@ -452,9 +452,12 @@ uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-/* Dict hash function for client */
+/* Dict hash function for client. The id is mixed, as client ids are small
+ * sequential integers and the dict takes the hash tag of an entry from the
+ * top byte of the hash. */
 uint64_t dictClientHash(const void *key) {
-    return ((client *)key)->id;
+    uint64_t id = ((client *)key)->id;
+    return dictGenHashFunction(&id, sizeof(id));
 }
 
 /* Dict compare function for client */
@@ -586,10 +589,10 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
 
 /* dbDictType prefetch callbacks.
  * The main keyspace stores a kvobj as the entry's "stored key" (no_value=1).
- * The state machine in memory_prefetch.c calls these hooks to:
- *  - Bring the kvobj head into L1 before keyCompare runs (only useful when
- *    the entry holds an out-of-line pointer; embedded kvobjs are already
- *    in cache from the entry prefetch).
+ * The prefetch state machine (dictPrefetchNext() in dict.c) calls these hooks to:
+ *  - Bring the kvobj head into L1 before keyCompare runs, if the entry is
+ *    not the kvobj itself. The bucket slots hold the kvobj pointers, so the
+ *    entry prefetch already brings it in and this returns NULL.
  *  - Bring kv->ptr into L1 for RAW strings, since addReplyBulk reads it
  *    immediately after the lookup. */
 static void *dbDictPrefetchEntryKey(const dictEntry *de) {
@@ -7964,8 +7967,8 @@ void dismissClientMemory(client *c) {
 /* Dismiss the hash table bucket arrays of a dict. */
 void dismissDictBucketsMemory(dict *d) {
     if (!d) return;
-    dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0]) * sizeof(dictEntry*));
-    dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1]) * sizeof(dictEntry*));
+    dismissMemory(d->ht_table[0], DICTHT_SIZE(d->ht_size_exp[0]) * DICT_BUCKET_BYTES);
+    dismissMemory(d->ht_table[1], DICTHT_SIZE(d->ht_size_exp[1]) * DICT_BUCKET_BYTES);
 }
 
 /* Dismiss the hash table bucket arrays for all dicts in the given kvstore. */

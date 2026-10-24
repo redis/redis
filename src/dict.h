@@ -2,8 +2,9 @@
  *
  * This file implements in-memory hash tables with insert/del/replace/find/
  * get-random-element operations. Hash tables will auto-resize if needed
- * tables of power of two in size are used, collisions are handled by
- * chaining. See the source code for more information... :)
+ * tables of power of two in size are used, entries are stored in 64-byte
+ * buckets and collisions that don't fit in a bucket are handled by chaining
+ * child buckets. See the source code for more information... :)
  *
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
@@ -17,8 +18,7 @@
  * In the "normal" case (no_value=0), a dict slot contains only a pointer to a 
  * dictEntry, and dictEntry holds untagged pointers to key and value. But when a 
  * dict is used as a set (no_value=1), we optimize by storing direct key pointers 
- * when possible, avoiding dictEntry allocation. This happens when A bucket contains 
- * only one key, or at the tail of a collision chain. Redis dicts uses pointer 
+ * in every slot, avoiding dictEntry allocation. Redis dicts uses pointer
  * tagging, to identify direct key pointers from dictEntry pointers, i.e embedding 
  * metadata in the lowest three bits of pointers. This requires 8-byte alignment, 
  * which zmalloc() guarantees on both 32-bit and 64-bit systems (via jemalloc/tcmalloc, 
@@ -66,6 +66,7 @@
 #define __stored_key
 
 typedef struct dictEntry dictEntry; /* opaque */
+typedef struct dictBucket dictBucket; /* opaque */
 typedef struct dict dict;
 typedef dictEntry **dictEntryLink; /* See description of dictFindLink() */
 
@@ -102,8 +103,8 @@ typedef struct dictType {
     /* Invoked at the end of dict initialization/rehashing of all the entries from old to new ht. Both ht still exists
      * and are cleaned up after this callback.  */
     void (*rehashingCompleted)(dict *d);
-    /* Invoked when the size of the dictionary changes.
-     * The `delta` parameter can be positive (size increase) or negative (size decrease). */
+    /* Invoked when the number of buckets (top-level and child) changes.
+     * The `delta` parameter can be positive (buckets added) or negative (buckets freed). */
     void (*bucketChanged)(dict *d, long long delta);
     /* Allow a dict to carry extra caller-defined metadata. The
      * extra memory is initialized to 0 when a dict is allocated. */
@@ -116,8 +117,8 @@ typedef struct dictType {
     /* The 'no_value' flag, if set, indicates that values are not used, i.e. the
      * dict is a set. When this flag is set, it's not possible to access the
      * value of a dictEntry and it's also impossible to use dictSetKey(). It 
-     * enables an optimization to store a key directly without an allocating 
-     * dictEntry in between, if it is the only key in the bucket. */
+     * enables an optimization to store a key directly in the bucket slot
+     * without allocating a dictEntry. */
     unsigned int no_value:1;
     /* This flag is required for `no_value` optimization since the optimization
      * reuses LSB bits as metadata */ 
@@ -136,19 +137,20 @@ typedef struct dictType {
     /* Optional callback called when the dict is destroyed. */
     void (*onDictRelease)(dict *d);
 
-    /* Optional prefetch hooks used by the memory_prefetch state machine.
-     * Both default to NULL; when both are NULL the state machine just
-     * prefetches the bucket + dictEntry chain and stops there.
+    /* Optional prefetch hooks used by the dict prefetch state machine
+     * (dictPrefetchNext()). Both default to NULL; when both are NULL the
+     * state machine just prefetches the buckets and the entries whose hash
+     * tag matches, and stops there.
      *
-     * prefetchEntryKey: called after a dictEntry has been brought into
-     *   cache. Returns an address to issue redis_prefetch_read on (so the
+     * prefetchEntryKey: called after a tag-matching entry has been brought
+     *   into cache. Returns an address to issue redis_prefetch_read on (so the
      *   key payload behind the entry is warm before keyCompare runs), or
      *   NULL if nothing extra is needed (e.g. the key is co-located with
      *   the entry).
      * prefetchEntryValue: called when the entry is the *presumed* match
      *   for the lookup key — either keyCompare returned equal, or the
-     *   state machine took the "last entry in chain, not rehashing"
-     *   shortcut and is betting on a hit without comparing. Callbacks
+     *   state machine took the "only tag match in an unchained bucket, not
+     *   rehashing" shortcut and is betting on a hit without comparing. Callbacks
      *   must therefore not assume the key has been verified equal; the
      *   prefetch is advisory. Returns an address to prefetch for the
      *   value-side payload, or NULL. */
@@ -162,14 +164,15 @@ typedef struct dictType {
 struct dict {
     dictType *type;
 
-    dictEntry **ht_table[2];
+    dictBucket *ht_table[2];
     unsigned long ht_used[2];
+    unsigned long child_buckets[2]; /* number of child buckets in each table */
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
     /* Note: pauserehash is a full unsigned so iterator increments
      * don't perform RMW on the same storage unit as other bitfields. */
-    unsigned pauserehash; /* If >0 rehashing is paused */
+    unsigned pauserehash; /* If >0 rehashing and bucket chain compaction are paused */
 
     /* Keep small vars at end for optimal (minimal) struct padding */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
@@ -185,15 +188,18 @@ typedef struct dictIterator {
     dict *d;
     long index;
     int table, safe;
-    dictEntry *entry, *nextEntry;
+    dictBucket *bucket; /* bucket of the last returned entry, or NULL */
+    int pos;            /* slot of the last returned entry in bucket */
+    unsigned long last_seen_size; /* safe iterator: ht_used of table when entering the chain */
     /* unsafe iterator fingerprint for misuse detection. */
     unsigned long long fingerprint;
 } dictIterator;
 
 typedef struct dictStats {
     int htidx;
-    unsigned long buckets;
-    unsigned long maxChainLen;
+    unsigned long buckets;      /* top-level buckets whose chain holds at least one entry */
+    unsigned long childBuckets;
+    unsigned long maxChainLen;  /* entries of a top-level bucket and its child buckets */
     unsigned long totalChainLen;
     unsigned long htSize;
     unsigned long htUsed;
@@ -208,9 +214,19 @@ typedef struct {
     dictDefragAllocFunction *defragVal;   /* Defrag-realloc values (optional) */
 } dictDefragFunctions;
 
-/* This is the initial size of every hash table */
-#define DICT_HT_INITIAL_EXP      2
-#define DICT_HT_INITIAL_SIZE     (1<<(DICT_HT_INITIAL_EXP))
+/* A bucket is 64 bytes (one cache line) and holds DICT_BUCKET_SLOTS entries.
+ * A bucket that overflows uses its last slot to point to a child bucket. */
+#if SIZE_MAX == UINT64_MAX
+#define DICT_BUCKET_SLOTS        7
+#else
+#define DICT_BUCKET_SLOTS        12
+#endif
+#define DICT_BUCKET_BYTES        64
+
+/* This is the initial size of every hash table: a single bucket of
+ * DICT_HT_INITIAL_SIZE slots */
+#define DICT_HT_INITIAL_EXP      0
+#define DICT_HT_INITIAL_SIZE     DICT_BUCKET_SLOTS
 
 /* ------------------------------- Macros ------------------------------------*/
 #define dictFreeVal(d, entry) do {                     \
@@ -227,6 +243,7 @@ typedef struct {
                              ? (d)->type->dictMetadataBytes(d) : 0)
 
 #define dictBuckets(d) (DICTHT_SIZE((d)->ht_size_exp[0])+DICTHT_SIZE((d)->ht_size_exp[1]))
+#define dictChildBuckets(d) ((d)->child_buckets[0]+(d)->child_buckets[1])
 #define dictSize(d) ((d)->ht_used[0]+(d)->ht_used[1])
 #define dictIsEmpty(d) ((d)->ht_used[0] == 0 && (d)->ht_used[1] == 0)
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
@@ -280,7 +297,6 @@ void dictInitIterator(dictIterator *iter, dict *d);
 void dictInitSafeIterator(dictIterator *iter, dict *d);
 void dictResetIterator(dictIterator *iter);
 dictEntry *dictNext(dictIterator *iter);
-dictEntry *dictGetNext(const dictEntry *de);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 dictEntry *dictGetFairRandomKey(dict *d);
@@ -318,6 +334,34 @@ void *dictFetchValue(dict *d, const void *key);
 void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val);
 uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val);
 uint64_t dictGetUnsignedIntegerVal(const dictEntry *de);
+
+/* State of a single key lookup that is broken into steps, so that the memory
+ * prefetcher (memory_prefetch.c) can interleave the lookups of several keys.
+ * The caller owns the storage; except for `done`, the fields are private to
+ * dict.c. Usage:
+ *
+ *     dictPrefetchInit(&st, d, key);
+ *     while (!st.done) {
+ *         void *addr = dictPrefetchNext(&st);
+ *         if (addr) redis_prefetch_read(addr);
+ *         ... advance another lookup ...
+ *     }
+ */
+typedef struct dictPrefetchState {
+    dict *d;
+    const void *key;
+    uint64_t hash;
+    dictBucket *bucket;
+    dictEntry *current_entry;
+    uint16_t candidates; /* tag-matching positions of bucket not visited yet */
+    int8_t ht_idx;
+    uint8_t stage;
+    uint8_t done;
+    uint8_t lone;        /* single tag match in an unchained bucket, while not rehashing */
+} dictPrefetchState;
+
+void dictPrefetchInit(dictPrefetchState *st, dict *d, const void *key);
+void *dictPrefetchNext(dictPrefetchState *st);
 
 #ifdef REDIS_TEST
 int dictTest(int argc, char *argv[], int flags);
