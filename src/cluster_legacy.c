@@ -6705,17 +6705,8 @@ int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
             clusterDoBeforeSleep(CLUSTER_TODO_BROADCAST_PONG);
             clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
-        case ASM_EVENT_MIGRATE_FAILED:
-            unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
-            break;
         case ASM_EVENT_HANDOFF_PREP:
-            pauseActions(PAUSE_DURING_SLOT_HANDOFF,
-                         LLONG_MAX,
-                         PAUSE_ACTIONS_CLIENT_WRITE_SET);
             clusterAsmProcess(task_id, ASM_EVENT_HANDOFF, NULL, NULL);
-            break;
-        case ASM_EVENT_MIGRATE_COMPLETED:
-            unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
             break;
         default:
             break;
