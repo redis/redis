@@ -1,0 +1,109 @@
+{
+  "src/commands/set.json": {
+    "SET": {
+      "summary": "Set a key to a value.",
+      "arity": -3,
+      "command_flags": [
+        "WRITE",
+        "DENYOOM"
+      ],
+      "acl_categories": [
+        "STRING",
+        "WRITE"
+      ],
+      "key_specs": [
+        {
+          "flags": [
+            "OW",
+            "UPDATE"
+          ],
+          "begin_search": {
+            "index": {
+              "pos": 2
+            }
+          }
+        }
+      ],
+      "reply_schema": {
+        "type": "string"
+      },
+      "arguments": [
+        {
+          "name": "key",
+          "type": "key",
+          "key_spec_index": 0
+        },
+        {
+          "name": "value",
+          "type": "integer"
+        },
+        {
+          "name": "condition",
+          "type": "oneof",
+          "optional": true,
+          "arguments": [
+            {
+              "name": "nx",
+              "type": "pure-token",
+              "token": "NX"
+            },
+            {
+              "name": "xx",
+              "type": "pure-token",
+              "token": "XX"
+            }
+          ]
+        },
+        {
+          "name": "expiration",
+          "type": "oneof",
+          "optional": true,
+          "arguments": [
+            {
+              "name": "ex",
+              "type": "pure-token",
+              "token": "EX"
+            },
+            {
+              "name": "seconds",
+              "type": "integer",
+              "optional": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "src/commands/client-kill.json": {
+    "KILL": {
+      "container": "CLIENT",
+      "arity": -3,
+      "arguments": [
+        {
+          "name": "filters",
+          "type": "oneof",
+          "multiple": true,
+          "arguments": [
+            {
+              "name": "id",
+              "type": "integer",
+              "token": "ID",
+              "optional": true
+            },
+            {
+              "name": "address",
+              "type": "string",
+              "token": "ADDR",
+              "optional": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "src/commands/gone.json": {
+    "GONE": {
+      "arity": 1
+    }
+  }
+}
