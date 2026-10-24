@@ -94,7 +94,7 @@ static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket);
 static dictEntry *dictInsertKey(dict *d, uint64_t hash, void *key __stored_key, dictEntryLink *link);
 
 /* -------------------------- unused  --------------------------- */
@@ -1042,18 +1042,17 @@ void dictRelease(dict *d)
  *          mapped to, in the table that accepts inserts, unless the table
  *          is not allocated.
  */
-static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
     uint64_t idx;
     int pos;
-    
+
     if (bucket) {
         *bucket = NULL;
     } else {
         /* If dict is empty and no need to find bucket, return NULL */
-        if (dictSize(d) == 0) return NULL; 
+        if (dictSize(d) == 0) return NULL;
     }
 
-    const uint64_t hash = dictGetHash(d, key);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
 
     /* Rehash the hash table if needed */
@@ -1144,10 +1143,23 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
     if (unlikely(dictSize(d) == 0))
         return NULL;
     
-    return dictFindLinkInternal(d, key, bucket);
+    return dictFindLinkInternal(d, key, dictGetHash(d, key), bucket);
 }
 
-/* Set the key with link 
+/* Same as dictFindLink(), but for a caller that already computed this exact
+ * key's hash (via dictGetHash(d, key)) for another purpose and wants to avoid
+ * paying for the dict type's hashFunction() a second time. The hash is not
+ * validated against key -- passing a mismatched hash silently searches the
+ * wrong bucket. */
+dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
+    if (bucket) *bucket = NULL;
+    if (unlikely(dictSize(d) == 0))
+        return NULL;
+
+    return dictFindLinkInternal(d, key, hash, bucket);
+}
+
+/* Set the key with link
  *
  * link:    - When `newItem` is set, `link` points to the bucket of the key, or
  *            to NULL. The insert position is looked up again, as it depends

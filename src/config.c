@@ -105,6 +105,18 @@ configEnum cluster_slot_stats_enum[] = {
     {NULL, 0}
 };
 
+configEnum io_threads_client_types_enum[] = {
+    {"all", IO_THREADS_CLIENT_TYPE_ALL},
+    {"replication-compressed", IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED},
+    {"master-compressed", IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED},
+    {"replica-compressed", IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED},
+    {"replication", IO_THREADS_CLIENT_TYPE_REPLICATION},
+    {"master", IO_THREADS_CLIENT_TYPE_MASTER},
+    {"replica", IO_THREADS_CLIENT_TYPE_REPLICA},
+    {"normal", IO_THREADS_CLIENT_TYPE_NORMAL},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -700,6 +712,23 @@ void loadServerConfigFromString(char *config) {
                   "'cluster-bus-port-protected-mode no' to acknowledge that the "
                   "cluster bus port is reachable by trusted hosts only, for instance "
                   "because a firewall blocks it.";
+            goto loaderr;
+        }
+
+        int client_types = server.io_threads_client_types;
+        int compression_only =
+            ((client_types & IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_REPLICA)) ||
+            ((client_types & IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_MASTER));
+        if (compression_only && server.repl_compression == 0) {
+            err = "io-threads-client-types compression-only selectors require compression support and repl-compression > 0";
+            goto loaderr;
+        }
+        if (server.repl_compression > 0 &&
+            !(client_types & (IO_THREADS_CLIENT_TYPE_REPLICATION | IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED)))
+        {
+            err = "repl-compression requires io-threads-client-types to include replication clients";
             goto loaderr;
         }
 
@@ -3442,6 +3471,34 @@ static int applyClientMaxMemoryUsage(const char **err) {
     return 1;
 }
 
+/* Disabling stream-stats stops the bookkeeping and hides the section; the
+ * per-db INFO Streams rows are kept. Re-enabling keeps them if no stream
+ * changed meanwhile (stream_stats_needs_reset is clear) and otherwise starts a
+ * new generation, filling in lazily. Apply hooks run only on runtime CONFIG
+ * SET, so the dbs are always initialized here. */
+static int applyStreamStats(const char **err) {
+    UNUSED(err);
+    if (!server.stream_stats) return 1;
+    if (server.stream_stats_needs_reset) {
+        /* Streams changed while tracking was off, so the rows fell behind.
+         * Zeroing them starts a new generation of each db's rows
+         * (streamStatsResetMeta() bumps the db's epoch): every stream and
+         * group is uncounted until next touched, and an async slot-trim delta
+         * scheduled against the old contents is discarded on completion. */
+        for (int j = 0; j < server.dbnum; j++)
+            streamStatsResetMeta(kvstoreGetMetadata(server.db[j].keys));
+        server.stream_stats_needs_reset = 0;
+    }
+    if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS) {
+        /* Enabling at runtime deliberately does not rescan, so the gauges are
+         * legitimately behind until each group is next touched, which DEBUG
+         * STREAM-STATS-ASSERT would report as corruption on this very command.
+         * Re-prime an exact baseline while the assertion is armed. */
+        streamStatsRebuild();
+    }
+    return 1;
+}
+
 standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
@@ -3496,6 +3553,8 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("bitmap-default-roaring", NULL, MODIFIABLE_CONFIG, server.bitmap_default_roaring, 0, NULL, NULL),
+    createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 0, NULL, applyStreamStats),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -3547,6 +3606,7 @@ standardConfig static_configs[] = {
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
     createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
     createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("io-threads-client-types", NULL, IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, io_threads_client_types_enum, server.io_threads_client_types, IO_THREADS_CLIENT_TYPE_ALL, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

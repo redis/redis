@@ -46,6 +46,7 @@
 #include "call_reply.h"
 #include "hdr_histogram.h"
 #include "crc16_slottable.h"
+#include "zset_btree.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -173,6 +174,7 @@ typedef struct RedisModuleCtx RedisModuleCtx;
                                               context is destroyed */
 #define REDISMODULE_CTX_CHANNELS_POS_REQUEST (1<<8)
 #define REDISMODULE_CTX_COMMAND (1<<9) /* Context created to serve a command from call() or AOF (which calls cmd->proc directly) */
+#define REDISMODULE_CTX_REPLY_BUFFER (1<<10) /* Reply-only accumulator explicitly owned by the module. */
 
 
 /* This represents a Redis key opened with RM_OpenKey(). */
@@ -197,7 +199,7 @@ struct RedisModuleKey {
             zlexrangespec lrs;     /* Lex range. */
             uint32_t start;        /* Start pos for positional ranges. */
             uint32_t end;          /* End pos for positional ranges. */
-            void *current;         /* Zset iterator current node. */
+            void *current;         /* Node, or B+ tree rank plus one. */
             int er;                /* Zset iterator end reached flag
                                        (true if end was reached). */
         } zset;
@@ -757,6 +759,8 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     }
 
     key->kv = dbAdd(key->db, key->key, &obj);
+    if (type == REDISMODULE_KEYTYPE_STREAM)
+        streamKeyLoaded(key->db, key->key, key->kv);
     moduleInitKeyTypeSpecific(key);
     return REDISMODULE_OK;
 }
@@ -2381,6 +2385,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
 
     if (ctx->module != NULL) return;
     module = zmalloc(sizeof(*module));
+    module->reply_buffers = 0;
     module->name = sdsnew(name);
     module->ver = ver;
     module->apiver = apiver;
@@ -3148,6 +3153,7 @@ int RM_WrongArity(RedisModuleCtx *ctx) {
  * client object. Other contexts without associated clients are the ones
  * initialized to run the timers callbacks. */
 client *moduleGetReplyClient(RedisModuleCtx *ctx) {
+    if (ctx->flags & REDISMODULE_CTX_REPLY_BUFFER) return ctx->client;
     if (ctx->flags & REDISMODULE_CTX_THREAD_SAFE) {
         if (ctx->blocked_client)
             return ctx->blocked_client->reply_client;
@@ -3584,6 +3590,83 @@ int RM_ReplyWithCallReply(RedisModuleCtx *ctx, RedisModuleCallReply *reply) {
     list *errors = callReplyDeferredErrorList(reply);
     if (errors)
         deferredAfterErrorReply(c, errors);
+    return REDISMODULE_OK;
+}
+
+/* Discard all replies accumulated in a context created by
+ * RedisModule_CreateReplyBufferContext(), leaving it empty and reusable.
+ * The reply protocol, module association, and other context state are
+ * preserved. Incomplete postponed collections and deferred errors are
+ * discarded without warnings or error-stat accounting.
+ *
+ * The caller must have exclusive access to the buffer. This function does not
+ * acquire the server lock and may be called from a worker thread.
+ * Returns REDISMODULE_ERR if `buffer` is NULL or is not a reply buffer. */
+int RM_ResetReplyBuffer(RedisModuleCtx *buffer) {
+    if (!buffer || !(buffer->flags & REDISMODULE_CTX_REPLY_BUFFER))
+        return REDISMODULE_ERR;
+
+    client *c = buffer->client;
+    listEmpty(c->reply);
+    c->bufpos = 0;
+    c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
+    if (c->deferred_reply_errors) {
+        listRelease(c->deferred_reply_errors);
+        c->deferred_reply_errors = NULL;
+    }
+    zfree(buffer->postponed_arrays);
+    buffer->postponed_arrays = NULL;
+    buffer->postponed_arrays_count = 0;
+    return REDISMODULE_OK;
+}
+
+/* Append the replies accumulated in a context created by
+ * RedisModule_CreateReplyBufferContext() to the reply target of `ctx`.
+ * This moves the content, leaving `buffer` empty and available for reuse.
+ * Large replies are transferred by joining reply block lists, without copying
+ * their payloads. The destination may have an open postponed collection.
+ *
+ * The destination may be a command, blocked-client reply or timeout callback,
+ * a thread safe context bound to a blocked client, or another reply buffer.
+ * This function may be called from a worker thread without holding the server
+ * lock when the destination is another reply buffer or a thread safe context
+ * bound to a blocked client. Command and blocked-client callback contexts must
+ * only be used in their normal execution context, with the server lock held.
+ * The caller must ensure exclusive access to both reply accumulators for the
+ * duration of the call, including exclusion of concurrent replies, moves,
+ * resets and freeing. The contexts and blocked-client handle, if any, must
+ * remain valid throughout the call.
+ *
+ * Returns REDISMODULE_ERR without modifying either accumulator if:
+ * - `buffer` is not a reply-buffer context;
+ * - `buffer` has an open REDISMODULE_POSTPONED_LEN collection;
+ * - the destination has no reply target;
+ * - source and destination refer to the same accumulator; or
+ * - source and destination use different RESP versions.
+ *
+ * On success returns REDISMODULE_OK and consumes the source even if the
+ * destination drops replies (for example, a closing client). The module still
+ * owns the empty source context and must free it explicitly.
+ * Discarded errors are not added to the server's error statistics. */
+int RM_ReplyWithBufferedReply(RedisModuleCtx *ctx, RedisModuleCtx *buffer) {
+    if (!ctx || !buffer || !(buffer->flags & REDISMODULE_CTX_REPLY_BUFFER) ||
+        buffer->postponed_arrays_count)
+        return REDISMODULE_ERR;
+
+    client *src = buffer->client;
+    client *dst = moduleGetReplyClient(ctx);
+    if (!dst || src == dst || src->resp != dst->resp)
+        return REDISMODULE_ERR;
+
+    if (dst->flags & CLIENT_MODULE)
+        AddReplyFromModuleClient(dst, src);
+    else
+        AddReplyFromClient(dst, src);
+
+    /* AddReplyFromClient may return before consuming the source when the
+     * destination cannot accept replies.
+     * Only reset reply state: this context and its client remain reusable. */
+    RM_ResetReplyBuffer(buffer);
     return REDISMODULE_OK;
 }
 
@@ -4296,6 +4379,7 @@ int RM_KeyType(RedisModuleKey *key) {
     case OBJ_GCRA: return REDISMODULE_KEYTYPE_GCRA;
 #endif
     case OBJ_ARRAY: return REDISMODULE_KEYTYPE_ARRAY;
+    case OBJ_BITMAP: return REDISMODULE_KEYTYPE_BITMAP;
     default: return REDISMODULE_KEYTYPE_EMPTY;
     }
 }
@@ -5048,7 +5132,7 @@ RedisModuleString *RM_ListGet(RedisModuleKey *key, long index) {
  */
 int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
     size_t oldsize = 0;
-    if (!value) {
+    if (!key || !value) {
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
@@ -5091,19 +5175,19 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
  */
 int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
     size_t oldsize = 0;
-    if (!value) {
+    if (!key || !value) {
         errno = EINVAL;
         return REDISMODULE_ERR;
-    } else if (key != NULL && key->kv == NULL &&
+    } else if (key->kv == NULL &&
                (index == 0 || index == -1)) {
         /* Insert in empty key => push. */
         return RM_ListPush(key, REDISMODULE_LIST_TAIL, value);
-    } else if (key != NULL && key->kv != NULL &&
+    } else if (key->kv != NULL &&
                key->kv->type == OBJ_LIST &&
                (index == (long)listTypeLength(key->kv) || index == -1)) {
         /* Insert after the last element => push tail. */
         return RM_ListPush(key, REDISMODULE_LIST_TAIL, value);
-    } else if (key != NULL && key->kv != NULL &&
+    } else if (key->kv != NULL &&
                key->kv->type == OBJ_LIST &&
                (index == 0 || index == -(long)listTypeLength(key->kv) - 1)) {
         /* Insert before the first element => push head. */
@@ -5372,6 +5456,18 @@ void zsetKeyReset(RedisModuleKey *key) {
     key->u.zset.er = 1;
 }
 
+/* Read one B+ tree member by rank. Seeking for every call keeps no leaf
+ * pointer across module code, which may modify the sorted set. */
+static int moduleZsetBtreeElementAtRank(RedisModuleKey *key,
+                                        unsigned long rank,
+                                        const unsigned char **ele,
+                                        size_t *len, double *score)
+{
+    zbtreeIterator iter;
+    if (!zbtreeIteratorSeekRank(key->kv->ptr, rank, &iter)) return 0;
+    return zbtreeIteratorNext(&iter, 0, ele, len, score);
+}
+
 /* Stop a sorted set iteration. */
 void RM_ZsetRangeStop(RedisModuleKey *key) {
     if (!key->kv || key->kv->type != OBJ_ZSET) return;
@@ -5419,6 +5515,19 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
         zskiplist *zsl = zs->zsl;
         key->u.zset.current = first ? zslNthInRange(zsl, zrs, 0, NULL) :
                                       zslNthInRange(zsl, zrs, -1, NULL);
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        unsigned long rank;
+        double score;
+        int found = first ?
+            zbtreeIteratorSeekScore(key->kv->ptr, min, minex, 0, &iter, &rank) :
+            zbtreeIteratorSeekScore(key->kv->ptr, max, maxex, 1, &iter, &rank);
+        if (found) {
+            serverAssert(moduleZsetBtreeElementAtRank(key, rank, NULL, NULL, &score));
+            /* Module callers can pass NaN bounds, so check both sides. */
+            if (zslValueGteMin(score, zrs) && zslValueLteMax(score, zrs))
+                key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        }
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5483,6 +5592,23 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
         zskiplist *zsl = zs->zsl;
         key->u.zset.current = first ? zslNthInLexRange(zsl,zlrs,0,NULL) :
                                       zslNthInLexRange(zsl,zlrs,-1,NULL);
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        unsigned long rank;
+        int found = first ?
+            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->min, zlrs->minex, 0, &iter, &rank) :
+            zbtreeIteratorSeekLex(key->kv->ptr, zlrs->max, zlrs->maxex, 1, &iter, &rank);
+        if (found) {
+            const unsigned char *ele;
+            size_t len;
+            serverAssert(moduleZsetBtreeElementAtRank(key, rank, &ele, &len, NULL));
+            sds value = sdsnewlen(ele, len);
+            int in_range = zslLexValueGteMin(value, zlrs) &&
+                           zslLexValueLteMax(value, zlrs);
+            sdsfree(value);
+            if (in_range)
+                key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        }
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5535,6 +5661,17 @@ RedisModuleString *RM_ZsetRangeCurrentElement(RedisModuleKey *key, double *score
         if (score) *score = ln->score;
         sds ele = zslGetNodeElement(ln);
         str = createStringObject(ele,sdslen(ele));
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        const unsigned char *ele;
+        size_t len;
+        double value;
+        unsigned long rank = (uintptr_t)key->u.zset.current - 1;
+        if (!moduleZsetBtreeElementAtRank(key, rank, &ele, &len, &value)) {
+            key->u.zset.er = 1;
+            return NULL;
+        }
+        if (score) *score = value;
+        str = createStringObject((char *)ele, len);
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5601,9 +5738,31 @@ int RM_ZsetRangeNext(RedisModuleKey *key) {
             key->u.zset.current = next;
             return 1;
         }
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        unsigned long rank = (uintptr_t)key->u.zset.current - 1;
+        if (++rank >= zbtreeLength(key->kv->ptr)) goto end;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        if (!moduleZsetBtreeElementAtRank(key, rank, &ele, &len, &score))
+            goto end;
+        if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE) {
+            if (!zslValueLteMax(score, &key->u.zset.rs)) goto end;
+        } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
+            sds value = sdsnewlen(ele, len);
+            int valid = zslLexValueLteMax(value, &key->u.zset.lrs);
+            sdsfree(value);
+            if (!valid) goto end;
+        }
+        key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        return 1;
     } else {
         serverPanic("Unsupported zset encoding");
     }
+
+end:
+    key->u.zset.er = 1;
+    return 0;
 }
 
 /* Go to the previous element of the sorted set iterator. Returns 1 if there was
@@ -5665,9 +5824,32 @@ int RM_ZsetRangePrev(RedisModuleKey *key) {
             key->u.zset.current = prev;
             return 1;
         }
+    } else if (key->kv->encoding == OBJ_ENCODING_BTREE) {
+        unsigned long rank = (uintptr_t)key->u.zset.current - 1;
+        if (rank == 0) goto end;
+        rank--;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        if (!moduleZsetBtreeElementAtRank(key, rank, &ele, &len, &score))
+            goto end;
+        if (key->u.zset.type == REDISMODULE_ZSET_RANGE_SCORE) {
+            if (!zslValueGteMin(score, &key->u.zset.rs)) goto end;
+        } else if (key->u.zset.type == REDISMODULE_ZSET_RANGE_LEX) {
+            sds value = sdsnewlen(ele, len);
+            int valid = zslLexValueGteMin(value, &key->u.zset.lrs);
+            sdsfree(value);
+            if (!valid) goto end;
+        }
+        key->u.zset.current = (void *)(uintptr_t)(rank + 1);
+        return 1;
     } else {
         serverPanic("Unsupported zset encoding");
     }
+
+end:
+    key->u.zset.er = 1;
+    return 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -6436,7 +6618,7 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    long long retval = streamTrimByLength(s, length, approx);
+    long long retval = streamTrimByLength(key->db, s, length, approx);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -6474,7 +6656,7 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     stream *s = key->kv->ptr;
     size_t oldsize = server.memory_tracking_enabled ? kvobjAllocSize(key->kv) : 0;
     int64_t old_entries = (int64_t) s->length;
-    long long retval = streamTrimByID(s, minid, approx);
+    long long retval = streamTrimByID(key->db, s, minid, approx);
     updateKeysizesHist(key->db, OBJ_STREAM, old_entries, s->length); /* entries count decreased */
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
@@ -7651,10 +7833,13 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
  * writing or there is an active iterator, REDISMODULE_ERR is returned. */
 int RM_ModuleTypeSetValue(RedisModuleKey *key, moduleType *mt, void *value) {
     if (!(key->mode & REDISMODULE_WRITE) || key->iter) return REDISMODULE_ERR;
+    /* RM_DeleteKey clears BLESS state, so carry it across the replacement. */
+    int noevict = key->kv && blessIsNoEvict(key->kv);
     RM_DeleteKey(key);
     robj *o = createModuleObject(mt,value);
     setKey(key->ctx->client,key->db,key->key, &o,SETKEY_NO_SIGNAL);
     key->kv = o;
+    if (noevict) blessSetNoEvict(key->db, key->kv, 1);
     return REDISMODULE_OK;
 }
 
@@ -8554,6 +8739,11 @@ void RM_RegisterAuthCallback(RedisModuleCtx *ctx, RedisModuleAuthCallback cb) {
     listAddNodeHead(moduleAuthCallbacks, auth_ctx);
 }
 
+static void moduleFreeBlockedClient(RedisModuleBlockedClient *bc) {
+    bc->module->blocked_clients--;
+    zfree(bc);
+}
+
 /* Helper function to invoke the free private data callback of a Module blocked client. */
 void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
     if (bc->privdata && bc->free_privdata) {
@@ -8565,6 +8755,19 @@ void moduleInvokeFreePrivDataCallback(client *c, RedisModuleBlockedClient *bc) {
         bc->free_privdata(&ctx,bc->privdata);
         moduleFreeContext(&ctx);
     }
+}
+
+/* Auth handles survive unblock processing until AUTH is retried. A disconnect
+ * in that window skips the auth reply callback, but must still release private
+ * data and the module reference. The temporary clients were already released
+ * by moduleHandleBlockedClients(). */
+void moduleFreeAuthBlockedClient(client *c) {
+    RedisModuleBlockedClient *bc = c->module_blocked_client;
+    if (!bc) return;
+    c->module_blocked_client = NULL;
+    bc->client = NULL;
+    moduleInvokeFreePrivDataCallback(NULL, bc);
+    moduleFreeBlockedClient(bc);
 }
 
 /* Unregisters all the module auth callbacks that have been registered by this Module. */
@@ -8635,8 +8838,7 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, r
     moduleInvokeFreePrivDataCallback(c, bc);
     c->module_blocked_client = NULL;
     c->lastcmd->microseconds += bc->background_duration;
-    bc->module->blocked_clients--;
-    zfree(bc);
+    moduleFreeBlockedClient(bc);
     return result;
 }
 
@@ -9051,8 +9253,7 @@ void moduleHandleBlockedClients(void) {
          * referenced in the client blocking context, and must be valid
          * when calling unblockClient(). */
         if (!(c && clientHasModuleAuthInProgress(c))) {
-            bc->module->blocked_clients--;
-            zfree(bc);
+            moduleFreeBlockedClient(bc);
         }
 
         /* Lock again before to iterate the loop. */
@@ -9202,6 +9403,38 @@ RedisModuleCtx *RM_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
     return ctx;
 }
 
+/* Create an empty, module-owned reply buffer using the reply protocol of `ctx`.
+ * The input can be a command or blocked-client callback context, a thread safe
+ * context bound to a blocked client, or another reply buffer. Returns NULL if
+ * the input has no module or reply target, or the module is still loading.
+ * No pending replies are copied.
+ *
+ * The buffer can outlive the input context and any blocked client. The module
+ * must explicitly release it with RedisModule_FreeThreadSafeContext(). A live
+ * buffer prevents module unloading. Creation and freeing require the server
+ * lock, including when called from a worker using a regular thread safe context.
+ *
+ * RedisModule_ReplyWith* and RedisModule_ReplySet*Length APIs work on the buffer
+ * without the server lock. RedisModule_ReplyWithBufferedReply() moves its content to a
+ * destination and leaves the buffer empty for reuse. The module must exclude
+ * concurrent access during serialization, movement, handoff, and cleanup.
+ *
+ * This is a reply-only context: do not use it for key access, RedisModule_Call(),
+ * or acquiring the server lock. */
+RedisModuleCtx *RM_CreateReplyBufferContext(RedisModuleCtx *ctx) {
+    if (!ctx || !ctx->module || ctx->module->onload) return NULL;
+    client *source = moduleGetReplyClient(ctx);
+    if (!source) return NULL;
+
+    RedisModuleCtx *buffer = zmalloc(sizeof(*buffer));
+    moduleCreateContext(buffer, ctx->module,
+                        REDISMODULE_CTX_THREAD_SAFE|REDISMODULE_CTX_REPLY_BUFFER|
+                        REDISMODULE_CTX_TEMP_CLIENT);
+    buffer->client->resp = source->resp;
+    buffer->module->reply_buffers++;
+    return buffer;
+}
+
 /* Return a detached thread safe context that is not associated with any
  * specific blocked client, but is associated with the module's context.
  *
@@ -9216,8 +9449,17 @@ RedisModuleCtx *RM_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
     return new_ctx;
 }
 
-/* Release a thread safe context. */
+/* Release a thread safe context or an owned reply buffer.
+ * For reply buffers, the server lock must be held and the caller must exclude
+ * concurrent access. Unpublished content, including incomplete collections and
+ * deferred errors, is discarded. Ordinary thread safe contexts retain their
+ * existing cleanup and locking requirements. */
 void RM_FreeThreadSafeContext(RedisModuleCtx *ctx) {
+    if (ctx->flags & REDISMODULE_CTX_REPLY_BUFFER) {
+        serverAssert(ctx->module->reply_buffers > 0);
+        ctx->module->reply_buffers--;
+        RM_ResetReplyBuffer(ctx);
+    }
     moduleFreeContext(ctx);
     zfree(ctx);
 }
@@ -9235,7 +9477,7 @@ void moduleGILAfterLock(void) {
  * This is not needed for `RedisModule_Reply*` calls when there is
  * a blocked client connected to the thread safe context. */
 void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
-    UNUSED(ctx);
+    serverAssert(!ctx || !(ctx->flags & REDISMODULE_CTX_REPLY_BUFFER));
     moduleAcquireGIL();
     moduleGILAfterLock();
 }
@@ -9247,7 +9489,7 @@ void RM_ThreadSafeContextLock(RedisModuleCtx *ctx) {
  * otherwise REDISMODULE_ERR is returned and errno is set
  * accordingly. */
 int RM_ThreadSafeContextTryLock(RedisModuleCtx *ctx) {
-    UNUSED(ctx);
+    serverAssert(!ctx || !(ctx->flags & REDISMODULE_CTX_REPLY_BUFFER));
 
     int res = moduleTryAcquireGIL();
     if(res != 0) {
@@ -9272,6 +9514,7 @@ void moduleGILBeforeUnlock(RedisModuleCtx *ctx) {
 
 /* Release the server lock after a thread safe API call was executed. */
 void RM_ThreadSafeContextUnlock(RedisModuleCtx *ctx) {
+    serverAssert(!ctx || !(ctx->flags & REDISMODULE_CTX_REPLY_BUFFER));
     moduleGILBeforeUnlock(ctx);
     moduleReleaseGIL();
 }
@@ -9327,6 +9570,14 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_EVICTED: Eviction events
  *  - REDISMODULE_NOTIFY_STREAM: Stream events
  *  - REDISMODULE_NOTIFY_MODULE: Module types events
+ *  - REDISMODULE_NOTIFY_BITMAP: Bitmap events (class 'b'). SETBIT, BITFIELD
+ *                               and BITOP writes on native bitmap keys are
+ *                               reported under this class, while the
+ *                               same commands on string bitmaps keep using
+ *                               REDISMODULE_NOTIFY_STRING, so a module that
+ *                               wants all bitmap writes must subscribe to
+ *                               both. REDISMODULE_NOTIFY_ALL from an older
+ *                               redismodule.h does not include this flag.
  *  - REDISMODULE_NOTIFY_KEYMISS: Key-miss events
  *                                Notice, key-miss event is the only type
  *                                of event that is fired from within a read command.
@@ -12334,6 +12585,34 @@ typedef struct {
     RedisModuleScanKeyCB fn;
 } ScanKeyCBData;
 
+typedef struct {
+    robj *field;
+    double score;
+} BtreeScanItem;
+
+typedef struct {
+    BtreeScanItem *items;
+    size_t count;
+    size_t capacity;
+} BtreeScanData;
+
+/* B+ tree leaves may move if module code changes the sorted set. Collect one
+ * small batch before calling the module so no tree pointer survives a
+ * callback. */
+static void moduleBtreeScanCollect(void *privdata, const unsigned char *ele,
+                                   size_t len, double score)
+{
+    BtreeScanData *data = privdata;
+    if (data->count == data->capacity) {
+        data->capacity = data->capacity ? data->capacity * 2 : 64;
+        data->items = zrealloc(data->items, data->capacity * sizeof(*data->items));
+    }
+
+    data->items[data->count].field = createStringObject((char *)ele, len);
+    data->items[data->count].score = score;
+    data->count++;
+}
+
 static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     ScanKeyCBData *data = privdata;
@@ -12484,6 +12763,34 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;
+    } else if (kv->type == OBJ_ZSET && kv->encoding == OBJ_ENCODING_BTREE) {
+        BtreeScanData data = {0};
+        cursor->cursor = zbtreeScan(kv->ptr, cursor->cursor, 64, moduleBtreeScanCollect, &data);
+
+        size_t i = 0;
+        for (; i < data.count; i++) {
+            robj *value = createStringObjectFromLongDouble(data.items[i].score, 0);
+            fn(key, data.items[i].field, value, privdata);
+            decrRefCount(value);
+            decrRefCount(data.items[i].field);
+
+            /* Removing the current member is safe. If the callback removes the
+             * key or changes its encoding, this B+ tree cursor has no meaning. */
+            if (key->kv != kv || kv->encoding != OBJ_ENCODING_BTREE) {
+                cursor->cursor = 0;
+                cursor->done = 1;
+                ret = 0;
+                i++;
+                break;
+            }
+        }
+        while (i < data.count) decrRefCount(data.items[i++].field);
+        zfree(data.items);
+
+        if (cursor->cursor == 0) {
+            cursor->done = 1;
+            ret = 0;
+        }
     } else if (kv->type == OBJ_ZSET || kv->type == OBJ_HASH) {
         unsigned char *lp, *p;
         /* is hash with expiry on fields, then lp tuples are [field][value][expire] */
@@ -13853,6 +14160,13 @@ int moduleUnload(sds name, const char **errmsg, int forced_unload) {
             errno = ECANCELED;
             return C_ERR;
         }
+    }
+
+    /* OnUnload may free retained buffers, or create new ones. Check after it
+     * returns so no live accumulator can retain a dangling module pointer. */
+    if (module->reply_buffers) {
+        if (errmsg) *errmsg = "the module has owned reply buffers. Free them and try again";
+        return C_ERR;
     }
 
     moduleUnregisterCleanup(module);
@@ -15777,6 +16091,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithBool);
     REGISTER_API(ReplyWithCallReply);
+    REGISTER_API(ResetReplyBuffer);
+    REGISTER_API(ReplyWithBufferedReply);
     REGISTER_API(ReplyWithDouble);
     REGISTER_API(ReplyWithBigNumber);
     REGISTER_API(ReplyWithLongDouble);
@@ -15942,6 +16258,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(BlockedClientMeasureTimeStart);
     REGISTER_API(BlockedClientMeasureTimeEnd);
     REGISTER_API(GetThreadSafeContext);
+    REGISTER_API(CreateReplyBufferContext);
     REGISTER_API(GetDetachedThreadSafeContext);
     REGISTER_API(FreeThreadSafeContext);
     REGISTER_API(ThreadSafeContextLock);

@@ -12,9 +12,11 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "cluster_asm.h"
+#include "zset_btree.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -509,6 +511,13 @@ robj *createZsetObject(void) {
     return o;
 }
 
+/* Create an empty sorted set using the packed B+ tree encoding. */
+robj *createZsetBtreeObject(void) {
+    robj *o = createObject(OBJ_ZSET, zbtreeCreate());
+    o->encoding = OBJ_ENCODING_BTREE;
+    return o;
+}
+
 robj *createZsetListpackObject(void) {
     unsigned char *lp = lpNew(0);
     robj *o = createObject(OBJ_ZSET,lp);
@@ -573,21 +582,7 @@ void freeListObject(robj *o) {
 }
 
 void freeSetObject(robj *o) {
-    switch (o->encoding) {
-    case OBJ_ENCODING_HT:
-#ifdef DEBUG_ASSERTIONS
-        dictEmpty(o->ptr, NULL);
-        debugServerAssert(*htGetMetadataSize(o->ptr) == 0);
-#endif
-        dictRelease((dict*) o->ptr);
-        break;
-    case OBJ_ENCODING_INTSET:
-    case OBJ_ENCODING_LISTPACK:
-        zfree(o->ptr);
-        break;
-    default:
-        serverPanic("Unknown set encoding type");
-    }
+    setTypeFree(o);
 }
 
 void freeZsetObject(robj *o) {
@@ -598,6 +593,9 @@ void freeZsetObject(robj *o) {
         dictRelease(zs->dict);
         zslFree(zs->zsl);
         zfree(zs);
+        break;
+    case OBJ_ENCODING_BTREE:
+        zbtreeFree(o->ptr);
         break;
     case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
@@ -690,6 +688,7 @@ void decrRefCount(robj *o) {
             case OBJ_GCRA: freeGCRAObject(o); break;
 #endif
             case OBJ_ARRAY: freeArrayObject(o); break;
+            case OBJ_BITMAP: bitroarFree(o); break;
             default: serverPanic("Unknown object type"); break;
             }
         }
@@ -781,6 +780,8 @@ void dismissZsetObject(robj *o, size_t size_hint) {
 
         /* Dismiss hash table memory. */
         dismissDictBucketsMemory(zs->dict);
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeDismissMemory(o->ptr);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
@@ -896,6 +897,7 @@ void dismissObject(robj *o, size_t size_hint) {
         case OBJ_GCRA: dismissGCRAObject(o, size_hint); break;
 #endif
         case OBJ_ARRAY: dismissArrayObject(o, size_hint); break;
+        case OBJ_BITMAP: bitroarDismiss(o, size_hint); break;
         default: break;
     }
 #else
@@ -906,6 +908,14 @@ void dismissObject(robj *o, size_t size_hint) {
 int checkType(client *c, robj *o, int type) {
     /* A NULL is considered an empty key */
     if (o && o->type != type) {
+        addReplyErrorObject(c,shared.wrongtypeerr);
+        return 1;
+    }
+    return 0;
+}
+
+int checkStringOrBitmapType(client *c, robj *o) {
+    if (o && o->type != OBJ_STRING && o->type != OBJ_BITMAP) {
         addReplyErrorObject(c,shared.wrongtypeerr);
         return 1;
     }
@@ -1021,6 +1031,7 @@ size_t getObjectLength(robj *o) {
         case OBJ_GCRA: return gcraObjectLength(o);
 #endif
         case OBJ_ARRAY: return arCount(o->ptr);
+        case OBJ_BITMAP: return bitroarLen(o);
         default: return 0;
     }
 }
@@ -1321,8 +1332,10 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_EMBSTR: return "embstr";
     case OBJ_ENCODING_STREAM: return "stream";
     case OBJ_ENCODING_SLICED_ARRAY: return "sliced-array";
-	case OBJ_ENCODING_TMPL_LP: return "template-listpack";
-	case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
+    case OBJ_ENCODING_TMPL_LP: return "template-listpack";
+    case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
+    case OBJ_ENCODING_BITMAP_ROARING: return "bitmap-roaring";
+    case OBJ_ENCODING_BTREE: return "btree";
     default: return "unknown";
     }
 }
@@ -1344,6 +1357,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
 #ifdef ENABLE_GCRA
         o->type == OBJ_GCRA ||
 #endif
+        o->type == OBJ_BITMAP ||
         o->type == OBJ_ARRAY)
     {
         return kvobjAllocSize(o);
@@ -1390,6 +1404,8 @@ size_t kvobjAllocSize(kvobj *o) {
     } else if (o->type == OBJ_ARRAY) {
         redisArray *ar = o->ptr;
         asize += ar->alloc_size;
+    } else if (o->type == OBJ_BITMAP) {
+        asize += bitroarAllocSize(o);
     } else if (o->type == OBJ_MODULE) {
         /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
     }
@@ -1499,7 +1515,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->clients_slaves;
 
     /* Compute shared/unshared reply memory. */
-    getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
+    mh->clients_normal_shared = server.stat_clients_shared_memory;
+    mh->clients_normal_unshared = server.stat_clients_unshared_memory;
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
