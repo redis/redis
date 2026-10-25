@@ -974,3 +974,87 @@ start_server {tags {"repl external:skip tsan:skip"}} {
         }
     }
 }
+
+# Replica configuration below:
+# - appendonly no + repl-diskless-load flushdb keep buffered writes in RAM.
+# - loading-process-events-interval-bytes 1024 makes the replica check the network
+#   while applying buffered commands, so it notices the disconnect before finishing.
+start_server {tags {repl external:skip tsan:skip} overrides {
+    appendonly no repl-diskless-load flushdb
+    repl-rdb-channel yes loading-process-events-interval-bytes 1024
+}} {
+    set replica [srv 0 client]
+    set replica_pid [srv 0 pid]
+
+    # Primary configuration below:
+    # - repl-rdb-channel yes sends the snapshot and later writes over separate connections.
+    # - repl-diskless-sync yes enables the primary's dual-channel snapshot transfer.
+    # - rdb-key-save-delay 1000 adds 1 ms per saved key, leaving time for the test's
+    #   write to reach the replica while the snapshot is still being generated.
+    # - repl-backlog-size 64kb retains less history than the test's 2 MiB write.
+    #   If the replica discards that buffered write, PSYNC cannot recover it and
+    #   another full sync is required. Applying the buffered write before reconnecting
+    #   means the replica does not need the primary to resend history it no longer retains.
+    start_server {overrides {
+        repl-rdb-channel yes repl-diskless-sync yes
+        rdb-key-save-delay 1000 repl-backlog-size 64kb
+    }} {
+        set master [srv 0 client]
+
+        test "Replica finishes applying buffered commands after a primary disconnect" {
+            # Give the delayed snapshot enough keys to keep it busy while we write.
+            populate 2000 prefix: 1000
+            # Arm a debug hook: after passing the first 16 KiB of buffered command
+            # data to the parser, the replica stops itself with SIGSTOP. We can then
+            # close its connection from the primary before it finishes applying the commands.
+            $replica debug repl-pause on-streaming-repl-buf
+            $replica replicaof [srv 0 host] [srv 0 port]
+
+            # Wait until snapshot generation starts. The SET commands below will
+            # not be in that snapshot; the replica must apply them after loading the snapshot.
+            wait_for_condition 500 10 {
+                [string match "*state=send_bulk_and_stream*" [s 0 slave0]]
+            } else {
+                fail "replication stream did not start"
+            }
+            # Send a SET whose 2 MiB value cannot fit in the parser's first 16 KiB chunk.
+            $master set buffered-write [string repeat x 2097152]
+            # Add a command after the 2 MiB write so the primary's 64 KiB backlog
+            # keeps the newer tail of the stream, not the whole large write.
+            # If the replica discards its local buffer, it will ask for that write
+            # again; the primary no longer has all its bytes and must do a full sync.
+            # WAIT appends REPLCONF GETACK to the ordinary replication stream.
+            # Its ACK is sent while the replica still has a later SET to apply.
+            $master wait 1 1
+            $master set buffered-tail [string repeat y 2097152]
+            $master wait 1 1
+            $master set after-buffer 1
+            # Wait until the snapshot is loaded and the replica starts processing buffered commands.
+            wait_for_log_messages -1 {"*Starting to stream replication buffer*"} 0 1000 10
+
+            # The replica stops before it can finish the large SET. Discarding the
+            # remaining buffered commands would force another full sync.
+            # Remove the snapshot delay so a buggy full-sync retry finishes quickly.
+            $master config set rdb-key-save-delay 0
+            # Close only the main channel from the primary, leaving buffered data on the replica.
+            $master client kill id [get_replica_client_id $master no]
+            # Queue the pause-clear command without waiting for the stopped process to reply.
+            $replica deferred 1
+            $replica debug repl-pause clear
+            # Resume the replica so it can process the queued pause-clear command
+            # and detect the closed connection while applying buffered commands.
+            resume_process $replica_pid
+            # Consume the pause-clear reply and restore synchronous client commands.
+            $replica read
+            $replica deferred 0
+
+            # Wait for recovery, then require a partial resync instead of a second snapshot.
+            wait_replica_online $master 0 1000 10
+            wait_for_ofs_sync $master $replica
+            assert_equal 1 [s 0 sync_full]
+            assert_equal 1 [s 0 sync_partial_ok]
+            # No buffered writes may be lost during recovery.
+            assert_equal [$master debug digest] [$replica debug digest]
+        }
+    }
+}
