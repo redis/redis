@@ -1680,12 +1680,14 @@ typedef struct client {
     blockingState bstate;     /* blocking state */
     long long woff;         /* Last write global replication offset. */
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
+    size_t watched_keys_mem; /* Memory of the watched key objects, see multiStateMemOverhead() */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE). The dict value
                              * holds the subscription's originating ACL user*: NULL means
                              * "owned by whoever c->user is now", a non-NULL user* is a
                              * provenance stamp frozen when the client switched identity. */
     dict *pubsub_patterns;  /* patterns a client is interested in (PSUBSCRIBE); value as above */
     dict *pubsubshard_channels;  /* shard level channels (SSUBSCRIBE); value as above */
+    size_t pubsub_names_mem; /* Memory of the channel/pattern name objects, see pubsubMemOverhead() */
     sds peerid;             /* Cached peer ID. */
     sds sockname;           /* Cached connection target address. */
     listNode *client_list_node; /* list node in client list */
@@ -1724,6 +1726,7 @@ typedef struct client {
      * client, and in which category the client was, in order to remove it
      * before adding it the new value. */
     size_t last_memory_usage;
+    size_t last_names_mem;
     int last_memory_type;
     size_t last_memory_shared;
     size_t last_memory_unshared;
@@ -2336,6 +2339,7 @@ struct redisServer {
     size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
     size_t stat_clients_shared_memory;   /* Sum of clients' reply_bytes_shared */
     size_t stat_clients_unshared_memory; /* Sum of clients' reply_bytes_unshared */
+    size_t stat_clients_shared_names_mem; /* Name memory charged to more than one client */
     size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -3525,6 +3529,7 @@ void deferredAfterErrorReply(client *c, list *errors);
 unsigned int formatBulkStrRefPrefix(bulkStrRef *str_ref);
 size_t sdsZmallocSize(sds s);
 size_t getStringObjectSdsUsedMemory(robj *o);
+size_t getStringObjectMemory(robj *o);
 void freeClientReplyValue(void *o);
 void *dupClientReplyValue(void *o);
 char *getClientPeerId(client *client);
@@ -3549,6 +3554,8 @@ void flushSlavesOutputBuffers(void);
 void flushSlavesOutputBuffersIfNeeded(void);
 void disconnectSlaves(void);
 void evictClients(void);
+size_t subtractClientsSharedNamesMemory(size_t mem);
+void updateClientNamesMemoryUsage(client *c);
 int listenToPort(connListener *fds);
 void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions_bitmask);
 void unpauseActions(pause_purpose purpose);

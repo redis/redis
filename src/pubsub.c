@@ -482,6 +482,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         if (existing) {
             clients = dictGetVal(existing);
             channel = dictGetKey(existing);
+            server.stat_clients_shared_names_mem += getStringObjectMemory(channel);
         } else {
             clients = dictCreate(&clientDictType);
             kvstoreDictSetVal(*type.serverPubSubChannels, slot, de, clients);
@@ -500,6 +501,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         dictSetKey(type.clientPubSubChannels(c), client_de, channel);
         dictSetVal(type.clientPubSubChannels(c), client_de, NULL);
         incrRefCount(channel);
+        c->pubsub_names_mem += getStringObjectMemory(channel);
     }
     /* Notify the client */
     addReplyPubsubSubscribed(c,channel,type);
@@ -517,8 +519,12 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
     /* Remove the channel from the client -> channels hash table */
     incrRefCount(channel); /* channel may be just a pointer to the same object
                             we have in the hash tables. Protect it... */
-    if (dictDelete(type.clientPubSubChannels(c),channel) == DICT_OK) {
+    dictEntry *client_de = dictUnlink(type.clientPubSubChannels(c), channel);
+    if (client_de) {
         retval = 1;
+        size_t name_mem = getStringObjectMemory(dictGetKey(client_de));
+        c->pubsub_names_mem -= name_mem;
+        dictFreeUnlinkedEntry(type.clientPubSubChannels(c), client_de);
         /* Remove the client from the channel -> clients list hash table */
         if (server.cluster_enabled && type.shard) {
             /* Compute the slot from the channel directly instead of using getKeySlot(),
@@ -535,6 +541,8 @@ int pubsubUnsubscribeChannel(client *c, robj *channel, int notify, pubsubtype ty
              * the latest client, so that it will be possible to abuse
              * Redis PUBSUB creating millions of channels. */
             kvstoreDictDelete(*type.serverPubSubChannels, slot, channel);
+        } else {
+            server.stat_clients_shared_names_mem -= name_mem;
         }
     }
     /* Notify the client */
@@ -556,6 +564,8 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
     while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
+        size_t name_mem = getStringObjectMemory(channel);
+        server.stat_clients_shared_names_mem -= name_mem * (dictSize(clients) - 1);
         /* For each client subscribed to the channel, unsubscribe it. */
         dictIterator iter;
         dictEntry *entry;
@@ -563,6 +573,8 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         dictInitIterator(&iter, clients);
         while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
+            c->pubsub_names_mem -= name_mem;
+            updateClientNamesMemoryUsage(c);
             int retval = dictDelete(c->pubsubshard_channels, channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
             addReplyPubsubUnsubscribed(c, channel, pubSubShardType);
@@ -584,17 +596,20 @@ int pubsubSubscribePattern(client *c, robj *pattern) {
     dict *clients;
     int retval = 0;
 
+    de = dictFind(server.pubsub_patterns,pattern);
+    if (de) pattern = dictGetKey(de);
     if (dictAdd(c->pubsub_patterns, pattern, NULL) == DICT_OK) {
         retval = 1;
         incrRefCount(pattern);
+        c->pubsub_names_mem += getStringObjectMemory(pattern);
         /* Add the client to the pattern -> list of clients hash table */
-        de = dictFind(server.pubsub_patterns,pattern);
         if (de == NULL) {
             clients = dictCreate(&clientDictType);
             dictAdd(server.pubsub_patterns,pattern,clients);
             incrRefCount(pattern);
         } else {
             clients = dictGetVal(de);
+            server.stat_clients_shared_names_mem += getStringObjectMemory(pattern);
         }
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
     }
@@ -611,8 +626,12 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
     int retval = 0;
 
     incrRefCount(pattern); /* Protect the object. May be the same we remove */
-    if (dictDelete(c->pubsub_patterns, pattern) == DICT_OK) {
+    dictEntry *client_de = dictUnlink(c->pubsub_patterns, pattern);
+    if (client_de) {
         retval = 1;
+        size_t name_mem = getStringObjectMemory(dictGetKey(client_de));
+        c->pubsub_names_mem -= name_mem;
+        dictFreeUnlinkedEntry(c->pubsub_patterns, client_de);
         /* Remove the client from the pattern -> clients list hash table */
         de = dictFind(server.pubsub_patterns,pattern);
         serverAssertWithInfo(c,NULL,de != NULL);
@@ -622,6 +641,8 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
             /* Free the dict and associated hash entry at all if this was
              * the latest client. */
             dictDelete(server.pubsub_patterns,pattern);
+        } else {
+            server.stat_clients_shared_names_mem -= name_mem;
         }
     }
     /* Notify the client */
@@ -989,6 +1010,7 @@ size_t pubsubMemOverhead(client *c) {
     mem += dictMemUsage(c->pubsub_channels);
     /* Sharded PubSub channels */
     mem += dictMemUsage(c->pubsubshard_channels);
+    mem += c->pubsub_names_mem;
     return mem;
 }
 

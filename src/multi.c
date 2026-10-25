@@ -317,8 +317,12 @@ void watchForKey(client *c, robj *key) {
             return; /* Key already watched */
     }
     /* This key is not already watched in this DB. Let's add it */
-    clients = dictFetchValue(c->db->watched_keys,key);
-    if (!clients) {
+    dictEntry *de = dictFind(c->db->watched_keys,key);
+    if (de) {
+        clients = dictGetVal(de);
+        key = dictGetKey(de);
+        server.stat_clients_shared_names_mem += getStringObjectMemory(key);
+    } else {
         clients = listCreate();
         dictAdd(c->db->watched_keys,key,clients);
         incrRefCount(key);
@@ -332,6 +336,7 @@ void watchForKey(client *c, robj *key) {
     incrRefCount(key);
     listAddNodeTail(c->watched_keys, wk);
     watchedKeyLinkToClients(clients, wk);
+    c->watched_keys_mem += getStringObjectMemory(wk->key);
 }
 
 /* Unwatch all the keys watched by this client. To clean the EXEC dirty
@@ -354,8 +359,11 @@ void unwatchAllKeys(client *c) {
         /* Kill the entry at all if this was the only client */
         if (listLength(clients) == 0)
             dictDelete(wk->db->watched_keys, wk->key);
+        else
+            server.stat_clients_shared_names_mem -= getStringObjectMemory(wk->key);
         /* Remove this watched key from the client->watched list */
         listDelNode(c->watched_keys,ln);
+        c->watched_keys_mem -= getStringObjectMemory(wk->key);
         decrRefCount(wk->key);
         zfree(wk);
     }
@@ -421,6 +429,7 @@ void touchWatchedKey(redisDb *db, robj *key) {
          * again in case that key (or others) are modified again (or keep the
          * memory overhead till EXEC). */
         unwatchAllKeys(c);
+        updateClientNamesMemoryUsage(c);
 
     skip_client:
         continue;
@@ -510,8 +519,9 @@ void unwatchCommand(client *c) {
 
 size_t multiStateMemOverhead(client *c) {
     size_t mem = c->mstate.argv_len_sums;
-    /* Add watched keys overhead, Note: this doesn't take into account the watched keys themselves, because they aren't managed per-client. */
+    /* Add watched keys overhead, including the watched key objects. */
     mem += listLength(c->watched_keys) * (sizeof(listNode) + sizeof(watchedKey));
+    mem += c->watched_keys_mem;
     /* Reserved memory for queued multi commands. */
     mem += c->mstate.alloc_count * sizeof(pendingCommand*);
     mem += c->mstate.count * sizeof(pendingCommand);
