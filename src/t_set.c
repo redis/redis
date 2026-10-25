@@ -3816,6 +3816,7 @@ static void sexpireGenericCommand(client *c, long long basetime, int unit) {
     int64_t oldlen, newlen;
     size_t oldsize = 0;
     robj *keyArg = c->argv[1];
+    const int obey = mustObeyClient(c); /* From the master, or loading the AOF. */
 
     kvobj *set = lookupKeyWrite(c->db, keyArg);
     if (checkType(c, set, OBJ_SET))
@@ -3854,7 +3855,22 @@ static void sexpireGenericCommand(client *c, long long basetime, int unit) {
         int res;
 
         int exists = setTypeGetExpire(set, member, &cur);
-        if (setMemberIsGone(exists, cur)) {
+        if (obey) {
+            /* Applying a command the master (or the AOF) already decided on: the
+             * propagated SPEXPIREAT only lists members that were set, so don't
+             * re-evaluate the member's old expiration (it may have lapsed on this
+             * node's clock because of the replication lag or the loading time) nor
+             * the conditions, just set the time, even if it is already in the past. */
+            if (!exists) {
+                res = SME_NO_MEMBER;
+            } else {
+                setTypeConvertToExpireEncoding(set);
+                const setTypeOps *ops = setTypeGetOps(set->encoding);
+                serverAssert(ops->setExpire(set, member, sdslen(member), 0, 1, (uint64_t)args.expireTime));
+                vecPush(vupdated, c->argv[pos]);
+                res = SME_UPDATED;
+            }
+        } else if (setMemberIsGone(exists, cur)) {
             res = SME_NO_MEMBER;
         } else if (((args.expireCondition & SME_NX) && cur != EB_EXPIRE_TIME_INVALID) ||
                    ((args.expireCondition & SME_XX) && cur == EB_EXPIRE_TIME_INVALID) ||
@@ -4048,6 +4064,7 @@ void spersistCommand(client *c) {
     long numMembers = 0;
     size_t oldsize = 0;
     robj *keyArg = c->argv[1];
+    const int obey = mustObeyClient(c); /* From the master, or loading the AOF. */
 
     kvobj *set = lookupKeyWrite(c->db, keyArg);
     if (checkType(c, set, OBJ_SET))
@@ -4068,6 +4085,10 @@ void spersistCommand(client *c) {
     /* Track which members were successfully persisted, for the notification. */
     memvec mvpersisted;
     vec *vpersisted = memvecInit(&mvpersisted, numMembers);
+    /* Positions of the members that were not persisted, to remove them from the
+     * propagated command. */
+    int *notPersisted = NULL;
+    int notPersistedCount = 0;
     if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(set);
 
@@ -4078,19 +4099,28 @@ void spersistCommand(client *c) {
         uint64_t expire = EB_EXPIRE_TIME_INVALID;
 
         int exists = setTypeGetExpire(set, member, &expire);
+        int res;
         if (!exists) {
-            addReplyLongLong(c, SME_NO_MEMBER);
+            res = SME_NO_MEMBER;
         } else if (expire == EB_EXPIRE_TIME_INVALID) {
-            addReplyLongLong(c, SME_NO_TTL);
-        } else if ((long long)expire < commandTimeSnapshot()) {
-            /* Already expired. Pretend there is no such member. */
-            addReplyLongLong(c, SME_NO_MEMBER);
+            res = SME_NO_TTL;
+        } else if (!obey && (long long)expire < commandTimeSnapshot()) {
+            /* Already expired. Pretend there is no such member. A master or the
+             * AOF is not evaluated against this node's clock: the propagated
+             * command only lists the members the master persisted. */
+            res = SME_NO_MEMBER;
         } else {
             serverAssert(setTypeGetOps(set->encoding)->setExpire(set, member, sdslen(member), 0, 1,
                                                                  EB_EXPIRE_TIME_INVALID));
             vecPush(vpersisted, memberObj);
-            addReplyLongLong(c, SME_PERSISTED);
+            res = SME_PERSISTED;
         }
+        if (res != SME_PERSISTED) {
+            if (notPersisted == NULL)
+                notPersisted = zmalloc(sizeof(int) * numMembers);
+            notPersisted[notPersistedCount++] = 4 + i;
+        }
+        addReplyLongLong(c, res);
     }
 
     if (server.memory_tracking_enabled)
@@ -4102,10 +4132,20 @@ void spersistCommand(client *c) {
         keyModified(c, c->db, keyArg, set, 1);
         notifyKeyspaceEventWithSubkeys(NOTIFY_SET, "spersist", keyArg, c->db->id,
                                        (robj**)vecData(vpersisted), vecSize(vpersisted));
+        /* For a partial result, remove the members that were not persisted, so
+         * a replica persists exactly the members the master did. */
+        if (notPersistedCount) {
+            for (int i = notPersistedCount - 1; i >= 0; i--)
+                rewriteClientCommandArgument(c, notPersisted[i], NULL);
+            robj *count = createStringObjectFromLongLong(vecSize(vpersisted));
+            rewriteClientCommandArgument(c, 3, count);
+            decrRefCount(count);
+        }
     } else {
         /* Nothing changed: nothing to propagate. */
         preventCommandPropagation(c);
     }
+    zfree(notPersisted);
     vecRelease(vpersisted);
 }
 
@@ -4220,6 +4260,7 @@ static int parseSaddexArgs(client *c, int *flags, long long *expireTime, int *ex
 
 void saddexCommand(client *c) {
     int flags = 0, firstMemberPos = 0, memberCount = 0, expireTimePos = -1;
+    const int obey = mustObeyClient(c); /* From the master, or loading the AOF. */
     long long expireTime = EB_EXPIRE_TIME_INVALID;
     int64_t oldlen, newlen;
     size_t oldsize = 0;
@@ -4244,8 +4285,10 @@ void saddexCommand(client *c) {
     const int pastTime = setsExpire && checkAlreadyExpired(expireTime);
 
     /* The conditions are all or nothing: check them before changing anything. A
-     * member that is logically expired but not removed yet does not exist. */
-    if (set && (flags & (SME_MXX | SME_MNX))) {
+     * member that is logically expired but not removed yet does not exist. A
+     * master or the AOF already evaluated them, and the local clock must not
+     * overrule it. */
+    if (set && !obey && (flags & (SME_MXX | SME_MNX))) {
         int found = 0;
         for (int i = 0; i < memberCount; i++) {
             uint64_t cur;
@@ -4304,7 +4347,7 @@ void saddexCommand(client *c) {
             uint64_t cur;
             int exists = setTypeGetExpire(set, member, &cur);
             /* A member that is logically expired but not removed yet is added again. */
-            int changed = setMemberIsGone(exists, cur) ||
+            int changed = (!obey && setMemberIsGone(exists, cur)) || !exists ||
                           (setsExpire ? cur != (uint64_t)expireTime
                                       : (cur != EB_EXPIRE_TIME_INVALID && !(flags & SME_KEEPTTL)));
             if (!changed) continue;
