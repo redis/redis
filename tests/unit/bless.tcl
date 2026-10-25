@@ -622,6 +622,24 @@ start_server {tags {"bless" "needs:debug" "external:skip"} overrides {appendonly
             assert_equal {} [r bless get plain]
             assert_equal {protected} [lindex [r bless scan 0 no-evict] 1]
         }
+
+        test "BLESS SET and CLEAR are replayed from the incremental AOF (RDB preamble $preamble)" {
+            r flushall
+            r config set aof-use-rdb-preamble $preamble
+            r set old value
+            r bless set old no-evict
+            r set new value
+            r bgrewriteaof
+            waitForBgrewriteaof r
+            # Issued after the rewrite, so only the incremental AOF has them.
+            r bless clear old no-evict
+            r bless set new no-evict
+            r debug loadaof
+            assert_equal {} [r bless get old]
+            assert_equal {NO-EVICT} [r bless get new]
+            assert_equal {new} [lindex [r bless scan 0 no-evict] 1]
+            assert_equal 1 [s blessed_keys]
+        }
     }
 }
 
