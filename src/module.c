@@ -4240,7 +4240,20 @@ int RM_SelectDb(RedisModuleCtx *ctx, int newid) {
  * calling RM_CloseKey on the opened key.
  */
 int RM_KeyExists(RedisModuleCtx *ctx, robj *keyname) {
-    kvobj *kv = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
+    int flags = LOOKUP_NOTOUCH;
+    /* Shared strings are immutable. Cache only the hash, never existence or
+     * expiry; the usual lookup still checks the current database every time.
+     * Only shared strings may use the cache; incrRefCount invalidates it when
+     * a previously mutable string becomes shared again. */
+    if (!keyname->iskvobj && keyname->metabits == OBJ_MODULE_KEY_HASH_CACHED &&
+        keyname->refcount > 1 && keyname->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
+        flags |= LOOKUP_CACHED_HASH;
+    } else if (!keyname->iskvobj && !keyname->metabits && keyname->type == OBJ_STRING &&
+        keyname->refcount > 1 && keyname->refcount < OBJ_FIRST_SPECIAL_REFCOUNT &&
+        sdsEncodedObject(keyname) && sdslen(keyname->ptr) >= 64) {
+        flags |= LOOKUP_CACHED_HASH;
+    }
+    kvobj *kv = lookupKeyReadWithFlags(ctx->client->db, keyname, flags);
     return (kv != NULL);
 }
 

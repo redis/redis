@@ -7,6 +7,10 @@ start_server {tags {"modules external:skip"}} {
         r test.basics
     } {ALL TESTS PASSED}
 
+    test {KeyExists with shared long binary names and subsequent mutation} {
+        r test.keyexists.shared
+    } {OK}
+
     test {test rm_call auto mode} {
         r hello 2
         set reply [r test.rmcallautomode]

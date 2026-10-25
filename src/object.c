@@ -328,11 +328,11 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
         kv->encoding = val->encoding;
     }
     
-    kv->lru = val->lru;
+    kv->lru = (!val->iskvobj && val->metabits == OBJ_MODULE_KEY_HASH_CACHED) ? 0 : val->lru;
     if (val->iskvobj) kvobjBits(kv)->no_evict = kvobjBits(val)->no_evict;
 
     /* Transfer module metadata from `val` to new `kv` (if `val` of type kvobj with metadata). */
-    if (val->metabits & KEY_META_MASK_MODULES)
+    if (val->iskvobj && (val->metabits & KEY_META_MASK_MODULES))
         keyMetaTransition((kvobj *) val, kv);
     
     decrRefCount(val);
@@ -635,6 +635,12 @@ void freeArrayObject(robj *o) {
 
 void incrRefCount(robj *o) {
     if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
+        if (o->refcount == 1 && !o->iskvobj && o->metabits == OBJ_MODULE_KEY_HASH_CACHED) {
+            /* The string could have changed while unshared. Start a new cache
+             * lifetime when it becomes immutable through sharing again. */
+            o->metabits = 0;
+            o->lru = 0;
+        }
         o->refcount++;
     } else {
         if (o->refcount == OBJ_SHARED_REFCOUNT) {

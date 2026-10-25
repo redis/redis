@@ -301,7 +301,26 @@ void dbgRunAssertions(redisDb *db) {
  * in the replication link. */
 kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
 
-    kvobj *val = dbFindByLink(db, key->ptr, link);
+    kvobj *val;
+    if (flags & LOOKUP_CACHED_HASH) {
+        serverAssert(!link && !key->iskvobj);
+        dict *d = kvstoreGetDict(db->keys, getKeySlot(key->ptr));
+        if (d && d->ht_size_exp[0] <= LRU_BITS && d->ht_size_exp[1] <= LRU_BITS) {
+            /* Do not hash a potentially large name for an empty dictionary. */
+            if (!key->metabits && dictSize(d)) {
+                key->lru = dictSdsHash(key->ptr) & LRU_CLOCK_MAX;
+                key->metabits = OBJ_MODULE_KEY_HASH_CACHED;
+            }
+            /* Bucket selection uses only these low bits. Full key comparison
+             * still verifies identity, including during rehashing. */
+            dictEntryLink entry = dictFindLinkWithHash(d, key->ptr, key->lru, NULL);
+            val = entry ? dictGetKV(*entry) : NULL;
+        } else {
+            val = dbFindByLink(db, key->ptr, NULL);
+        }
+    } else {
+        val = dbFindByLink(db, key->ptr, link);
+    }
 
     if (val) {
         /* Forcing deletion of expired keys on a replica makes the replica

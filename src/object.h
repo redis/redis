@@ -95,6 +95,8 @@ struct RedisModuleType;
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
+#define OBJ_MODULE_KEY_HASH_CACHED 1 /* Valid only for shared, non-keyspace strings. */
+
 #define OBJ_NUM_KVMETA_BITS 8
 #define OBJ_REFCOUNT_BITS 22
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
@@ -107,7 +109,10 @@ struct redisObject {
     unsigned refcount : OBJ_REFCOUNT_BITS;
     unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
     
-    /* metabits and lru are Relevant only when iskvobj is set: */     
+    /* For non-keyspace shared strings, module key lookups may use metabits=1
+     * and lru for a cached low-24-bit hash. Ignore it while unshared;
+     * invalidate it when the string becomes shared again.
+     * Otherwise metabits and lru describe the keyspace object: */
     unsigned metabits :8;  /* Bitmap of metadata (+expiry) attached to this kvobj */
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency

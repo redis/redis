@@ -871,7 +871,9 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
  * key's hash (via dictGetHash(d, key)) for another purpose and wants to avoid
  * paying for the dict type's hashFunction() a second time. The hash is not
  * validated against key -- passing a mismatched hash silently searches the
- * wrong bucket. */
+ * wrong bucket. Only bits covered by either table's mask are used; a caller
+ * retaining a truncated hash must check both table sizes on every lookup and
+ * fall back to the full hash if either table needs more bits. */
 dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket) {
     if (bucket) *bucket = NULL;
     if (unlikely(dictSize(d) == 0))

@@ -25,6 +25,70 @@ int TestMatchReply(RedisModuleCallReply *reply, char *str) {
     return strcmp(ptr,str) == 0;
 }
 
+/* Shared long key names must keep normal lookup and mutation semantics. */
+int TestKeyExistsShared(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_AutoMemory(ctx);
+    char name[256];
+    memset(name, 'k', sizeof(name));
+    name[17] = '\0'; /* Binary key names are also valid. */
+    RedisModuleString *key = RedisModule_CreateString(NULL, name, sizeof(name));
+    RedisModule_RetainString(NULL, key);
+    RedisModule_Call(ctx, "SET", "sc", key, "value");
+    for (int i = 0; i < 3; ++i)
+        RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    RedisModule_Call(ctx, "DEL", "s", key);
+    RedisModule_Assert(!RedisModule_KeyExists(ctx, key));
+    RedisModule_Call(ctx, "HSET", "scc", key, "field", "value");
+    RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    RedisModule_Call(ctx, "PEXPIRE", "sl", key, (long long)60000);
+    RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    RedisModule_Call(ctx, "PERSIST", "s", key);
+    RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    /* Keep the cached name while the database dictionaries grow and shrink. */
+    for (int i = 0; i < 512; ++i) {
+        RedisModuleString *other = RedisModule_CreateStringPrintf(ctx, "keyexists-rehash:%d", i);
+        RedisModule_Call(ctx, "SET", "sc", other, "v");
+        RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    }
+    for (int i = 0; i < 512; ++i) {
+        RedisModuleString *other = RedisModule_CreateStringPrintf(ctx, "keyexists-rehash:%d", i);
+        RedisModule_Call(ctx, "DEL", "s", other);
+        RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    }
+    RedisModule_Call(ctx, "PEXPIREAT", "sl", key, (long long)1);
+    RedisModule_Assert(!RedisModule_KeyExists(ctx, key));
+
+    /* Once unshared, the string can change. A later lookup must hash new bytes. */
+    RedisModule_FreeString(NULL, key);
+    RedisModule_Assert(RedisModule_StringAppendBuffer(ctx, key, "suffix", 6) == REDISMODULE_OK);
+    /* Populate through a separate object so key remains unshared with stale
+     * cached metadata until KeyExists checks it. */
+    size_t changed_len;
+    const char *changed = RedisModule_StringPtrLen(key, &changed_len);
+    RedisModuleString *copy = RedisModule_CreateString(ctx, changed, changed_len);
+    RedisModule_Call(ctx, "SET", "sc", copy, "unshared-value");
+    RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    RedisModule_RetainString(NULL, key);
+    RedisModule_Call(ctx, "SET", "sc", key, "new-value");
+    RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    RedisModule_TrimStringAllocation(key);
+    RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+
+    /* The same object can also be used as a value, not only as a key name. */
+    RedisModule_Call(ctx, "SET", "cs", "keyexists-copy", key);
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "GET", "c", "keyexists-copy");
+    size_t actual_len, expected_len;
+    const char *actual = RedisModule_CallReplyStringPtr(reply, &actual_len);
+    const char *expected = RedisModule_StringPtrLen(key, &expected_len);
+    RedisModule_Assert(actual_len == expected_len && !memcmp(actual, expected, actual_len));
+    RedisModule_Call(ctx, "DEL", "cs", "keyexists-copy", key);
+    RedisModule_FreeString(NULL, key);
+    RedisModule_FreeString(NULL, key);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 /* ------------------------------- Test units ------------------------------- */
 
 /* TEST.CALL -- Test Call() API. */
@@ -1058,6 +1122,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.getclusternodeinfo",
         TestGetClusterNodeInfo,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.keyexists.shared",
+        TestKeyExistsShared,"write",0,0,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SubscribeToKeyspaceEvents(ctx,

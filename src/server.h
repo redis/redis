@@ -4399,6 +4399,8 @@ kvobj *kvobjCommandLookup(client *c, robj *key);
 kvobj *kvobjCommandLookupOrReply(client *c, robj *key, robj *reply);
 
 #define LOOKUP_NONE 0
+/* Internal: keyname can cache its hash in non-keyspace string metadata. */
+#define LOOKUP_CACHED_HASH (1<<15)
 #define LOOKUP_NOTOUCH (1<<0)        /* Don't update LRU. */
 #define LOOKUP_NONOTIFY (1<<1)       /* Don't trigger keyspace event on key misses. */
 #define LOOKUP_NOSTATS (1<<2)        /* Don't update keyspace hits/misses counters. */
