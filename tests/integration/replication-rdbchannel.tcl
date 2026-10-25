@@ -976,10 +976,12 @@ start_server {tags {"repl external:skip tsan:skip"}} {
 }
 
 # Replica configuration below:
-# - appendonly no + repl-diskless-load flushdb keep buffered writes in RAM.
-# - loading-process-events-interval-bytes 1024 makes the replica check the network
+# - appendonly no: disables AOF persistence.
+# - repl-diskless-load flushdb: loads the snapshot directly from the connection,
+#   flushing the old dataset first.
+# - loading-process-events-interval-bytes 1024: makes the replica check the network
 #   while applying buffered commands, so it notices the disconnect before finishing.
-start_server {tags {repl external:skip tsan:skip} overrides {
+start_server {tags {repl external:skip} overrides {
     appendonly no repl-diskless-load flushdb
     repl-rdb-channel yes loading-process-events-interval-bytes 1024
 }} {
