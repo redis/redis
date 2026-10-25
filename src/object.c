@@ -1506,9 +1506,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by
      * updateClientMemoryUsage(). */
-    mh->clients_normal = server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
-                         server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
-                         server.stat_clients_type_memory[CLIENT_TYPE_NORMAL];
+    mh->clients_normal = subtractClientsSharedNamesMemory(
+                             server.stat_clients_type_memory[CLIENT_TYPE_MASTER]+
+                             server.stat_clients_type_memory[CLIENT_TYPE_PUBSUB]+
+                             server.stat_clients_type_memory[CLIENT_TYPE_NORMAL]);
     mem_total += mh->clients_normal;
 
     mh->cluster_links = server.stat_cluster_links_memory;

@@ -64,6 +64,106 @@ start_server {tags {"introspection"}} {
         return ""
     }
 
+    # Client tot-mem excluding the query buffer, which may keep a large argument around
+    proc client_mem_no_qbuf {info} {
+        set tot [get_field_in_client_info $info "tot-mem"]
+        set qbuf [get_field_in_client_info $info "qbuf"]
+        set qbuf_free [get_field_in_client_info $info "qbuf-free"]
+        return [expr {$tot - $qbuf - $qbuf_free}]
+    }
+
+    proc client_mem_no_qbuf_by_id {id} {
+        foreach info [split [r client list] "\r\n"] {
+            if {[string match "id=$id *" $info]} {
+                return [client_mem_no_qbuf $info]
+            }
+        }
+        fail "client id=$id not found"
+    }
+
+    test {CLIENT INFO tot-mem includes watched key names} {
+        # Avoid reply buffer resizing changing tot-mem between the measurements
+        r debug replybuffer resizing 0
+        set rr [redis_client]
+        set name [string repeat x 50000]
+        set mem0 [client_mem_no_qbuf [$rr client info]]
+
+        $rr watch $name
+        set mem1 [client_mem_no_qbuf [$rr client info]]
+        assert_morethan_equal [expr {$mem1 - $mem0}] 50000
+
+        # Watching the same key again is not charged again
+        $rr watch $name
+        assert_range [client_mem_no_qbuf [$rr client info]] [expr {$mem1 - 5000}] [expr {$mem1 + 5000}]
+
+        # Every way of dropping the watched keys uncharges them
+        foreach cleanup {{unwatch} {multi exec} {multi discard} {reset}} {
+            $rr watch $name
+            assert_morethan_equal [expr {[client_mem_no_qbuf [$rr client info]] - $mem0}] 50000
+            foreach cmd $cleanup { $rr $cmd }
+            assert_range [client_mem_no_qbuf [$rr client info]] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
+        }
+
+        # Many names
+        set names {}
+        for {set j 0} {$j < 1000} {incr j} { lappend names "$j[string repeat x 200]" }
+        $rr watch {*}$names
+        assert_morethan_equal [expr {[client_mem_no_qbuf [$rr client info]] - $mem0}] 200000
+        $rr unwatch
+        assert_range [client_mem_no_qbuf [$rr client info]] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
+        $rr close
+        r debug replybuffer resizing 1
+    } {OK} {needs:debug}
+
+    foreach {sub unsub} {subscribe unsubscribe psubscribe punsubscribe ssubscribe sunsubscribe} {
+        test "CLIENT LIST tot-mem includes pubsub names - $sub $unsub" {
+            # Avoid reply buffer resizing changing tot-mem between the measurements
+            r debug replybuffer resizing 0
+            set rd [redis_deferring_client]
+            $rd client id
+            set id [$rd read]
+            # Use a hash tag so that all the shard channels map to the same slot
+            set name "{t}[string repeat x 50000]"
+            set mem0 [client_mem_no_qbuf_by_id $id]
+
+            $rd $sub $name
+            $rd read
+            set mem1 [client_mem_no_qbuf_by_id $id]
+            assert_morethan_equal [expr {$mem1 - $mem0}] 50000
+
+            # Subscribing again is not charged again
+            $rd $sub $name
+            $rd read
+            assert_range [client_mem_no_qbuf_by_id $id] [expr {$mem1 - 5000}] [expr {$mem1 + 5000}]
+
+            $rd $unsub $name
+            $rd read
+            assert_range [client_mem_no_qbuf_by_id $id] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
+
+            # RESET uncharges the names
+            $rd $sub $name
+            $rd read
+            assert_morethan_equal [expr {[client_mem_no_qbuf_by_id $id] - $mem0}] 50000
+            $rd reset
+            assert_equal RESET [$rd read]
+            assert_range [client_mem_no_qbuf_by_id $id] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
+
+            # Many names, uncharged by unsubscribing from all of them
+            set names {}
+            for {set j 0} {$j < 1000} {incr j} { lappend names "{t}$j[string repeat x 200]" }
+            $rd $sub {*}$names
+            for {set j 0} {$j < 1000} {incr j} { $rd read }
+            set mem1 [client_mem_no_qbuf_by_id $id]
+            assert_morethan_equal [expr {$mem1 - $mem0}] 200000
+            $rd $unsub
+            for {set j 0} {$j < 1000} {incr j} { $rd read }
+            # The emptied dict may keep some of its buckets
+            assert_lessthan [client_mem_no_qbuf_by_id $id] [expr {$mem1 - 200000}]
+            $rd close
+            r debug replybuffer resizing 1
+        } {OK} {needs:debug}
+    }
+
     test {CLIENT INFO input/output/cmds-processed stats} {
         set info1 [r client info]
         set input1 [get_field_in_client_info $info1 "tot-net-in"]
