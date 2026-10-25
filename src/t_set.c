@@ -2837,7 +2837,7 @@ void srandmemberWithCountCommand(client *c) {
     if (count >= size) {
         setTypeIterator si;
         addReplyArrayLen(c,size);
-        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
+        setTypeInitIterator(&si, set, SET_ITER_RAW);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
@@ -2895,7 +2895,7 @@ void srandmemberWithCountCommand(client *c) {
         setTypeIterator si;
 
         /* Add all the elements into the temporary dictionary. */
-        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
+        setTypeInitIterator(&si, set, SET_ITER_RAW);
         dictExpand(d, size);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             int retval = DICT_ERR;
