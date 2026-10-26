@@ -3247,10 +3247,12 @@ typedef struct {
 /* Structure to hold set iteration abstraction. */
 typedef struct _setTypeOps setTypeOps; /* defined in t_set.c */
 
-typedef struct {
+typedef struct setTypeIterator {
     robj *subject;
     int encoding;
     const setTypeOps *typeOps; /* encoding-specific ops struct, to avoid re-fetching it for every next call */
+    /* typeOps->iterNext, unless iterInit picked a variant of it for this set. */
+    int (*iterNext)(struct setTypeIterator *si, char **str, size_t *len, int64_t *llele);
     int mode; /* SET_ITER_RAW or SET_ITER_SKIP_EXPIRED */
     uint64_t expire; /* Expiration of the member returned last, EB_EXPIRE_TIME_INVALID if none */
     int ii; /* intset iterator */

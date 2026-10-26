@@ -13,14 +13,6 @@
 #include "redisassert.h"
 #include "set_entry.h"
 
-/* SDS aux bit. If set, the entry has an ExpireMeta located right before the
- * member sds. */
-#define SET_ENTRY_AUX_BIT_HAS_EXPIRY 0
-
-int sEntryHasExpiry(const SetEntry *sEntry) {
-    return sdsGetAuxBit(sEntryGetMember(sEntry), SET_ENTRY_AUX_BIT_HAS_EXPIRY);
-}
-
 void *sEntryGetAllocPtr(const SetEntry *sEntry) {
     char *buf = sdsAllocPtr(sEntryGetMember(sEntry));
     if (sEntryHasExpiry(sEntry)) buf -= sizeof(ExpireMeta);
@@ -31,25 +23,8 @@ ExpireMeta *sEntryRefExpiryMeta(SetEntry *sEntry) {
     return sEntryHasExpiry(sEntry) ? (ExpireMeta *)sEntryGetAllocPtr(sEntry) : NULL;
 }
 
-uint64_t sEntryGetExpiry(const SetEntry *sEntry) {
-    if (!sEntryHasExpiry(sEntry))
-        return EB_EXPIRE_TIME_INVALID;
-
-    ExpireMeta *expireMeta = (ExpireMeta *)sEntryGetAllocPtr(sEntry);
-    if (expireMeta->trash)
-        return EB_EXPIRE_TIME_INVALID;
-
-    return ebGetMetaExpTime(expireMeta);
-}
-
 int sEntryIsExpired(const SetEntry *sEntry) {
     return setTypeExpireTimeElapsed(sEntryGetExpiry(sEntry));
-}
-
-size_t sEntryMemUsage(const SetEntry *sEntry) {
-    size_t size = sdsAllocSize(sEntryGetMember(sEntry));
-    if (sEntryHasExpiry(sEntry)) size += sizeof(ExpireMeta);
-    return size;
 }
 
 /* Allocates an entry with an ExpireMeta and a copy of the member. */

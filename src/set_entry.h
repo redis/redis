@@ -62,6 +62,13 @@
 
 typedef struct _setEntry SetEntry;
 
+/* SDS aux bit. If set, the entry has an ExpireMeta located right before the
+ * member sds. */
+#define SET_ENTRY_AUX_BIT_HAS_EXPIRY 0
+
+/* The accessors below are inline since they run per member on the hot paths
+ * of every hashtable-encoded set, including the sets without expirations. */
+
 /* The SetEntry pointer is the member sds pointer. */
 static inline sds sEntryGetMember(const SetEntry *sEntry) {
     return (sds)sEntry;
@@ -69,7 +76,9 @@ static inline sds sEntryGetMember(const SetEntry *sEntry) {
 
 /* Returns true if the entry carries an ExpireMeta (it has an expiration slot,
  * which is not necessarily registered in an ebuckets tree yet). */
-int sEntryHasExpiry(const SetEntry *sEntry);
+static inline int sEntryHasExpiry(const SetEntry *sEntry) {
+    return sdsGetAuxBit(sEntryGetMember(sEntry), SET_ENTRY_AUX_BIT_HAS_EXPIRY);
+}
 
 /* Returns the address of the entry allocation. */
 void *sEntryGetAllocPtr(const SetEntry *sEntry);
@@ -81,7 +90,14 @@ ExpireMeta *sEntryRefExpiryMeta(SetEntry *sEntry);
 /* Returns the expiration time (UNIX time in milliseconds) or
  * EB_EXPIRE_TIME_INVALID if the entry has none or is not registered in an
  * ebuckets tree. */
-uint64_t sEntryGetExpiry(const SetEntry *sEntry);
+static inline uint64_t sEntryGetExpiry(const SetEntry *sEntry) {
+    if (!sEntryHasExpiry(sEntry))
+        return EB_EXPIRE_TIME_INVALID;
+    ExpireMeta *expireMeta = (ExpireMeta *)sEntryGetAllocPtr(sEntry);
+    if (expireMeta->trash)
+        return EB_EXPIRE_TIME_INVALID;
+    return ebGetMetaExpTime(expireMeta);
+}
 
 /* Returns 1 if the entry has an expiration time that has passed, so the member
  * must be treated as if it did not exist. Counterpart of hEntryIsExpired() of
@@ -107,7 +123,11 @@ SetEntry *sEntryRemoveExpiry(SetEntry *sEntry, ssize_t *usableDiff);
 
 /* Memory used by the entry, based on the sds alloc fields. This is used for
  * size accounting and must be consistent with sEntryFree(). */
-size_t sEntryMemUsage(const SetEntry *sEntry);
+static inline size_t sEntryMemUsage(const SetEntry *sEntry) {
+    size_t size = sdsAllocSize(sEntryGetMember(sEntry));
+    if (sEntryHasExpiry(sEntry)) size += sizeof(ExpireMeta);
+    return size;
+}
 
 /* Frees the entry. If usable is not NULL it is set to the entry memory usage. */
 void sEntryFree(SetEntry *sEntry, size_t *usable);
