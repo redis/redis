@@ -1783,8 +1783,8 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     pthread_mutex_t pending_clients_mutex;      /* Mutex for pending write list */
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
-    redisAtomic long long io_reads_processed;   /* Number of read events processed */
-    redisAtomic long long io_writes_processed;  /* Number of write events processed */
+    redisAtomicAlign(8) long long io_reads_processed;   /* Number of read events processed */
+    redisAtomicAlign(8) long long io_writes_processed;  /* Number of write events processed */
     list *compression_clients;                  /* Clients that write/read compressed data */
     size_t cronloops;
 } IOThread;
@@ -2295,12 +2295,12 @@ struct redisServer {
     long long stat_slowlog_time_us_max;    /* Max slowlog entry duration (usec) */
     struct malloc_stats cron_malloc_stats; /* sampled in serverCron(). */
     struct defragFragCache defrag_frag_cache; /* see struct defragFragCache. */
-    redisAtomic long long stat_net_input_bytes; /* Bytes read from network. */
-    redisAtomic long long stat_net_output_bytes; /* Bytes written to network. */
-    redisAtomic long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
-    redisAtomic long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
-    redisAtomic long long stat_net_repl_output_uncompressed_bytes; /* Bytes read from repl buffer before being compressed and written during replication. */
-    redisAtomic long long stat_net_repl_input_decompressed_bytes; /* Decompressed bytes after reading compressed data during replication. */
+    redisAtomicAlign(8) long long stat_net_input_bytes; /* Bytes read from network. */
+    redisAtomicAlign(8) long long stat_net_output_bytes; /* Bytes written to network. */
+    redisAtomicAlign(8) long long stat_net_repl_input_bytes; /* Bytes read during replication, added to stat_net_input_bytes in 'info'. */
+    redisAtomicAlign(8) long long stat_net_repl_output_bytes; /* Bytes written during replication, added to stat_net_output_bytes in 'info'. */
+    redisAtomicAlign(8) long long stat_net_repl_output_uncompressed_bytes; /* Bytes read from repl buffer before being compressed and written during replication. */
+    redisAtomicAlign(8) long long stat_net_repl_input_decompressed_bytes; /* Decompressed bytes after reading compressed data during replication. */
     size_t stat_current_cow_peak;   /* Peak size of copy on write bytes. */
     size_t stat_current_cow_bytes;  /* Copy on write bytes while child is active. */
     monotime stat_current_cow_updated;  /* Last update time of stat_current_cow_bytes */
@@ -2317,7 +2317,7 @@ struct redisServer {
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
     long long stat_dump_payload_sanitizations; /* Number deep dump payloads integrity validations. */
-    redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
+    redisAtomicAlign(8) long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
     long long stat_total_prefetch_entries;  /* Total number of prefetched dict entries */
