@@ -135,6 +135,17 @@ start_server {tags {"zset"}} {
             assert_equal {x 0} [r zrange ztmp 0 -1 withscores]
         }
 
+        test "ZINCRBY replies the stored score when it doesn't change - $encoding" {
+            r del ztmp zsrc
+            r zadd zsrc 0 x
+            r zunionstore ztmp 1 zsrc weights -1
+            set stored [r zscore ztmp x]
+            assert_equal $stored [r zincrby ztmp -0 x]
+            assert_equal $stored [r zincrby ztmp 0 x]
+            assert_equal $stored [r zadd ztmp incr -0 x]
+            assert_equal $stored [r zscore ztmp x]
+        }
+
         test "ZSET element can't be set to NaN with ZADD - $encoding" {
             assert_error "*not*float*" {r zadd myzset nan abc}
         }

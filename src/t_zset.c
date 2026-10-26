@@ -1643,7 +1643,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 return 1;
             }
 
-            if (newscore) *newscore = score;
+            /* Reply the stored score when it doesn't change, it can still be -0. */
+            if (newscore) *newscore = (score == curscore) ? curscore : score;
 
             /* Remove and re-insert when score changed. */
             if (score != curscore) {
@@ -1713,7 +1714,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 return 1;
             }
 
-            if (newscore) *newscore = score;
+            /* Reply the stored score when it doesn't change, it can still be -0. */
+            if (newscore) *newscore = (score == curscore) ? curscore : score;
 
             /* Remove and re-insert when score changes. */
             if (score != curscore) {
