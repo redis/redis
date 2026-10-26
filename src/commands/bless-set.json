@@ -12,9 +12,6 @@
             "DENYOOM",
             "FAST"
         ],
-        "acl_categories": [
-            "KEYSPACE"
-        ],
         "key_specs": [
             {
                 "flags": [

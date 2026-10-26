@@ -1818,6 +1818,73 @@ start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags
     }
 }
 
+start_server {tags {acl external:skip}} {
+    test {BLESS SET/CLEAR retain write flags and belong to @write but not @keyspace} {
+        foreach subcommand {bless|set bless|clear} {
+            assert_equal -1 [lsearch -exact [r ACL CAT keyspace] $subcommand]
+            assert_not_equal -1 [lsearch -exact [r ACL CAT write] $subcommand]
+            set command [lindex [r COMMAND INFO $subcommand] 0]
+            assert_not_equal -1 [lsearch -exact [lindex $command 2] write]
+        }
+    }
+
+    test {BLESS SET/CLEAR are not granted by +@keyspace} {
+        r DEL bless-key
+        r SET bless-key value
+        r ACL SETUSER bless-user reset on nopass ~* +@keyspace
+        set client [redis_client]
+        $client AUTH bless-user ""
+
+        assert_error {NOPERM *'bless|set'*} {$client BLESS SET bless-key NO-EVICT}
+        assert_equal {} [r BLESS GET bless-key]
+        r BLESS SET bless-key NO-EVICT
+        assert_error {NOPERM *'bless|clear'*} {$client BLESS CLEAR bless-key NO-EVICT}
+        assert_equal {NO-EVICT} [r BLESS GET bless-key]
+
+        $client close
+        r ACL DELUSER bless-user
+        r DEL bless-key
+    }
+
+    test {BLESS SET/CLEAR are granted by +@write} {
+        r DEL bless-key
+        r SET bless-key value
+        r ACL SETUSER bless-user reset on nopass ~* +@write
+        set client [redis_client]
+        $client AUTH bless-user ""
+
+        assert_equal 1 [$client BLESS SET bless-key NO-EVICT]
+        assert_equal {NO-EVICT} [r BLESS GET bless-key]
+        assert_equal 1 [$client BLESS CLEAR bless-key NO-EVICT]
+        assert_equal {} [r BLESS GET bless-key]
+
+        $client close
+        r ACL DELUSER bless-user
+        r DEL bless-key
+    }
+
+    test {BLESS SET/CLEAR can be granted individually by explicit subcommand permissions} {
+        r DEL bless-key
+        r SET bless-key value
+        r ACL SETUSER bless-user reset on nopass ~* +bless|set
+        set client [redis_client]
+        $client AUTH bless-user ""
+
+        assert_equal 1 [$client BLESS SET bless-key NO-EVICT]
+        assert_error {NOPERM *'bless|clear'*} {$client BLESS CLEAR bless-key NO-EVICT}
+        assert_equal {NO-EVICT} [r BLESS GET bless-key]
+
+        r ACL SETUSER bless-user reset on nopass ~* +bless|clear
+        assert_error {NOPERM *'bless|set'*} {$client BLESS SET bless-key NO-EVICT}
+        assert_equal 1 [$client BLESS CLEAR bless-key NO-EVICT]
+        assert_equal {} [r BLESS GET bless-key]
+
+        $client close
+        r ACL DELUSER bless-user
+        r DEL bless-key
+    }
+}
+
 start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl external:skip}} {
     test {ACL from config file and config rewrite} {
         assert_error {NOPERM *} {r flushdb}
