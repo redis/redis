@@ -4046,6 +4046,44 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "former owner still lists [llength [lindex [R 0 bless scan 0 no-evict] 1]] blessed key(s) after migration+trim"
         }
     }
+
+    # A vector set is a module type, so ASM migrates it via RESTORE whatever its
+    # size, followed by BLESS SET. Builds with SKIP_VEC_SETS=yes have no VADD.
+    if {[server_has_command vadd]} {
+    test "BLESS level of a vector set survives atomic slot migration" {
+        # Migrate slots 0-100 from node 1 to node 0, holding only a blessed vector set.
+        move_slots_to_node 1 0 100
+        R 1 flushall
+        set kv [slot_key 0 blessedvset]
+        R 1 vadd $kv VALUES 3 1 0 0 e1
+        R 1 vadd $kv VALUES 3 0 1 0 e2
+        assert_equal 1 [R 1 bless set $kv no-evict]
+
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
+        wait_for_asm_done
+        assert_equal "completed" [migration_status 0 $task_id state]
+
+        # New owner (node 0) and its replica (node 3).
+        wait_for_ofs_sync [Rn 0] [Rn 3]
+        R 3 readonly
+        foreach node {0 3} {
+            assert_equal 2 [R $node vcard $kv]
+            assert_equal {NO-EVICT} [R $node bless get $kv]
+            assert_equal [list 0 [list $kv]] [R $node bless scan 0 no-evict]
+            assert_equal 1 [S $node blessed_keys]
+        }
+
+        # BLESS SCAN hides slots a node doesn't own, so check that the former
+        # owner's trim dropped the key from the index through INFO.
+        foreach node {1 4} {
+            wait_for_condition 50 100 {
+                [S $node blessed_keys] == 0
+            } else {
+                fail "node $node still counts [S $node blessed_keys] blessed key(s) after the trim"
+            }
+        }
+    }
+    }
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
