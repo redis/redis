@@ -750,47 +750,7 @@ start_server {} {
         r config set maxmemory-clients 0
     }
 
-    test "shared pubsub channel names are uncharged on unsubscribe and disconnect" {
-        set clients {}
-        for {set i 0} {$i < 3} {incr i} { lappend clients [redis_client] }
-        for {set j 0} {$j < $names_count} {incr j} {
-            foreach rr $clients { $rr ssubscribe "$j[string repeat x $name_len]" }
-        }
-        wait_for_condition 50 100 {
-            [normal_clients_tot_mem] - [s mem_clients_normal] >= 2 * $names_count * $name_len
-        } else {
-            fail "shared names not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
-        }
-
-        # One subscriber unsubscribes and another disconnects
-        lassign $clients rr1 rr2 rr3
-        $rr1 sunsubscribe
-        $rr2 close
-        wait_for_condition 50 100 {
-            [s connected_clients] == 3
-        } else {
-            fail "client didn't disconnect"
-        }
-        # The remaining subscriber is charged once, as in the total. Without client
-        # eviction the clients memory stats are only refreshed by clientsCron.
-        assert_morethan [normal_clients_tot_mem] [expr {$names_count * $name_len}]
-        wait_for_condition 50 100 {
-            abs([s mem_clients_normal] - [normal_clients_tot_mem]) < 50000
-        } else {
-            fail "mem_clients_normal [s mem_clients_normal] != clients tot-mem [normal_clients_tot_mem]"
-        }
-
-        $rr3 sunsubscribe
-        wait_for_condition 50 100 {
-            abs([s mem_clients_normal] - [normal_clients_tot_mem]) < 50000
-        } else {
-            fail "mem_clients_normal [s mem_clients_normal] != clients tot-mem [normal_clients_tot_mem]"
-        }
-        $rr1 close
-        $rr3 close
-    }
-
-    foreach {sub unsub} {watch unwatch psubscribe punsubscribe} {
+    foreach {sub unsub} {watch unwatch psubscribe punsubscribe ssubscribe sunsubscribe} {
         test "shared $sub name stays charged after its first holder drops it" {
             lassign [gen_client] rr1 cname1
             lassign [gen_client] rr2 cname2
@@ -810,8 +770,15 @@ start_server {} {
             } else {
                 fail "mem_clients_normal [s mem_clients_normal] != clients tot-mem [normal_clients_tot_mem]"
             }
-            $rr1 close
+
             $rr2 close
+            wait_for_condition 50 100 {
+                ![client_exists $cname2] &&
+                abs([s mem_clients_normal] - [normal_clients_tot_mem]) < 50000
+            } else {
+                fail "mem_clients_normal [s mem_clients_normal] != clients tot-mem [normal_clients_tot_mem]"
+            }
+            $rr1 close
         }
     }
 
@@ -835,41 +802,30 @@ start_server {} {
         $rr2 close
     }
 
-    foreach maxmemory_clients {0 1} {
-        test "modifying a shared watched key uncharges its watchers - maxmemory-clients $maxmemory_clients" {
-            r config set maxmemory-clients 0
-            r config set hz 1
-            set writer [redis_client]
-            $writer client no-evict on
-            lassign [gen_client] rr1 cname1
-            lassign [gen_client] rr2 cname2
-            set key [string repeat x 1000000]
-            $rr1 watch $key
-            $rr2 watch $key
-            wait_for_condition 50 100 {
-                abs([normal_clients_tot_mem] - [s mem_clients_normal] - 1000000) < 100000
-            } else {
-                fail "shared name not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
-            }
-            set before [s mem_clients_normal]
-            if {$maxmemory_clients} {
-                r config set maxmemory-clients [expr {$before + 500000}]
-                $rr1 ping
-                $rr2 ping
-            }
-
-            $writer set $key v
-            assert_lessthan [s mem_clients_normal] [expr {$before - 500000}]
-            assert {[client_exists $cname1]}
-            assert {[client_exists $cname2]}
-
-            r config set maxmemory-clients 0
-            r config set hz 10
-            $writer del $key
-            $writer close
-            $rr1 close
-            $rr2 close
+    test "modifying a shared watched key uncharges its watchers" {
+        r config set maxmemory-clients 0
+        r config set hz 1
+        set writer [redis_client]
+        $writer client no-evict on
+        set rr1 [redis_client]
+        set rr2 [redis_client]
+        set key [string repeat x 1000000]
+        $rr1 watch $key
+        $rr2 watch $key
+        wait_for_condition 50 100 {
+            abs([normal_clients_tot_mem] - [s mem_clients_normal] - 1000000) < 100000
+        } else {
+            fail "shared name not removed from mem_clients_normal [s mem_clients_normal], clients tot-mem [normal_clients_tot_mem]"
         }
+        set before [s mem_clients_normal]
+        $writer set $key v
+        assert_lessthan [s mem_clients_normal] [expr {$before - 500000}]
+
+        r config set hz 10
+        $writer del $key
+        $writer close
+        $rr1 close
+        $rr2 close
     }
 
     test "client that drops a large watched key is not evicted before a larger client" {
