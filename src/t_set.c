@@ -650,6 +650,15 @@ int setTypeHasExpireSupport(const robj *set) {
 int setTypeExpireTimeElapsed(uint64_t expire) {
     if (expire == EB_EXPIRE_TIME_INVALID) return 0;
     if (server.allow_access_expired) return 0;
+    /* A member is never expired by this node's clock while replaying the AOF, or
+     * for a command of the master (also the ASM import): they work on the state
+     * the master decided on, which has an explicit SREM for every member that was
+     * removed as expired, so a member that is still there is there. Judging it
+     * by the local clock (a replication lag, a clock skew, a long load) would
+     * make the commands, which depend on it, diverge from the master. */
+    if (server.loading ||
+        (server.current_client && (server.current_client->flags & CLIENT_MASTER)))
+        return 0;
     return expire < (uint64_t)commandTimeSnapshot();
 }
 
@@ -762,7 +771,7 @@ static void propagateSetMemberDeletion(redisDb *db, sds key, char *member, size_
 /* The reply for a member that is logically expired but was not removed yet:
  * treated as if the member did not exist. */
 static inline int setMemberIsGone(int exists, uint64_t expire) {
-    return !exists || (expire != EB_EXPIRE_TIME_INVALID && (long long)expire < commandTimeSnapshot());
+    return !exists || setTypeExpireTimeElapsed(expire);
 }
 
 /*-----------------------------------------------------------------------------
@@ -773,31 +782,14 @@ static inline int setMemberIsGone(int exists, uint64_t expire) {
  * members removes all the expired ones first.
  *----------------------------------------------------------------------------*/
 
-/* Returns 1 if this node must not remove expired members itself right now: a
- * replica waits for the SREM of its master, nothing is removed while loading or
- * while the expiration actions are paused, and a master link is trusted. *deletable
- * is set to 0 if the expired member must be reported as missing but kept, and
- * *trusted to 1 if it must be reported as present (the master link applying
- * commands the master already decided on). */
-static void setLazyExpiryGuard(int *deletable, int *trusted) {
-    *deletable = 1;
-    *trusted = 0;
-    if (server.masterhost || server.cluster_enabled) {
-        /* If CLIENT_MASTER, assume valid as long as it was not deleted. In
-         * cluster mode, also while importing data from the source (a fake master
-         * client with the CLIENT_MASTER flag), to not delete members still in use. */
-        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) {
-            *trusted = 1;
-            return;
-        }
-        /* For a replica, if a user client, act as if expired but do not delete. */
-        if (server.masterhost) {
-            *deletable = 0;
-            return;
-        }
-    }
-    if (server.loading || isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE))
-        *deletable = 0;
+/* Returns 1 if this node may remove a logically expired member itself right
+ * now. A replica waits for the SREM of its master (a user client of a replica
+ * sees the member as missing, but it is kept), and nothing is removed while the
+ * expiration actions are paused. A master link and the loading are never here:
+ * there is no expired member for them, see setTypeExpireTimeElapsed(). */
+static int setLazyDeletable(void) {
+    return !server.masterhost && !server.loading &&
+           !isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE);
 }
 
 /* Removes a member that was found logically expired: removes it, propagates the
@@ -856,14 +848,8 @@ int setTypeIsMemberLazy(redisDb *db, kvobj *set, sds member, int flags, int *set
     int remove = 0;
 
     if (res && setTypeExpireTimeElapsed(expire)) {
-        int deletable, trusted;
-        setLazyExpiryGuard(&deletable, &trusted);
-        if (trusted) {
-            res = 1;
-        } else {
-            res = 0;
-            remove = deletable;
-        }
+        res = 0;
+        remove = setLazyDeletable();
     }
 
     if (remove) {
@@ -2180,7 +2166,14 @@ void saddCommand(client *c) {
 
     set = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
     if (checkType(c,set,OBJ_SET)) return;
-    
+
+    /* Remove the members that are logically expired first, and propagate the SREM
+     * of each: a member that is added again must not be replaced silently, because
+     * a replica (or the AOF) that does not judge by its own clock would keep the
+     * old one, with its expiration. If they were all expired, the key is gone. */
+    if (set && setTypeHasExpireSupport(set) && setTypeExpireIfNeeded(c->db, set))
+        set = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+
     if (set == NULL) {
         robj *o = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         set = dbAddByLink(c->db, c->argv[1], &o, &link);
@@ -3059,6 +3052,15 @@ void sinterGenericCommand(client *c, robj **setkeys,
             zfree(sets);
             return;
         }
+        /* The result of a STORE command is written as a set, so remove the
+         * logically expired members of its sources first, with the SREM of each
+         * propagated: the replica must not decide on its own which ones count. */
+        if (dstkey && setTypeHasExpireSupport(kv) && setTypeExpireIfNeeded(c->db, kv)) {
+            empty += 1;
+            sets[j].set = NULL;
+            sets[j].oldsize = 0;
+            continue;
+        }
         sets[j].set = kv;
         if (server.memory_tracking_enabled)
             sets[j].oldsize = kvobjAllocSize(kv);
@@ -3343,6 +3345,14 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         if (checkType(c,setobj,OBJ_SET)) {
             zfree(sets);
             return;
+        }
+        /* The result of a STORE command is written as a set, so remove the
+         * logically expired members of its sources first, with the SREM of each
+         * propagated: the replica must not decide on its own which ones count. */
+        if (dstkey && setTypeHasExpireSupport(setobj) && setTypeExpireIfNeeded(c->db, setobj)) {
+            sets[j].set = NULL;
+            sets[j].oldsize = 0;
+            continue;
         }
         /* For a SET's encoding, according to the factory method setTypeCreate(), currently have 3 types:
          * 1. OBJ_ENCODING_INTSET
@@ -4064,7 +4074,6 @@ void spersistCommand(client *c) {
     long numMembers = 0;
     size_t oldsize = 0;
     robj *keyArg = c->argv[1];
-    const int obey = mustObeyClient(c); /* From the master, or loading the AOF. */
 
     kvobj *set = lookupKeyWrite(c->db, keyArg);
     if (checkType(c, set, OBJ_SET))
@@ -4104,10 +4113,8 @@ void spersistCommand(client *c) {
             res = SME_NO_MEMBER;
         } else if (expire == EB_EXPIRE_TIME_INVALID) {
             res = SME_NO_TTL;
-        } else if (!obey && (long long)expire < commandTimeSnapshot()) {
-            /* Already expired. Pretend there is no such member. A master or the
-             * AOF is not evaluated against this node's clock: the propagated
-             * command only lists the members the master persisted. */
+        } else if (setTypeExpireTimeElapsed(expire)) {
+            /* Already expired. Pretend there is no such member. */
             res = SME_NO_MEMBER;
         } else {
             serverAssert(setTypeGetOps(set->encoding)->setExpire(set, member, sdslen(member), 0, 1,
@@ -4260,7 +4267,6 @@ static int parseSaddexArgs(client *c, int *flags, long long *expireTime, int *ex
 
 void saddexCommand(client *c) {
     int flags = 0, firstMemberPos = 0, memberCount = 0, expireTimePos = -1;
-    const int obey = mustObeyClient(c); /* From the master, or loading the AOF. */
     long long expireTime = EB_EXPIRE_TIME_INVALID;
     int64_t oldlen, newlen;
     size_t oldsize = 0;
@@ -4274,6 +4280,11 @@ void saddexCommand(client *c) {
     if (checkType(c, set, OBJ_SET))
         return;
 
+    /* Remove the members that are logically expired first, with the SREM of each
+     * propagated, as SADD does. If they were all expired, the key is gone. */
+    if (set && setTypeHasExpireSupport(set) && setTypeExpireIfNeeded(c->db, set))
+        set = lookupKeyWriteWithLink(c->db, keyArg, &link);
+
     /* With MXX all the members must exist, so a missing key means nothing is added. */
     if (!set && (flags & SME_MXX)) {
         addReplyLongLong(c, 0);
@@ -4285,10 +4296,8 @@ void saddexCommand(client *c) {
     const int pastTime = setsExpire && checkAlreadyExpired(expireTime);
 
     /* The conditions are all or nothing: check them before changing anything. A
-     * member that is logically expired but not removed yet does not exist. A
-     * master or the AOF already evaluated them, and the local clock must not
-     * overrule it. */
-    if (set && !obey && (flags & (SME_MXX | SME_MNX))) {
+     * member that is logically expired but not removed yet does not exist. */
+    if (set && (flags & (SME_MXX | SME_MNX))) {
         int found = 0;
         for (int i = 0; i < memberCount; i++) {
             uint64_t cur;
@@ -4347,7 +4356,7 @@ void saddexCommand(client *c) {
             uint64_t cur;
             int exists = setTypeGetExpire(set, member, &cur);
             /* A member that is logically expired but not removed yet is added again. */
-            int changed = (!obey && setMemberIsGone(exists, cur)) || !exists ||
+            int changed = setMemberIsGone(exists, cur) ||
                           (setsExpire ? cur != (uint64_t)expireTime
                                       : (cur != EB_EXPIRE_TIME_INVALID && !(flags & SME_KEEPTTL)));
             if (!changed) continue;

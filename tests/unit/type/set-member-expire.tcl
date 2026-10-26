@@ -704,12 +704,12 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
         assert_equal {1 -1 -2 -2} [r spersist s1 MEMBERS 4 live nottl nosuch gone]
         r sexpire s1 1000 MEMBERS 1 live
         assert_equal {-1 -1 -2 -2} [r spersist s1 MEMBERS 4 nottl nottl nosuch gone] ;# nothing persisted
-        r sadd s1 trigger
+        r sadd other trigger
         assert_replication_stream $repl {
             {select *}
             {spersist s1 MEMBERS 1 live}
             {spexpireat s1 * MEMBERS 1 live}
-            {sadd s1 trigger}
+            {sadd other trigger}
         }
         close_replication_stream $repl
         r debug set-active-expire 1
@@ -787,7 +787,8 @@ start_server {tags {"external:skip needs:debug"}} {
             sme_mixed_set r
             assert_equal [r sadd myset e1 x1 new] 2
             assert_equal [r sttl myset MEMBERS 3 e1 x1 new] [list $E_NO_TTL [r sttl myset MEMBERS 1 x1] $E_NO_TTL]
-            assert_equal [r scard myset] 6
+            # The expired members are removed first (e2 is gone), and e1 is added again.
+            assert_equal [r scard myset] 5
             r debug set-active-expire 1
         }
 
@@ -906,12 +907,14 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r sintercard 2 myset other] 1
             assert_equal [r sunioncard 2 myset other] 6
             assert_equal [r sdiffcard 2 myset other] 2
+            # The sources were not changed by the commands that do not store.
+            assert_equal [r scard myset] 5
+            # The commands that store remove the expired members of the sources first.
             assert_equal [r sinterstore dst myset other] 1
+            assert_equal [r scard myset] 3
             assert_equal [r sunionstore dst myset other] 6
             assert_equal [r sdiffstore dst myset other] 2
             assert_equal [lsort [r smembers dst]] {x2 x3}
-            # The sources were not changed.
-            assert_equal [r scard myset] 5
             r debug set-active-expire 1
         }
 
@@ -2228,6 +2231,108 @@ start_server {tags {"external:skip needs:repl"}} {
             assert_equal [$master debug digest] [$replica debug digest]
             $master debug set-active-expire 1
             $replica debug set-active-expire 1
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# The master decides which members are expired: the commands that would
+# otherwise depend on the clock of the node that applies them propagate the
+# removal of the expired members first, and the replicas and the AOF replay
+# trust the stream.
+# ---------------------------------------------------------------------------
+
+start_server {tags {"external:skip needs:repl needs:debug"}} {
+    foreach enc $::sme_encodings {
+        sme_force_encoding r $enc
+
+        test "SADD, SADDEX and the STORE commands propagate the removal of the expired members first ($enc)" {
+            r flushall
+            r debug set-active-expire 0
+            sme_create_set r s {a b c}
+            sme_make_expired r s {a}
+            set repl [attach_to_replication_stream]
+            r sadd s a new
+            r sadd s2 x
+            r saddex s EX 100 MEMBERS 1 b
+            sme_make_expired r s {b}
+            r saddex s EX 100 MEMBERS 1 b
+            sme_make_expired r s {b}
+            r sunionstore dst s s2
+            assert_replication_stream $repl {
+                {multi}
+                {select *}
+                {srem s a}
+                {sadd s a new}
+                {exec}
+                {sadd s2 x}
+                {saddex s PXAT * MEMBERS 1 b}
+                {spexpireat s * MEMBERS 1 b}
+                {multi}
+                {srem s b}
+                {saddex s PXAT * MEMBERS 1 b}
+                {exec}
+                {spexpireat s * MEMBERS 1 b}
+                {multi}
+                {srem s b}
+                {sunionstore dst s s2}
+                {exec}
+            }
+            close_replication_stream $repl
+            r debug set-active-expire 1
+        } {OK} {needs:repl}
+    }
+}
+
+start_server {tags {"external:skip needs:debug"} overrides {appendonly yes appendfsync always}} {
+    test "AOF replay does not expire the members by the clock of the replay" {
+        r flushall
+        r debug set-active-expire 0
+        r sadd s k j
+        r sexpire s 1 MEMBERS 1 k
+        r sadd s k other     ;# k is still a member: it keeps its expiration
+        r sadd src x y
+        r sexpire src 1 MEMBERS 1 x
+        r smove src dst x    ;# x moves with its expiration
+        after 1500
+        assert_equal {-2 -1 -1} [r sttl s MEMBERS 3 k j other]
+        r debug loadaof
+        r debug set-active-expire 0
+        # k is as expired as it was, and not a member that does not expire.
+        assert_equal {-2 -1 -1} [r sttl s MEMBERS 3 k j other]
+        assert_equal {-2} [r sttl dst MEMBERS 1 x]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+}
+
+start_server {tags {"external:skip needs:repl needs:debug"}} {
+    start_server {} {
+        set master [srv -1 client]
+        set replica [srv 0 client]
+
+        test "A replica applies the commands of the master, whatever its clock says" {
+            $replica replicaof [srv -1 host] [srv -1 port]
+            wait_for_condition 100 100 {[s 0 master_link_status] eq {up}} else {fail "no sync"}
+            $master debug set-active-expire 0
+            $master saddex s PX 1500 MEMBERS 1 k
+            wait_for_ofs_sync $master $replica
+
+            # The replica is busy while k expires, and then applies the SADD, which
+            # the master executed while k was still a member.
+            set rd [redis_deferring_client -1]
+            set rd_replica [redis_deferring_client]
+            $rd_replica debug sleep 2
+            after 100
+            $master sadd s k j
+            after 1700
+            assert_equal {-2 -1} [$master sttl s MEMBERS 2 k j]
+            $rd_replica read
+            wait_for_ofs_sync $master $replica
+            # k is expired on the replica too, and it was not added as a new member.
+            assert_equal {-2 -1} [$replica sttl s MEMBERS 2 k j]
+            $rd close
+            $rd_replica close
+            $master debug set-active-expire 1
         }
     }
 }
