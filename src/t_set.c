@@ -430,9 +430,11 @@ void setTypeResetIterator(setTypeIterator *si) {
 /* The slow path of setTypeNext(), for a member with an expiration. In
  * skip-expired mode, the members that are logically expired but not yet
  * removed are not returned (and not removed either). Not inlined, to keep
- * setTypeNext() small enough to be inlined into its callers. */
+ * setTypeNext() small enough to be inlined into its callers. It is not static
+ * since setTypeNext() has external linkage, and an inline function with external
+ * linkage must not use a static one (it is internal to the set implementation). */
 __attribute__((noinline))
-static int setTypeNextWithExpire(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
+int setTypeNextWithExpire(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
     if (si->mode != SET_ITER_SKIP_EXPIRED) return si->encoding;
     while (setTypeExpireTimeElapsed(si->expire)) {
         if (si->iterNext(si, str, len, llele) == -1) return -1;

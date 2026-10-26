@@ -4069,6 +4069,7 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
 void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode);
 void setTypeResetIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
+int setTypeNextWithExpire(setTypeIterator *si, char **str, size_t *len, int64_t *llele); /* Internal to t_set.c */
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeSize(const robj *subject);
