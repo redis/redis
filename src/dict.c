@@ -1154,8 +1154,7 @@ void dictInitIterator(dictIterator *iter, dict *d)
 
 /* Make dictNext() prefetch entries ahead. Use it for full scans that read
  * every entry, like the RDB save. */
-void dictIteratorEnablePrefetch(dictIterator *iter)
-{
+void dictIteratorEnablePrefetch(dictIterator *iter) {
     iter->prefetch = 1;
 }
 
@@ -1192,8 +1191,7 @@ dictIterator *dictGetSafeIterator(dict *d) {
 #define DICT_ITER_PREFETCH_AHEAD 16
 
 /* Prefetch each bucket in three steps as the iterator gets closer. */
-static void dictIteratorPrefetchAhead(dictIterator *iter)
-{
+static void dictIteratorPrefetchAhead(dictIterator *iter) {
     dict *d = iter->d;
     int t = iter->table;
     long size = DICTHT_SIZE(d->ht_size_exp[t]);

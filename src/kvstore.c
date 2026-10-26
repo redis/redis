@@ -747,8 +747,7 @@ void kvstoreResetDictIterator(kvstoreDictIterator *kvs_di)
 }
 
 /* Prefetch entries ahead of the iteration, see dictIteratorEnablePrefetch(). */
-void kvstoreDictIteratorEnablePrefetch(kvstoreDictIterator *kvs_di)
-{
+void kvstoreDictIteratorEnablePrefetch(kvstoreDictIterator *kvs_di) {
     dictIteratorEnablePrefetch(&kvs_di->di);
 }
 
