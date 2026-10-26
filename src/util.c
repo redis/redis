@@ -1828,10 +1828,9 @@ static int cache_exist(int fd) {
 static void test_reclaimFilePageCache(void) {
     /* Use the working directory: /tmp may be tmpfs, where
      * POSIX_FADV_DONTNEED does not evict file pages. */
-    char tmpfile[] = "./redis-reclaim-cache-test-XXXXXX";
-    int fd = mkstemp(tmpfile);
+    char *tmpfile = "./redis-reclaim-cache-test";
+    int fd = open(tmpfile, O_RDWR|O_CREAT, 0644);
     assert(fd >= 0);
-    assert(unlink(tmpfile) == 0);
 
     /* test write file */
     char buf[4] = "foo";
@@ -1847,7 +1846,7 @@ static void test_reclaimFilePageCache(void) {
     assert(reclaimFilePageCache(fd, 0, 0) == 0);
     assert(!cache_exist(fd));
 
-    assert(close(fd) == 0);
+    unlink(tmpfile);
     printf("reclaimFilePageCache test is ok\n");
 }
 #endif
