@@ -105,6 +105,18 @@ configEnum cluster_slot_stats_enum[] = {
     {NULL, 0}
 };
 
+configEnum io_threads_client_types_enum[] = {
+    {"all", IO_THREADS_CLIENT_TYPE_ALL},
+    {"replication-compressed", IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED},
+    {"master-compressed", IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED},
+    {"replica-compressed", IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED},
+    {"replication", IO_THREADS_CLIENT_TYPE_REPLICATION},
+    {"master", IO_THREADS_CLIENT_TYPE_MASTER},
+    {"replica", IO_THREADS_CLIENT_TYPE_REPLICA},
+    {"normal", IO_THREADS_CLIENT_TYPE_NORMAL},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -700,6 +712,23 @@ void loadServerConfigFromString(char *config) {
                   "'cluster-bus-port-protected-mode no' to acknowledge that the "
                   "cluster bus port is reachable by trusted hosts only, for instance "
                   "because a firewall blocks it.";
+            goto loaderr;
+        }
+
+        int client_types = server.io_threads_client_types;
+        int compression_only =
+            ((client_types & IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_REPLICA)) ||
+            ((client_types & IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_MASTER));
+        if (compression_only && server.repl_compression == 0) {
+            err = "io-threads-client-types compression-only selectors require compression support and repl-compression > 0";
+            goto loaderr;
+        }
+        if (server.repl_compression > 0 &&
+            !(client_types & (IO_THREADS_CLIENT_TYPE_REPLICATION | IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED)))
+        {
+            err = "repl-compression requires io-threads-client-types to include replication clients";
             goto loaderr;
         }
 
@@ -3577,6 +3606,7 @@ standardConfig static_configs[] = {
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
     createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
     createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("io-threads-client-types", NULL, IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, io_threads_client_types_enum, server.io_threads_client_types, IO_THREADS_CLIENT_TYPE_ALL, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),

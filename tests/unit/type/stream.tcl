@@ -3541,6 +3541,28 @@ start_server {
 
         r config set stream-node-max-entries $origin_max_entries
     }
+
+    test {XTRIM with exact MAXLEN and ACKED continues past nodes with unacked entries} {
+        r DEL mystream
+        set origin_max_entries [config_get_set stream-node-max-entries 2]
+
+        # Create 6 entries in 3 nodes (2 entries per node)
+        for {set i 1} {$i <= 6} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+
+        # 3-0 and 4-0 (second node) stay pending, the rest are acked
+        r XACK mystream mygroup 1-0 2-0 5-0 6-0
+
+        # The trim must not stop at the second node, 5-0 is acked and can go
+        assert_equal 3 [r XTRIM mystream MAXLEN = 3 ACKED]
+        assert_equal {{3-0 {f v}} {4-0 {f v}} {6-0 {f v}}} [r XRANGE mystream - +]
+
+        r config set stream-node-max-entries $origin_max_entries
+    }
 }
 
 start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
