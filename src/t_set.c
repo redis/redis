@@ -2625,7 +2625,7 @@ void spopWithCountCommand(client *c) {
 
         /* Transfer the old set to the client. */
         setTypeIterator si;
-        setTypeInitIterator(&si, set, SET_ITER_SKIP_EXPIRED);
+        setTypeInitIterator(&si, set, SET_ITER_RAW);
         while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
