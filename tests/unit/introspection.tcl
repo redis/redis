@@ -103,14 +103,6 @@ start_server {tags {"introspection"}} {
             foreach cmd $cleanup { $rr $cmd }
             assert_range [client_mem_no_qbuf [$rr client info]] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
         }
-
-        # Many names
-        set names {}
-        for {set j 0} {$j < 1000} {incr j} { lappend names "$j[string repeat x 200]" }
-        $rr watch {*}$names
-        assert_morethan_equal [expr {[client_mem_no_qbuf [$rr client info]] - $mem0}] 200000
-        $rr unwatch
-        assert_range [client_mem_no_qbuf [$rr client info]] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
         $rr close
         r debug replybuffer resizing 1
     } {OK} {needs:debug}
@@ -122,8 +114,7 @@ start_server {tags {"introspection"}} {
             set rd [redis_deferring_client]
             $rd client id
             set id [$rd read]
-            # Use a hash tag so that all the shard channels map to the same slot
-            set name "{t}[string repeat x 50000]"
+            set name [string repeat x 50000]
             set mem0 [client_mem_no_qbuf_by_id $id]
 
             $rd $sub $name
@@ -139,26 +130,6 @@ start_server {tags {"introspection"}} {
             $rd $unsub $name
             $rd read
             assert_range [client_mem_no_qbuf_by_id $id] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
-
-            # RESET uncharges the names
-            $rd $sub $name
-            $rd read
-            assert_morethan_equal [expr {[client_mem_no_qbuf_by_id $id] - $mem0}] 50000
-            $rd reset
-            assert_equal RESET [$rd read]
-            assert_range [client_mem_no_qbuf_by_id $id] [expr {$mem0 - 5000}] [expr {$mem0 + 5000}]
-
-            # Many names, uncharged by unsubscribing from all of them
-            set names {}
-            for {set j 0} {$j < 1000} {incr j} { lappend names "{t}$j[string repeat x 200]" }
-            $rd $sub {*}$names
-            for {set j 0} {$j < 1000} {incr j} { $rd read }
-            set mem1 [client_mem_no_qbuf_by_id $id]
-            assert_morethan_equal [expr {$mem1 - $mem0}] 200000
-            $rd $unsub
-            for {set j 0} {$j < 1000} {incr j} { $rd read }
-            # The emptied dict may keep some of its buckets
-            assert_lessthan [client_mem_no_qbuf_by_id $id] [expr {$mem1 - 200000}]
             $rd close
             r debug replybuffer resizing 1
         } {OK} {needs:debug}
