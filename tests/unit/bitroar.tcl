@@ -5006,7 +5006,8 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
 
     test {BITRANGEINTARRAY LIMIT returns the lowest offsets in the range} {
         # 600 bits, so native bitmap batches of 256 values end before, at and
-        # after the limit.
+        # after the limit. Each byte holds at most one of them, so BYTE ranges
+        # return exactly LIMIT offsets too.
         set bits {}
         for {set i 0} {$i < 600} {incr i} {lappend bits [expr {$i * 37}]}
         r del bitmap:str
@@ -5037,6 +5038,64 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         }
         r del bitmap:missing
         assert_equal {} [r bitrangeintarray bitmap:missing 0 -1 limit 3]
+    }
+
+    test {BITRANGEINTARRAY LIMIT in BYTE units completes the last byte} {
+        # Bytes 0, 7 and 8 are full, byte 1 has its first and last bits set,
+        # and byte 9 has one bit set. Byte 7 ends the first 64-bit word of the
+        # string.
+        set byte0 {0 1 2 3 4 5 6 7}
+        set byte7 {56 57 58 59 60 61 62 63}
+        set byte8 {64 65 66 67 68 69 70 71}
+        set bits [concat $byte0 {8 15} $byte7 $byte8 {73}]
+        r del bitmap:str
+        foreach bit $bits {r setbit bitmap:str $bit 1}
+        seed_roaring_bitmap bitmap:native $bits
+
+        foreach key {bitmap:str bitmap:native} {
+            # The reply runs to the end of the byte where LIMIT is reached,
+            # and no further.
+            assert_equal $byte0 [r bitrangeintarray $key 0 -1 limit 1]
+            assert_equal $byte0 [r bitrangeintarray $key 0 -1 limit 8]
+            assert_equal [concat $byte0 {8 15}] [r bitrangeintarray $key 0 -1 limit 9]
+            assert_equal [concat $byte0 {8 15} $byte7] [r bitrangeintarray $key 0 -1 limit 11]
+            assert_equal [lrange $bits 0 end-1] [r bitrangeintarray $key 0 -1 limit 26]
+            assert_equal {8 15} [r bitrangeintarray $key 1 -1 limit 1]
+
+            # In BIT units the reply stops at LIMIT.
+            assert_equal [lrange $bits 0 8] [r bitrangeintarray $key 0 -1 bit limit 9]
+            assert_equal {57 58} [r bitrangeintarray $key 57 -1 bit limit 2]
+        }
+    }
+
+    test {BITRANGEINTARRAY LIMIT pages through a value in either unit} {
+        # Random bits, dense enough that many bytes hold more than one.
+        set bits {}
+        for {set i 0} {$i < 300} {incr i} {lappend bits [randomInt 2000]}
+        r del bitmap:str
+        foreach bit $bits {r setbit bitmap:str $bit 1}
+        seed_roaring_bitmap bitmap:native $bits
+        set all [lsort -integer -unique $bits]
+
+        # Each page starts at the byte or bit after the last offset returned,
+        # and the pages join up to the whole value.
+        foreach key {bitmap:str bitmap:native} {
+            foreach {unit extra} {byte 7 bit 0} {
+                foreach limit {1 3 10} {
+                    set pages {}
+                    set start 0
+                    while 1 {
+                        set page [r bitrangeintarray $key $start -1 $unit limit $limit]
+                        if {$page eq {}} break
+                        assert {[llength $page] <= $limit + $extra}
+                        lappend pages {*}$page
+                        set last [lindex $page end]
+                        set start [expr {$unit eq "byte" ? $last / 8 + 1 : $last + 1}]
+                    }
+                    assert_equal $all $pages "$key $unit $limit"
+                }
+            }
+        }
     }
 
     test {BITRANGEINTARRAY returns empty arrays for missing keys and values without set bits} {
