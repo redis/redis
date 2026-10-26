@@ -119,7 +119,7 @@ struct _setTypeOps {
 };
 
 /* Returns the ops of the given set encoding (OBJ_ENCODING_*). */
-const setTypeOps *setTypeGetOps(int encoding);
+static inline const setTypeOps *setTypeGetOps(int encoding);
 
 /* One instance per encoding, defined in the section of the encoding below. */
 extern const setTypeOps setTypeOpsIntset;
@@ -137,7 +137,7 @@ extern const setTypeOps setTypeOpsHT;
  * the single place that maps a set's encoding to its backend implementation;
  * every other function below dispatches through it instead of switching on
  * robj->encoding itself. */
-const setTypeOps *setTypeGetOps(int encoding) {
+static inline const setTypeOps *setTypeGetOps(int encoding) {
     switch (encoding) {
     case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
     case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
@@ -328,6 +328,18 @@ int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str
     return ops->getExpire(set, str, len, llval, str_is_sds, expire);
 }
 
+/* The part of setTypeAddMergeExpire() for a source member with an expiration. */
+static int setTypeAddMergeExpireSlow(robj *dst, char *str, size_t len, int64_t llval,
+                                     int str_is_sds, uint64_t expire, int farthest)
+{
+    if (!setTypeHasExpireSupport(dst)) setTypeConvertToExpireEncoding(dst);
+    uint64_t cur;
+    if (setTypeGetExpireAux(dst, str, len, llval, str_is_sds, &cur) &&
+        cur != EB_EXPIRE_TIME_INVALID && (farthest ? cur >= expire : cur <= expire))
+        return 0;
+    return setTypeAddExAux(dst, str, len, llval, str_is_sds, expire);
+}
+
 /* Adds a member to the destination set of a STORE command, merging the
  * expiration with member's expiration if it is there already. In the expiration
  * merge process, a source without an expiration is ignored: the member gets the
@@ -335,19 +347,15 @@ int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str
  * one source has expiration, the values is set by the 'farthest' flag:  the
  * nearest value if it is false (as in SINTERSTORE), or the farthest with if it
  * is true (as in SUNIONSTORE).
- * Returns 1 if the member was added, 0 if it was already there. */
-static int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
-                                 int str_is_sds, uint64_t expire, int farthest)
+ * Returns 1 if the member was added, 0 if it was already there.
+ * Inline, since the common case (a source member without an expiration, a plain
+ * add) runs for every member of the sources. */
+static inline int setTypeAddMergeExpire(robj *dst, char *str, size_t len, int64_t llval,
+                                        int str_is_sds, uint64_t expire, int farthest)
 {
     if (expire == EB_EXPIRE_TIME_INVALID)
         return setTypeAddAux(dst, str, len, llval, str_is_sds);
-
-    if (!setTypeHasExpireSupport(dst)) setTypeConvertToExpireEncoding(dst);
-    uint64_t cur;
-    if (setTypeGetExpireAux(dst, str, len, llval, str_is_sds, &cur) &&
-        cur != EB_EXPIRE_TIME_INVALID && (farthest ? cur >= expire : cur <= expire))
-        return 0;
-    return setTypeAddExAux(dst, str, len, llval, str_is_sds, expire);
+    return setTypeAddMergeExpireSlow(dst, str, len, llval, str_is_sds, expire, farthest);
 }
 
 /* Deletes a value provided as an sds string from the set. Returns 1 if the
@@ -410,12 +418,26 @@ void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode) {
     si->expire = EB_EXPIRE_TIME_INVALID;
     si->encoding = subject->encoding;
     si->typeOps = setTypeGetOps(si->encoding);
+    si->iterNext = si->typeOps->iterNext;
     si->typeOps->iterInit(si);
 }
 
 void setTypeResetIterator(setTypeIterator *si) {
     si->subject = NULL;
     si->typeOps->iterReset(si);
+}
+
+/* The slow path of setTypeNext(), for a member with an expiration. In
+ * skip-expired mode, the members that are logically expired but not yet
+ * removed are not returned (and not removed either). Not inlined, to keep
+ * setTypeNext() small enough to be inlined into its callers. */
+__attribute__((noinline))
+static int setTypeNextWithExpire(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
+    if (si->mode != SET_ITER_SKIP_EXPIRED) return si->encoding;
+    while (setTypeExpireTimeElapsed(si->expire)) {
+        if (si->iterNext(si, str, len, llele) == -1) return -1;
+    }
+    return si->encoding;
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -438,18 +460,17 @@ void setTypeResetIterator(setTypeIterator *si) {
  * be NULL since the function will try to defensively populate the non
  * used field with values which are easy to trap if misused.
  *
- * When there are no more elements -1 is returned. */
-int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
-    while (si->typeOps->iterNext(si, str, len, llele) != -1) {
-        /* In skip-expired mode, the members that are logically expired but not
-         * yet removed are not returned (and not removed either). */
-        if (si->expire != EB_EXPIRE_TIME_INVALID &&
-            si->mode == SET_ITER_SKIP_EXPIRED &&
-            setTypeExpireTimeElapsed(si->expire))
-            continue;
-        return si->encoding;
-    }
-    return -1;
+ * When there are no more elements -1 is returned.
+ *
+ * Declared inline (it is still an external definition, see server.h) so that it
+ * gets inlined into the loops of this file, which call it per member. */
+inline int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
+    if (si->iterNext(si, str, len, llele) == -1) return -1;
+    /* Only a member with an expiration can be logically expired, so the sets
+     * without expirations never get past this check. */
+    if (unlikely(si->expire != EB_EXPIRE_TIME_INVALID))
+        return setTypeNextWithExpire(si, str, len, llele);
+    return si->encoding;
 }
 
 /* The not copy on write friendly version but easy to use version
@@ -1878,7 +1899,7 @@ ExpireMeta *setHashtableGetExpireMeta(const robj *set) {
  * Ops of the hashtable encoding
  *----------------------------------------------------------------------------*/
 
-static int htRawAddCommon(robj *set, char *str, size_t len, int str_is_sds, uint64_t expire) {
+static inline int htRawAddCommon(robj *set, char *str, size_t len, int str_is_sds, uint64_t expire) {
     /* Avoid duping the string if it is an sds string. */
     sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
     dict *ht = set->ptr;
@@ -2042,8 +2063,13 @@ static unsigned long htExpire(robj *set, uint64_t now, unsigned long max, setTyp
     return info.itemsExpired;
 }
 
+static int htexIterNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
+
 static void htIterInit(setTypeIterator *si) {
     dictInitIterator(&si->di, si->subject->ptr);
+    /* Only a set that has expiration metadata needs the expiration of every
+     * member, so the sets without it keep the plain htIterNext(). */
+    if (htHasExpire(si->subject->ptr)) si->iterNext = htexIterNext;
 }
 
 static void htIterReset(setTypeIterator *si) {
@@ -2056,8 +2082,14 @@ static int htIterNext(setTypeIterator *si, char **str, size_t *len, int64_t *lle
     *str = dictGetKey(de);
     *len = sdslen(*str);
     *llele = -123456789; /* Not needed. Defensive. */
-    if (htHasExpire((dict *)si->subject->ptr))
-        si->expire = sEntryGetExpiry((SetEntry *)*str);
+    return 0;
+}
+
+/* htIterNext() for a set that has expiration metadata: also reports the
+ * expiration of the member. */
+static int htexIterNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
+    if (htIterNext(si, str, len, llele) == -1) return -1;
+    si->expire = sEntryGetExpiry((SetEntry *)*str);
     return 0;
 }
 
