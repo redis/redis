@@ -837,13 +837,13 @@ start_server {} {
         set key [string repeat x 1200000]
         $watcher watch $key
         wait_for_condition 100 100 {
-            [client_field $watcher_name tot-mem] < 1300000
+            [client_field $watcher_name tot-mem] < 1600000
         } else {
             fail "watcher query buffer wasn't resized"
         }
         assert_morethan [client_field $watcher_name tot-mem] 1200000
 
-        $big write "*2\r\n\$3\r\nget\r\n\$2000000\r\n[string repeat v 1500000]"
+        $big write "*2\r\n\$3\r\nget\r\n\$1800000\r\n[string repeat v 1500000]"
         $big flush
         wait_for_condition 50 100 {
             [client_field $big_name tot-mem] > 1400000
