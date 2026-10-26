@@ -698,9 +698,10 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
             removeExpire(db, key);
     } else {
         /* Replace the old value at its location in the key space. */
-        val->lru = old->lru;
-        
         kvNew = kvobjSet(key->ptr, val, newKeyMetaBits);
+        /* Preserve eviction metadata on the new keyspace object, without
+         * modifying a shared input string's cached module-key hash. */
+        kvNew->lru = old->lru;
         kvobjBits(kvNew)->no_evict = kvobjBits(old)->no_evict;
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 

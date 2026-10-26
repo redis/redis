@@ -78,6 +78,17 @@ int TestKeyExistsShared(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     /* The same object can also be used as a value, not only as a key name. */
     RedisModule_Call(ctx, "SET", "cs", "keyexists-copy", key);
+    /* Reusing a cached name as an overwrite value must preserve both its hash
+     * and the destination's eviction metadata. */
+    RedisModule_Call(ctx, "SET", "cs", "keyexists-copy", key);
+    RedisModule_Assert(RedisModule_KeyExists(ctx, key));
+    RedisModuleString *dest = RedisModule_CreateString(ctx, "keyexists-copy", 14);
+    RedisModuleKey *destkey = RedisModule_OpenKey(ctx, dest, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOTOUCH);
+    mstime_t idle;
+    RedisModule_Assert(RedisModule_GetLRU(destkey, &idle) == REDISMODULE_OK);
+    /* SET touched the destination; a cached-hash marker must not zero its LRU. */
+    RedisModule_Assert(idle < 2000);
+    RedisModule_CloseKey(destkey);
     RedisModuleCallReply *reply = RedisModule_Call(ctx, "GET", "c", "keyexists-copy");
     size_t actual_len, expected_len;
     const char *actual = RedisModule_CallReplyStringPtr(reply, &actual_len);
