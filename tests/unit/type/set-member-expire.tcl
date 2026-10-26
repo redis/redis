@@ -683,7 +683,7 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
             {sadd s1 a b c}
             {spexpireat s1 * MEMBERS 2 a b}
             {spexpireat s1 * NX MEMBERS 1 c}
-            {spersist s1 MEMBERS 2 a nosuch}
+            {spersist s1 MEMBERS 1 a}
             {spexpireat s1 * MEMBERS 2 a b}
             {srem s1 c}
             {saddex s1 PXAT * MEMBERS 2 x y}
@@ -692,6 +692,28 @@ start_server {tags {"external:skip needs:repl needs:debug"}} {
         }
         close_replication_stream $repl
     } {} {needs:repl}
+
+    test "SPERSIST - Only the members that were persisted are propagated" {
+        r flushall
+        r debug set-active-expire 0
+        r sadd s1 live nottl gone
+        r sexpire s1 1000 MEMBERS 1 live
+        sme_make_expired r s1 {gone}
+        set repl [attach_to_replication_stream]
+        # A member without a ttl, a missing one and a logically expired one are not persisted.
+        assert_equal {1 -1 -2 -2} [r spersist s1 MEMBERS 4 live nottl nosuch gone]
+        r sexpire s1 1000 MEMBERS 1 live
+        assert_equal {-1 -1 -2 -2} [r spersist s1 MEMBERS 4 nottl nottl nosuch gone] ;# nothing persisted
+        r sadd s1 trigger
+        assert_replication_stream $repl {
+            {select *}
+            {spersist s1 MEMBERS 1 live}
+            {spexpireat s1 * MEMBERS 1 live}
+            {sadd s1 trigger}
+        }
+        close_replication_stream $repl
+        r debug set-active-expire 1
+    } {OK} {needs:repl}
 }
 
 # ---------------------------------------------------------------------------
