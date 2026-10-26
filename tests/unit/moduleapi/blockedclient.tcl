@@ -76,6 +76,21 @@ start_server {tags {"modules external:skip"}} {
         r do_bg_rm_call hgetall hash
     } {foo bar}
 
+    test {Freeing a template-hash key from a GIL-holding module thread} {
+        r flushall
+        r himport prepare fs f1 f2 f3
+        r himport set th fs v1 v2 v3
+        assert_equal template-listpack [r object encoding th]
+        # Drop the PREPARE hold; the template now survives only via the key ref.
+        r himport discard fs
+        assert_equal 1 [s hash_templates]
+        # DEL runs on a background thread that holds the GIL: freeing the last
+        # key ref must drop the template inline (not via the BIO defer path).
+        r do_bg_rm_call del th
+        assert_equal 0 [r exists th]
+        assert_equal 0 [s hash_templates]
+    }
+
     test {RM_Call from blocked client with script mode} {
         r do_bg_rm_call_format S hset k foo bar
     } {1}
@@ -248,16 +263,16 @@ foreach call_type {nested normal} {
         # RM_Call that propagates an error
         assert_error "WRONGTYPE*" {r do_rm_call hgetall x}
         assert_equal [errorrstat WRONGTYPE r] {count=1}
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdrstat hgetall r]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat hgetall r]
 
         # RM_Call from bg thread that propagates an error
         assert_error "WRONGTYPE*" {r do_bg_rm_call hgetall x}
         assert_equal [errorrstat WRONGTYPE r] {count=2}
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat hgetall r]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2*} [cmdrstat hgetall r]
 
         assert_equal [s total_error_replies] 6
-        assert_match {*calls=5,*,rejected_calls=0,failed_calls=4} [cmdrstat do_rm_call r]
-        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2} [cmdrstat do_bg_rm_call r]
+        assert_match {*calls=5,*,rejected_calls=0,failed_calls=4*} [cmdrstat do_rm_call r]
+        assert_match {*calls=2,*,rejected_calls=0,failed_calls=2*} [cmdrstat do_bg_rm_call r]
     }
 
     set master [srv 0 client]
@@ -306,5 +321,68 @@ foreach call_type {nested normal} {
     
     test "Unload the module - blockedclient" {
         assert_equal {OK} [r module unload blockedclient]
+    }
+}
+
+# A module thread holding the GIL (do_bg_rm_call) may run commands that touch
+# clients living in IO threads, so it must be able to pause them like the main
+# thread does, instead of hitting the main thread assertion in
+# pauseIOThreadsRange() (or in protectClientReplyObjects()).
+start_server [list overrides [list loadmodule "$testmodule" io-threads 4] tags {"modules external:skip"}] {
+    test {CLIENT LIST from a module thread with clients in IO threads} {
+        set c [redis_client]
+        set cid [$c client id]
+        assert_match "*id=$cid *" [r do_bg_rm_call client list]
+        $c close
+    }
+
+    test {CONFIG SET maxmemory-clients from a module thread with clients in IO threads} {
+        set c [redis_client]
+        $c ping
+        assert_equal {OK} [r do_bg_rm_call config set maxmemory-clients 100mb]
+        assert_equal {maxmemory-clients 104857600} [r config get maxmemory-clients]
+        assert_equal {OK} [r do_bg_rm_call config set maxmemory-clients 0]
+        assert_equal {PONG} [$c ping]
+        $c close
+    }
+
+    test {CLIENT KILL from a module thread of a client in an IO thread} {
+        set c [redis_client]
+        set cid [$c client id]
+        assert_equal 1 [r do_bg_rm_call client kill id $cid]
+        assert_error {*} {$c ping}
+        $c close
+    }
+
+    test {ACL DELUSER from a module thread closes a client in an IO thread} {
+        r acl setuser bguser on >pass +@all ~*
+        set c [redis_client]
+        $c auth bguser pass
+        assert_equal 1 [r do_bg_rm_call acl deluser bguser]
+        wait_for_condition 50 100 {
+            [catch {$c ping}]
+        } else {
+            fail "Client of the deleted user was not closed"
+        }
+        $c close
+    }
+
+    test {FLUSHALL ASYNC from a module thread with pending referenced replies} {
+        r set big [string repeat x 4000000]
+        set rd [redis_deferring_client]
+        # Replies that are not read keep referencing the value (reply copy avoidance).
+        for {set i 0} {$i < 20} {incr i} { $rd get big }
+        $rd flush
+        wait_for_condition 50 100 {
+            [string match {*calls=20,*} [cmdrstat get r]]
+        } else {
+            fail "GET commands were not processed"
+        }
+        assert_equal {OK} [r do_bg_rm_call flushall async]
+        assert_equal 0 [r dbsize]
+        for {set i 0} {$i < 20} {incr i} {
+            assert_equal 4000000 [string length [$rd read]]
+        }
+        $rd close
     }
 }

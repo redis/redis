@@ -204,6 +204,14 @@ foreach command {SORT SORT_RO} {
         assert_equal [lsort -real $floats] [r sort mylist]
     }
 
+    test "SORT BY with smallest normal double 2.2250738585072012e-308" {
+        r flushdb
+        r lpush mylist a b
+        r set weight_a 2.2250738585072012e-308
+        r set weight_b 1
+        assert_equal {a b} [r sort mylist BY weight_*]
+    } {} {cluster:skip}
+
     test "SORT with STORE returns zero if result is empty (github issue 224)" {
         r flushdb
         r sort foo{t} store bar{t}

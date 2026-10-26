@@ -6,6 +6,9 @@
 #   tests/tls/redis.{crt,key}       A certificate with no key usage/policy restrictions.
 #   tests/tls/client.{crt,key}      A certificate restricted for SSL client usage.
 #   tests/tls/server.{crt,key}      A certificate restricted for SSL server usage.
+#   tests/tls/san.{crt,key}         A certificate carrying subjectAltName DNS entries
+#                                   (redis.local, cluster.local), used to exercise
+#                                   tls-expected-peer-name verification.
 #   tests/tls/redis.dh              DH Params file.
 
 generate_cert() {
@@ -49,10 +52,15 @@ nsCertType = server
 [ client_cert ]
 keyUsage = digitalSignature, keyEncipherment
 nsCertType = client
+
+[ san_cert ]
+keyUsage = digitalSignature, keyEncipherment
+subjectAltName = DNS:redis.local, DNS:cluster.local
 _END_
 
 generate_cert server "Server-only" "-extfile tests/tls/openssl.cnf -extensions server_cert"
 generate_cert client "Client-only" "-extfile tests/tls/openssl.cnf -extensions client_cert"
 generate_cert redis "Generic-cert"
+generate_cert san "SAN-cert" "-extfile tests/tls/openssl.cnf -extensions san_cert"
 
 [ -f tests/tls/redis.dh ] || openssl dhparam -out tests/tls/redis.dh 2048

@@ -114,6 +114,67 @@ start_server {tags {"info" "external:skip"}} {
             assert {$p50_debug >= $p50_set}
         } {} {needs:debug}
 
+        test {latencystats: percentiles configured out of order (incl p0/p100)} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            # Out-of-order list including p0 and p100 exercises the single-pass
+            # batch percentile resolver's sort/scatter and the p0->lowest /
+            # else->highest equivalent-value handling. The emitted values must
+            # stay consistent with the per-percentile path: monotonic
+            # non-decreasing by percentile regardless of the configured order.
+            r CONFIG SET latency-tracking-info-percentiles "100.0 0.0 99.9 50.0"
+            # Build a real spread in the debug-command histogram (fast + slow).
+            for {set i 0} {$i < 20} {incr i} { r debug sleep 0 }
+            r debug sleep 0.03
+            r debug sleep 0.05
+            set line [latency_percentiles_usec debug]
+            # Labels emitted in the configured (unordered) order.
+            assert_match {*p100=*p0=*p99.9=*p50=*} $line
+            assert {[regexp {p0=([0-9.]+)} $line -> p0]}
+            assert {[regexp {p50=([0-9.]+)} $line -> p50]}
+            assert {[regexp {p99\.9=([0-9.]+)} $line -> p999]}
+            assert {[regexp {p100=([0-9.]+)} $line -> p100]}
+            # Monotonic by percentile despite the unordered emission order
+            # (a sort/scatter mismatch between label and value would break this).
+            assert {$p0 <= $p50}
+            assert {$p50 <= $p999}
+            assert {$p999 <= $p100}
+            # The spread is real: p100 reflects the ~50ms samples, well above p0.
+            assert {$p100 >= 30000}
+            assert {$p0 < $p100}
+        } {} {needs:debug}
+
+        test {latencystats: stack and heap percentile contexts preserve output} {
+            r config resetstat
+            r CONFIG SET latency-tracking yes
+            # Keep this histogram unchanged while testing different configs.
+            # Millisecond samples have wide buckets, exposing a p0 boundary error.
+            r debug sleep 0.005
+            r debug sleep 0.015
+            r debug sleep 0.03
+            foreach percentiles {
+                {0}
+                {100 0 99.9 50 0 50}
+                {100 0 99.9 50 1 2 3 4 5 6 7 8 9 10 25 75}
+            } {
+                r CONFIG SET latency-tracking-info-percentiles $percentiles
+                set batch [split [latency_percentiles_usec debug] ,]
+                assert_equal [llength $percentiles] [llength $batch]
+                # Cross the stack/heap boundary while keeping the same prefix.
+                foreach length {17 64} {
+                    set padded $percentiles
+                    while {[llength $padded] < $length} { lappend padded 100 }
+                    r CONFIG SET latency-tracking-info-percentiles $padded
+                    set heap [split [latency_percentiles_usec debug] ,]
+                    assert_equal $length [llength $heap]
+                    assert_equal $batch [lrange $heap 0 [expr {[llength $batch] - 1}]]
+                }
+            }
+            r CONFIG SET latency-tracking-info-percentiles ""
+            assert_equal {} [latency_percentiles_usec debug]
+            assert_equal OK [r CONFIG SET latency-tracking-info-percentiles "50 99 99.9"]
+        } {} {needs:debug}
+
         test {errorstats: failed call authentication error} {
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -121,7 +182,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r auth k} e
             assert_match {ERR AUTH*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -137,15 +198,15 @@ start_server {tags {"info" "external:skip"}} {
             catch {r exec} e
             assert_match {ERR AUTH*} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat set]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat auth]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat exec]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat auth]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat exec]
             assert_equal [s total_error_replies] 1
 
             # MULTI/EXEC command errors should still be pinpointed to him
             catch {r exec} e
             assert_match {ERR EXEC without MULTI} $e
-            assert_match {*calls=2,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_match {*calls=2,*,rejected_calls=0,failed_calls=1*} [cmdstat exec]
             assert_match {*count=2*} [errorstat ERR]
             assert_equal [s total_error_replies] 2
         }
@@ -174,7 +235,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r evalsha NotValidShaSUM 0} e
             assert_match {NOSCRIPT*} $e
             assert_match {*count=1*} [errorstat NOSCRIPT]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat evalsha]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat evalsha]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOSCRIPT]
@@ -188,7 +249,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r XGROUP CREATECONSUMER mystream mygroup consumer} e
             assert_match {NOGROUP*} $e
             assert_match {*count=1*} [errorstat NOGROUP]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat xgroup\\|createconsumer]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat xgroup\\|createconsumer]
             r config resetstat
             assert_match {} [errorstat NOGROUP]
         }
@@ -217,9 +278,9 @@ start_server {tags {"info" "external:skip"}} {
             assert_match {*count=1*} [errorstat ERR]
             assert_match {*count=1*} [errorstat EXECABORT]
             assert_equal [s total_error_replies] 2
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdstat multi]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat exec]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdstat multi]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat exec]
             assert_equal [s total_error_replies] 2
             r config resetstat
             assert_match {} [errorstat ERR]
@@ -232,11 +293,11 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set k} e
             assert_match {ERR wrong number of arguments for 'set' command} $e
             assert_match {*count=1*} [errorstat ERR]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             # ensure that after a rejected command, valid ones are counted properly
             r set k1 v1
             r set k2 v2
-            assert_match {calls=2,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {calls=2,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
         }
 
@@ -248,7 +309,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set a b} e
             assert_match {OOM*} $e
             assert_match {*count=1*} [errorstat OOM]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat OOM]
@@ -264,7 +325,7 @@ start_server {tags {"info" "external:skip"}} {
             catch {r set a b} e
             assert_match {NOPERM*} $e
             assert_match {*count=1*} [errorstat NOPERM]
-            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0} [cmdstat set]
+            assert_match {*calls=0,*,rejected_calls=1,failed_calls=0*} [cmdstat set]
             assert_equal [s total_error_replies] 1
             r config resetstat
             assert_match {} [errorstat NOPERM]
@@ -283,7 +344,7 @@ start_server {tags {"info" "external:skip"}} {
             r client unblock $rd_id error
             assert_error {UNBLOCKED*} {$rd read}
             assert_match {*count=1*} [errorstat UNBLOCKED]
-            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1} [cmdstat blpop]
+            assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdstat blpop]
             assert_equal [s total_error_replies] 1
             $rd close
         }
@@ -393,8 +454,6 @@ start_server {tags {"info" "external:skip"}} {
         }
 
         test {stats: client input and output buffer limit disconnections} {
-            r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
-
             r config resetstat
             set info [r info stats]
             assert_equal [getInfoProperty $info client_query_buffer_limit_disconnections] {0}

@@ -14,13 +14,42 @@
 
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "hyperloglog.h"
+#include "t_set_encoding.h"
 
 /*-----------------------------------------------------------------------------
  * Set Commands
  *----------------------------------------------------------------------------*/
 
+/* When estimating cardinality with HLL and a LIMIT is set, this is the minimum
+ * number of additional elements to process between two hllCount() checks. */
+#define HLL_CHECK_INTERVAL_FLOOR 1024
+
+/* Returns the setTypeOps table for the given OBJ_ENCODING_* value. This is
+ * the single place that maps a set's encoding to its backend implementation;
+ * every other function below dispatches through it instead of switching on
+ * robj->encoding itself. */
+static const setTypeOps *setTypeGetOps(int encoding) {
+    switch (encoding) {
+    case OBJ_ENCODING_INTSET: return &setTypeOpsIntset;
+    case OBJ_ENCODING_LISTPACK: return &setTypeOpsListpack;
+    case OBJ_ENCODING_HT: return &setTypeOpsHT;
+    default: serverPanic("Unknown set encoding");
+    }
+}
+
+/* Compute the UNION or DIFF (per 'op') of the 'setnum' sets named in 'setkeys'.
+ *   dstkey          - if non-NULL, store the result into this key (…STORE) and
+ *                     reply with its cardinality; otherwise reply to the client.
+ *   cardinality_only - reply only with the result cardinality (SUNIONCARD),
+ *                      without materializing the elements to the client.
+ *   approx           - with cardinality_only, return an approximate cardinality
+ *                      computed with a HyperLogLog (UNION only).
+ *   limit            - with cardinality_only, stop once the cardinality reaches
+ *                      'limit' (0 means no limit). */
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op);
+                              robj *dstkey, int op,
+                              int cardinality_only, int approx, long limit);
 
 /* Factory method to return a set that *can* hold "value". When the object has
  * an integer-encodable value, an intset will be returned. Otherwise a listpack
@@ -89,7 +118,7 @@ static void maybeConvertToIntset(robj *set) {
         serverAssert(success);
     }
     setTypeResetIterator(&si);
-    freeSetObject(set); /* frees the internals but not robj itself */
+    setTypeFree(set); /* frees the internals but not robj itself */
     set->ptr = is;
     set->encoding = OBJ_ENCODING_INTSET;
 }
@@ -110,114 +139,30 @@ int setTypeAdd(robj *subject, sds value) {
  * Returns 1 if the value was added and 0 if it was already a member. */
 int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
-    if (!str) {
-        if (set->encoding == OBJ_ENCODING_INTSET) {
-            uint8_t success = 0;
-            set->ptr = intsetAdd(set->ptr, llval, &success);
-            if (success) maybeConvertIntset(set);
-            return success;
-        }
-        /* Convert int to string. */
+    if (!str && set->encoding != OBJ_ENCODING_INTSET) {
+        /* Only intset can consume a bare integer directly; other encodings
+         * need it stringified first. */
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
     }
 
-    serverAssert(str);
-    if (set->encoding == OBJ_ENCODING_HT) {
-        /* Avoid duping the string if it is an sds string. */
-        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
-        dict *ht = set->ptr;
-        dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
-        if (link == NULL) {
-            /* Key doesn't already exist in the set. Add it but dup the key. */
-            if (sdsval == str) sdsval = sdsdup(sdsval);
-            dictSetKeyAtLink(ht, sdsval, &bucket, 1);
-            *htGetMetadataSize(ht) += sdsAllocSize(sdsval);
-            return 1;
-        } else if (sdsval != str) {
-            /* String is already a member. Free our temporary sds copy. */
-            sdsfree(sdsval);
-            return 0;
-        }
-    } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = set->ptr;
-        unsigned char *p = lpFirst(lp);
-        if (p != NULL)
-            p = lpFind(lp, p, (unsigned char*)str, len, 0);
-        if (p == NULL) {
-            /* Not found.  */
-            if (lpLength(lp) < server.set_max_listpack_entries &&
-                len <= server.set_max_listpack_value &&
-                lpSafeToAdd(lp, len))
-            {
-                if (str == tmpbuf) {
-                    /* This came in as integer so we can avoid parsing it again.
-                     * TODO: Create and use lpFindInteger; don't go via string. */
-                    lp = lpAppendInteger(lp, llval);
-                } else {
-                    lp = lpAppend(lp, (unsigned char*)str, len);
-                }
-                set->ptr = lp;
-            } else {
-                /* Size limit is reached. Convert to hashtable and add. */
-                setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
-                sds newval = sdsnewlen(str,len);
-                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
-            }
-            return 1;
-        }
-    } else if (set->encoding == OBJ_ENCODING_INTSET) {
-        long long value;
-        if (string2ll(str, len, &value)) {
-            uint8_t success = 0;
-            set->ptr = intsetAdd(set->ptr,value,&success);
-            if (success) {
-                maybeConvertIntset(set);
-                return 1;
-            }
-        } else {
-            /* Check if listpack encoding is safe not to cross any threshold. */
-            size_t maxelelen = 0, totsize = 0;
-            unsigned long n = intsetLen(set->ptr);
-            if (n != 0) {
-                size_t elelen1 = sdigits10(intsetMax(set->ptr));
-                size_t elelen2 = sdigits10(intsetMin(set->ptr));
-                maxelelen = max(elelen1, elelen2);
-                size_t s1 = lpEstimateBytesRepeatedInteger(intsetMax(set->ptr), n);
-                size_t s2 = lpEstimateBytesRepeatedInteger(intsetMin(set->ptr), n);
-                totsize = max(s1, s2);
-            }
-            if (intsetLen((const intset*)set->ptr) < server.set_max_listpack_entries &&
-                len <= server.set_max_listpack_value &&
-                maxelelen <= server.set_max_listpack_value &&
-                lpSafeToAdd(NULL, totsize + len))
-            {
-                /* In the "safe to add" check above we assumed all elements in
-                 * the intset are of size maxelelen. This is an upper bound. */
-                setTypeConvertAndExpand(set, OBJ_ENCODING_LISTPACK,
-                                        intsetLen(set->ptr) + 1, 1);
-                unsigned char *lp = set->ptr;
-                lp = lpAppend(lp, (unsigned char *)str, len);
-                lp = lpShrinkToFit(lp);
-                set->ptr = lp;
-                return 1;
-            } else {
-                setTypeConvertAndExpand(set, OBJ_ENCODING_HT,
-                                        intsetLen(set->ptr) + 1, 1);
-                /* The set *was* an intset and this value is not integer
-                 * encodable, so dictAdd should always work. */
-                sds newval = sdsnewlen(str,len);
-                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                *htGetMetadataSize(set->ptr) += sdsAllocSize(newval);
-                return 1;
-            }
-        }
-    } else {
-        serverPanic("Unknown set encoding");
+    const setTypeOps *ops = setTypeGetOps(set->encoding);
+    int64_t *llvalp = (str == NULL) || (str == tmpbuf) ? &llval : NULL;
+    int target_enc, added = ops->rawAdd(set, str, len, llvalp, str_is_sds, 0, &target_enc);
+    if (added == -1) {
+        serverAssert(str); /* make sure a string value is valid before conversion */
+        /* Doesn't fit under the current encoding: convert encoding and retry there. */
+        setTypeConvertAndExpand(set, target_enc, ops->size(set) + 1, 1);
+        added = setTypeGetOps(target_enc)->rawAdd(set, str, len, NULL, str_is_sds, 1, &target_enc);
+        serverAssert(added == 1);
+        return added;
     }
-    return 0;
+
+    /* Post-insert overflow check: an intset that grew past the configured
+     * limit converts to a hash table. */
+    if (added && set->encoding == OBJ_ENCODING_INTSET) maybeConvertIntset(set);
+    return added;
 }
 
 /* Deletes a value provided as an sds string from the set. Returns 1 if the
@@ -234,43 +179,13 @@ int setTypeRemove(robj *setobj, sds value) {
  * Returns 1 if the value was deleted and 0 if it was not a member of the set. */
 int setTypeRemoveAux(robj *setobj, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
-    if (!str) {
-        if (setobj->encoding == OBJ_ENCODING_INTSET) {
-            int success;
-            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
-            return success;
-        }
+    if (!str && setobj->encoding != OBJ_ENCODING_INTSET) {
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
     }
 
-    if (setobj->encoding == OBJ_ENCODING_HT) {
-        sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
-        int deleted = (dictDelete(setobj->ptr, sdsval) == DICT_OK);
-        if (sdsval != str) sdsfree(sdsval); /* free temp copy */
-        return deleted;
-    } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = setobj->ptr;
-        unsigned char *p = lpFirst(lp);
-        if (p == NULL) return 0;
-        p = lpFind(lp, p, (unsigned char*)str, len, 0);
-        if (p != NULL) {
-            lp = lpDelete(lp, p, NULL);
-            setobj->ptr = lp;
-            return 1;
-        }
-    } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        long long llval;
-        if (string2ll(str, len, &llval)) {
-            int success;
-            setobj->ptr = intsetRemove(setobj->ptr,llval,&success);
-            if (success) return 1;
-        }
-    } else {
-        serverPanic("Unknown set encoding");
-    }
-    return 0;
+    return setTypeGetOps(setobj->encoding)->rawRemove(setobj, str, len, llval, str_is_sds);
 }
 
 /* Check if an sds string is a member of the set. Returns 1 if the value is a
@@ -287,50 +202,25 @@ int setTypeIsMember(robj *subject, sds value) {
  * Returns 1 if the value is a member of the set and 0 if it isn't. */
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds) {
     char tmpbuf[LONG_STR_SIZE];
-    if (!str) {
-        if (set->encoding == OBJ_ENCODING_INTSET)
-            return intsetFind(set->ptr, llval);
+    if (!str && set->encoding != OBJ_ENCODING_INTSET) {
         len = ll2string(tmpbuf, sizeof tmpbuf, llval);
         str = tmpbuf;
         str_is_sds = 0;
     }
 
-    if (set->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = set->ptr;
-        unsigned char *p = lpFirst(lp);
-        return p && lpFind(lp, p, (unsigned char*)str, len, 0);
-    } else if (set->encoding == OBJ_ENCODING_INTSET) {
-        long long llval;
-        return string2ll(str, len, &llval) && intsetFind(set->ptr, llval);
-    } else if (set->encoding == OBJ_ENCODING_HT && str_is_sds) {
-        return dictFind(set->ptr, (sds)str) != NULL;
-    } else if (set->encoding == OBJ_ENCODING_HT) {
-        sds sdsval = sdsnewlen(str, len);
-        int result = dictFind(set->ptr, sdsval) != NULL;
-        sdsfree(sdsval);
-        return result;
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    return setTypeGetOps(set->encoding)->isMember(set, str, len, llval, str_is_sds);
 }
 
 void setTypeInitIterator(setTypeIterator *si, robj *subject) {
     si->subject = subject;
     si->encoding = subject->encoding;
-    if (si->encoding == OBJ_ENCODING_HT) {
-        dictInitIterator(&si->di, subject->ptr);
-    } else if (si->encoding == OBJ_ENCODING_INTSET) {
-        si->ii = 0;
-    } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
-        si->lpi = NULL;
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    si->typeOps = setTypeGetOps(si->encoding);
+    si->typeOps->iterInit(si);
 }
 
 void setTypeResetIterator(setTypeIterator *si) {
-    if (si->encoding == OBJ_ENCODING_HT)
-        dictResetIterator(&si->di);
+    si->subject = NULL;
+    si->typeOps->iterReset(si);
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -355,32 +245,7 @@ void setTypeResetIterator(setTypeIterator *si) {
  *
  * When there are no more elements -1 is returned. */
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
-    if (si->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictNext(&si->di);
-        if (de == NULL) return -1;
-        *str = dictGetKey(de);
-        *len = sdslen(*str);
-        *llele = -123456789; /* Not needed. Defensive. */
-    } else if (si->encoding == OBJ_ENCODING_INTSET) {
-        if (!intsetGet(si->subject->ptr,si->ii++,llele))
-            return -1;
-        *str = NULL;
-    } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = si->subject->ptr;
-        unsigned char *lpi = si->lpi;
-        if (lpi == NULL) {
-            lpi = lpFirst(lp);
-        } else {
-            lpi = lpNext(lp, lpi);
-        }
-        if (lpi == NULL) return -1;
-        si->lpi = lpi;
-        unsigned int l = 0;
-        *str = (char *)lpGetValue(lpi, &l, (long long *)llele);
-        *len = (size_t)l;
-    } else {
-        serverPanic("Wrong set encoding in setTypeNext");
-    }
+    if (si->typeOps->iterNext(si, str, len, llele) == -1) return -1;
     return si->encoding;
 }
 
@@ -415,24 +280,7 @@ sds setTypeNextObject(setTypeIterator *si) {
  * Note that both the str, len and llele pointers should be passed and cannot
  * be NULL. If str is set to NULL, the value is an integer stored in llele. */
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele) {
-    if (setobj->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictGetFairRandomKey(setobj->ptr);
-        *str = dictGetKey(de);
-        *len = sdslen(*str);
-        *llele = -123456789; /* Not needed. Defensive. */
-    } else if (setobj->encoding == OBJ_ENCODING_INTSET) {
-        *llele = intsetRandom(setobj->ptr);
-        *str = NULL; /* Not needed. Defensive. */
-    } else if (setobj->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = setobj->ptr;
-        int r = rand() % lpLength(lp);
-        unsigned char *p = lpSeek(lp, r);
-        unsigned int l;
-        *str = (char *)lpGetValue(p, &l, (long long *)llele);
-        *len = (size_t)l;
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    setTypeGetOps(setobj->encoding)->randomElement(setobj, str, len, llele);
     return setobj->encoding;
 }
 
@@ -466,31 +314,12 @@ robj *setTypePopRandom(robj *set) {
 }
 
 unsigned long setTypeSize(const robj *subject) {
-    if (subject->encoding == OBJ_ENCODING_HT) {
-        return dictSize((const dict*)subject->ptr);
-    } else if (subject->encoding == OBJ_ENCODING_INTSET) {
-        return intsetLen((const intset*)subject->ptr);
-    } else if (subject->encoding == OBJ_ENCODING_LISTPACK) {
-        return lpLength((unsigned char *)subject->ptr);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
+    return setTypeGetOps(subject->encoding)->size(subject);
 }
 
 size_t setTypeAllocSize(const robj *o) {
     serverAssertWithInfo(NULL,o,o->type == OBJ_SET);
-    size_t size = 0;
-    if (o->encoding == OBJ_ENCODING_HT) {
-        dict *d = o->ptr;
-        size += sizeof(dict) + dictMemUsage(d) + *htGetMetadataSize(d);
-    } else if (o->encoding == OBJ_ENCODING_INTSET) {
-        size = intsetAllocSize(o->ptr);
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        size = lpBytes(o->ptr);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
-    return size;
+    return setTypeGetOps(o->encoding)->allocSize(o);
 }
 
 /* Convert the set to specified encoding. The resulting dict (when converting
@@ -505,62 +334,21 @@ void setTypeConvert(robj *setobj, int enc) {
  * C_ERR on OOM (panic=0). If panic=1 is given, this function always returns
  * C_OK. */
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
-    setTypeIterator si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
-
-    if (enc == OBJ_ENCODING_HT) {
-        dict *d = dictCreate(&setDictType);
-        sds element;
-
-        /* Presize the dict to avoid rehashing */
-        if (panic) {
-            dictExpand(d, cap);
-        } else if (dictTryExpand(d, cap) != DICT_OK) {
-            dictRelease(d);
-            return C_ERR;
-        }
-
-        /* To add the elements we extract integers and create redis objects */
-        size_t *alloc_size = htGetMetadataSize(d);
-        setTypeInitIterator(&si, setobj);
-        while ((element = setTypeNextObject(&si)) != NULL) {
-            serverAssert(dictAdd(d,element,NULL) == DICT_OK);
-            *alloc_size += sdsAllocSize(element);
-        }
-        setTypeResetIterator(&si);
-
-        freeSetObject(setobj); /* frees the internals but not setobj itself */
-        setobj->encoding = OBJ_ENCODING_HT;
-        setobj->ptr = d;
-    } else if (enc == OBJ_ENCODING_LISTPACK) {
-        /* Preallocate the minimum two bytes per element (enc/value + backlen) */
-        size_t estcap = cap * 2;
-        if (setobj->encoding == OBJ_ENCODING_INTSET && setTypeSize(setobj) > 0) {
-            /* If we're converting from intset, we have a better estimate. */
-            size_t s1 = lpEstimateBytesRepeatedInteger(intsetMin(setobj->ptr), cap);
-            size_t s2 = lpEstimateBytesRepeatedInteger(intsetMax(setobj->ptr), cap);
-            estcap = max(s1, s2);
-        }
-        unsigned char *lp = lpNew(estcap);
-        char *str;
-        size_t len = 0;
-        int64_t llele = 0;
-        setTypeInitIterator(&si, setobj);
-        while (setTypeNext(&si, &str, &len, &llele) != -1) {
-            if (str != NULL)
-                lp = lpAppend(lp, (unsigned char *)str, len);
-            else
-                lp = lpAppendInteger(lp, llele);
-        }
-        setTypeResetIterator(&si);
-
-        freeSetObject(setobj); /* frees the internals but not setobj itself */
-        setobj->encoding = OBJ_ENCODING_LISTPACK;
-        setobj->ptr = lp;
-    } else {
+    if (enc != OBJ_ENCODING_HT && enc != OBJ_ENCODING_LISTPACK) {
         serverPanic("Unsupported set conversion");
     }
+
+    void *newptr = setTypeGetOps(enc)->convertFrom(setobj, cap, panic);
+    if (newptr == NULL) {
+        serverAssert(!panic);
+        return C_ERR;
+    }
+
+    setTypeFree(setobj); /* frees the internals but not setobj itself */
+    setobj->encoding = enc;
+    setobj->ptr = newptr;
     return C_OK;
 }
 
@@ -570,42 +358,15 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
  *
  * The resulting object always has refcount set to 1 */
 robj *setTypeDup(robj *o) {
-    robj *set;
-
     serverAssert(o->type == OBJ_SET);
+    return setTypeGetOps(o->encoding)->dup(o);
+}
 
-    /* Create a new set object that have the same encoding as the original object's encoding */
-    if (o->encoding == OBJ_ENCODING_INTSET) {
-        intset *is = o->ptr;
-        size_t size = intsetBlobLen(is);
-        intset *newis = zmalloc(size);
-        memcpy(newis,is,size);
-        set = createObject(OBJ_SET, newis);
-        set->encoding = OBJ_ENCODING_INTSET;
-    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *lp = o->ptr;
-        size_t sz = lpBytes(lp);
-        unsigned char *new_lp = zmalloc(sz);
-        memcpy(new_lp, lp, sz);
-        set = createObject(OBJ_SET, new_lp);
-        set->encoding = OBJ_ENCODING_LISTPACK;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        set = createSetObject();
-        dict *d = o->ptr;
-        dictExpand(set->ptr, dictSize(d));
-        setTypeIterator si;
-        setTypeInitIterator(&si, o);
-        char *str;
-        size_t len = 0;
-        int64_t intobj = 0;
-        while (setTypeNext(&si, &str, &len, &intobj) != -1) {
-            setTypeAdd(set, (sds)str);
-        }
-        setTypeResetIterator(&si);
-    } else {
-        serverPanic("Unknown set encoding");
-    }
-    return set;
+/* Frees the internals of a set object (but not the robj itself). Called by
+ * freeSetObject() in object.c, mirroring how freeHashObject() there just
+ * delegates to hashTypeFree() in t_hash.c. */
+void setTypeFree(robj *o) {
+    setTypeGetOps(o->encoding)->free(o);
 }
 
 void saddCommand(client *c) {
@@ -853,7 +614,7 @@ void spopWithCountCommand(client *c) {
      * the number of elements inside the set: simply return the whole set. */
     if (count >= size) {
         /* We just return the entire set */
-        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION);
+        sunionDiffGenericCommand(c,c->argv+1,1,NULL,SET_OP_UNION,0,0,0);
 
         /* Delete the set as it is now empty */
         dbDelete(c->db,c->argv[1]);
@@ -1633,18 +1394,29 @@ void sinterstoreCommand(client *c) {
 }
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
-                              robj *dstkey, int op) {
+                              robj *dstkey, int op,
+                              int cardinality_only, int approx, long limit)
+{
+    /* Approximate cardinality is only ever requested for SUNIONCARD, i.e. a
+     * non-storing UNION that returns a count. */
+    serverAssert(!approx || (op == SET_OP_UNION && cardinality_only && dstkey == NULL));
+
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator si;
     robj *dstset = NULL;
+    robj *hllobj = NULL; /* Used only for approximate (HLL) cardinality. */
     int dstset_encoding = OBJ_ENCODING_INTSET;
     char *str;
     size_t len = 0;
     int64_t llval = 0;
     int encoding;
-    int j, cardinality = 0;
-    int diff_algo = 1;
-    int sameset = 0; 
+    int j, diff_algo = 1;
+    long cardinality = 0;
+    int sameset = 0;
+    /* Memory tracking is only needed for SET_OP_DIFF. UNION just iterates the
+     * source sets; it never calls dictFind/dictAdd/dictDelete on a passed key,
+     * so it can't advance a rehash and change a source set's allocation size. */
+    int must_track_memory = (op != SET_OP_UNION && server.memory_tracking_enabled);
 
     for (j = 0; j < setnum; j++) {
         kvobj *setobj = lookupKeyRead(c->db, setkeys[j]);
@@ -1675,7 +1447,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             dstset_encoding = OBJ_ENCODING_HT;
         }
         sets[j].set = setobj;
-        if (server.memory_tracking_enabled)
+        if (must_track_memory)
             sets[j].oldsize = kvobjAllocSize(setobj);
         if (j > 0 && sets[0].set == sets[j].set) {
             sameset = 1; 
@@ -1725,14 +1497,53 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     if (op == SET_OP_UNION) {
-        /* Union is trivial, just add every element of every set to the
-         * temporary set. */
-        for (j = 0; j < setnum; j++) {
+        /* Union is trivial, just add every element of every set to either the
+         * temporary set (exact) or, for approximate cardinality, a temporary
+         * HLL object (standard sparse→dense encoding, same as PFADD). */
+        if (approx) hllobj = createHLLObject();
+        int early_exit = 0;
+        long elements_processed = 0;
+        long check_after = limit; /* For approx: first check after `limit` elements. */
+        for (j = 0; j < setnum && !early_exit; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
             setTypeInitIterator(&si, sets[j].set);
             while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
-                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                if (!approx) {
+                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                    if (cardinality_only && limit > 0 && cardinality >= limit) {
+                        early_exit = 1;
+                        break;
+                    }
+                    continue;
+                }
+
+                /* Approximate path: feed the element into the HLL. The estimate
+                 * is only ever read, so we can stop early once it is confidently
+                 * at/above the requested LIMIT. */
+                int retval;
+                if (str != NULL) {
+                    retval = hllAdd(hllobj, (unsigned char *)str, len);
+                } else {
+                    char buf[LONG_STR_SIZE];
+                    size_t slen = ll2string(buf, sizeof(buf), (long long)llval);
+                    retval = hllAdd(hllobj, (unsigned char *)buf, slen);
+                }
+                /* hllAdd() only fails on a corrupted HLL header, which cannot
+                 * happen for an HLL we just created ourselves. */
+                serverAssert(retval != -1);
+
+                elements_processed++;
+                if (limit > 0 && elements_processed >= check_after) {
+                    uint64_t est = hllCount(hllobj->ptr, NULL);
+                    if (est >= (uint64_t)limit) {
+                        early_exit = 1;
+                        break;
+                    }
+                    long remaining = (long)limit - (long)est;
+                    check_after = elements_processed +
+                        (remaining > HLL_CHECK_INTERVAL_FLOOR ? remaining : HLL_CHECK_INTERVAL_FLOOR);
+                }
             }
             setTypeResetIterator(&si);
         }
@@ -1757,8 +1568,39 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                     break;
             }
             if (j == setnum) {
-                /* There is no other set with this element. Add it. */
-                cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                /* There is no other set with this element. Add or count it if cardinality_only. */
+                if (cardinality_only) {
+                    cardinality++;
+                    if (limit > 0 && cardinality >= limit) {
+                        break; /* We reached the limit, break from the while loop iterating sets[0] */
+                    }
+                } else {
+                    cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+                }
+            }
+        }
+        setTypeResetIterator(&si);
+    } else if (op == SET_OP_DIFF && sets[0].set && diff_algo == 2 && cardinality_only && limit > 0) {
+        /* DIFF Algorithm 2b (cardinality-only with LIMIT):
+         *
+         * Collect sets[1..N] into a single auxiliary set and iterate
+         * the first set, counting elements absent from it with
+         * a single membership lookup each. This lets us stop as
+         * soon as LIMIT is reached. */
+        for (j = 1; j < setnum; j++) {
+            if (!sets[j].set) continue; /* non existing keys are like empty sets */
+
+            setTypeInitIterator(&si, sets[j].set);
+            while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1)
+                setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
+            setTypeResetIterator(&si);
+        }
+
+        setTypeInitIterator(&si, sets[0].set);
+        while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
+            if (!setTypeIsMemberAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT)) {
+                cardinality++;
+                if (cardinality >= limit) break; /* We reached the limit. */
             }
         }
         setTypeResetIterator(&si);
@@ -1790,7 +1632,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (cardinality == 0) break;
         }
     }
-    if (server.memory_tracking_enabled) {
+    if (must_track_memory) {
         for (j = 0; j < setnum; j++) {
             robj *obj = sets[j].set;
             if (!obj) continue;
@@ -1800,7 +1642,17 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
-    if (!dstkey) {
+    if (cardinality_only) {
+        if (approx) {
+            cardinality = hllCount(hllobj->ptr, NULL);
+            if (limit > 0 && cardinality > limit)
+                cardinality = limit;
+            decrRefCount(hllobj);
+        }
+        addReplyLongLong(c, cardinality);
+        server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
+                                          decrRefCount(dstset);
+    } else if (!dstkey) {
         addReplySetLen(c,cardinality);
         setTypeInitIterator(&si, dstset);
         while (setTypeNext(&si, &str, &len, &llval) != -1) {
@@ -1837,22 +1689,92 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
 
 /* SUNION key [key ...] */
 void sunionCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_UNION,0,0,0);
+}
+
+/* SUNIONCARD numkeys key [key ...] [APPROX] [LIMIT limit] */
+void sunioncardCommand(client *c) {
+    long j;
+    long numkeys = 0;
+    long limit = 0; /* 0 means no limit. */
+    int approx = 0;
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
+
+    for (j = 2 + numkeys; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+            j++;
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
+                return;
+        } else if (!strcasecmp(opt, "APPROX")) {
+            approx = 1;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    /* Both the exact and approximate (HLL) cardinality are computed by the
+     * generic union function; `approx` selects between them. */
+    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL,
+                             SET_OP_UNION, 1, approx, limit);
 }
 
 /* SUNIONSTORE destination key [key ...] */
 void sunionstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_UNION,0,0,0);
 }
 
 /* SDIFF key [key ...] */
 void sdiffCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF);
+    sunionDiffGenericCommand(c,c->argv+1,c->argc-1,NULL,SET_OP_DIFF,0,0,0);
 }
 
 /* SDIFFSTORE destination key [key ...] */
 void sdiffstoreCommand(client *c) {
-    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF);
+    sunionDiffGenericCommand(c,c->argv+2,c->argc-2,c->argv[1],SET_OP_DIFF,0,0,0);
+}
+
+/* SDIFFCARD numkeys key [key ...] [LIMIT limit] */
+void sdiffcardCommand(client *c) {
+    long j;
+    long numkeys = 0;
+    long limit = 0; /* 0 means no limit. */
+
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, LONG_MAX,
+                                      &numkeys, "numkeys should be greater than 0") != C_OK)
+        return;
+    if (numkeys > (c->argc - 2)) {
+        addReplyError(c, "Number of keys can't be greater than number of args");
+        return;
+    }
+
+    for (j = 2 + numkeys; j < c->argc; j++) {
+        char *opt = c->argv[j]->ptr;
+        int moreargs = (c->argc - 1) - j;
+
+        if (!strcasecmp(opt, "LIMIT") && moreargs) {
+            j++;
+            if (getPositiveLongFromObjectOrReply(c, c->argv[j], &limit,
+                                                 "LIMIT can't be negative") != C_OK)
+                return;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return;
+        }
+    }
+
+    sunionDiffGenericCommand(c, c->argv+2, numkeys, NULL, SET_OP_DIFF, 1, 0, limit);
 }
 
 void sscanCommand(client *c) {

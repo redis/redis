@@ -329,3 +329,152 @@ start_server {overrides {io-threads 4 save ""}} {
 }
 }
 
+# Regression test for https://github.com/redis/redis/issues/15311
+#
+# With io-threads enabled and a replica attached, a replica client can be handed
+# back from an IO thread to the main thread (clearing CLIENT_IO_WRITE_ENABLED)
+# while its write handler (sendReplyToClient) is still installed on the IO
+# thread's event loop. Because writeToClient() returns early when
+# CLIENT_IO_WRITE_ENABLED is cleared, the stale write handler is never removed.
+# With level-triggered epoll, the writable socket keeps firing EPOLLOUT and the
+# IO thread spins at 100% CPU forever, even after all load has stopped.
+#
+# To hit the race deterministically each cycle:
+#   1. Stop the replica process so it stops reading.
+#   2. Write a multi-MB burst on the master: this fills the master->replica
+#      socket, so the master does a partial write and installs the replica's
+#      write handler on its IO thread.
+#   3. Wait longer than the 100ms IOThreadClientsCron period: while the handler
+#      is installed, the cron hands the replica client back to the main thread
+#      and clears CLIENT_IO_WRITE_ENABLED.
+#   4. Resume the replica: the client is sent back to the IO thread and drained
+#      via writeToClient(c,0), which never removes the now-stale handler.
+#
+# After the cycles we measure the master process CPU during a strictly idle
+# window. A healthy server is near-idle; a server hitting the bug burns ~one
+# full core indefinitely.
+
+# Read total CPU ticks (utime + stime) consumed by all threads of a process,
+# from /proc/<pid>/stat. Linux only.
+proc proc_cpu_ticks {pid} {
+    set fd [open "/proc/$pid/stat" r]
+    set data [read $fd]
+    close $fd
+    # The 'comm' field (field 2) is wrapped in parens and may itself contain
+    # spaces or parens, so parse everything after the last ')'. After that, the
+    # remaining whitespace-separated fields begin at 'state' (field 3), so:
+    #   utime = field 14 -> index 11, stime = field 15 -> index 12
+    set rest [string range $data [expr {[string last ")" $data] + 1}] end]
+    set fields [split [string trim $rest]]
+    set utime [lindex $fields 11]
+    set stime [lindex $fields 12]
+    return [expr {$utime + $stime}]
+}
+
+# Returns the fraction of one CPU core used by the process over the given
+# wall-clock window (e.g. 1.0 == one core fully pegged).
+proc measure_proc_cpu_fraction {pid window_ms} {
+    set hz 100 ;# USER_HZ, virtually always 100 on Linux
+    set t0 [proc_cpu_ticks $pid]
+    after $window_ms
+    set t1 [proc_cpu_ticks $pid]
+    set ticks [expr {$t1 - $t0}]
+    return [expr {double($ticks) / ($hz * ($window_ms / 1000.0))}]
+}
+
+if {$::accurate && $::tcl_platform(platform) eq "unix" && $::tcl_platform(os) eq "Linux"} {
+
+start_server {overrides {io-threads 4 save ""} tags {"iothreads repl network external:skip"}} {
+start_server {overrides {io-threads 4 save ""}} {
+
+
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    set master_pid [srv 0 pid]
+    set slave [srv -1 client]
+    set slave_pid [srv -1 pid]
+
+    test {Setup replication and assign replica client to an IO thread} {
+        $slave slaveof $master_host $master_port
+        wait_for_sync $slave
+        wait_replica_online $master 0
+
+        # Generate a little traffic so the replica client is moved to an IO
+        # thread (replicas only move there once they are ONLINE and sending).
+        for {set i 0} {$i < 50} {incr i} { $master set warmup:$i $i }
+        wait_for_condition 50 100 {
+            [string match "*slave0:*io-thread=*" [$master info replication]] &&
+            [lindex [split [lindex [regexp -inline {io-thread=(\d+)} [$master info replication]] 1]] 0] > 0
+        } else {
+            fail "replica client was not assigned to an IO thread"
+        }
+    }
+
+    test {IO thread does not spin on EPOLLOUT after replica write load stops} {
+        set triggered 0
+        set max_sessions 15
+
+        for {set session 0} {$session < $max_sessions && !$triggered} {incr session} {
+            # Sustained high-rate, tiny-value write load (mirrors the report's
+            # `redis-benchmark -d 8`). The high command rate keeps the main
+            # thread continuously draining the replica via writeToClient(c,0)
+            # in processClientsFromMainThread, which is the path that can strand
+            # the replica's write handler.
+            set loaders {}
+            for {set i 0} {$i < 12} {incr i} {
+                lappend loaders [start_write_load $master_host $master_port 8 "" 8]
+            }
+
+            # Cycle the replica between stopped and running. Each stall (kept
+            # longer than the 100ms IOThreadClientsCron period) fills the
+            # master->replica socket and lets the cron hand the replica client
+            # back to the main thread while its write handler is still installed;
+            # the brief resume then lets processClientsFromMainThread drain it
+            # via writeToClient(c,0), which never removes the stale handler.
+            set deadline [expr {[clock milliseconds] + 6000}]
+            while {[clock milliseconds] < $deadline} {
+                exec kill -SIGSTOP $slave_pid
+                after 130
+                exec kill -SIGCONT $slave_pid
+                after 150
+            }
+            catch {exec kill -SIGCONT $slave_pid}
+
+            # Stop all load and let the replica catch up. A stuck (spinning) IO
+            # thread also fails to push the tail of the stream, so catching up is
+            # best-effort; the CPU measurement below is the authoritative detector.
+            foreach handle $loaders {
+                stop_write_load $handle
+            }
+            wait_load_handlers_disconnected
+            # Let the replica fully catch up so the next session starts synced.
+            # A stuck (spinning) IO thread can't push the tail of the stream, so
+            # this is best-effort; the CPU measurement below is the real detector.
+            wait_for_condition 150 100 {
+                [status $master master_repl_offset] eq [status $slave master_repl_offset]
+            } else {
+                puts "Session $session: replica did not catch up (offset gap [expr {[status $master master_repl_offset] - [status $slave master_repl_offset]}])"
+            }
+            after 500
+
+            # Measure master CPU twice during a strictly idle window. A one-shot
+            # backlog drain finishes between samples; a stranded write handler
+            # keeps the IO thread pegged across both.
+            set frac1 [measure_proc_cpu_fraction $master_pid 1000]
+            set frac2 [measure_proc_cpu_fraction $master_pid 1000]
+            puts "Session $session: master CPU during idle = [format %.2f $frac1] / [format %.2f $frac2] core(s)"
+
+            if {$frac1 > 0.5 && $frac2 > 0.5} {
+                set triggered 1
+                puts "Session $session: spin detected"
+            }
+        }
+
+        assert_equal 0 $triggered \
+            "IO thread is spinning on EPOLLOUT during idle (issue #15311)"
+    }
+}
+}
+
+}

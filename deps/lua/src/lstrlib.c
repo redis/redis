@@ -19,6 +19,11 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+/* Redis: needed to periodically invoke the Lua "count" hook from within the
+ * pattern matcher, so that long-running matches stay interruptible by the
+ * script timeout (lua-time-limit) and by SCRIPT KILL / FUNCTION KILL. */
+#include "ldo.h"
+
 
 /* macro to `unsign' a character */
 #define uchar(c)        ((unsigned char)(c))
@@ -172,6 +177,7 @@ typedef struct MatchState {
   const char *src_end;  /* end (`\0') of source string */
   lua_State *L;
   int level;  /* total number of captures (finished or unfinished) */
+  int matchcount;  /* Redis: countdown to the next Lua hook invocation */
   struct {
     const char *init;
     ptrdiff_t len;
@@ -362,7 +368,33 @@ static const char *match_capture (MatchState *ms, const char *s, int l) {
 }
 
 
+/* Redis: the pattern matcher below can run for a very long time inside this
+ * single C function (for example on catastrophic-backtracking patterns such
+ * as string.find(string.rep("a",N), string.rep("(.+)",M))) without ever
+ * returning control to the Lua VM. Because of that, the script "count" hook
+ * that enforces the busy-reply timeout (lua-time-limit) and that honors
+ * SCRIPT KILL / FUNCTION KILL would never get a chance to run, hanging the
+ * whole server. To keep such matches interruptible we invoke that hook
+ * ourselves once every LUA_MATCH_HOOK_INTERVAL calls into match(). */
+#define LUA_MATCH_HOOK_INTERVAL 100000
+
+static void match_run_hook (MatchState *ms) {
+  lua_State *L = ms->L;
+  /* Only bother when a count hook is installed, mirroring the VM's own
+   * trigger in traceexec(). luaD_callhook() additionally verifies that a hook
+   * is set and that hooks are currently allowed (preventing re-entrancy). If
+   * the hook decides to abort the script it raises a Lua error (longjmp),
+   * which safely unwinds the match() recursion just like the luaL_error()
+   * calls already used throughout this file. */
+  if (lua_gethookmask(L) & LUA_MASKCOUNT)
+    luaD_callhook(L, LUA_HOOKCOUNT, -1);
+}
+
 static const char *match (MatchState *ms, const char *s, const char *p) {
+  if (ms->matchcount-- == 0) {  /* Redis: keep pattern matching interruptible */
+    ms->matchcount = LUA_MATCH_HOOK_INTERVAL;
+    match_run_hook(ms);
+  }
   init: /* using goto's to optimize tail recursion */
   switch (*p) {
     case '(': {  /* start capture */
@@ -514,6 +546,7 @@ static int str_find_aux (lua_State *L, int find) {
     int anchor = (*p == '^') ? (p++, 1) : 0;
     const char *s1=s+init;
     ms.L = L;
+    ms.matchcount = LUA_MATCH_HOOK_INTERVAL;
     ms.src_init = s;
     ms.src_end = s+l1;
     do {
@@ -552,6 +585,7 @@ static int gmatch_aux (lua_State *L) {
   const char *p = lua_tostring(L, lua_upvalueindex(2));
   const char *src;
   ms.L = L;
+  ms.matchcount = LUA_MATCH_HOOK_INTERVAL;
   ms.src_init = s;
   ms.src_end = s+ls;
   for (src = s + (size_t)lua_tointeger(L, lua_upvalueindex(3));
@@ -656,6 +690,7 @@ static int str_gsub (lua_State *L) {
                       "string/function/table expected");
   luaL_buffinit(L, &b);
   ms.L = L;
+  ms.matchcount = LUA_MATCH_HOOK_INTERVAL;
   ms.src_init = src;
   ms.src_end = src+srcl;
   while (n < max_s) {

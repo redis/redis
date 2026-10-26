@@ -60,6 +60,9 @@
                                     "const": "hyperloglog"
                                 },
                                 {
+                                    "const": "array"
+                                },
+                                {
                                     "const": "list"
                                 },
                                 {
@@ -91,6 +94,9 @@
                                 },
                                 {
                                     "const": "transactions"
+                                },
+                                {
+                                    "const": "rate_limit"
                                 }
                             ]
                         },

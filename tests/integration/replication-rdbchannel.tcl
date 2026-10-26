@@ -299,8 +299,12 @@ start_server {tags {"repl external:skip debug_defrag:skip"}} {
             assert_lessthan [expr $peak_master_used_mem - $prev_used - $backlog_size] 1000000
             assert_lessthan $peak_master_rpl_buf [expr {$backlog_size + 1000000}]
             assert_lessthan $peak_master_slave_buf_size 1000000
-            # buffers in the replica are more than 5mb
-            assert_morethan $peak_replica_buf_size 5000000
+            # buffers in the replica are more than 5mb. Skip when testing
+            # compression as replica buf contains compressed data in that case
+            # which is a lot smaller
+            if {$::compression == 0} {
+                assert_morethan $peak_replica_buf_size 5000000
+            }
 
             stop_write_load $load_handle
         }
@@ -330,8 +334,18 @@ start_server {tags {"repl external:skip"}} {
             # generate some traffic to fill the replication buffer.
             $master config set rdb-key-save-delay 1000
             $replica config set key-load-delay 1000
+            # Keep reading the replication stream while loading the small RDB.
+            $replica config set loading-process-events-interval-bytes 1024
             $replica config set client-output-buffer-limit "replica 64kb 64kb 0"
             populate 2000 master 1
+
+            if {$::compression} {
+                # Prepare the payload before starting sync so random data generation
+                # doesn't consume the time available for replication buffering.
+                # Buffer blocks are 1 MB even with a smaller configured limit, so
+                # send 2 MB of random data to fill a block even with compression.
+                set payload [randstring 2000000 2000000]
+            }
 
             set prev_sync_full [s 0 sync_full]
             $replica replicaof $master_host $master_port
@@ -343,11 +357,15 @@ start_server {tags {"repl external:skip"}} {
                 fail "replica didn't start sync"
             }
 
-            # Create some traffic on replication stream
-            populate 100 master 100000
+            # Fill the replication buffer while the RDB is being transferred.
+            if {$::compression} {
+                $master set stream-payload $payload
+            } else {
+                populate 100 master 100000
+            }
 
             # Wait for replica's buffer limit reached
-            wait_for_log_messages -1 {"*Replication buffer limit has been reached*"} 0 1000 10
+            wait_for_log_messages -1 {"*Replication buffer limit has been reached*"} 0 100 10
 
             # Speed up loading
             $replica config set key-load-delay 0
@@ -434,7 +452,11 @@ start_server {tags {"repl external:skip debug_defrag:skip"}} {
             }
 
             # Generate replication traffic of ~20mb to disconnect the slave on obuf limit
-            populate 20 master 1000000 -1
+            if {$::compression} {
+                populate 200 master 1000000 -1 false 0 true
+            } else {
+                populate 20 master 1000000 -1
+            }
 
             wait_for_log_messages -1 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10
             $replica config set key-load-delay 0

@@ -294,16 +294,21 @@ start_server {tags {"external:skip needs:debug"}} {
         }
         
         test "HPEXPIRETIME persists after RDB reload ($type)" {
-            r del myhash
-            r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 300 NX FIELDS 1 field1
-            set before [r HPEXPIRETIME myhash FIELDS 1 field1]
-            r debug reload
-            set after [r HPEXPIRETIME myhash FIELDS 1 field1]
-            assert_equal $before $after
-            # field2 should not have expiration
-            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
-            assert_equal [get_stat_subexpiry r] 1
+            # Retry with a longer TTL when DEBUG RELOAD is slow.
+            assert_with_retry 3 iter {
+                r del myhash
+                r hset myhash field1 value1 field2 value2
+                set ttl_ms [expr {500 * $iter}]
+                r hpexpire myhash $ttl_ms NX FIELDS 1 field1
+                set before [r HPEXPIRETIME myhash FIELDS 1 field1]
+                r debug reload
+                set after [r HPEXPIRETIME myhash FIELDS 1 field1]
+            } {
+                $before == $after &&
+                [r HTTL myhash FIELDS 1 field2] == $T_NO_EXPIRY &&
+                [get_stat_subexpiry r] == 1
+            }
+
             # Wait for field1 to expire robustly
             wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" } 
             assert_equal [r hget myhash field1] ""
@@ -1275,6 +1280,24 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetex myhash PX 5000 FNX FIELDS 1 f3 v3] 1
             assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2 f3 v3"]
             assert_range [r hpttl myhash FIELDS 1 f3] 4500 5000
+        }
+
+        test "HSETEX EX - field appears twice in FIELDS list with EX is allowed ($type)" {
+            # The EX condition passes, so all fields must be set, and the last value wins.
+            r del myhash
+            r hset myhash f1 v1
+            r hsetex myhash EX 100 FIELDS 2 f1 new1 f1 new2
+            # Last value wins (same as plain HSET behavior with duplicate fields)
+            assert_equal "new2" [r hget myhash f1]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
+        }
+
+        test "HSETEX FNX - field appears twice in FIELDS list with EX is allowed ($type)" {
+            # The FNX condition passes, so all fields must be set, and the last value wins.
+            r del myhash
+            r hsetex myhash FNX EX 100 FIELDS 2 f1 new1 f1 new2
+            assert_equal "new2" [r hget myhash f1]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
         }
 
         test "HSETEX - Test 'EX' flag ($type)" {
@@ -2359,6 +2382,11 @@ start_server {tags {"hash"}} {
             assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash 60 FIELDS -1 f1}
             assert_error {*invalid number of fields*} {r HSETEX myhash FIELDS 0 f1 v1 EX 60}
             assert_error {*invalid number of fields*} {r HGETEX myhash FIELDS 0 f1 EX 60}
+            set future_sec [expr {[clock seconds] + 60}]
+            set future_ms [expr {[clock milliseconds] + 60000}]
+            foreach {cmd expire} [list HEXPIRE 60 HPEXPIRE 60000 HEXPIREAT $future_sec HPEXPIREAT $future_ms] {
+                assert_error {*wrong number of arguments*} [list r $cmd myhash $expire FIELDS 2147483647 f1]
+            }
 
             # Test missing FIELDS keyword
             assert_error {*unknown argument*} {r HEXPIRE myhash 60 2 f1 f2}

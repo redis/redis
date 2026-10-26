@@ -6,17 +6,22 @@ test "SENTINEL CONFIG SET and SENTINEL CONFIG GET handles multiple variables" {
     }
     assert_match {*yes*1234*} [S 1 SENTINEL CONFIG GET resolve-hostnames announce-port]
     assert_match {announce-port 1234} [S 1 SENTINEL CONFIG GET announce-port]
+    foreach_sentinel_id id {
+        S $id SENTINEL CONFIG SET resolve-hostnames no announce-port 0
+    }
 }
 
 test "SENTINEL CONFIG GET for duplicate and unknown variables" {
     assert_equal {OK} [S 1 SENTINEL CONFIG SET resolve-hostnames yes announce-port 1234]
     assert_match {resolve-hostnames yes} [S 1 SENTINEL CONFIG GET resolve-hostnames resolve-hostnames does-not-exist]
+    S 1 SENTINEL CONFIG SET resolve-hostnames no announce-port 0
 }
 
 test "SENTINEL CONFIG GET for patterns" {
     assert_equal {OK} [S 1 SENTINEL CONFIG SET loglevel notice announce-port 1234 announce-hostnames yes ]
     assert_match {loglevel notice} [S 1 SENTINEL CONFIG GET log* *level loglevel]
     assert_match {announce-hostnames yes announce-ip*announce-port 1234} [S 1 SENTINEL CONFIG GET announce*]
+    S 1 SENTINEL CONFIG SET announce-port 0 announce-hostnames no
 }
 
 test "SENTINEL CONFIG SET duplicate variables" {
@@ -36,6 +41,9 @@ test "SENTINEL CONFIG SET, one option does not exist" {
     }
     # The announce-port should not be set to 1234 as it was called with a wrong argument
     assert_match {*111*} [S 1 SENTINEL CONFIG GET announce-port]
+    foreach_sentinel_id id {
+        S $id SENTINEL CONFIG SET announce-port 0
+    }
 }
 
 test "SENTINEL CONFIG SET, one option with wrong value" {

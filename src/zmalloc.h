@@ -2,6 +2,9 @@
  *
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
+ * 
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
  *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
@@ -100,16 +103,19 @@ __attribute__((malloc,alloc_size(1),noinline)) void *ztrymalloc(size_t size);
 __attribute__((malloc,alloc_size(1),noinline)) void *ztrycalloc(size_t size);
 __attribute__((alloc_size(2),noinline)) void *ztryrealloc(void *ptr, size_t size);
 void zfree(void *ptr);
+void zfree_usable(void *ptr, size_t *usable);
+void zfree_with_size(void *ptr, size_t size);
 void *zmalloc_usable(size_t size, size_t *usable);
 void *zcalloc_usable(size_t size, size_t *usable);
 void *zrealloc_usable(void *ptr, size_t size, size_t *usable, size_t *old_usable);
 void *ztrymalloc_usable(size_t size, size_t *usable);
 void *ztrycalloc_usable(size_t size, size_t *usable);
 void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable, size_t *old_usable);
-void zfree_usable(void *ptr, size_t *usable);
 __attribute__((malloc)) char *zstrdup(const char *s);
 __attribute__((malloc)) char *zstrdup_usable(const char *s, size_t *usable);
 size_t zmalloc_used_memory(void);
+void zmalloc_reserve_thread_slots(int n);
+void zmalloc_register_reserved_slot(void);
 size_t zmalloc_get_peak_memory(void);
 time_t zmalloc_get_peak_memory_time(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));

@@ -25,7 +25,7 @@ namespace eval response_transformers {}
 
 # Transform a map response into an array of tuples (tuple = array with 2 elements)
 # Used for XREAD[GROUP]
-proc transfrom_map_to_tupple_array {argv response} {
+proc transform_map_to_tuple_array {argv response} {
     set tuparray {}
     foreach {key val} $response {
         set tmp {}
@@ -37,7 +37,7 @@ proc transfrom_map_to_tupple_array {argv response} {
 }
 
 # Transform an array of tuples to a flat array
-proc transfrom_tuple_array_to_flat_array {argv response} {
+proc transform_tuple_array_to_flat_array {argv response} {
     set flatarray {}
     foreach pair $response {
         lappend flatarray {*}$pair
@@ -47,10 +47,10 @@ proc transfrom_tuple_array_to_flat_array {argv response} {
 
 # With HRANDFIELD, we only need to transform the response if the request had WITHVALUES
 # (otherwise the returned response is a flat array in both RESPs)
-proc transfrom_hrandfield_command {argv response} {
+proc transform_hrandfield_command {argv response} {
     foreach ele $argv {
         if {[string compare -nocase $ele "WITHVALUES"] == 0} {
-            return [transfrom_tuple_array_to_flat_array $argv $response]
+            return [transform_tuple_array_to_flat_array $argv $response]
         }
     }
     return $response
@@ -58,10 +58,10 @@ proc transfrom_hrandfield_command {argv response} {
 
 # With some zset commands, we only need to transform the response if the request had WITHSCORES
 # (otherwise the returned response is a flat array in both RESPs)
-proc transfrom_zset_withscores_command {argv response} {
+proc transform_zset_withscores_command {argv response} {
     foreach ele $argv {
         if {[string compare -nocase $ele "WITHSCORES"] == 0} {
-            return [transfrom_tuple_array_to_flat_array $argv $response]
+            return [transform_tuple_array_to_flat_array $argv $response]
         }
     }
     return $response
@@ -69,29 +69,29 @@ proc transfrom_zset_withscores_command {argv response} {
 
 # With ZPOPMIN/ZPOPMAX, we only need to transform the response if the request had COUNT (3rd arg)
 # (otherwise the returned response is a flat array in both RESPs)
-proc transfrom_zpopmin_zpopmax {argv response} {
+proc transform_zpopmin_zpopmax {argv response} {
     if {[llength $argv] == 3} {
-        return [transfrom_tuple_array_to_flat_array $argv $response]
+        return [transform_tuple_array_to_flat_array $argv $response]
     }
     return $response
 }
 
-set ::trasformer_funcs {
-    XREAD transfrom_map_to_tupple_array
-    XREADGROUP transfrom_map_to_tupple_array
-    HRANDFIELD transfrom_hrandfield_command
-    ZRANDMEMBER transfrom_zset_withscores_command
-    ZRANGE transfrom_zset_withscores_command
-    ZRANGEBYSCORE transfrom_zset_withscores_command
-    ZRANGEBYLEX transfrom_zset_withscores_command
-    ZREVRANGE transfrom_zset_withscores_command
-    ZREVRANGEBYSCORE transfrom_zset_withscores_command
-    ZREVRANGEBYLEX transfrom_zset_withscores_command
-    ZUNION transfrom_zset_withscores_command
-    ZDIFF transfrom_zset_withscores_command
-    ZINTER transfrom_zset_withscores_command
-    ZPOPMIN transfrom_zpopmin_zpopmax
-    ZPOPMAX transfrom_zpopmin_zpopmax
+set ::transformer_funcs {
+    XREAD transform_map_to_tuple_array
+    XREADGROUP transform_map_to_tuple_array
+    HRANDFIELD transform_hrandfield_command
+    ZRANDMEMBER transform_zset_withscores_command
+    ZRANGE transform_zset_withscores_command
+    ZRANGEBYSCORE transform_zset_withscores_command
+    ZRANGEBYLEX transform_zset_withscores_command
+    ZREVRANGE transform_zset_withscores_command
+    ZREVRANGEBYSCORE transform_zset_withscores_command
+    ZREVRANGEBYLEX transform_zset_withscores_command
+    ZUNION transform_zset_withscores_command
+    ZDIFF transform_zset_withscores_command
+    ZINTER transform_zset_withscores_command
+    ZPOPMIN transform_zpopmin_zpopmax
+    ZPOPMAX transform_zpopmin_zpopmax
 }
 
 proc ::response_transformers::transform_response_if_needed {id argv response} {
@@ -100,11 +100,11 @@ proc ::response_transformers::transform_response_if_needed {id argv response} {
     }
 
     set key [string toupper [lindex $argv 0]]
-    if {![dict exists $::trasformer_funcs $key]} {
+    if {![dict exists $::transformer_funcs $key]} {
         return $response
     }
 
-    set transform [dict get $::trasformer_funcs $key]
+    set transform [dict get $::transformer_funcs $key]
 
     return [$transform $argv $response]
 }

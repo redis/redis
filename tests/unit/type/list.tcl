@@ -1298,6 +1298,20 @@ foreach {pop} {BLPOP BLMPOP_LEFT} {
         $rd close
         set _ $res
     } {foo{t} aguacate}
+
+    test "$pop when existing key is overwritten by SORT..STORE" {
+        set rd [redis_deferring_client]
+        r del owfoo{t} ownotfoo{t}
+
+        bpop_command $rd $pop owfoo{t} 0
+        wait_for_blocked_client
+        r set owfoo{t} placeholder        ;# wrong type: client stays blocked
+        r rpush ownotfoo{t} 3 1 2
+        r sort ownotfoo{t} store owfoo{t} ;# owfoo{t} overwritten -> list [1 2 3]
+        set res [$rd read]
+        assert_equal {owfoo{t} 1} $res
+        $rd close
+    }
 }
 
     test "BLPOP: timeout value out of range" {
@@ -1981,6 +1995,16 @@ foreach {type large} [array get largevalue] {
         test "LSET out of range index - $type" {
             assert_error ERR*range* {r lset mylist 10 foo}
         }
+
+        test "LSET out of range 64-bit index is not truncated - $type" {
+            create_$type mylist "99 98 $large 96 95"
+            # These indexes are out of range and must be rejected.
+            # As mentioned in #15402, they were truncated to a valid index.
+            assert_error ERR*range* {r lset mylist 4294967296 foo}
+            assert_error ERR*range* {r lset mylist 4294967298 foo}
+            assert_error ERR*range* {r lset mylist -4294967296 foo}
+            assert_equal "99 98 $large 96 95" [r lrange mylist 0 -1]
+        }
     }
 
     test {LSET against non existing key} {
@@ -2366,7 +2390,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         r LPUSH mylist 1
         wait_for_blocked_clients_count 0
         
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdrstat blpop r]
         
         $rd close
     }
@@ -2390,7 +2414,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         # unblock the client on timeout
         r client unblock $id timeout
         
-        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0} [cmdrstat blpop r]
+        assert_match {*calls=1,*,rejected_calls=0,failed_calls=0*} [cmdrstat blpop r]
         
         $rd close
     }

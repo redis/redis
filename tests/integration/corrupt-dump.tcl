@@ -18,6 +18,63 @@ set run_oom_tests [expr {($arch_name == "x86_64" || $arch_name == "aarch64") && 
 
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
+test {corrupt payload: zset reservation rejects oversized counts} {
+    start_server {overrides {loglevel verbose}} {
+        r debug set-skip-checksum-validation 1
+        r set target preserved
+        # Both legacy ZSET and ZSET_2 use the same 64-bit count. These values
+        # exercise sizing overflow and allocator rejection without attempting
+        # a large allocation. The footer has RDB version 9 and a dummy CRC.
+        foreach type {03 05} {
+            foreach count {fffffffffffffffe 1fffffffffffffff 1000000000000000} {
+                set payload [binary format H* "${type}81${count}09000000000000000000"]
+                assert_error {*Bad data format*} {r restore target 0 $payload replace}
+                assert_equal preserved [r get target]
+                assert_equal PONG [r ping]
+            }
+        }
+        verify_log_message 0 "*Unable to reserve zset index*" 0
+    }
+}
+
+test {Zset listpack scores are validated before loading or conversion} {
+    start_server {} {
+        r zadd score-source 1.5 a 2.5 b
+        assert_encoding listpack score-source
+        set payload [r dump score-source]
+        # Mutate only the score text; bypass the now-stale DUMP checksum so
+        # the test exercises semantic validation of a well-formed listpack.
+        r debug set-skip-checksum-validation 1
+        # Without sanitization a listpack that stays one is trusted, as for
+        # other types. A conversion still checks every score first.
+        foreach {sanitize limit} {yes 128 yes 1 no 1} {
+            r config set sanitize-dump-payload $sanitize
+            r config set zset-max-listpack-entries $limit
+            foreach score {nan NaN abc 1.x} {
+                set invalid [string map [list 1.5 $score] $payload]
+                assert_error {*Bad data format*} {r restore invalid-score 0 $invalid}
+                assert_equal 0 [r exists invalid-score]
+                assert_equal PONG [r ping]
+            }
+            # Both infinities are legal and must remain reloadable.
+            foreach score {inf -inf} {
+                # -inf needs four bytes, so use ZADD's genuine payload.
+                r del score-valid
+                r zadd score-valid $score a 2.5 b
+                set valid [r dump score-valid]
+                r restore score-roundtrip 0 $valid replace
+                assert_equal $score [r zscore score-roundtrip a]
+            }
+        }
+        r debug set-skip-checksum-validation 0
+        r config set sanitize-dump-payload yes
+        r config set zset-max-listpack-entries 128
+        r debug reload
+        assert_equal PONG [r ping]
+        assert_equal 0 [r exists invalid-score]
+    }
+}
+
 test {corrupt payload: #7445 - with sanitize} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload yes
@@ -277,6 +334,20 @@ test {corrupt payload: listpack too long entry prev len} {
         } err
         assert_match "*Bad data format*" $err
         verify_log_message 0 "*Stream listpack integrity check failed*" 0
+    }
+}
+
+test {corrupt payload: stream listpack entry with corrupt encoding crashes lpFirst} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        # Payload: stream listpack with a valid header but a first entry
+        # whose encoding byte is LP_ENCODING_32BIT_STR (0xF0) declaring a
+        # 0x7FFFFFFF-byte string running past the end of the listpack.
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r RESTORE mystream 0 "\x1B\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\xF0\xFF\xFF\xFF\x7F\x01\x81\x6B\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0C\x00\x00\x00\x00\x00\x00\x00\x00\x00" REPLACE} err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Stream listpack integrity check failed*" 0
+        r ping
     }
 }
 
@@ -989,6 +1060,214 @@ test {corrupt payload: fuzzer findings - vector sets with wrong encoding} {
     }
 }
 
+test {corrupt payload: fuzzer findings - decrRefCount on NULL robj on corrupt KEY_META payload} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        catch {r restore key 0 "\xF3\x02\x01\x0D\x00\x54\x23\x3F\xC9\x82\x32\x05\x8D" replace} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream with NACK shared between two consumers} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r debug set-skip-checksum-validation 1
+        # Payload: stream with entry 1-0, one consumer group (mygroup),
+        # two consumers whose PELs both reference 1-0 (shared NACK).
+        # XACK on one consumer frees the NACK, leaving a dangling
+        # pointer in the other consumer's PEL (use-after-free).
+        catch {r RESTORE mystream 0 "\x1a\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1d\x1d\x00\x00\x00\x0a\x00\x01\x01\x00\x01\x01\x01\x81\x6b\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xff\x01\x01\x00\x01\x00\x00\x00\x01\x01\x07\x6d\x79\x67\x72\x6f\x75\x70\x01\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x64\x42\xb9\x9d\x01\x00\x00\x01\x02\x09\x63\x6f\x6e\x73\x75\x6d\x65\x72\x41\x01\x64\x42\xb9\x9d\x01\x00\x00\x01\x64\x42\xb9\x9d\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x09\x63\x6f\x6e\x73\x75\x6d\x65\x72\x42\x01\x64\x42\xb9\x9d\x01\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x40\x64\x40\x64\x00\x00\x00\x0d\x00\xe7\x12\xf7\xcc\x25\xd5\x0e\x44"} err
+        catch {r XACK mystream mygroup 1-0} _
+        catch {r XREADGROUP GROUP mygroup consumerA COUNT 10 STREAMS mystream 0} _
+        catch {r DEL mystream} _
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream listpack with wrong deleted count in header} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        # Payload: stream whose listpack header says deleted_count = 1
+        # but the only entry is live.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x00\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x01\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        catch {r XREAD COUNT 1 STREAMS mystream $} _
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream length inconsistent with live entries} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r debug set-skip-checksum-validation 1
+        # Payload: listpack has master.count=1 (lp_live=1) so the lp_live <= 0
+        # guard passes, but s->length=2 while live_entries accumulates to 1.
+        # Exercises the s->length != live_entries check in rdb.c.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x01\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x02\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        catch {r XREAD COUNT 1 STREAMS mystream $} _
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream all-tombstone listpack with zero length} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r debug set-skip-checksum-validation 1
+        # Payload: listpack has lp_live = 0 (only a tombstone entry) and
+        # s->length = 0. With lp_live rejected only on < 0 this would load
+        # silently into an inconsistent state (raxSize > 0, length = 0);
+        # the <= 0 check rejects it at the listpack header.
+        catch {r RESTORE mystream 0 "\x1A\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x1D\x1D\x00\x00\x00\x0A\x00\x00\x01\x01\x01\x01\x01\x81\x6B\x02\x00\x01\x03\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\xFF\x00\x01\x00\x01\x00\x00\x00\x01\x00\x40\x64\x40\x64\x00\x00\x00\x0D\x00\xBD\x89\x4D\xF3\x41\xC5\xE0\x8E" REPLACE} err
+        catch {r XREAD COUNT 1 STREAMS mystream $} _
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: stream live entry count integer overflow bypasses length check} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        # Three listpacks whose lp_live counts sum to exactly 2^64, wrapping
+        # live_entries (uint64_t) back to 0.  Stream length is also set to 0, so
+        # without the overflow guard the s->length != live_entries check passes,
+        # silently accepting a structurally broken stream.
+        # (LLONG_MAX + LLONG_MAX + 2 = 2^64 => live_entries wraps to 0)
+        catch {r RESTORE mystream 0 "\x0F\x03\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x11\x11\x00\x00\x00\x01\x00\xF4\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F\x09\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x11\x11\x00\x00\x00\x01\x00\xF4\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F\x09\xFF\x10\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x09\x09\x00\x00\x00\x01\x00\x02\x01\xFF\x00\x03\x00\x00\x0A\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: zipmap - element wouldn't fit in listpack} {
+    # Redis converts legacy zipmap encoded hashes to listpacks.
+    # This test creates a zipmap entry with a 1GB value which cannot
+    # fit into a listpack and verifies that RESTORE fails.
+
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no proto-max-bulk-len 2147483648 client-query-buffer-limit 2147483648]] {
+        proc zipmap_encode_len {len} {
+            if {$len < 254} {
+                return [binary format c $len]
+            } else {
+                return [binary format ci 254 $len]
+            }
+        }
+        r config set sanitize-dump-payload no
+
+        # Generates Zipmap with 1GB value - should fail lpSafeToAdd check
+        set val_len [expr {1024 * 1024 * 1024 + 1}]
+
+        # Zipmap has 1 element
+        set zm [binary format c 1]
+        # Field is 1 byte long
+        append zm [zipmap_encode_len 1]
+        append zm "k"
+        # Value is 1GB long
+        append zm [zipmap_encode_len $val_len]
+        append zm [binary format c 0]
+        append zm [string repeat "A" $val_len]
+        # ZIPMAP_END marker
+        append zm [binary format c 255]
+        # Prepend RDB header
+        set zm_len [string length $zm]
+        set rdb_len [binary format cI 0x80 $zm_len]
+        set dump [binary format c 9]
+        append dump $rdb_len
+        append dump $zm
+        append dump [binary format s 9]
+        append dump [binary format w 0]
+
+        catch {r RESTORE _hash 0 $dump} err
+        assert_match "*Bad data format*" $err
+    }
+} {} {large-memory}
+
+test {corrupt payload: zipmap - 5 bytes length encoding for a small field} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        catch {
+            r restore key 0 "\x09\x11\x01\xfe\x04\x00\x00\x00\x01\x00\xff\x00\x04\x00\x76\x61\x6c\x31\xff\x09\x00\xf9\xd5\xa4\xf7\x7d\x00\x3f\x1b"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*integrity check failed*" 0
+    }
+}
+
+test {corrupt payload: zipmap - 5 bytes length encoding for a small value} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no]] {
+        catch {
+            r restore key 0 "\x09\x0e\x01\x01\x6b\xfe\x04\x00\x00\x00\x00\x76\x61\x6c\x31\xff\x09\x00\xd0\xf9\xe4\x1d\xe4\xfb\x11\x4c"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*integrity check failed*" 0
+    }
+}
+
+test {corrupt payload: zipmap - 5 bytes length encoding and a huge field} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch {
+            r restore key 0 "\x09\x41\x15\x02\x04\x6b\x65\x79\x31\x04\x00\x76\x61\x6c\x31\xfe\x04\x00\x00\x00\xfe\xff\xff\xff\xfd\x00\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\x42\xff\x09\x00\x54\x2f\x0a\xca\x4e\x5c\x49\x9f"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*integrity check failed*" 0
+    }
+}
+
+test {corrupt payload: stream - duplicated consumer PEL entry} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        catch {
+            r restore key 0 "\x15\x01\x10\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\xc3\x39\x40\x42\x15\x42\x00\x00\x00\x11\x00\x02\x01\x00\x01\x01\x01\x86\x66\x69\x65\x6c\x64\x31\x07\x00\x01\x40\x0f\x0a\x00\x01\x86\x76\x61\x6c\x75\x65\x31\x07\x04\x20\x0b\x02\xcd\xd9\x02\xe0\x01\x22\x01\x32\x07\x80\x1a\x04\x32\x07\x06\x01\xff\x02\x81\x00\x00\x01\x9b\x0d\x56\xb7\x90\x00\x81\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x02\x01\x07\x6d\x79\x67\x72\x6f\x75\x70\x81\x00\x00\x01\x9b\x0d\x56\xb7\x90\x00\x02\x02\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\x80\xd9\x56\x0d\x9b\x01\x00\x00\x01\x00\x00\x01\x9b\x0d\x56\xb7\x90\x00\x00\x00\x00\x00\x00\x00\x00\x80\xd9\x56\x0d\x9b\x01\x00\x00\x01\x01\x09\x63\x6f\x6e\x73\x75\x6d\x65\x72\x31\x80\xd9\x56\x0d\x9b\x01\x00\x00\x80\xd9\x56\x0d\x9b\x01\x00\x00\x02\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\x0c\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09\x00\x4b\xe0\x99\x30\x67\x4d\xe5\x87"
+        } err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Stream consumer PEL entry already has a consumer assigned*" 0
+    }
+}
+
+test {corrupt payload: stream with negative entries_added} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        # Stream with 3 entries (IDs 1-0, 2-0, 3-0) where entries_added is
+        # patched to 0xFFFFFFFF00000000 (exceeds INT64_MAX).  When cast to
+        # signed int64 for display via XINFO, this appears as -4294967296.
+        # The RDB loader must reject entries_added values that overflow.
+        catch {r RESTORE mystream 0 "\x15\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x33\x33\x00\x00\x00\x14\x00\x03\x01\x00\x01\x01\x01\x81\x66\x02\x00\x01\x02\x01\x00\x01\x00\x01\x81\x76\x02\x04\x01\x02\x01\x01\x01\x00\x01\x81\x76\x02\x04\x01\x02\x01\x02\x01\x00\x01\x81\x76\x02\x04\x01\xff\x03\x03\x00\x01\x00\x00\x00\x81\xff\xff\xff\xff\x00\x00\x00\x00\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00"} err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Stream entries_added inconsistent with length*" 0
+    }
+}
+
+test {corrupt payload: stream consumer group with overflowing entries_read} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        r debug set-skip-checksum-validation 1
+        # Stream with 2 entries and a consumer group whose entries_read is
+        # patched to 0xFFFFFFFF00000000 (exceeds INT64_MAX and the stream's
+        # entries_added of 2).  The RDB loader must reject entries_read values
+        # that overflow or are inconsistent with entries_added.
+        catch {r RESTORE mystream 0 "\x15\x01\x10\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\xc3\x39\x40\x42\x15\x42\x00\x00\x00\x11\x00\x02\x01\x00\x01\x01\x01\x86\x66\x69\x65\x6c\x64\x31\x07\x00\x01\x40\x0f\x0a\x00\x01\x86\x76\x61\x6c\x75\x65\x31\x07\x04\x20\x0b\x02\xcd\xd9\x02\xe0\x01\x22\x01\x32\x07\x80\x1a\x04\x32\x07\x06\x01\xff\x02\x81\x00\x00\x01\x9b\x0d\x56\xb7\x90\x00\x81\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x02\x01\x07\x6d\x79\x67\x72\x6f\x75\x70\x81\x00\x00\x01\x9b\x0d\x56\xb7\x90\x00\x81\xff\xff\xff\xff\x00\x00\x00\x00\x02\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\x80\xd9\x56\x0d\x9b\x01\x00\x00\x01\x00\x00\x01\x9b\x0d\x56\xb7\x90\x00\x00\x00\x00\x00\x00\x00\x00\x80\xd9\x56\x0d\x9b\x01\x00\x00\x01\x01\x09\x63\x6f\x6e\x73\x75\x6d\x65\x72\x31\x80\xd9\x56\x0d\x9b\x01\x00\x00\x80\xd9\x56\x0d\x9b\x01\x00\x00\x02\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x9b\x0d\x56\xa9\xb7\x00\x00\x00\x00\x00\x00\x00\x00\x0c\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09\x00\x4b\xe0\x99\x30\x67\x4d\xe5\x87"} err
+        assert_match "*Bad data format*" $err
+        verify_log_message 0 "*Stream cgroup entries_read inconsistent with entries_added*" 0
+    }
+}
+
+# Stream DUMP (RDB_TYPE_STREAM_LISTPACKS) with 6 entries (IDs 1-0..6-0,
+# field f). The first entry's flags element is stored as a 64-bit integer
+# (LP_ENCODING_64BIT_INT) instead of the minimal 7-bit encoding. CRC is stale;
+# tests skip checksum validation.
+set ::stream_nonminimal_flags "\x0f\x01\x10\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x40\x62\x62\x00\x00\x00\x23\x00\x06\x01\x00\x01\x01\x01\x81\x66\x02\x00\x01\xf4\x02\x00\x00\x00\x00\x00\x00\x00\x09\x00\x01\x00\x01\x82\x76\x30\x03\x04\x01\x02\x01\x01\x01\x00\x01\x82\x76\x31\x03\x04\x01\x02\x01\x02\x01\x00\x01\x82\x76\x32\x03\x04\x01\x02\x01\x03\x01\x00\x01\x82\x76\x33\x03\x04\x01\x02\x01\x04\x01\x00\x01\x82\x76\x34\x03\x04\x01\x02\x01\x05\x01\x00\x01\x82\x76\x35\x03\x04\x01\xff\x06\x06\x00\x00\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+test {corrupt payload: stream XTRIM with non-minimally encoded flags} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        assert_equal {OK} [r restore key 0 $::stream_nonminimal_flags]
+        assert_equal 6 [r xlen key]
+        r xtrim key maxlen 1
+        assert_equal 1 [r xlen key]
+        r ping
+    }
+}
 
 } ;# tags
-
