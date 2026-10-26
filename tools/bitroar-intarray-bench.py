@@ -268,6 +268,8 @@ def main():
                         command = ["BITRANGEINTARRAY", key]
                         if offsets is not None:
                             command += [*offsets, "BIT"]
+                        else:
+                            command += [0, -1]
                     else:
                         prefix = "R64." if values and values[-1] > 0xffffffff else "R."
                         command = [prefix + ("GETINTARRAY" if ranks is None else "RANGEINTARRAY"), key]

@@ -2198,7 +2198,6 @@ proc assert_bitmap_has_exact_bits {key bits} {
         assert_equal 1 [r getbit $key $bit]
     }
     # Check integer-array reads on both string and native bitmaps.
-    assert_equal $unique [r bitrangeintarray $key]
     assert_equal $unique [r bitrangeintarray $key 0 -1]
     if {[llength $unique] >= 4} {
         assert_equal [lrange $unique 1 3] [r bitrangeintarray $key \
@@ -4840,9 +4839,9 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
 } ;# run_solo
 
 # BITRANGEINTARRAY returns the offsets of the set bits in a range, in
-# ascending order. The range is interpreted as in BITCOUNT: optional start and
-# end indexes in BYTE (the default) or BIT units, where negative indexes count
-# from the end of the value.
+# ascending order. The range is interpreted as in BITCOUNT: start and end
+# indexes in BYTE (the default) or BIT units, where negative indexes count from
+# the end of the value. LIMIT caps the number of returned offsets.
 
 # Create a native bitmap with bits 0 .. nbits - 1 all set. NOT stores each
 # full container as a single run, so even 2^32 bits take only a few MiB.
@@ -4888,17 +4887,25 @@ proc intarray_expected {offsets len start end unit} {
 start_server {tags {"bitmap" "bitmap-roaring"}} {
     test {BITRANGEINTARRAY validates its arguments} {
         seed_roaring_bitmap bitmap:bitmap {0 9}
+        # The range is required.
         assert_error {ERR wrong number of arguments*} {r bitrangeintarray}
-        # A start without an end, or an argument after the unit.
-        assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0}
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray bitmap:bitmap}
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray bitmap:bitmap 0}
         assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0 1 bit extra}
         # Both ends must be 64-bit integers.
         assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap a 1}
         assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 1.5}
         assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 9223372036854775808}
+        # LIMIT takes one non-negative count, after the range.
+        assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0 1 limit}
+        assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0 1 bit limit}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap limit 1 0 1}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 limit 1}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 1 limit a}
+        assert_error {ERR LIMIT can't be negative*} {r bitrangeintarray bitmap:bitmap 0 1 limit -1}
     }
 
-    test {BITRANGEINTARRAY without a range returns every set bit} {
+    test {BITRANGEINTARRAY over the whole value returns every set bit} {
         # Unsorted input with a duplicate, across two containers. The reply is
         # sorted and unique.
         set offsets {65536 9 1 0 9 257 2 65535}
@@ -4906,8 +4913,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         assert_equal bitmap [r type bitmap:basic]
         set all [lsort -integer -unique $offsets]
 
-        # No range, and the ranges that cover the whole value.
-        assert_equal $all [r bitrangeintarray bitmap:basic]
+        # The ranges that cover the whole value.
         assert_equal $all [r bitrangeintarray bitmap:basic 0 -1]
         assert_equal $all [r bitrangeintarray bitmap:basic 0 -1 bit]
         assert_equal $all [r bitrangeintarray bitmap:basic -9223372036854775808 9223372036854775807]
@@ -4983,8 +4989,8 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         seed_roaring_bitmap bitmap:native $bits
 
         # The whole value is sorted and unique, and the same for both keys.
-        assert_equal [lsort -integer -unique $bits] [r bitrangeintarray bitmap:str]
-        assert_equal [r bitrangeintarray bitmap:str] [r bitrangeintarray bitmap:native]
+        assert_equal [lsort -integer -unique $bits] [r bitrangeintarray bitmap:str 0 -1]
+        assert_equal [r bitrangeintarray bitmap:str 0 -1] [r bitrangeintarray bitmap:native 0 -1]
 
         # Random ranges, including negative indexes and ends past the value
         # (about 12500 bytes or 100000 bits long).
@@ -4998,6 +5004,41 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         }
     }
 
+    test {BITRANGEINTARRAY LIMIT returns the lowest offsets in the range} {
+        # 600 bits, so native bitmap batches of 256 values end before, at and
+        # after the limit.
+        set bits {}
+        for {set i 0} {$i < 600} {incr i} {lappend bits [expr {$i * 37}]}
+        r del bitmap:str
+        foreach bit $bits {r setbit bitmap:str $bit 1}
+        seed_roaring_bitmap bitmap:native $bits
+
+        foreach key {bitmap:str bitmap:native} {
+            # Limits inside a batch, on batch boundaries, and past the result.
+            foreach limit {1 100 255 256 257 512 599 600 601 9223372036854775807} {
+                set expected [lrange $bits 0 [expr {min($limit, [llength $bits]) - 1}]]
+                assert_equal $expected [r bitrangeintarray $key 0 -1 LIMIT $limit] "$key $limit"
+            }
+            assert_equal {} [r bitrangeintarray $key 0 -1 limit 0]
+
+            # The limit applies after the range, in either unit.
+            assert_equal {37 74 111} [r bitrangeintarray $key 1 -1 bit limit 3]
+            assert_equal {37 74 111} [r bitrangeintarray $key 1 100 byte limit 3]
+
+            # The options after the range may come in any order, and the last
+            # LIMIT or unit wins.
+            # Bits 0 .. 40 hold {0 37}, and bytes 0 .. 40 hold {0 37 74 ...}.
+            assert_equal {0 37} [r bitrangeintarray $key 0 40 limit 3 bit]
+            assert_equal {0 37 74} [r bitrangeintarray $key 0 40 limit 3 byte]
+            assert_equal {0 37 74} [r bitrangeintarray $key 0 40 bit limit 1 byte limit 3]
+            assert_equal [lrange $bits 300 309] \
+                [r bitrangeintarray $key [lindex $bits 300] -1 bit limit 10]
+            assert_equal {} [r bitrangeintarray $key -1 -2 limit 3]
+        }
+        r del bitmap:missing
+        assert_equal {} [r bitrangeintarray bitmap:missing 0 -1 limit 3]
+    }
+
     test {BITRANGEINTARRAY returns empty arrays for missing keys and values without set bits} {
         # A missing key, an empty native bitmap, a native bitmap whose only bit
         # was cleared, an empty string, and a string of zero bytes.
@@ -5008,10 +5049,9 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         r set bitmap:emptystring {}
         r set bitmap:zerostring [binary format H* 0000]
 
-        # No range, then ranges inside the value, reversed, past the end, and
+        # Ranges covering the value, inside it, reversed, past the end, and
         # the widest possible.
         foreach key {bitmap:missing bitmap:empty bitmap:zero bitmap:emptystring bitmap:zerostring} {
-            assert_equal {} [r bitrangeintarray $key]
             foreach bounds {{0 -1} {0 0} {-1 -1} {1 0} {0 99999999} {-1 -2}
                             {0 -1 bit} {-1 -1 bit} {-9223372036854775808 9223372036854775807}} {
                 assert_equal {} [r bitrangeintarray $key {*}$bounds]
@@ -5022,7 +5062,6 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
     test {BITRANGEINTARRAY rejects non-bitmap types} {
         r del list
         r lpush list value
-        assert_error {WRONGTYPE*} {r bitrangeintarray list}
         assert_error {WRONGTYPE*} {r bitrangeintarray list 0 -1}
         assert_error {WRONGTYPE*} {r bitrangeintarray list 0 -1 bit}
     }
@@ -5033,14 +5072,14 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
 
             # 0x80 0x40 sets bits 0 and 9.
             r set bitmap:string [binary format H* 8040]
-            assert_equal {0 9} [r bitrangeintarray bitmap:string]
+            assert_equal {0 9} [r bitrangeintarray bitmap:string 0 -1]
             assert_equal {9} [r bitrangeintarray bitmap:string 1 1]
             assert_equal {0} [r bitrangeintarray bitmap:string 0 8 bit]
 
             # Integer-encoded strings expose the bits of their decimal digits:
             # "123" is 0x31 0x32 0x33.
             r set bitmap:integer 123
-            assert_equal {2 3 7 10 11 14 18 19 22 23} [r bitrangeintarray bitmap:integer]
+            assert_equal {2 3 7 10 11 14 18 19 22 23} [r bitrangeintarray bitmap:integer 0 -1]
             assert_equal {18 19 22 23} [r bitrangeintarray bitmap:integer -1 -1]
             assert_equal {22 23} [r bitrangeintarray bitmap:integer -2 -1 bit]
 
@@ -5064,15 +5103,18 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
             $client readraw 1
 
             # The whole value, a byte range and a bit range.
-            assert_equal {*3} [$client bitrangeintarray bitmap:protocol]
+            assert_equal {*3} [$client bitrangeintarray bitmap:protocol 0 -1]
             foreach bit {0 8 65536} {assert_equal ":$bit" [$client read]}
             assert_equal {*1} [$client bitrangeintarray bitmap:protocol 1 1]
             assert_equal {:8} [$client read]
             assert_equal {*2} [$client bitrangeintarray bitmap:protocol 8 65536 bit]
             foreach bit {8 65536} {assert_equal ":$bit" [$client read]}
+            # LIMIT sets the array length to the number of returned offsets.
+            assert_equal {*2} [$client bitrangeintarray bitmap:protocol 0 -1 limit 2]
+            foreach bit {0 8} {assert_equal ":$bit" [$client read]}
 
             # Empty results: a missing key and an empty bitmap.
-            assert_equal {*0} [$client bitrangeintarray bitmap:missing]
+            assert_equal {*0} [$client bitrangeintarray bitmap:missing 0 -1]
             assert_equal {*0} [$client bitrangeintarray bitmap:empty 0 1]
             $client close
         }
@@ -5082,7 +5124,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         # The whole value, a byte range, a bit range, and an empty range, which
         # replies without streaming.
         seed_roaring_bitmap bitmap:suppressed {0 8 65536}
-        set commands {{bitrangeintarray bitmap:suppressed}
+        set commands {{bitrangeintarray bitmap:suppressed 0 -1}
                       {bitrangeintarray bitmap:suppressed 1 1}
                       {bitrangeintarray bitmap:suppressed 8 65536 bit}
                       {bitrangeintarray bitmap:suppressed -1 -2}}
@@ -5115,7 +5157,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
                 lappend expected [expr {$base + $i * 65536 + ($i % 17)}]
             }
             seed_roaring_bitmap bitmap:containers $expected
-            assert_equal $expected [r bitrangeintarray bitmap:containers]
+            assert_equal $expected [r bitrangeintarray bitmap:containers 0 -1]
 
             # Bit ranges whose ends are set bits, selected by list index. The
             # indexes sit on both sides of the 256-value batch boundaries.
@@ -5143,7 +5185,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         set bitset {}
         for {set i 0} {$i < 10000} {incr i 2} {lappend bitset $i}
         seed_roaring_bitmap bitmap:bitset $bitset
-        assert_equal $bitset [r bitrangeintarray bitmap:bitset]
+        assert_equal $bitset [r bitrangeintarray bitmap:bitset 0 -1]
         # Offsets 4000 .. 4600 by bit range, and 4000 .. 4598 by byte range.
         assert_equal [lrange $bitset 2000 2300] [r bitrangeintarray bitmap:bitset 3999 4600 bit]
         assert_equal [lrange $bitset 2000 2299] [r bitrangeintarray bitmap:bitset 500 574]
@@ -5152,7 +5194,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         create_full_bitmap bitmap:run 8192
         set run {}
         for {set i 0} {$i < 8192} {incr i} {lappend run $i}
-        assert_equal $run [r bitrangeintarray bitmap:run]
+        assert_equal $run [r bitrangeintarray bitmap:run 0 -1]
         # Ranges starting and ending inside the run, the last byte, and an end
         # past the value.
         assert_equal [lrange $run 4093 4609] [r bitrangeintarray bitmap:run 4093 4609 bit]
@@ -5177,7 +5219,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
             seed_roaring_bitmap bitmap:wide $offsets
             r config set proto-max-bulk-len $old_limit
 
-            assert_equal $offsets [r bitrangeintarray bitmap:wide]
+            assert_equal $offsets [r bitrangeintarray bitmap:wide 0 -1]
             # A bit range from below 2^32 to 2^40.
             assert_equal {4294967295 4294967296 1099511627776} \
                 [r bitrangeintarray bitmap:wide 4294967295 1099511627776 bit]
@@ -5223,7 +5265,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         foreach bits {{0 1 2} {317811 196418 121393 233 144 89 55 34 21} {}} {
             seed_roaring_bitmap bitmap:serialize $bits
             r restore bitmap:restored 0 [r dump bitmap:serialize] replace
-            assert_equal [lsort -integer -unique $bits] [r bitrangeintarray bitmap:restored]
+            assert_equal [lsort -integer -unique $bits] [r bitrangeintarray bitmap:restored 0 -1]
             # A range starting after bit 0 reads the same before and after the round trip.
             assert_equal [r bitrangeintarray bitmap:serialize 1 -1 bit] \
                 [r bitrangeintarray bitmap:restored 1 -1 bit]
@@ -5241,7 +5283,7 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         # The server closes the connection without sending anything, so the
         # blocking read returns empty at EOF.
         set client [redis_deferring_client]
-        $client bitrangeintarray bitmap:outputlimit
+        $client bitrangeintarray bitmap:outputlimit 0 -1
         $client flush
         assert_equal {} [$client rawread]
         $client close

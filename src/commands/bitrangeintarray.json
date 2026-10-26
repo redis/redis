@@ -1,10 +1,10 @@
 {
     "BITRANGEINTARRAY": {
         "summary": "Returns the offsets of the set bits in a range of a bitmap.",
-        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range, and M is the number of returned integers.",
+        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range, and M is the number of returned integers. With LIMIT, the scan stops once count integers are returned.",
         "group": "bitmap",
         "since": "8.12.0",
-        "arity": -2,
+        "arity": -4,
         "function": "bitrangeintarrayCommand",
         "command_flags": [
             "READONLY"
@@ -39,40 +39,39 @@
                 "key_spec_index": 0
             },
             {
-                "name": "range",
-                "type": "block",
+                "name": "start",
+                "type": "integer"
+            },
+            {
+                "name": "end",
+                "type": "integer"
+            },
+            {
+                "name": "unit",
+                "type": "oneof",
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "start",
-                        "type": "integer"
+                        "name": "byte",
+                        "type": "pure-token",
+                        "token": "BYTE"
                     },
                     {
-                        "name": "end",
-                        "type": "integer"
-                    },
-                    {
-                        "name": "unit",
-                        "type": "oneof",
-                        "optional": true,
-                        "arguments": [
-                            {
-                                "name": "byte",
-                                "type": "pure-token",
-                                "token": "BYTE"
-                            },
-                            {
-                                "name": "bit",
-                                "type": "pure-token",
-                                "token": "BIT"
-                            }
-                        ]
+                        "name": "bit",
+                        "type": "pure-token",
+                        "token": "BIT"
                     }
                 ]
+            },
+            {
+                "name": "count",
+                "token": "LIMIT",
+                "type": "integer",
+                "optional": true
             }
         ],
         "reply_schema": {
-            "description": "Offsets of the set bits in the range, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. Missing keys and empty ranges return an empty array.",
+            "description": "Offsets of the set bits in the range, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. With LIMIT, at most count offsets are returned, the lowest ones in the range. Missing keys and empty ranges return an empty array.",
             "type": "array",
             "uniqueItems": true,
             "items": {

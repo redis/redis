@@ -2056,6 +2056,7 @@ void bitroaropCommand(client *c) {
 typedef struct bitroarIntArrayReply {
     client *c;
     long emitted;
+    long limit; /* Stop once 'emitted' reaches this many offsets. */
 } bitroarIntArrayReply;
 
 /* Stream set-bit offsets into the reply without allocating a second array
@@ -2066,7 +2067,7 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
     client *c = reply->c;
     for (size_t i = 0; i < count; i++) {
         addReplyLongLong(c, values[i]);
-        reply->emitted++;
+        if (++reply->emitted == reply->limit) return 0;
         if (c->flags & CLIENT_CLOSE_ASAP) return 0;
     }
     return 1;
@@ -2112,7 +2113,7 @@ static void bitrangeintarrayString(bitroarIntArrayReply *reply, const unsigned c
         while (word) {
             int bit = __builtin_clzll(word);
             addReplyLongLong(c, (long long)(base + bit));
-            reply->emitted++;
+            if (++reply->emitted == reply->limit) return;
             if (c->flags & CLIENT_CLOSE_ASAP) return;
             word &= ~((1ULL << 63) >> bit);
         }
@@ -2120,36 +2121,44 @@ static void bitrangeintarrayString(bitroarIntArrayReply *reply, const unsigned c
     }
 }
 
-/* BITRANGEINTARRAY key [start end [BIT|BYTE]]
+/* BITRANGEINTARRAY key start end [BIT|BYTE] [LIMIT count]
  * Returns the offsets of the set bits in the range, in ascending order. The
  * range is interpreted as in BITCOUNT, so both commands cover the same bits.
+ * LIMIT returns at most 'count' offsets, the lowest ones in the range.
  * Strings are read in place and native bitmaps are iterated directly. */
 void bitrangeintarrayCommand(client *c) {
     kvobj *o;
-    long long start = 0, end = -1, strlen;
+    long long start, end, strlen;
     long slen;
     unsigned char *p = NULL;
     char llbuf[LONG_STR_SIZE];
     uint64_t bit_start, bit_end;
     int isbit = 0;
+    long limit = LONG_MAX;
 
-    /* Parse start/end range if any. */
-    if (c->argc == 4 || c->argc == 5) {
-        if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
-            return;
-        if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
-            return;
-        if (c->argc == 5) {
-            if (!strcasecmp(c->argv[4]->ptr,"bit")) isbit = 1;
-            else if (!strcasecmp(c->argv[4]->ptr,"byte")) isbit = 0;
-            else {
-                addReplyErrorObject(c,shared.syntaxerr);
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
+        return;
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
+        return;
+
+    /* Parse the options, in any order. */
+    for (int j = 4; j < c->argc; j++) {
+        int moreargs = (c->argc - 1) - j;
+        if (!strcasecmp(c->argv[j]->ptr,"bit")) {
+            isbit = 1;
+        } else if (!strcasecmp(c->argv[j]->ptr,"byte")) {
+            isbit = 0;
+        } else if (!strcasecmp(c->argv[j]->ptr,"limit") && moreargs) {
+            if (getLongFromObjectOrReply(c,c->argv[++j],&limit,NULL) != C_OK)
+                return;
+            if (limit < 0) {
+                addReplyError(c,"LIMIT can't be negative");
                 return;
             }
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return;
         }
-    } else if (c->argc != 2) {
-        addReplyErrorObject(c,shared.syntaxerr);
-        return;
     }
 
     /* Lookup, check for type. */
@@ -2173,13 +2182,13 @@ void bitrangeintarrayCommand(client *c) {
         return;
     }
     normalizeBitRange(&start, &end, &bit_start, &bit_end, NULL, NULL, strlen, isbit);
-    if (start > end) {
+    if (start > end || limit == 0) {
         addReply(c, shared.emptyarray);
         return;
     }
 
     void *arraylen = addReplyDeferredLen(c);
-    bitroarIntArrayReply reply = {c, 0};
+    bitroarIntArrayReply reply = {c, 0, limit};
     if (o->type == OBJ_BITMAP)
         bitroarVisitSetBits(o, bit_start, bit_end, bitroarReplySetBits, &reply);
     else
