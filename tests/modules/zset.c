@@ -150,7 +150,7 @@ int zset_range(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
-/* Invalidate the rank saved by a B+ tree range iterator. The iterator API
+/* Invalidate the rank saved by a sorted set range iterator. The iterator API
  * should report the end of the range rather than aborting Redis. */
 int zset_range_mutate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
@@ -167,13 +167,46 @@ int zset_range_mutate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (reply == NULL || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR)
         return RedisModule_ReplyWithError(ctx, "ERR range mutation failed");
 
-    RedisModuleString *member = RedisModule_ZsetRangeCurrentElement(key, NULL);
-    if (member != NULL || RedisModule_ZsetRangePrev(key) != 0 ||
+    double score;
+    RedisModuleString *member = RedisModule_ZsetRangeCurrentElement(key, &score);
+    int prev = RedisModule_ZsetRangePrev(key);
+    if (member != NULL || prev != 0 ||
         !RedisModule_ZsetRangeEndReached(key))
         return RedisModule_ReplyWithError(ctx, "ERR invalid iterator state");
 
     RedisModule_ZsetRangeStop(key);
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/* Insert a member while iterating a listpack sorted set so it converts to
+ * B+ tree mid-iteration, then finish walking the range. */
+int zset_range_convert(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx);
+    double score;
+    if (RedisModule_StringToDouble(argv[2], &score) != REDISMODULE_OK)
+        return RedisModule_ReplyWithError(ctx, "ERR invalid score");
+
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ | REDISMODULE_WRITE);
+    if (RedisModule_ZsetFirstInScoreRange(key, REDISMODULE_NEGATIVE_INFINITE,
+                                          REDISMODULE_POSITIVE_INFINITE, 0, 0) == REDISMODULE_ERR)
+        return RedisModule_ReplyWithError(ctx, "ERR range setup failed");
+    if (RedisModule_ZsetAdd(key, score, argv[3], NULL) == REDISMODULE_ERR)
+        return RedisModule_ReplyWithError(ctx, "ERR zset add failed");
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+    long count = 0;
+    while (!RedisModule_ZsetRangeEndReached(key)) {
+        double cur_score;
+        RedisModuleString *ele = RedisModule_ZsetRangeCurrentElement(key, &cur_score);
+        if (!ele) break;
+        RedisModule_ReplyWithString(ctx, ele);
+        count++;
+        RedisModule_ZsetRangeNext(key);
+    }
+    RedisModule_ZsetRangeStop(key);
+    RedisModule_ReplySetArrayLength(ctx, count);
+    return REDISMODULE_OK;
 }
 
 /* Structure to hold data for the delall scan callback */
@@ -284,6 +317,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "zset.range-mutate", zset_range_mutate, "write",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.range-convert", zset_range_convert, "write",
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

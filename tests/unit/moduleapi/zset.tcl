@@ -88,17 +88,28 @@ start_server {tags {"modules external:skip"}} {
         }
     }
 
-    test {Module zset range iteration ends after its saved rank is invalidated} {
-        set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
-        r config set zset-max-listpack-entries 0
-
+    test {Module zset range iteration continues across listpack to btree conversion} {
         r del k
-        r zadd k 1 a 2 b 3 c
+        r zadd k 1 a 3 c
+        assert_encoding listpack k
+        set big [string repeat b 70]
+        assert_equal [list a $big c] [r zset.range-convert k 2 $big]
         assert_encoding btree k
-        assert_equal OK [r zset.range-mutate k]
-        assert_equal {c} [r zrange k 0 -1]
+    }
 
-        r config set zset-max-listpack-entries $old_max_entries
+    foreach encoding {btree listpack} {
+        test "Module zset range iteration ends after its saved rank is invalidated - $encoding" {
+            set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries [expr {$encoding eq "listpack" ? 128 : 0}]
+
+            r del k
+            r zadd k 1 a 2 b 3 c
+            assert_encoding $encoding k
+            assert_equal OK [r zset.range-mutate k]
+            assert_equal {c} [r zrange k 0 -1]
+
+            r config set zset-max-listpack-entries $old_max_entries
+        }
     }
 
     test {Module zset - KEYSIZES is updated as expected (like test at hash.tcl)} {
