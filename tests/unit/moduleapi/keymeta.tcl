@@ -157,13 +157,23 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         flushallAndVerifyCleanup
     }
 
-    test {NO-EVICT coexists with all seven module metadata classes} {
+    # A module-type value is saved and loaded after the same opcodes as a
+    # string, and an LRU/LFU policy adds an IDLE/FREQ opcode before NO-EVICT.
+    r module load [file normalize tests/modules/datatype.so]
+    foreach policy {noeviction allkeys-lfu} {
+    foreach {type create read value} {
+        string {set blessed value} {get blessed} value
+        module {datatype.set blessed 1 a} {datatype.get blessed} {1 a}
+    } {
+    test "NO-EVICT coexists with all seven module metadata classes ($type key, $policy)" {
         assert_equal 7 $maxClasses
-        r set blessed value
+        r config set maxmemory-policy $policy
+        r {*}$create
         r bless set blessed no-evict
         setupKeyMeta blessed $maxClasses 0 1
         assert_equal {NO-EVICT} [r bless get blessed]
         r debug reload
+        assert_equal $value [r {*}$read]
         assert_range [r ttl blessed] 9990 10000
         assert_equal {NO-EVICT} [r bless get blessed]
         for {set i 1} {$i <= $maxClasses} {incr i} {
@@ -177,6 +187,9 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
             assert_equal "meta$i" [r keymeta.get [cname $i] destination]
         }
         r flushdb
+        r config set maxmemory-policy noeviction
+    }
+    }
     }
 
     assert_equal 7 $maxClasses
