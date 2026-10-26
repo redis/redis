@@ -21,6 +21,17 @@ The release notes contain PRs from multiple repositories:
 
 
 ================================================================================
+Redis 8.8.4    Released Mon 26 Oct 2026 10:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+### Security fixes
+
+- Heap buffer overflow when propagating a `PUBLISH`/`SPUBLISH` message larger than 4GB over the cluster bus in cluster mode
+
+
+================================================================================
 Redis 8.8.3    Released Thu 17 Sep 2026 18:00:00 IST
 ================================================================================
 
