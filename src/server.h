@@ -243,6 +243,21 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Max number of IO threads */
 #define IO_THREADS_MAX_NUM 128
 
+/* Client types eligible for IO threads. Replication roles refer to the remote
+ * endpoint: replicas connect downstream, while the master is upstream.
+ * Generic replication types include both compressed and uncompressed links. */
+#define IO_THREADS_CLIENT_TYPE_NORMAL (1 << 0)
+#define IO_THREADS_CLIENT_TYPE_REPLICA (1 << 1)
+#define IO_THREADS_CLIENT_TYPE_MASTER (1 << 2)
+#define IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED (1 << 3)
+#define IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED (1 << 4)
+#define IO_THREADS_CLIENT_TYPE_REPLICATION \
+    (IO_THREADS_CLIENT_TYPE_REPLICA | IO_THREADS_CLIENT_TYPE_MASTER)
+#define IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED \
+    (IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED | IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED)
+#define IO_THREADS_CLIENT_TYPE_ALL \
+    (IO_THREADS_CLIENT_TYPE_NORMAL | IO_THREADS_CLIENT_TYPE_REPLICATION | IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED)
+
 /* To make IO threads and main thread run in parallel, we will transfer clients
  * between them if the number of clients in the pending list reaches this value. */
 #define IO_THREAD_MAX_PENDING_CLIENTS 16
@@ -1597,6 +1612,7 @@ typedef struct client {
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     unsigned long long reply_bytes_shared; /* Bytes shared with keyspace objects in reply list. */
     unsigned long long reply_bytes_unshared; /* Cached subset of reply_bytes_shared solely owned by this client. */
+    mstime_t last_unshared_refresh; /* Timestamp of last reply_bytes_unshared recompute */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
@@ -1700,6 +1716,8 @@ typedef struct client {
      * before adding it the new value. */
     size_t last_memory_usage;
     int last_memory_type;
+    size_t last_memory_shared;
+    size_t last_memory_unshared;
 
     listNode *mem_usage_bucket_node;
     clientMemUsageBucket *mem_usage_bucket;
@@ -2208,6 +2226,7 @@ struct redisServer {
     redisAtomic uint64_t next_client_id; /* Next client unique ID. Incremental. */
     int protected_mode;         /* Don't accept external connections. */
     int io_threads_num;         /* Number of IO threads to use. */
+    int io_threads_client_types; /* Client types eligible for IO threads. */
     int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
@@ -2293,6 +2312,8 @@ struct redisServer {
     size_t stat_module_cow_bytes;   /* Copy on write bytes during module fork. */
     double stat_module_progress;   /* Module save progress. */
     size_t stat_clients_type_memory[CLIENT_TYPE_COUNT];/* Mem usage by type */
+    size_t stat_clients_shared_memory;   /* Sum of clients' reply_bytes_shared */
+    size_t stat_clients_unshared_memory; /* Sum of clients' reply_bytes_unshared */
     size_t stat_cluster_links_memory; /* Mem usage by cluster links */
     long long stat_unexpected_error_replies; /* Number of unexpected (aof-loading, replica to master, etc.) error replies */
     long long stat_total_error_replies; /* Total number of issued error replies ( command + rejected errors ) */
@@ -3494,7 +3515,6 @@ size_t getClientOutputBufferMemoryUsage(client *c);
 size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c);
 void updateClientUnsharedReplyBytes(client *c);
-void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
 int getClientType(client *c);
@@ -3887,8 +3907,10 @@ unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range);
 unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range);
 unsigned long zsetLength(const robj *zobj);
 size_t zsetAllocSize(const robj *o);
+robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint);
 void zsetConvert(robj *zobj, int encoding);
-void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelelen);
+void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap);
+void zsetConvertAfterBulkInsert(robj *zobj, size_t maxelelen, size_t totelelen);
 int zsetScore(robj *zobj, sds member, double *score);
 unsigned long zslGetRank(zskiplist *zsl, double score, sds o);
 int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, double *newscore);
@@ -4529,6 +4551,7 @@ int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc, getKeysR
 int sintercardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int sunioncardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int sdiffcardGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
+int msetexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd,robj **argv, int argc, getKeysResult *result);
 int evalGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);

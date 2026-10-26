@@ -692,6 +692,32 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
     }
 
+    test "MSETEX on the source during slot migration reaches the destination" {
+        R 0 flushall
+        R 1 flushall
+
+        # The save delay keeps the snapshot going while the commands below
+        # are executed, so they travel in the incremental stream.
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+
+        set key1 [slot_key 0 msetex1]
+        set key2 [slot_key 0 msetex2]
+        set key3 [slot_key 0 msetex3]
+        assert_equal 1 [R 0 msetex 1 $key1 a]
+        assert_equal 1 [R 0 msetex 2 $key2 b $key3 c EX 1000]
+
+        wait_for_asm_done
+        R 0 config set rdb-key-save-delay 0
+
+        assert_equal a [R 1 get $key1]
+        assert_equal b [R 1 get $key2]
+        assert_equal c [R 1 get $key3]
+        assert_range [R 1 ttl $key3] 900 1000
+
+        # cleanup
+        R 1 flushall
+    }
+
     test "Slot migration with complex data types can work well" {
         move_slots_to_node 1 0 100
         R 0 flushall
