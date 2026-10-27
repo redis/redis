@@ -4,7 +4,7 @@
         "complexity": "O(1)",
         "group": "stream",
         "since": "8.6.2",
-        "arity": 5,
+        "arity": -5,
         "function": "xidmprecordCommand",
         "command_flags": [
             "WRITE",
@@ -51,6 +51,11 @@
             {
                 "name": "stream-id",
                 "type": "string"
+            },
+            {
+                "name": "recorded-ms",
+                "type": "integer",
+                "optional": true
             }
         ],
         "reply_schema": {
