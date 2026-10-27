@@ -39,7 +39,7 @@
                 "key_spec_index": 0
             },
             {
-                "name": "bit",
+                "name": "value",
                 "type": "integer"
             },
             {
@@ -75,7 +75,7 @@
             }
         ],
         "reply_schema": {
-            "description": "Offsets of the bits set to the given bit (0 or 1) in the range, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. Unlike BITPOS, the range never extends past the end of the value, so no clear bits are returned beyond it. With LIMIT, the lowest count offsets in the range are returned. In BYTE units the reply also completes the byte holding the last of them, so it can hold up to 7 more offsets and the next page can start at the following byte. Missing keys and empty ranges return an empty array.",
+            "description": "Offsets of the bits set to the given value (0 or 1) in the range, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. Unlike BITPOS, the range never extends past the end of the bitmap, so no clear bits are returned beyond it. With LIMIT, the lowest count offsets in the range are returned. In BYTE units the reply also completes the byte holding the last of them, so it can hold up to 7 more offsets and the next page can start at the following byte. Missing keys and empty ranges return an empty array.",
             "type": "array",
             "uniqueItems": true,
             "items": {

@@ -2138,13 +2138,13 @@ static void bitrangeintarrayString(const unsigned char *p, int bit, uint64_t sta
     }
 }
 
-/* BITRANGEINTARRAY key bit start end [BIT|BYTE] [LIMIT count]
+/* BITRANGEINTARRAY key value start end [BIT|BYTE] [LIMIT count]
  * Returns the offsets of the matching bits in the range, in ascending order.
  * Strings are read in place and native bitmaps are iterated directly.
  *
- * bit:       0 or 1, the value of the bits to return.
+ * value:     0 or 1, the value of the bits to return.
  * start end: the inclusive range, interpreted as in BITCOUNT, so both
- *            commands cover the same bits. It is clamped to the value:
+ *            commands cover the same bits. It is clamped to the bitmap:
  *            unlike BITPOS, no clear bits are assumed past its end.
  * BIT|BYTE:  the unit of 'start' and 'end', BYTE by default.
  * LIMIT:     return only the lowest 'count' offsets in the range. In BYTE
@@ -2158,13 +2158,13 @@ void bitrangeintarrayCommand(client *c) {
     char llbuf[LONG_STR_SIZE];
     uint64_t bit_start, bit_end;
     int isbit = 0;
-    long bit;
+    long value;
     long long limit = LLONG_MAX;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&bit,NULL) != C_OK)
+    if (getLongFromObjectOrReply(c,c->argv[2],&value,NULL) != C_OK)
         return;
-    if (bit != 0 && bit != 1) {
-        addReplyError(c, "The bit argument must be 1 or 0.");
+    if (value != 0 && value != 1) {
+        addReplyError(c, "The value argument must be 1 or 0.");
         return;
     }
     if (getLongLongFromObjectOrReply(c,c->argv[3],&start,NULL) != C_OK)
@@ -2222,9 +2222,9 @@ void bitrangeintarrayCommand(client *c) {
     void *arraylen = addReplyDeferredLen(c);
     bitroarIntArrayReply reply = {c, 0, limit, isbit, bit_end};
     if (o->type == OBJ_BITMAP)
-        bitroarVisitBits(o, bit, bit_start, bit_end, bitroarReplyBits, &reply);
+        bitroarVisitBits(o, value, bit_start, bit_end, bitroarReplyBits, &reply);
     else
-        bitrangeintarrayString(p, bit, bit_start, bit_end, &reply);
+        bitrangeintarrayString(p, value, bit_start, bit_end, &reply);
     /* Resolve the placeholder even if an output limit scheduled async close. */
     setDeferredArrayLen(c, arraylen, reply.emitted);
 }

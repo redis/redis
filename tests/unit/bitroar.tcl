@@ -4887,15 +4887,15 @@ proc intarray_expected {offsets len start end unit} {
 start_server {tags {"bitmap" "bitmap-roaring"}} {
     test {BITRANGEINTARRAY validates its arguments} {
         seed_roaring_bitmap bitmap:bitmap {0 9}
-        # The bit and the range are required.
+        # The value and the range are required.
         assert_error {ERR wrong number of arguments*} {r bitrangeintarray}
         assert_error {ERR wrong number of arguments*} {r bitrangeintarray bitmap:bitmap}
         assert_error {ERR wrong number of arguments*} {r bitrangeintarray bitmap:bitmap 1}
         assert_error {ERR wrong number of arguments*} {r bitrangeintarray bitmap:bitmap 1 0}
-        # The bit is 0 or 1, as in BITPOS.
+        # The value is 0 or 1.
         assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap a 0 1}
-        assert_error {ERR The bit argument must be 1 or 0*} {r bitrangeintarray bitmap:bitmap 2 0 1}
-        assert_error {ERR The bit argument must be 1 or 0*} {r bitrangeintarray bitmap:bitmap -1 0 1}
+        assert_error {ERR The value argument must be 1 or 0*} {r bitrangeintarray bitmap:bitmap 2 0 1}
+        assert_error {ERR The value argument must be 1 or 0*} {r bitrangeintarray bitmap:bitmap -1 0 1}
         assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 1 0 1 bit extra}
         # Both ends must be 64-bit integers.
         assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 1 a 1}
