@@ -544,7 +544,7 @@ static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
         return;
     }
 
-    for (size_t i = 0; i < argMap->elements; i += 2) {
+    for (size_t i = 0; i + 1 < argMap->elements; i += 2) {
         assert(argMap->element[i]->type == REDIS_REPLY_STRING);
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
@@ -641,11 +641,17 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
 static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
                                           helpEntry *next, redisReply *specs,
                                           dict *groups) {
+    /* Defensive bound: the reply is untrusted, and if for any reason it yields
+     * more entries than cliCountCommands() allocated, stop instead of writing
+     * past the end of the helpEntries array. helpEntriesLen still holds the
+     * allocated count here; cliInitCommandHelpEntries() trims it only after
+     * the fill. */
+    if (next >= helpEntries + helpEntriesLen) return next;
     helpEntry *help = next++;
     cliFillInCommandHelpEntry(help, cmdname, subcommandname);
 
     assert(specs->type == REDIS_REPLY_MAP || specs->type == REDIS_REPLY_ARRAY);
-    for (size_t j = 0; j < specs->elements; j += 2) {
+    for (size_t j = 0; j + 1 < specs->elements; j += 2) {
         assert(specs->element[j]->type == REDIS_REPLY_STRING);
         char *key = specs->element[j]->str;
         if (!strcmp(key, "summary")) {
@@ -671,10 +677,14 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             help->docs.numargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, help->docs.args);
             help->docs.params = makeHint(NULL, 0, 0, help->docs);
-        } else if (!strcmp(key, "subcommands")) {
+        } else if (!strcmp(key, "subcommands") && subcommandname == NULL) {
+            /* Only top-level commands may have subcommands. Redis has no nested
+             * subcommands, and cliCountCommands() only reserves space for one
+             * level, so ignore any deeper nesting a malicious server might send.
+             * Together with the count that keeps allocation and fill in lockstep. */
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
-            for (size_t i = 0; i < subcommands->elements; i += 2) {
+            for (size_t i = 0; i + 1 < subcommands->elements; i += 2) {
                 assert(subcommands->element[i]->type == REDIS_REPLY_STRING);
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
@@ -690,13 +700,18 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
 static size_t cliCountCommands(redisReply* commandTable) {
     size_t numCommands = commandTable->elements / 2;
 
-    /* The command docs table maps command names to a map of their specs. */    
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    /* The command docs table maps command names to a map of their specs.
+     * The reply comes from the server and may be malformed, so every paired
+     * access is guarded with `i + 1 < elements` to avoid reading past the
+     * element array on an odd-length reply. Only one level of subcommands is
+     * counted here; that must match the fill side in
+     * cliInitCommandHelpEntry(), which refuses to recurse deeper. */
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);  /* Command name. */
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
                commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *map = commandTable->element[i + 1];
-        for (size_t j = 0; j < map->elements; j += 2) {
+        for (size_t j = 0; j + 1 < map->elements; j += 2) {
             assert(map->element[j]->type == REDIS_REPLY_STRING);
             char *key = map->element[j]->str;
             if (!strcmp(key, "subcommands")) {
@@ -752,7 +767,7 @@ void cliInitGroupHelpEntries(dict *groups) {
 /* Initializes help entries for all commands in the COMMAND DOCS reply. */
 void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
     helpEntry *next = helpEntries;
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
         char *cmdname = commandTable->element[i]->str;
 
@@ -761,6 +776,10 @@ void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
         redisReply *cmdspecs = commandTable->element[i + 1];
         next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs, groups);
     }
+    /* The number actually filled in may be lower than the count returned by
+     * cliCountCommands() if the reply was malformed. Trim helpEntriesLen so we
+     * never sort or read uninitialized trailing entries. */
+    helpEntriesLen = next - helpEntries;
 }
 
 /* Does the server version support a command/argument only available "since" some version?
@@ -1674,8 +1693,9 @@ static int cliSwitchProto(void) {
         }
     }
 
-    /* Retrieve server version string for later use. */
-    for (size_t i = 0; i < reply->elements; i += 2) {
+    /* Retrieve server version string for later use. The reply is untrusted,
+     * so make sure each key has a value before reading it. */
+    for (size_t i = 0; i + 1 < reply->elements; i += 2) {
         assert(reply->element[i]->type == REDIS_REPLY_STRING);
         char *key = reply->element[i]->str;
         if (!strcmp(key, "version")) {
@@ -1732,7 +1752,11 @@ static int cliConnect(int flags) {
         if (!context->err && config.tls) {
             const char *err = NULL;
             if (cliSecureConnection(context, config.sslconfig, &err) == REDIS_ERR && err) {
-                fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+                /* Honor CC_QUIET like the generic failure path below: probe
+                 * connections would otherwise report the same failure that the
+                 * real connection attempt reports right after. */
+                if (!(flags & CC_QUIET))
+                    fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
                 redisFree(context);
                 context = NULL;
                 return REDIS_ERR;
@@ -3071,6 +3095,10 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.ciphers = argv[++i];
         } else if (!strcmp(argv[i],"--insecure")) {
             config.sslconfig.skip_cert_verify = 1;
+        } else if (!strcmp(argv[i],"--no-verify-hostname")) {
+            config.sslconfig.skip_hostname_verify = 1;
+        } else if (!strcmp(argv[i],"--tls-expected-peer-name") && !lastarg) {
+            config.sslconfig.expected_peer_name = argv[++i];
         #ifdef TLS1_3_VERSION
         } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
             config.sslconfig.ciphersuites = argv[++i];
@@ -3158,6 +3186,35 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
+    /* Identity verification options. --no-verify-hostname drops to chain-only
+     * validation, so it contradicts an explicit expected identity; --insecure
+     * verifies nothing at all, so an expected identity could never be checked. */
+    if (config.sslconfig.expected_peer_name) {
+        if (config.sslconfig.skip_hostname_verify) {
+            fprintf(stderr, "Options --tls-expected-peer-name and --no-verify-hostname "
+                            "are mutually exclusive.\n");
+            exit(1);
+        }
+        if (config.sslconfig.skip_cert_verify) {
+            fprintf(stderr, "Option --insecure cannot be combined with "
+                            "--tls-expected-peer-name.\n");
+            exit(1);
+        }
+        int parent_domains = 0;
+        const char *name_err = cliValidateExpectedPeerNames(config.sslconfig.expected_peer_name,
+                                                            &parent_domains);
+        if (name_err) {
+            fprintf(stderr, "Invalid --tls-expected-peer-name: %s.\n", name_err);
+            exit(1);
+        }
+        if (parent_domains) {
+            fprintf(stderr, "Warning: --tls-expected-peer-name has %d entr%s beginning "
+                            "with a dot; such an entry is a parent-domain pattern that "
+                            "matches any subdomain at any depth, not a single host.\n",
+                            parent_domains, parent_domains == 1 ? "y" : "ies");
+        }
+    }
+
     return i;
 }
 
@@ -3179,13 +3236,24 @@ static void usage(int err) {
     FILE *target = err ? stderr: stdout;
     const char *tls_usage =
 #ifdef USE_OPENSSL
-"  --tls              Establish a secure TLS connection.\n"
-"  --sni <host>       Server name indication for TLS.\n"
+"  --tls              Establish a secure TLS connection. The server certificate\n"
+"                     must chain to the trusted CA and carry the expected\n"
+"                     identity: the name given to --sni, or else the host that\n"
+"                     was dialed (as an IP or DNS SAN).\n"
+"  --sni <host>       Server name indication for TLS. Also the identity the\n"
+"                     server certificate is verified against.\n"
 "  --cacert <file>    CA Certificate file to verify with.\n"
 "  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                     If neither cacert nor cacertdir are specified, the default\n"
 "                     system-wide trusted root certs configuration will apply.\n"
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+"  --no-verify-hostname\n"
+"                     Verify only that the server certificate chains to the\n"
+"                     trusted CA, not that it carries the expected identity.\n"
+"  --tls-expected-peer-name <names>\n"
+"                     Verify the server certificate against these identities\n"
+"                     instead of the dialed host or SNI: a space-separated list\n"
+"                     of DNS names (any match succeeds) or a single IP address.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
 "  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
@@ -7742,7 +7810,10 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         }
     }
 
-    if (reply) freeReplyObject(reply);
+    if (reply) {
+        freeReplyObject(reply);
+        reply = NULL;
+    }
 
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "

@@ -19,6 +19,7 @@
  */
 
 #include "server.h"
+#include "zset_btree.h"
 #include "bitroar.h"
 #include <stddef.h>
 #include <math.h>
@@ -116,6 +117,7 @@ typedef struct {
      * before "later" and we will search by key name to find the entry when we defrag the item later. */
     list *defrag_later;
     unsigned long defrag_later_cursor;
+    zbtreeDefragState zset_btree_state;
 } defragKeysCtx;
 static_assert(offsetof(defragKeysCtx, kvstate) == 0, "defragStageKvstoreHelper requires this");
 
@@ -729,6 +731,26 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
         zs->dict = newdict;
 }
 
+/* Defragment a B+ tree now, or schedule its pages for incremental work. */
+void defragZsetBtree(defragKeysCtx *ctx, kvobj *ob) {
+    zbtreeSet *zs = ob->ptr;
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE);
+
+    ob->ptr = zs = zbtreeDefragStart(zs, activeDefragAlloc);
+    if (zbtreeLength(zs) > server.active_defrag_max_scan_fields) {
+        defragLater(ctx, ob);
+    } else {
+        zbtreeDefragState state = {0};
+        unsigned long scanned;
+        while (!zbtreeDefragStep(zs, &state,
+                                 activeDefragAllocWithoutFree,
+                                 activeDefragFree, &scanned))
+        {
+            server.stat_active_defrag_scanned += scanned;
+        }
+    }
+}
+
 void defragHash(defragKeysCtx *ctx, kvobj *ob) {
     dict *d, *newd;
     serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT);
@@ -1218,6 +1240,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
                 ob->ptr = newzl;
         } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
             defragZsetSkiplist(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_BTREE) {
+            defragZsetBtree(ctx, ob);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -1358,7 +1382,15 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
  * and 1 if time is up and more work is needed. */
-int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid) {
+int defragLaterItem(defragKeysCtx *ctx, kvobj *ob, monotime endtime) {
+    unsigned long *cursor = &ctx->defrag_later_cursor;
+    zbtreeDefragState *zset_btree_state = &ctx->zset_btree_state;
+    int is_btree = ob && ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE;
+    if (!is_btree && zset_btree_state->tree) {
+        zbtreeDefragStateReset(zset_btree_state);
+        *cursor = 0;
+    }
+
     if (ob) {
         if (ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST) {
             return scanLaterList(ob, cursor, endtime);
@@ -1366,6 +1398,15 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             scanLaterSet(ob, cursor);
         } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST) {
             scanLaterZset(ob, cursor);
+        } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_BTREE) {
+            if (*cursor == 0)
+                zbtreeDefragStateReset(zset_btree_state);
+            unsigned long scanned;
+            int done = zbtreeDefragStep(ob->ptr, zset_btree_state,
+                                        activeDefragAllocWithoutFree,
+                                        activeDefragFree, &scanned);
+            server.stat_active_defrag_scanned += scanned;
+            *cursor = done ? 0 : 1;
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterHash(ob, cursor);
         } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_TMPL_ARRAY) {
@@ -1375,7 +1416,7 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
         } else if (ob->type == OBJ_MODULE) {
             robj keyobj;
             initStaticStringObject(keyobj, kvobjGetKey(ob));
-            return moduleLateDefrag(&keyobj, ob, cursor, endtime, dbid);
+            return moduleLateDefrag(&keyobj, ob, cursor, endtime, ctx->dbid);
         } else if (ob->type == OBJ_ARRAY) {
             redisArray *ar = ob->ptr;
             *cursor = arDefragIncremental(&ar, *cursor, activeDefragAlloc);
@@ -1384,9 +1425,11 @@ int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid
             *cursor = bitroarDefragIncremental(ob, *cursor);
         } else {
             *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
+            zbtreeDefragStateReset(zset_btree_state);
         }
     } else {
         *cursor = 0; /* object may have been deleted already */
+        zbtreeDefragStateReset(zset_btree_state);
     }
     return 0;
 }
@@ -1415,7 +1458,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
         long long key_defragged = server.stat_active_defrag_hits;
         if (server.memory_tracking_enabled && kv)
             oldsize = kvobjAllocSize(kv);
-        int timeout = (defragLaterItem(kv, &defrag_keys_ctx->defrag_later_cursor, endtime, defrag_keys_ctx->dbid) == 1);
+        int timeout = (defragLaterItem(defrag_keys_ctx, kv, endtime) == 1);
         if (server.memory_tracking_enabled && kv)
             updateSlotAllocSize(db, slot, kv, oldsize, kvobjAllocSize(kv));
         if (key_defragged != server.stat_active_defrag_hits) {

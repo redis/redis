@@ -71,8 +71,9 @@ void updateClientDataFromIOThread(client *c) {
         c->read_reploff = c->io_read_reploff;
     }
 
-    /* Update replication buffer referenced node if IO thread has sent some data. */
-    if (c->flags & CLIENT_SLAVE && c->ref_repl_buf_node != NULL &&
+    /* A normal client can become a replica while its command is processed in
+     * main. Its IO replication state exists only after the first replica handoff. */
+    if (c->flags & CLIENT_SLAVE && c->ref_repl_buf_node != NULL && c->io_curr_repl_node != NULL &&
         (c->io_curr_repl_node != c->ref_repl_buf_node ||
          c->io_curr_block_pos != c->ref_block_pos))
     {
@@ -290,6 +291,20 @@ void fetchClientFromIOThread(client *c) {
  *   that may overlap with CLIENT_MASTER/SLAVE - CLOSE_ASAP, MONITOR,
  *   (UN)BLOCKED, TRACKING. */
 int isClientMustHandledByMainThread(client *c) {
+    /* Select replication connections by their role and negotiated compression,
+     * then apply the safety and replication-state checks below. */
+    if (server.io_threads_client_types != IO_THREADS_CLIENT_TYPE_ALL) {
+        int type = IO_THREADS_CLIENT_TYPE_NORMAL;
+        if (c->flags & CLIENT_SLAVE) {
+            type = IO_THREADS_CLIENT_TYPE_REPLICA;
+            if (c->compression_level > 0) type |= IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED;
+        } else if (c->flags & CLIENT_MASTER) {
+            type = IO_THREADS_CLIENT_TYPE_MASTER;
+            if (server.repl_master_compression_level > 0) type |= IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED;
+        }
+        if (!(server.io_threads_client_types & type)) return 1;
+    }
+
     if (c->flags & (CLIENT_CLOSE_ASAP |
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
