@@ -1,10 +1,10 @@
 {
     "BITRANGEINTARRAY": {
-        "summary": "Returns the offsets of the set bits in a range of a bitmap.",
-        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range, and M is the number of returned integers. With LIMIT, the scan stops once count integers are returned.",
+        "summary": "Returns the offsets of the set or clear bits in a range of a bitmap.",
+        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range (and of runs of set bits in it, when looking for clear bits), and M is the number of returned integers. With LIMIT, the scan stops once count integers are returned.",
         "group": "bitmap",
         "since": "8.12.0",
-        "arity": -4,
+        "arity": -5,
         "function": "bitrangeintarrayCommand",
         "command_flags": [
             "READONLY"
@@ -39,6 +39,10 @@
                 "key_spec_index": 0
             },
             {
+                "name": "bit",
+                "type": "integer"
+            },
+            {
                 "name": "start",
                 "type": "integer"
             },
@@ -71,7 +75,7 @@
             }
         ],
         "reply_schema": {
-            "description": "Offsets of the set bits in the range, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. With LIMIT, the lowest count offsets in the range are returned. In BYTE units the reply also completes the byte holding the last of them, so it can hold up to 7 more offsets and the next page can start at the following byte. Missing keys and empty ranges return an empty array.",
+            "description": "Offsets of the bits set to the given bit (0 or 1) in the range, in ascending order. The range is interpreted as in BITCOUNT: negative indexes count from the end, and the unit defaults to BYTE. Unlike BITPOS, the range never extends past the end of the value, so no clear bits are returned beyond it. With LIMIT, the lowest count offsets in the range are returned. In BYTE units the reply also completes the byte holding the last of them, so it can hold up to 7 more offsets and the next page can start at the following byte. Missing keys and empty ranges return an empty array.",
             "type": "array",
             "uniqueItems": true,
             "items": {

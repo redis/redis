@@ -9,7 +9,7 @@ make -j4
 python3 tools/bitroar-intarray-bench.py --json-out /tmp/intarray-native.json
 ```
 
-The `get-all` workload uses `BITRANGEINTARRAY key 0 -1` for native full reads and
+The `get-all` workload uses `BITRANGEINTARRAY key 1 0 -1` for native full reads and
 `R.GETINTARRAY` or `R64.GETINTARRAY` for the module. Range workloads select
 ranks on the module and the equivalent `BIT` offset range on the native
 backend, from the first to the last selected offset, so both return the same

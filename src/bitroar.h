@@ -89,8 +89,8 @@ uint64_t bitroarLen(const robj *o);
 uint64_t bitroarCardinality(const robj *o);
 uint64_t bitroarRangeCardinality(const robj *o, uint64_t start, uint64_t end);
 void bitroarVisitSetBitRanges(const robj *o, bitroarRangeCallback *callback, void *privdata);
-void bitroarVisitSetBits(const robj *o, uint64_t start, uint64_t end,
-                        bitroarValuesCallback *callback, void *privdata);
+void bitroarVisitBits(const robj *o, int bit, uint64_t start, uint64_t end,
+                      bitroarValuesCallback *callback, void *privdata);
 long long bitroarBitpos(const robj *o, int bit, uint64_t start, uint64_t end, int end_given);
 int bitroarCanRepresentBit(uint64_t bitoffset);
 int bitroarGetBit(const robj *o, uint64_t bitoffset);

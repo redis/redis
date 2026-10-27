@@ -2078,9 +2078,9 @@ static int bitrangeintarrayAddOffset(bitroarIntArrayReply *reply, uint64_t offse
     return !(reply->c->flags & CLIENT_CLOSE_ASAP);
 }
 
-/* Stream set-bit offsets into the reply without allocating a second array
+/* Stream bit offsets into the reply without allocating a second array
  * proportional to the result. */
-static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privdata) {
+static int bitroarReplyBits(const uint64_t *values, size_t count, void *privdata) {
     bitroarIntArrayReply *reply = privdata;
     for (size_t i = 0; i < count; i++) {
         if (values[i] >= reply->end) return 0;
@@ -2089,25 +2089,28 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
     return 1;
 }
 
-/* Stream the set-bit offsets of a string in the half-open bit interval
- * [start, end). Offsets follow GETBIT: bit 0 is the most significant
- * bit of the first byte.
+/* Stream the offsets of the bits set to 'bit' in a string, in the half-open
+ * bit interval [start, end). Offsets follow GETBIT: bit 0 is the most
+ * significant bit of the first byte.
  *
- * Scan 64-bit words so that zero regions are skipped a word at a time. Each
- * word is loaded big-endian, so its most significant bit is the lowest
- * offset, and only its set bits are visited, using clz. */
-static void bitrangeintarrayString(const unsigned char *p, uint64_t start, uint64_t end,
-                                   bitroarIntArrayReply *reply)
+ * Scan 64-bit words so that regions without such bits are skipped a word at a
+ * time. Each word is loaded big-endian, so its most significant bit is the
+ * lowest offset, and inverted when looking for clear bits, so only its set
+ * bits are visited, using clz. */
+static void bitrangeintarrayString(const unsigned char *p, int bit, uint64_t start,
+                                   uint64_t end, bitroarIntArrayReply *reply)
 {
     uint64_t last = (end + 7) >> 3; /* One past the last byte in the range. */
     uint64_t i = start >> 3;
+    uint64_t flip = bit ? 0 : ~0ULL; /* XOR with this sets the wanted bits. */
 
     while (i < last) {
         uint64_t word = 0;
-        /* Skip zero words in a tight loop, kept apart from the reply calls
-         * below so the compiler can keep it in registers. */
+        /* Skip words without wanted bits in a tight loop, kept apart from the
+         * reply calls below so the compiler can keep it in registers. */
         while (last - i >= 8) {
             memcpy(&word, p + i, sizeof(word));
+            word ^= flip;
             if (word != 0) break;
             i += 8;
         }
@@ -2116,7 +2119,7 @@ static void bitrangeintarrayString(const unsigned char *p, uint64_t start, uint6
         } else {
             /* Fewer than 8 bytes remain: zero-pad them on the right. */
             for (uint64_t j = 0; i + j < last; j++)
-                word |= (uint64_t)p[i + j] << (56 - 8 * j);
+                word |= (uint64_t)(p[i + j] ^ (unsigned char)flip) << (56 - 8 * j);
             if (word == 0) break;
         }
 
@@ -2137,13 +2140,14 @@ static void bitrangeintarrayString(const unsigned char *p, uint64_t start, uint6
     }
 }
 
-/* BITRANGEINTARRAY key start end [BIT|BYTE] [LIMIT count]
- * Returns the offsets of the set bits in the range, in ascending order. The
- * range is interpreted as in BITCOUNT, so both commands cover the same bits.
- * LIMIT returns the lowest 'count' offsets in the range. In BYTE units the
- * reply also completes the byte holding the last of them, so a page ends on a
- * byte boundary. Strings are read in place and native bitmaps are iterated
- * directly. */
+/* BITRANGEINTARRAY key bit start end [BIT|BYTE] [LIMIT count]
+ * Returns the offsets of the bits set to 'bit' (0 or 1) in the range, in
+ * ascending order. The range is interpreted as in BITCOUNT, so both commands
+ * cover the same bits, and is clamped to the value: unlike BITPOS, no clear
+ * bits are assumed past its end. LIMIT returns the lowest 'count' offsets in
+ * the range. In BYTE units the reply also completes the byte holding the last
+ * of them, so a page ends on a byte boundary. Strings are read in place and
+ * native bitmaps are iterated directly. */
 void bitrangeintarrayCommand(client *c) {
     kvobj *o;
     long long start, end, strlen;
@@ -2152,15 +2156,22 @@ void bitrangeintarrayCommand(client *c) {
     char llbuf[LONG_STR_SIZE];
     uint64_t bit_start, bit_end;
     int isbit = 0;
+    long bit;
     long long limit = LLONG_MAX;
 
-    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
+    if (getLongFromObjectOrReply(c,c->argv[2],&bit,NULL) != C_OK)
         return;
-    if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
+    if (bit != 0 && bit != 1) {
+        addReplyError(c, "The bit argument must be 1 or 0.");
+        return;
+    }
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&start,NULL) != C_OK)
+        return;
+    if (getLongLongFromObjectOrReply(c,c->argv[4],&end,NULL) != C_OK)
         return;
 
     /* Parse the options, in any order. */
-    for (int j = 4; j < c->argc; j++) {
+    for (int j = 5; j < c->argc; j++) {
         int moreargs = (c->argc - 1) - j;
         if (!strcasecmp(c->argv[j]->ptr,"bit")) {
             isbit = 1;
@@ -2208,9 +2219,9 @@ void bitrangeintarrayCommand(client *c) {
     void *arraylen = addReplyDeferredLen(c);
     bitroarIntArrayReply reply = {c, 0, limit, isbit, bit_end};
     if (o->type == OBJ_BITMAP)
-        bitroarVisitSetBits(o, bit_start, bit_end, bitroarReplySetBits, &reply);
+        bitroarVisitBits(o, bit, bit_start, bit_end, bitroarReplyBits, &reply);
     else
-        bitrangeintarrayString(p, bit_start, bit_end, &reply);
+        bitrangeintarrayString(p, bit, bit_start, bit_end, &reply);
     /* Resolve the placeholder even if an output limit scheduled async close. */
     setDeferredArrayLen(c, arraylen, reply.emitted);
 }
