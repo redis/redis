@@ -523,3 +523,56 @@ start_server {tags {"dump"}} {
         }
     } {} {external:skip}
 }
+
+# Listpacks store, after each entry, the length of that entry (backlen), so that
+# they can be traversed backwards. For an entry whose encoded length is exactly
+# 16383, 2097151 or 268435455 the listpack spec allows two backlen widths: 8.8.0
+# up to this fix wrote the minimal one, every other version writes one byte
+# more. A reader assuming the wrong width walks into the middle of the next
+# entry, so both must be accepted.
+set backlen_value [string repeat x 16378]
+
+# Written by 8.6.6: the wide form, backlen bytes 00 ff ff.
+set backlen_payload_wide [binary format H* [join {
+    120102c340d5800000400f0b0f4000000200f0fa3f000078e0ff00e0ff00e0ff00e0ff00e0ff
+    00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0
+    ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00
+    e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff
+    00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0
+    ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e000000900ffff847461696c05ff0d002b90
+    ecdaaf4bee5a
+} ""]]
+
+# Written by 8.8.2: the minimal form, backlen bytes 7f ff.
+set backlen_payload_narrow [binary format H* [join {
+    120102c340d4800000400e0b0e4000000200f0fa3f000078e0ff00e0ff00e0ff00e0ff00e0ff
+    00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0
+    ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00
+    e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff
+    00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0
+    ff00e0ff00e0ff00e0ff00e0ff00e0ff00e0ff00e00000087fff847461696c05ff0e00e162d1
+    9a6a833a64
+} ""]]
+
+start_server {tags {"dump"} overrides {list-max-listpack-size -4}} {
+    foreach {version payload} [list 8.6.6 $backlen_payload_wide 8.8.2 $backlen_payload_narrow] {
+        foreach sanitize {yes no} {
+            test "RESTORE listpack with boundary backlen written by $version (sanitize-dump-payload $sanitize)" {
+                r config set sanitize-dump-payload $sanitize
+                r del l
+                r restore l 0 $payload
+                assert_encoding listpack l
+                # Forward traversal reads the backlen of the boundary entry to
+                # find the next one, backward traversal to find it.
+                assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+                assert_equal $backlen_value [r lindex l -2]
+
+                # Insert and delete after the boundary entry, then reload.
+                r rpush l more
+                r rpop l
+                r debug reload
+                assert_equal [list $backlen_value tail] [r lrange l 0 -1]
+            } {} {needs:debug}
+        }
+    }
+}

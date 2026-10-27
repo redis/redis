@@ -335,25 +335,31 @@ static inline int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned ch
  * of the previous element of size 'l', in the target buffer 'buf'.
  * The function returns the number of bytes used to encode it, from
  * 1 to 5. If 'buf' is NULL the function just returns the number of bytes
- * needed in order to encode the backlen. */
+ * needed in order to encode the backlen.
+ *
+ * l equal to 16383, 2097151 or 268435455 is encoded in one byte more than it
+ * strictly needs, its leading group of seven bits being zero. That is wasteful
+ * but deliberate: it is the only form every version and every external reader
+ * of the format accepts, so it is what we keep writing. Readers must handle
+ * both widths, see lpBacklenBytes(). */
 static inline unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
     if (l <= 127) {
         if (buf) buf[0] = l;
         return 1;
-    } else if (l <= 16383) {
+    } else if (l < 16383) {
         if (buf) {
             buf[0] = l>>7;
             buf[1] = (l&127)|128;
         }
         return 2;
-    } else if (l <= 2097151) {
+    } else if (l < 2097151) {
         if (buf) {
             buf[0] = l>>14;
             buf[1] = ((l>>7)&127)|128;
             buf[2] = (l&127)|128;
         }
         return 3;
-    } else if (l <= 268435455) {
+    } else if (l < 268435455) {
         if (buf) {
             buf[0] = l>>21;
             buf[1] = ((l>>14)&127)|128;
@@ -379,19 +385,44 @@ static inline unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
 static inline unsigned long lpEncodeBacklenBytes(uint64_t l) {
     if (l <= 127) {
         return 1;
-    } else if (l <= 16383) {
+    } else if (l < 16383) {
         return 2;
-    } else if (l <= 2097151) {
+    } else if (l < 2097151) {
         return 3;
-    } else if (l <= 268435455) {
+    } else if (l < 268435455) {
         return 4;
     } else {
         return 5;
     }
 }
 
-/* Decode the backlen and returns it. If the encoding looks invalid (more than
- * 5 bytes are used), UINT64_MAX is returned to report the problem.
+/* Return the number of bytes occupied by the backlen field of an entry whose
+ * encoded length, header plus data and backlen excluded, is 'l'. 'backlen'
+ * must point at the first byte of that field, the byte right after the entry
+ * data.
+ *
+ * The listpack spec describes the backlen bytes ambiguously as
+ *
+ *     From 0 to 127: 1 byte
+ *     From 128 to 16383: 2 bytes
+ *     From 16383 to 2097151: 3 bytes
+ *     From 2097151 to 268435455: 4 bytes
+ *     From 268435455 to 34359738367: 5 bytes
+ *
+ * This is ambiguous for 16383, 2097151 and 268435455 so if 'l' is one of these,
+ * we detect in which of the two ways it's encoded. The first byte tells them
+ * apart, since it is zero only in the wider form. (We can't simply read the
+ * backlen from start to end, because it can only be read backwards.) */
+static inline unsigned long lpBacklenBytes(uint64_t l, const unsigned char *backlen) {
+    unsigned long bytes = lpEncodeBacklenBytes(l);
+    if (unlikely(l == 16383 || l == 2097151 || l == 268435455) && backlen[0] != 0) bytes--;
+    return bytes;
+}
+
+/* Decode the backlen and returns it, storing the width of the field in bytes
+ * in 'width'. 'p' must point at the last byte of the field, decoding runs
+ * backwards from there. If the encoding looks invalid (more than 5 bytes are
+ * used), UINT64_MAX is returned to report the problem.
  *
  * Optimized for the common case: most backlen values fit in one or two bytes
  * due to listpack size limits. This version avoids a loop and pointer
@@ -400,39 +431,45 @@ static inline unsigned long lpEncodeBacklenBytes(uint64_t l) {
  *
  * Note: the caller guarantees that up to 5 bytes preceding 'p' are readable,
  * as ensured by listpack invariants. */
-static inline uint64_t lpDecodeBacklen(unsigned char *p) {
+static inline uint64_t lpDecodeBacklen(unsigned char *p, unsigned long *width) {
     uint64_t val;
 
     /* Fast path: single byte (most common for small entries <= 127 bytes) */
     if (likely(!(p[0] & 128))) {
+        *width = 1;
         return p[0] & 127;
     }
 
     /* Two bytes */
     val = (uint64_t)(p[0] & 127);
     if (!(p[-1] & 128)) {
+        *width = 2;
         return val | ((uint64_t)(p[-1] & 127) << 7);
     }
 
     /* Three bytes */
     val |= (uint64_t)(p[-1] & 127) << 7;
     if (!(p[-2] & 128)) {
+        *width = 3;
         return val | ((uint64_t)(p[-2] & 127) << 14);
     }
 
     /* Four bytes */
     val |= (uint64_t)(p[-2] & 127) << 14;
     if (!(p[-3] & 128)) {
+        *width = 4;
         return val | ((uint64_t)(p[-3] & 127) << 21);
     }
 
     /* Five bytes */
     val |= (uint64_t)(p[-3] & 127) << 21;
     if (!(p[-4] & 128)) {
+        *width = 5;
         return val | ((uint64_t)(p[-4] & 127) << 28);
     }
 
     /* Invalid: more than 5 bytes */
+    *width = 6;
     return UINT64_MAX;
 }
 
@@ -503,7 +540,7 @@ static inline uint32_t lpCurrentEncodedSizeBytes(const unsigned char encoding) {
  * it does not return NULL when the EOF element is encountered. */
 static inline unsigned char *lpSkip(unsigned char *p) {
     unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
-    entrylen += lpEncodeBacklenBytes(entrylen);
+    entrylen += lpBacklenBytes(entrylen, p + entrylen);
     p += entrylen;
     return p;
 }
@@ -534,7 +571,11 @@ unsigned char *lpNextN(unsigned char *lp, unsigned char *p, unsigned long n) {
     size_t lpbytes = lpBytes(lp);
     int validated = 1; /* If current entry is fully validated */
     while (n && p) {
-        p = lpSkip(p);
+        /* Same as lpSkip(), but since 'p' may not be validated, make sure the
+         * first backlen byte that lpBacklenBytes() may read is in range. */
+        unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
+        assert(p + entrylen < lp + lpbytes);
+        p += entrylen + lpBacklenBytes(entrylen, p + entrylen);
         /* Near the end, fully validate so the next lpSkip() can't run past
          * the allocation; otherwise a cheap range check is enough, since
          * lpSkip() reads at most 5 bytes of encoding from the entry start.*/
@@ -556,8 +597,9 @@ unsigned char *lpNextN(unsigned char *lp, unsigned char *p, unsigned long n) {
  * must ensure 'p' is not the first entry. */
 static inline unsigned char *lpSkipPrev(unsigned char *p) {
     p--; /* Seek the last backlen byte of the previous element. */
-    uint64_t prevlen = lpDecodeBacklen(p);
-    prevlen += lpEncodeBacklenBytes(prevlen);
+    unsigned long backlen_width;
+    uint64_t prevlen = lpDecodeBacklen(p, &backlen_width);
+    prevlen += backlen_width;
     p -= prevlen-1; /* Seek the first byte of the previous entry. */
     return p;
 }
@@ -683,7 +725,7 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
         if (entry_size) *entry_size = LP_ENCODING_7BIT_UINT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_6BIT_STR(p[0])) {
         *count = LP_ENCODING_6BIT_STR_LEN(p);
-        if (entry_size) *entry_size = 1 + *count + lpEncodeBacklenBytes(*count + 1);
+        if (entry_size) *entry_size = 1 + *count + lpBacklenBytes(*count + 1, p + *count + 1);
         return p+1;
     } else if (LP_ENCODING_IS_13BIT_INT(p[0])) {
         uval = ((p[0]&0x1f)<<8) | p[1];
@@ -725,11 +767,11 @@ static inline unsigned char *lpGetWithSize(unsigned char *p, int64_t *count, uns
         if (entry_size) *entry_size = LP_ENCODING_64BIT_INT_ENTRY_SIZE;
     } else if (LP_ENCODING_IS_12BIT_STR(p[0])) {
         *count = LP_ENCODING_12BIT_STR_LEN(p);
-        if (entry_size) *entry_size = 2 + *count + lpEncodeBacklenBytes(*count + 2);
+        if (entry_size) *entry_size = 2 + *count + lpBacklenBytes(*count + 2, p + *count + 2);
         return p+2;
     } else if (LP_ENCODING_IS_32BIT_STR(p[0])) {
         *count = LP_ENCODING_32BIT_STR_LEN(p);
-        if (entry_size) *entry_size = 5 + *count + lpEncodeBacklenBytes(*count + 5);
+        if (entry_size) *entry_size = 5 + *count + lpBacklenBytes(*count + 5, p + *count + 5);
         return p+5;
     } else {
         uval = 12345678900000000ULL + p[0];
@@ -1085,7 +1127,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     uint32_t replaced_len  = 0;
     if (where == LP_REPLACE) {
         replaced_len = lpCurrentEncodedSizeUnsafe(p);
-        replaced_len += lpEncodeBacklenBytes(replaced_len);
+        replaced_len += lpBacklenBytes(replaced_len, p + replaced_len);
         ASSERT_INTEGRITY_LEN(lp, p, replaced_len);
     }
 
@@ -1763,7 +1805,12 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
 
     /* get the entry length and encoded backlen. */
     unsigned long entrylen = lpCurrentEncodedSizeUnsafe(p);
-    unsigned long encodedBacklen = lpEncodeBacklenBytes(entrylen);
+
+    /* the first backlen byte tells the two backlen widths apart, so make sure
+     * it is in range before lpBacklenBytes() reads it. */
+    if (unlikely(OUT_OF_RANGE(p + entrylen)))
+        return 0;
+    unsigned long encodedBacklen = lpBacklenBytes(entrylen, p + entrylen);
     entrylen += encodedBacklen;
 
     /* make sure the entry doesn't reach outside the edge of the listpack */
@@ -1773,9 +1820,13 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
     /* move to the next entry */
     p += entrylen;
 
-    /* make sure the encoded length at the end patches the one at the beginning. */
-    uint64_t prevlen = lpDecodeBacklen(p-1);
+    /* make sure the encoded length at the end patches the one at the beginning,
+     * and that the field is as wide as the forward scan assumed. */
+    unsigned long backlen_width;
+    uint64_t prevlen = lpDecodeBacklen(p-1, &backlen_width);
     if (prevlen + encodedBacklen != entrylen)
+        return 0;
+    if (backlen_width != encodedBacklen)
         return 0;
 
     *pp = p;
@@ -2122,7 +2173,7 @@ void lpRepr(unsigned char *lp) {
     while(p) {
         uint32_t encoded_size_bytes = lpCurrentEncodedSizeBytes(p[0]);
         uint32_t encoded_size = lpCurrentEncodedSizeUnsafe(p);
-        unsigned long back_len = lpEncodeBacklenBytes(encoded_size);
+        unsigned long back_len = lpBacklenBytes(encoded_size, p + encoded_size);
         printf(
             "{\n"
                 "\taddr: 0x%08lx,\n"
@@ -2173,6 +2224,43 @@ void lpRepr(unsigned char *lp) {
 char *mixlist[] = {"hello", "foo", "quux", "1024"};
 char *intlist[] = {"4294967296", "-100", "100", "128000", 
                    "non integer", "much much longer non integer"};
+
+/* Write 'l' into 'buf' using 'width' bytes with the listpack backlen group
+ * layout: the first byte holds the most significant group of seven bits without
+ * the continuation bit, every following byte holds the next group with it set.
+ * For 16383, 2097151 and 268435455 both the minimal width and one byte more
+ * occur in persisted listpacks. */
+static void encodeBacklenWidth(unsigned char *buf, uint64_t l, int width) {
+    for (int i = 0; i < width; i++) {
+        buf[i] = (l >> (7 * (width - 1 - i))) & 127;
+        if (i) buf[i] |= 128;
+    }
+}
+
+/* Build a listpack holding a single 32 bit string entry whose encoded length,
+ * backlen excluded, is exactly 'enclen', with the backlen written in 'width'
+ * bytes. */
+static unsigned char *createBacklenListpack(uint64_t enclen, int width, unsigned char fill) {
+    uint32_t datalen = (uint32_t)(enclen - 5); /* 1 encoding byte + 4 length bytes */
+    size_t total = LP_HDR_SIZE + enclen + width + 1;
+    unsigned char *lp = lp_malloc(total);
+
+    lpSetTotalBytes(lp, total);
+    lpSetNumElements(lp, 1);
+
+    unsigned char *p = lp + LP_HDR_SIZE;
+    *p++ = LP_ENCODING_32BIT_STR;
+    *p++ = datalen & 0xff;
+    *p++ = (datalen >> 8) & 0xff;
+    *p++ = (datalen >> 16) & 0xff;
+    *p++ = (datalen >> 24) & 0xff;
+    memset(p, fill, datalen);
+    p += datalen;
+    encodeBacklenWidth(p, enclen, width);
+    p += width;
+    *p = LP_EOF;
+    return lp;
+}
 
 static unsigned char *createList(void) {
     unsigned char *lp = lpNew(0);
@@ -2824,9 +2912,9 @@ int listpackTest(int argc, char *argv[], int flags) {
     }
 
     TEST("Backlen encode/decode at width boundaries") {
-        /* Body lengths where backlen widens; maxima per width must use the
-         * minimum byte count and round-trip (lpEncodeBacklen vs
-         * lpEncodeBacklenBytes and lpDecodeBacklen). */
+        /* Body lengths where backlen widens; 16383, 2097151 and 268435455
+         * must use the wider form and round-trip (lpEncodeBacklen vs
+         * lpEncodeBacklenBytes, lpBacklenBytes and lpDecodeBacklen). */
         const uint64_t cases[] = {
             128ULL,
             16382ULL,
@@ -2843,10 +2931,103 @@ int listpackTest(int argc, char *argv[], int flags) {
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
             uint64_t enclen = cases[i];
             unsigned long n = lpEncodeBacklen(NULL, enclen);
+            unsigned long width;
             assert(n == lpEncodeBacklenBytes(enclen));
             assert(lpEncodeBacklen(enc, enclen) == n);
-            assert(lpDecodeBacklen(enc + n - 1) == enclen);
+            assert(lpBacklenBytes(enclen, enc) == n);
+            assert(lpDecodeBacklen(enc + n - 1, &width) == enclen);
+            assert(width == n);
+            if (enclen == 16383 || enclen == 2097151 || enclen == 268435455)
+                assert(enc[0] == 0 && n == lpEncodeBacklenBytes(enclen - 1) + 1);
         }
+    }
+
+    TEST("Both backlen widths are readable") {
+        /* 16383 and 2097151 are two of the three entry lengths that are
+         * written with one backlen byte more than strictly needed, except by
+         * versions that wrote the minimal width. Both widths exist in
+         * persisted listpacks, so reading must accept either. 268435455, the
+         * third, is skipped: it needs a 256MB entry. */
+        const uint64_t boundaries[] = {16383, 2097151};
+        const int narrow[] = {2, 3};
+
+        for (size_t i = 0; i < sizeof(boundaries) / sizeof(boundaries[0]); i++) {
+            uint64_t enclen = boundaries[i];
+            uint32_t datalen = (uint32_t)(enclen - 5);
+
+            for (int extra = 0; extra <= 1; extra++) {
+                int width = narrow[i] + extra;
+                lp = createBacklenListpack(enclen, width, 'x');
+
+                assert(lpBytes(lp) == (size_t)(LP_HDR_SIZE + enclen + width + 1));
+                assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+                assert(lpLength(lp) == 1);
+
+                p = lpFirst(lp);
+                assert(p != NULL);
+
+                unsigned int slen = 0;
+                long long lval = 0;
+                unsigned char *val = lpGetValue(p, &slen, &lval);
+                assert(val != NULL);
+                assert(slen == datalen);
+                assert(val[0] == 'x' && val[datalen - 1] == 'x');
+
+                /* Forward and backward traversal must land on the same entry. */
+                assert(lpNext(lp, p) == NULL);
+                assert(lpLast(lp) == p);
+                assert(lpSeek(lp, 0) == p);
+                assert(lpSeek(lp, -1) == p);
+
+                lpFree(lp);
+            }
+        }
+    }
+
+    TEST("Minimal backlen survives mutation") {
+        /* An entry carrying the minimal backlen, the width this version no
+         * longer emits, can still be appended after, replaced and deleted:
+         * each of those paths measures the existing entry. */
+        unsigned int slen = 0;
+        long long lval = 0;
+        unsigned char *val;
+
+        lp = createBacklenListpack(16383, 2, 'x');
+        lp = lpAppend(lp, (unsigned char *)"tail", 4);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        assert(lpLength(lp) == 2);
+
+        p = lpFirst(lp);
+        lp = lpReplace(lp, &p, (unsigned char *)"small", 5);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        assert(lpLength(lp) == 2);
+
+        val = lpGetValue(lpFirst(lp), &slen, &lval);
+        assert(slen == 5 && memcmp(val, "small", 5) == 0);
+        val = lpGetValue(lpLast(lp), &slen, &lval);
+        assert(slen == 4 && memcmp(val, "tail", 4) == 0);
+        lpFree(lp);
+
+        lp = createBacklenListpack(16383, 2, 'x');
+        lp = lpAppend(lp, (unsigned char *)"tail", 4);
+        lp = lpDeleteRange(lp, 0, 1);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        assert(lpLength(lp) == 1);
+        val = lpGetValue(lpFirst(lp), &slen, &lval);
+        assert(slen == 4 && memcmp(val, "tail", 4) == 0);
+        lpFree(lp);
+    }
+
+    TEST("Backlen width mismatch is rejected by validation") {
+        /* Set the continuation bit on the first backlen byte so that decoding
+         * backwards runs into the zero data byte before it: the backlen still
+         * decodes to the right value, but is one byte wider than the forward
+         * scan assumes. */
+        lp = createBacklenListpack(16384, 3, 0);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lp[LP_HDR_SIZE + 16384] |= 128;
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 0);
+        lpFree(lp);
     }
 
     TEST("Create long list and check indices") {
