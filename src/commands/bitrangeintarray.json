@@ -1,7 +1,7 @@
 {
     "BITRANGEINTARRAY": {
         "summary": "Returns the offsets of the set or clear bits in a range of a bitmap.",
-        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range (and of runs of set bits in it, when looking for clear bits), and M is the number of returned integers. With LIMIT, the scan stops once count integers are returned.",
+        "complexity": "O(N + M) where N is the number of bytes in the range for a string, or the number of bitmap containers in the range (and of runs of set bits in it, when looking for clear bits), and M is the number of returned integers. With LIMIT, the scan stops after count matches, or after completing their last byte in BYTE units.",
         "group": "bitmap",
         "since": "8.12.0",
         "arity": -5,
