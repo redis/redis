@@ -2055,10 +2055,10 @@ void bitroaropCommand(client *c) {
 
 typedef struct bitroarIntArrayReply {
     client *c;
-    long emitted;
-    long limit;   /* LIMIT count, or LONG_MAX without LIMIT. */
-    int isbit;    /* The range is in BIT units. */
-    uint64_t end; /* Offsets at or beyond this are not returned. */
+    long long emitted;
+    long long limit; /* LIMIT count, or LLONG_MAX without LIMIT. */
+    int isbit;       /* The range is in BIT units. */
+    uint64_t end;    /* Offsets at or beyond this are not returned. */
 } bitroarIntArrayReply;
 
 /* Add 'offset' to the reply, and return 0 if no more offsets should follow.
@@ -2153,7 +2153,7 @@ void bitrangeintarrayCommand(client *c) {
     char llbuf[LONG_STR_SIZE];
     uint64_t bit_start, bit_end;
     int isbit = 0;
-    long limit = LONG_MAX;
+    long long limit = LLONG_MAX;
 
     if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
         return;
@@ -2168,7 +2168,7 @@ void bitrangeintarrayCommand(client *c) {
         } else if (!strcasecmp(c->argv[j]->ptr,"byte")) {
             isbit = 0;
         } else if (!strcasecmp(c->argv[j]->ptr,"limit") && moreargs) {
-            if (getLongFromObjectOrReply(c,c->argv[++j],&limit,NULL) != C_OK)
+            if (getLongLongFromObjectOrReply(c,c->argv[++j],&limit,NULL) != C_OK)
                 return;
             if (limit < 0) {
                 addReplyError(c,"LIMIT can't be negative");
