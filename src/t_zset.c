@@ -1770,6 +1770,7 @@ void zsetConvertAfterBulkInsert(robj *zobj, size_t maxelelen, size_t totelelen) 
 /* Return (by reference) the score of the specified member of the sorted set
  * storing it into *score. If the element does not exist C_ERR is returned
  * otherwise C_OK is returned and *score is correctly populated.
+ * 'score' may be NULL to only test whether the member exists.
  * If 'zobj' or 'member' is NULL, C_ERR is returned. */
 int zsetScore(robj *zobj, sds member, double *score) {
     if (!zobj || !member) return C_ERR;
@@ -1781,7 +1782,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
         dictEntry *de = dictFind(zs->dict, member);
         if (de == NULL) return C_ERR;
         zskiplistNode *znode = dictGetKey(de);
-        *score = znode->score;
+        if (score) *score = znode->score;
     } else if (zobj->encoding == OBJ_ENCODING_BTREE) {
         if (!zbtreeScore(zobj->ptr, member, score)) return C_ERR;
     } else {
