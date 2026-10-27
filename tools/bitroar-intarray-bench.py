@@ -265,7 +265,7 @@ def main():
                 samples = {backend: [] for backend in backends}
                 for backend, (client, path) in backends.items():
                     if backend == "native":
-                        command = ["BITRANGEINTARRAY", key, 1]
+                        command = ["BITRANGEINTARRAY", key]
                         if offsets is not None:
                             command += [*offsets, "BIT"]
                         else:

@@ -2138,18 +2138,18 @@ static void bitrangeintarrayString(const unsigned char *p, int bit, uint64_t sta
     }
 }
 
-/* BITRANGEINTARRAY key value start end [BIT|BYTE] [LIMIT count]
- * Returns the offsets of the matching bits in the range, in ascending order.
+/* BITRANGEINTARRAY key start end [BIT|BYTE] [LIMIT count] [ZEROS]
+ * Returns the offsets of the set bits in the range, in ascending order.
  * Strings are read in place and native bitmaps are iterated directly.
  *
- * value:     0 or 1, the value of the bits to return.
  * start end: the inclusive range, interpreted as in BITCOUNT, so both
  *            commands cover the same bits. It is clamped to the bitmap:
  *            unlike BITPOS, no clear bits are assumed past its end.
  * BIT|BYTE:  the unit of 'start' and 'end', BYTE by default.
  * LIMIT:     return only the lowest 'count' offsets in the range. In BYTE
  *            units the reply also completes the byte holding the last of
- *            them, so a page ends on a byte boundary. */
+ *            them, so a page ends on a byte boundary.
+ * ZEROS:     return the offsets of the clear bits instead. */
 void bitrangeintarrayCommand(client *c) {
     kvobj *o;
     long long start, end, strlen;
@@ -2158,22 +2158,16 @@ void bitrangeintarrayCommand(client *c) {
     char llbuf[LONG_STR_SIZE];
     uint64_t bit_start, bit_end;
     int isbit = 0;
-    long value;
+    int value = 1; /* The value of the bits to return. */
     long long limit = LLONG_MAX;
 
-    if (getLongFromObjectOrReply(c,c->argv[2],&value,NULL) != C_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[2],&start,NULL) != C_OK)
         return;
-    if (value != 0 && value != 1) {
-        addReplyError(c, "The value argument must be 1 or 0.");
-        return;
-    }
-    if (getLongLongFromObjectOrReply(c,c->argv[3],&start,NULL) != C_OK)
-        return;
-    if (getLongLongFromObjectOrReply(c,c->argv[4],&end,NULL) != C_OK)
+    if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
         return;
 
     /* Parse the options, in any order. */
-    for (int j = 5; j < c->argc; j++) {
+    for (int j = 4; j < c->argc; j++) {
         int moreargs = (c->argc - 1) - j;
         if (!strcasecmp(c->argv[j]->ptr,"bit")) {
             isbit = 1;
@@ -2186,6 +2180,8 @@ void bitrangeintarrayCommand(client *c) {
                 addReplyError(c,"LIMIT can't be negative");
                 return;
             }
+        } else if (!strcasecmp(c->argv[j]->ptr,"zeros")) {
+            value = 0;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
