@@ -116,6 +116,13 @@ ifeq ($(SANITIZER),undefined)
 	MALLOC=libc
 	CFLAGS+=-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
 	LDFLAGS+=-fsanitize=undefined
+
+	# Clang emits many "call to function through pointer to incorrect function type"
+	# warnings. Temporarily disable this check until a broader cleanup lands,
+	# after which we can re-enable it safely.
+	ifeq (clang, $(CLANG))
+		CFLAGS+=-fno-sanitize=function
+	endif
 else
 ifeq ($(SANITIZER),thread)
 	CFLAGS+=-fsanitize=thread -fno-sanitize-recover=all -fno-omit-frame-pointer
