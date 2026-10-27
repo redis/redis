@@ -2129,10 +2129,10 @@ static void bitrangeintarrayString(const unsigned char *p, int bit, uint64_t sta
         if (end < base + 64) word &= ~(~0ULL >> (end - base));
 
         while (word) {
-            int bit = __builtin_clzll(word);
-            if (base + bit >= reply->end) return;
-            if (!bitrangeintarrayAddOffset(reply, base + bit)) return;
-            word &= ~((1ULL << 63) >> bit);
+            int pos = __builtin_clzll(word);
+            if (base + pos >= reply->end) return;
+            if (!bitrangeintarrayAddOffset(reply, base + pos)) return;
+            word &= ~((1ULL << 63) >> pos);
         }
         /* Reaching LIMIT ends the range within this word. */
         if (reply->emitted >= reply->limit) return;
