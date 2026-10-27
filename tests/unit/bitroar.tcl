@@ -5135,6 +5135,31 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         }
     }
 
+    test {BITRANGEINTARRAY LIMIT pages through a bitmap until a short page} {
+        set bits {}
+        for {set i 0} {$i < 200} {incr i} {lappend bits [expr {$i * 5}]}
+        r del bitmap:str
+        foreach bit $bits {r setbit bitmap:str $bit 1}
+        seed_roaring_bitmap bitmap:native $bits
+
+        # Each page starts after the last offset returned, and a page with
+        # fewer than LIMIT offsets ends the scan. With a LIMIT that divides
+        # 200, the last page is empty.
+        foreach key {bitmap:str bitmap:native} {
+            foreach limit {1 7 100 200 300} {
+                set pages {}
+                set start 0
+                while 1 {
+                    set page [r bitrangeintarray $key 1 $start -1 bit limit $limit]
+                    lappend pages {*}$page
+                    if {[llength $page] < $limit} break
+                    set start [expr {[lindex $page end] + 1}]
+                }
+                assert_equal $bits $pages "$key $limit"
+            }
+        }
+    }
+
     test {BITRANGEINTARRAY returns empty arrays for missing keys and values without set bits} {
         # A missing key, an empty native bitmap, a native bitmap whose only bit
         # was cleared, an empty string, and a string of zero bytes.
@@ -5168,6 +5193,25 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
             foreach bounds {{0 -1} {0 0} {-1 -1} {1 0} {0 99999999} {-1 -2}
                             {0 -1 bit} {-1 -1 bit} {-9223372036854775808 9223372036854775807}} {
                 assert_equal {} [r bitrangeintarray $key 0 {*}$bounds]
+            }
+        }
+    }
+
+    test {BITRANGEINTARRAY returns empty arrays for empty ranges and LIMIT 0} {
+        # Bits 0 and 9 set, in two bytes, so both bits have matches.
+        r del bitmap:str
+        r setbit bitmap:str 0 1
+        r setbit bitmap:str 9 1
+        seed_roaring_bitmap bitmap:native {0 9}
+
+        foreach key {bitmap:str bitmap:native} {
+            foreach bit {0 1} {
+                # A reversed range, a range past the value, and LIMIT 0.
+                assert_equal {} [r bitrangeintarray $key $bit 1 0]
+                assert_equal {} [r bitrangeintarray $key $bit 9 8 bit]
+                assert_equal {} [r bitrangeintarray $key $bit 2 5]
+                assert_equal {} [r bitrangeintarray $key $bit 16 20 bit]
+                assert_equal {} [r bitrangeintarray $key $bit 0 -1 limit 0]
             }
         }
     }
