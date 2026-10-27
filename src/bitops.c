@@ -2206,9 +2206,10 @@ void bitrangeintarrayCommand(client *c) {
         strlen = slen;
     }
 
-    /* Like BITCOUNT, a range with both ends negative and reversed is empty
-     * even when both ends would clamp to the first byte or bit. */
-    if (start < 0 && end < 0 && start > end) {
+    /* An empty value has no bits. Like BITCOUNT, a range with both ends
+     * negative and reversed is empty even when both ends would clamp to the
+     * first byte or bit. */
+    if (strlen == 0 || (start < 0 && end < 0 && start > end)) {
         addReply(c, shared.emptyarray);
         return;
     }
