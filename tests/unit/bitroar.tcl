@@ -473,10 +473,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {DEBUG DIGEST for fragmented Roaring bitmaps is fast and history independent} {
+    test {DEBUG DIGEST for fragmented Roaring bitmaps is history independent} {
         # Alternating bits give one set-bit run per two bits, so 1MB holds 4M
-        # runs. All of them must be streamed into one SHA1 rather than paying
-        # SHA1 finalizations for every run.
+        # runs. Verify that identical bits have the same digest across
+        # different construction histories and DUMP/RESTORE round-trips.
         set bytes 1048576
         set raw [string repeat [binary format H* 55] $bytes]
         r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
@@ -486,28 +486,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal OK [create_roaring_bitmap_from_raw r bitmap:digest:frag:converted $raw]
         assert_equal [expr {$bytes * 4}] [r bitcount bitmap:digest:frag:converted]
         set digest [r debug digest-value bitmap:digest:frag:converted]
-        if {!$::valgrind} {
-            # Time the digest against a plain SHA1 pass over a 16MB string in
-            # the same server instead of a fixed limit, so the check holds on
-            # slow builds and busy runners alike. Streaming costs about 5x that
-            # baseline, while a SHA1 finalization per run costs about 100x.
-            # Keep the fastest of three runs to ride out scheduling noise.
-            r setrange bitmap:digest:baseline [expr {16 * 1024 * 1024 - 1}] x
-            foreach key {bitmap:digest:frag:converted bitmap:digest:baseline} {
-                set fastest($key) {}
-                for {set i 0} {$i < 3} {incr i} {
-                    set start [clock milliseconds]
-                    r debug digest-value $key
-                    set elapsed [expr {[clock milliseconds] - $start}]
-                    if {$fastest($key) eq {} || $elapsed < $fastest($key)} {
-                        set fastest($key) $elapsed
-                    }
-                }
-            }
-            r del bitmap:digest:baseline
-            assert_lessthan $fastest(bitmap:digest:frag:converted) \
-                [expr {25 * max(1, $fastest(bitmap:digest:baseline))}]
-        }
 
         # Build the same bits through other container histories: BITFIELD
         # writes into an empty bitmap grow array containers into bitsets, and

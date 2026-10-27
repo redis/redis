@@ -24,6 +24,7 @@
 #include "bio.h"
 #include "cluster_asm.h"
 #include "keymeta.h"
+#include "zset_btree.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -713,7 +714,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_ZSET:
         if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_LISTPACK);
-        else if (o->encoding == OBJ_ENCODING_SKIPLIST)
+        else if (o->encoding == OBJ_ENCODING_SKIPLIST ||
+                 o->encoding == OBJ_ENCODING_BTREE)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_2);
         else
             serverPanic("Unknown sorted set encoding");
@@ -1283,7 +1285,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
-        /* Save a sorted set value */
+        /* Save a sorted set value. SKIPLIST is only a temporary encoding,
+         * keyspace zsets are LISTPACK or BTREE. */
+        debugServerAssert(o->encoding != OBJ_ENCODING_SKIPLIST);
         if (o->encoding == OBJ_ENCODING_LISTPACK) {
             size_t l = lpBytes((unsigned char*)o->ptr);
 
@@ -1315,6 +1319,24 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                     return -1;
                 nwritten += n;
                 zn = zn->backward;
+            }
+        } else if (o->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t len;
+            double score;
+
+            if ((n = rdbSaveLen(rdb, zbtreeLength(o->ptr))) == -1)
+                return -1;
+            nwritten += n;
+            zbtreeIteratorStart(o->ptr, 1, &iter);
+            while (zbtreeIteratorNext(&iter, 1, &ele, &len, &score)) {
+                if ((n = rdbSaveRawString(rdb, (unsigned char *)ele, len)) == -1)
+                    return -1;
+                nwritten += n;
+                if ((n = rdbSaveBinaryDoubleValue(rdb, score)) == -1)
+                    return -1;
+                nwritten += n;
             }
         } else {
             serverPanic("Unknown sorted set encoding");
@@ -2543,23 +2565,27 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
     return 1;
 }
 
-/* callback for to check the listpack doesn't have duplicate records */
-static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
-    struct {
-        int tuple_len;
-        long count;
-        dict *fields;
-        long long last_expireat;
-    } *data = userdata;
+typedef struct {
+    int tuple_len;
+    long count;
+    dict *fields;
+    long long last_expireat;
+    int check_duplicates;
+    int validate_scores;
+} lpValidationData;
 
-    if (data->fields == NULL) {
+/* Validate tuple fields after lpValidateIntegrity checked the entry. */
+static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
+    lpValidationData *data = userdata;
+
+    if (data->check_duplicates && data->fields == NULL) {
         data->fields = dictCreate(&hashDictType);
         dictExpand(data->fields, head_count/data->tuple_len);
     }
 
     /* If we're checking pairs, then even records are field names. Otherwise
      * we're checking all elements. Add to dict and check that's not a dup */
-    if (data->count % data->tuple_len == 0) {
+    if (data->check_duplicates && data->count % data->tuple_len == 0) {
         unsigned char *str;
         int64_t slen;
         unsigned char buf[LP_INTBUF_SIZE];
@@ -2571,6 +2597,17 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
             sdsfree(field);
             return 0;
         }
+    }
+
+    /* A zset's second entry is a score, not an arbitrary hash value. Parse
+     * it before any conversion can store an invalid or NaN score. Integer
+     * entries are always valid, and infinity remains a supported score. */
+    if (data->validate_scores && data->count % data->tuple_len == 1) {
+        unsigned int len;
+        long long integer;
+        unsigned char *str = lpGetValue(p, &len, &integer);
+        double score;
+        if (str && !string2d((char *)str, len, &score)) return 0;
     }
 
     /* Validate TTL field, only for listpackex. */
@@ -2596,17 +2633,15 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
  * tuple_len indicates what is a logical entry tuple size.
  * Whether tuple is of size 1 (set), 2 (field-value) or 3 (field-value[-ttl]),
  * first element in the tuple must be unique */
-int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
-    if (!deep)
+static int lpValidateIntegrityAndDupsEx(unsigned char *lp, size_t size,
+                                        int deep, int tuple_len, int validate_scores)
+{
+    if (!deep && !validate_scores)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
-    /* Keep track of the field names to locate duplicate ones */
-    struct {
-        int tuple_len;
-        long count;
-        dict *fields; /* Initialisation at the first callback. */
-        long long last_expireat; /* Last field's expiry time to ensure order in TTL fields. */
-    } data = {tuple_len, 0, NULL, -1};
+    /* Score validation must visit every entry even when duplicate checking
+     * is disabled. The integrity walker bounds each entry before decoding. */
+    lpValidationData data = {tuple_len, 0, NULL, -1, deep, validate_scores};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
@@ -2616,6 +2651,10 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
 
     if (data.fields) dictRelease(data.fields);
     return ret;
+}
+
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
+    return lpValidateIntegrityAndDupsEx(lp, size, deep, tuple_len, 0);
 }
 
 /* ---- shared SDS-array helpers ---- */
@@ -3116,16 +3155,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         /* Read sorted set value. */
         uint64_t zsetlen;
         size_t maxelelen = 0, totelelen = 0;
-        zset *zs;
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (zsetlen == 0) goto emptykey;
-
-        o = createZsetObject();
-        zs = o->ptr;
-
-        if (zsetlen > DICT_HT_INITIAL_SIZE && dictTryExpand(zs->dict,zsetlen) != DICT_OK) {
-            rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)zsetlen);
+        /* Decide listpack eligibility only after seeing every member. A
+         * temporary listpack would normalize -0 before a later long member
+         * promotes the object, changing the final B+tree's score bits. */
+        o = createZsetBtreeObject();
+        if (!zbtreeTryReserve(o->ptr, zsetlen)) {
+            rdbReportCorruptRDB("Unable to reserve zset index for %llu elements",
+                                (unsigned long long)zsetlen);
             decrRefCount(o);
             return NULL;
         }
@@ -3134,7 +3173,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         while(zsetlen--) {
             sds sdsele;
             double score;
-            zskiplistNode *znode;
 
             if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                 decrRefCount(o);
@@ -3162,27 +3200,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* Don't care about integer-encoded strings. */
-            if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
-            totelelen += sdslen(sdsele);
-
-            znode = zslInsert(zs->zsl,score,sdsele);
-            if (dictAdd(zs->dict, znode, NULL) != DICT_OK) {
+            int out_flags;
+            serverAssert(zsetAdd(o, score, sdsele, ZADD_IN_NX, &out_flags, NULL));
+            if (!(out_flags & ZADD_OUT_ADDED)) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
                 decrRefCount(o);
-                sdsfree(sdsele); /* zslInsert copies the sds, so we need to free the original */
+                sdsfree(sdsele);
                 return NULL;
             }
-            sdsfree(sdsele); /* zslInsert copies the sds into the node, so free the original */
+            size_t elelen = sdslen(sdsele);
+            if (elelen > maxelelen) maxelelen = elelen;
+            if (totelelen <= SIZE_MAX - elelen)
+                totelelen += elelen;
+            else
+                totelelen = SIZE_MAX;
+            sdsfree(sdsele);
         }
-
-        /* Convert *after* loading, since sorted sets are not stored ordered. */
-        if (zsetLength(o) <= server.zset_max_listpack_entries &&
-            maxelelen <= server.zset_max_listpack_value &&
-            lpSafeToAdd(NULL, totelelen))
-        {
-            zsetConvert(o, OBJ_ENCODING_LISTPACK);
-        }
+        zsetConvertAfterBulkInsert(o, maxelelen, totelelen);
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len, original_len;
         int ret;
@@ -3820,7 +3854,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
-                    if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
+                    int valid = ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp);
+                    /* See RDB_TYPE_ZSET_LISTPACK below for when scores are parsed. */
+                    if (valid && (deep_integrity_validation ||
+                                  lpLength(lp) / 2 > server.zset_max_listpack_entries))
+                        valid = lpValidateIntegrityAndDupsEx(lp, lpBytes(lp), 0, 2, 1);
+                    if (!valid) {
                         rdbReportCorruptRDB("Zset ziplist integrity check failed.");
                         zfree(lp);
                         zfree(encoded);
@@ -3839,14 +3878,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
 
                     if (zsetLength(o) > server.zset_max_listpack_entries)
-                        zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                        zsetConvert(o, OBJ_ENCODING_BTREE);
                     else
                         o->ptr = lpShrinkToFit(o->ptr);
                     break;
                 }
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 2)) {
+                if (!lpValidateIntegrityAndDupsEx(encoded, encoded_len,
+                                                  deep_integrity_validation, 2,
+                                                  deep_integrity_validation)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -3860,8 +3901,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     goto emptykey;
                 }
 
-                if (zsetLength(o) > server.zset_max_listpack_entries)
-                    zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                if (zsetLength(o) > server.zset_max_listpack_entries) {
+                    /* Parsing every score costs a full walk, so a listpack
+                     * that stays one is checked only by deep sanitization.
+                     * A conversion parses every score anyway and must not
+                     * store an invalid one, so check them first. */
+                    if (!deep_integrity_validation &&
+                        !lpValidateIntegrityAndDupsEx(encoded, encoded_len, 0, 2, 1)) {
+                        rdbReportCorruptRDB("Zset listpack integrity check failed.");
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    zsetConvert(o, OBJ_ENCODING_BTREE);
+                }
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
                 {

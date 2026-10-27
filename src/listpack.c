@@ -928,11 +928,18 @@ static inline unsigned char *lpFindCbInternal(unsigned char *lp, unsigned char *
         }
 
         /* The next call to lpGetWithSize could read at most 8 bytes past `p`
-         * We use the slower validation call only when necessary. */
+         * We use the slower validation call only when necessary. Otherwise `p`
+         * is in range already: it only moves forward from a valid entry, and
+         * p + 8 < lp + lp_bytes implies p < lp + lp_bytes. */
         if (p + 8 >= lp + lp_bytes)
             lpAssertValidEntry(lp, lp_bytes, p);
+#if UINTPTR_MAX == 0xffffffff
+        /* On 32-bit a corrupt entry length can wrap `p` around the address
+         * space: below the header, or so close to the top that `p + 8` itself
+         * wraps and the check above is skipped. Keep both bounds there. */
         else
             assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
+#endif
         if (p[0] == LP_EOF) break;
     }
 

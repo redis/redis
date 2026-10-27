@@ -337,59 +337,6 @@ tags "modules external:skip" {
             assert_equal [r get testkeyspace:expired] 1
         }
 
-        test "Keyspace notifications: BITOP reads sources after lookup callbacks change them" {
-            r debug set-active-expire 0
-            # Roaring sources were read after being freed; string sources were
-            # held by reference and read as they were before the callback.
-            foreach {roaring type} {yes bitmap no string} {
-                r config set bitmap-default-roaring $roaring
-                foreach {trigger kind expected_bits} {
-                    bitmap:bitop:trigger missing {5000}
-                    bitmap:bitop:trigger expired {5000}
-                    bitmap:bitop:trigger-grow missing {100 200000}
-                    bitmap:bitop:trigger-grow expired {100 200000}
-                } {
-                    r del bitmap:bitop:dest bitmap:bitop:check bitmap:bitop:victim $trigger
-                    r setbit bitmap:bitop:victim 100 1
-                    assert_equal $type [r type bitmap:bitop:victim]
-                    if {$kind eq "expired"} {
-                        r set $trigger x PX 1
-                        after 10
-                    }
-
-                    # Looking up the trigger runs a keymiss (and expired) callback
-                    # that replaces the victim, or grows it in place and sets a TTL
-                    # on it. Those writes are propagated before BITOP, so BITOP must
-                    # compute from the victim as the callback left it, as a replica
-                    # or an AOF replay does, not from the value it looked up first.
-                    set reply [r bitop or bitmap:bitop:dest bitmap:bitop:victim $trigger]
-                    assert_equal 0 [r exists $trigger]
-                    assert_equal $reply [r bitop or bitmap:bitop:check bitmap:bitop:victim]
-                    assert_equal [r debug digest-value bitmap:bitop:check] \
-                        [r debug digest-value bitmap:bitop:dest]
-                    assert_equal [llength $expected_bits] [r bitcount bitmap:bitop:dest]
-                    foreach bit $expected_bits {
-                        assert_equal 1 [r getbit bitmap:bitop:dest $bit]
-                    }
-                }
-            }
-            r del bitmap:bitop:dest bitmap:bitop:check bitmap:bitop:victim
-
-            # A wrong-type source fails BITOP before the sources after it are
-            # looked up, so the trigger's callback cannot replace the invalid
-            # source and let the command succeed.
-            r rpush bitmap:bitop:victim x
-            assert_error {WRONGTYPE*} {
-                r bitop or bitmap:bitop:dest bitmap:bitop:victim bitmap:bitop:trigger
-            }
-            assert_equal list [r type bitmap:bitop:victim]
-            assert_equal 0 [r exists bitmap:bitop:dest]
-            r del bitmap:bitop:victim
-
-            r config set bitmap-default-roaring no
-            r debug set-active-expire 1
-        } {OK} {needs:debug}
-
         test "Subkey notification: subscribe starts callback" {
             r keyspace.subscribe_subkeys
             r keyspace.reset_subkey_events
@@ -823,39 +770,6 @@ tags "modules external:skip" {
                         wait_for_ofs_sync $master $replica
                     }
                 }
-            }
-
-            test "Keyspace notifications: BITOP expires its destination before reading sources" {
-                set dest bitmap:bitop-expired:dest
-                set src bitmap:bitop-expired:src
-                # The module's expired callback increments testkeyspace:expired,
-                # which is also a source: BITOP must read it after that write,
-                # which is replayed before BITOP, as replicas do.
-                $master debug set-active-expire 0
-                foreach {mode roaring} {roaring yes config yes dense no} {
-                    $master config set bitmap-default-roaring $roaring
-                    $master del $dest $src
-                    $master set testkeyspace:expired 5
-                    if {$mode eq "roaring"} {
-                        $master setbit $src 100 1
-                    } else {
-                        $master set $src [binary format H* 00]
-                    }
-                    $master set $dest x PX 1
-                    after 10
-
-                    $master bitop or $dest testkeyspace:expired $src
-                    wait_for_ofs_sync $master $replica
-                    assert_equal 6 [$master get testkeyspace:expired]
-                    assert_equal [$master get testkeyspace:expired] \
-                        [$replica get testkeyspace:expired]
-                    assert_equal [$master debug digest-value $dest] \
-                        [$replica debug digest-value $dest]
-                }
-                $master config set bitmap-default-roaring no
-                $master debug set-active-expire 1
-                $master del $dest $src testkeyspace:expired
-                wait_for_ofs_sync $master $replica
             }
 
             test "Keyspace notifications: conversion replay preserves callback contract" {

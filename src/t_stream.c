@@ -1026,14 +1026,22 @@ static void nackSetDeliveryCount(streamNACK *nack, int mode, long long retrycoun
  * Much like the 'approx', if 'limit' is smaller than the number of entries
  * that should be trimmed, there is a chance we will still have entries with
  * IDs < 'id' (or number of elements >= maxlen in case of MAXLEN).
+ *
+ * If 'max_deleted_id' is not NULL, it is set to the largest ID removed by this
+ * trim. When a whole node is dropped this is the node's last ID, which may be
+ * an entry already deleted before (a tombstone): that doesn't matter, since no
+ * live entry lies between it and the last one actually deleted. The value is
+ * valid only when the function returns a non-zero count.
  */
-int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
+int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *max_deleted_id) {
     size_t maxlen = args->maxlen;
     streamID *id = &args->minid;
     int approx = args->approx_trim;
     int64_t limit = args->limit;
     int trim_strategy = args->trim_strategy;
     int delete_strategy = args->delete_strategy;
+
+    if (max_deleted_id) *max_deleted_id = (streamID){0,0};
 
     if (trim_strategy == TRIM_STRATEGY_NONE)
         return 0;
@@ -1058,13 +1066,13 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
         int remove_node = 0; /* Final decision flag for node removal */
         int node_eligible_for_remove = 0; /* Whether node meets the basic criteria for removal */
         streamID master_id = {0};
+        streamID last_id = {0,0};
         /* Read the master ID from the radix tree key. */
         streamDecodeID(ri.key, &master_id);
         if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             node_eligible_for_remove = s->length - entries >= maxlen;
         } else {
             /* Read last ID. */
-            streamID last_id = {0,0};
             lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
 
             /* We can remove the entire node id its last ID < 'id' */
@@ -1078,6 +1086,11 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
         }
 
         if (remove_node) {
+            if (max_deleted_id) {
+                if (trim_strategy == TRIM_STRATEGY_MAXLEN)
+                    lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
+                *max_deleted_id = last_id;
+            }
             s->alloc_size -= lpBytes(lp);
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
@@ -1111,6 +1124,7 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
         /* 'p' is now pointing to the first entry inside the listpack.
          * We have to run entry after entry, marking entries as deleted
          * if they are already not deleted. */
+        int stop = 0;
         while (p) {
             /* We keep a copy of p (which point to flags part) in order to
              * update it after (and if) we actually remove the entry */
@@ -1129,7 +1143,6 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
             currid.ms = master_id.ms + ms_delta;
             currid.seq = master_id.seq + seq_delta;
 
-            int stop;
             if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
                 stop = s->length <= maxlen;
             } else {
@@ -1163,13 +1176,17 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
                 }
 
                 if (can_delete) {
-                    /* Mark the entry as deleted. */
-                    intptr_t delta = p ? (p - lp) : 0; /* p may be NULL if this was the last entry */
+                    /* lpReplaceInteger() may re-encode the flags element with
+                     * a different size and realloc the listpack, so we save
+                     * the distance of 'p' from the element following the flags
+                     * and restore it after the replacement. */
+                    intptr_t delta = p ? (p - lpNext(lp, pcopy)) : 0; /* p may be NULL if this was the last entry */
                     flags |= STREAM_ITEM_FLAG_DELETED;
                     lp = lpReplaceInteger(lp, &pcopy, flags);
+                    if (max_deleted_id) *max_deleted_id = currid;
                     deleted_from_lp++;
                     s->length--;
-                    if (p) p = lp + delta;
+                    if (p) p = lpNext(lp, pcopy) + delta;
                 }
             }
         }
@@ -1204,10 +1221,10 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args) {
         /* Update the node with the new pointer. */
         raxIteratorSetData(&ri,lp);
 
-        /* If the node is eligible for removal but we couldn't remove it due to delete strategy
-         * constraints (we need to check each entry individually), continue to the next node
-         * instead of stopping here. */
-        if (node_eligible_for_remove)
+        /* If we didn't reach the trim limit within this node (it was eligible for removal,
+         * or some entries were skipped because they are still referenced), continue to the
+         * next node instead of stopping here. */
+        if (!stop)
             continue;
 
         break; /* If we are here, there was enough to delete in the current
@@ -1235,7 +1252,7 @@ int64_t streamTrimByLength(redisDb *db, stream *s, long long maxlen, int approx)
         .maxlen = maxlen,
         .delete_strategy = DELETE_STRATEGY_KEEPREF
     };
-    return streamTrim(db, s, &args);
+    return streamTrim(db, s, &args, NULL);
 }
 
 /* Trims a stream by minimum ID. Returns the number of deleted items. */
@@ -1247,7 +1264,7 @@ int64_t streamTrimByID(redisDb *db, stream *s, streamID minid, int approx) {
         .minid = minid,
         .delete_strategy = DELETE_STRATEGY_KEEPREF
     };
-    return streamTrim(db, s, &args);
+    return streamTrim(db, s, &args, NULL);
 }
 
 /* Parse the arguments of XADD/XTRIM.
@@ -2758,18 +2775,30 @@ void streamRewriteApproxSpecifier(client *c, int idx) {
 }
 
 /* We propagate MAXLEN/MINID ~ <count> as MAXLEN/MINID = <resulting-len-of-stream>
- * otherwise trimming is no longer deterministic on replicas / AOF. */
-void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx) {
+ * otherwise trimming is no longer deterministic on replicas / AOF.
+ *
+ * For MINID we propagate the successor of 'max_deleted_id', the largest ID the
+ * trim removed. When nothing was deleted (possible through XADD) it is NULL and
+ * we propagate the first live ID, so replaying the exact trim is a no-op. This
+ * avoids deriving the boundary from tombstones or from entries kept by ACKED
+ * (see #15934). */
+void streamRewriteTrimArgument(client *c, stream *s, streamAddTrimArgs *args, streamID *max_deleted_id) {
     robj *arg;
-    if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
+    if (args->trim_strategy == TRIM_STRATEGY_MAXLEN) {
         arg = createStringObjectFromLongLong(s->length);
     } else {
-        streamID first_id;
-        streamGetEdgeID(s,1,0,&first_id);
-        arg = createObjectFromStreamID(&first_id);
+        streamID minid;
+        if (max_deleted_id) {
+            minid = *max_deleted_id;
+            serverAssert(streamIncrID(&minid) == C_OK);
+        } else {
+            serverAssert(s->length > 0);
+            minid = s->first_id;
+        }
+        arg = createObjectFromStreamID(&minid);
     }
 
-    rewriteClientCommandArgument(c,idx,arg);
+    rewriteClientCommandArgument(c,args->trim_strategy_arg_idx,arg);
     decrRefCount(arg);
 }
 
@@ -2890,7 +2919,10 @@ void xaddCommand(client *c) {
 
     /* Trim if needed. */
     if (parsed_args.trim_strategy != TRIM_STRATEGY_NONE) {
-        if (streamTrim(c->db, s, &parsed_args))
+        streamID max_deleted_id;
+        streamID *max_deleted_id_ptr = parsed_args.trim_strategy == TRIM_STRATEGY_MINID ? &max_deleted_id : NULL;
+        int64_t deleted = streamTrim(c->db, s, &parsed_args, max_deleted_id_ptr);
+        if (deleted)
             notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must
@@ -2899,7 +2931,7 @@ void xaddCommand(client *c) {
              * It's enough to check only args->approx because there is no
              * way LIMIT is given without the ~ option. */
             streamRewriteApproxSpecifier(c,parsed_args.trim_strategy_arg_idx-1);
-            streamRewriteTrimArgument(c,s,parsed_args.trim_strategy,parsed_args.trim_strategy_arg_idx);
+            streamRewriteTrimArgument(c,s,&parsed_args,deleted ? max_deleted_id_ptr : NULL);
         }
     }
 
@@ -5568,7 +5600,9 @@ void xtrimCommand(client *c) {
 
     /* Perform the trimming. */
     size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
-    int64_t deleted = streamTrim(c->db, s, &parsed_args);
+    streamID max_deleted_id;
+    streamID *max_deleted_id_ptr = parsed_args.trim_strategy == TRIM_STRATEGY_MINID ? &max_deleted_id : NULL;
+    int64_t deleted = streamTrim(c->db, s, &parsed_args, max_deleted_id_ptr);
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),kv,old_alloc,kvobjAllocSize(kv));
     if (deleted) {
@@ -5581,7 +5615,7 @@ void xtrimCommand(client *c) {
              * It's enough to check only args->approx because there is no
              * way LIMIT is given without the ~ option. */
             streamRewriteApproxSpecifier(c,parsed_args.trim_strategy_arg_idx-1);
-            streamRewriteTrimArgument(c,s,parsed_args.trim_strategy,parsed_args.trim_strategy_arg_idx);
+            streamRewriteTrimArgument(c,s,&parsed_args,max_deleted_id_ptr);
         }
 
         /* Propagate the write. */

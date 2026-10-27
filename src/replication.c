@@ -78,6 +78,11 @@ void setReplCompression(int level) {
 #endif
 }
 
+/* Compression requires an IO worker eligible for this replication direction. */
+static int canUseReplCompression(int client_types) {
+    return server.io_threads_num > 1 && (server.io_threads_client_types & client_types);
+}
+
 
 /* A reference to diskless loading rio to abort it asynchronously. It's needed
  * for rdbchannel replication. While loading from rdbchannel connection, we may
@@ -1508,7 +1513,7 @@ void replconfCommand(client *c) {
             if ((getLongFromObjectOrReply(c,c->argv[j+1], &level,NULL) != C_OK))
                 return;
 
-            if (server.io_threads_num > 1) {
+            if (canUseReplCompression(IO_THREADS_CLIENT_TYPE_REPLICA | IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED)) {
                 if (level == (long)server.repl_compression) {
                     serverLog(LL_NOTICE, "Client #%llu request for replication "
                             "compression with level %ld accepted",
@@ -1527,7 +1532,7 @@ void replconfCommand(client *c) {
             } else {
                 serverLog(LL_NOTICE, "Client #%llu request for replication "
                           "compression rejected. Replication compression is only "
-                          "enabled with IO threads.",
+                          "enabled with eligible IO threads.",
                           (unsigned long long)c->id);
                 c->compression_level = 0;
                 addReplyError(c, "Master has not enabled replication compression");
@@ -3254,12 +3259,17 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
-        /* Try to setup client compression if we're configured so */
-        if (server.repl_compression > 0) {
+        /* Request compression only if the upstream connection can use an IO worker. */
+        if (server.repl_compression > 0 &&
+            canUseReplCompression(IO_THREADS_CLIENT_TYPE_MASTER | IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED))
+        {
             sds level = sdsfromlonglong(server.repl_compression);
             err = sendCommand(conn, "REPLCONF", "compression", level, NULL);
             sdsfree(level);
             if (err) goto write_error;
+        } else if (server.repl_compression > 0) {
+            serverLog(LL_NOTICE, "Not requesting replication compression from master: "
+                                "no eligible IO thread for master connections.");
         }
 
         /* Inform the master of our (slave) capabilities.
@@ -3347,8 +3357,12 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP && server.repl_compression <= 0)
+    if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP &&
+        (server.repl_compression <= 0 ||
+         !canUseReplCompression(IO_THREADS_CLIENT_TYPE_MASTER | IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED)))
+    {
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+    }
 
     if (server.repl_state == REPL_STATE_RECEIVE_CLIENT_COMP) {
         err = receiveSynchronousResponse(conn);
@@ -4756,6 +4770,9 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.master = server.cached_master;
     server.cached_master = NULL;
     server.master->conn = conn;
+    connEnableTcpNoDelay(conn);
+    if (server.tcpkeepalive)
+        connKeepAlive(conn,server.tcpkeepalive);
     connSetPrivateData(server.master->conn, server.master);
     server.master->flags &= ~(CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP);
     server.master->authenticated = 1;
