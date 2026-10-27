@@ -103,3 +103,47 @@ jobs:
         apt-get install -y make gcc-4.8
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'
+
+  build-riscv64-qemu:
+    name: build-riscv64-qemu (ubuntu container via QEMU)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (riscv64)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Build + smoke test (riscv64 Ubuntu container)
+        run: |
+          set -euo pipefail
+          docker run --rm -t --platform=linux/riscv64 \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            -e DEBIAN_FRONTEND=noninteractive \
+            ubuntu:24.04 bash -lc '
+              set -euo pipefail
+              echo "Arch inside container: $(uname -m)"
+
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential pkg-config \
+                ca-certificates \
+                tcl tclx \
+                libssl-dev \
+                libjemalloc-dev
+
+              # Treat warnings as errors + TLS build coverage
+              make -j2 REDIS_CFLAGS="-Werror" BUILD_TLS=yes
+              ./src/redis-server --version
+
+              # Quick runtime smoke test
+              ./src/redis-server --save "" --appendonly no --port 6379 --daemonize yes
+              sleep 1
+              ./src/redis-cli ping | grep -q PONG
+              ./src/redis-cli set hello riscv
+              ./src/redis-cli get hello | grep -q riscv
+              ./src/redis-cli shutdown
+            '
