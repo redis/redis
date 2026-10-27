@@ -12,6 +12,7 @@
 #include "rio.h"
 #include "functions.h"
 #include "cluster_asm.h"
+#include "zset_btree.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -1262,13 +1263,17 @@ void killAppendOnlyChild(void) {
  * at runtime using the CONFIG command. */
 void stopAppendOnly(void) {
     serverAssert(server.aof_state != AOF_OFF);
-    flushAppendOnlyFile(1);
-    if (redis_fsync(server.aof_fd) == -1) {
-        serverLog(LL_WARNING,"Fail to fsync the AOF file: %s",strerror(errno));
-    } else {
-        server.aof_last_fsync = server.mstime;
+    /* AOF may be in AOF_WAIT_REWRITE with no file opened yet when another
+     * background operation has postponed the initial rewrite. */
+    if (server.aof_fd != -1) {
+        flushAppendOnlyFile(1);
+        if (redis_fsync(server.aof_fd) == -1) {
+            serverLog(LL_WARNING, "Fail to fsync the AOF file: %s", strerror(errno));
+        } else {
+            server.aof_last_fsync = server.mstime;
+        }
+        close(server.aof_fd);
     }
-    close(server.aof_fd);
     updateCurIncrAofEndOffset();
 
     server.aof_fd = -1;
@@ -1845,6 +1850,11 @@ int loadSingleAppendOnlyFile(char *filename) {
         return AOF_EMPTY;
     }
 
+#ifdef HAVE_FADVISE
+    /* The file is read sequentially: let the kernel use a larger read-ahead window. */
+    posix_fadvise(fileno(fp), 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+
     /* Temporarily disable AOF, to prevent EXEC from feeding a MULTI
      * to the same file we're about to read. */
     server.aof_state = AOF_OFF;
@@ -2400,6 +2410,27 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             items--;
         }
         dictResetIterator(&di);
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        zbtreeIteratorStart(o->ptr, 0, &iter);
+        while (zbtreeIteratorNext(&iter, 0, &ele, &len, &score)) {
+            if (count == 0) {
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                    AOF_REWRITE_ITEMS_PER_CMD : items;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key))
+                    return 0;
+            }
+            if (!rioWriteBulkDouble(r,score) ||
+                !rioWriteBulkString(r,(char *)ele,len))
+                return 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
     } else {
         serverPanic("Unknown sorted zset encoding");
     }
@@ -2845,6 +2876,22 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     return io.error ? 0 : 1;
 }
 
+int rewriteBitmapObject(rio *r, robj *key, robj *o, int dbid) {
+    rio payload;
+    /* KeyMeta is emitted below through its AOF callbacks, so the RESTORE
+     * payload must not contain another copy. */
+    createDumpPayload(&payload, o, key, dbid, DUMP_PAYLOAD_SKIP_KEY_META, 0);
+
+    int ok = rioWriteBulkCount(r,'*',5) &&
+             rioWriteBulkString(r,"RESTORE",7) &&
+             rioWriteBulkObject(r,key) &&
+             rioWriteBulkString(r,"0",1) &&
+             rioWriteBulkString(r,payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr)) &&
+             rioWriteBulkString(r,"REPLACE",7);
+    sdsfree(payload.io.buffer.ptr);
+    return ok;
+}
+
 static int rewriteFunctions(rio *aof) {
     dict *functions = functionsLibGet();
     dictIterator iter;
@@ -3000,6 +3047,8 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
 #endif
     } else if (o->type == OBJ_ARRAY) {
         if (rewriteArrayObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_BITMAP) {
+        if (rewriteBitmapObject(r,key,o,dbid) == 0) return C_ERR;
     } else if (o->type == OBJ_MODULE) {
         if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
     } else {

@@ -90,6 +90,7 @@ typedef long long ustime_t;
 #define REDISMODULE_KEYTYPE_MODULE 6
 #define REDISMODULE_KEYTYPE_STREAM 7
 #define REDISMODULE_KEYTYPE_ARRAY 8
+#define REDISMODULE_KEYTYPE_BITMAP 9
 
 /* Reply types. */
 #define REDISMODULE_REPLY_UNKNOWN -1
@@ -248,6 +249,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
 #define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
 #define REDISMODULE_NOTIFY_KEY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
+#define REDISMODULE_NOTIFY_BITMAP (1<<18)     /* b, bitmap key space notification */
 
 #define REDISMODULE_NOTIFY_SUBKEYSPACE (1<<19)      /* S */
 #define REDISMODULE_NOTIFY_SUBKEYEVENT (1<<20)      /* T */
@@ -272,7 +274,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
 #define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
 
-#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE | REDISMODULE_NOTIFY_ARRAY)      /* A */
+#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE | REDISMODULE_NOTIFY_BITMAP | REDISMODULE_NOTIFY_ARRAY)      /* A */
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
@@ -319,9 +321,8 @@ This flag should not be used directly by the module.
 #define REDISMODULE_BLOCK_UNBLOCK_DELETED (1<<0)
 
 /* This type represents a timer handle, and is returned when a timer is
- * registered and used in order to invalidate a timer. It's just a 64 bit
- * number, because this is how each timer is represented inside the radix tree
- * of timers that are going to expire, sorted by expire time. */
+ * registered and used in order to invalidate a timer. It is a 64 bit number
+ * derived from the timer's expiration time on the monotonic clock. */
 typedef uint64_t RedisModuleTimerID;
 
 /* CommandFilter Flags */
@@ -1218,6 +1219,8 @@ REDISMODULE_API int (*RedisModule_ReplyWithLongDouble)(RedisModuleCtx *ctx, long
 REDISMODULE_API int (*RedisModule_ReplyWithDouble)(RedisModuleCtx *ctx, double d) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithBigNumber)(RedisModuleCtx *ctx, const char *bignum, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithCallReply)(RedisModuleCtx *ctx, RedisModuleCallReply *reply) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ResetReplyBuffer)(RedisModuleCtx *buffer) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithBufferedReply)(RedisModuleCtx *ctx, RedisModuleCtx *buffer) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToLongLong)(const RedisModuleString *str, long long *ll) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToULongLong)(const RedisModuleString *str, unsigned long long *ull) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToDouble)(const RedisModuleString *str, double *d) REDISMODULE_ATTR;
@@ -1406,6 +1409,7 @@ REDISMODULE_API int (*RedisModule_AbortBlock)(RedisModuleBlockedClient *bc) REDI
 REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeStart)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeEnd)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCtx * (*RedisModule_CreateReplyBufferContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetDetachedThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -1580,6 +1584,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithNull);
     REDISMODULE_GET_API(ReplyWithBool);
     REDISMODULE_GET_API(ReplyWithCallReply);
+    REDISMODULE_GET_API(ResetReplyBuffer);
+    REDISMODULE_GET_API(ReplyWithBufferedReply);
     REDISMODULE_GET_API(ReplyWithDouble);
     REDISMODULE_GET_API(ReplyWithBigNumber);
     REDISMODULE_GET_API(ReplyWithLongDouble);
@@ -1800,6 +1806,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetTypeMethodVersion);
     REDISMODULE_GET_API(Yield);
     REDISMODULE_GET_API(GetThreadSafeContext);
+    REDISMODULE_GET_API(CreateReplyBufferContext);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);
     REDISMODULE_GET_API(ThreadSafeContextLock);
