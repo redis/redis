@@ -704,10 +704,24 @@ start_server {
         assert_equal $id $id_dup
     }
 
-    test {XIDMPRECORD message must exist in stream} {
+    test {XIDMPRECORD rejects an ID in the future} {
         r DEL mystream
         r XADD mystream 1-1 f v
         assert_error {*No such message in stream*} {r XIDMPRECORD mystream p1 i1 999-999}
+    }
+
+    test {XIDMPRECORD accepts an ID that no longer exists (issue #16002)} {
+        # AOF replay / slot migration re-emit the dedup record of an entry
+        # that was later removed by XDEL/trim. The record must be accepted
+        # (the ID only has to be <= the stream's last ID), so a retried
+        # `XADD ... IDMP` is still deduplicated after a reload.
+        r DEL mystream
+        set id1 [r XADD mystream * f v1]
+        r XADD mystream * f v2
+        r XDEL mystream $id1
+        assert_equal "OK" [r XIDMPRECORD mystream p1 i1 $id1]
+        assert_equal $id1 [r XADD mystream IDMP p1 i1 * f dup]
+        assert_equal 1 [r XLEN mystream]
     }
 
     test {XIDMPRECORD then deduplication works} {
@@ -782,6 +796,43 @@ start_server {
         assert_equal 1 [r XLEN mystream]
         set id_dup2 [r XADD mystream IDMP p1 rec-1 * f v3]
         assert_equal $id $id_dup2
+    } {} {external:skip needs:debug}
+
+    test {XADD IDMP record of a deleted entry survives AOF rewrite (issue #16002)} {
+        r DEL mystream
+        r config set appendonly yes
+        waitForBgrewriteaof r
+
+        # Add two IDMP entries, then delete the first one (a consumer
+        # processed and removed it). The dedup record must survive.
+        set id1 [r XADD mystream IDMP p1 "order-1" * item "book"]
+        r XADD mystream IDMP p1 "order-2" * item "pen"
+        r XDEL mystream $id1
+        # Retry is deduplicated before the rewrite.
+        assert_equal $id1 [r XADD mystream IDMP p1 "order-1" * item "book"]
+
+        set info [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $info iids-tracked]
+        assert_equal 2 [dict get $info iids-added]
+        assert_equal 1 [dict get $info iids-duplicates]
+
+        # Rewrite the AOF and reload it (same as a restart).
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        r DEBUG LOADAOF
+
+        # The all-time counters must be preserved by the rewrite.
+        set info [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $info iids-tracked]
+        assert_equal 2 [dict get $info iids-added]
+        assert_equal 1 [dict get $info iids-duplicates]
+
+        # Only the order-2 entry remains (order-1 was deleted), so XLEN is 1.
+        # The dedup record of the deleted entry must survive, so the retry
+        # returns the original ID and appends nothing (XLEN stays 1).
+        assert_equal 1 [r XLEN mystream]
+        assert_equal $id1 [r XADD mystream IDMP p1 "order-1" * item "book"]
+        assert_equal 1 [r XLEN mystream]
     } {} {external:skip needs:debug}
 
     test {XADD IDMP multiple producers have isolated namespaces} {

@@ -53,6 +53,18 @@
                 "type": "integer",
                 "token": "IDMP-MAXSIZE",
                 "optional": true
+            },
+            {
+                "name": "iids-added",
+                "type": "integer",
+                "token": "IIDS-ADDED",
+                "optional": true
+            },
+            {
+                "name": "iids-duplicates",
+                "type": "integer",
+                "token": "IIDS-DUPLICATES",
+                "optional": true
             }
         ]
     }

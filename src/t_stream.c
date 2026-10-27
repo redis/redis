@@ -4205,7 +4205,12 @@ void xidmprecordCommand(client *c) {
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
 
-    if (!streamEntryExists(s, &id)) {
+    /* The referenced stream ID must not be in the future.  It is allowed to
+     * no longer exist in the stream: AOF replay and atomic slot migration
+     * re-emit the dedup record of an entry that was later removed by
+     * XDEL/trim, and that record must be accepted so the retry is still
+     * deduplicated (see rdbSaveStreamIdmpEntries, which keeps it too). */
+    if (streamCompareID(&id, &s->last_id) > 0) {
         addReplyError(c, "No such message in stream");
         return;
     }
@@ -5983,7 +5988,11 @@ NULL
     }
 }
 
-/* XCFGSET <key> [IDMP-DURATION <duration>] [IDMP-MAXSIZE <maxsize>] */
+/* XCFGSET <key> [IDMP-DURATION <duration>] [IDMP-MAXSIZE <maxsize>]
+ *              [IIDS-ADDED <count>] [IIDS-DUPLICATES <count>]
+ * The IIDS-ADDED / IIDS-DUPLICATES parameters restore the all-time IDMP
+ * counters after an AOF rewrite / slot migration replay (they are not
+ * derivable from the re-emitted XIDMPRECORD commands). */
 void xcfgsetCommand(client *c) {
     robj *key = c->argv[1];
 
@@ -5995,9 +6004,10 @@ void xcfgsetCommand(client *c) {
     if (server.memory_tracking_enabled)
         old_alloc = kvobjAllocSize(kv);
 
-    /* XCFGSET <key> [IDMP-DURATION <duration>] [IDMP-MAXSIZE <maxsize>] */
     long long duration = -1;
     long long maxsize = -1;
+    long long iids_added = -1;
+    long long iids_duplicates = -1;
 
     /* Parse parameters */
     for (int i = 2; i < c->argc; i++) {
@@ -6031,6 +6041,30 @@ void xcfgsetCommand(client *c) {
                     CONFIG_STREAM_IDMP_MIN_MAXSIZE,CONFIG_STREAM_IDMP_MAX_MAXSIZE);
                 return;
             }
+        } else if (!strcasecmp(param,"IIDS-ADDED") && moreargs) {
+            if (iids_added != -1) {
+                addReplyError(c,"IIDS-ADDED specified multiple times");
+                return;
+            }
+            i++;
+            if (getLongLongFromObjectOrReply(c,c->argv[i],&iids_added,NULL) != C_OK)
+                return;
+            if (iids_added < 0) {
+                addReplyError(c,"IIDS-ADDED must be non-negative");
+                return;
+            }
+        } else if (!strcasecmp(param,"IIDS-DUPLICATES") && moreargs) {
+            if (iids_duplicates != -1) {
+                addReplyError(c,"IIDS-DUPLICATES specified multiple times");
+                return;
+            }
+            i++;
+            if (getLongLongFromObjectOrReply(c,c->argv[i],&iids_duplicates,NULL) != C_OK)
+                return;
+            if (iids_duplicates < 0) {
+                addReplyError(c,"IIDS-DUPLICATES must be non-negative");
+                return;
+            }
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return;
@@ -6038,13 +6072,15 @@ void xcfgsetCommand(client *c) {
     }
 
     /* At least one parameter must be specified */
-    if (duration == -1 && maxsize == -1) {
+    if (duration == -1 && maxsize == -1 && iids_added == -1 && iids_duplicates == -1) {
         addReplyError(c,"At least one parameter must be specified");
         return;
     }
 
-    /* Track if we made any changes */
+    /* Track if we made any changes, and whether the IDMP entries were
+     * cleared (only then do we untrack the key from periodic cleanup). */
     int changed = 0;
+    int cleared = 0;
 
     /* Update the stream configuration. When we set IDMP-DURATION or IDMP-MAXSIZE to a
      * different value, we clear all existing producer IDMP maps for the stream.
@@ -6053,17 +6089,29 @@ void xcfgsetCommand(client *c) {
     if (duration != -1 && s->idmp_duration != (uint64_t)duration) {
         s->idmp_duration = duration;
         streamClearIdmpEntries(s);
+        cleared = 1;
         changed = 1;
     }
     if (maxsize != -1 && s->idmp_max_entries != (uint64_t)maxsize) {
         s->idmp_max_entries = maxsize;
         streamClearIdmpEntries(s);
+        cleared = 1;
+        changed = 1;
+    }
+    /* Restore the all-time IDMP counters (AOF rewrite / migration replay). */
+    if (iids_added != -1 && s->iids_added != (uint64_t)iids_added) {
+        s->iids_added = iids_added;
+        changed = 1;
+    }
+    if (iids_duplicates != -1 && s->iids_duplicates != (uint64_t)iids_duplicates) {
+        s->iids_duplicates = iids_duplicates;
         changed = 1;
     }
 
     /* Clean up and propagate if we changed something */
     if (changed) {
-        dictDelete(c->db->stream_idmp_keys, key); /* Untrack cleared IDMP key */
+        if (cleared)
+            dictDelete(c->db->stream_idmp_keys, key); /* Untrack cleared IDMP key */
         keyModified(c,c->db,key,kv,0);
         server.dirty++;
         if (server.memory_tracking_enabled)

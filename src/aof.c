@@ -2809,18 +2809,21 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
         }
     }
 
-    /* Emit XIDMPRECORD for each IDMP entry. Entries whose stream ID no
-     * longer exists (removed by XDEL/trim) are skipped, since
-     * xidmprecordCommand() rejects references to missing IDs and would
-     * cause AOF replay errors. */
+    /* Emit XIDMPRECORD for each non-expired IDMP entry.  Like the RDB path
+     * (rdbSaveStreamIdmpEntries), we filter only on expiry, never on whether
+     * the entry still exists: the dedup record of a deleted entry (XDEL/trim)
+     * must survive so a retried `XADD ... IDMP` is still deduplicated after a
+     * reload.  xidmprecordCommand() accepts such a missing ID (it only has to
+     * be <= the stream's last ID, which XSETID restores just above). */
     if (s->idmp_producers) {
+        uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
         raxIterator ri_idmp;
         raxStart(&ri_idmp,s->idmp_producers);
         raxSeek(&ri_idmp,"^",NULL,0);
         while(raxNext(&ri_idmp)) {
             idmpProducer *producer = ri_idmp.data;
             for (idmpEntry *entry = producer->idmp_head; entry != NULL; entry = entry->next) {
-                if (!streamEntryExists(s, &entry->id)) continue;
+                if (entry->id.ms <= expire_time) continue;
                 if (rioWriteStreamIdmpEntry(r,key,(char*)ri_idmp.key,
                                             ri_idmp.key_len,entry) == 0)
                 {
@@ -2830,6 +2833,23 @@ int rewriteStreamObject(rio *r, robj *key, robj *o) {
             }
         }
         raxStop(&ri_idmp);
+    }
+
+    /* Restore the all-time IDMP counters.  They are not derivable from the
+     * re-emitted XIDMPRECORD commands (replay re-counts iids-added and leaves
+     * iids-duplicates at 0), so emit them explicitly, after the records, via
+     * XCFGSET.  Only needed when they are non-zero. */
+    if (s->iids_added != 0 || s->iids_duplicates != 0) {
+        if (!rioWriteBulkCount(r,'*',6) ||
+            !rioWriteBulkString(r,"XCFGSET",7) ||
+            !rioWriteBulkObject(r,key) ||
+            !rioWriteBulkString(r,"IIDS-ADDED",10) ||
+            !rioWriteBulkLongLong(r,s->iids_added) ||
+            !rioWriteBulkString(r,"IIDS-DUPLICATES",15) ||
+            !rioWriteBulkLongLong(r,s->iids_duplicates))
+        {
+            return 0;
+        }
     }
 
     return 1;
