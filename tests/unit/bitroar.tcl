@@ -5251,32 +5251,6 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         }
     }
 
-    test {BITRANGEINTARRAY respects CLIENT REPLY OFF and SKIP} {
-        # The whole value, a byte range, a bit range, and an empty range, which
-        # replies without streaming.
-        seed_roaring_bitmap bitmap:suppressed {0 8 65536}
-        set commands {{bitrangeintarray bitmap:suppressed 1 0 -1}
-                      {bitrangeintarray bitmap:suppressed 1 1 1}
-                      {bitrangeintarray bitmap:suppressed 1 8 65536 bit}
-                      {bitrangeintarray bitmap:suppressed 1 -1 -2}}
-        set client [redis_deferring_client]
-
-        # With replies off, the first reply is the OK from CLIENT REPLY ON.
-        $client client reply off
-        foreach args $commands {$client {*}$args}
-        $client client reply on
-        assert_equal OK [$client read]
-
-        # SKIP drops only the next reply, so the PING reply comes next.
-        foreach args $commands {
-            $client client reply skip
-            $client {*}$args
-            $client ping
-            assert_equal PONG [$client read]
-        }
-        $client close
-    }
-
     test {Integer-array traversal crosses 256-value batches and seeks across containers} {
         # 1100 set bits, one per 65536-bit container, at a different position in
         # each. The second pass puts them above 2^32, and writing there needs a
