@@ -2090,16 +2090,15 @@ static int bitroarReplySetBits(const uint64_t *values, size_t count, void *privd
 }
 
 /* Stream the set-bit offsets of a string in the half-open bit interval
- * [start, reply->end). Offsets follow GETBIT: bit 0 is the most significant
+ * [start, end). Offsets follow GETBIT: bit 0 is the most significant
  * bit of the first byte.
  *
  * Scan 64-bit words so that zero regions are skipped a word at a time. Each
  * word is loaded big-endian, so its most significant bit is the lowest
  * offset, and only its set bits are visited, using clz. */
-static void bitrangeintarrayString(bitroarIntArrayReply *reply, const unsigned char *p,
-                                   uint64_t start)
+static void bitrangeintarrayString(const unsigned char *p, uint64_t start, uint64_t end,
+                                   bitroarIntArrayReply *reply)
 {
-    uint64_t end = reply->end;
     uint64_t last = (end + 7) >> 3; /* One past the last byte in the range. */
     uint64_t i = start >> 3;
 
@@ -2211,7 +2210,7 @@ void bitrangeintarrayCommand(client *c) {
     if (o->type == OBJ_BITMAP)
         bitroarVisitSetBits(o, bit_start, bit_end, bitroarReplySetBits, &reply);
     else
-        bitrangeintarrayString(&reply, p, bit_start);
+        bitrangeintarrayString(p, bit_start, bit_end, &reply);
     /* Resolve the placeholder even if an output limit scheduled async close. */
     setDeferredArrayLen(c, arraylen, reply.emitted);
 }
