@@ -4992,18 +4992,18 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         # The same random bits in a string and in a native bitmap.
         set bits {}
         for {set i 0} {$i < 200} {incr i} {lappend bits [randomInt 100000]}
-        r del bitmap:str
-        foreach bit $bits {r setbit bitmap:str $bit 1}
-        seed_roaring_bitmap bitmap:native $bits
+        r del bitmap:str{t}
+        foreach bit $bits {r setbit bitmap:str{t} $bit 1}
+        seed_roaring_bitmap bitmap:native{t} $bits
 
         # The same bits as clear bits: NOT keeps the type, and stores the
         # native bitmap mostly as runs of set bits.
-        r bitop not bitmap:strnot bitmap:str
-        r bitop not bitmap:nativenot bitmap:native
+        r bitop not bitmap:strnot{t} bitmap:str{t}
+        r bitop not bitmap:nativenot{t} bitmap:native{t}
 
         # The whole value is sorted and unique, and the same for every key.
         set ones [lsort -integer -unique $bits]
-        foreach key {bitmap:str bitmap:native bitmap:strnot bitmap:nativenot} bit {1 1 0 0} {
+        foreach key {bitmap:str{t} bitmap:native{t} bitmap:strnot{t} bitmap:nativenot{t}} bit {1 1 0 0} {
             assert_equal $ones [r bitrangeintarray $key $bit 0 -1] $key
         }
 
@@ -5014,8 +5014,8 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
             foreach {unit max} {byte 14000 bit 110000} {
                 set start [randomSignedInt $max]
                 set end [randomSignedInt $max]
-                set expected [r bitrangeintarray bitmap:str 1 $start $end $unit]
-                foreach key {bitmap:native bitmap:strnot bitmap:nativenot} bit {1 0 0} {
+                set expected [r bitrangeintarray bitmap:str{t} 1 $start $end $unit]
+                foreach key {bitmap:native{t} bitmap:strnot{t} bitmap:nativenot{t}} bit {1 0 0} {
                     assert_equal $expected [r bitrangeintarray $key $bit $start $end $unit] \
                         "$key $start $end $unit"
                 }
@@ -5067,15 +5067,15 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
         set byte7 {56 57 58 59 60 61 62 63}
         set byte8 {64 65 66 67 68 69 70 71}
         set bits [concat $byte0 {8 15} $byte7 $byte8 {73}]
-        r del bitmap:str
-        foreach bit $bits {r setbit bitmap:str $bit 1}
-        seed_roaring_bitmap bitmap:native $bits
+        r del bitmap:str{t}
+        foreach bit $bits {r setbit bitmap:str{t} $bit 1}
+        seed_roaring_bitmap bitmap:native{t} $bits
         # The same offsets as clear bits, in a string and a native bitmap.
-        r bitop not bitmap:strnot bitmap:str
-        r bitop not bitmap:nativenot bitmap:native
-        assert_equal {string bitmap} [list [r type bitmap:strnot] [r type bitmap:nativenot]]
+        r bitop not bitmap:strnot{t} bitmap:str{t}
+        r bitop not bitmap:nativenot{t} bitmap:native{t}
+        assert_equal {string bitmap} [list [r type bitmap:strnot{t}] [r type bitmap:nativenot{t}]]
 
-        foreach {key bit} {bitmap:str 1 bitmap:native 1 bitmap:strnot 0 bitmap:nativenot 0} {
+        foreach {key bit} {bitmap:str{t} 1 bitmap:native{t} 1 bitmap:strnot{t} 0 bitmap:nativenot{t} 0} {
             # The reply runs to the end of the byte where LIMIT is reached,
             # and no further.
             assert_equal $byte0 [r bitrangeintarray $key $bit 0 -1 limit 1]
