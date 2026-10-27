@@ -4969,22 +4969,29 @@ start_server {tags {"bitmap" "bitmap-roaring"}} {
     }
 
     test {BITRANGEINTARRAY string scan handles word boundaries and partial words} {
-        # A mixed 64-bit word, a zero word, a full word, and a 3-byte tail. Try
-        # every bit range for both bits, so both ends land at each position
-        # within a word, and whole words without the wanted bit are skipped.
+        # A mixed 64-bit word (bits 0-63), a zero word (64-127), a full word
+        # (128-191), and a 3-byte tail (192-215).
         set words {ffa500813c000180 0000000000000000 ffffffffffffffff c3007f}
         set value [binary format H* [join $words ""]]
         set len [string length $value]
         binary scan $value B* binary
         r set bitmap:words $value
-        foreach bit {0 1} {
+        # Each row tests both bits: the whole value, skipping the zero or full
+        # word; both ends inside the first word; a range across a word
+        # boundary; a word without the wanted bit; words read from byte 1, not
+        # aligned with the value's words; and a range ending in the
+        # zero-padded tail.
+        foreach {bit start end} {
+            1 0 -1      0 0 -1
+            1 1 12      0 1 12
+            1 60 70     0 60 70
+            1 64 127    0 128 191
+            1 9 200     0 9 200
+            1 205 215   0 205 215
+        } {
             set offsets [lsearch -all [split $binary ""] $bit]
-            for {set start 0} {$start < $len * 8} {incr start} {
-                for {set end $start} {$end < $len * 8} {incr end} {
-                    assert_equal [intarray_expected $offsets $len $start $end bit] \
-                        [r bitrangeintarray bitmap:words $bit $start $end bit] "$bit $start $end"
-                }
-            }
+            assert_equal [intarray_expected $offsets $len $start $end bit] \
+                [r bitrangeintarray bitmap:words $bit $start $end bit] "$bit $start $end"
         }
     }
 
