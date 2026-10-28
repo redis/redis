@@ -376,15 +376,73 @@ start_server {tags {"string"}} {
         assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 keepttl px 5000}
     }
 
-    test {MSETEX - repeated EX/PX is rejected} {
-        # Only the last EX/PX would be rewritten to PXAT when propagating,
-        # leaving an invalid command for replicas and AOF.
+    test {MSETEX - repeated EX/PX is accepted (last wins)} {
+        # Repeated EX/PX should be accepted with last-wins semantics,
+        # matching SET's behavior. The rewrite logic ensures only the final
+        # expiration is propagated to AOF/replicas as PXAT.
         r del dup:key{t}
-        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 100 ex 200}
-        assert_error {*syntax error*} {r msetex 1 dup:key{t} val px 100000 px 200000}
-        assert_error {*syntax error*} {r msetex 1 dup:key{t} val ex 100 nx ex 200}
-        assert_equal 0 [r exists dup:key{t}]
+        
+        # Last EX wins
+        r msetex 1 dup:key{t} val ex 10 ex 20
+        assert_equal {val} [r get dup:key{t}]
+        set ttl [r ttl dup:key{t}]
+        assert_range $ttl 18 20
+        
+        # Last PX wins
+        r del dup:key{t}
+        r msetex 1 dup:key{t} val px 10000 px 20000
+        assert_equal {val} [r get dup:key{t}]
+        set pttl [r pttl dup:key{t}]
+        assert_range $pttl 18000 20000
+        
+        # Last EX wins even with NX
+        r del dup:key{t}
+        r msetex 1 dup:key{t} val ex 10 nx ex 20
+        assert_equal {val} [r get dup:key{t}]
+        set ttl [r ttl dup:key{t}]
+        assert_range $ttl 18 20
     }
+
+    test {MSETEX - repeated EX/PX survives AOF replay} {
+        # Ensure repeated EX/PX commands are rewritten correctly for AOF
+        r del aof:key{t}
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0
+        
+        # Execute command with repeated EX
+        r msetex 1 aof:key{t} value ex 10 ex 100
+        assert_equal {value} [r get aof:key{t}]
+        set ttl [r ttl aof:key{t}]
+        assert_range $ttl 98 100
+        
+        # Force AOF rewrite and reload
+        r bgrewriteaof
+        waitForBgrewriteaof r
+        r debug loadaof
+        
+        # Verify key still exists and has correct value
+        assert_equal {value} [r get aof:key{t}]
+        
+        r config set appendonly no
+    } {} {needs:debug}
+
+    test {MSETEX - repeated EX/PX propagate correctly to replica} {
+        r del repl:dup{t}
+        set repl [attach_to_replication_stream]
+        
+        # Repeated EX should propagate as single PXAT
+        r msetex 1 repl:dup{t} v1 ex 10 ex 100
+        
+        # Repeated PX should propagate as single PXAT
+        r msetex 1 repl:dup{t} v2 px 10000 px 100000
+        
+        assert_replication_stream $repl {
+            {select *}
+            {msetex 1 repl:dup{t} v1 PXAT *}
+            {msetex 1 repl:dup{t} v2 PXAT *}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
 
     test {MSETEX - EX/PX propagate as PXAT to replica} {
         r del repl:key1{t} repl:key2{t}
