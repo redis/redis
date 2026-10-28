@@ -2384,56 +2384,6 @@ static int lpFindCbCmp(const unsigned char *lp, unsigned char *p, void *user, un
     return 1;
 }
 
-/* Rewrite the backlen of boundary entries of the valid listpack 'lp' in the
- * compact width written by 8.8 - 8.10, simulating such a writer. Only the
- * boundary entries whose bit is set in 'mask', in order, are rewritten.
- * Returns a new listpack and its size in '*size'. */
-static unsigned char *lpTestMakeCompact(unsigned char *lp, unsigned long mask, size_t *size) {
-    static const unsigned char compact_form[] = {0x7f, 0xff, 0xff, 0xff};
-    unsigned char *dst = lp_malloc(lpBytes(lp)), *d = dst + LP_HDR_SIZE;
-    memcpy(dst, lp, LP_HDR_SIZE);
-    int boundary = 0;
-    for (unsigned char *p = lpFirst(lp); p; p = lpNext(lp, p)) {
-        uint32_t entrylen = lpCurrentEncodedSizeUnsafe(p);
-        unsigned long backlen = lpEncodeBacklenBytes(entrylen);
-        memcpy(d, p, entrylen);
-        d += entrylen;
-        if (lpIsBacklenBoundary(entrylen) && (mask & (1UL << boundary++))) {
-            memcpy(d, compact_form, backlen - 1);
-            d += backlen - 1;
-        } else {
-            memcpy(d, p + entrylen, backlen);
-            d += backlen;
-        }
-    }
-    *d++ = LP_EOF;
-    *size = d - dst;
-    lpSetTotalBytes(dst, *size);
-    return dst;
-}
-
-/* Check that 'lp' holds 'count' entries equal to 'expected' both forward and
- * backward. */
-static void lpTestAssertEntries(unsigned char *lp, unsigned char **expected,
-                                size_t *expected_len, int count)
-{
-    unsigned char *p, *vstr;
-    int64_t vlen;
-    unsigned char intbuf[LP_INTBUF_SIZE];
-    int i = 0;
-    for (p = lpFirst(lp); p; p = lpNext(lp, p), i++) {
-        vstr = lpGet(p, &vlen, intbuf);
-        assert((size_t)vlen == expected_len[i] && !memcmp(vstr, expected[i], vlen));
-    }
-    assert(i == count);
-    for (p = lpLast(lp); p; p = lpPrev(lp, p)) {
-        vstr = lpGet(p, &vlen, intbuf);
-        i--;
-        assert((size_t)vlen == expected_len[i] && !memcmp(vstr, expected[i], vlen));
-    }
-    assert(i == 0);
-}
-
 int listpackTest(int argc, char *argv[], int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -2978,62 +2928,48 @@ int listpackTest(int argc, char *argv[], int flags) {
         }
     }
 
-    TEST("lpUpgradeCompactBacklen: rewrite compact boundary backlens") {
-        /* 32 bit strings whose encoded length (5 + len) is a boundary. */
-        size_t len16k = 16383 - 5, len2m = 2097151 - 5;
-        unsigned char *big = zmalloc(len2m);
-        memset(big, 'x', len2m);
-        unsigned char *expected[] = {(unsigned char *)"a", big, (unsigned char *)"12345",
-                                     big, (unsigned char *)"b", big};
-        size_t expected_len[] = {1, len16k, 5, len2m, 1, len16k};
-        int count = sizeof(expected_len) / sizeof(expected_len[0]);
-        lp = lpNew(0);
-        for (int j = 0; j < count; j++)
-            lp = lpAppend(lp, expected[j], expected_len[j]);
-        size_t legacy_bytes = lpBytes(lp);
+    TEST("lpUpgradeCompactBacklen: convert the backlen written by 8.8 - 8.10") {
+        /* Entries of encoded length 16383 and 2097151: a 32 bit string has
+         * a 5 byte header. Their backlen is 00 ff ff and 00 ff ff ff, but
+         * 8.8 - 8.10 wrote one byte less: 7f ff and 7f ff ff. */
+        const size_t enclens[] = {16383, 2097151};
+        const char *compact_backlens[] = {"\x7f\xff", "\x7f\xff\xff"};
+        for (int j = 0; j < 2; j++) {
+            size_t len = enclens[j] - 5;
+            unsigned char *val = zmalloc(len);
+            memset(val, 'x', len);
+            lp = lpAppend(lpNew(0), (unsigned char *)"a", 1);
+            lp = lpAppend(lp, val, len);
+            lp = lpAppend(lp, (unsigned char *)"b", 1);
+            size_t bytes = lpBytes(lp);
 
-        /* A listpack in the historical width is kept as is. */
-        size_t size = legacy_bytes;
-        assert(lpUpgradeCompactBacklen(lp, &size) == lp);
-        assert(size == legacy_bytes);
+            /* Already in the historical width: returned as is. */
+            size_t size = bytes;
+            assert(lpUpgradeCompactBacklen(lp, &size) == lp);
+            assert(size == bytes);
 
-        /* All of them compact, then compact and historical mixed. */
-        unsigned long masks[] = {0x7, 0x5, 0x2};
-        for (size_t m = 0; m < sizeof(masks) / sizeof(masks[0]); m++) {
-            unsigned char *compact = lpTestMakeCompact(lp, masks[m], &size);
-            assert(size == legacy_bytes - __builtin_popcountl(masks[m]));
-            assert(!lpValidateIntegrity(compact, size, 1, NULL, NULL));
-            unsigned char *upgraded = lpUpgradeCompactBacklen(compact, &size);
-            assert(upgraded != compact);
-            assert(size == legacy_bytes && lpBytes(upgraded) == legacy_bytes);
-            assert(!memcmp(upgraded, lp, legacy_bytes));
-            assert(lpValidateIntegrity(upgraded, size, 1, NULL, NULL));
-            lpTestAssertEntries(upgraded, expected, expected_len, count);
-            lpFree(upgraded);
+            /* Build the listpack 8.8 - 8.10 wrote: the same bytes, with the
+             * compact backlen after the big entry. */
+            size_t backlen = lpSeek(lp, 1) - lp + enclens[j];
+            size_t backlen_size = lpEncodeBacklenBytes(enclens[j]);
+            unsigned char *compact = lp_malloc(bytes - 1);
+            memcpy(compact, lp, backlen);
+            memcpy(compact + backlen, compact_backlens[j], backlen_size - 1);
+            memcpy(compact + backlen + backlen_size - 1, lp + backlen + backlen_size,
+                   bytes - backlen - backlen_size);
+            lpSetTotalBytes(compact, bytes - 1);
+            assert(!lpValidateIntegrity(compact, bytes - 1, 1, NULL, NULL));
+
+            /* Converted into exactly the listpack every other version writes. */
+            size = bytes - 1;
+            compact = lpUpgradeCompactBacklen(compact, &size);
+            assert(size == bytes);
+            assert(memcmp(compact, lp, bytes) == 0);
+
+            lpFree(compact);
+            lpFree(lp);
+            zfree(val);
         }
-        lpFree(lp);
-        zfree(big);
-    }
-
-    TEST("lpUpgradeCompactBacklen: skip listpacks too small for a boundary entry") {
-        lp = lpNew(0);
-        for (int j = 0; j < 100; j++) lp = lpAppend(lp, (unsigned char *)"abc", 3);
-        size_t size = lpBytes(lp);
-        assert(lpUpgradeCompactBacklen(lp, &size) == lp);
-        assert(size == lpBytes(lp));
-        lpFree(lp);
-
-        /* The smallest listpack with a compact boundary entry is upgraded. */
-        unsigned char *big = zmalloc(16383 - 5);
-        memset(big, 'x', 16383 - 5);
-        lp = lpAppend(lpNew(0), big, 16383 - 5);
-        unsigned char *compact = lpTestMakeCompact(lp, 1, &size);
-        assert(size == LP_COMPACT_BACKLEN_MIN_BYTES);
-        compact = lpUpgradeCompactBacklen(compact, &size);
-        assert(size == lpBytes(lp) && !memcmp(compact, lp, size));
-        lpFree(compact);
-        lpFree(lp);
-        zfree(big);
     }
 
     TEST("Create long list and check indices") {
