@@ -1878,7 +1878,10 @@ unsigned char *lpUpgradeCompactBacklen(unsigned char *lp, size_t *size) {
         /* A 32 bit string length close to UINT32_MAX wraps the encoded size. */
         if (entrylen < lenbytes || entrylen >= avail) return lp;
         unsigned long backlen = lpEncodeBacklenBytes(entrylen);
-        /* Match the whole compact encoding, so corruption is never "repaired". */
+        /* 'backlen' is the historical width, the compact one is a byte
+         * shorter: 7f ff, 7f ff ff and 7f ff ff ff instead of 00 ff ff,
+         * 00 ff ff ff and 00 ff ff ff ff. Match the whole compact encoding,
+         * so corruption is never "repaired". */
         if (lpIsBacklenBoundary(entrylen) && avail - entrylen >= backlen - 1 &&
             !memcmp(p + entrylen, compact_form, backlen - 1))
         {
