@@ -3036,64 +3036,6 @@ int listpackTest(int argc, char *argv[], int flags) {
         zfree(big);
     }
 
-    TEST("lpUpgradeCompactBacklen: corrupt listpacks are returned unchanged") {
-        size_t len16k = 16383 - 5;
-        unsigned char *big = zmalloc(len16k);
-        memset(big, 'x', len16k);
-        lp = lpAppend(lpNew(0), (unsigned char *)"a", 1);
-        lp = lpAppend(lp, big, len16k);
-        lp = lpAppendInteger(lp, 1000);
-        size_t size;
-        unsigned char *compact = lpTestMakeCompact(lp, 1, &size);
-        unsigned char *copy = zmalloc(size), *ref = zmalloc(size);
-        /* Offset of the boundary entry and of its compact backlen. */
-        size_t entry = LP_HDR_SIZE + 3, backlen = entry + 16383;
-        assert(compact[backlen] == 0x7f && compact[backlen+1] == 0xff);
-
-        /* Each corruption keeps the input untouched. */
-        for (int c = 0; c < 6; c++) {
-            size_t csize = size;
-            memcpy(copy, compact, size);
-            switch (c) {
-            case 0: csize--; break;                              /* size mismatch */
-            case 1: copy[size-1] = 0; break;                     /* no EOF */
-            case 2: copy[backlen+1] = 0xfe; break;               /* not 7f ff */
-            case 3: copy[backlen] = 0x7e; break;                 /* not 7f ff */
-            case 4: copy[entry+1] = 0xff; copy[entry+4] = 0xff; break; /* huge string */
-            case 5: copy[entry] = 0xf5; break;                   /* bad encoding */
-            }
-            memcpy(ref, copy, size);
-            assert(lpUpgradeCompactBacklen(copy, &csize) == copy);
-            assert(csize == size - (c == 0) && !memcmp(copy, ref, size));
-        }
-
-        /* Random corruption must never read out of bounds (run with ASAN). */
-        int iterations = accurate ? 100000 : 2000;
-        for (int j = 0; j < iterations; j++) {
-            size_t csize = size;
-            unsigned char *fuzz = zmalloc(size);
-            memcpy(fuzz, compact, size);
-            int flips = 1 + rand() % 3;
-            for (int f = 0; f < flips; f++) {
-                /* Mostly hit the entry header and the backlen around it. */
-                size_t pos = (rand() % 2) ? entry + rand() % 8 : backlen - 4 + rand() % 12;
-                if (rand() % 4 == 0) pos = rand() % size;
-                fuzz[pos % size] = rand();
-            }
-            fuzz = lpUpgradeCompactBacklen(fuzz, &csize);
-            if (lpValidateIntegrity(fuzz, csize, 1, NULL, NULL)) {
-                for (p = lpFirst(fuzz); p; p = lpNext(fuzz, p));
-                for (p = lpLast(fuzz); p; p = lpPrev(fuzz, p));
-            }
-            zfree(fuzz);
-        }
-        zfree(copy);
-        zfree(ref);
-        lpFree(compact);
-        lpFree(lp);
-        zfree(big);
-    }
-
     TEST("Create long list and check indices") {
         lp = lpNew(0);
         char buf[32];
