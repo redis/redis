@@ -67,7 +67,11 @@ void bitroarInit(void);
 /* Object lifecycle */
 robj *bitroarCreate(void);
 robj *bitroarCreateFromString(const unsigned char *buf, size_t len);
+/* Persistence requires the 64-bit portable layout; public imports accept
+ * either the 32-bit or 64-bit layout. Both reject trailing data and set bits
+ * outside the supplied logical byte length. */
 robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t byte_len);
+robj *bitroarCreateFromPortableAny(const unsigned char *buf, size_t len, uint64_t byte_len);
 robj *bitroarDup(const robj *o);
 void bitroarFree(robj *o);
 

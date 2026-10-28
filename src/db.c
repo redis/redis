@@ -4061,6 +4061,18 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
     return 1;
 }
 
+/* BITROARSET overwrites its destination unless MERGE reads and updates it. */
+int bitroarsetGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    keyReference *keys = getKeysPrepareResult(result, 1);
+    keys[0].pos = 1;
+    keys[0].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
+    if (argc == 5 && !strcasecmp(argv[4]->ptr, "MERGE"))
+        keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
+    result->numkeys = 1;
+    return 1;
+}
+
 /* Helper function to extract keys from the DELEX command, which may have
  * an RW flag if the IF* arguments are present, RM otherwise. */
 int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {

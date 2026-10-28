@@ -344,21 +344,44 @@ robj *bitroarCreateFromString(const unsigned char *buf, size_t len) {
     return o;
 }
 
-/* Rebuild a bitmap from the RoaringFormatSpec 64-bit portable format. The
- * serialized containers do not encode Redis' logical byte length because
- * trailing zero bytes contain no set bits, so the RDB payload stores it
- * separately. The portable format is little-endian on every architecture. */
-robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t byte_len) {
+/* Rebuild a bitmap from a RoaringFormatSpec portable payload. The serialized
+ * containers do not encode Redis' logical byte length because trailing zero
+ * bytes contain no set bits, so callers supply it separately. Both portable
+ * layouts are little-endian on every architecture. Persistence accepts only
+ * the 64-bit layout; public imports can also accept the 32-bit layout. */
+static robj *bitroarCreateFromPortableFormat(const unsigned char *buf, size_t len,
+                                           uint64_t byte_len, int allow32) {
     roaring64_bitmap_t *roaring;
 
     if (byte_len > BITROAR_MAX_BYTES) return NULL;
 #if SIZE_MAX < UINT64_MAX
     if (byte_len > (uint64_t)SIZE_MAX) return NULL;
 #endif
-    if (roaring64_bitmap_portable_deserialize_size((const char *)buf, len) != len)
-        return NULL;
+    if (buf == NULL || len == 0) return NULL;
 
-    roaring = roaring64_bitmap_portable_deserialize_safe((const char *)buf, len);
+    /* A 64-bit payload begins with a bucket count, which can coincide with
+     * either 32-bit format cookie. Check the whole layout and require exact
+     * consumption instead of choosing a format from its first bytes. */
+    if (roaring64_bitmap_portable_deserialize_size((const char *)buf, len) == len) {
+        roaring = roaring64_bitmap_portable_deserialize_safe((const char *)buf, len);
+    } else if (allow32 &&
+               roaring_bitmap_portable_deserialize_size((const char *)buf, len) == len) {
+        roaring_bitmap_t *bitmap32 =
+            roaring_bitmap_portable_deserialize_safe((const char *)buf, len);
+        if (bitmap32 == NULL) return NULL;
+
+        /* Validate before moving the containers: insertion into the 64-bit
+         * ART assumes unique container keys, which malformed input can break. */
+        const char *reason = NULL;
+        if (!roaring_bitmap_internal_validate(bitmap32, &reason)) {
+            roaring_bitmap_free(bitmap32);
+            return NULL;
+        }
+        roaring = roaring64_bitmap_move_from_roaring32(bitmap32);
+        roaring_bitmap_free(bitmap32);
+    } else {
+        return NULL;
+    }
     if (roaring == NULL) return NULL;
 
     const char *reason = NULL;
@@ -387,6 +410,17 @@ robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t b
     robj *o = createObject(OBJ_BITMAP, bitmap);
     o->encoding = OBJ_ENCODING_BITMAP_ROARING;
     return o;
+}
+
+/* The RDB representation is always the 64-bit portable layout. */
+robj *bitroarCreateFromPortable(const unsigned char *buf, size_t len, uint64_t byte_len) {
+    return bitroarCreateFromPortableFormat(buf, len, byte_len, 0);
+}
+
+/* Public interchange accepts both portable layouts, with the same set-bit
+ * offsets and logical length semantics. */
+robj *bitroarCreateFromPortableAny(const unsigned char *buf, size_t len, uint64_t byte_len) {
+    return bitroarCreateFromPortableFormat(buf, len, byte_len, 1);
 }
 
 robj *bitroarDup(const robj *o) {

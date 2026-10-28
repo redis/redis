@@ -157,6 +157,33 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         flushallAndVerifyCleanup
     }
 
+    test {KEYMETA - portable bitmap MERGE preserves metadata, expiration, and NO-EVICT} {
+        set key bitmap:meta:portable
+        set first [binary format H* 3a3000000100000000000000100000000000]
+        set second [binary format H* 3a3000000100000000000000100000000700]
+        r bitroarset $key 1 $first
+        r bless set $key no-evict
+        setupKeyMeta $key $maxClasses 1 0
+        set expire_at [r pexpiretime $key]
+
+        assert_equal OK [r bitroarset $key 2 $second MERGE]
+        assert_equal 2 [r bitcount $key]
+        assert_equal 2 [lindex [r bitroarget $key] 0]
+        assert_equal $expire_at [r pexpiretime $key]
+        assert_equal {NO-EVICT} [r bless get $key]
+        for {set cid 1} {$cid <= $maxClasses} {incr cid} {
+            assert_equal "meta$cid" [r keymeta.get [cname $cid] $key]
+        }
+
+        # Replacing the whole value follows the ordinary overwrite lifecycle.
+        assert_equal OK [r bitroarset $key 1 $first]
+        assert_equal -1 [r pexpiretime $key]
+        for {set cid 1} {$cid <= $maxClasses} {incr cid} {
+            assert_equal {} [r keymeta.get [cname $cid] $key]
+        }
+        flushallAndVerifyCleanup
+    }
+
     test {NO-EVICT coexists with all seven module metadata classes} {
         assert_equal 7 $maxClasses
         r set blessed value
