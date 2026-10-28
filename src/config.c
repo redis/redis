@@ -2022,6 +2022,11 @@ cleanup:
  * With config-rewrite-source-aware enabled, skip CLI/stdin overrides and
  * unchanged file values, and append changed include values after includes.
  *
+ * This source-aware behavior is experimental and is expected to become the
+ * only behavior in a future major release. At that point, the
+ * config-rewrite-source-aware option will be deprecated and its value ignored,
+ * while remaining accepted for configuration compatibility.
+ *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
 int rewriteConfig(char *path, int force_write) {
     struct rewriteConfigState *state;
