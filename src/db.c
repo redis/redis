@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "vector.h"
 #include "cluster.h"
 #include "atomicvar.h"
@@ -26,6 +27,7 @@
 #include <ctype.h>
 #include "bio.h"
 #include "keymeta.h"
+#include "zset_btree.h"
 
 /*-----------------------------------------------------------------------------
  * C-level DB API
@@ -74,6 +76,7 @@ int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
     case OBJ_ZSET:   return hist[KEYSIZES_ROW_ZSET];
     case OBJ_HASH:   return hist[KEYSIZES_ROW_HASH];
     case OBJ_STREAM: return hist[KEYSIZES_ROW_STREAM];
+    case OBJ_BITMAP: return hist[KEYSIZES_ROW_BITMAP];
     default:         return NULL;
     }
 }
@@ -84,16 +87,17 @@ int64_t *keysizesHistRow(keysizesHist hist, uint32_t type) {
  * It is used to track the distribution of key sizes in the dataset. It is updated 
  * every time key's length is modified. Available to user via INFO command. 
  * 
- * The histogram is a base-2 logarithmic histogram, with 60 bins. The i'th bin
- * represents the number of keys with a size in the range 2^i and 2^(i+1) 
- * exclusive. oldLen/newLen must be smaller than 2^48, and if their value 
- * equals -1, it means that the key is being created/deleted, respectively. Each
- * data type has its own histogram and it is maintained per database.
+ * The histogram is a base-2 logarithmic histogram, with MAX_KEYSIZES_BINS bins.
+ * For positive sizes, bin i represents the number of keys in the range 2^(i-1)
+ * through 2^i exclusive. Sizes beyond the final bin's range, for any data type,
+ * saturate into the final bin. A value of -1 for oldLen/newLen
+ * means that the key is being created/deleted, respectively. Each data type has
+ * its own histogram and it is maintained per database.
  *
  * Example mapping of key lengths to bins:
  *               [1,2)->1 [2,4)->2 [4,8)->3 [8,16)->4 ...
  *
- * Since strings and streams can be empty (zero length), the histogram also tracks:
+ * Since strings, streams and bitmaps can be empty (zero length), the histogram also tracks:
  *               [0,1)->0
  */
 void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen, int64_t newLen) {
@@ -102,14 +106,13 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
         return;
 
     if (oldLen > 0) {
-        int old_bin = log2ceil(oldLen) + 1;
-        debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
+        int old_bin = min(log2ceil(oldLen) + 1, MAX_KEYSIZES_BINS - 1);
         hist[old_bin]--;
         debugServerAssert(hist[old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
-            /* Only strings and streams can be empty. Yet, a command flow might
+            /* Only strings, streams and bitmaps can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
             hist[0]--;
             debugServerAssert(hist[0] >= 0);
@@ -117,13 +120,12 @@ void kvsUpdateHistogram(keysizesHist kvstoreHist, uint32_t type, int64_t oldLen,
     }
 
     if (newLen > 0) {
-        int new_bin = log2ceil(newLen) + 1;
-        debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
+        int new_bin = min(log2ceil(newLen) + 1, MAX_KEYSIZES_BINS - 1);
         hist[new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
-            /* Only strings and streams can be empty. Yet, a command flow might
+            /* Only strings, streams and bitmaps can be empty. Yet, a command flow might
              * temporarily dbAdd() empty collection, and only after add elements. */
             hist[0]++;
         }
@@ -171,7 +173,7 @@ static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
         int64_t *scanRow = keysizesHistRow(scanHist, kv->type);
         if (scanRow) {
             int64_t len = fn(kv);
-            scanRow[(len == 0) ? 0 : log2ceil(len) + 1]++;
+            scanRow[(len == 0) ? 0 : min(log2ceil(len) + 1, MAX_KEYSIZES_BINS - 1)]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
@@ -240,8 +242,9 @@ static void dbgAssertAllocSizePerSlot(redisDb *db) {
 
 /* Run debug assertions based on server.dbg_assert_flags.
  *
- * DBG_ASSERT_KEYSIZES:   Triggered by DEBUG KEYSIZES-HIST-ASSERT 1
- * DBG_ASSERT_ALLOC_SLOT: Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+ * DBG_ASSERT_KEYSIZES:     Triggered by DEBUG KEYSIZES-HIST-ASSERT 1
+ * DBG_ASSERT_ALLOC_SLOT:   Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+ * DBG_ASSERT_STREAM_STATS: Triggered by DEBUG STREAM-STATS-ASSERT 1
  */
 void dbgRunAssertions(redisDb *db) {
     /* Don't assert during nested calls. Intermediate state may be inconsistent. */
@@ -260,6 +263,9 @@ void dbgRunAssertions(redisDb *db) {
 
     if (server.dbg_assert_flags & DBG_ASSERT_ALLOC_SLOT)
         dbgAssertAllocSizePerSlot(db);
+
+    if (server.dbg_assert_flags & DBG_ASSERT_STREAM_STATS)
+        dbgAssertStreamStats(db);
 }
 
 /* Lookup a kvobj for read or write operations, or return NULL if the it is not
@@ -1665,6 +1671,59 @@ typedef struct {
     redisDb *db;  /* database reference for expiration checks */
 } scanData;
 
+typedef struct {
+    client *c;
+    sds pattern;
+    int pattern_len;
+    int use_pattern;
+    unsigned long emitted;
+    int streaming;
+    void *cursor_reply;
+    void *replylen;
+    struct {
+        const unsigned char *ele;
+        size_t len;
+        double score;
+    } buffered[32];
+} zsetBtreeScanData;
+
+static void zsetBtreeScanAddReply(client *c, const unsigned char *ele, size_t len, double score) {
+    addReplyBulkCBuffer(c, ele, len);
+    char buf[MAX_D2STRING_CHARS];
+    int scorelen = d2string(buf, sizeof(buf), score);
+    addReplyBulkCBuffer(c, buf, scorelen);
+}
+
+/* Buffer small replies so their headers need no deferred reply nodes. The
+ * borrowed members remain valid throughout this read-only command. Larger
+ * replies switch to streaming, keeping temporary storage bounded. */
+static void zsetBtreeScanReply(void *privdata, const unsigned char *ele,
+                               size_t len, double score)
+{
+    zsetBtreeScanData *data = privdata;
+    if (data->use_pattern &&
+        !stringmatchlen(data->pattern, data->pattern_len, (char *)ele, len, 0))
+        return;
+    size_t capacity = sizeof(data->buffered) / sizeof(data->buffered[0]);
+    if (!data->streaming && data->emitted / 2 < capacity) {
+        size_t i = data->emitted / 2;
+        data->buffered[i].ele = ele;
+        data->buffered[i].len = len;
+        data->buffered[i].score = score;
+    } else {
+        if (!data->streaming) {
+            data->streaming = 1;
+            data->cursor_reply = addReplyDeferredLen(data->c);
+            data->replylen = addReplyDeferredLen(data->c);
+            for (size_t i = 0; i < capacity; i++)
+                zsetBtreeScanAddReply(data->c, data->buffered[i].ele,
+                                      data->buffered[i].len, data->buffered[i].score);
+        }
+        zsetBtreeScanAddReply(data->c, ele, len, score);
+    }
+    data->emitted += 2;
+}
+
 /* Helper function to compare key type in scan commands */
 int objectTypeCompare(robj *o, long long target) {
     if (o->type != OBJ_MODULE) {
@@ -1690,7 +1749,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     vec *keys = data->keys;
     robj *o = data->o;
     sds val = NULL;
-    void *key = NULL;  /* if OBJ_HASH then key is of type `hfield`. Otherwise, `sds` */
+    void *key = NULL;  /* zskiplistNode for zsets, field/member/key pointer otherwise. */
     void *keyStr;
     data->sampled++;
 
@@ -1749,10 +1808,8 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
             return;
 
     } else if (o->type == OBJ_ZSET) {
-        char buf[MAX_LONG_DOUBLE_CHARS];
-        int len = ld2string(buf, sizeof(buf), znode->score, LD_STR_AUTO);
-        key = sdsdup(keyStr);
-        val = sdsnewlen(buf, len);
+        /* Nodes remain live throughout synchronous reply construction. */
+        key = znode;
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
@@ -1782,6 +1839,7 @@ char *obj_type_name[OBJ_TYPE_MAX] = {
     NULL, /* module type is special */
     "stream",
     "array",
+    "bitmap",
 #ifdef ENABLE_GCRA
     "gcra"
 #endif
@@ -1922,10 +1980,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     vec keys;
     void *keys_stack[256];
     vecInit(&keys, keys_stack, 256);
-    /* Hash on dict only has pointers to dict entries; other paths allocate
-     * temporary sds that must be released. */
-    if (o && (!ht || o->type == OBJ_ZSET))
-        vecSetFreeMethod(&keys, sdsfreegeneric);
+    /* All entries are borrowed from the collection (or the keyspace) and
+     * copied into the reply; nothing is owned by the vector. */
 
     /* For main dictionary scan or data structure using hashtable. */
     if (!o || ht) {
@@ -2012,6 +2068,26 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             setDeferredArrayLen(c,replylen,cur_length);
         else
             serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
+        return;
+    } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_BTREE) {
+        vecRelease(&keys);
+        addReplyArrayLen(c, 2);
+        zsetBtreeScanData data = {
+            .c = c, .pattern = pat, .pattern_len = patlen, .use_pattern = use_pattern
+        };
+        uint64_t next = zbtreeScan(o->ptr, cursor, count, zsetBtreeScanReply, &data);
+        char cursor_buf[LONG_STR_SIZE];
+        int cursor_len = ull2string(cursor_buf, sizeof(cursor_buf), next);
+        if (data.streaming) {
+            setDeferredReplyBulkSds(c, data.cursor_reply, sdsnewlen(cursor_buf, cursor_len));
+            setDeferredArrayLen(c, data.replylen, data.emitted);
+        } else {
+            addReplyBulkCBuffer(c, cursor_buf, cursor_len);
+            addReplyArrayLen(c, data.emitted);
+            for (size_t i = 0; i < data.emitted / 2; i++)
+                zsetBtreeScanAddReply(c, data.buffered[i].ele,
+                                      data.buffered[i].len, data.buffered[i].score);
+        }
         return;
     } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET) &&
                o->encoding == OBJ_ENCODING_LISTPACK)
@@ -2161,10 +2237,22 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    addReplyArrayLen(c, vecSize(&keys));
-    for (size_t i = 0; i < vecSize(&keys); i++) {
-        sds key = vecGet(&keys, i);
-        addReplyBulkCBuffer(c, key, sdslen(key));
+    if (o && o->type == OBJ_ZSET) {
+        addReplyArrayLen(c, vecSize(&keys) * 2);
+        char buf[MAX_D2STRING_CHARS];
+        for (size_t i = 0; i < vecSize(&keys); i++) {
+            zskiplistNode *node = vecGet(&keys, i);
+            sds member = zslGetNodeElement(node);
+            addReplyBulkCBuffer(c, member, sdslen(member));
+            int len = d2string(buf, sizeof(buf), node->score);
+            addReplyBulkCBuffer(c, buf, len);
+        }
+    } else {
+        addReplyArrayLen(c, vecSize(&keys));
+        for (size_t i = 0; i < vecSize(&keys); i++) {
+            sds key = vecGet(&keys, i);
+            addReplyBulkCBuffer(c, key, sdslen(key));
+        }
     }
 
     vecRelease(&keys);
@@ -2511,6 +2599,7 @@ void copyCommand(client *c) {
             if (!newobj) return;
             break;
         case OBJ_ARRAY: newobj = arrayTypeDup(o); break;
+        case OBJ_BITMAP: newobj = bitroarDup(o); break;
         default:
             addReplyError(c, "unknown type object");
             return;
@@ -3639,6 +3728,12 @@ int sunioncardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysRe
 int sdiffcardGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     UNUSED(cmd);
     return genericGetKeys(0, 1, 2, 1, argv, argc, result);
+}
+
+/* MSETEX <num-keys> <key> <value> [<key> <value> ...] <options>: a value follows each key. */
+int msetexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    UNUSED(cmd);
+    return genericGetKeys(0, 1, 2, 2, argv, argc, result);
 }
 
 int zunionInterDiffStoreGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {

@@ -33,6 +33,7 @@
 #include "estore.h"
 #include "chk.h"
 #include "fast_float_strtod.h"
+#include "bitroar.h"
 
 #include <time.h>
 #include <signal.h>
@@ -360,8 +361,8 @@ static void dictDestructorKV(dict *d, void *key) {
         if (hist) {
             /* we don't call kvsUpdateHistogram() because it contains debugServerAssert
              * that may fail in bg thread as kvstore might not being fully initialized */
-            int old_bin = (alloc_size == 0) ? 0 : log2ceil(alloc_size) + 1;
-            debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
+            int old_bin = (alloc_size == 0) ? 0 :
+                          min(log2ceil(alloc_size) + 1, MAX_KEYSIZES_BINS - 1);
             hist[old_bin]--;
         }
     }
@@ -546,8 +547,15 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
 
 static void kvstoreOnEmpty(kvstore *kvs) {
     kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
+    serverAssert(meta); /* installed only for kvstores that carry metadata */
+
+    /* Nothing in an emptied kvstore holds a sample, so clear every histogram
+     * and start a new generation: a slot-trim delta tallied against the old
+     * contents is then discarded, not subtracted (asmBackgroundTrimDoneCB). */
     memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
     memset(&meta->allocsizes_hist, 0, sizeof(meta->allocsizes_hist));
+    meta->keysizes_stats_epoch++;
+    streamStatsResetMeta(meta);
 }
 
 static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
@@ -1091,9 +1099,15 @@ void updateClientMemoryUsage(client *c) {
      * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
+    server.stat_clients_shared_memory -= c->last_memory_shared;
+    server.stat_clients_shared_memory += c->reply_bytes_shared;
+    server.stat_clients_unshared_memory -= c->last_memory_unshared;
+    server.stat_clients_unshared_memory += c->reply_bytes_unshared;
     /* Remember what we added and where, to remove it next time. */
     c->last_memory_type = type;
     c->last_memory_usage = mem;
+    c->last_memory_shared = c->reply_bytes_shared;
+    c->last_memory_unshared = c->reply_bytes_unshared;
 }
 
 int clientEvictionAllowed(client *c) {
@@ -1136,17 +1150,16 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
-int updateClientMemUsageAndBucket(client *c) {
+static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refreshed) {
     /* The unlikely case this function was called from a thread different
      * than the main one is a module call from a spawned thread. This is safe
      * since this call must have been made after calling
-     * RedisModule_ThreadSafeContextLock i.e the module is holding the GIL. In
-     * that special case we assert that at least the updated client's
-     * running_tid is the main thread. The true main thread is allowed to call
-     * this function on clients handled by IO-threads as it makes sure the
-     * IO-threads are paused, f.e see clientsCron() and evictClients(). */
-    serverAssert((pthread_equal(pthread_self(), server.main_thread_id) ||
-                  c->running_tid == IOTHREAD_MAIN_THREAD_ID) && c->conn);
+     * RedisModule_ThreadSafeContextLock i.e the module is holding the GIL.
+     * Whoever the caller is, we assert that the updated client is running in
+     * the main thread, or that its IO-thread is paused, f.e see evictClients()
+     * and applyClientMaxMemoryUsage(). */
+    serverAssert((c->running_tid == IOTHREAD_MAIN_THREAD_ID ||
+                  isIOThreadPaused(c->tid)) && c->conn);
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 
@@ -1158,14 +1171,16 @@ int updateClientMemUsageAndBucket(client *c) {
      * Walking the reply buffer is costly, so skip the scan when its outcome
      * cannot affect bucket placement: since 0 <= unshared <= shared, if both
      * endpoints map to the same bucket the cached value is reused. */
-    if (c->reply_bytes_shared > 0) {
-        size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
-        size_t upper_bound = lower_bound + c->reply_bytes_shared;
-        if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
-            updateClientUnsharedReplyBytes(c);
-    } else {
-        /* No shared bytes: clear any stale cached unshared. */
-        c->reply_bytes_unshared = 0;
+    if (!unshared_refreshed) {
+        if (c->reply_bytes_shared == 0) {
+            /* No shared bytes: clear any stale cached unshared. */
+            c->reply_bytes_unshared = 0;
+        } else {
+            size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
+            size_t upper_bound = lower_bound + c->reply_bytes_shared;
+            if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
+                updateClientUnsharedReplyBytes(c);
+        }
     }
 
     /* Update client memory usage. */
@@ -1183,6 +1198,10 @@ int updateClientMemUsageAndBucket(client *c) {
         c->mem_usage_bucket_node = listLast(bucket->clients);
     }
     return 1;
+}
+
+int updateClientMemUsageAndBucket(client *c) {
+    return updateClientMemUsageAndBucketInternal(c, 0);
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -1210,13 +1229,23 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
+    /* Refresh unshared reply memory roughly once per second for every client.
+     * Allow one cron tick of slack, otherwise a client visited slightly less
+     * than a second after its last refresh would wait for the next round,
+     * delaying the refresh to ~2s. */
+    int unshared_refreshed = c->last_unshared_refresh + 1000 - 1000/server.hz <= now;
+    if (unshared_refreshed) {
+        c->last_unshared_refresh = now;
+        updateClientUnsharedReplyBytes(c);
+    }
+
     /* Iterating all the clients in getMemoryOverheadData() is too slow and
      * in turn would make the INFO command too slow. So we perform this
      * computation incrementally and track the (not instantaneous but updated
      * to the second) total memory used by clients using clientsCron() in
      * a more incremental way (depending on server.hz).
      * If client eviction is enabled, update the bucket as well. */
-    if (!updateClientMemUsageAndBucket(c))
+    if (!updateClientMemUsageAndBucketInternal(c, unshared_refreshed))
         updateClientMemoryUsage(c);
 
     if (closeClientOnOutputBufferLimitReached(c, 0)) return 1;
@@ -3192,6 +3221,8 @@ void initServer(void) {
     server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
+    server.stat_clients_shared_memory = 0;
+    server.stat_clients_unshared_memory = 0;
     server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
@@ -6278,20 +6309,90 @@ void bytesToHuman(char *s, size_t size, unsigned long long n) {
     }
 }
 
-/* Fill percentile distribution of latencies. */
-sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram) {
+/* Keep the usual percentile configuration on the stack. Larger configurations
+ * allocate once per INFO section, reusing the buffers for every histogram. */
+#define LATENCY_PERCENTILE_STACK_MAX 16
+
+typedef struct latencyPercentile {
+    double percentile;
+    int index;
+    char label[16]; /* Configured percentiles are in [0, 100], formatted with %f. */
+} latencyPercentile;
+
+typedef struct latencyPercentileContext {
+    int len;
+    latencyPercentile *entries;
+    double *percentiles;
+    int64_t *values;
+    int *order; /* Configured index -> sorted index. */
+    latencyPercentile stack_entries[LATENCY_PERCENTILE_STACK_MAX];
+    double stack_percentiles[LATENCY_PERCENTILE_STACK_MAX];
+    int64_t stack_values[LATENCY_PERCENTILE_STACK_MAX];
+    int stack_order[LATENCY_PERCENTILE_STACK_MAX];
+} latencyPercentileContext;
+
+static int compareLatencyPercentiles(const void *a, const void *b) {
+    const latencyPercentile *pa = a, *pb = b;
+    if (pa->percentile < pb->percentile) return -1;
+    if (pa->percentile > pb->percentile) return 1;
+    return (pa->index > pb->index) - (pa->index < pb->index);
+}
+
+static void initLatencyPercentileContext(latencyPercentileContext *ctx, const double *percentiles, int len) {
+    ctx->len = len;
+    if (len <= LATENCY_PERCENTILE_STACK_MAX) {
+        ctx->entries = ctx->stack_entries;
+        ctx->percentiles = ctx->stack_percentiles;
+        ctx->values = ctx->stack_values;
+        ctx->order = ctx->stack_order;
+    } else {
+        ctx->entries = zcalloc_num(len, sizeof(*ctx->entries));
+        ctx->percentiles = zcalloc_num(len, sizeof(*ctx->percentiles));
+        ctx->values = zcalloc_num(len, sizeof(*ctx->values));
+        ctx->order = zcalloc_num(len, sizeof(*ctx->order));
+    }
+    for (int j = 0; j < len; j++) {
+        ctx->entries[j].percentile = percentiles[j];
+        ctx->entries[j].index = j;
+        size_t l = snprintf(ctx->entries[j].label, sizeof(ctx->entries[j].label), "%f", percentiles[j]);
+        trimDoubleString(ctx->entries[j].label, l);
+    }
+    /* Sort once for all command and subcommand histograms. */
+    qsort(ctx->entries, len, sizeof(*ctx->entries), compareLatencyPercentiles);
+    for (int j = 0; j < len; j++) {
+        ctx->percentiles[j] = ctx->entries[j].percentile;
+        ctx->order[ctx->entries[j].index] = j;
+    }
+}
+
+static void freeLatencyPercentileContext(latencyPercentileContext *ctx) {
+    if (ctx->len > LATENCY_PERCENTILE_STACK_MAX) {
+        zfree(ctx->entries);
+        zfree(ctx->percentiles);
+        zfree(ctx->values);
+        zfree(ctx->order);
+    }
+}
+
+/* Resolve all configured percentiles in one histogram pass, then emit them in
+ * the configured order. HdrHistogram 0.12.1 handles p0 and empty histograms. */
+static sds fillPercentileDistributionLatencies(sds info, const char* histogram_name, struct hdr_histogram* histogram, latencyPercentileContext *ctx) {
     info = sdscatfmt(info,"latency_percentiles_usec_%s:",histogram_name);
-    for (int j = 0; j < server.latency_tracking_info_percentiles_len; j++) {
-        char fbuf[128];
-        size_t len = snprintf(fbuf, sizeof(fbuf), "%f", server.latency_tracking_info_percentiles[j]);
-        trimDoubleString(fbuf, len);
-        info = sdscatprintf(info,"p%s=%.3f", fbuf,
-            ((double)hdr_value_at_percentile(histogram,server.latency_tracking_info_percentiles[j]))/1000.0f);
-        if (j != server.latency_tracking_info_percentiles_len-1)
+    if (ctx->len > 0)
+        hdr_value_at_percentiles(histogram, ctx->percentiles, ctx->values, ctx->len);
+
+    for (int j = 0; j < ctx->len; j++) {
+        int index = ctx->order[j];
+        int64_t v = ctx->values[index];
+        /* Latencies are bounded to 1e9 nanoseconds. Integer formatting of
+         * microseconds matches %.3f within that range, including bucket rounding,
+         * while avoiding the floating-point formatter for every histogram. */
+        info = sdscatprintf(info,"p%s=%lld.%03lld", ctx->entries[index].label,
+                            (long long)(v / 1000), (long long)(v % 1000));
+        if (j != ctx->len-1)
             info = sdscatlen(info,",",1);
-        }
-    info = sdscatprintf(info,"\r\n");
-    return info;
+    }
+    return sdscatlen(info,"\r\n",2);
 }
 
 const char *replstateToString(int replstate) {
@@ -6417,12 +6518,16 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
                     c->slowlog_count, (double)c->slowlog_time_us_sum / 1000,
                     (double)c->slowlog_time_us_max / 1000);
             } else {
-                info = sdscatprintf(info,
-                    "cmdstat_%s:calls=%lld,usec=%lld,usec_per_call=%.2f"
-                    ",rejected_calls=%lld,failed_calls=%lld\r\n",
+                /* Hot path: sdscatfmt is cheaper than sdscatprintf but has no %f,
+                 * so format usec_per_call separately. */
+                char upc[64];
+                snprintf(upc, sizeof(upc), "%.2f",
+                    (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls));
+                info = sdscatfmt(info,
+                    "cmdstat_%s:calls=%I,usec=%I,usec_per_call=%s"
+                    ",rejected_calls=%I,failed_calls=%I\r\n",
                     getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe), c->calls, c->microseconds,
-                    (c->calls == 0) ? 0 : ((float)c->microseconds/c->calls),
-                    c->rejected_calls, c->failed_calls);
+                    upc, c->rejected_calls, c->failed_calls);
             }
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
@@ -6451,7 +6556,8 @@ sds genRedisInfoStringACLStats(sds info) {
     return info;
 }
 
-sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+/* Reuse the context across command and subcommand histograms. */
+static sds genRedisInfoStringLatencyStatsImpl(sds info, dict *commands, latencyPercentileContext *ctx) {
     struct redisCommand *c;
     dictEntry *de;
     dictIterator di;
@@ -6462,15 +6568,24 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
         if (c->latency_histogram) {
             info = fillPercentileDistributionLatencies(info,
                 getSafeInfoString(c->fullname, sdslen(c->fullname), &tmpsafe),
-                c->latency_histogram);
+                c->latency_histogram, ctx);
             if (tmpsafe != NULL) zfree(tmpsafe);
         }
         if (c->subcommands_dict) {
-            info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);
+            info = genRedisInfoStringLatencyStatsImpl(info, c->subcommands_dict, ctx);
         }
     }
     dictResetIterator(&di);
 
+    return info;
+}
+
+sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
+    latencyPercentileContext ctx;
+    initLatencyPercentileContext(&ctx, server.latency_tracking_info_percentiles,
+                                 server.latency_tracking_info_percentiles_len);
+    info = genRedisInfoStringLatencyStatsImpl(info, commands, &ctx);
+    freeLatencyPercentileContext(&ctx);
     return info;
 }
 
@@ -6553,10 +6668,9 @@ void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloc
         *watched_keys = wkeys;
 }
 
-/* Append keysizes histograms to the info string in format "db<dbnum>_<field_name>:<label>=<count>,..."
- * field_names is an array of OBJ_TYPE_MAX field names indexed by object type;
- * NULL entries, and types with no histogram row, are skipped. */
-static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const char *field_names[OBJ_TYPE_MAX]) {
+/* Append a single base-2 histogram row as "db<N>_<field>:<label>=<count>,...".
+ * Only non-empty bins are listed; the line is omitted when the row is empty. */
+static sds sdscatHistogramRow(sds info, int dbnum, const char *field, const int64_t *row) {
     static const char *expSizeLabels[] = {
         "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
         "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
@@ -6567,29 +6681,34 @@ static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const c
         "1E", "2E", "4E"                                                     /* Exa */
     };
 
+    char buf[10000];
+    int printed = 0, buflen = 0;
+
+    buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, field);
+
+    for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
+        if (row[i] == 0) continue;
+        int res = snprintf(buf + buflen, sizeof(buf) - buflen,
+                           printed ? ",%s=%llu" : "%s=%llu",
+                           expSizeLabels[i], (unsigned long long) row[i]);
+        if (res < 0) break;
+        buflen += res;
+        printed = 1;
+    }
+
+    if (printed) info = sdscatprintf(info, "%s\r\n", buf);
+    return info;
+}
+
+/* Append keysizes histograms to the info string in format "db<dbnum>_<field_name>:<label>=<count>,..."
+ * field_names is an array of OBJ_TYPE_MAX field names indexed by object type;
+ * NULL entries, and types with no histogram row, are skipped. */
+static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const char *field_names[OBJ_TYPE_MAX]) {
     for (int type = 0; type < OBJ_TYPE_MAX; type++) {
         if (field_names[type] == NULL) continue;
         int64_t *hist = keysizesHistRow(histogram, type);
         if (hist == NULL) continue; /* untracked type, e.g. OBJ_MODULE */
-
-        char buf[10000];
-        int cnt = 0, buflen = 0;
-
-        buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, field_names[type]);
-
-        for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-            if (hist[i] == 0)
-                continue;
-
-            int res = snprintf(buf + buflen, sizeof(buf) - buflen,
-                               (cnt == 0) ? "%s=%llu" : ",%s=%llu",
-                               expSizeLabels[i], (unsigned long long) hist[i]);
-            if (res < 0) break;
-            buflen += res;
-            cnt += hist[i];
-        }
-
-        if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
+        info = sdscatHistogramRow(info, dbnum, field_names[type], hist);
     }
     return info;
 }
@@ -7298,7 +7417,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_items",
             [OBJ_ZSET] = "distrib_zsets_items",
             [OBJ_HASH] = "distrib_hashes_items",
-            [OBJ_STREAM] = "distrib_streams_items"
+            [OBJ_STREAM] = "distrib_streams_items",
+            [OBJ_BITMAP] = "distrib_bitmaps_sizes"
         };
         static const char *type_sizes_str[OBJ_TYPE_MAX] = {
             [OBJ_STRING] = NULL, /* Skip strings to avoid confusion with distrib_strings_sizes */
@@ -7306,7 +7426,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_SET] = "distrib_sets_sizes",
             [OBJ_ZSET] = "distrib_zsets_sizes",
             [OBJ_HASH] = "distrib_hashes_sizes",
-            [OBJ_STREAM] = "distrib_streams_sizes"
+            [OBJ_STREAM] = "distrib_streams_sizes",
+            [OBJ_BITMAP] = NULL, /* Skip bitmaps to avoid confusion with distrib_bitmaps_sizes */
         };
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
@@ -7322,6 +7443,21 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
             /* Allocation sizes distribution */
             info = sdscatHistograms(info, dbnum, meta->allocsizes_hist, type_sizes_str);
+        }
+    }
+
+    /* Streams: not in INFO default; rows only while stream-stats is on. */
+    if (all_sections || (dictFind(section_dict,"streams") != NULL)) {
+        if (sections++) info = sdscat(info,"\r\n");
+        info = sdscatprintf(info, "# Streams\r\n");
+
+        if (server.stream_stats) {
+            for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
+                kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
+                if (!meta) continue;
+                for (int m = 0; m < STREAM_DISTRIB_MAX; m++)
+                    info = sdscatHistogramRow(info, dbnum, streamDistribMetricNames[m], meta->stream_hist[m]);
+            }
         }
     }
 
@@ -7717,6 +7853,7 @@ int redisFork(int purpose) {
          */
         server.in_fork_child = purpose;
         setupChildSignalHandlers();
+        crashWatchdogInit();
         setOOMScoreAdj(CONFIG_OOM_BGCHILD);
         updateDictResizePolicy();
         dismissMemoryInChild();
@@ -7950,12 +8087,7 @@ void loadDataFromDisk(void) {
         }
     }
 
-    if (loaded && server.aof_state == AOF_ON) {
-        /* On database upgrades, we store an rdb file on shutdown, and then start from it with preload-file.
-         * but we still need to convert the old AOF file (exact same content), otherwise,
-         * we'll end up doing a foreground AOFRW on startup. */
-        upgradeAofIfNeeded(server.aof_manifest);
-    } else if (!loaded && server.aof_state == AOF_ON) {
+    if (!loaded && server.aof_state == AOF_ON) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
@@ -8207,7 +8339,9 @@ int __test_num = 0;
 typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
+int zsetBtreeTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
+int lzfTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -8235,8 +8369,10 @@ struct redisTest {
     {"bitmap", bitopsTest},
     {"rax", raxTest},
     {"zset", zsetTest},
+    {"zsetbtree", zsetBtreeTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
+    {"lzf", lzfTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -8334,6 +8470,7 @@ int main(int argc, char **argv) {
     if (exec_name == NULL) exec_name = argv[0];
     server.sentinel_mode = checkForSentinelMode(argc,argv, exec_name);
     initServerConfig();
+    bitroarInit();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();

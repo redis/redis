@@ -735,8 +735,10 @@ int clientConnRead(client *c, void *buf, size_t buf_len, int *nread_out) {
         /* When draining pending data we only decompress what we have already
          * read from the socket without issuing another socket read. The actual
          * socket read happens when the event loop handles a read event, in which
-         * case handle_pending is not set. */
-        if (!state->handle_pending) {
+         * case handle_pending is not set. A full input buffer must be drained
+         * before reading more: a zero-length read can return 0, which the
+         * connection layer interprets as EOF. */
+        if (!state->handle_pending && state->input.written < state->input.size) {
             nread = connRead(c->conn,
                              state->input.data + state->input.written,
                              state->input.size - state->input.written);
