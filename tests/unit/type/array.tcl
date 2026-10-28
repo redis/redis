@@ -343,8 +343,13 @@ start_server {
         # 23-character pattern used to take tens of seconds to compile.
         assert_error {*Regexp too complex*} {r argrep myarray - + RE {((a{0,45}){0,45}){0,45}}}
         assert_error {*Regexp too complex*} {r argrep myarray - + RE {a{0,255}{0,255}}}
+        # Unbounded {n,} repeats also catenate n copies when expanded.
+        assert_error {*Regexp too complex*} {r argrep myarray - + RE {((a{100,}){100,}){100,}}}
         # Moderate nesting is still compiled and matched.
         assert_equal {0} [r argrep myarray - + RE {((x{0,3}){0,3}){0,3}}]
+        # Unbounded repeats within the budget still match.
+        r armset myarray 0 aaa
+        assert_equal {0} [r argrep myarray - + RE {a{2,}}]
     }
 
     test {ARGREP LIMIT stops after enough matches} {

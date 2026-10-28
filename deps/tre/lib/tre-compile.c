@@ -1210,16 +1210,21 @@ tre_ast_expansion_cost(tre_ast_node_t *node)
     case ITERATION:
       {
 	tre_iteration_t *iter = node->obj;
+	long copies;
 	l = tre_ast_expansion_cost(iter->arg);
 	if (l < 0)
 	  return -1;
-	/* Unbounded and single repetitions do not multiply the subtree. */
-	if (iter->max < 0 || iter->max <= 1)
+	/* tre_expand_ast only expands when min > 1 or max > 1; a single
+	   repetition (and `{0,1}', `{1,}', `*') does not multiply. */
+	if (iter->min <= 1 && iter->max <= 1)
 	  return l + 1;
-	/* Overflow-safe `l * max'. */
-	if (l != 0 && (long)iter->max > TRE_MAX_EXPANSION / l)
+	/* A bounded repeat catenates `max' copies.  An unbounded `{n,}'
+	   with n > 1 still catenates `min' copies plus one for the tail. */
+	copies = iter->max < 0 ? (long)iter->min + 1 : (long)iter->max;
+	/* Overflow-safe `l * copies'. */
+	if (l != 0 && copies > TRE_MAX_EXPANSION / l)
 	  return -1;
-	cost = l * (long)iter->max + 1;
+	cost = l * copies + 1;
 	break;
       }
     default:
