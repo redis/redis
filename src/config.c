@@ -1651,10 +1651,14 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         user *u = ri.data;
-        /* Users defined by CLI arguments or included files remain owned by
-         * those sources and must not be copied into the main config file. */
-        if (u->source == CONFIG_SOURCE_CLI || u->source == CONFIG_SOURCE_INCLUDE)
+        /* In experimental mode, users defined by CLI arguments or included
+         * files remain owned by those sources. */
+        if (server.experimental_config_rewrite &&
+            (u->source == CONFIG_SOURCE_CLI || u->source == CONFIG_SOURCE_INCLUDE))
+        {
             continue;
+        }
+
         sds line = sdsnew("user ");
         line = sdscatsds(line,u->name);
         line = sdscatlen(line," ",1);
@@ -1804,7 +1808,7 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
     rewriteConfigRewriteLine(state,name,line,force);
 }
 
-/* Rewrite the loadmodule option, excluding modules supplied by CLI/includes. */
+/* Rewrite loadmodule, respecting its source in experimental mode. */
 void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
     sds line;
     dictIterator di;
@@ -1815,9 +1819,12 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
         /* Internal modules doesn't have path and are not part of the configuration file */
         if (sdslen(module->loadmod->path) == 0) continue;
 
-        if (!state->force_write && (module->loadmod->source == CONFIG_SOURCE_CLI ||
-                                    module->loadmod->source == CONFIG_SOURCE_INCLUDE))
+        if (server.experimental_config_rewrite && !state->force_write &&
+            (module->loadmod->source == CONFIG_SOURCE_CLI ||
+             module->loadmod->source == CONFIG_SOURCE_INCLUDE))
+        {
             continue;
+        }
 
         line = sdsnew("loadmodule ");
         line = sdscatsds(line, module->loadmod->path);
@@ -1983,20 +1990,25 @@ cleanup:
  * explicitly included in the old configuration file, are not rewritten.
  * The force_write flag overrides this behavior and forces everything to be
  * written. This is currently only used for testing purposes.
+ * With experimental-config-rewrite enabled, skip CLI/stdin overrides and
+ * unchanged file values, and append changed include values after includes.
  *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
 int rewriteConfig(char *path, int force_write) {
     struct rewriteConfigState *state;
-    dict *file_values;
+    dict *file_values = NULL;
     sds newcontent;
     int retval;
 
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
-    /* Parse current file values independently of the live server state. */
-    if ((file_values = rewriteConfigReadFileValues(path)) == NULL) {
-        rewriteConfigReleaseState(state);
-        return -1;
+    /* Only experimental rewrites need the effective file baseline. Legacy
+     * rewrites and forced debug rewrites keep the original behavior. */
+    if (server.experimental_config_rewrite && !force_write) {
+        if ((file_values = rewriteConfigReadFileValues(path)) == NULL) {
+            rewriteConfigReleaseState(state);
+            return -1;
+        }
     }
     if (force_write) state->force_write = 1;
 
@@ -2011,11 +2023,12 @@ int rewriteConfig(char *path, int force_write) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        /* Source is the startup origin and remains unchanged after runtime
-         * updates. CLI-provided values will be applied again on restart. */
-        if (!force_write && config->source == CONFIG_SOURCE_CLI) continue;
-        rewriteFileValue *file_value = dictFetchValue(file_values, dictGetKey(de));
-        if (!force_write) {
+        rewriteFileValue *file_value = NULL;
+        if (file_values) {
+            /* Source is the startup origin and remains unchanged after runtime
+             * updates. CLI-provided values will be applied again on restart. */
+            if (config->source == CONFIG_SOURCE_CLI) continue;
+            file_value = dictFetchValue(file_values, dictGetKey(de));
             /* Compare the current value with the effective value loaded from
              * the main config and its includes. If the option was absent
              * from all config files, compare against its declared default. */
@@ -2054,7 +2067,7 @@ int rewriteConfig(char *path, int force_write) {
     retval = rewriteConfigOverwriteFile(path, newcontent);
 
     sdsfree(newcontent);
-    dictRelease(file_values);
+    if (file_values) dictRelease(file_values);
     rewriteConfigReleaseState(state);
     return retval;
 }
@@ -4118,6 +4131,7 @@ standardConfig static_configs[] = {
     createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("experimental-config-rewrite", NULL, IMMUTABLE_CONFIG, server.experimental_config_rewrite, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
