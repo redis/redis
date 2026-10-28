@@ -1573,8 +1573,8 @@ static unsigned long lpexExpire(robj *set, uint64_t now, unsigned long max, setT
         if (ttl == LPEX_NO_TTL || ttl >= now) break;
 
         if (cb) {
-            unsigned int mlen;
-            long long mll;
+            unsigned int mlen = 0;
+            long long mll = 0;
             unsigned char *mval = lpGetValue(p, &mlen, &mll);
             cb(ctx, (char *)mval, mval ? mlen : 0, mll);
         }
