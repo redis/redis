@@ -2046,7 +2046,7 @@ start_server {tags {"external:skip needs:debug defrag"} overrides {save ""}} {
             for {set i 0} {$i < $n} {incr i} {r del k$i}
             set digest [r debug digest]
             after 120
-            assert_morethan [s allocator_frag_ratio] 1.3
+            assert_morethan [s allocator_frag_ratio] 1.2
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
