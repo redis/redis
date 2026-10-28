@@ -4064,7 +4064,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
                 decrRefCount(o);
                 return NULL;
             }
+
+            /* Listpacks saved by Redis 8.8 - 8.10 may hold the compact boundary
+             * backlen, rewrite them before the integrity check below. */
             lp = rdbUpgradeListpack(lp, &lp_size, rdbver);
+
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
             if (!streamValidateListpackIntegrity(lp, lp_size, deep_integrity_validation)) {
                 rdbReportCorruptRDB("Stream listpack integrity check failed.");
