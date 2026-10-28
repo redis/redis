@@ -37,8 +37,9 @@ class EpsilonOption(TestCase):
 
         assert len(elements_all) == 5, f"Should return 5 elements without EPSILON, got {len(elements_all)}"
         assert elements_all[0] == 'a', "First element should be 'a' (most similar)"
-        assert scores_all[0] == 1.0, (
-            f"Score for 'a' should be 1.0 (identical), got {scores_all[0]!r}; "
+        # Q8 distance calculations can leave a small floating-point rounding error.
+        assert abs(scores_all[0] - 1.0) <= 1e-6, (
+            f"Score for 'a' should be within 1e-6 of 1.0 (identical), got {scores_all[0]!r}; "
             f"delta from 1.0: {scores_all[0] - 1.0!r}; "
             f"raw VSIM response: {result!r}"
         )
