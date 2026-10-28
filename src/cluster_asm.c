@@ -2614,6 +2614,8 @@ static void asmReadSyncBufferErrorHandler(connection *conn) {
 
     if (task->state == ASM_STREAMING_BUF) {
         freeClient(connGetPrivateData(conn));
+    } else if (connGetState(conn) == CONN_STATE_CLOSED) {
+        asmTaskSetFailed(task, "Main channel - Connection closed by source node");
     } else {
         asmTaskSetFailed(task, "Main channel - Read error: %s", connGetLastError(conn));
     }
