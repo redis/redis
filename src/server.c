@@ -403,16 +403,6 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
-void setSdsDestructor(dict *d, void *val) {
-    *htGetMetadataSize(d) -= sdsAllocSize(val);
-    sdsfree(val);
-}
-
-size_t setDictMetadataBytes(dict *d) {
-    UNUSED(d);
-    return sizeof(size_t);
-}
-
 void *dictSdsDup(dict *d, const void *key) {
     UNUSED(d);
     return sdsdup((const sds) key);
@@ -590,15 +580,16 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
  *  - Bring the kvobj head into L1 before keyCompare runs (only useful when
  *    the entry holds an out-of-line pointer; embedded kvobjs are already
  *    in cache from the entry prefetch).
- *  - Bring kv->ptr into L1 for RAW strings, since addReplyBulk reads it
- *    immediately after the lookup. */
+ *  - Bring kv->ptr into L1 when the value lives in its own allocation
+ *    (RAW strings, listpacks, ...), since the caller reads it next. */
 static void *dbDictPrefetchEntryKey(const dictEntry *de) {
     return dictEntryIsKey(de) ? NULL : dictGetKey(de);
 }
 
 static void *dbDictPrefetchEntryValue(const dictEntry *de) {
     kvobj *kv = dictGetKey(de);
-    return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
+    if (inlineEncodedObject(kv)) return NULL;
+    return kv->ptr;
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -636,20 +627,6 @@ dictType objectKeyHeapPointerValueDictType = {
     dictObjectDestructor,      /* key destructor */
     dictVanillaFree,           /* val destructor */
     NULL                       /* allow to expand */
-};
-
-/* Set dictionary type. Keys are SDS strings, values are not used. */
-dictType setDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    setSdsDestructor,          /* key destructor */
-    NULL,                      /* val destructor */
-    NULL,                      /* allow to expand */
-    .no_value = 1,             /* no values in this dict */
-    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
-    .dictMetadataBytes = setDictMetadataBytes,
 };
 
 /* Db->dict, keys are of type kvobj, unification of key and value */
@@ -2371,6 +2348,9 @@ void createSharedObjects(void) {
     shared.hpersist = createStringObject("HPERSIST",8);
     shared.hdel = createStringObject("HDEL",4);
     shared.hsetex = createStringObject("HSETEX",6);
+    shared.spexpireat = createStringObject("SPEXPIREAT",10);
+    shared.spersist = createStringObject("SPERSIST",8);
+    shared.saddex = createStringObject("SADDEX",6);
     shared.restore = createStringObject("RESTORE",7);
     shared.replace = createStringObject("REPLACE",7);
 
@@ -8372,6 +8352,7 @@ struct redisTest {
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
     {"lzf", lzfTest},
+    {"setentry", sEntryTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
