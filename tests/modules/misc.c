@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+#include <pthread.h>
 
 #define UNUSED(x) (void)(x)
 
@@ -596,6 +597,36 @@ int test_signalmodifiedkey(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return REDISMODULE_OK;
 }
 
+int test_used_memory_ratio(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    return RedisModule_ReplyWithDouble(ctx, RedisModule_GetUsedMemoryRatio());
+}
+
+int test_used_memory_ratio_threadsafe(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    return RedisModule_ReplyWithDouble(ctx, RedisModule_GetUsedMemoryRatioThreadSafe());
+}
+
+static void *used_memory_ratio_thread_main(void *arg) {
+    *(float *)arg = RedisModule_GetUsedMemoryRatioThreadSafe();
+    return NULL;
+}
+
+/* Calls RedisModule_GetUsedMemoryRatioThreadSafe() from a thread that does not
+ * hold the GIL. */
+int test_used_memory_ratio_threadsafe_bg(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    pthread_t tid;
+    float ratio = -1;
+    if (pthread_create(&tid, NULL, used_memory_ratio_thread_main, &ratio) != 0)
+        return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
+    pthread_join(tid, NULL);
+    return RedisModule_ReplyWithDouble(ctx, ratio);
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -673,6 +704,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateSubcommand(parent, "set", only_reply_ok, "no-cluster", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "test.signalmodifiedkey", test_signalmodifiedkey, "write", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio", test_used_memory_ratio, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio_threadsafe", test_used_memory_ratio_threadsafe, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.used_memory_ratio_threadsafe_bg", test_used_memory_ratio_threadsafe_bg, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
