@@ -1680,9 +1680,9 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         user *u = ri.data;
-        /* In experimental mode, users defined by CLI arguments or included
+        /* In source-aware mode, users defined by CLI arguments or included
          * files remain owned by those sources. */
-        if (server.experimental_config_rewrite &&
+        if (server.config_rewrite_source_aware &&
             (u->source == CONFIG_SOURCE_CLI || u->source == CONFIG_SOURCE_INCLUDE))
         {
             continue;
@@ -1837,7 +1837,7 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
     rewriteConfigRewriteLine(state,name,line,force);
 }
 
-/* Rewrite loadmodule, respecting its source in experimental mode. */
+/* Rewrite loadmodule, respecting its source in source-aware mode. */
 void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
     sds line;
     dictIterator di;
@@ -1848,7 +1848,7 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
         /* Internal modules doesn't have path and are not part of the configuration file */
         if (sdslen(module->loadmod->path) == 0) continue;
 
-        if (server.experimental_config_rewrite && !state->force_write &&
+        if (server.config_rewrite_source_aware && !state->force_write &&
             (module->loadmod->source == CONFIG_SOURCE_CLI ||
              module->loadmod->source == CONFIG_SOURCE_INCLUDE))
         {
@@ -2019,7 +2019,7 @@ cleanup:
  * explicitly included in the old configuration file, are not rewritten.
  * The force_write flag overrides this behavior and forces everything to be
  * written. This is currently only used for testing purposes.
- * With experimental-config-rewrite enabled, skip CLI/stdin overrides and
+ * With config-rewrite-source-aware enabled, skip CLI/stdin overrides and
  * unchanged file values, and append changed include values after includes.
  *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
@@ -2031,9 +2031,9 @@ int rewriteConfig(char *path, int force_write) {
 
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
-    /* Only experimental rewrites need the effective file baseline. Legacy
+    /* Only source-aware rewrites need the effective file baseline. Legacy
      * rewrites and forced debug rewrites keep the original behavior. */
-    if (server.experimental_config_rewrite && !force_write) {
+    if (server.config_rewrite_source_aware && !force_write) {
         if ((file_values = rewriteConfigReadFileValues(path)) == NULL) {
             rewriteConfigReleaseState(state);
             return -1;
@@ -4237,7 +4237,7 @@ standardConfig static_configs[] = {
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("bitmap-default-roaring", NULL, MODIFIABLE_CONFIG, server.bitmap_default_roaring, 0, NULL, NULL),
     createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 0, NULL, applyStreamStats),
-    createBoolConfig("experimental-config-rewrite", NULL, IMMUTABLE_CONFIG, server.experimental_config_rewrite, 0, NULL, NULL),
+    createBoolConfig("config-rewrite-source-aware", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.config_rewrite_source_aware, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),

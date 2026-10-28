@@ -15,7 +15,7 @@ close $fd
 start_server [list tags {modules external:skip} config_lines [list include "\"$rewrite_include\""] \
     args [list --loadmodule $rewrite_module_two]] {
     test {CONFIG REWRITE preserves legacy module serialization by default} {
-        assert_equal no [lindex [r config get experimental-config-rewrite] 1]
+        assert_equal no [lindex [r config get config-rewrite-source-aware] 1]
         r config rewrite
         set contents [read_file [srv 0 config_file]]
         # Legacy mode serializes modules from both includes and CLI arguments.
@@ -25,7 +25,7 @@ start_server [list tags {modules external:skip} config_lines [list include "\"$r
     }
 }
 
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$rewrite_include\""]] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$rewrite_include\""]] {
     test {CONFIG REWRITE does not copy nested include modules, even on repeated rewrites} {
         # These values belong to nested include files and must not be copied
         # into the main file, even when rewrite is repeated.
@@ -76,7 +76,7 @@ start_server [list tags {modules external:skip} overrides {experimental-config-r
     }
 }
 
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} args [list --loadmodule $rewrite_module]] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} args [list --loadmodule $rewrite_module]] {
     test {CONFIG REWRITE excludes a CLI module but persists a runtime module} {
         # The original CLI module remains on the launch command; only the
         # module loaded at runtime should be persisted in main.conf.
@@ -87,7 +87,7 @@ start_server [list tags {modules external:skip} overrides {experimental-config-r
         assert {[string first $rewrite_module_two $contents] >= 0}
         # Start with the exact generated module directive and the original CLI.
         regexp -line {^loadmodule (.*)$} $contents -> module_args
-        start_server [list overrides {experimental-config-rewrite yes} config_lines [list loadmodule $module_args] args [list --loadmodule $rewrite_module]] {
+        start_server [list overrides {config-rewrite-source-aware yes} config_lines [list loadmodule $module_args] args [list --loadmodule $rewrite_module]] {
             set names [lmap m [r module list] {dict get $m name}]
             assert {[lsearch -exact $names moduleconfigs] >= 0}
             assert {[lsearch -exact $names configs] >= 0}
@@ -100,7 +100,7 @@ start_server [list tags {modules external:skip} overrides {experimental-config-r
     }
 }
 
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} config_lines [list loadmodule "  '$rewrite_module'"]] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} config_lines [list loadmodule "  '$rewrite_module'"]] {
     test {CONFIG REWRITE keeps existing main-file module serialization and unload cleanup} {
         r config rewrite
         assert {[string first "loadmodule $rewrite_module\n" [read_file [srv 0 config_file]]] >= 0}
@@ -110,7 +110,7 @@ start_server [list tags {modules external:skip} overrides {experimental-config-r
     }
 }
 
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} config_lines [list dir $rewrite_dir include leaf.conf]] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} config_lines [list dir $rewrite_dir include leaf.conf]] {
     test {CONFIG REWRITE skips modules loaded from relative includes} {
         # Relative include resolution must use the startup dir as loading does.
         r config rewrite
@@ -122,7 +122,7 @@ start_server [list tags {modules external:skip} overrides {experimental-config-r
     }
 }
 
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} config_lines [list loadmodule "\"$rewrite_module\""] args {--unprefix.string-alias cli-value}] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} config_lines [list loadmodule "\"$rewrite_module\""] args {--unprefix.string-alias cli-value}] {
     test {CONFIG REWRITE tracks CLI source for late-registered module configs and aliases} {
         # The CLI option is parsed before the module registers it, so its value
         # and CLI source must be queued until the module is loaded.
@@ -151,7 +151,7 @@ set module_value_include [file normalize [tmpfile module-config-values.conf]]
 set fd [open $module_value_include w]
 puts $fd {moduleconfigs.memory_numeric 2kb}
 close $fd
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} config_lines [list loadmodule "\"$rewrite_module\"" moduleconfigs.memory_numeric 2048]] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} config_lines [list loadmodule "\"$rewrite_module\"" moduleconfigs.memory_numeric 2048]] {
     test {CONFIG REWRITE compares main-file module config values before rewriting} {
         set config_file [srv 0 config_file]
         # The main file stores this memory value as a byte count. Keep its line
@@ -169,7 +169,7 @@ start_server [list tags {modules external:skip} overrides {experimental-config-r
     }
 }
 
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} config_lines [list loadmodule "\"$rewrite_module\"" include "\"$module_value_include\""]] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} config_lines [list loadmodule "\"$rewrite_module\"" include "\"$module_value_include\""]] {
     test {CONFIG REWRITE compares unchanged included module config values} {
         # An unchanged module option from an include must not be copied to the
         # main file.
@@ -195,7 +195,7 @@ set queued_source_include [file normalize [tmpfile module-config-source.conf]]
 set fd [open $queued_source_include w]
 puts $fd {moduleconfigs.string include-value}
 close $fd
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} config_lines [list loadmodule "\"$rewrite_module\"" moduleconfigs.string main-value include "\"$queued_source_include\""] args {--moduleconfigs.string cli-value}] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} config_lines [list loadmodule "\"$rewrite_module\"" moduleconfigs.string main-value include "\"$queued_source_include\""] args {--moduleconfigs.string cli-value}] {
     test {Queued module config replacement updates value and source together} {
         # The module config values are queued until module registration. In
         # load order, MAIN sets main-value, INCLUDE overrides it, then CLI wins.
@@ -217,7 +217,7 @@ set cli_include [file normalize [tmpfile cli-include.conf]]
 set fd [open $cli_include w]
 puts $fd "include \"$rewrite_leaf\""
 close $fd
-start_server [list tags {modules external:skip} overrides {experimental-config-rewrite yes} args [list --include $cli_include]] {
+start_server [list tags {modules external:skip} overrides {config-rewrite-source-aware yes} args [list --include $cli_include]] {
     test {CONFIG REWRITE skips module configs from CLI includes} {
         # CLI supplies only the include path. Directives read from the included
         # leaf file inherit CLI provenance, including its module load.

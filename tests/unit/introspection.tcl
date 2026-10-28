@@ -626,7 +626,7 @@ start_server {tags {"introspection"}} {
         # Do CONFIG GET, CONFIG SET and then CONFIG GET again
         # Skip immutable configs, one with no get, and other complicated configs
         set skip_configs {
-            experimental-config-rewrite
+            config-rewrite-source-aware
             rdbchecksum
             daemonize
             tcp-backlog
@@ -1120,8 +1120,8 @@ test {CONFIG REWRITE preserves legacy behavior by default} {
     close $fd
 
     start_server [list tags {external:skip} config_lines [list include "\"$include_file\""] args {--timeout 13}] {
-        assert_equal no [lindex [r config get experimental-config-rewrite] 1]
-        assert_error {ERR *immutable config*} {r config set experimental-config-rewrite yes}
+        assert_equal no [lindex [r config get config-rewrite-source-aware] 1]
+        assert_error {ERR *immutable config*} {r config set config-rewrite-source-aware yes}
 
         # Legacy rewrite still persists CLI values and copies unchanged include
         # values into the main file.
@@ -1154,7 +1154,7 @@ test {CONFIG REWRITE preserves legacy inline ACL serialization by default} {
 test {CONFIG REWRITE compares main-file values and preserves equivalent syntax} {
     # A changed MAIN value is persisted, while an unchanged value keeps its
     # original file spelling.
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list maxmemory "\"64mb\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list maxmemory "\"64mb\""]] {
         set config_file [srv 0 config_file]
         r config rewrite
         set contents [read_file $config_file]
@@ -1188,7 +1188,7 @@ test {CONFIG REWRITE compares main-file values and preserves equivalent syntax} 
 
 test {CONFIG REWRITE does not persist CLI values, including after CONFIG SET} {
     # CLI remains the startup override, even after CONFIG SET changes memory.
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list maxmemory 64mb] args {--maxmemory 128mb}] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list maxmemory 64mb] args {--maxmemory 128mb}] {
         r config rewrite
         set contents [read_file [srv 0 config_file]]
         # CLI overrides remain on the startup command and are not persisted.
@@ -1214,7 +1214,7 @@ test {CONFIG REWRITE skips unchanged include values and persists changed values 
     set fd [open $include_file w]
     puts $fd {maxmemory 64mb}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         # maxmemory is not changed during running
         set config_file [srv 0 config_file]
         r config rewrite
@@ -1239,7 +1239,7 @@ test {CONFIG REWRITE rereads include values from disk} {
     set fd [open $include_file w]
     puts $fd {maxmemory 64mb}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         r config set maxmemory 128mb
         # change the maxmemory in include file
         set fd [open $include_file w]
@@ -1263,7 +1263,7 @@ test {CONFIG REWRITE treats the load directory as literal for wildcard includes}
         close $fd
     }
 
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} \
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} \
         config_lines [list dir "\"$include_dir\"" include {extra*.conf}]] {
         # Only the include argument supplies wildcards. The directory name
         # must not redirect the baseline lookup to redis1-other.
@@ -1278,7 +1278,7 @@ test {CONFIG REWRITE treats the load directory as literal for wildcard includes}
 } {} {external:skip}
 
 test {CONFIG REWRITE recreates a missing main config file} {
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list maxmemory 64mb]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list maxmemory 64mb]] {
         set config_file [srv 0 config_file]
         r config set maxmemory 128mb
         file delete $config_file
@@ -1298,7 +1298,7 @@ test {CONFIG REWRITE skips CLI includes and following CLI options} {
     set fd [open $include_file w]
     puts $fd {maxmemory 64mb}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list maxmemory 32mb timeout 0] \
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list maxmemory 32mb timeout 0] \
         args [list --maxmemory 128mb --include $include_file --timeout 13]] {
         # The included file applies at its position in the CLI stream; the
         # later timeout argument remains a CLI override.
@@ -1341,7 +1341,7 @@ test {CONFIG REWRITE skips config values supplied directly through stdin} {
 
     set client ""
     set test_error [catch {
-        exec src/redis-server $config_file --experimental-config-rewrite yes --port $port --daemonize yes --logfile $log_file - < $stdin_file
+        exec src/redis-server $config_file --config-rewrite-source-aware yes --port $port --daemonize yes --logfile $log_file - < $stdin_file
         wait_for_condition 100 50 {
             [count_message_lines $log_file "Ready to accept"] > 0
         } else {
@@ -1384,7 +1384,7 @@ test {CONFIG REWRITE skips include values supplied through stdin} {
 
     set client ""
     set test_error [catch {
-        exec src/redis-server $config_file --experimental-config-rewrite yes --port $port --daemonize yes --logfile $log_file - < $stdin_file
+        exec src/redis-server $config_file --config-rewrite-source-aware yes --port $port --daemonize yes --logfile $log_file - < $stdin_file
         wait_for_condition 100 50 {
             [count_message_lines $log_file "Ready to accept"] > 0
         } else {
@@ -1414,7 +1414,7 @@ test {CONFIG REWRITE persists a default value overriding an include} {
     set fd [open $include_file w]
     puts $fd {maxmemory 64mb}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         r config set maxmemory 0
         r config rewrite
         set contents [read_file [srv 0 config_file]]
@@ -1434,7 +1434,7 @@ test {CONFIG REWRITE persists default and empty values overriding includes} {
     puts $fd {replica-announce-ip 127.0.0.2}
     puts $fd {masterauth include-secret}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         # Reset these values to their defaults/empty state, then persist them
         # after the include so its original values cannot win on restart.
         r config set bind {* -::*}
@@ -1467,7 +1467,7 @@ test {CONFIG REWRITE compares aliased config values from includes} {
     puts $fd {slaveof 127.0.0.1 1}
     close $fd
 
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         r config rewrite
         set contents [read_file [srv 0 config_file]]
         assert_equal 0 [regexp -line {^(replicaof|slaveof) } $contents]
@@ -1490,7 +1490,7 @@ test {CONFIG REWRITE preserves a main value shadowed by an unchanged include} {
     set fd [open $include_file w]
     puts $fd {maxmemory 64mb}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list maxmemory 32mb include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list maxmemory 32mb include "\"$include_file\""]] {
         assert_equal 67108864 [lindex [r config get maxmemory] 1]
         r config rewrite
         set contents [read_file [srv 0 config_file]]
@@ -1506,7 +1506,7 @@ test {CONFIG REWRITE appends a changed main value after an earlier include} {
     set fd [open $include_file w]
     puts $fd {maxmemory 64mb}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes maxmemory 32mb} \
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes maxmemory 32mb} \
         config_lines [list include "\"$include_file\"" maxmemory 64mb]] {
         assert_equal 67108864 [lindex [r config get maxmemory] 1]
         r config set maxmemory 96mb
@@ -1522,7 +1522,7 @@ test {CONFIG REWRITE appends a changed main value after an earlier include} {
 } {} {external:skip}
 
 test {CONFIG REWRITE keeps CLI provenance for an aliased config} {
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes hash-max-listpack-entries 16} \
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes hash-max-listpack-entries 16} \
         args {--hash-max-ziplist-entries 32}] {
         r config rewrite
         set contents [read_file [srv 0 config_file]]
@@ -1535,7 +1535,7 @@ test {CONFIG REWRITE keeps CLI provenance for an aliased config} {
 } {} {external:skip}
 
 test {CONFIG REWRITE does not persist runtime REPLICAOF changes over a CLI value} {
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list replicaof "127.0.0.1 1"] \
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list replicaof "127.0.0.1 1"] \
         args {--replicaof 127.0.0.1 2}] {
         # REPLICAOF changes live state directly, but the CLI source still
         # owns persistence for this option.
@@ -1552,7 +1552,7 @@ test {CONFIG REWRITE does not persist runtime REPLICAOF changes over a CLI value
 } {} {external:skip}
 
 test {CONFIG REWRITE compares boolean and string config values} {
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list hz 10 protected-mode yes replica-announce-ip 127.0.0.1]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list hz 10 protected-mode yes replica-announce-ip 127.0.0.1]] {
         set config_file [srv 0 config_file]
         r config rewrite
         set contents [read_file $config_file]
@@ -1577,7 +1577,7 @@ test {CONFIG REWRITE compares percentage configuration values} {
     set fd [open $include_file w]
     puts $fd {maxmemory-clients 50%}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         set config_file [srv 0 config_file]
         # The file parser stores percentages as negative numbers internally,
         # while CONFIG GET exposes the normalized value with a percent sign.
@@ -1601,7 +1601,7 @@ test {CONFIG REWRITE compares octal configuration values} {
     set fd [open $include_file w]
     puts $fd {unixsocketperm 0700}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         set config_file [srv 0 config_file]
         # 0700 is parsed as octal and normalized to the getter's value, 700.
         assert_equal {unixsocketperm 700} [r config get unixsocketperm]
@@ -1624,7 +1624,7 @@ test {CONFIG REWRITE compares special configuration values} {
     puts $fd {client-output-buffer-limit normal 100kb 50kb 60}
     puts $fd {latency-tracking-info-percentiles 50 99 99.9}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         set config_file [srv 0 config_file]
         set initial_contents [read_file $config_file]
         set initial_dir_line [regexp -line -inline {^dir .*$} $initial_contents]
@@ -1673,7 +1673,7 @@ test {CONFIG REWRITE compares quoted multi-argument enum values from includes} {
     set fd [open $include_file w]
     puts $fd {cluster-slot-stats-enabled "cpu mem"}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         # The enum combines multiple names into one bitflag value.
         assert_equal {cluster-slot-stats-enabled {cpu mem}} [r config get cluster-slot-stats-enabled]
 
@@ -1691,7 +1691,7 @@ test {CONFIG REWRITE compares aggregated save rules from includes} {
     puts $fd {save "100 1"}
     puts $fd {save "200 2"}
     close $fd
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
         # Multiple save directives contribute to one aggregate getter value.
         assert_equal {100 1 200 2} [lindex [r config get save] 1]
 
@@ -1719,7 +1719,7 @@ if {[string tolower [exec uname -s]] eq {linux}} {
         # This MULTI_ARG_CONFIG form is also split by startup loading.
         puts $fd {oom-score-adj-values "0 200 800"}
         close $fd
-        start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list include "\"$include_file\""]] {
+        start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list include "\"$include_file\""]] {
             set config_file [srv 0 config_file]
             # An unchanged value from the include should not be copied to main.conf.
             r config rewrite
@@ -1744,7 +1744,7 @@ test {CONFIG REWRITE does not copy CLI or included ACL users into the main file}
     puts $fd {user include-user on nopass ~* +@all}
     close $fd
 
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} \
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} \
         config_lines [list include "\"$include_file\"" user {main-user on nopass ~* +@all}] \
         args {--user cli-user on nopass ~* +@all}] {
         r config rewrite
@@ -1757,7 +1757,7 @@ test {CONFIG REWRITE does not copy CLI or included ACL users into the main file}
 } {} {external:skip}
 
 test {CONFIG REWRITE persists runtime ACL users when no ACL file is configured} {
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list user {main-user on nopass ~* +@all}]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list user {main-user on nopass ~* +@all}]] {
         r ACL SETUSER runtime-user on nopass ~* +@all
         r config rewrite
         set contents [read_file [srv 0 config_file]]
@@ -1778,7 +1778,7 @@ test {CONFIG REWRITE leaves ACL file users and file contents unchanged} {
     close $fd
     set initial_acl_contents [read_file $acl_file]
 
-    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list aclfile "\"$acl_file\""]] {
+    start_server [list tags {external:skip} overrides {config-rewrite-source-aware yes} config_lines [list aclfile "\"$acl_file\""]] {
         # Runtime ACL changes are not serialized by CONFIG REWRITE when users
         # are managed through a separate ACL file.
         r ACL SETUSER runtime-user on nopass ~* +@all

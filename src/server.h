@@ -2143,7 +2143,7 @@ struct redisServer {
     pid_t pid;                  /* Main process pid. */
     pthread_t main_thread_id;         /* Main thread id */
     char *configfile;           /* Absolute config file path, or NULL */
-    int experimental_config_rewrite; /* Enable source-aware CONFIG REWRITE. */
+    int config_rewrite_source_aware; /* Enable source-aware CONFIG REWRITE. */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int dynamic_hz;             /* Change hz value depending on # of clients. */
