@@ -1166,6 +1166,69 @@ typedef enum {
   EXPAND_AFTER_ITER
 } tre_expand_ast_symbol_t;
 
+/* Upper bound on the number of nodes an AST may expand to.  Compiling and
+   matching a pattern is superlinear in the number of nodes its bounded
+   repetitions expand to, so patterns whose expansion would exceed this
+   bound are rejected with REG_ETOOBIG instead of stalling the caller. */
+#define TRE_MAX_EXPANSION 10000
+
+/* Returns an upper bound for the number of nodes `node' expands to when
+   bounded repetitions are catenated, or -1 if the bound exceeds
+   TRE_MAX_EXPANSION. */
+static long
+tre_ast_expansion_cost(tre_ast_node_t *node)
+{
+  long l, r, cost;
+
+  switch (node->type)
+    {
+    case LITERAL:
+      {
+	tre_literal_t *lit = node->obj;
+	return IS_SPECIAL(lit) && !IS_BACKREF(lit) ? 0 : 1;
+      }
+    case UNION:
+      {
+	tre_union_t *uni = node->obj;
+	l = tre_ast_expansion_cost(uni->left);
+	r = tre_ast_expansion_cost(uni->right);
+	if (l < 0 || r < 0)
+	  return -1;
+	cost = l + r;
+	break;
+      }
+    case CATENATION:
+      {
+	tre_catenation_t *cat = node->obj;
+	l = tre_ast_expansion_cost(cat->left);
+	r = tre_ast_expansion_cost(cat->right);
+	if (l < 0 || r < 0)
+	  return -1;
+	cost = l + r;
+	break;
+      }
+    case ITERATION:
+      {
+	tre_iteration_t *iter = node->obj;
+	l = tre_ast_expansion_cost(iter->arg);
+	if (l < 0)
+	  return -1;
+	/* Unbounded and single repetitions do not multiply the subtree. */
+	if (iter->max < 0 || iter->max <= 1)
+	  return l + 1;
+	/* Overflow-safe `l * max'. */
+	if (l != 0 && (long)iter->max > TRE_MAX_EXPANSION / l)
+	  return -1;
+	cost = l * (long)iter->max + 1;
+	break;
+      }
+    default:
+      assert(0);
+      return 0;
+    }
+  return cost > TRE_MAX_EXPANSION ? -1 : cost;
+}
+
 /* Expands each iteration node that has a finite nonzero minimum or maximum
    iteration count to a catenated sequence of copies of the node. */
 static reg_errcode_t
@@ -2342,6 +2405,11 @@ tre_compile(regex_t *preg, const tre_char_t *regex, size_t n, int cflags)
 		"minimized" : "maximized"));
 #endif /* TRE_DEBUG */
     }
+
+  /* Refuse to expand patterns that would explode in size (the parse tree
+     alone is small, but nested bounded repetitions multiply it). */
+  if (tre_ast_expansion_cost(tree) < 0)
+    ERROR_EXIT(REG_ETOOBIG);
 
   /* Expand iteration nodes. */
   errcode = tre_expand_ast(mem, stack, tree, tag_directions,

@@ -132,6 +132,7 @@ typedef enum {
   REG_ESPACE,		/* Out of memory.  */
   REG_BADRPT,		/* Invalid use of repetition operators. */
   REG_BADMAX,		/* Maximum repetition in {} too large */
+  REG_ETOOBIG,		/* Repetition expansion too large.  */
 } reg_errcode_t;
 
 /* POSIX tre_regcomp() flags. */
