@@ -37,7 +37,11 @@ class EpsilonOption(TestCase):
 
         assert len(elements_all) == 5, f"Should return 5 elements without EPSILON, got {len(elements_all)}"
         assert elements_all[0] == 'a', "First element should be 'a' (most similar)"
-        assert scores_all[0] == 1.0, "Score for 'a' should be 1.0 (identical)"
+        assert scores_all[0] == 1.0, (
+            f"Score for 'a' should be 1.0 (identical), got {scores_all[0]!r}; "
+            f"delta from 1.0: {scores_all[0] - 1.0!r}; "
+            f"raw VSIM response: {result!r}"
+        )
 
         # Test with EPSILON 0.5 - should return only elements with similarity >= 0.5 (distance < 0.5)
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', '2', '1', '1', 'WITHSCORES', 'EPSILON', '0.5')
