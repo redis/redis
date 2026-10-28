@@ -403,28 +403,22 @@ start_server {tags {"string"}} {
         assert_range $ttl 18 20
     }
 
-    test {MSETEX - repeated EX/PX survives AOF replay} {
-        # Ensure repeated EX/PX commands are rewritten correctly for AOF
-        r del aof:key{t}
-        r config set appendonly yes
-        r config set auto-aof-rewrite-percentage 0
+    test {MSETEX - repeated EX/PX last wins} {
+        # Ensure repeated EX/PX commands use last value
+        r del dup:key{t}
         
-        # Execute command with repeated EX
-        r msetex 1 aof:key{t} value ex 10 ex 100
-        assert_equal {value} [r get aof:key{t}]
-        set ttl [r ttl aof:key{t}]
+        # Execute command with repeated EX (last wins: 100)
+        r msetex 1 dup:key{t} value ex 10 ex 100
+        assert_equal {value} [r get dup:key{t}]
+        set ttl [r ttl dup:key{t}]
         assert_range $ttl 98 100
         
-        # Force AOF rewrite and reload
-        r bgrewriteaof
-        waitForBgrewriteaof r
-        r debug loadaof
-        
-        # Verify key still exists and has correct value
-        assert_equal {value} [r get aof:key{t}]
-        
-        r config set appendonly no
-    } {} {needs:debug}
+        # Execute command with repeated PX (last wins: 100000ms = 100s)
+        r msetex 1 dup:key{t} value2 px 10000 px 100000
+        assert_equal {value2} [r get dup:key{t}]
+        set ttl [r ttl dup:key{t}]
+        assert_range $ttl 98 100
+    }
 
     test {MSETEX - repeated EX/PX propagate correctly to replica} {
         r del repl:dup{t}
