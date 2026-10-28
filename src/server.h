@@ -4812,6 +4812,7 @@ void himportPrepareCommand(client *c);
 void himportSetCommand(client *c);
 void himportDiscardCommand(client *c);
 void himportDiscardallCommand(client *c);
+void himportHelpCommand(client *c);
 void hpexpireCommand(client *c);
 void hexpireCommand(client *c);
 void hpexpireatCommand(client *c);
