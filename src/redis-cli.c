@@ -11368,6 +11368,14 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     if (no_match) {
         /* Clear leftover rows when replacing the live stats with a shorter message. */
         clearToEndOfScreen();
+        
+        if (it != 0) {
+            cleanPrintfln("Scan interrupted: no keys matched the specified pattern in the scanned portion.");
+        } else if (cursor != 0) {
+            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
+        } else {
+            cleanPrintfln("No keys matched the specified pattern.");
+        }
     } else {
         displayKeyStats(sampled, total_keys, total_size, memkeys_types_dict, bigkeys_types_dict, top_sizes,
                         top_sizes_limit, 0);
@@ -11381,20 +11389,11 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
         displayKeyStatsLengthDist(&key_length_dist);
         cleanPrintfln("");
         displayKeyStatsType(sampled, memkeys_types_dict, bigkeys_types_dict);
-    }
-
-    /* Closing message: why the result is empty, or that the scan was interrupted. */
-    if (no_match) {
+        
         if (it != 0) {
-            cleanPrintfln("Scan interrupted: no keys matched the specified pattern in the scanned portion.");
-        } else if (cursor != 0) {
-            cleanPrintfln("No keys matched the specified pattern in the scanned portion of the keyspace.");
-        } else {
-            cleanPrintfln("No keys matched the specified pattern.");
+            cleanPrintfln("");
+            cleanPrintfln("Scan interrupted.");
         }
-    } else if (it != 0) {
-        cleanPrintfln("");
-        cleanPrintfln("Scan interrupted.");
     }
 
     if (it != 0) {
