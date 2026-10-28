@@ -1895,7 +1895,8 @@ unsigned char *lpUpgradeCompactBacklen(unsigned char *lp, size_t *size) {
 
     /* Second pass: copy, widening the compact backlens. */
     size_t newbytes = bytes + compact;
-    unsigned char *dst = lp_malloc(newbytes), *d = dst + LP_HDR_SIZE;
+    unsigned char *dst = lp_malloc(newbytes);
+    unsigned char *d = dst + LP_HDR_SIZE;
     memcpy(dst, lp, LP_HDR_SIZE);
     for (p = lp + LP_HDR_SIZE; p < end; ) {
         uint64_t entrylen = lpCurrentEncodedSizeUnsafe(p);
