@@ -269,7 +269,8 @@ void restoreCommand(client *c) {
     }
 
     /* Verify RDB version and data checksum. */
-    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),NULL) == C_ERR)
+    uint16_t rdbver;
+    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),&rdbver) == C_ERR)
     {
         addReplyError(c,"DUMP payload version or checksum are wrong");
         return;
@@ -299,7 +300,7 @@ void restoreCommand(client *c) {
     }
 
     /* Load the object */
-    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
+    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,rdbver,NULL)) == NULL)
     {
         kvSpecCleanup(&spec);
         addReplyError(c,"Bad data format");
