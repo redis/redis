@@ -1162,6 +1162,13 @@ void dictInitIterator(dictIterator *iter, dict *d)
     iter->safe = 0;
     iter->entry = NULL;
     iter->nextEntry = NULL;
+    iter->prefetch = 0;
+}
+
+/* Make dictNext() prefetch entries ahead. Use it for full scans that read
+ * every entry, like the RDB save. */
+void dictIteratorEnablePrefetch(dictIterator *iter) {
+    iter->prefetch = 1;
 }
 
 void dictInitSafeIterator(dictIterator *iter, dict *d)
@@ -1194,6 +1201,38 @@ dictIterator *dictGetSafeIterator(dict *d) {
     return i;
 }
 
+#define DICT_ITER_PREFETCH_AHEAD 16
+
+/* Prefetch each bucket in three steps as the iterator gets closer. */
+static void dictIteratorPrefetchAhead(dictIterator *iter) {
+    dict *d = iter->d;
+    int t = iter->table;
+    long size = DICTHT_SIZE(d->ht_size_exp[t]);
+
+    /* Bucket 2*AHEAD away: prefetch the first dictEntry, if there is one. */
+    long idx = iter->index + 2*DICT_ITER_PREFETCH_AHEAD;
+    if (idx < size) {
+        dictEntry *de = d->ht_table[t][idx];
+        if (de && !entryIsKey(de)) redis_prefetch_read(de);
+    }
+
+    /* Bucket AHEAD away: prefetch the keys, the dictEntry is in cache by now. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD;
+    if (idx < size) {
+        for (dictEntry *de = d->ht_table[t][idx]; de; de = dictGetNext(de))
+            redis_prefetch_read(dictGetKey(de));
+    }
+
+    /* Bucket AHEAD/2 away: prefetch the values, the keys are in cache by now. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD/2;
+    if (idx < size && d->type->prefetchEntryValue) {
+        for (dictEntry *de = d->ht_table[t][idx]; de; de = dictGetNext(de)) {
+            void *addr = d->type->prefetchEntryValue(de);
+            if (addr) redis_prefetch_read(addr);
+        }
+    }
+}
+
 dictEntry *dictNext(dictIterator *iter)
 {
     while (1) {
@@ -1219,6 +1258,7 @@ dictEntry *dictNext(dictIterator *iter)
                 }
             }
             iter->entry = iter->d->ht_table[iter->table][iter->index];
+            if (iter->prefetch) dictIteratorPrefetchAhead(iter);
         } else {
             iter->entry = iter->nextEntry;
         }
