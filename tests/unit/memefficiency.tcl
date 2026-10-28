@@ -1289,7 +1289,7 @@ run_solo {defrag} {
             # separate slices and uses superdir mode.
             set rd [redis_deferring_client]
             set payload [string repeat A 500]
-            set elements 3000
+            set elements 10000
             set base 8388608
             set count 0
             for {set j 0} {$j < $elements} {incr j} {
