@@ -2829,6 +2829,19 @@ static sds rewriteResolvePath(const sds cwd, const sds path) {
     return sdscatfmt(sdsempty(), "%S/%S", cwd, path);
 }
 
+/* Only the original include argument supplies glob syntax. Escape the literal
+ * load directory so its name cannot add wildcards or backslash escapes. */
+static sds rewriteResolveGlobPattern(const sds cwd, const sds path) {
+    if (path[0] == '/') return sdsdup(path);
+    sds pattern = sdsempty();
+    for (size_t i = 0; i < sdslen(cwd); i++) {
+        if (strchr("\\*?[", cwd[i]))
+            pattern = sdscatlen(pattern, "\\", 1);
+        pattern = sdscatlen(pattern, cwd + i, 1);
+    }
+    return sdscatfmt(pattern, "/%S", path);
+}
+
 /* Read a config file in load order and add its effective directives to values.
  * Includes recurse immediately, so later directives replace earlier ones just
  * as they do at startup. `source` identifies the file-origin class for values
@@ -2875,27 +2888,32 @@ static int rewriteConfigParseFile(const sds path, configSource source, dict *val
         sdstolower(argv[0]);
 
         if (!strcasecmp(argv[0], "include") && argc == 2) {
-            /* Resolve relative paths against the current config-load cwd and
-             * recurse immediately, just as startup loading does. */
-            sds pattern = rewriteResolvePath(*cwd, argv[1]);
-            glob_t matches;
-            int globret = glob(pattern, 0, NULL, &matches);
-            if (globret == 0) {
-                for (size_t i = 0; i < matches.gl_pathc; i++) {
-                    sds include_path = sdsnew(matches.gl_pathv[i]);
-                    if (rewriteConfigParseFile(include_path, CONFIG_SOURCE_INCLUDE,
-                                               values, cwd, 0) == C_ERR)
-                    {
-                        result = C_ERR;
+            /* Match startup loading: plain include arguments are opened
+             * directly, while only arguments with wildcard syntax use glob. */
+            if (!strpbrk(argv[1], "*?[")) {
+                sds include_path = rewriteResolvePath(*cwd, argv[1]);
+                result = rewriteConfigParseFile(include_path, CONFIG_SOURCE_INCLUDE,
+                                                values, cwd, 0);
+                sdsfree(include_path);
+            } else {
+                sds pattern = rewriteResolveGlobPattern(*cwd, argv[1]);
+                glob_t matches;
+                if (glob(pattern, 0, NULL, &matches) == 0) {
+                    for (size_t i = 0; i < matches.gl_pathc; i++) {
+                        sds include_path = sdsnew(matches.gl_pathv[i]);
+                        if (rewriteConfigParseFile(include_path, CONFIG_SOURCE_INCLUDE,
+                                                   values, cwd, 0) == C_ERR)
+                        {
+                            result = C_ERR;
+                        }
+                        sdsfree(include_path);
+                        if (result == C_ERR) break;
                     }
-                    sdsfree(include_path);
-                    if (result == C_ERR) break;
+                    globfree(&matches);
                 }
-                globfree(&matches);
-            } else if (!strpbrk(pattern, "*?[")) {
-                result = C_ERR;
+                /* Like startup, a wildcard include with no matches is ignored. */
+                sdsfree(pattern);
             }
-            sdsfree(pattern);
         } else {
             standardConfig *config = lookupConfig(argv[0]);
             /* Aliases share the primary config's value. Record file values

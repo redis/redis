@@ -1252,6 +1252,31 @@ test {CONFIG REWRITE rereads include values from disk} {
     }
 } {} {external:skip}
 
+test {CONFIG REWRITE treats the load directory as literal for wildcard includes} {
+    set root_dir [file normalize [tmpdir config-rewrite-glob-dir]]
+    set include_dir [file join $root_dir {redis[1]*?}]
+    set other_dir [file join $root_dir redis1-other]
+    foreach {dir value} [list $include_dir 64mb $other_dir 128mb] {
+        file mkdir $dir
+        set fd [open [file join $dir extra.conf] w]
+        puts $fd "maxmemory $value"
+        close $fd
+    }
+
+    start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} \
+        config_lines [list dir "\"$include_dir\"" include {extra*.conf}]] {
+        # Only the include argument supplies wildcards. The directory name
+        # must not redirect the baseline lookup to redis1-other.
+        assert_equal 67108864 [lindex [r config get maxmemory] 1]
+        r config rewrite
+        assert_equal 0 [regexp -line {^maxmemory } [read_file [srv 0 config_file]]]
+
+        # An actual wildcard include may have no matches, just as at startup.
+        file delete [file join $include_dir extra.conf]
+        assert_equal OK [r config rewrite]
+    }
+} {} {external:skip}
+
 test {CONFIG REWRITE recreates a missing main config file} {
     start_server [list tags {external:skip} overrides {experimental-config-rewrite yes} config_lines [list maxmemory 64mb]] {
         set config_file [srv 0 config_file]
