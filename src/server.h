@@ -49,7 +49,8 @@ typedef long long ustime_t; /* microsecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
-#include "entry.h"   /* Entry objects (field-value pairs with optional expiration) */
+#include "hash_entry.h" /* Entry objects (field-value pairs with optional expiration) */
+#include "set_entry.h" /* SetEntry objects (set members with optional expiration) */
 #include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */
 #include "kvstore.h" /* Slot-based hash table */
@@ -1846,7 +1847,7 @@ struct sharedObjectsStruct {
     *obo, *bulk, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim, *xack,
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
-    *hdel, *hpexpireat, *hpersist, *hsetex, *restore, *replace,
+    *hdel, *hpexpireat, *hpersist, *hsetex, *spexpireat, *spersist, *saddex, *restore, *replace,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields,
     *getack, *special_asterisk, *special_equals, *default_username, *redacted,
@@ -3244,12 +3245,16 @@ typedef struct {
 } listTypeEntry;
 
 /* Structure to hold set iteration abstraction. */
-typedef struct _setTypeOps setTypeOps; /* defined in t_set_encoding.h */
+typedef struct _setTypeOps setTypeOps; /* defined in t_set.c */
 
-typedef struct {
+typedef struct setTypeIterator {
     robj *subject;
     int encoding;
     const setTypeOps *typeOps; /* encoding-specific ops struct, to avoid re-fetching it for every next call */
+    /* typeOps->iterNext, unless iterInit picked a variant of it for this set. */
+    int (*iterNext)(struct setTypeIterator *si, char **str, size_t *len, int64_t *llele);
+    int mode; /* SET_ITER_RAW or SET_ITER_SKIP_EXPIRED */
+    uint64_t expire; /* Expiration of the member returned last, EB_EXPIRE_TIME_INVALID if none */
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
@@ -3292,6 +3297,8 @@ extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyNoValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
+extern dictType setDictTypeWithExpire;
+extern EbucketsType setMemberExpireBucketsType; /* local per set */
 extern dictType BenchmarkDictType;
 extern dictType zsetDictType;
 extern dictType dbDictType;
@@ -3465,6 +3472,13 @@ void addReplyErrorSdsSafe(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyErrorArity(client *c);
 void addReplyErrorExpireTime(client *c);
+
+/* The absolute expiration time of a hash field or set member given by a user
+ * is capped to this value (the top bits of the 48-bit ebuckets range stay
+ * reserved). Enforced only by parseSubkeyExpireTime(); internally the time can
+ * be up to EB_EXPIRE_TIME_MAX. */
+#define SUBEXPIRE_MAX_ABS_TIME_MSEC (EB_EXPIRE_TIME_MAX >> 2)
+int parseSubkeyExpireTime(client *c, robj *o, int unit, long long basetime, long long *expire);
 void addReplyStatus(client *c, const char *status);
 void addReplyStatusSafe(client *c, const char *s);
 void addReplyDouble(client *c, double d);
@@ -4045,13 +4059,53 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-void setTypeInitIterator(setTypeIterator *si, robj *subject);
+/* Iterator modes. Raw iteration returns every member that is physically in the
+ * set, including members that are logically expired but not yet reclaimed. It is
+ * used by everything that must preserve the stored state exactly (persistence,
+ * copy, conversion, digest). Skip-expired iteration never returns a logically
+ * expired member and never deletes anything; it is used by everything that
+ * returns members to a client or a module. */
+#define SET_ITER_RAW 0
+#define SET_ITER_SKIP_EXPIRED 1
+void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode);
 void setTypeResetIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
+int setTypeNextWithExpire(setTypeIterator *si, char **str, size_t *len, int64_t *llele); /* Internal to t_set.c */
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeSize(const robj *subject);
 size_t setTypeAllocSize(const robj *o);
+ExpireMeta *setGetExpireMeta(const eItem set);
+ExpireMeta *setListpackExGetExpireMeta(const robj *set);
+int setHashtableHasExpire(const robj *set);
+void setHashtableAddExpireSupport(robj *set);
+ExpireMeta *setHashtableGetExpireMeta(const robj *set);
+int setHasSubexpiry(const kvobj *o);
+uint64_t setTypeGetMinExpire(robj *o, int accurate);
+int setTypeHasExpireSupport(const robj *set);
+int setTypeExpireTimeElapsed(uint64_t expire);
+int setTypeGetExpire(robj *set, sds member, uint64_t *expire);
+void setTypeConvertToExpireEncoding(robj *set);
+int setTypeCanHoldExpire(const robj *set);
+void setTypeUpdateSubexpiry(redisDb *db, kvobj *set);
+int setIsRegisteredInSubexpires(const kvobj *set);
+int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t *expire);
+int setTypeAddExAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t expire);
+robj *createSetListpackExObject(void);
+unsigned char *setListpackExGetLp(const robj *set);
+void setListpackExAttach(robj *set, unsigned char *lp);
+int setListpackExValidate(unsigned char *lp, size_t size, int deep);
+
+/* Flags of the lazy expiry functions. A command that already does part of the
+ * bookkeeping for the whole operation suppresses it in the inner calls. */
+#define SET_LAZY_NO_UPDATE_KEYSIZES   (1<<0) /* Do not update the keysizes histogram */
+#define SET_LAZY_NO_UPDATE_ALLOCSIZES (1<<1) /* Do not update the allocation size accounting */
+#define SET_LAZY_NO_NOTIFICATION      (1<<2) /* Do not fire the keyspace events */
+#define SET_LAZY_NO_SIGNAL            (1<<3) /* Do not signal the key as modified */
+#define SET_LAZY_AVOID_SET_DEL        (1<<4) /* Do not delete the key if the set gets empty */
+int setTypeIsMemberLazy(redisDb *db, kvobj *set, sds member, int flags, int *setDeleted);
+uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubexpires, int activeEx);
+int setTypeExpireIfNeeded(redisDb *db, kvobj *set);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
@@ -4148,7 +4202,8 @@ typedef struct htMetadataEx {
                                 subexpires DB with next minimum hash-field to expire.
                                 TTL value might be inaccurate up-to few seconds due
                                 to optimization consideration. */
-    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
+    ebuckets elemExpires;    /* DS of hash fields / set members Expiration,
+                                associated to each key */
 } htMetadataEx;
 
 /* hash metadata helpers */
@@ -4206,7 +4261,7 @@ void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, char **str,
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
                            size_t *vlen, long long *vll, uint64_t *expireTime);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-Entry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable);
+HashEntry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable);
 int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
 int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
@@ -4239,6 +4294,12 @@ size_t himportFieldsetsMemOverhead(client *c);
 
 unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o, int accurate);
+/* Types whose objects may be registered in db->subexpires (an object that
+ * has members or fields with an expiration time). */
+#define typeMaySubexpire(type) ((type) == OBJ_HASH || (type) == OBJ_SET)
+ExpireMeta *hashGetExpireMeta(const eItem hash);
+int hashHasSubexpiry(const kvobj *o);
+uint64_t kvobjGetMinSubexpiry(kvobj *kv);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
 void initDictExpireMetadata(robj *o);
 struct listpackEx *listpackExCreate(void);
@@ -4727,6 +4788,16 @@ void sismemberCommand(client *c);
 void smismemberCommand(client *c);
 void scardCommand(client *c);
 void spopCommand(client *c);
+void sexpireCommand(client *c);
+void spexpireCommand(client *c);
+void sexpireatCommand(client *c);
+void spexpireatCommand(client *c);
+void sttlCommand(client *c);
+void spttlCommand(client *c);
+void sexpiretimeCommand(client *c);
+void spexpiretimeCommand(client *c);
+void spersistCommand(client *c);
+void saddexCommand(client *c);
 void srandmemberCommand(client *c);
 void sinterCommand(client *c);
 void smembersCommand(client *c);
