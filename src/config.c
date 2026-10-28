@@ -3004,6 +3004,35 @@ static int isValidTlsExpectedPeerName(char *val, const char **err) {
         return 0;
     }
 
+    /* The option takes DNS names only. It names peers by stable DNS identities,
+     * and the OpenSSL verification parameters hold a single expected IP address
+     * that must match in addition to any host names (see
+     * tlsVerifyParamAddIdentity()), which does not fit a list where any entry
+     * may match. Refuse an IP address here so the mistake surfaces at
+     * configuration time rather than as a failed handshake. Verifying a peer by
+     * its address is what Sentinel's tls-verify-hostnames and the tools' default
+     * identity check are for. */
+    int count = 0;
+    unsigned char addr_buf[sizeof(struct in6_addr)];
+    sds *tokens = sdssplitlen(val, strlen(val), " ", 1, &count);
+    if (!tokens) {
+        *err = "tls-expected-peer-name could not be parsed";
+        return 0;
+    }
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* runs of spaces */
+        if (inet_pton(AF_INET, tokens[i], addr_buf) == 1 ||
+            inet_pton(AF_INET6, tokens[i], addr_buf) == 1)
+        {
+            sdsfreesplitres(tokens, count);
+            *err = "tls-expected-peer-name accepts DNS names only; to verify a peer "
+                   "by its IP address use Sentinel's tls-verify-hostnames or the "
+                   "tools' default identity check";
+            return 0;
+        }
+    }
+    sdsfreesplitres(tokens, count);
+
     return 1;
 }
 

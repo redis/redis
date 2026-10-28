@@ -4214,8 +4214,15 @@ void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_ha
 /* Replication: Replica side.
  * Main channel read error handler */
 static void readReplBufferErrorHandler(connection *conn) {
-    serverLog(LL_WARNING, "Main channel error while reading from master: %s",
-              connGetLastError(conn));
+    if (connGetState(conn) == CONN_STATE_CLOSED) {
+        // if the connection is closed, there is no last error.
+        // RAM buffer size counts allocated capacity; used counts unapplied bytes
+        serverLog(LL_WARNING, "Main channel closed by master while reading replication data "
+                  "(%zu bytes accumulated, not yet applied).", server.repl_full_sync_buffer.used);
+    } else {
+        serverLog(LL_WARNING, "Main channel error while reading from master: %s",
+                  connGetLastError(conn));
+    }
     cancelReplicationHandshake(1);
 }
 

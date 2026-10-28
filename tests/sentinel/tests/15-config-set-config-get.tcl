@@ -24,6 +24,20 @@ test "SENTINEL CONFIG GET for patterns" {
     S 1 SENTINEL CONFIG SET announce-port 0 announce-hostnames no
 }
 
+test "SENTINEL CONFIG GET * reports every option" {
+    # Every option, by name. Besides testing the wildcard, this puts a reply
+    # holding all options into every run's request/response log, so the
+    # reply-schema validator (daily reply-schemas-validator job) rejects an
+    # option that is missing from src/commands/sentinel-config.json: its GET
+    # schema has additionalProperties false. When adding an option, add it to
+    # that schema and to this list.
+    set expected [lsort {
+        resolve-hostnames announce-hostnames announce-ip announce-port
+        sentinel-user sentinel-pass loglevel tls-verify-hostnames
+    }]
+    assert_equal $expected [lsort [dict keys [S 1 SENTINEL CONFIG GET *]]]
+}
+
 test "SENTINEL CONFIG SET duplicate variables" {
     catch {[S 1 SENTINEL CONFIG SET resolve-hostnames yes announce-port 1234 announce-port 100]} e
     if {![string match "*Duplicate argument*" $e]} {
