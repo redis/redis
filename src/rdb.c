@@ -3736,6 +3736,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *e
         unsigned char *encoded =
             rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
         if (encoded == NULL) return NULL;
+
+        /* Listpacks saved by Redis 8.8 - 8.10 may hold the compact boundary
+         * backlen, rewrite them before the integrity check below. */
         if (rdbtype == RDB_TYPE_SET_LISTPACK ||
             rdbtype == RDB_TYPE_ZSET_LISTPACK ||
             rdbtype == RDB_TYPE_HASH_LISTPACK ||
