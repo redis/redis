@@ -1,0 +1,52 @@
+{
+    "TOPK._APPLY": {
+        "summary": "Applies an exact Top-K update from replication or AOF.",
+        "complexity": "O(n * (k + d)) for n items, heap size k and depth d.",
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "operation",
+                "type": "string"
+            },
+            {
+                "name": "delta",
+                "type": "string"
+            }
+        ],
+        "since": "8.8.0",
+        "group": "topk",
+        "function": "topkApplyCommand",
+        "arity": 4,
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "INTERNAL"
+        ],
+        "acl_categories": [],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "ACCESS",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ]
+    }
+}

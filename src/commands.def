@@ -13037,6 +13037,34 @@ struct COMMAND_ARG TOPK_RESERVE_Args[] = {
 };
 
 #endif
+#ifdef INCLUDE_TOPK
+/********** TOPK__APPLY ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* TOPK__APPLY history */
+#define TOPK__APPLY_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* TOPK__APPLY tips */
+#define TOPK__APPLY_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* TOPK__APPLY key specs */
+keySpec TOPK__APPLY_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_ACCESS|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* TOPK__APPLY argument table */
+struct COMMAND_ARG TOPK__APPLY_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("operation",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("delta",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+#endif
 /********** DISCARD ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -13454,6 +13482,9 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 #endif
 #ifdef INCLUDE_TOPK
 {MAKE_CMD("topk.reserve","Initializes a Top-K sketch with specified parameters","O(1)","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK_RESERVE_History,0,TOPK_RESERVE_Tips,0,topkReserveCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_TOPK,TOPK_RESERVE_Keyspecs,1,NULL,3),.args=TOPK_RESERVE_Args},
+#endif
+#ifdef INCLUDE_TOPK
+{MAKE_CMD("topk._apply","Applies an exact Top-K update from replication or AOF.","O(n * (k + d)) for n items, heap size k and depth d.","8.8.0",CMD_DOC_NONE,NULL,NULL,"topk",COMMAND_GROUP_TOPK,TOPK__APPLY_History,0,TOPK__APPLY_Tips,0,topkApplyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_INTERNAL,0,TOPK__APPLY_Keyspecs,1,NULL,3),.args=TOPK__APPLY_Args},
 #endif
 /* transactions */
 {MAKE_CMD("discard","Discards a transaction.","O(N), when N is the number of queued commands","2.0.0",CMD_DOC_NONE,NULL,NULL,"transactions",COMMAND_GROUP_TRANSACTIONS,DISCARD_History,0,DISCARD_Tips,0,discardCommand,1,CMD_NOSCRIPT|CMD_LOADING|CMD_STALE|CMD_FAST|CMD_ALLOW_BUSY,ACL_CATEGORY_TRANSACTION,DISCARD_Keyspecs,0,NULL,0)},
