@@ -4022,6 +4022,8 @@ static int setConfigReplicaOfOption(standardConfig *config, sds* argv, int argc,
     sdsfree(server.masterhost);
     server.masterhost = NULL;
     if (!strcasecmp(argv[0], "no") && !strcasecmp(argv[1], "one")) {
+        /* Cancel a connection requested by an earlier replicaof directive. */
+        server.repl_state = REPL_STATE_NONE;
         return 1;
     }
     char *ptr;
