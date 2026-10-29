@@ -12,6 +12,9 @@
             "DENYOOM",
             "FAST"
         ],
+        "acl_categories": [
+            "DANGEROUS"
+        ],
         "key_specs": [
             {
                 "flags": [
