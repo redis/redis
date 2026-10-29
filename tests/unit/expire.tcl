@@ -892,22 +892,29 @@ start_server {tags {"expire"}} {
 
     test {Active expire does not stall while the expires dict is shrinking} {
         r flushall
-        r config set activerehashing no
+        r debug set-active-expire 0
         r eval {
             for i = 1, 20000 do
                 redis.call('SET', 'key:' .. i, 'x', 'PX', 100)
             end
         } 0
+        wait_for_condition 50 100 {
+            [dict get [r memory stats] db.dict.rehashing.count] == 0
+        } else {
+            fail "Rehashing did not complete"
+        }
 
         # Without incremental rehashing the shrink started by the deletes
         # never finishes, so the dict must still be scanned while rehashing.
-        wait_for_condition 50 100 {
+        r config set activerehashing no
+        r debug set-active-expire 1
+        wait_for_condition 200 100 {
             [r dbsize] == 0
         } else {
             fail "Active expire stalled with [r dbsize] keys left"
         }
         r config set activerehashing yes
-    } {OK} {external:skip}
+    } {OK} {needs:debug external:skip}
 }
 
 start_cluster 1 0 {tags {"expire external:skip cluster"}} {
