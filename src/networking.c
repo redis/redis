@@ -215,6 +215,7 @@ client *createClient(connection *conn) {
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
     c->reply_bytes = c->reply_bytes_shared = c->reply_bytes_unshared = 0;
+    c->last_unshared_refresh = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
     listSetDupMethod(c->reply,dupClientReplyValue);
@@ -236,6 +237,8 @@ client *createClient(connection *conn) {
     c->io_last_repl_cron = 0;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
+    c->last_memory_shared = 0;
+    c->last_memory_unshared = 0;
     c->module_blocked_client = NULL;
     c->module_auth_ctx = NULL;
     c->auth_callback = NULL;
@@ -1546,8 +1549,27 @@ void addReplySubcommandSyntaxError(client *c) {
     sdsfree(cmd);
 }
 
+/* Move the reply blocks and deferred errors after the static buffer has been
+ * appended and the destination has been checked by the caller. Module-only
+ * callers may run without the GIL: keep their errors client-local and deferred. */
+static void appendReplyBuffersFromClient(client *dst, client *src) {
+    /* Concatenate the reply list into the dest */
+    if (listLength(src->reply))
+        listJoin(dst->reply,src->reply);
+    serverAssert(src->reply_bytes_shared == 0); /* It is non-normal client, never has references. */
+    dst->reply_bytes += src->reply_bytes;
+    src->reply_bytes = 0;
+    src->bufpos = 0;
+
+    if (src->deferred_reply_errors) {
+        deferredAfterErrorReply(dst, src->deferred_reply_errors);
+        listRelease(src->deferred_reply_errors);
+        src->deferred_reply_errors = NULL;
+    }
+}
+
 /* Append 'src' client output buffers into 'dst' client output buffers.
- * This function clears the output buffers of 'src' */
+ * This function clears the output buffers of 'src'. */
 void AddReplyFromClient(client *dst, client *src) {
     /* If the source client contains a partial response due to client output
      * buffer limits, propagate that to the dest rather than copy a partial
@@ -1574,22 +1596,26 @@ void AddReplyFromClient(client *dst, client *src) {
      * checks in it. */
     if (dst->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
-    /* Concatenate the reply list into the dest */
-    if (listLength(src->reply))
-        listJoin(dst->reply,src->reply);
-    serverAssert(src->reply_bytes_shared == 0); /* It is non-normal client, never has references. */
-    dst->reply_bytes += src->reply_bytes;
-    src->reply_bytes = 0;
-    src->bufpos = 0;
-
-    if (src->deferred_reply_errors) {
-        deferredAfterErrorReply(dst, src->deferred_reply_errors);
-        listRelease(src->deferred_reply_errors);
-        src->deferred_reply_errors = NULL;
-    }
+    appendReplyBuffersFromClient(dst, src);
 
     /* Check output buffer limits */
     closeClientOnOutputBufferLimitReached(dst, 1);
+}
+
+/* Move replies between connectionless module clients with exclusive access to
+ * both. This path may run without the GIL: addReplyProto must bypass write
+ * scheduling and output-limit handling for these clients, and the shared
+ * transfer helper must keep errors deferred. Real clients use AddReplyFromClient
+ * with their normal synchronization instead. */
+void AddReplyFromModuleClient(client *dst, client *src) {
+    serverAssert(src != dst);
+    serverAssert((src->flags & CLIENT_MODULE) && (dst->flags & CLIENT_MODULE));
+    serverAssert(!src->conn && !dst->conn);
+    serverAssert(!((src->flags | dst->flags) &
+                   (CLIENT_CLOSE_ASAP | CLIENT_CLOSE_AFTER_REPLY | CLIENT_SLAVE | CLIENT_PUSHING)));
+
+    addReplyProto(dst, src->buf, src->bufpos);
+    appendReplyBuffersFromClient(dst, src);
 }
 
 /* Append the listed errors to the server error statistics. the input
@@ -1719,7 +1745,8 @@ void clientAcceptHandler(connection *conn) {
                           c);
 
     /* Assign the client to an IO thread */
-    if (server.io_threads_num > 1) assignClientToIOThread(c);
+    if (server.io_threads_num > 1 && !isClientMustHandledByMainThread(c))
+        assignClientToIOThread(c);
 }
 
 void acceptCommonHandler(connection *conn, int flags, char *ip) {
@@ -2096,24 +2123,6 @@ void updateClientUnsharedReplyBytes(client *c) {
     }
 }
 
-/* Compute shared reply memory: total shared reply bytes and the unshared subset where the key
- * has been deleted and the client buffer is the sole holder. */
-void getClientsSharedMemoryUsage(size_t *shared_mem, size_t *unshared_mem) {
-    listNode *ln;
-    listIter li;
-    listRewind(server.clients_with_pending_ref_reply, &li);
-    while ((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
-
-        /* Total shared reply bytes (logical size, shared with keyspace). */
-        *shared_mem += c->reply_bytes_shared;
-
-        /* Unshared reply bytes: the client is the sole owner because the key was deleted. */
-        updateClientUnsharedReplyBytes(c);
-        *unshared_mem += c->reply_bytes_unshared;
-    }
-}
-
 /* Drop all of the client's Pub/Sub state: unsubscribe every channel, shard
  * channel and pattern — without notifying the client — and clear the Pub/Sub
  * client flags (including the provenance re-auth hint). */
@@ -2309,7 +2318,7 @@ void freeClient(client *c) {
     moduleNotifyUserChanged(c);
 
     /* Free the RedisModuleBlockedClient held onto for reprocessing if not already freed. */
-    zfree(c->module_blocked_client);
+    moduleFreeAuthBlockedClient(c);
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. Note that we need to do this here, because later
@@ -2388,9 +2397,12 @@ void freeClient(client *c) {
      * was already detached by replicationCacheMaster(), so gating on c->conn
      * alone would skip the subtraction and leak its size from
      * mem_clients_normal on every discarded partial resync. */
-    if (c->conn || c == server.cached_master)
+    if (c->conn || c == server.cached_master) {
         server.stat_clients_type_memory[c->last_memory_type] -=
             c->last_memory_usage;
+        server.stat_clients_shared_memory -= c->last_memory_shared;
+        server.stat_clients_unshared_memory -= c->last_memory_unshared;
+    }
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
@@ -2472,14 +2484,16 @@ void freeClient(client *c) {
  * should be valid for the continuation of the flow of the program. */
 void freeClientAsync(client *c) {
     if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-        int main_thread = pthread_equal(pthread_self(), server.main_thread_id);
-        /* Make sure the main thread can access IO thread data safely. */
-        if (main_thread) pauseIOThread(c->tid);
+        int can_pause = pthread_equal(pthread_self(), server.main_thread_id) ||
+                        moduleThreadHoldsGIL();
+        /* Make sure the main thread, or a module thread holding the GIL, can
+         * access IO thread data safely. */
+        if (can_pause) pauseIOThread(c->tid);
         if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP)) {
             c->io_flags |= CLIENT_IO_CLOSE_ASAP;
             enqueuePendingClientsToMainThread(c, 1);
         }
-        if (main_thread) resumeIOThread(c->tid);
+        if (can_pause) resumeIOThread(c->tid);
         return;
     }
 
@@ -3378,6 +3392,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                 pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
+                goto readerr;
             }
             return C_ERR;
         }
@@ -3393,10 +3408,10 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
             pcmd->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
-            return C_ERR;
+            goto readerr;
         } else if (ll > 10 && authRequired(c)) {
             pcmd->read_error = CLIENT_READ_UNAUTH_MBUCK_COUNT;
-            return C_ERR;
+            goto readerr;
         }
 
         c->qb_pos = (newline-c->querybuf)+2;
@@ -3457,7 +3472,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
             if (newline == NULL) {
                 if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                     pcmd->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
-                    return C_ERR;
+                    goto readerr;
                 }
                 break;
             }
@@ -3468,7 +3483,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
 
             if (c->querybuf[c->qb_pos] != '$') {
                 pcmd->read_error = CLIENT_READ_EXPECTED_DOLLAR;
-                return C_ERR;
+                goto readerr;
             }
 
             size_t bulklen_slen = newline - (c->querybuf + c->qb_pos + 1);
@@ -3476,10 +3491,10 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
                 pcmd->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
-                return C_ERR;
+                goto readerr;
             } else if (ll > 16384 && authRequired(c)) {
                 pcmd->read_error = CLIENT_READ_UNAUTH_BUCK_LENGTH;
-                return C_ERR;
+                goto readerr;
             }
 
             c->qb_pos = newline-c->querybuf+2;
@@ -3571,6 +3586,14 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
     /* Still not ready to process the command */
     pcmd->flags |= PENDING_CMD_FLAG_INCOMPLETE;
     return C_OK;
+
+readerr:
+    /* A command that hit a read error is finished, however many reads it was
+     * parsed across, so it must not stay flagged as incomplete: otherwise
+     * addPendingCommand() will not count it as ready and the error is never
+     * reported to the client. */
+    pcmd->flags &= ~PENDING_CMD_FLAG_INCOMPLETE;
+    return C_ERR;
 }
 
 /* Prepare the client for executing the next command:
@@ -4090,6 +4113,10 @@ void readQueryFromClient(connection *conn) {
     }
 
     sdsIncrLen(c->querybuf,nread);
+
+    /* Track bytes received during live streaming for ASM incremental progress. */
+    if (c->flags & CLIENT_ASM_IMPORTING) asmImportIncrReceivedBytes(c->task, nread);
+
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
@@ -4211,7 +4238,7 @@ sds catClientInfoString(sds s, client *client) {
     /* Pause IO thread to access data of the client safely. */
     int paused = 0;
     if (client->running_tid != IOTHREAD_MAIN_THREAD_ID &&
-        pthread_equal(server.main_thread_id, pthread_self()) &&
+        (pthread_equal(server.main_thread_id, pthread_self()) || moduleThreadHoldsGIL()) &&
         !isCrashing())
     {
         paused = 1;
@@ -4258,9 +4285,6 @@ sds catClientInfoString(sds s, client *client) {
         if (connHasWriteHandler(client->conn)) *p++ = 'w';
     }
     *p = '\0';
-
-    /* Refresh the cached unshared reply bytes before computing memory stats below. */
-    updateClientUnsharedReplyBytes(client);
 
     /* Compute the total memory consumed by this client. */
     size_t obufmem = getClientOutputBufferLogicalSize(client);
@@ -4330,7 +4354,7 @@ sds getAllClientsInfoString(int type) {
      * specific IO thread will not repeatedly execute in catClientInfoString. */
     int allpaused = 0;
     if (server.io_threads_num > 1 && !isCrashing() &&
-        pthread_equal(server.main_thread_id, pthread_self()))
+        (pthread_equal(server.main_thread_id, pthread_self()) || moduleThreadHoldsGIL()))
     {
         allpaused = 1;
         pauseAllIOThreads();

@@ -269,7 +269,8 @@ void restoreCommand(client *c) {
     }
 
     /* Verify RDB version and data checksum. */
-    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),NULL) == C_ERR)
+    uint16_t rdbver;
+    if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),&rdbver) == C_ERR)
     {
         addReplyError(c,"DUMP payload version or checksum are wrong");
         return;
@@ -299,7 +300,7 @@ void restoreCommand(client *c) {
     }
 
     /* Load the object */
-    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
+    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,rdbver,NULL)) == NULL)
     {
         kvSpecCleanup(&spec);
         addReplyError(c,"Bad data format");
@@ -347,12 +348,12 @@ void restoreCommand(client *c) {
     /* Save type: kv may be reallocated by module callbacks during notifyKeyspaceEvent below. */
     int kvtype = kv->type;
 
-    /* If minExpiredField was set, then the object is hash with expiration
-     * on fields and need to register it in global HFE DS */
-    if (kvtype == OBJ_HASH) {
-        uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
-        if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
+    /* If the object is a hash or set with expiration on its members or
+     * fields, register it in the global subexpires DS */
+    if (typeMaySubexpire(kvtype)) {
+        uint64_t minSubexpiry = kvobjGetMinSubexpiry(kv);
+        if (minSubexpiry != EB_EXPIRE_TIME_INVALID)
+            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minSubexpiry);
     }
 
     if (kvtype == OBJ_STREAM)
