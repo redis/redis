@@ -162,6 +162,10 @@ int sortCompare(const void *s1, const void *s2) {
                     cmp = strcoll(so1->u.cmpobj->ptr,so2->u.cmpobj->ptr);
                 }
             }
+            /* The weights are the same, or both are missing: as for the
+             * numeric sorting, we compare the elements so that the result
+             * of SORT is deterministic. */
+            if (cmp == 0) cmp = compareStringObjects(so1->obj,so2->obj);
         } else {
             /* Compare elements directly. */
             if (server.sort_store) {
