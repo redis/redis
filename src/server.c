@@ -4870,7 +4870,7 @@ int processCommand(client *c) {
          * in a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
 
-        if (out_of_memory && is_denyoom_command) {
+        if (out_of_memory && is_denyoom_command && !obey_client) {
             rejectCommand(c, shared.oomerr);
             return C_OK;
         }
