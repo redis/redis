@@ -622,7 +622,10 @@ sds trackingBuildBroadcastReply(user *u, client *noloop_client, rax *keys) {
  *
  * For non-NOLOOP clients the invalidation proto is cached per distinct
  * ACL user pointer so that ACLUserCheckKeyPerm is called O(U*K) times
- * instead of O(C*K) (U = distinct users, C = clients, K = keys). */
+ * instead of O(C*K) (U = distinct users, C = clients, K = keys). The proto
+ * of the previous client's user is also kept aside, so a client with the
+ * same user as the previous one skips the cache lookup: with a single user,
+ * every client after the first does. */
 static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
     if (raxSize(bs->keys) == 0) return;
 
@@ -632,6 +635,12 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
      * on dictRelease (dictSdsDestructor tolerates NULL values). */
     dictType dt = { .hashFunction = dictPtrHash, .valDestructor = dictSdsDestructor };
     dict *user_cache = dictCreate(&dt);
+
+    /* The user of the previous non-NOLOOP client and its cached proto,
+     * owned by user_cache. */
+    int have_last = 0;
+    user *last_user = NULL;
+    sds last_proto = NULL;
 
     /* Send this array of keys to every client in the list. */
     raxIterator ri;
@@ -648,18 +657,22 @@ static void trackingBcastInvalidationsForPrefix(bcastState *bs) {
                 sdsfree(proto);
             }
         } else {
-            dictEntry *existing;
-            dictEntry *de = dictAddRaw(user_cache, c->user, &existing);
-            if (de != NULL) {
-                sds proto = trackingBuildBroadcastReply(c->user, NULL,
-                                                        bs->keys);
-                dictSetVal(user_cache, de, proto);
-            } else {
-                de = existing;
+            if (!have_last || c->user != last_user) {
+                dictEntry *existing;
+                dictEntry *de = dictAddRaw(user_cache, c->user, &existing);
+                if (de != NULL) {
+                    sds proto = trackingBuildBroadcastReply(c->user, NULL,
+                                                            bs->keys);
+                    dictSetVal(user_cache, de, proto);
+                } else {
+                    de = existing;
+                }
+                have_last = 1;
+                last_user = c->user;
+                last_proto = dictGetVal(de);
             }
-            void *cached = dictGetVal(de);
-            if (cached)
-                sendTrackingMessage(c,(char*)cached,sdslen((sds)cached),1);
+            if (last_proto)
+                sendTrackingMessage(c,last_proto,sdslen(last_proto),1);
         }
     }
     raxStop(&ri);
