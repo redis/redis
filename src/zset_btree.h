@@ -77,6 +77,15 @@ int zbtreeDefragStep(zbtreeSet *zs, zbtreeDefragState *state,
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score);
 int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
                    size_t elelen, double *score);
+/* The member hash the index is built on. A caller that probes several sets
+ * for the same member computes it once and passes it to the two functions
+ * below: WithHash looks the member up, Prefetch only brings its index bucket
+ * into cache so that the lookup that follows does not wait for memory. */
+uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen);
+int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
+                           const unsigned char *ele, size_t elelen,
+                           double *score);
+void zbtreePrefetchMember(zbtreeSet *zs, uint32_t hash);
 /* Look up up to 16 scores. Bit i of the result says whether scores[i] exists. */
 #define ZBT_SCORE_BATCH_SIZE 16
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,

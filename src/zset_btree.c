@@ -1843,9 +1843,11 @@ static inline void zbtIndexRecordHomeTag(zbtIndexTable *table, uint32_t hash) {
     *zbtIndexHomeTagsAt(table, home) |= zbtIndexTagBits(zbtIndexTag(hash));
 }
 
-/* Return zero only when the home bucket proves that a hash is absent. */
-static inline int zbtIndexHomeMayContain(const zbtIndexTable *table,
-                                         uint32_t hash)
+/* Return zero only when the home bucket proves that a hash is absent.
+ * Always inlined: most misses end here, and the read-only lookups that
+ * inline zbtIndexTableFind() would otherwise call out for it. */
+static inline __attribute__((always_inline))
+int zbtIndexHomeMayContain(const zbtIndexTable *table, uint32_t hash)
 {
     unsigned long home = hash & (table->size - 1);
     uint64_t bits = zbtIndexTagBits(zbtIndexTag(hash));
@@ -3258,6 +3260,34 @@ int zbtreeScoreRaw(zbtreeSet *zs, const unsigned char *ele,
                         NULL, NULL, NULL, NULL);
 }
 
+/* Return the hash the member index uses for 'ele'. */
+uint32_t zbtreeMemberHash(const unsigned char *ele, size_t elelen) {
+    return (uint32_t)dictGenHashFunction(ele, elelen);
+}
+
+/* Look a member up with a hash the caller already computed with
+ * zbtreeMemberHash(). ZINTER probes every input for the same member, so
+ * hashing it once per input would repeat the most expensive part of a hit. */
+int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
+                           const unsigned char *ele, size_t elelen,
+                           double *score)
+{
+    return zbtIndexFind(zs, hash, ele, elelen, score,
+                        NULL, NULL, NULL, NULL);
+}
+
+/* Start loading the index bucket(s) a lookup of 'hash' will read first. The
+ * bucket address depends only on the hash, so a caller that knows which set
+ * it probes next can overlap that fetch with the lookup it is doing now. */
+void zbtreePrefetchMember(zbtreeSet *zs, uint32_t hash) {
+    if (zs->member_index.size)
+        redis_prefetch_read(zbtIndexBucketAt(&zs->member_index,
+            hash & (zs->member_index.size - 1)));
+    if (zs->member_rehash)
+        redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
+            hash & (zs->member_rehash->table.size - 1)));
+}
+
 /* Find an sds member and optionally return its score. */
 int zbtreeScore(zbtreeSet *zs, sds ele, double *score) {
     return zbtreeScoreRaw(zs, (unsigned char *)ele, sdslen(ele), score);
@@ -3271,13 +3301,9 @@ unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
     serverAssert(count <= ZBT_SCORE_BATCH_SIZE);
     uint32_t hashes[ZBT_SCORE_BATCH_SIZE];
     for (unsigned int i = 0; i < count; i++) {
-        hashes[i] = (uint32_t)dictGenHashFunction(members[i], sdslen(members[i]));
-        if (zs->member_index.size)
-            redis_prefetch_read(zbtIndexBucketAt(&zs->member_index,
-                hashes[i] & (zs->member_index.size - 1)));
-        if (zs->member_rehash)
-            redis_prefetch_read(zbtIndexBucketAt(&zs->member_rehash->table,
-                hashes[i] & (zs->member_rehash->table.size - 1)));
+        hashes[i] = zbtreeMemberHash((unsigned char *)members[i],
+                                     sdslen(members[i]));
+        zbtreePrefetchMember(zs, hashes[i]);
     }
     unsigned int found = 0;
     for (unsigned int i = 0; i < count; i++) {
