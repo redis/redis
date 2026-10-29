@@ -114,7 +114,9 @@ class testNativeTDigest:
         r('COPY','t','copy')
         assert r('MEMORY','USAGE','copy')<cached_memory
         r('TDIGEST.ADD','t',*([10000]*2000))
-        assert r('MEMORY','USAGE','t')==memory
+        # A write discards the compressed answer but retains the sorted index
+        # of the unchanged prefix; RESET/MERGE still discard the whole cache.
+        assert memory<r('MEMORY','USAGE','t')<cached_memory
         assert r('TDIGEST.QUANTILE','t',.5)[0]>expected[1]
         assert r('TDIGEST.QUANTILE','copy',.1,.5,.9)==expected
         # MERGE replaces the destination and must discard its cached snapshot.
@@ -128,6 +130,34 @@ class testNativeTDigest:
         env.dumpAndReload()
         assert r('TDIGEST.QUANTILE','t',.5)==[42.0]
         assert r('TDIGEST.QUANTILE','copy',.1,.5,.9)==expected
+
+    def test_query_index_matches_cold_reads_across_appends_and_compression(self):
+        env=Env(protocol=3)
+        r=env.cmd
+        r('TDIGEST.CREATE','t','COMPRESSION',100)
+        # Repeated means, weighted centroids after compression, and interleaved
+        # small/large appends cover the incremental and bounded full-sort paths.
+        for batch in range(90):
+            count=1 if batch%3 else 37
+            values=[((batch*17+i*7)%23)-11 for i in range(count)]
+            if batch==30: values.extend(range(700))
+            r('TDIGEST.ADD','t',*values)
+            saved=r('DUMP','t')
+            r('RESTORE','cold',0,saved,'REPLACE')
+            for command,args in (
+                ('TDIGEST.QUANTILE',(0,.01,.25,.5,.9,.99,1)),
+                ('TDIGEST.CDF',(-11,0,11,100,700)),
+                ('TDIGEST.RANK',(-11,0,11)),
+                ('TDIGEST.BYRANK',(0,10,1000)),
+                ('TDIGEST.TRIMMED_MEAN',(.1,.9)),
+            ):
+                assert r(command,'t',*args)==r(command,'cold',*args), (batch,command)
+            assert r('DUMP','t')==saved
+            assert r('DUMP','cold')==saved
+            if batch==45:
+                r('TDIGEST.MERGE','t',1,'cold','OVERRIDE')
+            if batch==60:
+                r('TDIGEST.RESET','t')
 
     def test_add_compression_boundary_is_atomic(self):
         env=Env(protocol=3)

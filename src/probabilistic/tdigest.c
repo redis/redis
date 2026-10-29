@@ -278,9 +278,20 @@ static inline int _check_td_overflow(const double new_unmerged_weight,
 
 int td_centroid_count(td_histogram_t *h) { return next_node(h); }
 
+static void td_invalidate_query_view(td_histogram_t *h) {
+    if (h->query_cache) {
+        td_free(h->query_cache->view);
+        h->query_cache->view = NULL;
+    }
+}
+
 static void td_invalidate_query(td_histogram_t *h) {
-    td_free(h->query_view);
-    h->query_view = NULL;
+    td_invalidate_query_view(h);
+    if (h->query_cache) {
+        td_free_(h->query_cache->order);
+        td_free_(h->query_cache);
+        h->query_cache = NULL;
+    }
 }
 
 void td_reset(td_histogram_t *h) {
@@ -310,7 +321,7 @@ int td_init(double compression, td_histogram_t **result) {
     if (!histogram) {
         return 1;
     }
-    histogram->query_view = NULL;
+    histogram->query_cache = NULL;
     histogram->nodes_mean = NULL;
     histogram->nodes_weight = NULL;
     histogram->cap = (int)capacity;
@@ -745,7 +756,10 @@ int td_add(td_histogram_t *h, double mean, long long weight) {
     if (overflow_res != 0)
         return overflow_res;
 
-    td_invalidate_query(h);
+    /* Appending leaves all earlier centroid positions unchanged. Keep their
+     * sorted index; only the compressed answer is stale. Compression/reset
+     * still discard both parts of the cache. */
+    td_invalidate_query_view(h);
     if (mean < h->min) {
         h->min = mean;
     }
@@ -759,7 +773,7 @@ int td_add(td_histogram_t *h, double mean, long long weight) {
     return 0;
 }
 
-int td_compress(td_histogram_t *h) {
+static int td_compress_impl(td_histogram_t *h, bool sorted) {
     if (h->unmerged_nodes == 0) {
         return 0;
     }
@@ -768,7 +782,7 @@ int td_compress(td_histogram_t *h) {
     td_invalidate_query(h);
     const long long exact_weight = h->merged_weight + h->unmerged_weight;
     int N = h->merged_nodes + h->unmerged_nodes;
-    td_qsort(h->nodes_mean, h->nodes_weight, 0, N - 1);
+    if (!sorted) td_qsort(h->nodes_mean, h->nodes_weight, 0, N - 1);
     const double total_weight = (double)h->merged_weight + (double)h->unmerged_weight;
     // double-precision overflow detected
     const int overflow_res = _check_td_overflow((double)h->unmerged_weight, (double)total_weight);
@@ -830,6 +844,9 @@ int td_compress(td_histogram_t *h) {
     h->total_compressions++;
     return 0;
 }
+
+int td_compress(td_histogram_t *h) { return td_compress_impl(h, false); }
+int td_compress_sorted(td_histogram_t *h) { return td_compress_impl(h, true); }
 
 double td_min(td_histogram_t *h) { return h->min; }
 

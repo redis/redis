@@ -48,11 +48,18 @@ struct td_histogram {
     double *nodes_mean;
     long long *nodes_weight;
 
-    /* Optional compact query snapshot. Never part of the persisted sketch. */
-    struct td_histogram *query_view;
+    /* Optional query snapshot and sorted centroid index. Never persisted. */
+    struct td_query_cache *query_cache;
 };
 
 typedef struct td_histogram td_histogram_t;
+
+typedef struct td_query_cache {
+    td_histogram_t *view;
+    int *order;
+    int order_len;
+    int order_cap;
+} td_query_cache;
 
 #ifdef __cplusplus
 extern "C" {
@@ -133,6 +140,9 @@ int td_add(td_histogram_t *h, double val, long long weight);
  *
  */
 int td_compress(td_histogram_t *h);
+
+/* Compress a scratch histogram whose live nodes are already sorted by mean. */
+int td_compress_sorted(td_histogram_t *h);
 
 /**
  * Merges all of the values from 'from' to 'this' histogram.
