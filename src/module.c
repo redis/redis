@@ -12359,7 +12359,7 @@ float RM_GetUsedMemoryRatio(void){
  * is a plain field written by CONFIG SET. */
 static redisAtomic unsigned long long maxmemory_snapshot = 0;
 
-/* Publish server.maxmemory for RM_GetUsedMemoryRatioThreadSafe(). Must be
+/* Publish server.maxmemory for RM_GetRawUsedMemoryRatio(). Must be
  * called on the main thread after every change of server.maxmemory. */
 void moduleUpdateMaxmemorySnapshot(void) {
     atomicSet(maxmemory_snapshot, server.maxmemory);
@@ -12369,11 +12369,11 @@ void moduleUpdateMaxmemorySnapshot(void) {
  * used, relative to the Redis "maxmemory" configuration, like
  * RedisModule_GetUsedMemoryRatio(), with two differences:
  *
- * * It is thread safe: it may be called from any thread, with or without
- *   holding the GIL.
  * * The used memory is the raw allocator total (INFO `used_memory`). The
  *   replication and AOF buffers that RedisModule_GetUsedMemoryRatio() excludes
  *   are counted, because reading them is what makes that API main-thread only.
+ * * It is thread safe: it may be called from any thread, with or without
+ *   holding the GIL.
  *
  * The value is approximate: used memory is a relaxed sum of per-thread
  * counters, and the maxmemory snapshot is refreshed by the main thread when
@@ -12384,7 +12384,7 @@ void moduleUpdateMaxmemorySnapshot(void) {
  * * Exactly 1 - Memory limit reached.
  * * Greater 1 - More memory used than the configured limit.
  */
-float RM_GetUsedMemoryRatioThreadSafe(void) {
+float RM_GetRawUsedMemoryRatio(void) {
     unsigned long long maxmemory;
     atomicGet(maxmemory_snapshot, maxmemory);
     if (maxmemory == 0) return 0;
@@ -16250,7 +16250,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SignalKeyAsReady);
     REGISTER_API(GetBlockedClientReadyKey);
     REGISTER_API(GetUsedMemoryRatio);
-    REGISTER_API(GetUsedMemoryRatioThreadSafe);
+    REGISTER_API(GetRawUsedMemoryRatio);
     REGISTER_API(MallocSize);
     REGISTER_API(MallocUsableSize);
     REGISTER_API(MallocSizeString);
