@@ -16,6 +16,7 @@
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "cluster_asm.h"
+#include "zset_btree.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -510,6 +511,13 @@ robj *createZsetObject(void) {
     return o;
 }
 
+/* Create an empty sorted set using the packed B+ tree encoding. */
+robj *createZsetBtreeObject(void) {
+    robj *o = createObject(OBJ_ZSET, zbtreeCreate());
+    o->encoding = OBJ_ENCODING_BTREE;
+    return o;
+}
+
 robj *createZsetListpackObject(void) {
     unsigned char *lp = lpNew(0);
     robj *o = createObject(OBJ_ZSET,lp);
@@ -585,6 +593,9 @@ void freeZsetObject(robj *o) {
         dictRelease(zs->dict);
         zslFree(zs->zsl);
         zfree(zs);
+        break;
+    case OBJ_ENCODING_BTREE:
+        zbtreeFree(o->ptr);
         break;
     case OBJ_ENCODING_LISTPACK:
         zfree(o->ptr);
@@ -733,14 +744,20 @@ void dismissSetObject(robj *o, size_t size_hint) {
             dictEntry *de;
             dictIterator di;
             dictInitIterator(&di, set);
+            const int with_expire = setHashtableHasExpire(o);
             while ((de = dictNext(&di)) != NULL) {
-                dismissSds(dictGetKey(de));
+                if (with_expire)
+                    sEntryDismissMemory(dictGetKey(de));
+                else
+                    dismissSds(dictGetKey(de));
             }
             dictResetIterator(&di);
         }
 
         /* Dismiss hash table memory. */
         dismissDictBucketsMemory(set);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        dismissMemory(setListpackExGetLp(o), lpBytes(setListpackExGetLp(o)));
     } else if (o->encoding == OBJ_ENCODING_INTSET) {
         dismissMemory(o->ptr, intsetBlobLen((intset*)o->ptr));
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -769,6 +786,8 @@ void dismissZsetObject(robj *o, size_t size_hint) {
 
         /* Dismiss hash table memory. */
         dismissDictBucketsMemory(zs->dict);
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeDismissMemory(o->ptr);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         dismissMemory(o->ptr, lpBytes((unsigned char*)o->ptr));
     } else {
@@ -788,7 +807,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
             dictIterator di;
             dictInitIterator(&di, d);
             while ((de = dictNext(&di)) != NULL) {
-                entryDismissMemory((Entry *) dictGetKey(de));
+                hEntryDismissMemory((HashEntry *) dictGetKey(de));
             }
             dictResetIterator(&di);
         }
@@ -1322,6 +1341,7 @@ char *strEncoding(int encoding) {
     case OBJ_ENCODING_TMPL_LP: return "template-listpack";
     case OBJ_ENCODING_TMPL_ARRAY: return "template-array";
     case OBJ_ENCODING_BITMAP_ROARING: return "bitmap-roaring";
+    case OBJ_ENCODING_BTREE: return "btree";
     default: return "unknown";
     }
 }
@@ -1501,7 +1521,8 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mh->clients_slaves;
 
     /* Compute shared/unshared reply memory. */
-    getClientsSharedMemoryUsage(&mh->clients_normal_shared, &mh->clients_normal_unshared);
+    mh->clients_normal_shared = server.stat_clients_shared_memory;
+    mh->clients_normal_unshared = server.stat_clients_unshared_memory;
 
     /* Computing the memory used by the clients would be O(N) if done
      * here online. We use our values computed incrementally by

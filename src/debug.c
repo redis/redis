@@ -22,6 +22,7 @@
 #include "fpconv_dtoa.h"
 #include "fast_float_strtod.h"
 #include "cluster.h"
+#include "zset_btree.h"
 #include "threads_mngr.h"
 #include "script.h"
 #include "cluster_asm.h"
@@ -285,9 +286,18 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     } else if (o->type == OBJ_SET) {
         setTypeIterator si;
         sds sdsele;
-        setTypeInitIterator(&si, o);
+        setTypeInitIterator(&si, o, SET_ITER_RAW);
         while((sdsele = setTypeNextObject(&si)) != NULL) {
-            xorDigest(digest,sdsele,sdslen(sdsele));
+            if (si.expire == EB_EXPIRE_TIME_INVALID) {
+                xorDigest(digest,sdsele,sdslen(sdsele));
+            } else {
+                /* A member with an expiration (SME) */
+                unsigned char eledigest[20];
+                memset(eledigest,0,20);
+                mixDigest(eledigest,sdsele,sdslen(sdsele));
+                xorDigest(eledigest,"!!sexpire!!",11);
+                xorDigest(digest,eledigest,20);
+            }
             sdsfree(sdsele);
         }
         setTypeResetIterator(&si);
@@ -341,6 +351,20 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 xorDigest(digest,eledigest,20);
             }
             dictResetIterator(&di);
+        } else if (o->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t elelen;
+            double score;
+            zbtreeIteratorStart(o->ptr, 0, &iter);
+            while (zbtreeIteratorNext(&iter, 0, &ele, &elelen, &score)) {
+                const int len = fpconv_dtoa(score, buf);
+                buf[len] = '\0';
+                memset(eledigest,0,20);
+                mixDigest(eledigest,ele,elelen);
+                mixDigest(eledigest,buf,strlen(buf));
+                xorDigest(digest,eledigest,20);
+            }
         } else {
             serverPanic("Unknown sorted set encoding");
         }

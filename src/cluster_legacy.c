@@ -1092,6 +1092,13 @@ void clusterReset(int hard) {
         clusterSetNodeAsMaster(myself);
         replicationUnsetMaster();
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
+        /* emptyData() only empties memory. Propagate a FLUSHALL so that the AOF
+         * (which would otherwise resurrect the old dataset on restart) and any
+         * sub-replicas (which keep their link across replicationUnsetMaster) are
+         * emptied too. */
+        robj *flushall = createStringObject("FLUSHALL",8);
+        alsoPropagate(-1,&flushall,1,PROPAGATE_AOF|PROPAGATE_REPL);
+        decrRefCount(flushall);
     }
 
     /* Close slots, reset manual failover state. */
@@ -2717,8 +2724,7 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
 
 /* We previously validated the extensions, so this function just needs to
  * handle the extensions. */
-void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
-    clusterNode *sender = link->node ? link->node : clusterLookupNode(hdr->sender, CLUSTER_NAMELEN);
+void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link, clusterNode *sender) {
     char *ext_hostname = NULL;
     char *ext_humannodename = NULL;
     char *ext_shardid = NULL;
@@ -2726,6 +2732,10 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
     /* Loop through all the extensions and process them */
     clusterMsgPingExt *ext = getInitialPingExt(hdr, ntohs(hdr->count));
     while (extensions--) {
+        /* Compute the cursor to the next extension before running any
+         * handler, so that the loop does not depend on memory that a
+         * handler may have invalidated. */
+        clusterMsgPingExt *next = getNextPingExt(ext);
         uint16_t type = ntohs(ext->type);
         if (type == CLUSTERMSG_EXT_TYPE_HOSTNAME) {
             clusterMsgPingExtHostname *hostname_ext = (clusterMsgPingExtHostname *) &(ext->ext[0].hostname);
@@ -2737,14 +2747,20 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             clusterMsgPingExtForgottenNode *forgotten_node_ext = &(ext->ext[0].forgotten_node);
             clusterNode *n = clusterLookupNode(forgotten_node_ext->name, CLUSTER_NAMELEN);
             if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
-                sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
-                dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
-                if (dictGetKey(de) != id) sdsfree(id);
-                uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
-                dictSetUnsignedIntegerVal(de, expire);
-                clusterDelNode(n);
-                clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
-                                     CLUSTER_TODO_SAVE_CONFIG);
+                if (n == sender || n == link->node) {
+                    serverLog(LL_WARNING,
+                              "Ignoring FORGOTTEN_NODE for active sender %.40s while processing its packet",
+                              forgotten_node_ext->name);
+                } else {
+                    sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
+                    dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
+                    if (dictGetKey(de) != id) sdsfree(id);
+                    uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
+                    dictSetUnsignedIntegerVal(de, expire);
+                    clusterDelNode(n);
+                    clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
+                                         CLUSTER_TODO_SAVE_CONFIG);
+                }
             }
         } else if (type == CLUSTERMSG_EXT_TYPE_SHARDID) {
             clusterMsgPingExtShardId *shardid_ext = (clusterMsgPingExtShardId *) &(ext->ext[0].shard_id);
@@ -2759,8 +2775,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             serverLog(LL_VERBOSE, "Received unknown extension type %d", type);
         }
 
-        /* We know this will be valid since we validated it ahead of time */
-        ext = getNextPingExt(ext);
+        ext = next;
     }
 
     /* If the node did not send us a hostname extension, assume
@@ -2850,12 +2865,28 @@ int clusterProcessPacket(clusterLink *link) {
         explen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
         explen += (sizeof(clusterMsgDataGossip)*count);
 
+        /* Make sure the gossip entries implied by the count fit within the
+         * received packet before we read anything that follows them. */
+        if (totlen < explen) {
+            serverLog(LL_WARNING, "Received invalid %s packet with gossip count %d that exceeds "
+                "total packet length (%lld)", clusterGetMessageTypeString(type),
+                count, (unsigned long long) totlen);
+            return 1;
+        }
+
         /* If there is extension data, which doesn't have a fixed length,
          * loop through them and validate the length of it now. */
         if (hdr->mflags[0] & CLUSTERMSG_FLAG0_EXT_DATA) {
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
-                uint16_t extlen = getPingExtLength(ext);
+                /* Make sure the fixed extension header fits before we read it. */
+                if ((totlen - explen) < sizeof(clusterMsgPingExt)) {
+                    serverLog(LL_WARNING, "Received invalid %s packet with extension data that exceeds "
+                        "total packet length (%lld)", clusterGetMessageTypeString(type),
+                        (unsigned long long) totlen);
+                    return 1;
+                }
+                uint32_t extlen = getPingExtLength(ext);
                 if (extlen < sizeof(clusterMsgPingExt) || extlen % 8 != 0) {
                     serverLog(LL_WARNING, "Received a %s packet without proper padding (%d bytes)",
                         clusterGetMessageTypeString(type), (int) extlen);
@@ -3349,7 +3380,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* Get info from the gossip section */
         if (sender) {
             clusterProcessGossipSection(hdr,link);
-            clusterProcessPingExtensions(hdr,link);
+            clusterProcessPingExtensions(hdr,link,sender);
         }
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
         clusterNode *failing;

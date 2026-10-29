@@ -12,6 +12,7 @@
 #include "rio.h"
 #include "functions.h"
 #include "cluster_asm.h"
+#include "zset_btree.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -2307,8 +2308,20 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
     char *str;
     size_t len;
     int64_t llval;
-    setTypeInitIterator(&si, o);
+
+    /* The members with an expiration are written one by one with SADDEX, after
+     * the ones without it, which are written in batches by SADD. */
+    int has_expire = setTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
+    if (has_expire) {
+        setTypeInitIterator(&si, o, SET_ITER_RAW);
+        while (setTypeNext(&si, &str, &len, &llval) != -1)
+            if (si.expire != EB_EXPIRE_TIME_INVALID) items--;
+        setTypeResetIterator(&si);
+    }
+
+    setTypeInitIterator(&si, o, SET_ITER_RAW);
     while (setTypeNext(&si, &str, &len, &llval) != -1) {
+        if (si.expire != EB_EXPIRE_TIME_INVALID) continue; /* see below */
         if (count == 0) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
@@ -2328,6 +2341,25 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
         }
         if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
+    }
+    setTypeResetIterator(&si);
+
+    if (!has_expire) return 1;
+    setTypeInitIterator(&si, o, SET_ITER_RAW);
+    while (setTypeNext(&si, &str, &len, &llval) != -1) {
+        if (si.expire == EB_EXPIRE_TIME_INVALID) continue;
+        if (!rioWriteBulkCount(r,'*',7) ||
+            !rioWriteBulkString(r,"SADDEX",6) ||
+            !rioWriteBulkObject(r,key) ||
+            !rioWriteBulkString(r,"PXAT",4) ||
+            !rioWriteBulkLongLong(r,si.expire) ||
+            !rioWriteBulkString(r,"MEMBERS",7) ||
+            !rioWriteBulkString(r,"1",1) ||
+            !(str ? rioWriteBulkString(r, str, len) : rioWriteBulkLongLong(r, llval)))
+        {
+            setTypeResetIterator(&si);
+            return 0;
+        }
     }
     setTypeResetIterator(&si);
     return 1;
@@ -2409,6 +2441,27 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
             items--;
         }
         dictResetIterator(&di);
+    } else if (o->encoding == OBJ_ENCODING_BTREE) {
+        zbtreeIterator iter;
+        const unsigned char *ele;
+        size_t len;
+        double score;
+        zbtreeIteratorStart(o->ptr, 0, &iter);
+        while (zbtreeIteratorNext(&iter, 0, &ele, &len, &score)) {
+            if (count == 0) {
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                    AOF_REWRITE_ITEMS_PER_CMD : items;
+                if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
+                    !rioWriteBulkString(r,"ZADD",4) ||
+                    !rioWriteBulkObject(r,key))
+                    return 0;
+            }
+            if (!rioWriteBulkDouble(r,score) ||
+                !rioWriteBulkString(r,(char *)ele,len))
+                return 0;
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
     } else {
         serverPanic("Unknown sorted zset encoding");
     }
@@ -3077,6 +3130,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
         kvstoreIteratorInit(&kvs_it, db->keys);
+        kvstoreIteratorEnablePrefetch(&kvs_it);
         int last_slot = -1;
         /* Iterate this DB writing every entry */
         while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {

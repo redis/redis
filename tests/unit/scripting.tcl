@@ -73,6 +73,48 @@ start_server {tags {"scripting"}} {
         run_script {return 'hello'} 0
     } {hello}
 
+    test {Lua tostring hides object addresses} {
+        set result [run_script {
+            local objects = {
+                tostring, pairs, pcall, function() end,
+                coroutine, string, math, table,
+                coroutine.create(function() end), cjson.null
+            }
+            for i = 1, 5 do table.insert(objects, {}) end
+            local result = {}
+            for _, object in ipairs(objects) do
+                table.insert(result, tostring(object))
+            end
+            return result
+        } 0]
+        foreach expected_type {function function function function table table table table thread userdata
+                               table table table table table} value $result {
+            assert_equal "$expected_type: <opaque>" $value
+        }
+    }
+
+    test {Lua tostring preserves scalar conversions} {
+        run_script {
+            return {tostring(nil), tostring(true), tostring(false),
+                    tostring(42), tostring(-1), tostring(1.5),
+                    tostring('hello'), tostring('')}
+        } 0
+    } {nil true false 42 -1 1.5 hello {}}
+
+    test {Lua tostring honors custom metamethods and their errors} {
+        run_script {
+            local object = setmetatable({name = 'custom'}, {
+                __tostring = function(self) return self.name end
+            })
+            local failing = setmetatable({}, {
+                __tostring = function() error('custom tostring error') end
+            })
+            local ok, err = pcall(tostring, failing)
+            assert(not ok and string.find(err, 'custom tostring error', 1, true))
+            return tostring(object)
+        } 0
+    } {custom}
+
     test {EVAL - Return _G} {
         run_script {return _G} 0
     } {}
@@ -1331,6 +1373,23 @@ start_server [subst {tags {"scripting external:skip"} overrides {lua-enable-depr
             assert_match {*Script attempted to access nonexistent global variable 'newproxy'*} $e
         }
     }
+
+    if {$enabled} {
+        test {Lua tostring hides full userdata addresses} {
+            run_script {return {tostring(newproxy(false)), tostring(newproxy(true))}} 0
+        } {{userdata: <opaque>} {userdata: <opaque>}}
+
+        test {Lua tostring honors full userdata metamethods} {
+            run_script {
+                local object = newproxy(true)
+                getmetatable(object).__tostring = function(self)
+                    assert(self == object)
+                    return 'custom userdata'
+                end
+                return tostring(object)
+            } 0
+        } {custom userdata}
+    }
 }
 }
 
@@ -2372,6 +2431,41 @@ start_server {tags {"scripting"}} {
             } 0
         } e
         assert_match {*Unexpected flag in script shebang*} $e
+    }
+
+    foreach command {eval eval_ro {script load}} {
+        foreach {field shebang} {
+            engine {#!"lua%s" flags=no-writes}
+            option {#!lua flags=no-writes "bad=%s"}
+            flags {#!lua flags="no-writes,bad%s,allow-oom"}
+        } {
+            test "Reject CR and LF in shebang $field - $command" {
+                # Quoted shebang arguments decode escapes, including hex escapes.
+                # Check the entire token, even after an embedded NUL byte.
+                foreach symbols [list {\r} {\n} {\r\n+INJECTED\r\n} \
+                                      {\x0d} {\x0a} {\x0d\x0a+INJECTED\x0d\x0a} \
+                                      {\x00\r} {\x00\n} "\r"] {
+                    set script "[format $shebang $symbols]\nreturn 1"
+                    set args [list $script]
+                    if {$command ne "script load"} {lappend args 0}
+                    assert_error {ERR Invalid symbols in script shebang} {
+                        r {*}$command {*}$args
+                    }
+                    # An injected reply must not be left on the connection.
+                    assert_equal PONG [r ping]
+                }
+            }
+        }
+
+        test "Quoted shebang tokens with CRLF line endings - $command" {
+            set script "#!\"lua\" flags=\"no-writes,allow-oom\"\r\nreturn 1 -- $command"
+            if {$command eq "script load"} {
+                set sha [r script load $script]
+                assert_equal 1 [r evalsha_ro $sha 0]
+            } else {
+                assert_equal 1 [r $command $script 0]
+            }
+        }
     }
 
     test "allow-oom shebang flag" {

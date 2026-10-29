@@ -1124,6 +1124,7 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
         /* 'p' is now pointing to the first entry inside the listpack.
          * We have to run entry after entry, marking entries as deleted
          * if they are already not deleted. */
+        int stop = 0;
         while (p) {
             /* We keep a copy of p (which point to flags part) in order to
              * update it after (and if) we actually remove the entry */
@@ -1142,7 +1143,6 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
             currid.ms = master_id.ms + ms_delta;
             currid.seq = master_id.seq + seq_delta;
 
-            int stop;
             if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
                 stop = s->length <= maxlen;
             } else {
@@ -1176,14 +1176,17 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
                 }
 
                 if (can_delete) {
-                    /* Mark the entry as deleted. */
-                    intptr_t delta = p ? (p - lp) : 0; /* p may be NULL if this was the last entry */
+                    /* lpReplaceInteger() may re-encode the flags element with
+                     * a different size and realloc the listpack, so we save
+                     * the distance of 'p' from the element following the flags
+                     * and restore it after the replacement. */
+                    intptr_t delta = p ? (p - lpNext(lp, pcopy)) : 0; /* p may be NULL if this was the last entry */
                     flags |= STREAM_ITEM_FLAG_DELETED;
                     lp = lpReplaceInteger(lp, &pcopy, flags);
                     if (max_deleted_id) *max_deleted_id = currid;
                     deleted_from_lp++;
                     s->length--;
-                    if (p) p = lp + delta;
+                    if (p) p = lpNext(lp, pcopy) + delta;
                 }
             }
         }
@@ -1218,10 +1221,10 @@ int64_t streamTrim(redisDb *db, stream *s, streamAddTrimArgs *args, streamID *ma
         /* Update the node with the new pointer. */
         raxIteratorSetData(&ri,lp);
 
-        /* If the node is eligible for removal but we couldn't remove it due to delete strategy
-         * constraints (we need to check each entry individually), continue to the next node
-         * instead of stopping here. */
-        if (node_eligible_for_remove)
+        /* If we didn't reach the trim limit within this node (it was eligible for removal,
+         * or some entries were skipped because they are still referenced), continue to the
+         * next node instead of stopping here. */
+        if (!stop)
             continue;
 
         break; /* If we are here, there was enough to delete in the current
@@ -6722,6 +6725,8 @@ void handleExpiredIdmpEntries(void) {
                 continue;
             }
 
+            size_t old_alloc = server.memory_tracking_enabled ? kvobjAllocSize(kv) : 0;
+
             /* Iterate through all producers and remove expired entries */
             int modified = 0;
             raxIterator ri;
@@ -6767,8 +6772,11 @@ void handleExpiredIdmpEntries(void) {
                 raxFree(s->idmp_producers);
                 s->idmp_producers = NULL;
                 dictDelete(db->stream_idmp_keys, key);
-                continue;
             }
+
+            /* Use the kvobj's key: 'key' may have been freed by dictDelete() above. */
+            if (server.memory_tracking_enabled && modified)
+                updateSlotAllocSize(db,getKeySlot(kvobjGetKey(kv)),kv,old_alloc,kvobjAllocSize(kv));
         }
         dictResetIterator(&di);
     }

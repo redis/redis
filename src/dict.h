@@ -188,6 +188,7 @@ typedef struct dictIterator {
     dictEntry *entry, *nextEntry;
     /* unsafe iterator fingerprint for misuse detection. */
     unsigned long long fingerprint;
+    int prefetch; /* See dictIteratorEnablePrefetch(). */
 } dictIterator;
 
 typedef struct dictStats {
@@ -278,6 +279,7 @@ dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
 void dictInitIterator(dictIterator *iter, dict *d);
 void dictInitSafeIterator(dictIterator *iter, dict *d);
+void dictIteratorEnablePrefetch(dictIterator *iter);
 void dictResetIterator(dictIterator *iter);
 dictEntry *dictNext(dictIterator *iter);
 dictEntry *dictGetNext(const dictEntry *de);
@@ -304,6 +306,7 @@ void dictCombineStats(dictStats *from, dictStats *into);
 void dictFreeStats(dictStats *stats);
 
 dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket);
+dictEntryLink dictFindLinkWithHash(dict *d, const void *key, uint64_t hash, dictEntryLink *bucket);
 void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int newItem);
 
 /* API relevant only when dict is used as a hash-map (no_value=0) */ 

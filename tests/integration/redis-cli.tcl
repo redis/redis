@@ -685,7 +685,260 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_match "*SUCCESS*" $output
         r acl deluser clitest
     }
-    
+
+if {!$::tls} { ;# fake_redis_node doesn't support TLS
+    # RESP2 encoders for building COMMAND DOCS reply fixtures. Tcl TCP
+    # sockets default to {auto crlf} output translation, so LF-only
+    # separators become \r\n on the wire — valid RESP — without binary
+    # mode. The bulk encoder uses [string length] which counts characters;
+    # this equals the byte count RESP requires only for ASCII text, so
+    # bulk-string contents must not contain CR, LF, or multi-byte chars.
+    proc cmddocs_bulk {s} {
+        return "\$[string length $s]\n$s\n"
+    }
+    proc cmddocs_array {elements} {
+        return "*[llength $elements]\n[join $elements {}]"
+    }
+
+    # A valid command spec whose argument hint ("synarg123") cannot come
+    # from the fallback command table, proving the CLI parsed server docs.
+    proc cmddocs_syntest_spec {} {
+        set argmap [cmddocs_array [list \
+            [cmddocs_bulk name] [cmddocs_bulk synarg123] \
+            [cmddocs_bulk type] [cmddocs_bulk string]]]
+        return [cmddocs_array [list \
+            [cmddocs_bulk summary] [cmddocs_bulk "synthetic test command"] \
+            [cmddocs_bulk since]   [cmddocs_bulk "1.0.0"] \
+            [cmddocs_bulk group]   [cmddocs_bulk generic] \
+            [cmddocs_bulk arguments] [cmddocs_array [list $argmap]]]]
+    }
+
+    # Build a COMMAND DOCS reply for a given fixture. Each malformed
+    # fixture places the defect before the SYNTEST sentinel where
+    # structurally possible, so the sentinel proves that commands
+    # following a malformed spec remain usable. The exception is oddlen,
+    # where the dangling top-level element must be last.
+    proc cmddocs_reply {mode} {
+        set sentinel_entries [list \
+            [cmddocs_bulk SYNTEST] [cmddocs_syntest_spec]]
+
+        switch -- $mode {
+            nested {
+                # foo|bar claims nested "subcommands" with 64 entries.
+                # cliCountCommands() reserves space for one level only,
+                # so an unfixed client overflows during the fill pass.
+                set grandchildren {}
+                for {set i 0} {$i < 64} {incr i} {
+                    lappend grandchildren [cmddocs_bulk "foo|bar|baz$i"]
+                    lappend grandchildren [cmddocs_array {}]
+                }
+                set sub_spec [cmddocs_array [list \
+                    [cmddocs_bulk subcommands] \
+                    [cmddocs_array $grandchildren]]]
+                set subs [cmddocs_array [list \
+                    [cmddocs_bulk "foo|bar"] $sub_spec]]
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk subcommands] $subs]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            oddlen {
+                # 5 elements (odd): foo pair, sentinel pair, then a
+                # dangling element with no value — exercises the
+                # i+1 < elements guard in the top-level loop.
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] [cmddocs_array {}] \
+                    {*}$sentinel_entries \
+                    [cmddocs_bulk extra]]]
+            }
+            oddspec {
+                # foo's spec map has 3 elements (odd); the dangling key
+                # is "subcommands" — the only key cliCountCommands()
+                # dereferences, so this makes the counting pass itself
+                # read past the array.
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk summary] [cmddocs_bulk "a summary"] \
+                    [cmddocs_bulk subcommands]]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            oddsubs {
+                # "subcommands" map has 3 elements (odd): one complete
+                # pair and a trailing name with no spec — exercises the
+                # i+1 < elements guard inside the subcommands loop.
+                set subs [cmddocs_array [list \
+                    [cmddocs_bulk "foo|bar"] [cmddocs_array {}] \
+                    [cmddocs_bulk "foo|extra"]]]
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk subcommands] $subs]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            oddargs {
+                # Argument map has 3 elements (odd): "name" has a value
+                # but "type" does not — exercises the i+1 < elements
+                # guard in cliAddCommandDocArg().
+                set argmap [cmddocs_array [list \
+                    [cmddocs_bulk name] [cmddocs_bulk myarg] \
+                    [cmddocs_bulk type]]]
+                set cmd_spec [cmddocs_array [list \
+                    [cmddocs_bulk arguments] \
+                    [cmddocs_array [list $argmap]]]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk foo] $cmd_spec \
+                    {*}$sentinel_entries]]
+            }
+            wellformed {
+                set child_arg [cmddocs_array [list \
+                    [cmddocs_bulk name] [cmddocs_bulk childval] \
+                    [cmddocs_bulk type] [cmddocs_bulk string]]]
+                set child_spec [cmddocs_array [list \
+                    [cmddocs_bulk summary] [cmddocs_bulk "child command"] \
+                    [cmddocs_bulk since]   [cmddocs_bulk "1.0.0"] \
+                    [cmddocs_bulk group]   [cmddocs_bulk generic] \
+                    [cmddocs_bulk arguments] \
+                    [cmddocs_array [list $child_arg]]]]
+                set parent_arg [cmddocs_array [list \
+                    [cmddocs_bulk name] [cmddocs_bulk parentkey] \
+                    [cmddocs_bulk type] [cmddocs_bulk key]]]
+                set subs [cmddocs_array [list \
+                    [cmddocs_bulk "SYNPARENT|CHILD"] $child_spec]]
+                set parent_spec [cmddocs_array [list \
+                    [cmddocs_bulk summary] [cmddocs_bulk "parent command"] \
+                    [cmddocs_bulk since]   [cmddocs_bulk "1.0.0"] \
+                    [cmddocs_bulk group]   [cmddocs_bulk generic] \
+                    [cmddocs_bulk arguments] \
+                    [cmddocs_array [list $parent_arg]] \
+                    [cmddocs_bulk subcommands] $subs]]
+                return [cmddocs_array [list \
+                    [cmddocs_bulk SYNPARENT] $parent_spec]]
+            }
+            default {
+                error "Unknown COMMAND DOCS fixture: $mode"
+            }
+        }
+    }
+
+    # Shared test runner: starts a fake node with a crafted COMMAND DOCS
+    # reply, runs redis-cli against it, and checks for crashes, sanitizer
+    # diagnostics, and the expected hint output. Cleanup is guaranteed
+    # even when setup fails partway through.
+    #
+    # hints: Tcl list of hint-suite lines, each in {"input" "expected"}
+    #        format.  Joined with newlines before writing to a temp file.
+    proc run_cmddocs_test {mode hints} {
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+
+        # Strip trailing \n — puts adds one back, and the socket's
+        # default CRLF translation restores \r\n on the wire.
+        set reply [string range [cmddocs_reply $mode] 0 end-1]
+
+        # Isolate authentication: save and clear REDISCLI_AUTH so an
+        # inherited value does not inject an AUTH before COMMAND DOCS.
+        set had_auth [info exists ::env(REDISCLI_AUTH)]
+        if {$had_auth} {
+            set saved_auth $::env(REDISCLI_AUTH)
+            unset ::env(REDISCLI_AUTH)
+        }
+
+        set nodepid ""
+        set suite ""
+        set setup_err [catch {
+            set nodepid [exec $tclsh $script $port \
+                "COMMAND DOCS" $reply &]
+            wait_for_condition 50 50 {
+                [catch {close [socket "127.0.0.1" $port]}] == 0
+            } else {
+                error "Failed to start fake Redis node"
+            }
+
+            set hint_text [join $hints "\n"]
+            set suite [write_tmpfile "$hint_text\n"]
+            # -2: force RESP2.  -n 0: database 0.  Together these
+            # ensure COMMAND DOCS is the only command on the wire.
+            set cmd [rediscli "127.0.0.1" $port \
+                [list -2 -n 0 --test_hint_file $suite]]
+            set code [catch {exec {*}$cmd 2>@1} output opts]
+        } setup_msg setup_opts]
+
+        # Guaranteed cleanup regardless of errors above. Each step is
+        # caught individually so a failure in one does not skip the rest.
+        if {$nodepid ne ""} { catch {exec kill $nodepid} }
+        if {$had_auth} { set ::env(REDISCLI_AUTH) $saved_auth }
+        set cleanup_err [catch {
+            if {$suite ne "" && [file exists $suite]} { file delete $suite }
+        } cleanup_msg cleanup_opts]
+
+        if {$setup_err} { return -options $setup_opts $setup_msg }
+
+        # A fatal signal indicates a crash.
+        if {$code != 0 &&
+            [lindex [dict get $opts -errorcode] 0] eq "CHILDKILLED"} {
+            fail "redis-cli crashed ($mode): $output"
+        }
+        # Match ASan/UBSan diagnostics in the output. These can occur
+        # with or without a nonzero exit; checking both the output and
+        # the exit status catches recoverable findings that exit zero.
+        # LeakSanitizer uses a different title and is caught only by
+        # the exit-status check below.
+        if {[string match "*ERROR: AddressSanitizer*" $output] ||
+            [string match "*runtime error:*" $output]} {
+            fail "Sanitizer report ($mode): $output"
+        }
+        if {$code != 0} {
+            fail "redis-cli exited with error ($mode): $output"
+        }
+        assert_match "*SUCCESS*" $output
+
+        if {$cleanup_err} { return -options $cleanup_opts $cleanup_msg }
+    }
+
+    # Verify that redis-cli handles malformed COMMAND DOCS replies, including
+    # excessive subcommand nesting and incomplete key/value pairs.
+    # Each reply includes a SYNTEST command whose hint confirms that the CLI
+    # used the supplied documentation instead of its built-in fallback table.
+    foreach mode {nested oddlen oddspec oddsubs oddargs} {
+        test "redis-cli survives malformed COMMAND DOCS reply ($mode)" {
+            run_cmddocs_test $mode {{"SYNTEST " "synarg123"}}
+        }
+    }
+
+    # Verify that ordinary first-level subcommands and arguments are
+    # parsed correctly — the defensive guards must not break the normal
+    # case.
+    test "redis-cli parses well-formed COMMAND DOCS with subcommands" {
+        run_cmddocs_test wellformed \
+            {{"SYNPARENT " "parentkey"} {"SYNPARENT CHILD " "childval"}}
+    }
+
+    # cliSwitchProto() walks the HELLO 3 reply in key/value pairs; a
+    # dangling "version" key must not make it read past the element array.
+    test "redis-cli survives an odd-length HELLO 3 reply" {
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+        set hello [cmddocs_array [list \
+            [cmddocs_bulk server] [cmddocs_bulk redis] \
+            [cmddocs_bulk version]]]
+        set pid [exec $tclsh $script $port \
+            "HELLO 3" [string range $hello 0 end-1] "PING" "+PONG" &]
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port]}] == 0
+        } else {
+            catch {exec kill $pid}
+            fail "Failed to start fake Redis node"
+        }
+        catch {exec {*}[rediscli "127.0.0.1" $port {-3 -n 0 PING}] 2>@1} output
+        catch {exec kill $pid}
+        assert_equal "PONG" $output
+    }
+}
+
     proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
         r function flush

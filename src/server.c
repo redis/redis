@@ -403,16 +403,6 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
-void setSdsDestructor(dict *d, void *val) {
-    *htGetMetadataSize(d) -= sdsAllocSize(val);
-    sdsfree(val);
-}
-
-size_t setDictMetadataBytes(dict *d) {
-    UNUSED(d);
-    return sizeof(size_t);
-}
-
 void *dictSdsDup(dict *d, const void *key) {
     UNUSED(d);
     return sdsdup((const sds) key);
@@ -590,15 +580,16 @@ int dictResizeAllowed(size_t moreMem, double usedRatio) {
  *  - Bring the kvobj head into L1 before keyCompare runs (only useful when
  *    the entry holds an out-of-line pointer; embedded kvobjs are already
  *    in cache from the entry prefetch).
- *  - Bring kv->ptr into L1 for RAW strings, since addReplyBulk reads it
- *    immediately after the lookup. */
+ *  - Bring kv->ptr into L1 when the value lives in its own allocation
+ *    (RAW strings, listpacks, ...), since the caller reads it next. */
 static void *dbDictPrefetchEntryKey(const dictEntry *de) {
     return dictEntryIsKey(de) ? NULL : dictGetKey(de);
 }
 
 static void *dbDictPrefetchEntryValue(const dictEntry *de) {
     kvobj *kv = dictGetKey(de);
-    return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
+    if (inlineEncodedObject(kv)) return NULL;
+    return kv->ptr;
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -636,20 +627,6 @@ dictType objectKeyHeapPointerValueDictType = {
     dictObjectDestructor,      /* key destructor */
     dictVanillaFree,           /* val destructor */
     NULL                       /* allow to expand */
-};
-
-/* Set dictionary type. Keys are SDS strings, values are not used. */
-dictType setDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    setSdsDestructor,          /* key destructor */
-    NULL,                      /* val destructor */
-    NULL,                      /* allow to expand */
-    .no_value = 1,             /* no values in this dict */
-    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
-    .dictMetadataBytes = setDictMetadataBytes,
 };
 
 /* Db->dict, keys are of type kvobj, unification of key and value */
@@ -1099,9 +1076,15 @@ void updateClientMemoryUsage(client *c) {
      * value from the old category, and add it back. */
     server.stat_clients_type_memory[c->last_memory_type] -= c->last_memory_usage;
     server.stat_clients_type_memory[type] += mem;
+    server.stat_clients_shared_memory -= c->last_memory_shared;
+    server.stat_clients_shared_memory += c->reply_bytes_shared;
+    server.stat_clients_unshared_memory -= c->last_memory_unshared;
+    server.stat_clients_unshared_memory += c->reply_bytes_unshared;
     /* Remember what we added and where, to remove it next time. */
     c->last_memory_type = type;
     c->last_memory_usage = mem;
+    c->last_memory_shared = c->reply_bytes_shared;
+    c->last_memory_unshared = c->reply_bytes_unshared;
 }
 
 int clientEvictionAllowed(client *c) {
@@ -1144,7 +1127,7 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  *
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
-int updateClientMemUsageAndBucket(client *c) {
+static int updateClientMemUsageAndBucketInternal(client *c, int unshared_refreshed) {
     /* The unlikely case this function was called from a thread different
      * than the main one is a module call from a spawned thread. This is safe
      * since this call must have been made after calling
@@ -1165,14 +1148,16 @@ int updateClientMemUsageAndBucket(client *c) {
      * Walking the reply buffer is costly, so skip the scan when its outcome
      * cannot affect bucket placement: since 0 <= unshared <= shared, if both
      * endpoints map to the same bucket the cached value is reused. */
-    if (c->reply_bytes_shared > 0) {
-        size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
-        size_t upper_bound = lower_bound + c->reply_bytes_shared;
-        if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
-            updateClientUnsharedReplyBytes(c);
-    } else {
-        /* No shared bytes: clear any stale cached unshared. */
-        c->reply_bytes_unshared = 0;
+    if (!unshared_refreshed) {
+        if (c->reply_bytes_shared == 0) {
+            /* No shared bytes: clear any stale cached unshared. */
+            c->reply_bytes_unshared = 0;
+        } else {
+            size_t lower_bound = getClientMemoryUsage(c) - c->reply_bytes_unshared;
+            size_t upper_bound = lower_bound + c->reply_bytes_shared;
+            if (getMemUsageBucket(lower_bound) != getMemUsageBucket(upper_bound))
+                updateClientUnsharedReplyBytes(c);
+        }
     }
 
     /* Update client memory usage. */
@@ -1190,6 +1175,10 @@ int updateClientMemUsageAndBucket(client *c) {
         c->mem_usage_bucket_node = listLast(bucket->clients);
     }
     return 1;
+}
+
+int updateClientMemUsageAndBucket(client *c) {
+    return updateClientMemUsageAndBucketInternal(c, 0);
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -1217,13 +1206,23 @@ int clientsCronRunClient(client *c) {
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
 
+    /* Refresh unshared reply memory roughly once per second for every client.
+     * Allow one cron tick of slack, otherwise a client visited slightly less
+     * than a second after its last refresh would wait for the next round,
+     * delaying the refresh to ~2s. */
+    int unshared_refreshed = c->last_unshared_refresh + 1000 - 1000/server.hz <= now;
+    if (unshared_refreshed) {
+        c->last_unshared_refresh = now;
+        updateClientUnsharedReplyBytes(c);
+    }
+
     /* Iterating all the clients in getMemoryOverheadData() is too slow and
      * in turn would make the INFO command too slow. So we perform this
      * computation incrementally and track the (not instantaneous but updated
      * to the second) total memory used by clients using clientsCron() in
      * a more incremental way (depending on server.hz).
      * If client eviction is enabled, update the bucket as well. */
-    if (!updateClientMemUsageAndBucket(c))
+    if (!updateClientMemUsageAndBucketInternal(c, unshared_refreshed))
         updateClientMemoryUsage(c);
 
     if (closeClientOnOutputBufferLimitReached(c, 0)) return 1;
@@ -2349,6 +2348,9 @@ void createSharedObjects(void) {
     shared.hpersist = createStringObject("HPERSIST",8);
     shared.hdel = createStringObject("HDEL",4);
     shared.hsetex = createStringObject("HSETEX",6);
+    shared.spexpireat = createStringObject("SPEXPIREAT",10);
+    shared.spersist = createStringObject("SPERSIST",8);
+    shared.saddex = createStringObject("SADDEX",6);
     shared.restore = createStringObject("RESTORE",7);
     shared.replace = createStringObject("REPLACE",7);
 
@@ -2498,18 +2500,19 @@ void initServerConfig(void) {
     server.pause_cron = 0;
     server.dict_resizing = 1;
 
-    server.latency_tracking_info_percentiles_len = 3;
+    server.latency_tracking_info_percentiles_len = configDefaultLatencyTrackingInfoPercentilesLen;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
-    server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
-    server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
-    server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
+    memcpy(server.latency_tracking_info_percentiles,
+           configDefaultLatencyTrackingInfoPercentiles,
+           sizeof(double) * server.latency_tracking_info_percentiles_len);
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
 
-    appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
-    appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
-    appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
+    for (size_t i = 0; i < configDefaultSaveParamsLen; i++) {
+        appendServerSaveParams(configDefaultSaveParams[i].seconds,
+                               configDefaultSaveParams[i].changes);
+    }
 
     /* Replication related */
     server.masterhost = NULL;
@@ -3198,6 +3201,8 @@ void initServer(void) {
     server.stat_module_progress = 0;
     for (int j = 0; j < CLIENT_TYPE_COUNT; j++)
         server.stat_clients_type_memory[j] = 0;
+    server.stat_clients_shared_memory = 0;
+    server.stat_clients_unshared_memory = 0;
     server.stat_cluster_links_memory = 0;
     server.cron_malloc_stats.zmalloc_used = 0;
     server.cron_malloc_stats.process_rss = 0;
@@ -8314,6 +8319,7 @@ int __test_num = 0;
 typedef int redisTestProc(int argc, char **argv, int flags);
 int bitopsTest(int argc, char **argv, int flags);
 int zsetTest(int argc, char **argv, int flags);
+int zsetBtreeTest(int argc, char **argv, int flags);
 int vectorTest(int argc, char **argv, int flags);
 int lzfTest(int argc, char **argv, int flags);
 struct redisTest {
@@ -8343,9 +8349,11 @@ struct redisTest {
     {"bitmap", bitopsTest},
     {"rax", raxTest},
     {"zset", zsetTest},
+    {"zsetbtree", zsetBtreeTest},
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
     {"lzf", lzfTest},
+    {"setentry", sEntryTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -8588,7 +8596,7 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        loadServerConfig(server.configfile, config_from_stdin, options);
+        loadServerConfig(server.configfile, config_from_stdin, options, CONFIG_SOURCE_MAIN);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }

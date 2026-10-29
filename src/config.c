@@ -105,6 +105,18 @@ configEnum cluster_slot_stats_enum[] = {
     {NULL, 0}
 };
 
+configEnum io_threads_client_types_enum[] = {
+    {"all", IO_THREADS_CLIENT_TYPE_ALL},
+    {"replication-compressed", IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED},
+    {"master-compressed", IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED},
+    {"replica-compressed", IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED},
+    {"replication", IO_THREADS_CLIENT_TYPE_REPLICATION},
+    {"master", IO_THREADS_CLIENT_TYPE_MASTER},
+    {"replica", IO_THREADS_CLIENT_TYPE_REPLICA},
+    {"normal", IO_THREADS_CLIENT_TYPE_NORMAL},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -281,6 +293,7 @@ struct standardConfig {
     const char *name; /* The user visible name of this config */
     const char *alias; /* An alias that can also be used for this config */
     unsigned int flags; /* Flags for this specific config */
+    configSource source; /* Origin recorded when this config was loaded. */
     typeInterface interface; /* The function pointers that define the type interface */
     typeData data; /* The type specific data exposed used by the interface */
     configType type; /* The type of config this is. */
@@ -294,6 +307,19 @@ dict *configs = NULL; /* Runtime config values */
 static standardConfig *lookupConfig(const sds name) {
     dictEntry *de = dictFind(configs, name);
     return de ? dictGetVal(de) : NULL;
+}
+
+
+/* Record where this config value was loaded. Keep the alias entry in sync so
+ * either name observes the same startup origin during CONFIG REWRITE. */
+static void configSetSource(standardConfig *config, configSource new_source) {
+    config->source = new_source;
+    if (config->alias) {
+        sds alias = sdsnew(config->alias);
+        standardConfig *alias_config = lookupConfig(alias);
+        if (alias_config) alias_config->source = new_source;
+        sdsfree(alias);
+    }
 }
 
 /*-----------------------------------------------------------------------------
@@ -354,6 +380,21 @@ const char *evictPolicyToString(void) {
  * Config file parsing
  *----------------------------------------------------------------------------*/
 
+/* Keep these defaults in one place so startup and CONFIG REWRITE use the same
+ * baseline values. */
+const struct saveparam configDefaultSaveParams[] = {
+    {60 * 60, 1},   /* save after 1 hour and 1 change */
+    {300, 100},     /* save after 5 minutes and 100 changes */
+    {60, 10000},    /* save after 1 minute and 10000 changes */
+};
+const size_t configDefaultSaveParamsLen =
+    sizeof(configDefaultSaveParams) / sizeof(configDefaultSaveParams[0]);
+
+const double configDefaultLatencyTrackingInfoPercentiles[] = {50.0, 99.0, 99.9};
+const size_t configDefaultLatencyTrackingInfoPercentilesLen =
+    sizeof(configDefaultLatencyTrackingInfoPercentiles) /
+    sizeof(configDefaultLatencyTrackingInfoPercentiles[0]);
+
 int yesnotoi(char *s) {
     if (!strcasecmp(s,"yes")) return 1;
     else if (!strcasecmp(s,"no")) return 0;
@@ -373,11 +414,12 @@ void resetServerSaveParams(void) {
     server.saveparamslen = 0;
 }
 
-void queueLoadModule(sds path, sds *argv, int argc) {
+void queueLoadModule(sds path, sds *argv, int argc, configSource source) {
     int i;
     struct moduleLoadQueueEntry *loadmod;
 
     loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
+    loadmod->source = source;
     loadmod->argv = argc ? zmalloc(sizeof(robj*)*argc) : NULL;
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
@@ -451,6 +493,10 @@ static int reading_config_file;
 /* Nesting depth of loadServerConfigFromString(): "include" re-enters it, and
  * post-load advisories must run only when the outermost load finishes. */
 static int config_load_depth;
+/* Save cwd before loading configuration files: a `dir` directive can chdir()
+ * the process, but relative config and include paths must keep using the
+ * directory from which startup began when CONFIG REWRITE resolves them. */
+static char config_startup_cwd[4096];
 
 /* Previous value of tls-cluster. This variable is used to detect if the
  * value actually changed after a CONFIG SET. configSetCommand() calls every
@@ -497,7 +543,7 @@ static void clusterBusWarnIfUnprotected(void) {
         "is reachable by trusted hosts only.");
 }
 
-void loadServerConfigFromString(char *config) {
+static void loadServerConfigFromString(char *config, int cli_start_line, configSource inherited_source) {
     deprecatedConfig deprecated_configs[] = {
         {"list-max-ziplist-entries", 2, 2},
         {"list-max-ziplist-value", 2, 2},
@@ -538,6 +584,11 @@ void loadServerConfigFromString(char *config) {
         }
         sdstolower(argv[0]);
 
+        /* Stdin and CLI options share the CLI source. Otherwise use the
+         * source inherited from the file being parsed. */
+        int from_cli = cli_start_line >= 0 && i >= cli_start_line;
+        configSource source = from_cli ? CONFIG_SOURCE_CLI : inherited_source;
+
         /* Iterate the configs that are standard */
         standardConfig *config = lookupConfig(argv[0]);
         if (config) {
@@ -567,6 +618,7 @@ void loadServerConfigFromString(char *config) {
                 }
             }
 
+            configSetSource(config, source);
             sdsfreesplitres(argv,argc);
             argv = NULL;
             continue;
@@ -590,7 +642,9 @@ void loadServerConfigFromString(char *config) {
 
         /* Execute config directives */
         if (!strcasecmp(argv[0],"include") && argc == 2) {
-            loadServerConfig(argv[1], 0, NULL);
+            configSource include_source = source == CONFIG_SOURCE_CLI ?
+                CONFIG_SOURCE_CLI : CONFIG_SOURCE_INCLUDE;
+            loadServerConfig(argv[1], 0, NULL, include_source);
         } else if (!strcasecmp(argv[0],"rename-command") && argc == 3) {
             struct redisCommand *cmd = lookupCommandBySds(argv[1]);
             int retval;
@@ -617,7 +671,7 @@ void loadServerConfigFromString(char *config) {
             }
         } else if (!strcasecmp(argv[0],"user") && argc >= 2) {
             int argc_err;
-            if (ACLAppendUserForLoading(argv,argc,&argc_err) == C_ERR) {
+            if (ACLAppendUserForLoading(argv,argc,&argc_err,source) == C_ERR) {
                 const char *errmsg = ACLSetUserStringError();
                 snprintf(buf,sizeof(buf),"Error in user declaration '%s': %s",
                     argv[argc_err],errmsg);
@@ -625,7 +679,7 @@ void loadServerConfigFromString(char *config) {
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"loadmodule") && argc >= 2) {
-            queueLoadModule(argv[1],&argv[2],argc-2);
+            queueLoadModule(argv[1],&argv[2],argc-2, source);
         } else if (!strcasecmp(argv[0],"sentinel")) {
             /* argc == 1 is handled by main() as we need to enter the sentinel
              * mode ASAP. */
@@ -650,7 +704,7 @@ void loadServerConfigFromString(char *config) {
             sds val = sdsdup(argv[1]);
             for (int i = 2; i < argc; i++)
                 val = sdscatfmt(val, " %S", argv[i]);
-            if (!dictReplace(server.module_configs_queue, name, val)) sdsfree(name);
+            queueModuleConfig(name, val, source);
         }
         sdsfreesplitres(argv,argc);
         argv = NULL;
@@ -703,6 +757,23 @@ void loadServerConfigFromString(char *config) {
             goto loaderr;
         }
 
+        int client_types = server.io_threads_client_types;
+        int compression_only =
+            ((client_types & IO_THREADS_CLIENT_TYPE_REPLICA_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_REPLICA)) ||
+            ((client_types & IO_THREADS_CLIENT_TYPE_MASTER_COMPRESSED) &&
+             !(client_types & IO_THREADS_CLIENT_TYPE_MASTER));
+        if (compression_only && server.repl_compression == 0) {
+            err = "io-threads-client-types compression-only selectors require compression support and repl-compression > 0";
+            goto loaderr;
+        }
+        if (server.repl_compression > 0 &&
+            !(client_types & (IO_THREADS_CLIENT_TYPE_REPLICATION | IO_THREADS_CLIENT_TYPE_REPLICATION_COMPRESSED)))
+        {
+            err = "repl-compression requires io-threads-client-types to include replication clients";
+            goto loaderr;
+        }
+
         /* in case cluster mode is enabled dbnum must be 1 */
         if (server.cluster_enabled && server.dbnum > 1) {
             serverLog(LL_WARNING, "WARNING: Changing databases number from %d to 1 since we are in cluster mode", server.dbnum);
@@ -738,13 +809,22 @@ loaderr:
  *
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
- * just load a string. */
+ * just load a string. source is the provenance inherited by the loaded file:
+ * the top-level caller passes MAIN, while include directives pass INCLUDE or
+ * CLI depending on where the directive appeared. */
 #define CONFIG_READ_LEN 1024
-void loadServerConfig(char *filename, char config_from_stdin, char *options) {
+void loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source) {
     sds config = sdsempty();
     char buf[CONFIG_READ_LEN+1];
     FILE *fp;
     glob_t globbuf;
+
+    if (config_load_depth == 0 && config_startup_cwd[0] == '\0' &&
+        !getcwd(config_startup_cwd, sizeof(config_startup_cwd)))
+    {
+        serverLog(LL_WARNING, "Unable to get current working directory: %s", strerror(errno));
+        exit(1);
+    }
 
     /* Load the file content */
     if (filename) {
@@ -796,6 +876,19 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
         }
     }
 
+    /* Stdin and CLI options are CLI-sourced. End the file content at a line
+     * boundary, then use the newline count as the zero-based start line. */
+    int cli_start_line = -1;
+    if (config_from_stdin || options) {
+        if (sdslen(config) && config[sdslen(config)-1] != '\n')
+            config = sdscatlen(config, "\n", 1);
+
+        cli_start_line = 0;
+        for (size_t i = 0; i < sdslen(config); i++) {
+            if (config[i] == '\n') cli_start_line++;
+        }
+    }
+
     /* Append content from stdin */
     if (config_from_stdin) {
         serverLog(LL_NOTICE,"Reading config from stdin");
@@ -809,7 +902,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
-    loadServerConfigFromString(config);
+    loadServerConfigFromString(config, cli_start_line, source);
     sdsfree(config);
 }
 
@@ -831,13 +924,15 @@ static int performInterfaceSet(standardConfig *config, sds value, const char **e
 }
 
 /* Find the config by name and attempt to set it to value. */
-int performModuleConfigSetFromName(sds name, sds value, const char **err) {
+int performModuleConfigSetFromName(sds name, sds value, configSource source, const char **err) {
     standardConfig *config = lookupConfig(name);
     if (!config || !(config->flags & MODULE_CONFIG)) {
         *err = "Config name not found";
         return 0;
     }
-    return performInterfaceSet(config, value, err);
+    int result = performInterfaceSet(config, value, err);
+    if (result) configSetSource(config, source);
+    return result;
 }
 
 /* Find config by name and attempt to set it to its default value. */
@@ -1137,6 +1232,33 @@ dictType optionSetDictType = {
     NULL                        /* allow to expand */
 };
 
+typedef struct rewriteFileValue {
+    sds value;
+    configSource source;
+    int seen_in_include;
+} rewriteFileValue;
+
+/* Release one parsed file value and its owned normalized string. */
+static void rewriteFileValueDestructor(dict *d, void *val) {
+    UNUSED(d);
+    rewriteFileValue *file_value = val;
+    sdsfree(file_value->value);
+    zfree(file_value);
+}
+
+static dictType rewriteFileValueDictType = {
+    dictSdsCaseHash,
+    NULL,
+    NULL,
+    dictSdsKeyCaseCompare,
+    dictSdsDestructor,
+    rewriteFileValueDestructor,
+    NULL
+};
+
+static dict *rewriteConfigReadFileValues(const char *path);
+static sds rewriteConfigGetDefaultValue(standardConfig *config);
+
 /* The config rewrite state. */
 struct rewriteConfigState {
     dict *option_to_line; /* Option -> list of config file lines map */
@@ -1148,6 +1270,7 @@ struct rewriteConfigState {
     int force_write;      /* True if we want all keywords to be force
                              written. Currently only used for testing
                              and debug information. */
+    int append_after_include; /* Current option should be appended after includes. */
 };
 
 /* Free the configuration rewrite state. */
@@ -1167,6 +1290,7 @@ struct rewriteConfigState *rewriteConfigCreateState(void) {
     state->lines = NULL;
     state->needs_signature = 1;
     state->force_write = 0;
+    state->append_after_include = 0;
     return state;
 }
 
@@ -1329,6 +1453,13 @@ int rewriteConfigRewriteLine(struct rewriteConfigState *state, const char *optio
     sds o = sdsnew(option);
     list *l = dictFetchValue(state->option_to_line,o);
 
+    if (state->append_after_include) {
+        l = NULL;
+        /* Even a default value must be written here: it needs to override
+         * the non-default value still supplied by the included file. */
+        force = 1;
+    }
+
     rewriteConfigMarkAsProcessed(state,option);
 
     if (!l && !force && !state->force_write) {
@@ -1407,15 +1538,30 @@ void rewriteConfigYesNoOption(struct rewriteConfigState *state, const char *opti
     rewriteConfigRewriteLine(state,option,line,force);
 }
 
+/* Rewrite a NULL string/SDS value. Without an include override, omitting the
+ * option restores NULL on restart. After an include, write `option ""` to
+ * override its value: argument parsing yields an empty string, and configs
+ * using EMPTY_STRING_IS_NULL convert it back to NULL. */
+static void rewriteConfigClearStringOption(struct rewriteConfigState *state, const char *option) {
+    if (!state->append_after_include) {
+        rewriteConfigMarkAsProcessed(state, option);
+        return;
+    }
+
+    sds line = sdscatprintf(sdsempty(), "%s \"\"", option);
+    rewriteConfigRewriteLine(state, option, line, 1);
+}
+
 /* Rewrite a string option. */
 void rewriteConfigStringOption(struct rewriteConfigState *state, const char *option, char *value, const char *defvalue) {
     int force = 1;
     sds line;
 
-    /* String options set to NULL need to be not present at all in the
-     * configuration file to be set to NULL again at the next reboot. */
+    /* String options set to NULL are normally omitted so they become NULL
+     * again at restart. If an include still sets the option, write an empty
+     * value after it to override that included value. */
     if (value == NULL) {
-        rewriteConfigMarkAsProcessed(state,option);
+        rewriteConfigClearStringOption(state, option);
         return;
     }
 
@@ -1434,10 +1580,10 @@ void rewriteConfigSdsOption(struct rewriteConfigState *state, const char *option
     int force = 1;
     sds line;
 
-    /* If there is no value set, we don't want the SDS option
-     * to be present in the configuration at all. */
+    /* SDS options set to NULL are normally omitted. When an include still
+     * sets the option, write an empty value after it to override that value. */
     if (value == NULL) {
-        rewriteConfigMarkAsProcessed(state, option);
+        rewriteConfigClearStringOption(state, option);
         return;
     }
 
@@ -1492,6 +1638,13 @@ void rewriteConfigSaveOption(standardConfig *config, const char *name, struct re
         return;
     }
 
+    /* Save rules accumulate across directives. When appending after includes,
+     * clear the included rules before writing the current non-empty rule set.
+     * An empty current rule set is handled by the branch below. */
+    if (state->append_after_include && server.saveparamslen) {
+        rewriteConfigRewriteLine(state, name, sdsnew("save \"\""), 1);
+    }
+
     /* Rewrite save parameters, or an empty 'save ""' line to avoid the
      * defaults from being used.
      */
@@ -1527,6 +1680,14 @@ void rewriteConfigUserOption(struct rewriteConfigState *state) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         user *u = ri.data;
+        /* In source-aware mode, users defined by CLI arguments or included
+         * files remain owned by those sources. */
+        if (server.config_rewrite_source_aware &&
+            (u->source == CONFIG_SOURCE_CLI || u->source == CONFIG_SOURCE_INCLUDE))
+        {
+            continue;
+        }
+
         sds line = sdsnew("user ");
         line = sdscatsds(line,u->name);
         line = sdscatlen(line," ",1);
@@ -1562,6 +1723,13 @@ void rewriteConfigReplicaOfOption(standardConfig *config, const char *name, stru
      * in the file to be removed. Note that if this is a cluster instance
      * we don't want a slaveof directive inside redis.conf. */
     if (server.cluster_enabled || server.masterhost == NULL) {
+        if (!server.cluster_enabled && state->append_after_include) {
+            /* The included replicaof directive would reconfigure this node
+             * as a replica on restart, so persist the explicit promotion. */
+            line = sdscatprintf(sdsempty(), "%s no one", name);
+            rewriteConfigRewriteLine(state, name, line, 1);
+            return;
+        }
         rewriteConfigMarkAsProcessed(state, name);
         return;
     }
@@ -1651,7 +1819,7 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
         }
     }
 
-    if (is_default) {
+    if (is_default && !state->append_after_include) {
         rewriteConfigMarkAsProcessed(state,name);
         return;
     }
@@ -1669,7 +1837,7 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
     rewriteConfigRewriteLine(state,name,line,force);
 }
 
-/* Rewrite the loadmodule option. */
+/* Rewrite loadmodule, respecting its source in source-aware mode. */
 void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
     sds line;
     dictIterator di;
@@ -1679,6 +1847,13 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
         struct RedisModule *module = dictGetVal(de);
         /* Internal modules doesn't have path and are not part of the configuration file */
         if (sdslen(module->loadmod->path) == 0) continue;
+
+        if (server.config_rewrite_source_aware && !state->force_write &&
+            (module->loadmod->source == CONFIG_SOURCE_CLI ||
+             module->loadmod->source == CONFIG_SOURCE_INCLUDE))
+        {
+            continue;
+        }
 
         line = sdsnew("loadmodule ");
         line = sdscatsds(line, module->loadmod->path);
@@ -1844,15 +2019,31 @@ cleanup:
  * explicitly included in the old configuration file, are not rewritten.
  * The force_write flag overrides this behavior and forces everything to be
  * written. This is currently only used for testing purposes.
+ * With config-rewrite-source-aware enabled, skip CLI/stdin overrides and
+ * unchanged file values, and append changed include values after includes.
+ *
+ * This source-aware behavior is experimental and is expected to become the
+ * only behavior in a future major release. At that point, the
+ * config-rewrite-source-aware option will be deprecated and its value ignored,
+ * while remaining accepted for configuration compatibility.
  *
  * On error -1 is returned and errno is set accordingly, otherwise 0. */
 int rewriteConfig(char *path, int force_write) {
     struct rewriteConfigState *state;
+    dict *file_values = NULL;
     sds newcontent;
     int retval;
 
     /* Step 1: read the old config into our rewrite state. */
     if ((state = rewriteConfigReadOldFile(path)) == NULL) return -1;
+    /* Only source-aware rewrites need the effective file baseline. Legacy
+     * rewrites and forced debug rewrites keep the original behavior. */
+    if (server.config_rewrite_source_aware && !force_write) {
+        if ((file_values = rewriteConfigReadFileValues(path)) == NULL) {
+            rewriteConfigReleaseState(state);
+            return -1;
+        }
+    }
     if (force_write) state->force_write = 1;
 
     /* Step 2: rewrite every single option, replacing or appending it inside
@@ -1866,7 +2057,30 @@ int rewriteConfig(char *path, int force_write) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
-        if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
+        rewriteFileValue *file_value = NULL;
+        if (file_values) {
+            /* Source is the startup origin and remains unchanged after runtime
+             * updates. CLI-provided values will be applied again on restart. */
+            if (config->source == CONFIG_SOURCE_CLI) continue;
+            file_value = dictFetchValue(file_values, dictGetKey(de));
+            /* Compare the current value with the effective value loaded from
+             * the main config and its includes. If the option was absent
+             * from all config files, compare against its declared default. */
+            sds current_value = config->interface.get(config);
+            sds default_value = file_value ? NULL : rewriteConfigGetDefaultValue(config);
+            const sds comparison_value = file_value ? file_value->value : default_value;
+            int unchanged = comparison_value && !sdscmp(current_value, comparison_value);
+            sdsfree(current_value);
+            sdsfree(default_value);
+            /* No persistent change to write. */
+            if (unchanged) continue;
+        }
+        if (config->interface.rewrite) {
+            state->append_after_include = file_value &&
+                (file_value->source == CONFIG_SOURCE_INCLUDE || file_value->seen_in_include);
+            config->interface.rewrite(config, dictGetKey(de), state);
+            state->append_after_include = 0;
+        }
     }
     dictResetIterator(&di);
 
@@ -1887,6 +2101,7 @@ int rewriteConfig(char *path, int force_write) {
     retval = rewriteConfigOverwriteFile(path, newcontent);
 
     sdsfree(newcontent);
+    if (file_values) dictRelease(file_values);
     rewriteConfigReleaseState(state);
     return retval;
 }
@@ -2291,6 +2506,478 @@ static int numericParseString(standardConfig *config, sds value, const char **er
     else
         *err = "argument couldn't be parsed into an integer";
     return 0;
+}
+
+/* Parse one directive into the value representation used by CONFIG GET.
+ * This is deliberately read-only: it validates and normalizes file arguments
+ * without invoking the setter or changing the running server. old_file_value
+ * is used by aggregate directives such as client-output-buffer-limit. */
+static sds rewriteConfigNormalizeFileArgs(standardConfig *config, sds *argv, int argc, sds *cwd,
+                                         rewriteFileValue *old_file_value) {
+    const char *err = NULL;
+    int nargs = argc - 1;
+    sds value = NULL;
+
+    switch (config->type) {
+    case BOOL_CONFIG: {
+        if (nargs != 1) return NULL;
+        int yn = yesnotoi(argv[1]);
+        if (yn == -1 || (config->data.yesno.is_valid_fn &&
+                         !config->data.yesno.is_valid_fn(yn, &err)))
+            return NULL;
+        return sdsnew(yn ? "yes" : "no");
+    }
+    case STRING_CONFIG:
+    case SDS_CONFIG:
+        if (!(config->flags & MULTI_ARG_CONFIG) && nargs != 1) return NULL;
+        if (nargs == 0) return sdsnew("");
+        return sdsjoin(argv + 1, nargs, " ");
+    case ENUM_CONFIG: {
+        int bitflags = !!(config->flags & MULTI_ARG_CONFIG);
+        int enumval = configEnumGetValue(config->data.enumd.enum_value,
+                                         argv + 1, nargs, bitflags);
+        if (enumval == INT_MIN || (config->data.enumd.is_valid_fn &&
+                                   !config->data.enumd.is_valid_fn(enumval, &err)))
+            return NULL;
+        return configEnumGetName(config->data.enumd.enum_value, enumval, bitflags);
+    }
+    case NUMERIC_CONFIG: {
+        if (nargs != 1) return NULL;
+        long long number;
+        if (!numericParseString(config, argv[1], &err, &number) ||
+            !numericBoundaryCheck(config, number, &err) ||
+            (config->data.numeric.is_valid_fn &&
+             !config->data.numeric.is_valid_fn(number, &err)))
+        {
+            return NULL;
+        }
+        char buf[128];
+        if ((config->data.numeric.flags & PERCENT_CONFIG) && number < 0) {
+            int len = ll2string(buf, sizeof(buf), -number);
+            buf[len++] = '%';
+            buf[len] = '\0';
+        } else if ((config->data.numeric.flags & MEMORY_CONFIG) && number >= 0) {
+            ull2string(buf, sizeof(buf), number);
+        } else if (config->data.numeric.flags & OCTAL_CONFIG) {
+            snprintf(buf, sizeof(buf), "%llo", number);
+        } else {
+            ll2string(buf, sizeof(buf), number);
+        }
+        return sdsnew(buf);
+    }
+    case SPECIAL_CONFIG:
+        break;
+    }
+
+    /* Special configurations that have a straightforward read-only parser. */
+    if (!strcasecmp(config->name, "dir") && nargs == 1) {
+        char pathbuf[4096];
+        if (argv[1][0] == '/') {
+            redis_strlcpy(pathbuf, argv[1], sizeof(pathbuf));
+        } else {
+            snprintf(pathbuf, sizeof(pathbuf), "%s/%s", *cwd, argv[1]);
+        }
+        char resolved[4096];
+        if (!realpath(pathbuf, resolved)) return NULL;
+        sdsfree(*cwd);
+        *cwd = sdsnew(resolved);
+        return sdsdup(*cwd);
+    }
+    if (!strcasecmp(config->name, "replicaof") && nargs == 2) {
+        if (!strcasecmp(argv[1], "no") && !strcasecmp(argv[2], "one")) return sdsnew("");
+        long port;
+        if (!string2l(argv[2], sdslen(argv[2]), &port) || port < 0 || port > 65535) return NULL;
+        return sdscatprintf(sdsempty(), "%s %ld", argv[1], port);
+    }
+    if (!strcasecmp(config->name, "notify-keyspace-events") && nargs == 1) {
+        int flags = keyspaceEventsStringToFlags(argv[1]);
+        return flags == -1 ? NULL : keyspaceEventsFlagsToString(flags);
+    }
+    if (!strcasecmp(config->name, "bind")) {
+        if (nargs == 1 && sdslen(argv[1]) == 0) return sdsnew("");
+        return nargs ? sdsjoin(argv + 1, nargs, " ") : sdsnew("");
+    }
+    if (!strcasecmp(config->name, "oom-score-adj-values") && nargs == CONFIG_OOM_COUNT) {
+        value = sdsempty();
+        for (int i = 1; i < argc; i++) {
+            long long number;
+            if (!string2ll(argv[i], sdslen(argv[i]), &number) || number < -2000 || number > 2000) {
+                sdsfree(value);
+                return NULL;
+            }
+            value = sdscatprintf(value, "%s%lld", i == 1 ? "" : " ", number);
+        }
+        return value;
+    }
+    if (!strcasecmp(config->name, "latency-tracking-info-percentiles")) {
+        if (nargs == 1 && !sdslen(argv[1])) return sdsnew("");
+        if (nargs == 0) return sdsnew("");
+        value = sdsempty();
+        for (int i = 1; i < argc; i++) {
+            double percentile;
+            if (!string2d(argv[i], sdslen(argv[i]), &percentile) ||
+                percentile < 0.0 || percentile > 100.0)
+            {
+                sdsfree(value);
+                return NULL;
+            }
+            char buf[128];
+            size_t len = snprintf(buf, sizeof(buf), "%f", percentile);
+            len = trimDoubleString(buf, len);
+            value = sdscatlen(value, i == 1 ? "" : " ", i == 1 ? 0 : 1);
+            value = sdscatlen(value, buf, len);
+        }
+        return value;
+    }
+    if (!strcasecmp(config->name, "save")) {
+        if (nargs == 1 && !sdslen(argv[1])) return sdsnew("");
+        if (nargs % 2) return NULL;
+        value = sdsempty();
+        for (int i = 1; i < argc; i++) {
+            long long number;
+            if (!string2ll(argv[i], sdslen(argv[i]), &number) ||
+                ((i - 1) % 2 == 0 && number < 1) ||
+                ((i - 1) % 2 == 1 && number < 0))
+            {
+                sdsfree(value);
+                return NULL;
+            }
+            value = sdscatprintf(value, "%s%lld", i == 1 ? "" : " ", number);
+        }
+        /* Each save directive adds rules to the aggregate; an empty
+         * directive above clears the aggregate by returning an empty value. */
+        if (old_file_value && sdslen(old_file_value->value) && sdslen(value)) {
+            sds combined = sdscatlen(sdsdup(old_file_value->value), " ", 1);
+            combined = sdscatsds(combined, value);
+            sdsfree(value);
+            return combined;
+        }
+        return value;
+    }
+    if (!strcasecmp(config->name, "client-output-buffer-limit")) {
+        /* Each directive updates limits for one or more client classes. Build
+         * the complete effective value so it can be compared with CONFIG GET. */
+        clientBufferLimitsConfig limits[CLIENT_TYPE_OBUF_COUNT];
+        memcpy(limits, clientBufferLimitsDefaults, sizeof(limits));
+
+        /* Restore the aggregate built from earlier directives. */
+        if (old_file_value) {
+            int old_argc;
+            sds *old_argv = sdssplitargs(old_file_value->value, &old_argc);
+            if (!old_argv || old_argc % 4) {
+                if (old_argv) sdsfreesplitres(old_argv, old_argc);
+                return NULL;
+            }
+            for (int i = 0; i < old_argc; i += 4) {
+                int class = getClientTypeByName(old_argv[i]);
+                int hard_err, soft_err;
+                char *endptr;
+                if (class < 0 || class >= CLIENT_TYPE_OBUF_COUNT) {
+                    sdsfreesplitres(old_argv, old_argc);
+                    return NULL;
+                }
+                limits[class].hard_limit_bytes = memtoull(old_argv[i+1], &hard_err);
+                limits[class].soft_limit_bytes = memtoull(old_argv[i+2], &soft_err);
+                limits[class].soft_limit_seconds = strtoll(old_argv[i+3], &endptr, 10);
+                if (hard_err || soft_err || *endptr != '\0') {
+                    sdsfreesplitres(old_argv, old_argc);
+                    return NULL;
+                }
+            }
+            sdsfreesplitres(old_argv, old_argc);
+        }
+
+        if (nargs % 4) return NULL;
+        for (int i = 1; i < argc; i += 4) {
+            int class = getClientTypeByName(argv[i]);
+            int hard_err, soft_err;
+            char *endptr;
+            long long seconds = strtoll(argv[i+3], &endptr, 10);
+            /* Only the configured client classes are accepted; master clients
+             * share the normal client's output-buffer limit. */
+            if (class < 0 || class >= CLIENT_TYPE_OBUF_COUNT ||
+                !*argv[i+3] || *endptr != '\0' || seconds < 0)
+                return NULL;
+            limits[class].hard_limit_bytes = memtoull(argv[i+1], &hard_err);
+            limits[class].soft_limit_bytes = memtoull(argv[i+2], &soft_err);
+            if (hard_err || soft_err) return NULL;
+            limits[class].soft_limit_seconds = seconds;
+        }
+
+        value = sdsempty();
+        for (int i = 0; i < CLIENT_TYPE_OBUF_COUNT; i++) {
+            value = sdscatprintf(value, "%s%s %llu %llu %ld", i ? " " : "",
+                                 getClientTypeName(i), limits[i].hard_limit_bytes,
+                                 limits[i].soft_limit_bytes,
+                                 (long)limits[i].soft_limit_seconds);
+        }
+        return value;
+    }
+    return NULL;
+}
+
+/* Normalize file arguments into the same argument form passed to config
+ * setters. Startup splits a single quoted MULTI_ARG_CONFIG value before
+ * calling its setter; do that here too before interpreting the directive. */
+static sds rewriteConfigNormalizeFileValue(standardConfig *config, sds *argv, int argc, sds *cwd,
+                                          rewriteFileValue *old_file_value) {
+    if ((config->flags & MULTI_ARG_CONFIG) && argc == 2 && sdslen(argv[1])) {
+        int split_argc;
+        sds *split_args = sdssplitargs(argv[1], &split_argc);
+        if (split_args) {
+            int normalized_argc = split_argc + 1;
+            sds *normalized_argv = zmalloc(sizeof(sds) * normalized_argc);
+            normalized_argv[0] = sdsdup(argv[0]);
+            for (int i = 0; i < split_argc; i++)
+                normalized_argv[i + 1] = sdsdup(split_args[i]);
+
+            sds value = rewriteConfigNormalizeFileArgs(config, normalized_argv,
+                                                       normalized_argc, cwd, old_file_value);
+            sdsfreesplitres(split_args, split_argc);
+            sdsfreesplitres(normalized_argv, normalized_argc);
+            return value;
+        }
+    }
+    return rewriteConfigNormalizeFileArgs(config, argv, argc, cwd, old_file_value);
+}
+
+/* Return the comparison baseline for a config absent from the parsed files.
+ * Use the declared/default runtime value, not the getter: the getter returns
+ * the current value and would make a runtime change compare equal to itself. */
+static sds rewriteConfigGetDefaultValue(standardConfig *config) {
+    char buf[128];
+    switch (config->type) {
+    case BOOL_CONFIG:
+        return sdsnew(config->data.yesno.default_value ? "yes" : "no");
+    case STRING_CONFIG:
+        return sdsnew(config->data.string.default_value ? config->data.string.default_value : "");
+    case SDS_CONFIG:
+        return sdsnew(config->data.sds.default_value ? config->data.sds.default_value : "");
+    case ENUM_CONFIG:
+        return configEnumGetName(config->data.enumd.enum_value,
+                                 config->data.enumd.default_value,
+                                 !!(config->flags & MULTI_ARG_CONFIG));
+    case NUMERIC_CONFIG: {
+        long long value = config->data.numeric.default_value;
+        if ((config->data.numeric.flags & PERCENT_CONFIG) && value < 0) {
+            int len = ll2string(buf, sizeof(buf), -value);
+            buf[len++] = '%';
+            buf[len] = '\0';
+        } else if ((config->data.numeric.flags & MEMORY_CONFIG) && value >= 0) {
+            ull2string(buf, sizeof(buf), value);
+        } else if (config->data.numeric.flags & OCTAL_CONFIG) {
+            snprintf(buf, sizeof(buf), "%llo", value);
+        } else {
+            ll2string(buf, sizeof(buf), value);
+        }
+        return sdsnew(buf);
+    }
+    case SPECIAL_CONFIG:
+        if (!strcasecmp(config->name, "dir"))
+            return config_startup_cwd[0] ? sdsnew(config_startup_cwd) : NULL;
+        if (!strcasecmp(config->name, "bind")) {
+            char *default_bindaddr[CONFIG_DEFAULT_BINDADDR_COUNT] = CONFIG_DEFAULT_BINDADDR;
+            return sdsjoin(default_bindaddr, CONFIG_DEFAULT_BINDADDR_COUNT, " ");
+        }
+        if (!strcasecmp(config->name, "replicaof"))
+            return sdsempty();
+        if (!strcasecmp(config->name, "save")) {
+            sds defaults = sdsempty();
+            for (size_t i = 0; i < configDefaultSaveParamsLen; i++) {
+                defaults = sdscatprintf(defaults, "%s%ld %d", i ? " " : "",
+                                        (long)configDefaultSaveParams[i].seconds,
+                                        configDefaultSaveParams[i].changes);
+            }
+            return defaults;
+        }
+        if (!strcasecmp(config->name, "client-output-buffer-limit")) {
+            sds defaults = sdsempty();
+            for (int i = 0; i < CLIENT_TYPE_OBUF_COUNT; i++) {
+                defaults = sdscatprintf(defaults, "%s%s %llu %llu %ld", i ? " " : "",
+                                        getClientTypeName(i),
+                                        clientBufferLimitsDefaults[i].hard_limit_bytes,
+                                        clientBufferLimitsDefaults[i].soft_limit_bytes,
+                                        (long)clientBufferLimitsDefaults[i].soft_limit_seconds);
+            }
+            return defaults;
+        }
+        if (!strcasecmp(config->name, "latency-tracking-info-percentiles")) {
+            sds defaults = sdsempty();
+            for (size_t i = 0; i < configDefaultLatencyTrackingInfoPercentilesLen; i++) {
+                char value[128];
+                size_t len = snprintf(value, sizeof(value), "%f",
+                                      configDefaultLatencyTrackingInfoPercentiles[i]);
+                len = trimDoubleString(value, len);
+                defaults = sdscatlen(defaults, i ? " " : "", i ? 1 : 0);
+                defaults = sdscatlen(defaults, value, len);
+            }
+            return defaults;
+        }
+        if (!strcasecmp(config->name, "notify-keyspace-events"))
+            return sdsnew("");
+        if (!strcasecmp(config->name, "oom-score-adj-values")) {
+            sds defaults = sdsempty();
+            for (int i = 0; i < CONFIG_OOM_COUNT; i++)
+                defaults = sdscatprintf(defaults, "%s%d", i ? " " : "",
+                                        configOOMScoreAdjValuesDefaults[i]);
+            return defaults;
+        }
+        return NULL;
+    }
+    return NULL;
+}
+
+/* Resolve a relative config or include path against the current config-load
+ * directory, which may have changed after processing a `dir` directive. */
+static sds rewriteResolvePath(const sds cwd, const sds path) {
+    if (path[0] == '/') return sdsdup(path);
+    return sdscatfmt(sdsempty(), "%S/%S", cwd, path);
+}
+
+/* Only the original include argument supplies glob syntax. Escape the literal
+ * load directory so its name cannot add wildcards or backslash escapes. */
+static sds rewriteResolveGlobPattern(const sds cwd, const sds path) {
+    if (path[0] == '/') return sdsdup(path);
+    sds pattern = sdsempty();
+    for (size_t i = 0; i < sdslen(cwd); i++) {
+        if (strchr("\\*?[", cwd[i]))
+            pattern = sdscatlen(pattern, "\\", 1);
+        pattern = sdscatlen(pattern, cwd + i, 1);
+    }
+    return sdscatfmt(pattern, "/%S", path);
+}
+
+/* Read a config file in load order and add its effective directives to values.
+ * Includes recurse immediately, so later directives replace earlier ones just
+ * as they do at startup. `source` identifies the file-origin class for values
+ * read from this file; included files are passed CONFIG_SOURCE_INCLUDE. */
+static int rewriteConfigParseFile(const sds path, configSource source, dict *values, sds *cwd,
+                                 int allow_missing) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) return allow_missing && errno == ENOENT ? C_OK : C_ERR;
+
+    /* Read the complete file first, like loadServerConfig(), then use the
+     * same line splitting and argument parsing rules as normal loading. */
+    sds content = sdsempty();
+    char buf[CONFIG_READ_LEN + 1];
+    while (fgets(buf, sizeof(buf), fp) != NULL)
+        content = sdscat(content, buf);
+    if (ferror(fp)) {
+        sdsfree(content);
+        fclose(fp);
+        return C_ERR;
+    }
+    fclose(fp);
+
+    int result = C_OK;
+    int totlines;
+    sds *lines = sdssplitlen(content, sdslen(content), "\n", 1, &totlines);
+    sdsfree(content);
+
+    /* Walk directives in file order. This is important because later values
+     * override earlier ones, and includes take effect at their position. */
+    for (int i = 0; i < totlines; i++) {
+        lines[i] = sdstrim(lines[i], " \t\r\n");
+        if (!sdslen(lines[i]) || lines[i][0] == '#') continue;
+
+        int argc;
+        sds *argv = sdssplitargs(lines[i], &argc);
+        if (!argv) {
+            result = C_ERR;
+            break;
+        }
+        if (argc == 0) {
+            sdsfreesplitres(argv, argc);
+            continue;
+        }
+        sdstolower(argv[0]);
+
+        if (!strcasecmp(argv[0], "include") && argc == 2) {
+            /* Match startup loading: plain include arguments are opened
+             * directly, while only arguments with wildcard syntax use glob. */
+            if (!strpbrk(argv[1], "*?[")) {
+                sds include_path = rewriteResolvePath(*cwd, argv[1]);
+                result = rewriteConfigParseFile(include_path, CONFIG_SOURCE_INCLUDE,
+                                                values, cwd, 0);
+                sdsfree(include_path);
+            } else {
+                sds pattern = rewriteResolveGlobPattern(*cwd, argv[1]);
+                glob_t matches;
+                if (glob(pattern, 0, NULL, &matches) == 0) {
+                    for (size_t i = 0; i < matches.gl_pathc; i++) {
+                        sds include_path = sdsnew(matches.gl_pathv[i]);
+                        if (rewriteConfigParseFile(include_path, CONFIG_SOURCE_INCLUDE,
+                                                   values, cwd, 0) == C_ERR)
+                        {
+                            result = C_ERR;
+                        }
+                        sdsfree(include_path);
+                        if (result == C_ERR) break;
+                    }
+                    globfree(&matches);
+                }
+                /* Like startup, a wildcard include with no matches is ignored. */
+                sdsfree(pattern);
+            }
+        } else {
+            standardConfig *config = lookupConfig(argv[0]);
+            /* Aliases share the primary config's value. Record file values
+             * under the primary name so rewrite compares one canonical key. */
+            if (config && (config->flags & ALIAS_CONFIG)) {
+                sds primary_name = sdsnew(config->alias);
+                config = lookupConfig(primary_name);
+                sdsfree(primary_name);
+            }
+            if (config && !(config->flags & ALIAS_CONFIG)) {
+                /* The value dictionary uses SDS keys, while config->name is
+                 * a plain C string. Build a temporary SDS for the lookup. */
+                sds key = sdsnew(config->name);
+                rewriteFileValue *old_file_value = dictFetchValue(values, key);
+                sdsfree(key);
+                /* Normalize the file syntax to the same representation used
+                 * by the config getter before storing it for comparison. */
+                sds parsed = rewriteConfigNormalizeFileValue(config, argv, argc, cwd,
+                                                            old_file_value);
+                if (parsed) {
+                    rewriteFileValue *file_value = zmalloc(sizeof(*file_value));
+                    file_value->value = parsed;
+                    file_value->source = source;
+                    /* Keep track of included values even if a later main-file
+                     * directive becomes effective. The rewrite callbacks may
+                     * replace an earlier main-file line before the include. */
+                    file_value->seen_in_include = source == CONFIG_SOURCE_INCLUDE ||
+                        (old_file_value && old_file_value->seen_in_include);
+                    sds key = sdsnew(config->name);
+                    if (!dictReplace(values, key, file_value)) sdsfree(key);
+                }
+            }
+        }
+        sdsfreesplitres(argv, argc);
+        if (result == C_ERR) break;
+    }
+    sdsfreesplitres(lines, totlines);
+    return result;
+}
+
+/* Build the effective file-value map used by CONFIG REWRITE. */
+static dict *rewriteConfigReadFileValues(const char *path) {
+    dict *values = dictCreate(&rewriteFileValueDictType);
+    /* The startup cwd is captured before config loading changes it via `dir`. */
+    serverAssert(config_startup_cwd[0] != '\0');
+    sds cwd = sdsnew(config_startup_cwd);
+    sds path_sds = sdsnew(path);
+    sds root = path[0] == '/' ? sdsdup(path_sds) : rewriteResolvePath(cwd, path_sds);
+    sdsfree(path_sds);
+    /* A deleted main config is an empty baseline, matching the rewrite-state
+     * reader; missing files referenced by include remain errors. */
+    int result = rewriteConfigParseFile(root, CONFIG_SOURCE_MAIN, values, &cwd, 1);
+    sdsfree(root);
+    sdsfree(cwd);
+    if (result == C_ERR) {
+        dictRelease(values);
+        return NULL;
+    }
+    return values;
 }
 
 static int numericConfigSetInternal(standardConfig *config, long long ll, const char **err) {
@@ -2975,6 +3662,35 @@ static int isValidTlsExpectedPeerName(char *val, const char **err) {
         return 0;
     }
 
+    /* The option takes DNS names only. It names peers by stable DNS identities,
+     * and the OpenSSL verification parameters hold a single expected IP address
+     * that must match in addition to any host names (see
+     * tlsVerifyParamAddIdentity()), which does not fit a list where any entry
+     * may match. Refuse an IP address here so the mistake surfaces at
+     * configuration time rather than as a failed handshake. Verifying a peer by
+     * its address is what Sentinel's tls-verify-hostnames and the tools' default
+     * identity check are for. */
+    int count = 0;
+    unsigned char addr_buf[sizeof(struct in6_addr)];
+    sds *tokens = sdssplitlen(val, strlen(val), " ", 1, &count);
+    if (!tokens) {
+        *err = "tls-expected-peer-name could not be parsed";
+        return 0;
+    }
+    for (int i = 0; i < count; i++) {
+        if (sdslen(tokens[i]) == 0) continue; /* runs of spaces */
+        if (inet_pton(AF_INET, tokens[i], addr_buf) == 1 ||
+            inet_pton(AF_INET6, tokens[i], addr_buf) == 1)
+        {
+            sdsfreesplitres(tokens, count);
+            *err = "tls-expected-peer-name accepts DNS names only; to verify a peer "
+                   "by its IP address use Sentinel's tls-verify-hostnames or the "
+                   "tools' default identity check";
+            return 0;
+        }
+    }
+    sdsfreesplitres(tokens, count);
+
     return 1;
 }
 
@@ -3306,6 +4022,8 @@ static int setConfigReplicaOfOption(standardConfig *config, sds* argv, int argc,
     sdsfree(server.masterhost);
     server.masterhost = NULL;
     if (!strcasecmp(argv[0], "no") && !strcasecmp(argv[1], "one")) {
+        /* Cancel a connection requested by an earlier replicaof directive. */
+        server.repl_state = REPL_STATE_NONE;
         return 1;
     }
     char *ptr;
@@ -3526,6 +4244,7 @@ standardConfig static_configs[] = {
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("bitmap-default-roaring", NULL, MODIFIABLE_CONFIG, server.bitmap_default_roaring, 0, NULL, NULL),
     createBoolConfig("stream-stats", NULL, MODIFIABLE_CONFIG, server.stream_stats, 0, NULL, applyStreamStats),
+    createBoolConfig("config-rewrite-source-aware", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.config_rewrite_source_aware, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -3577,6 +4296,7 @@ standardConfig static_configs[] = {
     createEnumConfig("propagation-error-behavior", NULL, MODIFIABLE_CONFIG, propagation_error_behavior_enum, server.propagation_error_behavior, PROPAGATION_ERR_BEHAVIOR_IGNORE, NULL, NULL),
     createEnumConfig("shutdown-on-sigint", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigint, 0, isValidShutdownOnSigFlags, NULL),
     createEnumConfig("shutdown-on-sigterm", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, shutdown_on_sig_enum, server.shutdown_on_sigterm, 0, isValidShutdownOnSigFlags, NULL),
+    createEnumConfig("io-threads-client-types", NULL, IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, io_threads_client_types_enum, server.io_threads_client_types, IO_THREADS_CLIENT_TYPE_ALL, NULL, NULL),
 
     /* Integer configs */
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
