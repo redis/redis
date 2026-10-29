@@ -1,16 +1,188 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+Redis Open Source 8.12 release notes
+====================================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
 
-    https://download.redis.io/redis-stable.tar.gz
 
-More information is available at https://redis.io
+===================================================================
+Redis 8.12-RC1 (v8.11.240)    Released Thu 29 Oct 2026 14:00:00 IST
+===================================================================
 
-Happy hacking!
+This is the first Release Candidate of Redis 8.12 in Redis Open Source.
+
+Release Candidates are feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+### Headlines:
+
+Redis 8.12 introduces new features and performance improvements.
+
+### Operating systems we test Redis 8.12 on [need review]
+
+- Ubuntu 22.04 (Jammy Jellyfish), 24.04 (Noble Numbat), 26.04 (Resolute Raccoon)
+- Rocky Linux 8.10, 9.7, 10.1
+- AlmaLinux 8.10, 9.7, 10.1
+- Debian 12.13 (Bookworm), Debian 13.4 (Trixie)
+- Alpine 3.23
+- macOS 14.8.4 (Sonoma), 15.7.4 (Sequoia), 26.3 (Tahoe) - for both Intel and ARM
+
+### Security fixes
+- RediSearch/RediSearch#10073 Indexed value hashing is now collision-resistant, preventing HashDoS-style index degradation from adversarial input. (MOD-14459)
+- RediSearch/RediSearch#11202 Incomplete UTF-8 characters no longer reads out of bounds in indexed TEXT fields. (MOD-18088)
+
+### New Features
+
+- #15331 Compressed bitmaps — Integrated redis-roaring into Redis core for lower memory usage and faster bitmap operations. 
+Special thanks to Antonio, the original creator of redis-roaring, for contributing this capability! https://redisroaring.com/redis-merge/#/1; 
+- #15986 New command: `BITRANGEINTARRAY` equivalent to redis-roaring’s `R.RANGEINTARRAY`, to return set bit offsets within a specified range
+- #15938 Set expiration to individual set member; New commands: `SEXPIRE`,`SPEXPIRE`,`SEXPIREAT`,`SPEXPIREAT` to set expiration and `STTL`, `SPTTL`, `SEXPIRETIME`,`SPEXPIRETIME` to retrieve remaining TTLs or expiration timestamps
+- #15828 Bless keys: avoid eviction of specified keys; New command: `BLESS`
+- #15829 `CLUSTER MIGRATION STATUS` now reports progress for both the snapshot and incremental migration phases
+- #15556 `TLS` named groups can now be configured using `tls-groups`
+- RedisBloom/RedisBloom#17398 Count-min-sketch extensions: Added optional `CELL_SIZE` support to `CMS.INITBYDIM` and `CMS.INITBYPROB` for lower memory usage, negative increments in `CMS.INCRBY` to decrement counts, and cell size reporting in `CMS.INFO`
+- RedisJSON/RedisJSON#1640 Auto-create JSON deep path 
+- RediSearch/RediSearch#10151 `EXPLAINSCORE` is now supported for `FT.HYBRID`. (MOD-10044)
+- RediSearch/RediSearch#11330 SQ8 new compression is now available for HNSW vector fields. (MOD-6132)
+- RediSearch/RediSearch#10247 `RETURN_STRICT` timeout handling is now enabled for local `FT.HYBRID` execution. (MOD-16492)
+- RediSearch/RediSearch#11278 `FT.ALTER` avoids unnecessary document reindexing during schema additions. (MOD-18171)
+- RediSearch/RediSearch#11384 Score/payload-only hash updates avoid reindexing. (MOD-18182)
+- RediSearch/RediSearch#11230 Hash documents are no longer re-indexed when no vector indexed field is touched. (MOD-17688)
+
+### Bug fixes
+- #15569 Changes made by `XDELEX DELREF` for already-deleted stream entries could fail to propagate to replicas or the AOF
+- #15508 Operations using random radix-tree traversal could behave incorrectly when starting from certain leaf nodes
+- #15604 Memory usage could be calculated incorrectly for hashes using shared templates
+- #15489 RDB files could fail to load after `XSETID` reduced a stream’s entries_added counter
+- #15626 `SET` could calculate an incorrect expiration time when given an excessively large relative `TTL`
+- #15628 Active defragmentation could incorrectly handle the shared-template registry used by compact hashes
+- #15530 After failover, a replica could remain connected to another replica instead of the new primary
+- #15733 Invalid cluster slot ranges could be accepted after being merged into a valid range
+- #15756 `RESTORE` could calculate an incorrect expiration time when given an excessively large relative `TTL`
+- #15699 Memory growth could be accounted for incorrectly when `SETBIT` or `BITFIELD` expanded a string
+- #15815 `XTRIM` could leave a stream in a state that prevented an RDB file containing it from loading
+- #15795 Clients could fail to receive a protocol error when a malformed command arrived across multiple network reads
+- #15875 `ARLASTITEMS` could omit elements appearing after a gap in an array
+- #15916 Data could be lost when a legacy AOF file was upgraded before loading completed
+- #15917 Hiredis clients on Linux could mishandle errors when establishing TCP connections
+- #15869 Redis could crash when a module thread paused I/O threads
+- #15468 - Pub/Sub subscriptions could remain active after the subscribing user’s channel permissions were revoked or the user was deleted, if the client had re-authenticated as another user.
+- #15623 Module actions scheduled by hash-field expiration notifications could be delayed after fields expired in the background
+- #15680 Data could be lost after a replica migrated to a different shard
+- #15587 `LMOVEM` could emit keyspace notifications inconsistent with those produced by `LMOVE`
+- #15695 Command side effects could be propagated to replicas or the AOF despite settings that should have excluded them
+- RediSearch/RediSearch#10872 Shard no longer crashes with SIGSEGV when `RESTORE` of a legacy `ft_index0` payload is issued outside an RDB load. (MOD-15685)
+- RediSearch/RediSearch#10728 GC timer arming off the main thread on ARM no longer causes random shard crashes after extended uptime. (MOD-17309)
+- RediSearch/RediSearch#10767 Server no longer crashes on writes when an index `FILTER` references no schema fields. (MOD-15592)
+- RediSearch/RediSearch#11303, RediSearch/RediSearch#11304, RediSearch/RediSearch#11308, RediSearch/RediSearch#11309, RediSearch/RediSearch#11310, RediSearch/RediSearch#11311 `FT.ALTER SCHEMA ADD` running concurrently with queries under `WORKERS>0` no longer crashes query execution across VECTOR, TAG, NUMERIC, GEO, ISMISSING, and GEOSHAPE nodes. (MOD-18356, MOD-18361, MOD-18366, MOD-18367, MOD-18368)
+- RediSearch/RediSearch#11474 `FT.AGGREGATE` with the numeric `SORTBY` optimizer no longer crashes or returns wrong results. (MOD-6967)
+- RediSearch/RediSearch#10209 Coordinator no longer crashes under RESP2 when `FT.PROFILE HYBRID` hits a return-strict timeout. (MOD-16396)
+- RediSearch/RediSearch#10145 TEXT PHONETIC matches now behave correctly when non-TEXT fields precede TEXT fields in the schema. (MOD-16304)
+- RediSearch/RediSearch#11262 `FT.AGGREGATE` cursor with `FILTER` now reports the correct result count. (MOD-18172)
+- RediSearch/RediSearch#11282 `FT.EXPLAIN` now renders a multi-word tag value as a single tag rather than an `INTERSECT`. (MOD-8666)
+- RediSearch/RediSearch#10768 `NOT` queries no longer leak excluded documents or drop results after a concurrent index change. (MOD-17394)
+- RediSearch/RediSearch#10637 Numeric index cardinality and bounds are now correct under float compression. (MOD-16877)
+- RediSearch/RediSearch#10704 Empty wildcard patterns no longer cause out-of-bounds writes or spurious empty-value matches. (MOD-17451)
+- RediSearch/RediSearch#10752 Wildcard `?` on `WITHSUFFIXTRIE` TEXT fields now matches per codepoint rather than per byte. (MOD-17476)
+- RediSearch/RediSearch#10112 Suffix-trie wildcard queries on TEXT fields are now case-insensitive. (MOD-16259)
+- RediSearch/RediSearch#11450 Matching literal `*` no longer hangs on the indexed string.
+- RediSearch/RediSearch#11267 Duplicate vector results are no longer returned during tiered indexing. (MOD-17795)
+- RediSearch/RediSearch#10731 `FT.SEARCH` on cluster now returns an error for invalid `LIMIT` arguments, matching standalone behavior. (MOD-12465)
+- RediSearch/RediSearch#10251 `FT.SEARCH` under `WORKERS>0` no longer returns a nil field-array for documents re-indexed mid-query. (MOD-16507)
+- RediSearch/RediSearch#10921 Sort keys with embedded NUL bytes are no longer truncated in replies.
+- RediSearch/RediSearch#9963 Trie `RangeIter` now preserves the excluded-empty lower bound. (MOD-15897)
+- RediSearch/RediSearch#10085 `RETURN_STRICT` safe-loader no longer deadlocks the GIL on client timeout. (MOD-16267)
+- RediSearch/RediSearch#11449 Index reference leak after queued search cancellation no longer occurs. (MOD-18682)
+- RediSearch/RediSearch#11369 Memory leaks after coordinator `SEARCH` cancellation no longer occur. (MOD-18548)
+- RediSearch/RediSearch#10110 `FT.HYBRID` cursor setup now has a bounded channel timeout. (MOD-16145)
+- RediSearch/RediSearch#10211, RediSearch/RediSearch#10745 `RETURN_STRICT` cursors are now depleted on timeout; strict-timed-out hybrid cursor cycles drop their cursors at cycle end. (MOD-16091, MOD-16991)
+- RediSearch/RediSearch#10947 Coordinator cursor memory is now capped via `INDEX_CURSOR_LIMIT`. (MOD-17479)
+- RediSearch/RediSearch#10766, RediSearch/RediSearch#10763 Cursor reads no longer time out against a deadline belonging to an earlier read, and now correctly reports a timeout that expires while iterators are revalidated. (MOD-17489, MOD-17488)
+- RediSearch/RediSearch#10993 RDB and replication payloads no longer leak a stray heap byte. (MOD-17800)
+- RediSearch/RediSearch#10074 `FT.HYBRID` now returns a stable RRF result order across cluster shards. (MOD-12438)
+- RediSearch/RediSearch#11027 Cluster TLS connections now use Redis node metadata, aligning with topology changes. (MOD-15869)
+- RediSearch/RediSearch#10380, RediSearch/RediSearch#10430 Cluster topology is now refreshed on topology-change events rather than by polling. (MOD-15868, MOD-15870)
+- RediSearch/RediSearch#10835 Coordinator fanout now preserves binary argument lengths.
+- RediSearch/RediSearch#11095 Replica stalls during `FT.DROPINDEX DD` are reduced.
+- RediSearch/RediSearch#10255 Blocked search clients no longer trigger eager query dumps. (MOD-16518)
+- RediSearch/RediSearch#10083 Internal query arguments missing during rolling upgrade are now tolerated. (MOD-16047)
+- RediSearch/RediSearch#10816 Forced GC now waits for a concurrent child process instead of skipping its cycle.
+- RediSearch/RediSearch#10958 Async disk read pool no longer spins when saturated; it blocks instead.
+- RediSearch/RediSearch#10646, RediSearch/RediSearch#10392 VectorSimilarity dependency refreshed to address unaligned metadata access on ARM/SVE paths. (MOD-15303, MOD-16696)
+- RediSearch/RediSearch#10352 `FT.PROFILE ON_TIMEOUT FAIL` now reports a pre-execution timeout as a warning rather than an error. (MOD-16660)
+- RediSearch/RediSearch#10870 Crash reports now include in-flight coordinator aggregate, hybrid, and cursor-read queries. (MOD-16992)
+- RediSearch/RediSearch#11089 Debug aggregate request synchronization no longer crashes. (MOD-17616)
+- RediSearch/RediSearch#10063 `COLLECT LIMIT` now honors the configurable `search-max-aggregate-results`
+- RedisJSON/RedisJSON#1636 Fixed array-index normalization overflow for extreme negative indexes, including i64::MIN, affecting commands such as `JSON.ARRTRIM`
+- RedisJSON/RedisJSON#1648 Corrected `JSON.MGET` key-spec metadata to identify all key arguments and exclude the trailing JSONPath argument.
+- RedisJSON/RedisJSON#1670 Fixed downstream compilation when using redis_json_module_create! with the as-library feature and the new RDB depth configuration
+- RedisBloom/RedisBloom#1035 TDIGEST.QUANTILE, TDIGEST.CDF, and TDIGEST.TRIMMED_MEAN could return NaN for a sketch containing exactly one observation
+- RedisBloom/RedisBloom#1053 RDB loading and RESTORE did not consistently reject invalid numeric values, allocation sizes, serialized counts, or inconsistent metadata in Bloom filters, Count-Min Sketches, Top-K sketches, and t-digests; Bloom filter growth also lacked overflow checks
+- RedisBloom/RedisBloom#1053 Top-K sketches containing nonempty items with zero counts or empty-string items with nonzero counts could be restored incorrectly
+- RedisBloom/RedisBloom#1067 Bloom filters with excessive hash-function counts could be accepted during loading and restoration, including through BF.LOADCHUNK
+- RedisBloom/RedisBloom#1062 CMS.MERGE key metadata did not correctly identify the destination and all source keys, affecting cluster slot validation
+- RedisBloom/RedisBloom#1071 CF.COMPACT command metadata was missing its argument count and key specification
+
+### Performance and resource utilization improvements
+
+- #15618 Batch updates to hashes using shared templates now run more efficiently
+- #15018 Supported x86 systems now use the processor-based monotonic clock by default, with runtime calibration to reduce timing overhead
+- #15782 RDB and AOF loading now provides sequential-read hints to the operating system to improve loading efficiency
+- RediSearch/RediSearch#10169 Searches on indexes using field-level expiration (`HEXPIRE`) are faster. (MOD-16350)
+- RediSearch/RediSearch#10981, RediSearch/RediSearch#11065 Coordinator field lookup and row-reply serialization overhead is reduced. (MOD-17924)
+- RediSearch/RediSearch#11055, RediSearch/RediSearch#11056, RediSearch/RediSearch#11057 Cluster reply conversion, result destruction, and `GROUPBY` cleanup have reduced overhead. (MOD-17908, MOD-17909, MOD-17910)
+- RediSearch/RediSearch#11507, RediSearch/RediSearch#11506 Query replies now format integral numeric values without `snprintf` and declare reply collection lengths up front. (MOD-18800, MOD-18799)
+- RediSearch/RediSearch#11509 Hash field loading for `RETURN` and `LOAD` no longer requires per-field allocations. (MOD-18811)
+- RediSearch/RediSearch#10246 Concurrent writes are now allowed during vector range queries. (MOD-16437)
+- RediSearch/RediSearch#10515 Coordinator requests are now allocated on the main thread, removing `CoordRequestCtx`. (MOD-16990)
+- RediSearch/RediSearch#11018 Query usage is now separated from administrative index operations. (MOD-17536)
+- RediSearch/RediSearch#10066 Shard response barrier removed in favor of async iterator depletion callback for `FT.AGGREGATE WITHCOUNT`. (MOD-16210)
+- RedisJSON/RedisJSON#1645 More accurate memory usage reporting for shared strings: Memory usage now accounts for each reference’s proportional share of a shared string’s allocation, including its header and padding, instead of charging the full allocation to every reference
+- J1660 Reduced object memory consumption: JSON parsing now uses compact object allocation to reduce the actual memory needed to store JSON objects 
+- RedisJSON/RedisJSON#1661 Improved JSONPath parsing and evaluation by reducing parser backtracking, temporary allocations, and repeated traversal. Optimizations include caching root-path operands across filter candidates, stopping existence checks at the first match, and reducing overhead in regex matching and string comparisons
+- RedisJSON/RedisJSON#1631 Improved typed-array element access through direct indexing, avoiding repeated iteration and quadratic work during full indexed scans 
+- RedisBloom/RedisBloom#1049 Improved t-digest compression performance for inputs containing many duplicate values. Sorting is now bounded to O(n log n), avoiding quadratic behavior on pathological inputs
+
+### Configuration parameters
+
+- Redis-roaring:`bitmap-default-roaring` - to enable the new roaring bitmaps type, disabled by default 
+- RedisJSON/RedisJSON#1657 Configurable RDB depth validation: Added `json-legacy-rdb-depth-limit`, disabled by default, to enforce a maximum nesting depth of 128 when loading JSON from RDB or through RESTORE
+- RedisJSON/RedisJSON#1640 Added`json-auto-create-deep-paths` and is disabled by default and can only be configured at load time. Use the same value on every node of a shard and when replaying AOF files, because differing values can cause data divergence
+
+## Metrics
+
+- #15374 `INFO` keysizes histograms now include streams, providing visibility into stream key sizes
+- #15682 Streams observability – Added `INFO STREAMS` with per-database histograms of consumer groups per stream, pending entries per group, and consumers per group. Enable with stream-stats yes (disabled by default)
+- RediSearch/RediSearch#10097 `FT.INFO` now exposes the default `EF_RUNTIME`. (MOD-16147)
+- RediSearch/RediSearch#10107 Disk GC `bytes_collected` and cycle stats are now reported in `FT.INFO`. (MOD-14621)
+- RediSearch/RediSearch#10464 `FT.INFO` on coordinator now aggregates per-field disk metrics via the reducer. (MOD-14859)
+- RediSearch/RediSearch#10204 Redis `INFO` now breaks down query timeout metrics by pipeline stage. (MOD-13192)
+- RediSearch/RediSearch#11521 Index metrics are no longer collected for unrelated `INFO` sections. (MOD-18033)
+- RediSearch/RediSearch#10536 `FT.PROFILE` loader-field timing resolution is improved. (MOD-17132)
+
+### Behavior changes
+
+- RediSearch/RediSearch#10109 `FT.CREATE` rejects `RERANK` on HNSW vector fields in RAM mode. (MOD-16015)
+- RediSearch/RediSearch#10200 Disk indexes reject `DIALECT 4` and `WITHOUTCOUNT`. (MOD-15997)
+- RediSearch/RediSearch#10082 `COLLECT` requires an `@` prefix for field names. (MOD-16233)
+- RediSearch/RediSearch#11106 JSON `HIGHLIGHT`/`SUMMARIZE` fields with multi-value JSONPath are now rejected. (MOD-16530)
+- RediSearch/RediSearch#10208 Non-cacheable commands are now marked with `dont_cache`. (MOD-16175)
+- RediSearch/RediSearch#10699 Numeric command arguments are now strictly parsed. (MOD-17409)
+- RediSearch/RediSearch#11335 Search module now requires Redis 8.9.241 or newer to load. (MOD-15868)
+- RedisBloom/RedisBloom#1063 Rejected `CMS.INCRBY` item updates now leave counters and the total count unchanged instead of saturating counters on overflow. Multi-item commands can still partially succeed.
+- `RedisBloom/RedisBloom#1063 CMS.MERGE` now requires matching cell sizes across the destination and all sources.
+
+### Modules API
+
+- #15517 Modules can now retrieve a cluster node’s TLS port using the new REDISMODULE_NODE_PORT_TLS flag in RM_GetClusterNodeInfo()
+- RedisJSON/RedisJSON#1623 Added `getWithPath` in shared API V9 to evaluate a precompiled JSONPath, allowing callers to compile a path once and reuse it across documents. 
+- RedisJSON/RedisJSON#1666 Added `pathParseNoErrorMsg` in shared API V10 to compile JSONPaths without a Redis context or an allocated error message. Returns a compiled handle on success or NULL on failure. 
+- RedisJSON/RedisJSON#1653 Made pre-command hooks optional and allowed hook errors to abort JSON commands before execution. Hooks now return `RedisResult<()>`; shared C API calls continue to ignore hook errors.
+- RedisJSON/RedisJSON#1640 Extended the Rust Manager interface with clone_value and create_object to support construction of missing paths. Custom implementations must implement these methods and satisfy the new `Borrow<Self::V>` requirement for owned values.
+
