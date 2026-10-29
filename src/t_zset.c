@@ -1997,7 +1997,8 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
                 *out_flags |= ZADD_OUT_NOP;
                 return 1;
             }
-            if (newscore) *newscore = score;
+            /* Reply the stored score when it doesn't change, it can still be -0. */
+            if (newscore) *newscore = (score == curscore) ? curscore : score;
             if (score != curscore) {
                 zbtreeUpdateScore(zs, ele, score, &position);
                 *out_flags |= ZADD_OUT_UPDATED;
