@@ -278,10 +278,16 @@ static inline int _check_td_overflow(const double new_unmerged_weight,
 
 int td_centroid_count(td_histogram_t *h) { return next_node(h); }
 
+static void td_invalidate_query(td_histogram_t *h) {
+    td_free(h->query_view);
+    h->query_view = NULL;
+}
+
 void td_reset(td_histogram_t *h) {
     if (!h) {
         return;
     }
+    td_invalidate_query(h);
     h->min = __DBL_MAX__;
     h->max = -h->min;
     h->merged_nodes = 0;
@@ -304,6 +310,7 @@ int td_init(double compression, td_histogram_t **result) {
     if (!histogram) {
         return 1;
     }
+    histogram->query_view = NULL;
     histogram->nodes_mean = NULL;
     histogram->nodes_weight = NULL;
     histogram->cap = (int)capacity;
@@ -337,6 +344,7 @@ void td_free(td_histogram_t *histogram) {
     if (!histogram) {
         return;
     }
+    td_invalidate_query(histogram);
     if (histogram->nodes_mean) {
         td_free_((void *)(histogram->nodes_mean));
     }
@@ -737,6 +745,7 @@ int td_add(td_histogram_t *h, double mean, long long weight) {
     if (overflow_res != 0)
         return overflow_res;
 
+    td_invalidate_query(h);
     if (mean < h->min) {
         h->min = mean;
     }
@@ -756,6 +765,7 @@ int td_compress(td_histogram_t *h) {
     }
     if (!_tdigest_long_long_add_safe(h->merged_weight, h->unmerged_weight) ||
         h->total_compressions == LLONG_MAX) return EDOM;
+    td_invalidate_query(h);
     const long long exact_weight = h->merged_weight + h->unmerged_weight;
     int N = h->merged_nodes + h->unmerged_nodes;
     td_qsort(h->nodes_mean, h->nodes_weight, 0, N - 1);

@@ -10,31 +10,65 @@ void freeTdigestObject(robj *o) { td_free(o->ptr); }
 size_t tdigestObjectLength(robj *o) {
     uint64_t n=td_size(o->ptr); return n>SIZE_MAX ? SIZE_MAX : n;
 }
-size_t tdigestFreeEffort(robj *o) { UNUSED(o); return 3; }
-size_t tdigestAllocSize(robj *o) {
-    td_histogram_t *t=o->ptr;
+size_t tdigestFreeEffort(robj *o) { return ((td_histogram_t *)o->ptr)->query_view ? 6 : 3; }
+static size_t tdAllocSize(td_histogram_t *t) {
     return zmalloc_size(t)+zmalloc_size(t->nodes_mean)+zmalloc_size(t->nodes_weight);
 }
-void tdigestDismiss(robj *o) {
+size_t tdigestAllocSize(robj *o) {
     td_histogram_t *t=o->ptr;
+    return tdAllocSize(t)+(t->query_view ? tdAllocSize(t->query_view) : 0);
+}
+static void tdDismiss(td_histogram_t *t) {
     dismissMemory(t->nodes_mean,(size_t)t->cap*sizeof(double));
     dismissMemory(t->nodes_weight,(size_t)t->cap*sizeof(long long));
 }
-static td_histogram_t *tdClone(td_histogram_t *t) {
+void tdigestDismiss(robj *o) {
+    td_histogram_t *t=o->ptr;
+    tdDismiss(t);
+    if (t->query_view) tdDismiss(t->query_view);
+}
+/* Spare capacity contains no live nodes: do not copy/touch those pages. Query
+ * snapshots only need room for the used nodes, transactional writes need cap. */
+static td_histogram_t *tdCloneCapacity(td_histogram_t *t, int capacity) {
     td_histogram_t *copy=zmalloc(sizeof(*copy)); *copy=*t;
-    size_t n=(size_t)t->cap;
-    copy->nodes_mean=zmalloc(n*sizeof(double));
-    copy->nodes_weight=zmalloc(n*sizeof(long long));
+    copy->query_view=NULL;
+    copy->cap=capacity;
+    size_t n=(size_t)(t->merged_nodes+t->unmerged_nodes);
+    copy->nodes_mean=zmalloc((size_t)capacity*sizeof(double));
+    copy->nodes_weight=zmalloc((size_t)capacity*sizeof(long long));
     memcpy(copy->nodes_mean,t->nodes_mean,n*sizeof(double));
     memcpy(copy->nodes_weight,t->nodes_weight,n*sizeof(long long));
     return copy;
 }
+static td_histogram_t *tdClone(td_histogram_t *t) { return tdCloneCapacity(t,t->cap); }
 robj *tdigestDup(robj *o) { return createTdigestObject(tdClone(o->ptr)); }
-void tdigestDefrag(robj *o, void *(*defrag)(void *)) {
-    void *p=defrag(o->ptr); if (p) o->ptr=p;
-    td_histogram_t *t=o->ptr;
+static td_histogram_t *tdDefrag(td_histogram_t *t, void *(*defrag)(void *)) {
+    void *p=defrag(t); if (p) t=p;
     p=defrag(t->nodes_mean); if (p) t->nodes_mean=p;
     p=defrag(t->nodes_weight); if (p) t->nodes_weight=p;
+    return t;
+}
+void tdigestDefrag(robj *o, void *(*defrag)(void *)) {
+    td_histogram_t *t=o->ptr=tdDefrag(o->ptr,defrag);
+    if (t->query_view) t->query_view=tdDefrag(t->query_view,defrag);
+}
+static td_histogram_t *tdQueryView(client *c, robj *o) {
+    td_histogram_t *t=o->ptr;
+    if (!t->unmerged_nodes) return t;
+    if (t->query_view) return t->query_view;
+    size_t oldsize=server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
+    td_histogram_t *view=tdCloneCapacity(t,t->merged_nodes+t->unmerged_nodes);
+    if (td_compress(view)) {
+        td_free(view); addReplyError(c,"T-Digest: overflow detected"); return NULL;
+    }
+    /* Retain only the compressed centroids, not another reserved input buffer. */
+    view->cap=view->merged_nodes;
+    view->nodes_mean=zrealloc(view->nodes_mean,(size_t)view->cap*sizeof(double));
+    view->nodes_weight=zrealloc(view->nodes_weight,(size_t)view->cap*sizeof(long long));
+    t->query_view=view;
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,oldsize,kvobjAllocSize(o));
+    return view;
 }
 void tdigestDigest(unsigned char *digest, robj *o) {
     td_histogram_t *t=o->ptr;
@@ -103,12 +137,21 @@ void tdigestAddCommand(client *c) {
     td_histogram_t *t=o->ptr;
     if (td_size(t)>LLONG_MAX-n) { addReplyError(c,"T-Digest: overflow detected"); zfree(values); return; }
     size_t oldcount=tdigestObjectLength(o), oldsize=server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
-    /* Work on a copy: overflow must not leave an unpropagated partial mutation. */
-    td_histogram_t *copy=tdClone(t);
-    for (int i=0; i<n; i++) if (td_add(copy,values[i],1)) {
-        td_free(copy); zfree(values); addReplyError(c,"T-Digest: overflow detected"); return;
+    /* After validation, appending unit weights cannot fail unless compression
+     * is needed. Keep the transactional copy for batches crossing that boundary. */
+    if (n<=t->cap-1-t->merged_nodes-t->unmerged_nodes) {
+        for (int i=0; i<n; i++) {
+            int rc=td_add(t,values[i],1);
+            serverAssert(rc==0);
+        }
+    } else {
+        td_histogram_t *copy=tdClone(t);
+        for (int i=0; i<n; i++) if (td_add(copy,values[i],1)) {
+            td_free(copy); zfree(values); addReplyError(c,"T-Digest: overflow detected"); return;
+        }
+        o->ptr=copy; td_free(t);
     }
-    zfree(values); o->ptr=copy; td_free(t);
+    zfree(values);
     tdModified(c,o,oldcount,oldsize); addReply(c,shared.ok);
 }
 void tdigestMergeCommand(client *c) {
@@ -163,7 +206,8 @@ void tdigestInfoCommand(client *c) {
                         "Unmerged weight","Observations","Total compressions","Memory usage"};
     long long values[]={t->compression,t->cap,t->merged_nodes,t->unmerged_nodes,t->merged_weight,
                         t->unmerged_weight,td_size(t),t->total_compressions,
-                        sizeof(*t)+(size_t)t->cap*(sizeof(double)+sizeof(long long))};
+                        sizeof(*t)+(size_t)t->cap*(sizeof(double)+sizeof(long long))+
+                        (t->query_view ? sizeof(*t)+(size_t)t->query_view->cap*(sizeof(double)+sizeof(long long)) : 0)};
     if (c->resp==3) addReplyMapLen(c,9); else addReplyArrayLen(c,18);
     for (int i=0; i<9; i++) { addReplyStatus(c,names[i]); addReplyLongLong(c,values[i]); }
 }
@@ -204,8 +248,9 @@ void tdigestQueryCommand(client *c) {
             addReplyError(c,"T-Digest: low_cut_percentile should be lower than high_cut_percentile"); goto done;
         }
     }
-    /* Query compression is scratch work, not a hidden write to primary state. */
-    td_histogram_t *t=tdClone(o->ptr);
+    /* Reads share a compact snapshot without changing the persisted state. */
+    td_histogram_t *t=tdQueryView(c,o);
+    if (!t) goto done;
     double size=td_size(t), low=td_min(t), high=td_max(t);
     if (trimmed) addReplyDouble(c,td_trimmed_mean(t,values[0],values[1]));
     else {
@@ -230,7 +275,6 @@ void tdigestQueryCommand(client *c) {
             addReplyDouble(c,result);
         }
     }
-    td_free(t);
 done:
     zfree(values);
 }

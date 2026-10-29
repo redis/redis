@@ -47,6 +47,9 @@ struct td_histogram {
 
     double *nodes_mean;
     long long *nodes_weight;
+
+    /* Optional compact query snapshot. Never part of the persisted sketch. */
+    struct td_histogram *query_view;
 };
 
 typedef struct td_histogram td_histogram_t;

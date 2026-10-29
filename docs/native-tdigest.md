@@ -20,7 +20,7 @@ and empty keys, multiple databases, TTLs and continued writes.
 
 Native version 1 preserves unmerged centroids and integer weights exactly.
 Saving no longer compresses the live object or rounds weights through double.
-Queries compress a scratch copy, avoiding unreplicated mutations. New saves
+Queries use a separate compressed view, avoiding unreplicated mutations. New saves
 cannot be loaded by the old module; backward readability is not required.
 See [the cutover procedure](probabilistic-upgrade.md).
 
@@ -36,7 +36,20 @@ sort regressions, migrated flow cases and native integration tests.
 This suite runs under `make test`, event CI and the Ubuntu nightly through
 `make test-probabilistic`. Cross-family fixtures are in the separate retirement PR.
 
-This remains a draft: wider historical-version coverage, allocator/sanitizer
-validation and performance review are required. Scratch copies make reads
-and transactional updates O(allocated sketch capacity); optimize with care
-to preserve replay determinism and atomic failures.
+## Append and query costs
+
+ADD validates the entire batch before appending in place when it fits without
+compression. Batches that may compress retain the transactional copy, preserving
+atomic failure. Copies reserve the original capacity but copy only live nodes.
+
+The first query after a write compresses a copy of the live nodes. Subsequent
+queries reuse that view until the next mutation. The retained arrays contain
+only compressed centroids; no second full-capacity input buffer is retained.
+The cache adds one pointer per digest, plus a header and 16 bytes per retained
+centroid on keys queried since their last write (before allocator rounding).
+Both MEMORY USAGE and TDIGEST.INFO include the cache. COPY and persistence omit
+it; defragmentation, lazy freeing and memory tracking account for it.
+
+Alternating writes and queries still pay the first-query compression cost on
+every read. This remains a draft requiring broader historical-version and
+platform/performance coverage.
