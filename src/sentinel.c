@@ -3101,19 +3101,33 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
         }
 
         /* Update master info if received configuration is newer. */
-        if (si && master->config_epoch < master_config_epoch) {
-            master->config_epoch = master_config_epoch;
-            if (master_port != master->addr->port ||
-                !sentinelAddrEqualsHostname(master->addr, token[5]))
-            {
-                sentinelAddr *old_addr;
+        if (si &&
+            (master->config_epoch < master_config_epoch ||
+             ((master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+              master->failover_epoch < master_config_epoch)))
+        {
+            int address_changed = master_port != master->addr->port ||
+                !sentinelAddrEqualsHostname(master->addr, token[5]);
+            int failover_superseded =
+                (master->flags & SRI_FAILOVER_IN_PROGRESS) &&
+                master->failover_epoch < master_config_epoch;
+            sentinelAddr *old_addr;
 
+            if (master->config_epoch < master_config_epoch)
+                master->config_epoch = master_config_epoch;
+
+            if (address_changed || failover_superseded) {
                 sentinelEvent(LL_WARNING,"+config-update-from",si,"%@");
-                sentinelEvent(LL_WARNING,"+switch-master",
-                    master,"%s %s %d %s %d",
-                    master->name,
-                    announceSentinelAddr(master->addr), master->addr->port,
-                    token[5], master_port);
+                if (address_changed) {
+                    sentinelEvent(LL_WARNING,"+switch-master",
+                        master,"%s %s %d %s %d",
+                        master->name,
+                        announceSentinelAddr(master->addr), master->addr->port,
+                        token[5], master_port);
+                }
+                if (failover_superseded)
+                    sentinelEvent(LL_WARNING,"-failover-abort-newer-config",master,
+                        "%llu", (unsigned long long) master_config_epoch);
 
                 old_addr = dupSentinelAddr(master->addr);
                 sentinelResetMasterAndChangeAddress(master, token[5], master_port);
@@ -5528,9 +5542,18 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
  * SENTINEL_FAILOVER_STATE_UPDATE_CONFIG state. In this state we need
  * to remove it from the master table and add the promoted slave instead. */
 void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
-    sentinelRedisInstance *ref = master->promoted_slave ?
-                                 master->promoted_slave : master;
+    sentinelRedisInstance *ref;
 
+    /* A newer configuration may have been received while this failover was
+     * completing. Never let the older local failover overwrite it. */
+    if (master->config_epoch > master->failover_epoch) {
+        sentinelEvent(LL_WARNING,"-failover-abort-newer-config",master,
+            "%llu", (unsigned long long) master->config_epoch);
+        sentinelResetMaster(master,SENTINEL_RESET_NO_SENTINELS);
+        return;
+    }
+
+    ref = master->promoted_slave ? master->promoted_slave : master;
     sentinelEvent(LL_WARNING,"+switch-master",master,"%s %s %d %s %d",
         master->name, announceSentinelAddr(master->addr), master->addr->port,
         announceSentinelAddr(ref->addr), ref->addr->port);
