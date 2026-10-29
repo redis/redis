@@ -18,10 +18,10 @@ start_server [list tags {modules external:skip} config_lines [list include "\"$r
         assert_equal no [lindex [r config get config-rewrite-source-aware] 1]
         r config rewrite
         set contents [read_file [srv 0 config_file]]
+        # Count only the test modules; TLS module mode also loads redis-tls.so.
         # Legacy mode serializes modules from both includes and CLI arguments.
-        assert_equal 2 [regexp -all -line {^loadmodule } $contents]
-        assert {[string first "loadmodule $rewrite_module\n" $contents] >= 0}
-        assert {[string first "loadmodule $rewrite_module_two\n" $contents] >= 0}
+        assert_equal 1 [regexp -all -line {^loadmodule .*/moduleconfigs\.so( |$)} $contents]
+        assert_equal 1 [regexp -all -line {^loadmodule .*/moduleconfigstwo\.so( |$)} $contents]
     }
 }
 
@@ -31,7 +31,7 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
         # into the main file, even when rewrite is repeated.
         set before [read_file $rewrite_leaf]
         r config rewrite
-        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule .*/moduleconfigs\.so( |$)} [read_file [srv 0 config_file]]]
         assert_equal $before [read_file $rewrite_leaf]
         assert_equal 0 [regexp -line {^moduleconfigs.string } [read_file [srv 0 config_file]]]
         assert_equal included-value [lindex [r config get moduleconfigs.string] 1]
@@ -46,8 +46,8 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
         r module load $rewrite_module_two arg1 arg2
         r config rewrite
         set contents [read_file [srv 0 config_file]]
-        # The main file should contain only the runtime module's load directive.
-        assert_equal 1 [regexp -all -line {^loadmodule } $contents]
+        # The runtime test module should have exactly one load directive.
+        assert_equal 1 [regexp -all -line {^loadmodule .*/moduleconfigstwo\.so( |$)} $contents]
         assert_equal -1 [string first $rewrite_module $contents]
         assert {[string first $rewrite_module_two $contents] >= 0}
 
@@ -72,7 +72,7 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
         file delete $rewrite_include
         file rename $rewrite_include.saved $rewrite_include
         assert_equal OK [r config rewrite]
-        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule .*/moduleconfigs\.so( |$)} [read_file [srv 0 config_file]]]
     }
 }
 
@@ -85,8 +85,8 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
         set contents [read_file [srv 0 config_file]]
         assert_equal -1 [string first $rewrite_module $contents]
         assert {[string first $rewrite_module_two $contents] >= 0}
-        # Start with the exact generated module directive and the original CLI.
-        regexp -line {^loadmodule (.*)$} $contents -> module_args
+        # Select the runtime test module's directive, not a possible TLS line.
+        assert {[regexp -line {^loadmodule (.*/moduleconfigstwo\.so( .*)?)$} $contents -> module_args]}
         start_server [list overrides {config-rewrite-source-aware yes} config_lines [list loadmodule $module_args] args [list --loadmodule $rewrite_module]] {
             set names [lmap m [r module list] {dict get $m name}]
             assert {[lsearch -exact $names moduleconfigs] >= 0}
@@ -106,7 +106,7 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
         assert {[string first "loadmodule $rewrite_module\n" [read_file [srv 0 config_file]]] >= 0}
         r module unload moduleconfigs
         r config rewrite
-        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule .*/moduleconfigs\.so( |$)} [read_file [srv 0 config_file]]]
     }
 }
 
@@ -114,7 +114,7 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
     test {CONFIG REWRITE skips modules loaded from relative includes} {
         # Relative include resolution must use the startup dir as loading does.
         r config rewrite
-        assert_equal 0 [regexp -line {^loadmodule } [read_file [srv 0 config_file]]]
+        assert_equal 0 [regexp -line {^loadmodule .*/moduleconfigs\.so( |$)} [read_file [srv 0 config_file]]]
         restart_server 0 true false
         # The module should still load from the relative include after restart,
         # even though CONFIG REWRITE did not copy its directive to main.conf.
@@ -227,7 +227,7 @@ start_server [list tags {modules external:skip} overrides {config-rewrite-source
         # CLI-controlled include into main.conf.
         r config rewrite
         set contents [read_file [srv 0 config_file]]
-        assert_equal 0 [regexp -line {^loadmodule } $contents]
+        assert_equal 0 [regexp -line {^loadmodule .*/moduleconfigs\.so( |$)} $contents]
         assert_equal 0 [regexp -line {^moduleconfigs\.string } $contents]
         assert_equal "include \"$rewrite_leaf\"\n" [read_file $cli_include]
     }
