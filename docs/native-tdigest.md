@@ -20,7 +20,7 @@ and empty keys, multiple databases, TTLs and continued writes.
 
 Native version 1 preserves unmerged centroids and integer weights exactly.
 Saving no longer compresses the live object or rounds weights through double.
-Queries compress a scratch copy, avoiding unreplicated mutations. New saves
+Queries use a separate compressed view, avoiding unreplicated mutations. New saves
 cannot be loaded by the old module; backward readability is not required.
 See [the cutover procedure](probabilistic-upgrade.md).
 
@@ -36,7 +36,37 @@ sort regressions, migrated flow cases and native integration tests.
 This suite runs under `make test`, event CI and the Ubuntu nightly through
 `make test-probabilistic`. Cross-family fixtures are in the separate retirement PR.
 
-This remains a draft: wider historical-version coverage, allocator/sanitizer
-validation and performance review are required. Scratch copies make reads
-and transactional updates O(allocated sketch capacity); optimize with care
-to preserve replay determinism and atomic failures.
+## Append and query costs
+
+ADD validates the entire batch before appending in place when it fits without
+compression. Batches that may compress retain the transactional copy, preserving
+atomic failure. Copies reserve the original capacity but copy only live nodes.
+
+The first query after a write compresses a copy of the live nodes. Subsequent
+queries reuse that view until the next mutation. A separate sorted index of the
+source centroids survives appends, so alternating writes and queries no longer
+sort the unchanged input again. Up to eight new centroids use binary insertion;
+larger appends sort only the new tail and merge it with the retained prefix.
+The index has bounded O(n + added*log(added)) work for a large append, and ordered
+or identical input skips sorting. Canonical write compression, RESET and MERGE
+discard the index because the source centroid positions have changed.
+
+Queries resolve equal means by their original centroid position. This makes
+cached and cold queries identical regardless of read history; tie ordering can
+differ from the previous unstable query sort. The writer's compression policy,
+persisted arrays and statistical algorithm remain unchanged.
+
+The retained view contains only compressed centroids; no second full-capacity
+input buffer is retained. The cache adds one pointer per digest, a lazy cache
+header, up to four bytes per reserved index entry, and a histogram header plus
+16 bytes per compressed centroid (before allocator rounding). Index capacity
+grows geometrically and is capped by the source capacity. The index survives
+appends while the compressed answer is discarded. A large unsorted append may
+also use a temporary four-byte-per-live-node merge buffer.
+Both MEMORY USAGE and TDIGEST.INFO include the cache. COPY and persistence omit
+it; defragmentation, lazy freeing and memory tracking account for it.
+
+Alternating writes and queries still scan and compress the live source nodes on
+each read, preserving saved state rather than compacting it as a read side
+effect. This remains a draft requiring broader historical-version and
+platform/performance coverage.
