@@ -61,6 +61,7 @@ static unsigned int bio_job_to_worker[] = {
     [BIO_AOF_FSYNC] = 1,
     [BIO_CLOSE_AOF] = 1,
     [BIO_LAZY_FREE] = 2,
+    [BIO_UNLINK_FILE] = 0,
     [BIO_COMP_RQ_CLOSE_FILE] = 0,
     [BIO_COMP_RQ_AOF_FSYNC]  = 1,
     [BIO_COMP_RQ_LAZY_FREE]  = 2
@@ -102,6 +103,11 @@ typedef union bio_job {
         unsigned need_reclaim_cache:1; /* A flag to indicate that reclaim cache is required before
                                 * the file is closed. */
     } fd_args;
+
+    struct {
+        int type;
+        char *path; /* Path for unlink jobs. Owned by the job; freed after unlink. */
+    } path_args;
 
     struct {
         int type;
@@ -258,6 +264,13 @@ void bioCreateFsyncJob(int fd, long long offset, int need_reclaim_cache) {
     bioSubmitJob(BIO_AOF_FSYNC, job);
 }
 
+void bioCreateUnlinkJob(const char *filename) {
+    bio_job *job = zmalloc(sizeof(*job));
+    job->path_args.path = zstrdup(filename);
+
+    bioSubmitJob(BIO_UNLINK_FILE, job);
+}
+
 void *bioProcessBackgroundJobs(void *arg) {
     bio_job *job;
     unsigned long worker = (unsigned long) arg;
@@ -340,6 +353,12 @@ void *bioProcessBackgroundJobs(void *arg) {
             }
             if (job_type == BIO_CLOSE_AOF)
                 close(job->fd_args.fd);
+        } else if (job_type == BIO_UNLINK_FILE) {
+            if (unlink(job->path_args.path) == -1 && errno != ENOENT) {
+                serverLog(LL_WARNING, "bg_unlink: unlink(%s) failed: %s",
+                          job->path_args.path, strerror(errno));
+            }
+            zfree(job->path_args.path);
         } else if (job_type == BIO_LAZY_FREE) {
             job->free_args.free_fn(job->free_args.free_args);
         } else if ((job_type == BIO_COMP_RQ_CLOSE_FILE) ||
