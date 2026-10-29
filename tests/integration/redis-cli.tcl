@@ -696,8 +696,46 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     proc cmddocs_bulk {s} {
         return "\$[string length $s]\n$s\n"
     }
+    proc cmddocs_multiline_bulk {s} {
+        # Tcl's auto-crlf translation adds one wire byte for every LF in the
+        # payload, so include those bytes in the RESP bulk length.
+        set len [expr {[string length $s] + [regexp -all {\n} $s]}]
+        return "\$$len\n$s\n"
+    }
     proc cmddocs_array {elements} {
         return "*[llength $elements]\n[join $elements {}]"
+    }
+
+    proc legacy_command_entry {name arity} {
+        return [cmddocs_array [list \
+            [cmddocs_bulk $name] ":$arity\n" [cmddocs_array {}] \
+            ":0\n" ":0\n" ":0\n"]]
+    }
+
+    proc run_legacy_help_test {target entries expect_present} {
+        set tclsh [info nameofexecutable]
+        set script "tests/helpers/fake_redis_node.tcl"
+        set port [find_available_port $::baseport $::portcount]
+        set info [cmddocs_multiline_bulk "# Server\nredis_version:6.0.0\n"]
+        set command_reply [cmddocs_array $entries]
+
+        set nodepid [exec $tclsh $script $port \
+            "COMMAND DOCS" "-ERR unknown subcommand" \
+            "INFO SERVER" [string range $info 0 end-1] \
+            "COMMAND" [string range $command_reply 0 end-1] &]
+        wait_for_condition 50 50 {
+            [catch {close [socket "127.0.0.1" $port]}] == 0
+        } else {
+            catch {exec kill $nodepid}
+            fail "Failed to start fake Redis node"
+        }
+
+        set cmd [rediscli "127.0.0.1" $port [list -2 -n 0 help $target]]
+        set code [catch {exec {*}$cmd 2>@1} output]
+        catch {exec kill $nodepid}
+        assert_equal 0 $code
+        assert {[string length $output] < 4096}
+        assert_equal $expect_present [string match "*$target*" $output]
     }
 
     # A valid command spec whose argument hint ("synarg123") cannot come
@@ -936,6 +974,24 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         catch {exec {*}[rediscli "127.0.0.1" $port {-3 -n 0 PING}] 2>@1} output
         catch {exec kill $pid}
         assert_equal "PONG" $output
+    }
+
+    test "redis-cli rejects hostile arities in legacy help" {
+        # A small valid entry confirms the fake INFO and COMMAND replies are
+        # parsed and the legacy integration path is actually reached.
+        run_legacy_help_test SAFEENTRY [list [legacy_command_entry SAFEENTRY 2]] 1
+        run_legacy_help_test EVILCMD [list \
+            [legacy_command_entry EVILCMD 1000000] \
+            [legacy_command_entry SAFEENTRY 2]] 0
+        run_legacy_help_test EVILMIN [list \
+            [legacy_command_entry EVILMIN -9223372036854775808] \
+            [legacy_command_entry SAFEENTRY 2]] 0
+
+        set many_entries [list [legacy_command_entry SAFEENTRY 2]]
+        for {set i 0} {$i < 260} {incr i} {
+            lappend many_entries [legacy_command_entry "INJECTED$i" 1024]
+        }
+        run_legacy_help_test INJECTED259 $many_entries 0
     }
 }
 
