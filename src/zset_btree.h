@@ -86,6 +86,22 @@ int zbtreeScoreRawWithHash(zbtreeSet *zs, uint32_t hash,
                            const unsigned char *ele, size_t elelen,
                            double *score);
 void zbtreePrefetchMember(zbtreeSet *zs, uint32_t hash);
+/* The same lookup in two steps, so that consecutive lookups in one set can
+ * overlap: zbtreeLookupStart() only reads the member index, and
+ * zbtreeLookupFinish() returns what zbtreeScoreRawWithHash() would. The set
+ * must not change in between; builds with debug assertions check that the
+ * member index did not move entries and the saved leaf is still in place.
+ * Callers must not read the fields, which belong to zset_btree.c. */
+typedef struct {
+    void *leaf;
+    uint32_t hash;
+    uint32_t revision;
+    uint32_t leaf_id;
+    uint8_t absent;
+} zbtreeLookup;
+void zbtreeLookupStart(zbtreeSet *zs, uint32_t hash, zbtreeLookup *lookup);
+int zbtreeLookupFinish(zbtreeSet *zs, const zbtreeLookup *lookup,
+                       const unsigned char *ele, size_t elelen, double *score);
 /* Look up up to 16 scores. Bit i of the result says whether scores[i] exists. */
 #define ZBT_SCORE_BATCH_SIZE 16
 unsigned int zbtreeScores(zbtreeSet *zs, const sds *members, unsigned int count,
