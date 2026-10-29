@@ -1851,9 +1851,6 @@ int zsetAdd(robj *zobj, double score, sds ele, int in_flags, int *out_flags, dou
         return 0;
     }
 
-    /* Store -0 as 0 so the score doesn't depend on the encoding. */
-    if (score == 0) score = 0;
-
     /* Update the sorted set according to its encoding. */
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *eptr;
@@ -2328,6 +2325,8 @@ void zaddGenericCommand(client *c, int flags) {
     for (j = 0; j < elements; j++) {
         if (getDoubleFromObjectOrReply(c,c->argv[scoreidx+j*2],&scores[j],NULL)
             != C_OK) goto cleanup;
+        /* Store -0 as 0 so the score doesn't depend on the encoding. */
+        if (scores[j] == 0) scores[j] = 0;
     }
 
     /* Lookup the key and create the sorted set if does not exist. */

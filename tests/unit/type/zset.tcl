@@ -1308,6 +1308,21 @@ start_server {tags {"zset"}} {
         r config set zset-max-listpack-entries $old_limit
     }
 
+    test {B+tree -0 score survives DUMP/RESTORE and DEBUG RELOAD} {
+        set old_limit [lindex [r config get zset-max-listpack-entries] 1]
+        r config set zset-max-listpack-entries 0
+        r del signed-zero-src{t} signed-zero{t} signed-zero-restored{t}
+        r zadd signed-zero-src{t} 0 a
+        r zunionstore signed-zero{t} 1 signed-zero-src{t} weights -1
+        assert_equal {-0} [r zscore signed-zero{t} a]
+        r restore signed-zero-restored{t} 0 [r dump signed-zero{t}]
+        assert_equal {-0} [r zscore signed-zero-restored{t} a]
+        r debug reload
+        assert_equal {-0} [r zscore signed-zero{t} a]
+        r del signed-zero-src{t} signed-zero{t} signed-zero-restored{t}
+        r config set zset-max-listpack-entries $old_limit
+    } {OK} {needs:debug}
+
     foreach {popmin popmax} {ZPOPMIN ZPOPMAX ZMPOP_MIN ZMPOP_MAX} {
         test "Basic $popmin/$popmax with a single key - $encoding" {
             r del zset
