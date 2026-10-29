@@ -1053,6 +1053,50 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_empty r
     }
 
+    test "KEY-MEMORY-STATS - Z*STORE with the destination among the sources" {
+        # When the destination is also a source, storing the result replaces
+        # (or, for an empty result, deletes) the source object. The source
+        # must not be accessed after that, and both the histogram and the
+        # per-slot accounting must stay consistent.
+        r FLUSHALL
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 1]
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 1]
+        # Small (listpack) and large (non-listpack) sources.
+        foreach size {2 300} {
+            set args {}
+            for {set i 0} {$i < $size} {incr i} { lappend args $i m$i }
+
+            # Empty result: the source key is deleted.
+            r ZADD z {*}$args
+            assert_equal 0 [r ZRANGESTORE z z 5000 6000 BYSCORE]
+            assert_equal 0 [r EXISTS z]
+            # Non-empty result: the source value is replaced.
+            r ZADD z {*}$args
+            assert_equal 1 [r ZRANGESTORE z z 0 0]
+            assert_equal {m0} [r ZRANGE z 0 -1]
+            r DEL z
+
+            # Distinct source and destination, and the read-only variant.
+            r ZADD src {*}$args
+            assert_equal $size [r ZRANGESTORE dst src 0 -1]
+            assert_equal 0 [r ZRANGESTORE dst src 5000 6000 BYSCORE]
+            assert_equal 0 [r EXISTS dst]
+            assert_equal $size [llength [r ZRANGE src 0 -1]]
+            r DEL src
+
+            # ZUNIONSTORE / ZINTERSTORE / ZDIFFSTORE with the destination
+            # among the sources must stay consistent too.
+            r ZADD z {*}$args
+            assert_equal $size [r ZUNIONSTORE z 1 z]
+            assert_equal $size [r ZINTERSTORE z 2 z z]
+            assert_equal 0 [r ZDIFFSTORE z 2 z z]
+            assert_equal 0 [r EXISTS z]
+        }
+        assert_equal OK [r DEBUG ALLOCSIZE-SLOTS-ASSERT 0]
+        assert_equal OK [r DEBUG KEYSIZES-HIST-ASSERT 0]
+        verify_keymem_empty r
+    }
+
     test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
         r FLUSHALL
         r HSET "hash" f1 v1

@@ -4647,8 +4647,19 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
-    /* Step 4: Pass this to the command-specific handler. */
-    if (server.memory_tracking_enabled)
+    /* Step 4: Pass this to the command-specific handler.
+     *
+     * The range is only read from zobj, the source object, so the
+     * post-range allocation update is a no-op for it. In store mode the
+     * destination is written by zrangeResultFinalizeStore() through
+     * setKey()/dbDelete(), which do their own accounting, and when the
+     * destination is the source key that call replaces or frees zobj, so
+     * zobj must not be touched afterwards. Skip the update in store mode
+     * and leave the read-only variants as they are. This relies on a range
+     * read never changing the source; it needs revisiting if sorted-set
+     * members ever expire lazily during a read. */
+    int track_src = server.memory_tracking_enabled && !store;
+    if (track_src)
         oldsize = kvobjAllocSize(zobj);
     switch (rangetype) {
     case ZRANGE_AUTO:
@@ -4667,7 +4678,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
-    if (server.memory_tracking_enabled)
+    if (track_src)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
