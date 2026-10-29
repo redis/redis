@@ -1420,7 +1420,9 @@ test {CONFIG REWRITE persists a default value overriding an include} {
         set contents [read_file [srv 0 config_file]]
         assert_equal 1 [regexp -line {^maxmemory 0$} $contents]
         restart_server 0 true false
-        assert_equal 0 [lindex [r config get maxmemory] 1]
+        # On 32-bit builds, startup replaces maxmemory 0 with a 3 GB safety limit.
+        set expected_maxmemory [expr {[s arch_bits] == 32 ? 3072 * 1024 * 1024 : 0}]
+        assert_equal $expected_maxmemory [lindex [r config get maxmemory] 1]
     }
 } {} {external:skip}
 
