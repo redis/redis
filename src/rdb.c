@@ -4833,6 +4833,9 @@ void stopLoading(int success) {
     blockingOperationEnds();
     rdbFileBeingLoaded = NULL;
 
+    /* Process what the master sent while commands from it were held back. */
+    resumeMasterProcessing();
+
     /* Fire the loading modules end event. */
     moduleFireServerEvent(REDISMODULE_EVENT_LOADING,
                           success?

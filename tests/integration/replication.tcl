@@ -2057,3 +2057,94 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+foreach iothreads {1 4} {
+    start_server [list tags {"repl external:skip needs:debug"} overrides [list io-threads $iothreads]] {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        start_server [list overrides [list io-threads $iothreads]] {
+            set replica [srv 0 client]
+
+            test "Replica does not drop writes from master during synchronous loading (io-threads $iothreads)" {
+                # No PING from the master, so nothing but the end of loading
+                # can make the replica apply the held writes.
+                $master config set repl-ping-replica-period 3600
+                $replica replicaof $master_host $master_port
+                wait_for_sync $replica
+                for {set i 0} {$i < 200} {incr i} {
+                    $master set pad:$i xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+                }
+                wait_for_ofs_sync $master $replica
+
+                $replica config set key-load-delay 20000
+                $replica config set loading-process-events-interval-bytes 1024
+                $replica config resetstat
+
+                set rd [redis_deferring_client]
+                $rd debug reload
+                wait_for_condition 50 100 {
+                    [s 0 loading] eq 1
+                } else {
+                    fail "replica did not start loading"
+                }
+                assert_equal 0 [s 0 async_loading]
+
+                for {set i 0} {$i < 8} {incr i} {
+                    $master hset lost:$i f v
+                    after 100
+                }
+
+                $replica config set key-load-delay 0
+                $rd read
+                $rd close
+                wait_for_condition 100 100 {
+                    [s 0 loading] eq 0
+                } else {
+                    fail "replica did not finish loading"
+                }
+                wait_for_condition 50 20 {
+                    [$replica exists lost:7] eq 1
+                } else {
+                    fail "replica did not apply the held writes after loading"
+                }
+                wait_for_ofs_sync $master $replica
+                for {set i 0} {$i < 8} {incr i} {
+                    assert_equal 1 [$replica exists lost:$i]
+                }
+                assert_equal 0 [s 0 total_error_replies]
+            }
+
+            test "Replica applies writes from master held during a short synchronous loading (io-threads $iothreads)" {
+                # The replica's main thread processes no events during this
+                # loading, but an IO thread may read from the master before its
+                # client cron hands the master to the main thread. Repeat, as
+                # the write has to arrive within that window.
+                $replica config set loading-process-events-interval-bytes [expr 2*1024*1024]
+                $replica config set key-load-delay 1000
+                for {set j 0} {$j < 10} {incr j} {
+                    if {$iothreads > 1} {
+                        wait_for_condition 50 100 {
+                            ![string match {*io-thread=0*} [$replica client list type master]]
+                        } else {
+                            fail "master client is not handled by an IO thread"
+                        }
+                    }
+                    set rd [redis_deferring_client]
+                    $rd debug reload
+                    after 20
+                    $master incr short
+                    $rd read
+                    $rd close
+                    wait_for_condition 50 20 {
+                        [$replica get short] eq [expr {$j + 1}]
+                    } else {
+                        fail "replica did not apply the held write after loading (round $j)"
+                    }
+                }
+                $replica config set key-load-delay 0
+                wait_for_ofs_sync $master $replica
+            }
+        }
+    }
+}
