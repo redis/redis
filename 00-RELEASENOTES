@@ -24,7 +24,7 @@ Release Candidates are feature-complete pre-releases. Pre-releases are not suita
 
 Redis 8.12 introduces new features and performance improvements.
 
-### Operating systems we test Redis 8.12 on [need review]
+### Operating systems we test Redis 8.12 on
 
 - Ubuntu 22.04 (Jammy Jellyfish), 24.04 (Noble Numbat), 26.04 (Resolute Raccoon)
 - Rocky Linux 8.10, 9.7, 10.1
@@ -43,10 +43,10 @@ Redis 8.12 introduces new features and performance improvements.
 Special thanks to Antonio, the original creator of redis-roaring, for contributing this capability! https://redisroaring.com/redis-merge/#/1; 
 - #15986 New command: `BITRANGEINTARRAY` equivalent to redis-roaring’s `R.RANGEINTARRAY`, to return set bit offsets within a specified range
 - #15938 Set expiration to individual set member; New commands: `SEXPIRE`,`SPEXPIRE`,`SEXPIREAT`,`SPEXPIREAT` to set expiration and `STTL`, `SPTTL`, `SEXPIRETIME`,`SPEXPIRETIME` to retrieve remaining TTLs or expiration timestamps
-- #15828 Bless keys: avoid eviction of specified keys; New command: `BLESS`
+- #15649 Bless keys: avoid eviction of specified keys; New command: `BLESS`
 - #15829 `CLUSTER MIGRATION STATUS` now reports progress for both the snapshot and incremental migration phases
 - #15556 `TLS` named groups can now be configured using `tls-groups`
-- RedisBloom/RedisBloom#17398 Count-min-sketch extensions: Added optional `CELL_SIZE` support to `CMS.INITBYDIM` and `CMS.INITBYPROB` for lower memory usage, negative increments in `CMS.INCRBY` to decrement counts, and cell size reporting in `CMS.INFO`
+- RedisBloom/RedisBloom#1063 Count-min-sketch extensions: Added optional `CELL_SIZE` support to `CMS.INITBYDIM` and `CMS.INITBYPROB` for lower memory usage, negative increments in `CMS.INCRBY` to decrement counts, and cell size reporting in `CMS.INFO`
 - RedisJSON/RedisJSON#1640 Auto-create JSON deep path 
 - RediSearch/RediSearch#10151 `EXPLAINSCORE` is now supported for `FT.HYBRID`. (MOD-10044)
 - RediSearch/RediSearch#11330 SQ8 new compression is now available for HNSW vector fields. (MOD-6132)
