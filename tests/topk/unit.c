@@ -10,7 +10,29 @@ void heapifyDown(HeapBucket *array, size_t len, size_t start);
 static void add(TopK *t, const char *s, unsigned n) {
     zfree(TopK_Add(t,s,strlen(s),n));
 }
+static void test_updates(void) {
+    TopK *a=TopK_Create(3,5,3,.9), *b=TopK_Create(3,5,3,.9);
+    Bucket updates[3];
+    for (int i=0; i<2000; i++) {
+        char item[4]={(char)(i%29),0,(char)(i%7),0};
+        size_t len=i%11 ? 3 : 0;
+        uint32_t increment=i%13;
+        char *ea=TopK_AddWithUpdates(a,item,len,increment,updates);
+        char *eb=TopK_ApplyUpdates(b,item,len,updates);
+        assert((ea==NULL)==(eb==NULL));
+        zfree(ea); zfree(eb);
+        assert(!memcmp(a->data,b->data,15*sizeof(Bucket)));
+        for (int j=0; j<3; j++) {
+            HeapBucket *x=&a->heap[j], *y=&b->heap[j];
+            assert(x->fp==y->fp && x->count==y->count && x->itemlen==y->itemlen);
+            assert((x->item==NULL)==(y->item==NULL));
+            if (x->item) assert(!memcmp(x->item,y->item,x->itemlen+1));
+        }
+    }
+    TopK_Destroy(a); TopK_Destroy(b);
+}
 int main(void) {
+    test_updates();
     HeapBucket heap[7]={{0}};
     const unsigned counts[]={5,51,12,2,21,18,8,14,35,19};
     for (unsigned i=0; i<sizeof(counts)/sizeof(*counts); i++) {

@@ -9,6 +9,9 @@ robj *createTopkObject(void *p) { return createObject(OBJ_TOPK, p); }
 void freeTopkObject(robj *o) { TopK_Destroy(o->ptr); }
 size_t topkObjectLength(robj *o) {
     TopK *t=o->ptr;
+    /* A nonzero minimum means every heap slot is occupied. Avoid scanning the
+     * entire heap twice per update just to maintain the key-size histogram. */
+    if (t->heap[0].count) return t->k;
     size_t n=0;
     for (uint32_t i=0; i<t->k; i++) n += t->heap[i].count != 0;
     return n;
@@ -67,12 +70,12 @@ static robj *topkLookup(client *c, int write) {
     if (checkType(c,o,OBJ_TOPK)) return NULL;
     return o;
 }
-static void topkModified(client *c, robj *o, size_t oldsize, size_t oldcount) {
+static void topkModified(client *c, robj *o, size_t oldsize, size_t oldcount, const char *event) {
     updateKeysizesHist(c->db,OBJ_TOPK,oldcount,topkObjectLength(o));
     if (server.memory_tracking_enabled)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),o,oldsize,kvobjAllocSize(o));
     keyModified(c,c->db,c->argv[1],o,1);
-    notifyKeyspaceEvent(NOTIFY_TOPK,c->cmd->fullname,c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_TOPK,event,c->argv[1],c->db->id);
     server.dirty++;
 }
 void topkReserveCommand(client *c) {
@@ -94,8 +97,55 @@ void topkReserveCommand(client *c) {
     if (!t) { addReplyError(c,"Insufficient memory to create topk data structure"); return; }
     robj *o=createTopkObject(t);
     dbAdd(c->db,c->argv[1],&o);
-    topkModified(c,o,server.memory_tracking_enabled ? kvobjAllocSize(o) : 0,0);
+    topkModified(c,o,server.memory_tracking_enabled ? kvobjAllocSize(o) : 0,0,c->cmd->fullname);
     addReply(c,shared.ok);
+}
+/* Delta format v1: one version byte followed by records containing a little-endian
+ * uint32 item length, the item bytes, and (fingerprint, count) uint32 pairs for
+ * each row. Row locations follow from the item hash, independent of sketch width.
+ * Only successful items are included, in command order. */
+static void topkPut32(unsigned char *p, uint32_t n) {
+    for (int i=0; i<4; i++) p[i]=(n>>(i*8))&255;
+}
+static uint32_t topkGet32(const unsigned char *p) {
+    return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24;
+}
+void topkApplyCommand(client *c) {
+    const char *event=c->argv[2]->ptr;
+    size_t eventlen=sdslen(c->argv[2]->ptr);
+    if (!((eventlen==8 && !memcmp(event,"topk.add",8)) ||
+          (eventlen==11 && !memcmp(event,"topk.incrby",11)))) {
+        addReplyError(c,"TopK: invalid delta operation"); return;
+    }
+    robj *o=topkLookup(c,1); if (!o) return;
+    TopK *t=o->ptr;
+    const unsigned char *data=(unsigned char *)c->argv[3]->ptr;
+    size_t len=sdslen(c->argv[3]->ptr), rows=(size_t)t->depth*8;
+    /* Validate the entire payload before mutating the object. */
+    if (len<2 || data[0]!=1) goto invalid;
+    for (size_t pos=1; pos<len;) {
+        if (len-pos<4) goto invalid;
+        size_t itemlen=topkGet32(data+pos); pos+=4;
+        if (itemlen>len-pos || rows>len-pos-itemlen) goto invalid;
+        pos+=itemlen+rows;
+    }
+    size_t oldcount=topkObjectLength(o), oldsize=server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
+    Bucket *updates=zmalloc((size_t)t->depth*sizeof(*updates));
+    for (size_t pos=1; pos<len;) {
+        size_t itemlen=topkGet32(data+pos); pos+=4;
+        const char *item=(const char *)data+pos; pos+=itemlen;
+        for (uint32_t row=0; row<t->depth; row++,pos+=8) {
+            updates[row].fp=topkGet32(data+pos);
+            updates[row].count=topkGet32(data+pos+4);
+        }
+        zfree(TopK_ApplyUpdates(t,item,itemlen,updates));
+    }
+    zfree(updates);
+    topkModified(c,o,oldsize,oldcount,event);
+    addReply(c,shared.ok);
+    return;
+invalid:
+    addReplyError(c,"TopK: invalid delta payload");
 }
 void topkAddCommand(client *c) {
     int incr=!strcasecmp(c->cmd->fullname,"topk.incrby"), step=incr ? 2 : 1;
@@ -104,6 +154,12 @@ void topkAddCommand(client *c) {
     TopK *t=o->ptr;
     size_t oldcount=topkObjectLength(o), oldsize=server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     int changed=0;
+    /* No replay data is needed when the same propagation gate used by the
+     * server will discard this command. This includes loading and restricted
+     * nested calls, but still covers disconnected backlogs and slot migration. */
+    int propagate=shouldPropagate(server.allowed_propagate_targets);
+    sds delta=propagate ? sdsnewlen("\x01",1) : NULL;
+    Bucket *updates=propagate ? zmalloc((size_t)t->depth*sizeof(*updates)) : NULL;
     addReplyArrayLen(c,(c->argc-2)/step);
     for (int i=2; i<c->argc; i+=step) {
         long long n=1;
@@ -113,27 +169,37 @@ void topkAddCommand(client *c) {
         }
         /* Capture the length before the minimum heap item is potentially evicted. */
         size_t len=t->heap[0].itemlen;
-        char *evicted=TopK_Add(t,c->argv[i]->ptr,sdslen(c->argv[i]->ptr),n);
+        size_t itemlen=sdslen(c->argv[i]->ptr);
+        char *evicted=TopK_AddWithUpdates(t,c->argv[i]->ptr,itemlen,n,updates);
+        if (propagate) {
+            size_t pos=sdslen(delta), bytes=4+itemlen+(size_t)t->depth*8;
+            delta=sdsMakeRoomFor(delta,bytes);
+            unsigned char *record=(unsigned char *)delta+pos;
+            topkPut32(record,itemlen); record+=4;
+            memcpy(record,c->argv[i]->ptr,itemlen); record+=itemlen;
+            for (uint32_t row=0; row<t->depth; row++,record+=8) {
+                topkPut32(record,updates[row].fp);
+                topkPut32(record+4,updates[row].count);
+            }
+            sdsIncrLen(delta,bytes);
+        }
         if (evicted) { addReplyBulkCBuffer(c,evicted,len); zfree(evicted); }
         else addReplyNull(c);
         changed=1;
     }
+    zfree(updates);
     if (changed) {
-        topkModified(c,o,oldsize,oldcount);
-        /* Randomized decay cannot be replayed verbatim. Propagate the exact state.
-         * This is O(sketch size); a compact deterministic delta is future work. */
-        rio payload;
-        createDumpPayload(&payload,o,c->argv[1],c->db->id,DUMP_PAYLOAD_SKIP_KEY_META,0);
-        long long expire=getExpire(c->db,c->argv[1]->ptr,o);
-        robj *cmd=createStringObject("RESTORE",7);
-        robj *ttl=createStringObjectFromLongLong(expire<0 ? 0 : expire);
-        robj *data=createStringObject(payload.io.buffer.ptr,sdslen(payload.io.buffer.ptr));
-        robj *replace=createStringObject("REPLACE",7), *absolute=createStringObject("ABSTTL",6);
-        rewriteClientCommandVector(c,6,cmd,c->argv[1],ttl,data,replace,absolute);
-        decrRefCount(cmd); decrRefCount(ttl); decrRefCount(data);
-        decrRefCount(replace); decrRefCount(absolute); sdsfree(payload.io.buffer.ptr);
+        topkModified(c,o,oldsize,oldcount,c->cmd->fullname);
     }
+    if (changed && propagate) {
+        robj *cmd=createStringObject("TOPK._APPLY",11);
+        robj *event=createStringObject(c->cmd->fullname,strlen(c->cmd->fullname));
+        robj *payload=createObject(OBJ_STRING,delta);
+        rewriteClientCommandVector(c,4,cmd,c->argv[1],event,payload);
+        decrRefCount(cmd); decrRefCount(event); decrRefCount(payload);
+    } else sdsfree(delta);
 }
+
 void topkQueryCommand(client *c) {
     robj *o=topkLookup(c,0); if (!o) return;
     int count=!strcasecmp(c->cmd->fullname,"topk.count");

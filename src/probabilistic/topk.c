@@ -136,7 +136,15 @@ static HeapBucket *checkExistInHeap(TopK *topk, const char *item, size_t itemlen
     return NULL;
 }
 
+static char *topkUpdateHeap(TopK *topk, const char *item, size_t itemlen,
+                            uint32_t fp, counter_t maxCount);
+
 char *TopK_Add(TopK *topk, const char *item, size_t itemlen, uint32_t increment) {
+    return TopK_AddWithUpdates(topk, item, itemlen, increment, NULL);
+}
+
+char *TopK_AddWithUpdates(TopK *topk, const char *item, size_t itemlen,
+                        uint32_t increment, Bucket *updates) {
     assert(topk);
     assert(item);
 
@@ -144,8 +152,6 @@ char *TopK_Add(TopK *topk, const char *item, size_t itemlen, uint32_t increment)
     counter_t *countPtr;
     counter_t maxCount = 0;
     uint32_t fp = TOPK_HASH(item, itemlen, GA);
-
-    counter_t heapMin = topk->heap->count;
 
     // get max item count
     for (uint32_t i = 0; i < topk->depth; ++i) {
@@ -183,9 +189,25 @@ char *TopK_Add(TopK *topk, const char *item, size_t itemlen, uint32_t increment)
                 }
             }
         }
+        if (updates) updates[i] = *runner;
     }
+    return topkUpdateHeap(topk, item, itemlen, fp, maxCount);
+}
 
-    // update heap
+char *TopK_ApplyUpdates(TopK *topk, const char *item, size_t itemlen, const Bucket *updates) {
+    uint32_t fp = TOPK_HASH(item, itemlen, GA);
+    counter_t maxCount = 0;
+    for (uint32_t i = 0; i < topk->depth; i++) {
+        uint32_t loc = TOPK_HASH(item, itemlen, i) % topk->width;
+        topk->data[(size_t)i * topk->width + loc] = updates[i];
+        if (updates[i].fp == fp) maxCount = max(maxCount, updates[i].count);
+    }
+    return topkUpdateHeap(topk, item, itemlen, fp, maxCount);
+}
+
+static char *topkUpdateHeap(TopK *topk, const char *item, size_t itemlen,
+                            uint32_t fp, counter_t maxCount) {
+    counter_t heapMin = topk->heap->count;
     if (maxCount >= heapMin) {
         HeapBucket *itemHeapPtr = checkExistInHeap(topk, item, itemlen);
         if (itemHeapPtr != NULL) {

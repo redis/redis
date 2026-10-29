@@ -4247,6 +4247,7 @@ robj *topkRdbLoad(rio *rdb, int version);
 int topkRewriteAof(rio *rdb, robj *key, robj *o, int dbid);
 void topkReserveCommand(client *c);
 void topkAddCommand(client *c);
+void topkApplyCommand(client *c);
 void topkQueryCommand(client *c);
 void topkListCommand(client *c);
 void topkInfoCommand(client *c);

@@ -67,6 +67,12 @@ void TopK_Destroy(TopK *topk);
     Complexity - O(k) */
 char *TopK_Add(TopK *topk, const char *item, size_t itemlen, uint32_t increment);
 
+/* Record/replay the final bucket in each row. Replay performs no random decay;
+ * the caller supplies depth buckets and owns any returned evicted item. */
+char *TopK_AddWithUpdates(TopK *topk, const char *item, size_t itemlen,
+                        uint32_t increment, Bucket *updates);
+char *TopK_ApplyUpdates(TopK *topk, const char *item, size_t itemlen, const Bucket *updates);
+
 /*  Checks whether an 'item' is in Top-K list of 'topk'.
     Complexity - O(k) */
 bool TopK_Query(TopK *topk, const char *item, size_t itemlen);
