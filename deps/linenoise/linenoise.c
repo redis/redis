@@ -203,6 +203,7 @@ enum KEY_ACTION{
 
 static void linenoiseAtExit(void);
 int linenoiseHistoryAdd(const char *line, int is_sensitive);
+int linenoiseHistoryAddInsensitive(const char *line);
 static void refreshLine(struct linenoiseState *l);
 static void refreshSearchResult(struct linenoiseState *ls);
 
@@ -1311,6 +1312,10 @@ static void freeHistory(void) {
 static void linenoiseAtExit(void) {
     disableRawMode(STDIN_FILENO);
     freeHistory();
+}
+
+int linenoiseHistoryAddInsensitive(const char *line) {
+    return linenoiseHistoryAdd(line, 0);
 }
 
 /* This is the API call to add a new entry in the linenoise history.
