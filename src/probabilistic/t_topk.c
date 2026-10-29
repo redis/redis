@@ -154,8 +154,12 @@ void topkAddCommand(client *c) {
     TopK *t=o->ptr;
     size_t oldcount=topkObjectLength(o), oldsize=server.memory_tracking_enabled ? kvobjAllocSize(o) : 0;
     int changed=0;
-    sds delta=sdsnewlen("\x01",1);
-    Bucket *updates=zmalloc((size_t)t->depth*sizeof(*updates));
+    /* No replay data is needed when the same propagation gate used by the
+     * server will discard this command. This includes loading and restricted
+     * nested calls, but still covers disconnected backlogs and slot migration. */
+    int propagate=shouldPropagate(server.allowed_propagate_targets);
+    sds delta=propagate ? sdsnewlen("\x01",1) : NULL;
+    Bucket *updates=propagate ? zmalloc((size_t)t->depth*sizeof(*updates)) : NULL;
     addReplyArrayLen(c,(c->argc-2)/step);
     for (int i=2; i<c->argc; i+=step) {
         long long n=1;
@@ -167,16 +171,18 @@ void topkAddCommand(client *c) {
         size_t len=t->heap[0].itemlen;
         size_t itemlen=sdslen(c->argv[i]->ptr);
         char *evicted=TopK_AddWithUpdates(t,c->argv[i]->ptr,itemlen,n,updates);
-        size_t pos=sdslen(delta), bytes=4+itemlen+(size_t)t->depth*8;
-        delta=sdsMakeRoomFor(delta,bytes);
-        unsigned char *record=(unsigned char *)delta+pos;
-        topkPut32(record,itemlen); record+=4;
-        memcpy(record,c->argv[i]->ptr,itemlen); record+=itemlen;
-        for (uint32_t row=0; row<t->depth; row++,record+=8) {
-            topkPut32(record,updates[row].fp);
-            topkPut32(record+4,updates[row].count);
+        if (propagate) {
+            size_t pos=sdslen(delta), bytes=4+itemlen+(size_t)t->depth*8;
+            delta=sdsMakeRoomFor(delta,bytes);
+            unsigned char *record=(unsigned char *)delta+pos;
+            topkPut32(record,itemlen); record+=4;
+            memcpy(record,c->argv[i]->ptr,itemlen); record+=itemlen;
+            for (uint32_t row=0; row<t->depth; row++,record+=8) {
+                topkPut32(record,updates[row].fp);
+                topkPut32(record+4,updates[row].count);
+            }
+            sdsIncrLen(delta,bytes);
         }
-        sdsIncrLen(delta,bytes);
         if (evicted) { addReplyBulkCBuffer(c,evicted,len); zfree(evicted); }
         else addReplyNull(c);
         changed=1;
@@ -184,6 +190,8 @@ void topkAddCommand(client *c) {
     zfree(updates);
     if (changed) {
         topkModified(c,o,oldsize,oldcount,c->cmd->fullname);
+    }
+    if (changed && propagate) {
         robj *cmd=createStringObject("TOPK._APPLY",11);
         robj *event=createStringObject(c->cmd->fullname,strlen(c->cmd->fullname));
         robj *payload=createObject(OBJ_STRING,delta);

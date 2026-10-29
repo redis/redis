@@ -65,6 +65,28 @@ class testNativeTopK:
                 assert before==s.client.command('DUMP','t')
             finally: s.close()
 
+    def test_enable_aof_after_local_only_writes(self):
+        s=Server(extra=('--appendonly','no','--auto-aof-rewrite-percentage','0'))
+        try:
+            r=s.client.command
+            r('TOPK.RESERVE','t',3,5,3,.9)
+            for i in range(100): r('TOPK.ADD','t',i%17)
+            r('CONFIG','SET','appendonly','yes')
+            for _ in range(400):
+                info=r('INFO','persistence')
+                if b'aof_rewrite_in_progress:0' in info and b'aof_rewrite_scheduled:0' in info: break
+                time.sleep(.025)
+            else: raise AssertionError('AOF enable timed out')
+            assert b'aof_last_bgrewrite_status:ok' in info
+            for i in range(100): r('TOPK.INCRBY','t',i%23,3)
+            before=r('DUMP','t')
+            s.stop()
+            # Restart with the now-enabled AOF, not the original launch setting.
+            s.extra=('--appendonly','yes','--auto-aof-rewrite-percentage','0')
+            s.start()
+            assert s.client.command('DUMP','t')==before
+        finally: s.close()
+
     def test_metadata_resp3(self):
         env=Env()
         r=env.cmd

@@ -33,6 +33,11 @@ and the deterministic heap update without rerunning random decay. Updates leave
 the existing expiry untouched. Partial-success INCRBY commands record only the
 successful items, in order; binary and empty items are preserved.
 
+Updates only capture and encode these deltas when Redis's propagation gate has
+an eligible destination. With AOF disabled and no replica, replication backlog
+or slot migration, updates run without allocating replay buffers or rewriting
+the command. Enabling AOF or replication later resumes exact delta propagation.
+
 The versioned delta uses one byte for its version and, per item, four bytes for
 its length, the item bytes and eight bytes per depth row. Its size is independent
 of sketch width and heap size. Ordinary clients cannot execute this command.
