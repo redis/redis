@@ -55,9 +55,11 @@
 #include <sys/utsname.h>
 #include <locale.h>
 #include <sys/socket.h>
+#include <dirent.h>
 
 #ifdef __linux__
 #include <sys/mman.h>
+#include <sys/syscall.h>
 #endif
 
 #if defined(HAVE_SYSCTL_KIPC_SOMAXCONN) || defined(HAVE_SYSCTL_KERN_SOMAXCONN)
@@ -2574,6 +2576,40 @@ void initServerConfig(void) {
 
 extern char **environ;
 
+/* Close every file descriptor >= 3 (we keep stdin, stdout, stderr).
+ * We can't assume an upper bound on the descriptor numbers we inherited,
+ * so we avoid guessing one. */
+static void closeInheritedFds(void) {
+#if defined(__linux__) && defined(SYS_close_range)
+    /* Fast path: close everything from fd 3 up in a single syscall. */
+    if (syscall(SYS_close_range, 3, ~0U, 0) == 0) return;
+#endif
+
+    /* Fallback: find the highest open fd by listing /proc/self/fd (or
+     * /dev/fd), then close up to that. */
+    int maxfd = -1;
+    DIR *dir = opendir("/proc/self/fd");
+    if (dir == NULL) dir = opendir("/dev/fd");
+    if (dir != NULL) {
+        struct dirent *de;
+        while ((de = readdir(dir)) != NULL) {
+            if (de->d_name[0] < '0' || de->d_name[0] > '9') continue;
+            int fd = atoi(de->d_name);
+            if (fd > maxfd) maxfd = fd;
+        }
+        closedir(dir);
+    }
+
+    /* If we couldn't list the directory, keep the old best-effort bound. */
+    if (maxfd < 0) maxfd = (int)server.maxclients + 1023;
+
+    for (int j = 3; j <= maxfd; j++) {
+        /* Test the descriptor validity before closing it, otherwise
+         * Valgrind issues a warning on close(). */
+        if (fcntl(j,F_GETFD) != -1) close(j);
+    }
+}
+
 /* Restart the server, executing the same executable that started this
  * instance, with the same arguments and configuration file.
  *
@@ -2590,7 +2626,6 @@ extern char **environ;
  * On success the function does not return, because the process turns into
  * a different process. On error C_ERR is returned. */
 int restartServer(int flags, mstime_t delay) {
-    int j;
 
     /* Check if we still have accesses to the executable that started this
      * server instance. */
@@ -2620,11 +2655,7 @@ int restartServer(int flags, mstime_t delay) {
 
     /* Close all file descriptors, with the exception of stdin, stdout, stderr
      * which are useful if we restart a Redis server which is not daemonized. */
-    for (j = 3; j < (int)server.maxclients + 1024; j++) {
-        /* Test the descriptor validity before closing it, otherwise
-         * Valgrind issues a warning on close(). */
-        if (fcntl(j,F_GETFD) != -1) close(j);
-    }
+    closeInheritedFds();
 
     /* Execute the server with the original command line. */
     if (delay) usleep(delay*1000);
