@@ -133,7 +133,7 @@ static inline int expirySamplingShouldSkipDict(dict *d, int didx) {
     /* When there are less than 1% filled buckets, sampling the key
      * space is expensive, so stop here waiting for better times...
      * The dictionary will be resized asap. */
-    if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1)) {
+    if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1) && !dictIsRehashing(d)) {
         return 1;
     }
 
