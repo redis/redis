@@ -1438,6 +1438,14 @@ typedef struct pendingCommandPool {
     int min_size;           /* Minimum size since last check (indicates peak usage) */
 } pendingCommandPool;
 
+typedef enum {
+    CONFIG_SOURCE_DEFAULT, /* No explicit source has been recorded. */
+    CONFIG_SOURCE_MAIN,    /* Loaded from the main configuration file. */
+    CONFIG_SOURCE_INCLUDE, /* Loaded from a file referenced by include. */
+    CONFIG_SOURCE_CLI,     /* Supplied through CLI options or stdin. */
+    CONFIG_SOURCE_RUNTIME  /* Added or set by a runtime command or API. */
+} configSource;
+
 /* This structure represents a Redis user. This is useful for ACLs, the
  * user is associated to the connection after the connection is authenticated.
  * If there is no associated user, the connection uses the default user. */
@@ -1474,6 +1482,7 @@ typedef struct {
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
     robj *acl_string; /* cached string represent of ACLs */
+    configSource source; /* Startup source of this user's configuration. */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -1815,7 +1824,19 @@ struct saveparam {
     int changes;
 };
 
+/* Shared startup defaults used by server initialization and CONFIG REWRITE. */
+extern const struct saveparam configDefaultSaveParams[];
+extern const size_t configDefaultSaveParamsLen;
+extern const double configDefaultLatencyTrackingInfoPercentiles[];
+extern const size_t configDefaultLatencyTrackingInfoPercentilesLen;
+
+typedef struct moduleConfigEntry {
+    sds value;
+    configSource source;
+} moduleConfigEntry;
+
 struct moduleLoadQueueEntry {
+    configSource source;
     sds path;
     int argc;
     robj **argv;
@@ -2123,6 +2144,7 @@ struct redisServer {
     pid_t pid;                  /* Main process pid. */
     pthread_t main_thread_id;         /* Main thread id */
     char *configfile;           /* Absolute config file path, or NULL */
+    int config_rewrite_source_aware; /* Enable source-aware CONFIG REWRITE. */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int dynamic_hz;             /* Change hz value depending on # of clients. */
@@ -2165,7 +2187,7 @@ struct redisServer {
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
-    dict *module_configs_queue; /* Unmapped configs are queued here, assumed to be module config. Applied after modules are loaded during startup or arguments to loadex. */
+    dict *module_configs_queue; /* Config name -> moduleConfigEntry, applied after module registration at startup or LOADEX. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
@@ -3333,8 +3355,8 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
-int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex);
-int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
+int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex, configSource source);
+int moduleLoad(const char *path, void **argv, int argc, int is_loadex, configSource source);
 int moduleUnload(sds name, const char **errmsg, int forced_unload);
 void moduleLoadInternalModules(void);
 void moduleLoadFromQueue(void);
@@ -3849,7 +3871,7 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAddCommandCategory(const char *name, uint64_t flag);
 void ACLCleanupCategoriesOnFailure(size_t num_acl_categories_added);
-int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
+int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err, configSource source);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 robj *ACLDescribeUser(user *u);
@@ -4384,7 +4406,7 @@ typedef enum {
     SPECIAL_CONFIG,
 } configType;
 
-void loadServerConfig(char *filename, char config_from_stdin, char *options);
+void loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
@@ -4401,7 +4423,8 @@ static inline int clusterSlotStatsEnabled(int stat) { return server.cluster_enab
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
-int performModuleConfigSetFromName(sds name, sds value, const char **err);
+void queueModuleConfig(sds name, sds value, configSource source);
+int performModuleConfigSetFromName(sds name, sds value, configSource source, const char **err);
 int performModuleConfigSetDefaultFromName(sds name, const char **err);
 void addModuleBoolConfig(sds name, sds alias, int flags, void *privdata, int default_val);
 void addModuleStringConfig(sds name, sds alias, int flags, void *privdata, sds default_val);

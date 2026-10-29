@@ -13697,20 +13697,37 @@ void moduleInitModulesSystemLast(void) {
 }
 
 
-dictType sdsKeyValueHashDictType = {
+static void moduleConfigEntryDestructor(dict *d, void *val) {
+    UNUSED(d);
+    moduleConfigEntry *entry = val;
+    sdsfree(entry->value);
+    zfree(entry);
+}
+
+static dictType moduleConfigQueueDictType = {
     dictSdsCaseHash,            /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
     dictSdsKeyCaseCompare,      /* key compare */
     dictSdsDestructor,          /* key destructor */
-    dictSdsDestructor,          /* val destructor */
+    moduleConfigEntryDestructor,/* val destructor */
     NULL                        /* allow to expand */
 };
+
+/* Takes ownership of name and value. Replacing an entry replaces its source
+ * as well, and the dictionary frees the previous value and entry together. */
+void queueModuleConfig(sds name, sds value, configSource source) {
+    moduleConfigEntry *entry = zmalloc(sizeof(*entry));
+    entry->value = value;
+    entry->source = source;
+    if (!dictReplace(server.module_configs_queue, name, entry))
+        sdsfree(name);
+}
 
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
     server.loadmodule_queue = listCreate();
-    server.module_configs_queue = dictCreate(&sdsKeyValueHashDictType);
+    server.module_configs_queue = dictCreate(&moduleConfigQueueDictType);
     server.module_gil_acquiring = 0;
     modules = dictCreate(&modulesDictType);
     moduleAuthCallbacks = listCreate();
@@ -13811,7 +13828,7 @@ int VectorSets_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 /* Load internal data types that bundled as modules */
 void moduleLoadInternalModules(void) {
 #ifdef INCLUDE_VEC_SETS
-    int retval = moduleOnLoad((int (*)(void *, void **, int)) VectorSets_OnLoad, NULL, NULL, NULL, 0, 0);
+    int retval = moduleOnLoad((int (*)(void *, void **, int)) VectorSets_OnLoad, NULL, NULL, NULL, 0, 0, CONFIG_SOURCE_RUNTIME);
     serverAssert(retval == C_OK);
 #endif
 }
@@ -13832,7 +13849,7 @@ void moduleLoadFromQueue(void) {
     listRewind(server.loadmodule_queue,&li);
     while((ln = listNext(&li))) {
         struct moduleLoadQueueEntry *loadmod = ln->value;
-        if (moduleLoad(loadmod->path,(void **)loadmod->argv,loadmod->argc, 0)
+        if (moduleLoad(loadmod->path,(void **)loadmod->argv,loadmod->argc, 0, loadmod->source)
             == C_ERR)
         {
             serverLog(LL_WARNING,
@@ -13849,7 +13866,8 @@ void moduleLoadFromQueue(void) {
         dictEntry *de;
         dictInitIterator(&di, server.module_configs_queue);
         while ((de = dictNext(&di)) != NULL) {
-            serverLog(LL_WARNING, ">>> '%s %s'", redactLogCstr((char *)dictGetKey(de)), redactLogCstr((char *)dictGetVal(de)));
+            moduleConfigEntry *entry = dictGetVal(de);
+            serverLog(LL_WARNING, ">>> '%s %s'", redactLogCstr((char *)dictGetKey(de)), redactLogCstr(entry->value));
         }
         dictResetIterator(&di);
         serverLog(LL_WARNING, "Module Configuration detected without loadmodule directive or no ApplyConfig call: aborting");
@@ -13965,7 +13983,7 @@ void moduleUnregisterCommands(struct RedisModule *module) {
     resumeAllIOThreads();
 }
 
-/* We parse argv to add sds "NAME VALUE" pairs to the server.module_configs_queue list of configs.
+/* Parse argv into queued module configuration values with RUNTIME source.
  * We also increment the module_argv pointer to just after ARGS if there are args, otherwise
  * we set it to NULL */
 int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
@@ -13981,7 +13999,7 @@ int parseLoadexArguments(RedisModuleString ***module_argv, int *module_argc) {
             }
             sds name = sdsdup(argv[i + 1]->ptr);
             sds value = sdsdup(argv[i + 2]->ptr);
-            if (!dictReplace(server.module_configs_queue, name, value)) sdsfree(name);
+            queueModuleConfig(name, value, CONFIG_SOURCE_RUNTIME);
             i += 2;
         } else if (!strcasecmp(arg_val, "ARGS")) {
             args_specified = 1;
@@ -14022,7 +14040,7 @@ void moduleUnregisterCleanup(RedisModule *module) {
 
 /* Load a module by path and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
-int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
+int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex, configSource source) {
     int (*onload)(void *, void **, int);
     void *handle;
 
@@ -14049,12 +14067,12 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         return C_ERR;
     }
 
-    return moduleOnLoad(onload, path, handle, module_argv, module_argc, is_loadex);
+    return moduleOnLoad(onload, path, handle, module_argv, module_argc, is_loadex, source);
 }
 
 /* Load a module by its 'onload' callback and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
-int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex) {
+int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex, configSource source) {
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
@@ -14075,6 +14093,7 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
     ctx.module->blocked_clients = 0;
     ctx.module->handle = handle;
     ctx.module->loadmod = zmalloc(sizeof(struct moduleLoadQueueEntry));
+    ctx.module->loadmod->source = source;
     ctx.module->loadmod->path = sdsnew(path);
     ctx.module->loadmod->argv = module_argc ? zmalloc(sizeof(robj*)*module_argc) : NULL;
     ctx.module->loadmod->argc = module_argc;
@@ -14512,7 +14531,7 @@ int loadModuleDefaultConfigs(RedisModule *module) {
     return REDISMODULE_OK;
 }
 
-/* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
+/* This function takes a module and its queued configuration values and sources.
  * It attempts to call set on each of these configs. */
 int loadModuleConfigs(RedisModule *module) {
     listIter li;
@@ -14528,7 +14547,8 @@ int loadModuleConfigs(RedisModule *module) {
 
         /* If found in the queue, set the value. Otherwise, set the default value. */
         if (de) {
-            if (!performModuleConfigSetFromName(dictGetKey(de), dictGetVal(de), &err)) {
+            moduleConfigEntry *entry = dictGetVal(de);
+            if (!performModuleConfigSetFromName(dictGetKey(de), entry->value, entry->source, &err)) {
                 serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", redactLogCstr((char *)dictGetKey(de)), err);
                 dictFreeUnlinkedEntry(server.module_configs_queue, de);
                 dictEmpty(server.module_configs_queue, NULL);
@@ -15399,7 +15419,7 @@ NULL
             argv = &c->argv[3];
         }
 
-        if (moduleLoad(c->argv[2]->ptr,(void **)argv,argc, 0) == C_OK)
+        if (moduleLoad(c->argv[2]->ptr,(void **)argv,argc, 0, CONFIG_SOURCE_RUNTIME) == C_OK)
             addReply(c,shared.ok);
         else
             addReplyError(c,
@@ -15415,7 +15435,7 @@ NULL
         /* If this is a loadex command we want to populate server.module_configs_queue with 
          * sds NAME VALUE pairs. We also want to increment argv to just after ARGS, if supplied. */
         if (parseLoadexArguments((RedisModuleString ***) &argv, &argc) == REDISMODULE_OK &&
-            moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK)
+            moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1, CONFIG_SOURCE_RUNTIME) == C_OK)
             addReply(c,shared.ok);
         else {
             dictEmpty(server.module_configs_queue, NULL);
