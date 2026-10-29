@@ -2489,6 +2489,40 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         $rd close
     }
 
+    test "Blocking timeouts fire in order regardless of the order clients blocked in" {
+        r del mylist
+
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        set rd3 [redis_deferring_client]
+
+        # The longest timeout blocks first, then the shortest, then one in between.
+        $rd1 BLPOP mylist 100
+        wait_for_blocked_clients_count 1
+        $rd2 BLPOP mylist 1
+        wait_for_blocked_clients_count 2
+        $rd3 BLPOP mylist 2
+
+        # The shortest one fires first, alone...
+        assert_equal {} [$rd2 read]
+        assert_equal 2 [s blocked_clients]
+
+        # ...then the next one, with no other client blocking in between,
+        # while the longest one stays blocked.
+        wait_for_blocked_clients_count 1 100 50
+        assert_equal {} [$rd3 read]
+        assert_equal 1 [s clients_in_timeout_table]
+
+        # Serving the last one leaves the timeout table empty.
+        r rpush mylist foo
+        assert_equal {mylist foo} [$rd1 read]
+        assert_equal 0 [s clients_in_timeout_table]
+
+        $rd1 close
+        $rd2 close
+        $rd3 close
+    }
+
     test "CLIENT NO-TOUCH with BRPOP and RPUSH regression test" {
         # Test scenario:
         # 1. Client 1: CLIENT NO-TOUCH on
