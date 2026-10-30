@@ -21,6 +21,14 @@
 #include "redisassert.h"
 #include "iheap.h"
 
+/* The array is an implicit binary tree: the children of slot i are 2i+1 and
+ * 2i+2, its parent is (i-1)/2. The child macros widen to 64 bits so a slot
+ * near UINT32_MAX cannot wrap; callers compare the result with the count
+ * before indexing with it. */
+#define IHEAP_PARENT(i) (((i) - 1) / 2)
+#define IHEAP_LEFT(i) ((uint64_t)(i) * 2 + 1)
+#define IHEAP_RIGHT(i) ((uint64_t)(i) * 2 + 2)
+
 /* Heaps created with a NULL type point here, so the hot path has a single
  * NULL check per move, on the callback, and none on the type. */
 static const iheapType iheapNoCallbacks = { NULL, NULL };
@@ -71,7 +79,7 @@ static iheap *iheapGrow(iheap *h) {
  * the placed entry does not, the caller decides whether it moved. */
 static uint32_t iheapSiftUp(iheap *h, uint32_t i, iheapEntry ent) {
     while (i > 0) {
-        uint32_t parent = (i - 1) / 2;
+        uint32_t parent = IHEAP_PARENT(i);
         if (h->e[parent].key <= ent.key) break;
         h->e[i] = h->e[parent];
         iheapSetSlot(h, i);
@@ -86,9 +94,10 @@ static uint32_t iheapSiftUp(iheap *h, uint32_t i, iheapEntry ent) {
 static uint32_t iheapSiftDown(iheap *h, uint32_t i, iheapEntry ent) {
     uint64_t n = h->count;
     for (;;) {
-        uint64_t child = (uint64_t)i * 2 + 1;
+        uint64_t child = IHEAP_LEFT(i);
         if (child >= n) break;
-        if (child + 1 < n && h->e[child + 1].key < h->e[child].key) child++;
+        if (IHEAP_RIGHT(i) < n && h->e[IHEAP_RIGHT(i)].key < h->e[child].key)
+            child = IHEAP_RIGHT(i);
         if (ent.key <= h->e[child].key) break;
         h->e[i] = h->e[child];
         iheapSetSlot(h, i);
@@ -167,7 +176,7 @@ void iheapBuild(iheap *h) {
     if (h->count < 2) return;
     /* Floyd: sift down every internal node, deepest first. The last internal
      * node is the parent of the last entry. */
-    for (uint32_t i = (h->count - 2) / 2 + 1; i-- > 0;) {
+    for (uint32_t i = IHEAP_PARENT(h->count - 1) + 1; i-- > 0;) {
         uint32_t to = iheapSiftDown(h, i, h->e[i]);
         if (to != i) iheapSetSlot(h, to);
     }
@@ -177,7 +186,7 @@ int iheapValidate(const iheap *h) {
     if (h->count > h->capacity) return 0;
     if (zmalloc_usable_size((void*)h) < iheapAllocSize(h)) return 0;
     for (uint32_t i = 0; i < h->count; i++) {
-        if (i > 0 && h->e[(i - 1) / 2].key > h->e[i].key) return 0;
+        if (i > 0 && h->e[IHEAP_PARENT(i)].key > h->e[i].key) return 0;
         if (h->type->getSlot && h->type->getSlot(h->e[i].item) != i)
             return 0;
     }
