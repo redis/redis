@@ -1483,6 +1483,11 @@ static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelAr
             args->delete_strategy = DELETE_STRATEGY_ACKED;
             j++;
         } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
+            if (args->startidx != -1) {
+                addReplyError(c, "syntax error, IDS specified multiple times");
+                return 0;
+            }
+
             /* Parse the number of IDs */
             if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, LONG_MAX,
                 &args->numids, "Number of IDs must be a positive integer") != C_OK)
@@ -4359,6 +4364,11 @@ void xnackCommand(client *c) {
         int moreargs = (c->argc-1) - i; /* Number of additional arguments. */
         char *opt = c->argv[i]->ptr;
         if (!strcasecmp(opt,"IDS") && moreargs) {
+            if (ids_start != 0) {
+                addReplyError(c,"syntax error, IDS specified multiple times");
+                return;
+            }
+
             long numids_long;
             if (getRangeLongFromObjectOrReply(c,c->argv[i+1],1,INT_MAX,
                 &numids_long,"numids must be a positive integer") != C_OK)

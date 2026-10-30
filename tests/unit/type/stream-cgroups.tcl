@@ -1806,6 +1806,9 @@ start_server {
             # Test whether numids is equal to the number of IDs provided
             assert_error {*The `numids` parameter must match the number of arguments*} {r XACKDEL s g IDS 3 1-1 2-2}
             assert_error {*syntax error*} {r XACKDEL s g IDS 1 1-1 2-2}
+
+            # Only one IDS block is allowed
+            assert_error {ERR syntax error, IDS specified multiple times} {r XACKDEL s g IDS 1 1-1 IDS 1 2-2}
         }
 
         test "XACKDEL KEEPREF/DELREF/ACKED parameter validation" {
@@ -3502,6 +3505,7 @@ start_server {
         # IDS keyword validation
         assert_error "ERR Unrecognized XNACK option*" {r XNACK mystream grp SILENT NOTIDS 1 1-0}
         assert_error "ERR syntax error, expected IDS keyword" {r XNACK mystream grp SILENT FORCE RETRYCOUNT 5}
+        assert_error "ERR syntax error, IDS specified multiple times" {r XNACK mystream grp SILENT IDS 1 1-0 IDS 1 2-0}
 
         # numids validation
         assert_error "ERR numids must be a positive integer*" {r XNACK mystream grp SILENT IDS abc 1-0}

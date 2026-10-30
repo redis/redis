@@ -3971,6 +3971,9 @@ start_server {tags {"stream"}} {
         assert_error {*The `numids` parameter must match the number of arguments*} {r XDELEX s IDS 3 1-1 2-2}
         assert_error {*syntax error*} {r XDELEX s IDS 1 1-1 2-2}
 
+        # Only one IDS block is allowed
+        assert_error {ERR syntax error, IDS specified multiple times} {r XDELEX s IDS 1 1-1 IDS 1 2-2}
+
         # Delete non-existent ids
         assert_equal {-1 -1} [r XDELEX s IDS 2 1-1 2-2]
     }
