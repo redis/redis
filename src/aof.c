@@ -3222,7 +3222,8 @@ int rewriteAppendOnlyFile(char *filename) {
         return C_ERR;
     }
 
-    rioInitWithFile(&aof,fp);
+    /* Only an RDB preamble carries a checksum. */
+    rioInitWithFileSave(&aof,fp,server.aof_use_rdb_preamble && server.rdb_checksum);
 
     if (server.aof_rewrite_incremental_fsync) {
         rioSetAutoSync(&aof,REDIS_AUTOSYNC_BYTES);
@@ -3242,7 +3243,7 @@ int rewriteAppendOnlyFile(char *filename) {
     }
 
     /* Make sure data will not remain on the OS's output buffers */
-    if (fflush(fp)) goto werr;
+    if (rioFlush(&aof) == 0) goto werr;
     if (fsync(fileno(fp))) goto werr;
     if (reclaimFilePageCache(fileno(fp), 0, 0) == -1) {
         /* A minor error. Just log to know what happens */
@@ -3250,6 +3251,7 @@ int rewriteAppendOnlyFile(char *filename) {
     }
     if (fclose(fp)) { fp = NULL; goto werr; }
     fp = NULL;
+    rioFreeFileSave(&aof);
 
     /* Use RENAME to make sure the DB file is changed atomically only
      * if the generate DB file is ok. */
@@ -3265,6 +3267,7 @@ int rewriteAppendOnlyFile(char *filename) {
 
 werr:
     serverLog(LL_WARNING,"Write error writing append only file on disk: %s", strerror(errno));
+    rioFreeFileSave(&aof);
     if (fp) fclose(fp);
     unlink(tmpfile);
     stopSaving(0);
