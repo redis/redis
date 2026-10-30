@@ -403,16 +403,6 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
-void setSdsDestructor(dict *d, void *val) {
-    *htGetMetadataSize(d) -= sdsAllocSize(val);
-    sdsfree(val);
-}
-
-size_t setDictMetadataBytes(dict *d) {
-    UNUSED(d);
-    return sizeof(size_t);
-}
-
 void *dictSdsDup(dict *d, const void *key) {
     UNUSED(d);
     return sdsdup((const sds) key);
@@ -640,20 +630,6 @@ dictType objectKeyHeapPointerValueDictType = {
     dictObjectDestructor,      /* key destructor */
     dictVanillaFree,           /* val destructor */
     NULL                       /* allow to expand */
-};
-
-/* Set dictionary type. Keys are SDS strings, values are not used. */
-dictType setDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    setSdsDestructor,          /* key destructor */
-    NULL,                      /* val destructor */
-    NULL,                      /* allow to expand */
-    .no_value = 1,             /* no values in this dict */
-    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
-    .dictMetadataBytes = setDictMetadataBytes,
 };
 
 /* Db->dict, keys are of type kvobj, unification of key and value */
@@ -2375,6 +2351,9 @@ void createSharedObjects(void) {
     shared.hpersist = createStringObject("HPERSIST",8);
     shared.hdel = createStringObject("HDEL",4);
     shared.hsetex = createStringObject("HSETEX",6);
+    shared.spexpireat = createStringObject("SPEXPIREAT",10);
+    shared.spersist = createStringObject("SPERSIST",8);
+    shared.saddex = createStringObject("SADDEX",6);
     shared.restore = createStringObject("RESTORE",7);
     shared.replace = createStringObject("REPLACE",7);
 
@@ -2524,18 +2503,19 @@ void initServerConfig(void) {
     server.pause_cron = 0;
     server.dict_resizing = 1;
 
-    server.latency_tracking_info_percentiles_len = 3;
+    server.latency_tracking_info_percentiles_len = configDefaultLatencyTrackingInfoPercentilesLen;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
-    server.latency_tracking_info_percentiles[0] = 50.0;  /* p50 */
-    server.latency_tracking_info_percentiles[1] = 99.0;  /* p99 */
-    server.latency_tracking_info_percentiles[2] = 99.9;  /* p999 */
+    memcpy(server.latency_tracking_info_percentiles,
+           configDefaultLatencyTrackingInfoPercentiles,
+           sizeof(double) * server.latency_tracking_info_percentiles_len);
 
     server.lruclock = getLRUClock();
     resetServerSaveParams();
 
-    appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
-    appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
-    appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
+    for (size_t i = 0; i < configDefaultSaveParamsLen; i++) {
+        appendServerSaveParams(configDefaultSaveParams[i].seconds,
+                               configDefaultSaveParams[i].changes);
+    }
 
     /* Replication related */
     server.masterhost = NULL;
@@ -8376,6 +8356,7 @@ struct redisTest {
     {"topk", chkTopKTest},
     {"fastfloat", fastFloatTest},
     {"lzf", lzfTest},
+    {"setentry", sEntryTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -8618,7 +8599,7 @@ int main(int argc, char **argv) {
             j++;
         }
 
-        loadServerConfig(server.configfile, config_from_stdin, options);
+        loadServerConfig(server.configfile, config_from_stdin, options, CONFIG_SOURCE_MAIN);
         if (server.sentinel_mode) loadSentinelConfigFromQueue();
         sdsfree(options);
     }

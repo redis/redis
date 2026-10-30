@@ -49,7 +49,8 @@ typedef long long ustime_t; /* microsecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
-#include "entry.h"   /* Entry objects (field-value pairs with optional expiration) */
+#include "hash_entry.h" /* Entry objects (field-value pairs with optional expiration) */
+#include "set_entry.h" /* SetEntry objects (set members with optional expiration) */
 #include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */
 #include "kvstore.h" /* Slot-based hash table */
@@ -1437,6 +1438,14 @@ typedef struct pendingCommandPool {
     int min_size;           /* Minimum size since last check (indicates peak usage) */
 } pendingCommandPool;
 
+typedef enum {
+    CONFIG_SOURCE_DEFAULT, /* No explicit source has been recorded. */
+    CONFIG_SOURCE_MAIN,    /* Loaded from the main configuration file. */
+    CONFIG_SOURCE_INCLUDE, /* Loaded from a file referenced by include. */
+    CONFIG_SOURCE_CLI,     /* Supplied through CLI options or stdin. */
+    CONFIG_SOURCE_RUNTIME  /* Added or set by a runtime command or API. */
+} configSource;
+
 /* This structure represents a Redis user. This is useful for ACLs, the
  * user is associated to the connection after the connection is authenticated.
  * If there is no associated user, the connection uses the default user. */
@@ -1473,6 +1482,7 @@ typedef struct {
                         against. This list will always contain at least
                         one selector for backwards compatibility. */
     robj *acl_string; /* cached string represent of ACLs */
+    configSource source; /* Startup source of this user's configuration. */
 } user;
 
 /* With multiplexing we need to take per-client state.
@@ -1814,7 +1824,19 @@ struct saveparam {
     int changes;
 };
 
+/* Shared startup defaults used by server initialization and CONFIG REWRITE. */
+extern const struct saveparam configDefaultSaveParams[];
+extern const size_t configDefaultSaveParamsLen;
+extern const double configDefaultLatencyTrackingInfoPercentiles[];
+extern const size_t configDefaultLatencyTrackingInfoPercentilesLen;
+
+typedef struct moduleConfigEntry {
+    sds value;
+    configSource source;
+} moduleConfigEntry;
+
 struct moduleLoadQueueEntry {
+    configSource source;
     sds path;
     int argc;
     robj **argv;
@@ -1846,7 +1868,7 @@ struct sharedObjectsStruct {
     *obo, *bulk, *zpopmin, *zpopmax,
     *emptyscan, *multi, *exec, *left, *right, *hset, *srem, *xgroup, *xclaim, *xack,
     *script, *replconf, *eval, *persist, *set, *pexpireat, *pexpire,
-    *hdel, *hpexpireat, *hpersist, *hsetex, *restore, *replace,
+    *hdel, *hpexpireat, *hpersist, *hsetex, *spexpireat, *spersist, *saddex, *restore, *replace,
     *time, *pxat, *absttl, *retrycount, *force, *justid, *entriesread,
     *lastid, *ping, *setid, *keepttl, *load, *createconsumer, *fields,
     *getack, *special_asterisk, *special_equals, *default_username, *redacted,
@@ -2122,6 +2144,7 @@ struct redisServer {
     pid_t pid;                  /* Main process pid. */
     pthread_t main_thread_id;         /* Main thread id */
     char *configfile;           /* Absolute config file path, or NULL */
+    int config_rewrite_source_aware; /* Enable source-aware CONFIG REWRITE. */
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int dynamic_hz;             /* Change hz value depending on # of clients. */
@@ -2164,7 +2187,7 @@ struct redisServer {
     dict *moduleapi;            /* Exported core APIs dictionary for modules. */
     dict *sharedapi;            /* Like moduleapi but containing the APIs that
                                    modules share with each other. */
-    dict *module_configs_queue; /* Unmapped configs are queued here, assumed to be module config. Applied after modules are loaded during startup or arguments to loadex. */
+    dict *module_configs_queue; /* Config name -> moduleConfigEntry, applied after module registration at startup or LOADEX. */
     list *loadmodule_queue;     /* List of modules to load at startup. */
     int module_pipe[2];         /* Pipe used to awake the event loop by module threads. */
     pid_t child_pid;            /* PID of current child */
@@ -3244,12 +3267,16 @@ typedef struct {
 } listTypeEntry;
 
 /* Structure to hold set iteration abstraction. */
-typedef struct _setTypeOps setTypeOps; /* defined in t_set_encoding.h */
+typedef struct _setTypeOps setTypeOps; /* defined in t_set.c */
 
-typedef struct {
+typedef struct setTypeIterator {
     robj *subject;
     int encoding;
     const setTypeOps *typeOps; /* encoding-specific ops struct, to avoid re-fetching it for every next call */
+    /* typeOps->iterNext, unless iterInit picked a variant of it for this set. */
+    int (*iterNext)(struct setTypeIterator *si, char **str, size_t *len, int64_t *llele);
+    int mode; /* SET_ITER_RAW or SET_ITER_SKIP_EXPIRED */
+    uint64_t expire; /* Expiration of the member returned last, EB_EXPIRE_TIME_INVALID if none */
     int ii; /* intset iterator */
     dictIterator di;
     unsigned char *lpi; /* listpack iterator */
@@ -3292,6 +3319,8 @@ extern dictType objectKeyPointerValueDictType;
 extern dictType objectKeyNoValueDictType;
 extern dictType objectKeyHeapPointerValueDictType;
 extern dictType setDictType;
+extern dictType setDictTypeWithExpire;
+extern EbucketsType setMemberExpireBucketsType; /* local per set */
 extern dictType BenchmarkDictType;
 extern dictType zsetDictType;
 extern dictType dbDictType;
@@ -3326,8 +3355,8 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
-int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex);
-int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
+int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex, configSource source);
+int moduleLoad(const char *path, void **argv, int argc, int is_loadex, configSource source);
 int moduleUnload(sds name, const char **errmsg, int forced_unload);
 void moduleLoadInternalModules(void);
 void moduleLoadFromQueue(void);
@@ -3465,6 +3494,13 @@ void addReplyErrorSdsSafe(client *c, sds err);
 void addReplyError(client *c, const char *err);
 void addReplyErrorArity(client *c);
 void addReplyErrorExpireTime(client *c);
+
+/* The absolute expiration time of a hash field or set member given by a user
+ * is capped to this value (the top bits of the 48-bit ebuckets range stay
+ * reserved). Enforced only by parseSubkeyExpireTime(); internally the time can
+ * be up to EB_EXPIRE_TIME_MAX. */
+#define SUBEXPIRE_MAX_ABS_TIME_MSEC (EB_EXPIRE_TIME_MAX >> 2)
+int parseSubkeyExpireTime(client *c, robj *o, int unit, long long basetime, long long *expire);
 void addReplyStatus(client *c, const char *status);
 void addReplyStatusSafe(client *c, const char *s);
 void addReplyDouble(client *c, double d);
@@ -3835,7 +3871,7 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);
 uint64_t ACLGetCommandCategoryFlagByName(const char *name);
 int ACLAddCommandCategory(const char *name, uint64_t flag);
 void ACLCleanupCategoriesOnFailure(size_t num_acl_categories_added);
-int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err);
+int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err, configSource source);
 const char *ACLSetUserStringError(void);
 int ACLLoadConfiguredUsers(void);
 robj *ACLDescribeUser(user *u);
@@ -4045,13 +4081,53 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-void setTypeInitIterator(setTypeIterator *si, robj *subject);
+/* Iterator modes. Raw iteration returns every member that is physically in the
+ * set, including members that are logically expired but not yet reclaimed. It is
+ * used by everything that must preserve the stored state exactly (persistence,
+ * copy, conversion, digest). Skip-expired iteration never returns a logically
+ * expired member and never deletes anything; it is used by everything that
+ * returns members to a client or a module. */
+#define SET_ITER_RAW 0
+#define SET_ITER_SKIP_EXPIRED 1
+void setTypeInitIterator(setTypeIterator *si, robj *subject, int mode);
 void setTypeResetIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
+int setTypeNextWithExpire(setTypeIterator *si, char **str, size_t *len, int64_t *llele); /* Internal to t_set.c */
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeSize(const robj *subject);
 size_t setTypeAllocSize(const robj *o);
+ExpireMeta *setGetExpireMeta(const eItem set);
+ExpireMeta *setListpackExGetExpireMeta(const robj *set);
+int setHashtableHasExpire(const robj *set);
+void setHashtableAddExpireSupport(robj *set);
+ExpireMeta *setHashtableGetExpireMeta(const robj *set);
+int setHasSubexpiry(const kvobj *o);
+uint64_t setTypeGetMinExpire(robj *o, int accurate);
+int setTypeHasExpireSupport(const robj *set);
+int setTypeExpireTimeElapsed(uint64_t expire);
+int setTypeGetExpire(robj *set, sds member, uint64_t *expire);
+void setTypeConvertToExpireEncoding(robj *set);
+int setTypeCanHoldExpire(const robj *set);
+void setTypeUpdateSubexpiry(redisDb *db, kvobj *set);
+int setIsRegisteredInSubexpires(const kvobj *set);
+int setTypeGetExpireAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t *expire);
+int setTypeAddExAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds, uint64_t expire);
+robj *createSetListpackExObject(void);
+unsigned char *setListpackExGetLp(const robj *set);
+void setListpackExAttach(robj *set, unsigned char *lp);
+int setListpackExValidate(unsigned char *lp, size_t size, int deep);
+
+/* Flags of the lazy expiry functions. A command that already does part of the
+ * bookkeeping for the whole operation suppresses it in the inner calls. */
+#define SET_LAZY_NO_UPDATE_KEYSIZES   (1<<0) /* Do not update the keysizes histogram */
+#define SET_LAZY_NO_UPDATE_ALLOCSIZES (1<<1) /* Do not update the allocation size accounting */
+#define SET_LAZY_NO_NOTIFICATION      (1<<2) /* Do not fire the keyspace events */
+#define SET_LAZY_NO_SIGNAL            (1<<3) /* Do not signal the key as modified */
+#define SET_LAZY_AVOID_SET_DEL        (1<<4) /* Do not delete the key if the set gets empty */
+int setTypeIsMemberLazy(redisDb *db, kvobj *set, sds member, int flags, int *setDeleted);
+uint64_t setTypeExpire(redisDb *db, kvobj *set, uint32_t *quota, int updateSubexpires, int activeEx);
+int setTypeExpireIfNeeded(redisDb *db, kvobj *set);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
@@ -4148,7 +4224,8 @@ typedef struct htMetadataEx {
                                 subexpires DB with next minimum hash-field to expire.
                                 TTL value might be inaccurate up-to few seconds due
                                 to optimization consideration. */
-    ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
+    ebuckets elemExpires;    /* DS of hash fields / set members Expiration,
+                                associated to each key */
 } htMetadataEx;
 
 /* hash metadata helpers */
@@ -4206,7 +4283,7 @@ void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, char **str,
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
                            size_t *vlen, long long *vll, uint64_t *expireTime);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-Entry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable);
+HashEntry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable);
 int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
 int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
@@ -4239,6 +4316,12 @@ size_t himportFieldsetsMemOverhead(client *c);
 
 unsigned char *hashTypeListpackGetLp(robj *o);
 uint64_t hashTypeGetMinExpire(robj *o, int accurate);
+/* Types whose objects may be registered in db->subexpires (an object that
+ * has members or fields with an expiration time). */
+#define typeMaySubexpire(type) ((type) == OBJ_HASH || (type) == OBJ_SET)
+ExpireMeta *hashGetExpireMeta(const eItem hash);
+int hashHasSubexpiry(const kvobj *o);
+uint64_t kvobjGetMinSubexpiry(kvobj *kv);
 ebuckets *hashTypeGetDictMetaHFE(dict *d);
 void initDictExpireMetadata(robj *o);
 struct listpackEx *listpackExCreate(void);
@@ -4323,7 +4406,7 @@ typedef enum {
     SPECIAL_CONFIG,
 } configType;
 
-void loadServerConfig(char *filename, char config_from_stdin, char *options);
+void loadServerConfig(char *filename, char config_from_stdin, char *options, configSource source);
 void appendServerSaveParams(time_t seconds, int changes);
 void resetServerSaveParams(void);
 struct rewriteConfigState; /* Forward declaration to export API. */
@@ -4340,7 +4423,8 @@ static inline int clusterSlotStatsEnabled(int stat) { return server.cluster_enab
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
-int performModuleConfigSetFromName(sds name, sds value, const char **err);
+void queueModuleConfig(sds name, sds value, configSource source);
+int performModuleConfigSetFromName(sds name, sds value, configSource source, const char **err);
 int performModuleConfigSetDefaultFromName(sds name, const char **err);
 void addModuleBoolConfig(sds name, sds alias, int flags, void *privdata, int default_val);
 void addModuleStringConfig(sds name, sds alias, int flags, void *privdata, sds default_val);
@@ -4727,6 +4811,16 @@ void sismemberCommand(client *c);
 void smismemberCommand(client *c);
 void scardCommand(client *c);
 void spopCommand(client *c);
+void sexpireCommand(client *c);
+void spexpireCommand(client *c);
+void sexpireatCommand(client *c);
+void spexpireatCommand(client *c);
+void sttlCommand(client *c);
+void spttlCommand(client *c);
+void sexpiretimeCommand(client *c);
+void spexpiretimeCommand(client *c);
+void spersistCommand(client *c);
+void saddexCommand(client *c);
 void srandmemberCommand(client *c);
 void sinterCommand(client *c);
 void smembersCommand(client *c);

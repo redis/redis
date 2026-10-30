@@ -18,6 +18,14 @@ proc dict_bucket_slots {} {
     expr {[s arch_bits] == 32 ? 12 : 7}
 }
 
+# Read and return the full contents of a file.
+proc read_file {path} {
+    set fd [open $path r]
+    set contents [read $fd]
+    close $fd
+    return $contents
+}
+
 proc randstring {min max {type binary}} {
     set len [expr {$min+int(rand()*($max-$min+1))}]
     set output {}
@@ -394,6 +402,7 @@ proc findKeyWithType {r type} {
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
+    set usesexpire [expr {[lsearch -exact $opt usesexpire] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {
         set tag "{t}"
@@ -511,6 +520,16 @@ proc createComplexDataset {r ops {opt {}}} {
                                 }
                             }
                         }
+
+                if {$usesexpire && rand() < 0.5} {
+                    randpath {
+                        catch {{*}$r sexpire $k 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r saddex $k EX 1000 MEMBERS 1 $v}
+                    } {
+                        catch {{*}$r spersist $k MEMBERS 1 $v}
+                    }
+                }
             }
             {zset} {
                 randpath {{*}$r zadd $k $d $v} \
