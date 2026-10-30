@@ -1053,6 +1053,25 @@ start_server {tags {external:skip needs:debug} overrides {key-memory-histograms 
         verify_keymem_empty r
     }
 
+    test "KEY-MEMORY-STATS - ZRANGESTORE with the destination as the source" {
+        r FLUSHALL
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        set orig [lindex [r CONFIG GET zset-max-listpack-entries] 1]
+        foreach max {128 0} {
+            r CONFIG SET zset-max-listpack-entries $max
+            r ZADD z 1 a 2 b 3 c
+            assert_equal 0 [r ZRANGESTORE z z 5 10 BYSCORE]
+            assert_equal 0 [r EXISTS z]
+            r ZADD z 1 a 2 b 3 c
+            assert_equal 1 [r ZRANGESTORE z z 0 0]
+            assert_equal {a} [r ZRANGE z 0 -1]
+            r DEL z
+        }
+        r CONFIG SET zset-max-listpack-entries $orig
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 0
+        verify_keymem_empty r
+    }
+
     test "KEY-MEMORY-STATS - Histogram bins should use power-of-2 labels" {
         r FLUSHALL
         r HSET "hash" f1 v1

@@ -4648,7 +4648,9 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
     /* Step 4: Pass this to the command-specific handler. */
-    if (server.memory_tracking_enabled)
+    /* In store mode the destination may be the source, and storing the
+     * result replaces or deletes zobj, so don't touch it afterwards. */
+    if (server.memory_tracking_enabled && !store)
         oldsize = kvobjAllocSize(zobj);
     switch (rangetype) {
     case ZRANGE_AUTO:
@@ -4667,7 +4669,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
             opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
-    if (server.memory_tracking_enabled)
+    if (server.memory_tracking_enabled && !store)
         updateSlotAllocSize(c->db, getKeySlot(key->ptr), zobj, oldsize, kvobjAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
