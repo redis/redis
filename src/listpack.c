@@ -116,6 +116,9 @@
     assert((p) >= (lp)+LP_HDR_SIZE && (p)+(len) < (lp)+lpGetTotalBytes((lp))); \
 } while (0)
 
+/* Batch writers keep up to this many entries on the stack, else the heap. */
+#define LP_BATCH_STACK_ENTRIES 64
+
 static inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p);
 
 /* Don't let listpacks grow over 1GB in any case, don't wanna risk overflow in
@@ -337,20 +340,20 @@ static inline unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
     if (l <= 127) {
         if (buf) buf[0] = l;
         return 1;
-    } else if (l <= 16383) {
+    } else if (l < 16383) {
         if (buf) {
             buf[0] = l>>7;
             buf[1] = (l&127)|128;
         }
         return 2;
-    } else if (l <= 2097151) {
+    } else if (l < 2097151) {
         if (buf) {
             buf[0] = l>>14;
             buf[1] = ((l>>7)&127)|128;
             buf[2] = (l&127)|128;
         }
         return 3;
-    } else if (l <= 268435455) {
+    } else if (l < 268435455) {
         if (buf) {
             buf[0] = l>>21;
             buf[1] = ((l>>14)&127)|128;
@@ -376,11 +379,11 @@ static inline unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
 static inline unsigned long lpEncodeBacklenBytes(uint64_t l) {
     if (l <= 127) {
         return 1;
-    } else if (l <= 16383) {
+    } else if (l < 16383) {
         return 2;
-    } else if (l <= 2097151) {
+    } else if (l < 2097151) {
         return 3;
-    } else if (l <= 268435455) {
+    } else if (l < 268435455) {
         return 4;
     } else {
         return 5;
@@ -525,17 +528,70 @@ unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
     return p;
 }
 
+/* Like lpNext() but seeks 'n' entries forward, returning the resulting entry or
+ * NULL if the end of the listpack is reached. n == 0 returns 'p' unchanged. */
+unsigned char *lpNextN(unsigned char *lp, unsigned char *p, unsigned long n) {
+    size_t lpbytes = lpBytes(lp);
+    int validated = 1; /* If current entry is fully validated */
+    while (n && p) {
+        p = lpSkip(p);
+        /* Near the end, fully validate so the next lpSkip() can't run past
+         * the allocation; otherwise a cheap range check is enough, since
+         * lpSkip() reads at most 5 bytes of encoding from the entry start.*/
+        if (p + 5 >= lp + lpbytes) {
+            lpAssertValidEntry(lp, lpbytes, p);
+            validated = 1;
+        } else {
+            assert(p >= lp + LP_HDR_SIZE && p < lp + lpbytes);
+            validated = 0;
+        }
+        if (p[0] == LP_EOF) return NULL;
+        n--;
+    }
+    if (p && !validated) lpAssertValidEntry(lp, lpbytes, p);
+    return p;
+}
+
+/* Step back to the start of the previous entry, without validating it. Caller
+ * must ensure 'p' is not the first entry. */
+static inline unsigned char *lpSkipPrev(unsigned char *p) {
+    p--; /* Seek the last backlen byte of the previous element. */
+    uint64_t prevlen = lpDecodeBacklen(p);
+    prevlen += lpEncodeBacklenBytes(prevlen);
+    p -= prevlen-1; /* Seek the first byte of the previous entry. */
+    return p;
+}
+
 /* If 'p' points to an element of the listpack, calling lpPrev() will return
  * the pointer to the previous element (the one on the left), or NULL if 'p'
  * already pointed to the first element of the listpack. */
 unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
     assert(p);
     if (p-lp == LP_HDR_SIZE) return NULL;
-    p--; /* Seek the first backlen byte of the last element. */
-    uint64_t prevlen = lpDecodeBacklen(p);
-    prevlen += lpEncodeBacklenBytes(prevlen);
-    p -= prevlen-1; /* Seek the first byte of the previous entry. */
+    p = lpSkipPrev(p);
     lpAssertValidEntry(lp, lpBytes(lp), p);
+    return p;
+}
+
+/* Like lpPrev() but seeks 'n' entries backward, returning the resulting entry
+ * or NULL if the front of the listpack is reached. n == 0 returns 'p'. */
+unsigned char *lpPrevN(unsigned char *lp, unsigned char *p, unsigned long n) {
+    size_t lpbytes = lpBytes(lp);
+    int validated = 1; /* If current entry is fully validated */
+    while (n && p) {
+        if (p - lp == LP_HDR_SIZE) return NULL; /* First entry. */
+
+        /* Move to the previous entry, without fully validating it here.
+         * Here 'p' is at least LP_HDR_SIZE (6) bytes past lp, and the
+         * p-- inside lpSkipPrev() makes lpDecodeBacklen() read at most 5
+         * bytes (p[0] down to p[-4]), so it stays inside the allocation
+         * and never reads before lp. */
+        p = lpSkipPrev(p);
+        assert(p >= lp + LP_HDR_SIZE && p < lp + lpbytes);
+        validated = 0;
+        n--;
+    }
+    if (p && !validated) lpAssertValidEntry(lp, lpbytes, p);
     return p;
 }
 
@@ -872,11 +928,18 @@ static inline unsigned char *lpFindCbInternal(unsigned char *lp, unsigned char *
         }
 
         /* The next call to lpGetWithSize could read at most 8 bytes past `p`
-         * We use the slower validation call only when necessary. */
+         * We use the slower validation call only when necessary. Otherwise `p`
+         * is in range already: it only moves forward from a valid entry, and
+         * p + 8 < lp + lp_bytes implies p < lp + lp_bytes. */
         if (p + 8 >= lp + lp_bytes)
             lpAssertValidEntry(lp, lp_bytes, p);
+#if UINTPTR_MAX == 0xffffffff
+        /* On 32-bit a corrupt entry length can wrap `p` around the address
+         * space: below the header, or so close to the top that `p + 8` itself
+         * wraps and the check above is skipped. Keep both bounds there. */
         else
             assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
+#endif
         if (p[0] == LP_EOF) break;
     }
 
@@ -1122,6 +1185,72 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     return lp;
 }
 
+struct listpackInsertEntry {
+    int enctype;
+    uint64_t enclen;
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+    unsigned char backlen[LP_MAX_BACKLEN_SIZE];
+    unsigned long backlen_size;
+};
+
+/* Encode 'len' entries into 'enc' and return the total encoded bytes. */
+static uint64_t lpEncodeEntries(listpackEntry *entries, unsigned int len,
+                                struct listpackInsertEntry *enc)
+{
+    uint64_t addedlen = 0;
+    for (unsigned int i = 0; i < len; i++) {
+        listpackEntry *e = &entries[i];
+        if (e->sval) {
+           /* Calling lpEncodeGetType() results into the encoded version of the
+            * element to be stored into 'intenc' in case it is representable as
+            * an integer: in that case, the function returns LP_ENCODING_INT.
+            * Otherwise, if LP_ENCODING_STR is returned, we'll have to call
+            * lpEncodeString() to actually write the encoded string on place
+            * later.
+            *
+            * Whatever the returned encoding is, 'enclen' is populated with the
+            * length of the encoded element. */
+            enc[i].enctype = lpEncodeGetType(e->sval, e->slen,
+                                             enc[i].intenc, &enc[i].enclen);
+        } else {
+            enc[i].enctype = LP_ENCODING_INT;
+            lpEncodeIntegerGetType(e->lval, enc[i].intenc, &enc[i].enclen);
+        }
+        addedlen += enc[i].enclen;
+
+        /* We need to also encode the backward-parsable length of the element
+         * and append it to the end: this allows to traverse the listpack from
+         * the end to the start. */
+        enc[i].backlen_size = lpEncodeBacklen(enc[i].backlen, enc[i].enclen);
+        addedlen += enc[i].backlen_size;
+    }
+    return addedlen;
+}
+
+/* Write 'len' pre-encoded entries at 'dst' and return the pointer just past the
+ * last one. If 'newp' is not NULL it is left pointing at the last entry written. */
+static unsigned char *lpWriteEntries(unsigned char *dst, listpackEntry *entries,
+                                     struct listpackInsertEntry *enc,
+                                     unsigned int len, unsigned char **newp)
+{
+    for (unsigned int i = 0; i < len; i++) {
+        listpackEntry *ent = &entries[i];
+
+        if (newp)
+            *newp = dst;
+
+        if (enc[i].enctype == LP_ENCODING_INT)
+            memcpy(dst, enc[i].intenc, enc[i].enclen);
+        else
+            lpEncodeString(dst, ent->sval, ent->slen);
+
+        dst += enc[i].enclen;
+        memcpy(dst, enc[i].backlen, enc[i].backlen_size);
+        dst += enc[i].backlen_size;
+    }
+    return dst;
+}
+
 /* Insert the specified elements with 'entries' and 'len' at the specified
  * position 'p', with 'p' being a listpack element pointer obtained with
  * lpFirst(), lpLast(), lpNext(), lpPrev() or lpSeek().
@@ -1152,16 +1281,8 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
     assert(where == LP_BEFORE || where == LP_AFTER);
     assert(entries != NULL && len > 0);
 
-    struct listpackInsertEntry {
-        int enctype;
-        uint64_t enclen;
-        unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
-        unsigned char backlen[LP_MAX_BACKLEN_SIZE];
-        unsigned long backlen_size;
-    };
-
     uint64_t addedlen = 0;       /* The encoded length of the added elements. */
-    struct listpackInsertEntry tmp[3];  /* Encoded entries */
+    struct listpackInsertEntry tmp[LP_BATCH_STACK_ENTRIES];  /* Encoded entries */
     struct listpackInsertEntry *enc = tmp;
 
     if (len > sizeof(tmp) / sizeof(struct listpackInsertEntry)) {
@@ -1179,32 +1300,7 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
         ASSERT_INTEGRITY(lp, p);
     }
 
-    for (unsigned int i = 0; i < len; i++) {
-        listpackEntry *e = &entries[i];
-        if (e->sval) {
-           /* Calling lpEncodeGetType() results into the encoded version of the
-            * element to be stored into 'intenc' in case it is representable as
-            * an integer: in that case, the function returns LP_ENCODING_INT.
-            * Otherwise, if LP_ENCODING_STR is returned, we'll have to call
-            * lpEncodeString() to actually write the encoded string on place
-            * later.
-            *
-            * Whatever the returned encoding is, 'enclen' is populated with the
-            * length of the encoded element. */
-            enc[i].enctype = lpEncodeGetType(e->sval, e->slen,
-                                             enc[i].intenc, &enc[i].enclen);
-        } else {
-            enc[i].enctype = LP_ENCODING_INT;
-            lpEncodeIntegerGetType(e->lval, enc[i].intenc, &enc[i].enclen);
-        }
-        addedlen += enc[i].enclen;
-
-        /* We need to also encode the backward-parsable length of the element
-         * and append it to the end: this allows to traverse the listpack from
-         * the end to the start. */
-        enc[i].backlen_size = lpEncodeBacklen(enc[i].backlen, enc[i].enclen);
-        addedlen += enc[i].backlen_size;
-    }
+    addedlen = lpEncodeEntries(entries, len, enc);
 
     uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
     uint64_t new_listpack_bytes = old_listpack_bytes + addedlen;
@@ -1232,21 +1328,7 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
      * we need to store the new ones. */
     memmove(dst+addedlen,dst,old_listpack_bytes-poff);
 
-    for (unsigned int i = 0; i < len; i++) {
-        listpackEntry *ent = &entries[i];
-
-        if (newp)
-            *newp = dst;
-
-        if (enc[i].enctype == LP_ENCODING_INT)
-            memcpy(dst, enc[i].intenc, enc[i].enclen);
-        else
-            lpEncodeString(dst, ent->sval, ent->slen);
-
-        dst += enc[i].enclen;
-        memcpy(dst, enc[i].backlen, enc[i].backlen_size);
-        dst += enc[i].backlen_size;
-    }
+    lpWriteEntries(dst, entries, enc, len, newp);
 
     /* Update header. */
     uint32_t num_elements = lpGetNumElements(lp);
@@ -1257,6 +1339,33 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
             lpSetNumElements(lp,num_elements + len);
     }
     lpSetTotalBytes(lp,new_listpack_bytes);
+    if (enc != tmp) lp_free(enc);
+
+    return lp;
+}
+
+/* Create a new listpack from entries. Returns NULL if it would exceed 2^32-1 bytes. */
+unsigned char *lpNewWithEntries(listpackEntry *entries, unsigned int len) {
+    assert(entries != NULL && len > 0);
+
+    struct listpackInsertEntry tmp[LP_BATCH_STACK_ENTRIES];
+    struct listpackInsertEntry *enc = tmp;
+    if (len > sizeof(tmp) / sizeof(struct listpackInsertEntry))
+        enc = zmalloc(len * sizeof(struct listpackInsertEntry));
+
+    uint64_t entries_len = lpEncodeEntries(entries, len, enc);
+    uint64_t listpack_bytes = LP_HDR_SIZE + entries_len + 1; /* +1 for EOF */
+    if (listpack_bytes > UINT32_MAX) {
+        if (enc != tmp) lp_free(enc);
+        return NULL;
+    }
+    unsigned char *lp = lp_malloc(listpack_bytes);
+    unsigned char *tail = lpWriteEntries(lp + LP_HDR_SIZE, entries, enc, len, NULL);
+    *tail = LP_EOF;
+
+    uint32_t num_elements = (len >= LP_HDR_NUMELE_UNKNOWN) ? LP_HDR_NUMELE_UNKNOWN : len;
+    lpSetNumElements(lp, num_elements);
+    lpSetTotalBytes(lp, listpack_bytes);
     if (enc != tmp) lp_free(enc);
 
     return lp;
@@ -1605,32 +1714,21 @@ unsigned char *lpSeek(unsigned char *lp, long index) {
          * is past the half of the listpack. */
         if (index > (long)numele/2) {
             forward = 0;
-            /* Right to left scanning always expects a negative index. Convert
-             * our index to negative form. */
-            index -= numele;
+            index = (long)numele - index - 1; /* Backward steps from the last entry. */
         }
     } else {
         /* If the listpack length is unspecified, for negative indexes we
          * want to always scan right-to-left. */
-        if (index < 0) forward = 0;
+        if (index < 0) {
+            forward = 0;
+            index = -index - 1; /* Backward steps; -1 is the last entry. */
+        }
     }
 
-    /* Forward and backward scanning is trivially based on lpNext()/lpPrev(). */
-    if (forward) {
-        unsigned char *ele = lpFirst(lp);
-        while (index > 0 && ele) {
-            ele = lpNext(lp,ele);
-            index--;
-        }
-        return ele;
-    } else {
-        unsigned char *ele = lpLast(lp);
-        while (index < -1 && ele) {
-            ele = lpPrev(lp,ele);
-            index++;
-        }
-        return ele;
-    }
+    if (forward)
+        return lpNextN(lp, lpFirst(lp), index);
+    else
+        return lpPrevN(lp, lpLast(lp), index);
 }
 
 /* Same as lpFirst but without validation assert, to be used right before lpValidateNext. */
@@ -1653,7 +1751,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
         return 0;
 
     /* Before accessing p, make sure it's valid. */
-    if (OUT_OF_RANGE(p))
+    if (unlikely(OUT_OF_RANGE(p)))
         return 0;
 
     if (*p == LP_EOF) {
@@ -1667,7 +1765,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
         return 0;
 
     /* make sure the encoded entry length doesn't reach outside the edge of the listpack */
-    if (OUT_OF_RANGE(p + lenbytes))
+    if (unlikely(OUT_OF_RANGE(p + lenbytes)))
         return 0;
 
     /* get the entry length and encoded backlen. */
@@ -1676,7 +1774,7 @@ int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes) {
     entrylen += encodedBacklen;
 
     /* make sure the entry doesn't reach outside the edge of the listpack */
-    if (OUT_OF_RANGE(p + entrylen))
+    if (unlikely(OUT_OF_RANGE(p + entrylen)))
         return 0;
 
     /* move to the next entry */
@@ -1746,6 +1844,79 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
         return 0;
 
     return 1;
+}
+
+/* Smallest listpack that can hold an entry of encoded length 16383:
+ * header + entry + compact backlen + EOF. */
+#define LP_COMPACT_BACKLEN_MIN_BYTES (LP_HDR_SIZE + 16383 + 2 + 1)
+#define lpIsBacklenBoundary(l) ((l) == 16383 || (l) == 2097151 || (l) == 268435455)
+
+/* Redis 8.8 - 8.10 (#15151) wrote the backlen of entries whose encoded length
+ * is 16383, 2097151 or 268435455 one byte shorter than any other version.
+ * Rewrite those entries in the historical width, the only one the rest of
+ * this file reads. Entries already in the historical width are kept as is.
+ *
+ * Returns the listpack, possibly reallocated, and updates '*size'. A malformed
+ * listpack is returned unchanged, so the caller's integrity check (or a later
+ * traversal assertion) reports it exactly as without this function. */
+unsigned char *lpUpgradeCompactBacklen(unsigned char *lp, size_t *size) {
+    /* The compact backlen of a boundary length is 7f followed by ff bytes. */
+    static const unsigned char compact_form[] = {0x7f, 0xff, 0xff, 0xff};
+    size_t bytes = *size;
+    if (bytes < LP_COMPACT_BACKLEN_MIN_BYTES) return lp;
+    if (lpGetTotalBytes(lp) != bytes || lp[bytes-1] != LP_EOF) return lp;
+
+    /* First pass: count compact entries, bounds-checking every read. */
+    unsigned char *end = lp + bytes - 1; /* EOF byte */
+    unsigned char *p = lp + LP_HDR_SIZE;
+    size_t compact = 0;
+    while (p < end) {
+        size_t avail = end - p;
+        uint32_t lenbytes = lpCurrentEncodedSizeBytes(p[0]);
+        if (!lenbytes || p[0] == LP_EOF || avail <= lenbytes) return lp;
+        uint64_t entrylen = lpCurrentEncodedSizeUnsafe(p);
+        /* A 32 bit string length close to UINT32_MAX wraps the encoded size. */
+        if (entrylen < lenbytes || entrylen >= avail) return lp;
+        unsigned long backlen = lpEncodeBacklenBytes(entrylen);
+        /* 'backlen' is the historical width, the compact one is a byte
+         * shorter: 7f ff, 7f ff ff and 7f ff ff ff instead of 00 ff ff,
+         * 00 ff ff ff and 00 ff ff ff ff. Match the whole compact encoding,
+         * so corruption is never "repaired". */
+        if (lpIsBacklenBoundary(entrylen) && avail - entrylen >= backlen - 1 &&
+            !memcmp(p + entrylen, compact_form, backlen - 1))
+        {
+            backlen--;
+            compact++;
+        }
+        if (entrylen + backlen > avail) return lp;
+        p += entrylen + backlen;
+    }
+    if (p != end || compact == 0 || bytes + compact > UINT32_MAX) return lp;
+
+    /* Second pass: copy, widening the compact backlens. */
+    size_t newbytes = bytes + compact;
+    unsigned char *dst = lp_malloc(newbytes);
+    unsigned char *d = dst + LP_HDR_SIZE;
+    memcpy(dst, lp, LP_HDR_SIZE);
+    for (p = lp + LP_HDR_SIZE; p < end; ) {
+        uint64_t entrylen = lpCurrentEncodedSizeUnsafe(p);
+        unsigned long backlen = lpEncodeBacklenBytes(entrylen);
+        memcpy(d, p, entrylen);
+        d += entrylen;
+        if (lpIsBacklenBoundary(entrylen) && !memcmp(p + entrylen, compact_form, backlen - 1)) {
+            d += lpEncodeBacklen(d, entrylen);
+            backlen--;
+        } else {
+            memcpy(d, p + entrylen, backlen);
+            d += backlen;
+        }
+        p += entrylen + backlen;
+    }
+    *d = LP_EOF;
+    lpSetTotalBytes(dst, newbytes);
+    lp_free(lp);
+    *size = newbytes;
+    return dst;
 }
 
 /* Compare entry pointer to by 'p' with string 's' of length 'slen'.
@@ -2566,6 +2737,95 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpFree(lp);
     }
 
+    TEST("Build a new listpack from entries") {
+        listpackEntry ent[6] = {
+                {.sval = (unsigned char*)mixlist[0], .slen = strlen(mixlist[0])},
+                {.sval = (unsigned char*)mixlist[1], .slen = strlen(mixlist[1])},
+                {.sval = (unsigned char*)mixlist[2], .slen = strlen(mixlist[2])},
+                {.lval = 4294967296},
+                {.sval = (unsigned char*)mixlist[3], .slen = strlen(mixlist[3])},
+                {.lval = -100}
+        };
+
+        lp = lpNewWithEntries(ent, 6);
+        assert(lp != NULL);
+        assert(lpLength(lp) == 6);
+        verifyEntry(lpSeek(lp, 0), ent[0].sval, ent[0].slen);
+        verifyEntry(lpSeek(lp, 1), ent[1].sval, ent[1].slen);
+        verifyEntry(lpSeek(lp, 2), ent[2].sval, ent[2].slen);
+        verifyEntry(lpSeek(lp, 3), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp, 4), ent[4].sval, ent[4].slen);
+        verifyEntry(lpSeek(lp, 5), (unsigned char*)"-100", 4);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+
+        /* The freshly built listpack must keep working under insert/delete. */
+        listpackEntry more[2] = {{.lval = 7}, {.sval = (unsigned char*)"tail", .slen = 4}};
+        lp = lpBatchAppend(lp, more, 2);
+        assert(lpLength(lp) == 8);
+        verifyEntry(lpSeek(lp, 6), (unsigned char*)"7", 1);
+        verifyEntry(lpSeek(lp, 7), (unsigned char*)"tail", 4);
+        lp = lpDeleteRange(lp, 0, 3);
+        assert(lpLength(lp) == 5);
+        verifyEntry(lpSeek(lp, 0), (unsigned char*)"4294967296", 10);
+        verifyEntry(lpSeek(lp, 4), (unsigned char*)"tail", 4);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
+
+        /* Single-entry new listpack. */
+        lp = lpNewWithEntries(ent, 1);
+        assert(lp != NULL);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpSeek(lp, 0), ent[0].sval, ent[0].slen);
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
+    }
+
+    TEST("lpNewWithEntries stack/heap buffer boundary") {
+        /* Keeps up to LP_BATCH_STACK_ENTRIES entries on the stack, then switches
+         * to the heap. Walk both sides. */
+        listpackEntry ent[LP_BATCH_STACK_ENTRIES + 2];
+
+        for (int n = LP_BATCH_STACK_ENTRIES - 1; n <= LP_BATCH_STACK_ENTRIES + 2; n++) {
+            for (int j = 0; j < n; j++) {
+                ent[j].sval = NULL;
+                ent[j].lval = j;
+            }
+            lp = lpNewWithEntries(ent, n);
+            assert(lp != NULL);
+            assert((int)lpLength(lp) == n);
+            for (int j = 0; j < n; j++) {
+                char buf[LP_INTBUF_SIZE];
+                int blen = snprintf(buf, sizeof(buf), "%d", j);
+                verifyEntry(lpSeek(lp, j), (unsigned char*)buf, blen);
+            }
+            assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+            lpFree(lp);
+        }
+    }
+
+    TEST("lpBatchInsert past the stack buffer (heap path)") {
+        /* 'len' beyond LP_BATCH_STACK_ENTRIES makes the encoder use the heap. */
+        int heaplen = LP_BATCH_STACK_ENTRIES + 1;
+        listpackEntry ent[LP_BATCH_STACK_ENTRIES + 1];
+        for (int j = 0; j < heaplen; j++) {
+            ent[j].sval = NULL;
+            ent[j].lval = j;
+        }
+        lp = lpNew(0);
+        lp = lpAppend(lp, (unsigned char*)"head", 4);
+        p = lpSeek(lp, 0);
+        lp = lpBatchInsert(lp, p, LP_AFTER, ent, heaplen, NULL);
+        assert((int)lpLength(lp) == heaplen + 1);
+        verifyEntry(lpSeek(lp, 0), (unsigned char*)"head", 4);
+        for (int j = 0; j < heaplen; j++) {
+            char buf[LP_INTBUF_SIZE];
+            int blen = snprintf(buf, sizeof(buf), "%d", j);
+            verifyEntry(lpSeek(lp, j + 1), (unsigned char*)buf, blen);
+        }
+        assert(lpValidateIntegrity(lp, lpBytes(lp), 1, NULL, NULL) == 1);
+        lpFree(lp);
+    }
+
     TEST("Batch delete") {
         unsigned char *lp = createList(); /* char *mixlist[] = {"hello", "foo", "quux", "1024"} */
         assert(lpLength(lp) == 4); /* Pre-condition */
@@ -2644,9 +2904,10 @@ int listpackTest(int argc, char *argv[], int flags) {
     }
 
     TEST("Backlen encode/decode at width boundaries") {
-        /* Body lengths where backlen widens; maxima per width must use the
-         * minimum byte count and round-trip (lpEncodeBacklen vs
-         * lpEncodeBacklenBytes and lpDecodeBacklen). */
+        /* Body lengths where backlen widens. The maxima of each width
+         * (16383, 2097151, 268435455) take one byte more than the minimum,
+         * as every version but 8.8 - 8.10 wrote them, and must round-trip
+         * (lpEncodeBacklen vs lpEncodeBacklenBytes and lpDecodeBacklen). */
         const uint64_t cases[] = {
             128ULL,
             16382ULL,
@@ -2659,13 +2920,59 @@ int listpackTest(int argc, char *argv[], int flags) {
             268435455ULL,
             268435456ULL,
         };
+        const unsigned long widths[] = {2, 2, 3, 3, 3, 4, 4, 4, 5, 5};
         unsigned char enc[LP_MAX_BACKLEN_SIZE];
         for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
             uint64_t enclen = cases[i];
             unsigned long n = lpEncodeBacklen(NULL, enclen);
+            assert(n == widths[i]);
             assert(n == lpEncodeBacklenBytes(enclen));
             assert(lpEncodeBacklen(enc, enclen) == n);
             assert(lpDecodeBacklen(enc + n - 1) == enclen);
+        }
+    }
+
+    TEST("lpUpgradeCompactBacklen: convert the backlen written by 8.8 - 8.10") {
+        /* Entries of encoded length 16383 and 2097151: a 32 bit string has
+         * a 5 byte header. Their backlen is 00 ff ff and 00 ff ff ff, but
+         * 8.8 - 8.10 wrote one byte less: 7f ff and 7f ff ff. */
+        const size_t enclens[] = {16383, 2097151};
+        const char *compact_backlens[] = {"\x7f\xff", "\x7f\xff\xff"};
+        for (int j = 0; j < 2; j++) {
+            size_t len = enclens[j] - 5;
+            unsigned char *val = zmalloc(len);
+            memset(val, 'x', len);
+            lp = lpAppend(lpNew(0), (unsigned char *)"a", 1);
+            lp = lpAppend(lp, val, len);
+            lp = lpAppend(lp, (unsigned char *)"b", 1);
+            size_t bytes = lpBytes(lp);
+
+            /* Already in the historical width: returned as is. */
+            size_t size = bytes;
+            assert(lpUpgradeCompactBacklen(lp, &size) == lp);
+            assert(size == bytes);
+
+            /* Build the listpack 8.8 - 8.10 wrote: the same bytes, with the
+             * compact backlen after the big entry. */
+            size_t backlen = lpSeek(lp, 1) - lp + enclens[j];
+            size_t backlen_size = lpEncodeBacklenBytes(enclens[j]);
+            unsigned char *compact = lp_malloc(bytes - 1);
+            memcpy(compact, lp, backlen);
+            memcpy(compact + backlen, compact_backlens[j], backlen_size - 1);
+            memcpy(compact + backlen + backlen_size - 1, lp + backlen + backlen_size,
+                   bytes - backlen - backlen_size);
+            lpSetTotalBytes(compact, bytes - 1);
+            assert(!lpValidateIntegrity(compact, bytes - 1, 1, NULL, NULL));
+
+            /* Converted into exactly the listpack every other version writes. */
+            size = bytes - 1;
+            compact = lpUpgradeCompactBacklen(compact, &size);
+            assert(size == bytes);
+            assert(memcmp(compact, lp, bytes) == 0);
+
+            lpFree(compact);
+            lpFree(lp);
+            zfree(val);
         }
     }
 
@@ -2686,6 +2993,48 @@ int listpackTest(int argc, char *argv[], int flags) {
             vstr = lpGet(p, &vlen, NULL);
             assert(999-i == vlen);
         }
+        lpFree(lp);
+    }
+
+    TEST("lpNextN fast path: lpSkip() reads at most 5 header bytes") {
+        /* lpNextN()'s fast path (used by lpSeek()) only fully validates an entry
+         * when it lands within 5 bytes of the listpack end. This margin is safe
+         * only while lpSkip() reads at most 5 bytes from an entry start. If this
+         * ever fails, the margin in lpNextN() must grow to match. */
+        for (int b = 0; b <= 0xff; b++)
+            assert(lpCurrentEncodedSizeBytes((unsigned char)b) <= 5);
+    }
+
+    TEST("lpNextN / lpPrevN: seek N entries") {
+        lp = lpNew(0);
+        assert(lpNextN(lp, lpFirst(lp), 0) == NULL);
+        assert(lpNextN(lp, lpFirst(lp), 3) == NULL);
+        assert(lpPrevN(lp, lpLast(lp), 3) == NULL);
+        assert(lpPrevN(lp, lpLast(lp), 0) == NULL);
+
+        char buf[16];
+        int n = 16;
+        for (int i = 0; i < n; i++) {
+            int len = snprintf(buf, sizeof(buf), "item-%d", i);
+            lp = lpAppend(lp, (unsigned char*)buf, len);
+        }
+        unsigned char *first = lpFirst(lp);
+        unsigned char *last = lpLast(lp);
+
+        /* Every element is reachable both ways */
+        for (int k = 0; k < n; k++) {
+            int len = snprintf(buf, sizeof(buf), "item-%d", k);
+            verifyEntry(lpNextN(lp, first, k), (unsigned char*)buf, len);
+            len = snprintf(buf, sizeof(buf), "item-%d", n - 1 - k);
+            verifyEntry(lpPrevN(lp, last, k), (unsigned char*)buf, len);
+        }
+
+        /* n == 0 returns unchanged. */
+        assert(lpNextN(lp, first, 0) == first);
+        assert(lpPrevN(lp, last, 0)  == last);
+        /* n==1 from either end returns NULL */ 
+        assert(lpNextN(lp, last, 1)  == NULL);
+        assert(lpPrevN(lp, first, 1) == NULL);
         lpFree(lp);
     }
 

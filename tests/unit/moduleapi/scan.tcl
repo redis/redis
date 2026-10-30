@@ -65,18 +65,57 @@ start_server {tags {"modules external:skip"}} {
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
+    test {Module scan hash template-listpack} {
+        r config set hash-min-template-entries 0
+        r config set hash-max-listpack-entries 128
+        r del th
+        r himport prepare fieldset fa fb fc
+        r himport set th fieldset hello 123 world
+        assert_encoding template-listpack th
+        lsort [r scan.scan_key th]
+    } {{fa hello} {fb 123} {fc world}}
+
+    test {Module scan hash template-array} {
+        r config set hash-min-template-entries 0
+        r config set hash-max-listpack-entries 0
+        r del ta
+        r himport prepare fieldset fa fb fc
+        r himport set ta fieldset hello 123 world
+        assert_encoding template-array ta
+        set res [lsort [r scan.scan_key ta]]
+        # cleanup
+        r config set hash-max-listpack-entries 512
+        r config set hash-min-template-entries 0
+        set res
+    } {{fa hello} {fb 123} {fc world}}
+
     test {Module scan zset listpack} {
         r zadd zz 1 f1 2 f2
         assert_encoding listpack zz
         lsort [r scan.scan_key zz]
     } {{f1 1} {f2 2}}
 
-    test {Module scan zset skiplist} {
+    test {Module scan zset btree} {
         r config set zset-max-ziplist-entries 2
         r zadd zz 3 f3
-        assert_encoding skiplist zz
+        assert_encoding btree zz
         lsort [r scan.scan_key zz]
     } {{f1 1} {f2 2} {f3 3}}
+
+    test {Module scan zset btree tolerates deleting a returned member} {
+        r del zz
+        for {set i 0} {$i < 100} {incr i} {
+            r zadd zz $i [format "member:%03d" $i]
+        }
+        assert_encoding btree zz
+
+        set visited [lsort -unique [r scan.scan_key_delete zz]]
+        set remaining [r zrange zz 0 -1]
+        assert_equal 99 [llength $remaining]
+        foreach member $remaining {
+            assert {$member in $visited}
+        }
+    }
 
     test {Module scan set intset} {
         r sadd ss 1 2

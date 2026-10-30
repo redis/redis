@@ -74,8 +74,8 @@
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
-    "address (ie. 120.0.0.1:7000) or space separated IP " \
-    "and port (ie. 120.0.0.1 7000)\n"
+    "address (ie. 120.0.0.1:7000 or [::1]:7000) or space " \
+    "separated IP and port (ie. 120.0.0.1 7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
@@ -221,6 +221,9 @@ static struct config {
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
+    double *latency_percentiles; /* Percentiles to report, e.g. 50,99,99.9. */
+    char **latency_percentiles_labels; /* Original tokens, used for display. */
+    int latency_percentiles_count;
     int lru_test_mode;
     long long lru_test_sample_size;
     int cluster_mode;
@@ -541,7 +544,7 @@ static void cliAddCommandDocArg(cliCommandArg *cmdArg, redisReply *argMap) {
         return;
     }
 
-    for (size_t i = 0; i < argMap->elements; i += 2) {
+    for (size_t i = 0; i + 1 < argMap->elements; i += 2) {
         assert(argMap->element[i]->type == REDIS_REPLY_STRING);
         char *key = argMap->element[i]->str;
         if (!strcmp(key, "name")) {
@@ -638,11 +641,17 @@ static void cliFillInCommandHelpEntry(helpEntry *help, char *cmdname, char *subc
 static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
                                           helpEntry *next, redisReply *specs,
                                           dict *groups) {
+    /* Defensive bound: the reply is untrusted, and if for any reason it yields
+     * more entries than cliCountCommands() allocated, stop instead of writing
+     * past the end of the helpEntries array. helpEntriesLen still holds the
+     * allocated count here; cliInitCommandHelpEntries() trims it only after
+     * the fill. */
+    if (next >= helpEntries + helpEntriesLen) return next;
     helpEntry *help = next++;
     cliFillInCommandHelpEntry(help, cmdname, subcommandname);
 
     assert(specs->type == REDIS_REPLY_MAP || specs->type == REDIS_REPLY_ARRAY);
-    for (size_t j = 0; j < specs->elements; j += 2) {
+    for (size_t j = 0; j + 1 < specs->elements; j += 2) {
         assert(specs->element[j]->type == REDIS_REPLY_STRING);
         char *key = specs->element[j]->str;
         if (!strcmp(key, "summary")) {
@@ -668,10 +677,14 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
             help->docs.numargs = arguments->elements;
             cliMakeCommandDocArgs(arguments, help->docs.args);
             help->docs.params = makeHint(NULL, 0, 0, help->docs);
-        } else if (!strcmp(key, "subcommands")) {
+        } else if (!strcmp(key, "subcommands") && subcommandname == NULL) {
+            /* Only top-level commands may have subcommands. Redis has no nested
+             * subcommands, and cliCountCommands() only reserves space for one
+             * level, so ignore any deeper nesting a malicious server might send.
+             * Together with the count that keeps allocation and fill in lockstep. */
             redisReply *subcommands = specs->element[j + 1];
             assert(subcommands->type == REDIS_REPLY_MAP || subcommands->type == REDIS_REPLY_ARRAY);
-            for (size_t i = 0; i < subcommands->elements; i += 2) {
+            for (size_t i = 0; i + 1 < subcommands->elements; i += 2) {
                 assert(subcommands->element[i]->type == REDIS_REPLY_STRING);
                 char *subcommandname = subcommands->element[i]->str;
                 redisReply *subcommand = subcommands->element[i + 1];
@@ -687,13 +700,18 @@ static helpEntry *cliInitCommandHelpEntry(char *cmdname, char *subcommandname,
 static size_t cliCountCommands(redisReply* commandTable) {
     size_t numCommands = commandTable->elements / 2;
 
-    /* The command docs table maps command names to a map of their specs. */    
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    /* The command docs table maps command names to a map of their specs.
+     * The reply comes from the server and may be malformed, so every paired
+     * access is guarded with `i + 1 < elements` to avoid reading past the
+     * element array on an odd-length reply. Only one level of subcommands is
+     * counted here; that must match the fill side in
+     * cliInitCommandHelpEntry(), which refuses to recurse deeper. */
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);  /* Command name. */
         assert(commandTable->element[i + 1]->type == REDIS_REPLY_MAP ||
                commandTable->element[i + 1]->type == REDIS_REPLY_ARRAY);
         redisReply *map = commandTable->element[i + 1];
-        for (size_t j = 0; j < map->elements; j += 2) {
+        for (size_t j = 0; j + 1 < map->elements; j += 2) {
             assert(map->element[j]->type == REDIS_REPLY_STRING);
             char *key = map->element[j]->str;
             if (!strcmp(key, "subcommands")) {
@@ -749,7 +767,7 @@ void cliInitGroupHelpEntries(dict *groups) {
 /* Initializes help entries for all commands in the COMMAND DOCS reply. */
 void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
     helpEntry *next = helpEntries;
-    for (size_t i = 0; i < commandTable->elements; i += 2) {
+    for (size_t i = 0; i + 1 < commandTable->elements; i += 2) {
         assert(commandTable->element[i]->type == REDIS_REPLY_STRING);
         char *cmdname = commandTable->element[i]->str;
 
@@ -758,6 +776,10 @@ void cliInitCommandHelpEntries(redisReply *commandTable, dict *groups) {
         redisReply *cmdspecs = commandTable->element[i + 1];
         next = cliInitCommandHelpEntry(cmdname, NULL, next, cmdspecs, groups);
     }
+    /* The number actually filled in may be lower than the count returned by
+     * cliCountCommands() if the reply was malformed. Trim helpEntriesLen so we
+     * never sort or read uninitialized trailing entries. */
+    helpEntriesLen = next - helpEntries;
 }
 
 /* Does the server version support a command/argument only available "since" some version?
@@ -1671,8 +1693,9 @@ static int cliSwitchProto(void) {
         }
     }
 
-    /* Retrieve server version string for later use. */
-    for (size_t i = 0; i < reply->elements; i += 2) {
+    /* Retrieve server version string for later use. The reply is untrusted,
+     * so make sure each key has a value before reading it. */
+    for (size_t i = 0; i + 1 < reply->elements; i += 2) {
         assert(reply->element[i]->type == REDIS_REPLY_STRING);
         char *key = reply->element[i]->str;
         if (!strcmp(key, "version")) {
@@ -1729,7 +1752,11 @@ static int cliConnect(int flags) {
         if (!context->err && config.tls) {
             const char *err = NULL;
             if (cliSecureConnection(context, config.sslconfig, &err) == REDIS_ERR && err) {
-                fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
+                /* Honor CC_QUIET like the generic failure path below: probe
+                 * connections would otherwise report the same failure that the
+                 * real connection attempt reports right after. */
+                if (!(flags & CC_QUIET))
+                    fprintf(stderr, "Could not negotiate a TLS connection: %s\n", err);
                 redisFree(context);
                 context = NULL;
                 return REDIS_ERR;
@@ -2790,6 +2817,37 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--latency-history")) {
             config.latency_mode = 1;
             config.latency_history = 1;
+        } else if (!strcmp(argv[i],"--latency-percentiles") && !lastarg) {
+            /* Parse a comma separated list of percentiles, e.g. "50,99,99.9".
+             * Enables latency mode if not already requested. */
+            config.latency_mode = 1;
+            int pcount;
+            char *plist = argv[++i];
+            sds *pvec = sdssplitlen(plist,strlen(plist),",",1,&pcount);
+            if (pvec == NULL || pcount == 0) {
+                fprintf(stderr,"Invalid --latency-percentiles list.\n");
+                exit(1);
+            }
+            config.latency_percentiles = zmalloc(sizeof(double)*pcount);
+            config.latency_percentiles_labels = zmalloc(sizeof(char*)*pcount);
+            config.latency_percentiles_count = pcount;
+            for (int j = 0; j < pcount; j++) {
+                char *endptr;
+                double p = strtod(pvec[j],&endptr);
+                if (endptr == pvec[j] || *endptr != '\0' || isnan(p) ||
+                    p < 0 || p > 100)
+                {
+                    fprintf(stderr,
+                        "Invalid percentile '%s' in --latency-percentiles "
+                        "(must be a number between 0 and 100).\n", pvec[j]);
+                    exit(1);
+                }
+                config.latency_percentiles[j] = p;
+                /* Keep the original token verbatim for display so the label
+                 * is never lossy (e.g. "99.99" stays "99.99"). */
+                config.latency_percentiles_labels[j] = zstrdup(pvec[j]);
+            }
+            sdsfreesplitres(pvec,pcount);
         } else if (!strcmp(argv[i],"--vset-recall") && !lastarg) {
             config.vset_recall_mode = 1;
             config.vset_recall_key = sdsnew(argv[++i]);
@@ -3037,9 +3095,17 @@ static int parseOptions(int argc, char **argv) {
             config.sslconfig.ciphers = argv[++i];
         } else if (!strcmp(argv[i],"--insecure")) {
             config.sslconfig.skip_cert_verify = 1;
+        } else if (!strcmp(argv[i],"--no-verify-hostname")) {
+            config.sslconfig.skip_hostname_verify = 1;
+        } else if (!strcmp(argv[i],"--tls-expected-peer-name") && !lastarg) {
+            config.sslconfig.expected_peer_name = argv[++i];
         #ifdef TLS1_3_VERSION
         } else if (!strcmp(argv[i],"--tls-ciphersuites") && !lastarg) {
             config.sslconfig.ciphersuites = argv[++i];
+        #endif
+        #if CLI_TLS_SUPPORTS_GROUPS
+        } else if (!strcmp(argv[i],"--tls-groups") && !lastarg) {
+            config.sslconfig.groups = argv[++i];
         #endif
 #endif
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
@@ -3120,6 +3186,35 @@ static int parseOptions(int argc, char **argv) {
         exit(1);
     }
 
+    /* Identity verification options. --no-verify-hostname drops to chain-only
+     * validation, so it contradicts an explicit expected identity; --insecure
+     * verifies nothing at all, so an expected identity could never be checked. */
+    if (config.sslconfig.expected_peer_name) {
+        if (config.sslconfig.skip_hostname_verify) {
+            fprintf(stderr, "Options --tls-expected-peer-name and --no-verify-hostname "
+                            "are mutually exclusive.\n");
+            exit(1);
+        }
+        if (config.sslconfig.skip_cert_verify) {
+            fprintf(stderr, "Option --insecure cannot be combined with "
+                            "--tls-expected-peer-name.\n");
+            exit(1);
+        }
+        int parent_domains = 0;
+        const char *name_err = cliValidateExpectedPeerNames(config.sslconfig.expected_peer_name,
+                                                            &parent_domains);
+        if (name_err) {
+            fprintf(stderr, "Invalid --tls-expected-peer-name: %s.\n", name_err);
+            exit(1);
+        }
+        if (parent_domains) {
+            fprintf(stderr, "Warning: --tls-expected-peer-name has %d entr%s beginning "
+                            "with a dot; such an entry is a parent-domain pattern that "
+                            "matches any subdomain at any depth, not a single host.\n",
+                            parent_domains, parent_domains == 1 ? "y" : "ies");
+        }
+    }
+
     return i;
 }
 
@@ -3141,13 +3236,24 @@ static void usage(int err) {
     FILE *target = err ? stderr: stdout;
     const char *tls_usage =
 #ifdef USE_OPENSSL
-"  --tls              Establish a secure TLS connection.\n"
-"  --sni <host>       Server name indication for TLS.\n"
+"  --tls              Establish a secure TLS connection. The server certificate\n"
+"                     must chain to the trusted CA and carry the expected\n"
+"                     identity: the name given to --sni, or else the host that\n"
+"                     was dialed (as an IP or DNS SAN).\n"
+"  --sni <host>       Server name indication for TLS. Also the identity the\n"
+"                     server certificate is verified against.\n"
 "  --cacert <file>    CA Certificate file to verify with.\n"
 "  --cacertdir <dir>  Directory where trusted CA certificates are stored.\n"
 "                     If neither cacert nor cacertdir are specified, the default\n"
 "                     system-wide trusted root certs configuration will apply.\n"
 "  --insecure         Allow insecure TLS connection by skipping cert validation.\n"
+"  --no-verify-hostname\n"
+"                     Verify only that the server certificate chains to the\n"
+"                     trusted CA, not that it carries the expected identity.\n"
+"  --tls-expected-peer-name <names>\n"
+"                     Verify the server certificate against these identities\n"
+"                     instead of the dialed host or SNI: a space-separated list\n"
+"                     of DNS names (any match succeeds) or a single IP address.\n"
 "  --cert <file>      Client certificate to authenticate with.\n"
 "  --key <file>       Private key file to authenticate with.\n"
 "  --tls-ciphers <list> Sets the list of preferred ciphers (TLSv1.2 and below)\n"
@@ -3158,6 +3264,10 @@ static void usage(int err) {
 "                     in order of preference from highest to lowest separated by colon (\":\").\n"
 "                     See the ciphers(1ssl) manpage for more information about the syntax of this string,\n"
 "                     and specifically for TLSv1.3 ciphersuites.\n"
+#endif
+#if CLI_TLS_SUPPORTS_GROUPS
+"  --tls-groups <list> Sets the list of preferred TLS groups\n"
+"                     in order of preference from highest to lowest separated by colon (\":\").\n"
 #endif
 #endif
 "";
@@ -3216,14 +3326,21 @@ version,tls_usage);
 
     fprintf(target,
 "  --latency          Enter a special mode continuously sampling latency.\n"
-"                     If you use this mode in an interactive session it runs\n"
-"                     forever displaying real-time stats. Otherwise if --raw or\n"
-"                     --csv is specified, or if you redirect the output to a non\n"
-"                     TTY, it samples the latency for 1 second (you can use\n"
-"                     -i to change the interval), then produces a single output\n"
-"                     and exits.\n"
+"                     Stats (min/max/avg) are reported in milliseconds with\n"
+"                     sub-millisecond precision. If you use this mode in an\n"
+"                     interactive session it runs forever displaying real-time\n"
+"                     stats. Otherwise if --raw or --csv is specified, or if you\n"
+"                     redirect the output to a non TTY, it samples the latency\n"
+"                     for 1 second (you can use -i to change the interval), then\n"
+"                     produces a single output and exits.\n"
 "  --latency-history  Like --latency but tracking latency changes over time.\n"
 "                     Default time interval is 15 sec. Change it using -i.\n"
+"  --latency-percentiles <p1,p2,...>\n"
+"                     Also report the given latency percentiles in milliseconds\n"
+"                     (e.g. 50,99,99.9) in --latency and --latency-history modes.\n"
+"                     Resolution is limited by the sample count: a percentile\n"
+"                     finer than 100/samples resolves to the maximum, so use a\n"
+"                     longer interval (-i) for meaningful high percentiles.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --vset-recall <key> Enable VSIM recall test mode for the specified key\n"
@@ -3339,11 +3456,17 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
         if (config.cluster_reissue_command || context == NULL ||
             context->err == REDIS_ERR_IO || context->err == REDIS_ERR_EOF)
         {
+            /* The previous connection used RESP3 via HELLO 3; temporarily promote resp3
+            * so cliConnect() re-sends HELLO 3 for this reconnect only. */
+            int resend_resp3 = config.current_resp3 && config.resp3 == 0;
+            if (resend_resp3) config.resp3 = 2;
             if (cliConnect(CC_FORCE) != REDIS_OK) {
+                if (resend_resp3) config.resp3 = 0;
                 cliPrintContextError();
                 config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
+            if (resend_resp3) config.resp3 = 0;
             /* Reset dbnum after reconnecting so we can re-select the previous db in cliSelect(). */
             config.dbnum = 0;
             cliSelect();
@@ -3603,6 +3726,7 @@ static void repl(void) {
             if (strcasecmp(argv[0],"quit") == 0 ||
                 strcasecmp(argv[0],"exit") == 0)
             {
+                redisFree(context);
                 exit(0);
             } else if (argv[0][0] == ':') {
                 cliSetPreferences(argv,argc,1);
@@ -3662,6 +3786,8 @@ static void repl(void) {
         /* linenoise() returns malloc-ed lines like readline() */
         linenoiseFree(line);
     }
+
+    redisFree(context);
     exit(0);
 }
 
@@ -4058,12 +4184,21 @@ static int parseClusterNodeAddress(char *addr, char **ip_ptr, int *port_ptr,
         if (bus_port_ptr != NULL)
             *bus_port_ptr = atoi(c + 1);
     }
-    c = strrchr(addr, ':');
-    if (c != NULL) {
+
+    if (addr[0] == '[') {
+        /* [IPv6]:port */
+        c = strchr(addr, ']');
+        if (c == NULL || c[1] != ':') return 0;
+        *c = '\0';
+        *ip_ptr = addr + 1;
+        *port_ptr = atoi(c + 2);
+    } else {
+        c = strrchr(addr, ':');
+        if (c == NULL) return 0;
         *c = '\0';
         *ip_ptr = addr;
-        *port_ptr = atoi(++c);
-    } else return 0;
+        *port_ptr = atoi(c + 1);
+    }
     return 1;
 }
 
@@ -7675,7 +7810,10 @@ static int clusterManagerCommandAddNode(int argc, char **argv) {
         }
     }
 
-    if (reply) freeReplyObject(reply);
+    if (reply) {
+        freeReplyObject(reply);
+        reply = NULL;
+    }
 
     // Send CLUSTER MEET command to the new node
     clusterManagerLogInfo(">>> Send CLUSTER MEET to node %s:%d to make it "
@@ -8674,22 +8812,57 @@ static int clusterManagerCommandHelp(int argc, char **argv) {
  * Latency and latency history modes
  *--------------------------------------------------------------------------- */
 
-static void latencyModePrint(long long min, long long max, double avg, long long count) {
+/* Print one latency report line. Latencies are measured in microseconds and
+ * reported in milliseconds with sub-millisecond precision. When percentiles
+ * are requested they are read from the HDR 'histogram' (also in microseconds,
+ * shares the same windowing as min/max/avg). */
+static void latencyModePrint(long long min, long long max, double avg,
+                             long long count, struct hdr_histogram *histogram)
+{
+    int npct = config.latency_percentiles_count;
+    /* Convert the microsecond accumulators to milliseconds for display. */
+    double min_ms = min/1000.0, max_ms = max/1000.0, avg_ms = avg/1000.0;
+
     if (config.output == OUTPUT_STANDARD) {
-        printf("min: %lld, max: %lld, avg: %.2f (%lld samples)",
-                min, max, avg, count);
+        printf("min: %.3f, max: %.3f, avg: %.3f (%lld samples)",
+                min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++) {
+            printf(", p%s: %.3f", config.latency_percentiles_labels[j],
+                    hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        }
         fflush(stdout);
     } else if (config.output == OUTPUT_CSV) {
-        printf("%lld,%lld,%.2f,%lld\n", min, max, avg, count);
+        printf("%.3f,%.3f,%.3f,%lld", min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++)
+            printf(",%.3f", hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        printf("\n");
     } else if (config.output == OUTPUT_RAW) {
-        printf("%lld %lld %.2f %lld\n", min, max, avg, count);
+        printf("%.3f %.3f %.3f %lld", min_ms, max_ms, avg_ms, count);
+        for (int j = 0; j < npct && histogram; j++)
+            printf(" %.3f", hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+        printf("\n");
     } else if (config.output == OUTPUT_JSON) {
-        printf("{\"min\": %lld, \"max\": %lld, \"avg\": %.2f, \"count\": %lld}\n", min, max, avg, count);
+        printf("{\"min\": %.3f, \"max\": %.3f, \"avg\": %.3f, \"count\": %lld",
+                min_ms, max_ms, avg_ms, count);
+        if (npct > 0 && histogram) {
+            printf(", \"percentiles\": {");
+            for (int j = 0; j < npct; j++) {
+                printf("%s\"%s\": %.3f", j ? ", " : "",
+                        config.latency_percentiles_labels[j],
+                        hdr_value_at_percentile(histogram, config.latency_percentiles[j])/1000.0);
+            }
+            printf("}");
+        }
+        printf("}\n");
     }
 }
 
 #define LATENCY_SAMPLE_RATE 10 /* milliseconds. */
 #define LATENCY_HISTORY_DEFAULT_INTERVAL 15000 /* milliseconds. */
+#define LATENCY_HISTOGRAM_MIN_VALUE 1L         /* >= 1 usec. */
+#define LATENCY_HISTOGRAM_MAX_VALUE 60000000L  /* <= 60 secs (usec precision) — large
+                                                * enough to track a server stalled by
+                                                * a slow command, fork or swap. */
 static void latencyMode(void) {
     redisReply *reply;
     long long start, latency, min = 0, max = 0, tot = 0, count = 0;
@@ -8698,6 +8871,16 @@ static void latencyMode(void) {
                           LATENCY_HISTORY_DEFAULT_INTERVAL;
     double avg;
     long long history_start = mstime();
+    /* HDR histogram for percentiles, only allocated when percentiles are
+     * requested. Reset (hdr_reset) at every history window so its windowing
+     * matches min/max/avg. */
+    struct hdr_histogram *histogram = NULL;
+    if (config.latency_percentiles_count > 0 &&
+        hdr_init(LATENCY_HISTOGRAM_MIN_VALUE, LATENCY_HISTOGRAM_MAX_VALUE, 3, &histogram))
+    {
+        fprintf(stderr, "Failed to initialize latency histogram\n");
+        exit(1);
+    }
 
     /* Set a default for the interval in case of --latency option
      * with --raw, --csv or when it is redirected to non tty. */
@@ -8709,13 +8892,18 @@ static void latencyMode(void) {
 
     if (!context) exit(1);
     while(1) {
-        start = mstime();
+        /* Measure the round-trip in microseconds for sub-millisecond
+         * resolution; min/max/avg/percentiles are reported in milliseconds. */
+        start = ustime();
         reply = reconnectingRedisCommand(context,"PING");
         if (reply == NULL) {
             fprintf(stderr,"\nI/O error\n");
             exit(1);
         }
-        latency = mstime()-start;
+        latency = ustime()-start;
+        /* ustime() is wall-clock based, so a backward clock adjustment could
+         * yield a negative delta; clamp it to avoid skewing the stats. */
+        if (latency < 0) latency = 0;
         freeReplyObject(reply);
         count++;
         if (count == 1) {
@@ -8728,14 +8916,22 @@ static void latencyMode(void) {
             avg = (double) tot/count;
         }
 
+        /* Record the sample for percentile computation, clamping to the
+         * histogram's trackable range. */
+        if (histogram) {
+            if (latency > LATENCY_HISTOGRAM_MAX_VALUE) latency = LATENCY_HISTOGRAM_MAX_VALUE;
+            hdr_record_value(histogram, latency);
+        }
+
         if (config.output == OUTPUT_STANDARD) {
             printf("\x1b[0G\x1b[2K"); /* Clear the line. */
-            latencyModePrint(min,max,avg,count);
+            latencyModePrint(min,max,avg,count,histogram);
         } else {
             if (config.latency_history) {
-                latencyModePrint(min,max,avg,count);
+                latencyModePrint(min,max,avg,count,histogram);
             } else if (mstime()-history_start > config.interval) {
-                latencyModePrint(min,max,avg,count);
+                latencyModePrint(min,max,avg,count,histogram);
+                if (histogram) hdr_close(histogram);
                 exit(0);
             }
         }
@@ -8745,6 +8941,7 @@ static void latencyMode(void) {
             printf(" -- %.2f seconds range\n", (float)(mstime()-history_start)/1000);
             history_start = mstime();
             min = max = tot = count = 0;
+            if (histogram) hdr_reset(histogram);
         }
         usleep(LATENCY_SAMPLE_RATE * 1000);
     }
@@ -9665,6 +9862,7 @@ typeinfo type_set = { "set", "SCARD", "members" };
 typeinfo type_hash = { "hash", "HLEN", "fields" };
 typeinfo type_zset = { "zset", "ZCARD", "members" };
 typeinfo type_stream = { "stream", "XLEN", "entries" };
+typeinfo type_bitmap = { "bitmap", "BITCOUNT", "set bits" };
 typeinfo type_other = { "other", NULL, "?" };
 
 static typeinfo* typeinfo_add(dict *types, char* name, typeinfo* type_template) {
@@ -9811,6 +10009,17 @@ static void sendReadOnly(void) {
     freeReplyObject(read_reply);
 }
 
+/* Try to avoid updating LRU/LFU metadata while inspecting keys. Ignore error
+ * replies for compatibility with servers that don't support CLIENT NO-TOUCH. */
+static void sendNoTouch(void) {
+    redisReply *reply = redisCommand(context, "CLIENT NO-TOUCH ON");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        exit(1);
+    }
+    freeReplyObject(reply);
+}
+
 static int displayKeyStatsProgressbar(unsigned long long sampled,
                                       unsigned long long total_keys);
 
@@ -9831,6 +10040,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     typeinfo_add(types_dict, "hash", &type_hash);
     typeinfo_add(types_dict, "zset", &type_zset);
     typeinfo_add(types_dict, "stream", &type_stream);
+    typeinfo_add(types_dict, "bitmap", &type_bitmap);
 
     signal(SIGINT, longStatLoopModeStop);
     /* Total keys pre scanning */
@@ -9843,6 +10053,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {
@@ -9883,7 +10094,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
             totlen += keys->element[i]->len;
             sampled++;
 
-            if(type->biggest<sizes[i]) {
+            if(type->biggest<sizes[i] || (!type->biggest_key && type->sizecmd)) {
                 /* Keep track of biggest key name for this type */
                 if (type->biggest_key)
                     sdsfree(type->biggest_key);
@@ -9921,7 +10132,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                 dictInitIterator(&di, types_dict);
                 while ((de = dictNext(&di))) {
                     typeinfo *current_type = dictGetVal(de);
-                    if (current_type->biggest > 0) {
+                    if (current_type->biggest_key) {
                         line_count += cleanPrintfln("Biggest %-9s found so far %s with %llu %s",
                             current_type->name, current_type->biggest_key, current_type->biggest,
                             !memkeys? current_type->sizeunit: "bytes");
@@ -10974,7 +11185,7 @@ static void updateKeyType(redisReply *element, unsigned long long size, typeinfo
     type->totalsize += size;
     type->count++;
 
-    if (type->biggest<size) {
+    if (type->biggest<size || (!type->biggest_key && type->sizecmd)) {
         /* Keep track of biggest key name for this type */
         if (type->biggest_key)
             sdsfree(type->biggest_key);
@@ -11014,6 +11225,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(memkeys_types_dict, "hash", &type_hash);
     typeinfo_add(memkeys_types_dict, "zset", &type_zset);
     typeinfo_add(memkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(memkeys_types_dict, "bitmap", &type_bitmap);
 
     /* We could use only one typeinfo dictionary if we add new fields to save
      * both memkey and bigkey info. Not sure it would make sense in findBigKeys(). */
@@ -11024,6 +11236,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     typeinfo_add(bigkeys_types_dict, "hash", &type_hash);
     typeinfo_add(bigkeys_types_dict, "zset", &type_zset);
     typeinfo_add(bigkeys_types_dict, "stream", &type_stream);
+    typeinfo_add(bigkeys_types_dict, "bitmap", &type_bitmap);
 
     size_dist key_length_dist;
     size_dist_entry distribution[] = {
@@ -11060,6 +11273,7 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
 
     /* Use readonly in cluster */
     sendReadOnly();
+    sendNoTouch();
 
     /* SCAN loop */
     do {
@@ -11200,6 +11414,9 @@ int main(int argc, char **argv) {
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
+    config.latency_percentiles = NULL;
+    config.latency_percentiles_labels = NULL;
+    config.latency_percentiles_count = 0;
     config.lru_test_mode = 0;
     config.lru_test_sample_size = 0;
     config.cluster_mode = 0;
@@ -11422,9 +11639,13 @@ int main(int argc, char **argv) {
     /* Otherwise, we have some arguments to execute */
     if (config.eval) {
         if (cliConnect(0) != REDIS_OK) exit(1);
-        return evalMode(argc,argv);
+        int res = evalMode(argc,argv);
+        redisFree(context);
+        return res;
     } else {
         cliConnect(CC_QUIET);
-        return noninteractive(argc,argv);
+        int res = noninteractive(argc,argv);
+        redisFree(context);
+        return res;
     }
 }

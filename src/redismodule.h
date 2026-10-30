@@ -90,6 +90,7 @@ typedef long long ustime_t;
 #define REDISMODULE_KEYTYPE_MODULE 6
 #define REDISMODULE_KEYTYPE_STREAM 7
 #define REDISMODULE_KEYTYPE_ARRAY 8
+#define REDISMODULE_KEYTYPE_BITMAP 9
 
 /* Reply types. */
 #define REDISMODULE_REPLY_UNKNOWN -1
@@ -248,6 +249,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
 #define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
 #define REDISMODULE_NOTIFY_KEY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
+#define REDISMODULE_NOTIFY_BITMAP (1<<18)     /* b, bitmap key space notification */
 
 #define REDISMODULE_NOTIFY_SUBKEYSPACE (1<<19)      /* S */
 #define REDISMODULE_NOTIFY_SUBKEYEVENT (1<<20)      /* T */
@@ -272,7 +274,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_FLAG_NONE 0                  /* Invoke callback for all matching events */
 #define REDISMODULE_NOTIFY_FLAG_SUBKEYS_REQUIRED (1<<0) /* Only invoke callback when subkeys are present */
 
-#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE | REDISMODULE_NOTIFY_ARRAY)      /* A */
+#define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE | REDISMODULE_NOTIFY_BITMAP | REDISMODULE_NOTIFY_ARRAY)      /* A */
 
 /* A special pointer that we can use between the core and the module to signal
  * field deletion, and that is impossible to be a valid pointer. */
@@ -292,6 +294,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NODE_PFAIL      (1<<3)
 #define REDISMODULE_NODE_FAIL       (1<<4)
 #define REDISMODULE_NODE_NOFAILOVER (1<<5)
+#define REDISMODULE_NODE_PORT_TLS   (1<<6)
 
 #define REDISMODULE_CLUSTER_FLAG_NONE 0
 #define REDISMODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)
@@ -318,9 +321,8 @@ This flag should not be used directly by the module.
 #define REDISMODULE_BLOCK_UNBLOCK_DELETED (1<<0)
 
 /* This type represents a timer handle, and is returned when a timer is
- * registered and used in order to invalidate a timer. It's just a 64 bit
- * number, because this is how each timer is represented inside the radix tree
- * of timers that are going to expire, sorted by expire time. */
+ * registered and used in order to invalidate a timer. It is a 64 bit number
+ * derived from the timer's expiration time on the monotonic clock. */
 typedef uint64_t RedisModuleTimerID;
 
 /* CommandFilter Flags */
@@ -539,7 +541,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_KEY 17
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
 #define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
-#define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
+#define REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE 20
+#define _REDISMODULE_EVENT_NEXT 21 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
     uint64_t id;        /* REDISMODULE_EVENT_... defines. */
@@ -658,6 +661,10 @@ static const RedisModuleEvent
     RedisModuleEvent_ClusterSlotMigrationTrim = {
         REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
         1
+    },
+    RedisModuleEvent_ClusterTopologyChange = {
+        REDISMODULE_EVENT_CLUSTER_TOPOLOGY_CHANGE,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -720,9 +727,7 @@ static const RedisModuleEvent
 
 #define REDISMODULE_SUBEVENT_FORK_CHILD_BORN 0
 #define REDISMODULE_SUBEVENT_FORK_CHILD_DIED 1
-#define REDISMODULE_SUBEVENT_FORK_CHILD_PRE 2
-#define REDISMODULE_SUBEVENT_FORK_CHILD_CANCELLED 3
-#define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 4
+#define _REDISMODULE_SUBEVENT_FORK_CHILD_NEXT 2
 
 #define REDISMODULE_SUBEVENT_EVENTLOOP_BEFORE_SLEEP 0
 #define REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP 1
@@ -752,6 +757,9 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED 1
 #define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND 2
 #define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT 3
+
+/* RedisModuleEvent_ClusterTopologyChange has no meaningful subevent. */
+#define _REDISMODULE_SUBEVENT_CLUSTER_TOPOLOGY_CHANGE_NEXT 0
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -916,6 +924,26 @@ typedef struct RedisModuleClusterSlotMigrationTrimInfo {
 } RedisModuleClusterSlotMigrationTrimInfoV1;
 
 #define RedisModuleClusterSlotMigrationTrimInfo RedisModuleClusterSlotMigrationTrimInfoV1
+
+/* Reason flags reported in RedisModuleClusterTopologyChangeInfo.change_flags.
+ * More than one bit may be set when several changes were collapsed into a
+ * single (debounced) RedisModuleEvent_ClusterTopologyChange notification. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_SLOT  (1<<0) /* Slot ownership changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_ROLE  (1<<1) /* A node changed its primary/replica role. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_STATE (1<<2) /* The cluster OK/FAIL state changed. */
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_NODE  (1<<3) /* A node joined or left the cluster, or its address changed. */
+
+#define REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_INFO_VERSION 1
+
+typedef struct RedisModuleClusterTopologyChangeInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    uint64_t change_flags;  /* Bitmask of REDISMODULE_CLUSTER_TOPOLOGY_CHANGE_FLAG_*
+                               reasons that contributed to this notification. */
+} RedisModuleClusterTopologyChangeInfoV1;
+
+#define RedisModuleClusterTopologyChangeInfo RedisModuleClusterTopologyChangeInfoV1
 
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */
@@ -1191,6 +1219,8 @@ REDISMODULE_API int (*RedisModule_ReplyWithLongDouble)(RedisModuleCtx *ctx, long
 REDISMODULE_API int (*RedisModule_ReplyWithDouble)(RedisModuleCtx *ctx, double d) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithBigNumber)(RedisModuleCtx *ctx, const char *bignum, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithCallReply)(RedisModuleCtx *ctx, RedisModuleCallReply *reply) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ResetReplyBuffer)(RedisModuleCtx *buffer) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReplyWithBufferedReply)(RedisModuleCtx *ctx, RedisModuleCtx *buffer) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToLongLong)(const RedisModuleString *str, long long *ll) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToULongLong)(const RedisModuleString *str, unsigned long long *ull) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringToDouble)(const RedisModuleString *str, double *d) REDISMODULE_ATTR;
@@ -1379,6 +1409,7 @@ REDISMODULE_API int (*RedisModule_AbortBlock)(RedisModuleBlockedClient *bc) REDI
 REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeStart)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_BlockedClientMeasureTimeEnd)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetThreadSafeContext)(RedisModuleBlockedClient *bc) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleCtx * (*RedisModule_CreateReplyBufferContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCtx * (*RedisModule_GetDetachedThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeThreadSafeContext)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_ThreadSafeContextLock)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
@@ -1553,6 +1584,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ReplyWithNull);
     REDISMODULE_GET_API(ReplyWithBool);
     REDISMODULE_GET_API(ReplyWithCallReply);
+    REDISMODULE_GET_API(ResetReplyBuffer);
+    REDISMODULE_GET_API(ReplyWithBufferedReply);
     REDISMODULE_GET_API(ReplyWithDouble);
     REDISMODULE_GET_API(ReplyWithBigNumber);
     REDISMODULE_GET_API(ReplyWithLongDouble);
@@ -1773,6 +1806,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetTypeMethodVersion);
     REDISMODULE_GET_API(Yield);
     REDISMODULE_GET_API(GetThreadSafeContext);
+    REDISMODULE_GET_API(CreateReplyBufferContext);
     REDISMODULE_GET_API(GetDetachedThreadSafeContext);
     REDISMODULE_GET_API(FreeThreadSafeContext);
     REDISMODULE_GET_API(ThreadSafeContextLock);

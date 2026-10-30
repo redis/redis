@@ -49,9 +49,9 @@
  *       operations destroying the object, we need to wait that all the
  *       background threads working with this object finished their work.
  *    B) When we modify the HNSW nodes bypassing the normal locking
- *       provided by the HNSW library. This only happens when we update
- *       an existing node attribute so far, in VSETATTR and when we call
- *       VADD to update a node with the SETATTR option.
+ *       provided by the HNSW library. This happens when we update an
+ *       existing node attribute (VSETATTR, VADD with SETATTR) or when
+ *       we delete a node from the graph (VREM).
  *
  *  3. Often during read operations performed by Redis commands in the
  *     main thread (VCARD, VEMB, VRANDMEMBER, ...) we don't acquire any
@@ -112,6 +112,7 @@
 #include <string.h>
 #include <strings.h>
 #include <stdint.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -837,7 +838,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     /* Perform search */
     hnswNode **neighbors = RedisModule_Alloc(sizeof(hnswNode*)*ef);
     float *distances = RedisModule_Alloc(sizeof(float)*ef);
-    unsigned int found;
+    int found;
     if (ground_truth) {
         found = hnsw_ground_truth_with_filter(vset->hnsw, vec, ef, neighbors,
                     distances, slot, 0,
@@ -864,7 +865,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
 
     long long arraylen = 0;
-    for (unsigned int i = 0; i < found && i < count; i++) {
+    for (int i = 0; i < found && (unsigned long)i < count; i++) {
         if (distances[i]/2 > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
         RedisModule_ReplyWithString(ctx, nv->item);
@@ -1251,6 +1252,10 @@ int VREM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithBool(ctx, 0);
     }
 
+    /* Background VSIM operations read the nodes we are about to free,
+     * so wait for background operations before deleting from the graph. */
+    vectorSetWaitAllBackgroundClients(vset, 0);
+
     /* Remove from dictionary */
     RedisModule_DictDel(vset->dict, element, NULL);
 
@@ -1584,6 +1589,11 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
         /* Count = 0 is a special case, return empty array */
         if (count == 0) {
             return RedisModule_ReplyWithEmptyArray(ctx);
+        }
+        /* Negating LLONG_MIN to get abs(count) is UB and overflows the reply length. */
+        if (count == LLONG_MIN) {
+            return RedisModule_ReplyWithError(ctx,
+                "ERR COUNT value is out of range");
         }
     }
 
@@ -2084,9 +2094,30 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
             goto ioerr;
         }
 
-        // Load node parameters back.
-        uint32_t params_count = RedisModule_LoadUnsigned(rdb);
+        // Load node parameters back. Read as 64 bit (RedisModule_LoadUnsigned
+        // returns uint64_t): truncating into a uint32_t here would let a
+        // crafted count just above UINT32_MAX wrap to a small, valid-looking
+        // value and bypass the bound check below.
+        uint64_t params_count = RedisModule_LoadUnsigned(rdb);
         if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            goto ioerr;
+        }
+
+        /* Reject an implausible params_count from a corrupted or tampered
+         * RDB before allocating: besides being invalid, params_count *
+         * sizeof(uint64_t) would overflow size_t on 32 bit systems (leading
+         * to an under-allocation and a heap overflow in the loop below) and
+         * force a multi-gigabyte allocation on 64 bit systems. The bound is
+         * the maximum a single node can legitimately encode; anything larger
+         * is rejected by hnsw_insert_serialized() anyway. */
+        if (params_count > HNSW_MAX_SERIALIZED_NODE_PARAMS) {
+            RedisModule_LogIOError(rdb,"warning",
+                "Invalid serialized node params count in RDB: %llu (max %llu)",
+                (unsigned long long)params_count,
+                (unsigned long long)HNSW_MAX_SERIALIZED_NODE_PARAMS);
             RedisModule_FreeString(NULL,ele);
             if (attrib) RedisModule_FreeString(NULL,attrib);
             RedisModule_Free(vector);
@@ -2109,7 +2140,9 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         struct vsetNodeVal *nv = RedisModule_Alloc(sizeof(*nv));
         nv->item = ele;
         nv->attrib = attrib;
-        hnswNode *node = hnsw_insert_serialized(vset->hnsw, vector, params, params_count, nv);
+        /* params_count is bounded by HNSW_MAX_SERIALIZED_NODE_PARAMS above, so
+         * the cast to the uint32_t params_len argument is safe. */
+        hnswNode *node = hnsw_insert_serialized(vset->hnsw, vector, params, (uint32_t)params_count, nv);
         if (node == NULL) {
             RedisModule_LogIOError(rdb,"warning",
                                        "Vector set node index loading error");
@@ -2178,7 +2211,7 @@ size_t VectorSetMemUsage(const void *value) {
     /* Add the 0.33 remaining part, but upper layers have less links. */
     size += (sizeof(hnswNode*) * other_levels_links * vset->hnsw->node_count)/3;
 
-    /* Associated string value and attributres.
+    /* Associated string value and attributes.
      * Use Redis Module API to get string size, and guess that all the
      * elements have similar size as the first few. */
     size_t items_scanned = 0, items_size = 0;
@@ -2200,7 +2233,7 @@ size_t VectorSetMemUsage(const void *value) {
     if (items_scanned)
         size += items_size / items_scanned * vset->hnsw->node_count;
 
-    /* Add memory usage due to attributres. */
+    /* Add memory usage due to attributes. */
     if (attribs_scanned == 0) {
         /* We were not lucky enough to find a single attribute in the
          * first few items? Let's use a fixed arbitrary value. */

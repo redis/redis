@@ -89,8 +89,17 @@ char *rdb_type_string[] = {
     "stream-v4",
     "stream-v5",
     "array",
+    "hash-tmpl-lp",
+    "hash-tmpl-lp-ref",
+    "hash-tmpl-array",
+    "hash-tmpl-array-ref",
+    "bitmap",
+    "set-listpack-md",
+    "set-hashtable-md",
 #ifdef ENABLE_GCRA
     "gcra",
+#else
+    "unused",
 #endif
 };
 
@@ -264,6 +273,9 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 decrRefCount(o);
             }
             continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_KEY_NOEVICT) {
+            /* Payload-less NO-EVICT flag for the next key. */
+            continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
             break;
@@ -344,6 +356,14 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
                 goto err;
             }
             continue;
+        } else if (type == RDB_OPCODE_HASH_TEMPLATE) {
+            /* Hash template registry. Must be loaded so that later
+             * template-referencing keys can resolve their template. */
+            if (rdbLoadHashTemplate(&rdb) != C_OK) {
+                rdbCheckError("Failed loading hash templates");
+                goto err;
+            }
+            continue; /* Read type again. */
         } else {
             if (!rdbIsObjectType(type)) {
                 rdbCheckError("Invalid object type: %d", type);
@@ -359,14 +379,15 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,NULL)) == NULL)
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,rdbver,NULL)) == NULL)
             goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
         if (expiretime != -1) rdbstate.expires++;
-        /* If hash with HFEs then with expiration on fields then need to count it */
-        if ((val->type == OBJ_HASH) && (hashTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID))
+        /* If hash with HFEs, or set with member expirations, then need to count it */
+        if (((val->type == OBJ_HASH) && (hashTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID)) ||
+            ((val->type == OBJ_SET) && (setTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID)))
             rdbstate.subexpires++;
 
         rdbstate.key = NULL;
@@ -393,6 +414,7 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
     }
 
     if (closefile) fclose(fp);
+    rdbClearHashTemplates();
     stopLoading(1);
     return 0;
 
@@ -404,6 +426,7 @@ eoferr: /* unexpected end of file is handled here with a fatal exit */
     }
 err:
     if (closefile) fclose(fp);
+    rdbClearHashTemplates();
     stopLoading(0);
     return 1;
 }
@@ -441,6 +464,9 @@ int redis_check_rdb_main(int argc, char **argv, FILE *fp) {
      * an already initialized Redis instance, check if we really need to. */
     if (shared.integers[0] == NULL)
         createSharedObjects();
+
+    server.main_thread_id = pthread_self(); /* Needed for hashtemplate keys free path */
+    hashTemplatesInit();
     server.loading_process_events_interval_bytes = 0;
     server.sanitize_dump_payload = SANITIZE_DUMP_YES;
     rdbCheckMode = 1;

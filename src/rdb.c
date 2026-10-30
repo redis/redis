@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "bitroar.h"
 #include "lzf.h"    /* LZF compression library */
 #include "zipmap.h"
 #include "endianconv.h"
@@ -23,6 +24,7 @@
 #include "bio.h"
 #include "cluster_asm.h"
 #include "keymeta.h"
+#include "zset_btree.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -44,6 +46,7 @@
     ((server.current_client == NULL || server.current_client->id == CLIENT_ID_AOF) ? 0 : 1)
 
 char* rdbFileBeingLoaded = NULL; /* used for rdb checking on read error */
+
 extern int rdbCheckMode;
 void rdbCheckError(const char *fmt, ...);
 void rdbCheckSetError(const char *fmt, ...);
@@ -80,6 +83,7 @@ void rdbReportError(int corruption_error, int linenum, char *reason, ...) {
             rdbCheckError("Cannot check RDB that is a FIFO: %s", argv[1]);
             return;
         }
+        rdbClearHashTemplates(); /* Clear loading map if any */
         redis_check_rdb_main(2,argv,NULL);
     } else if (corruption_error) {
         /* In diskless loading, in case of corrupt file, log and exit. */
@@ -98,6 +102,12 @@ ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len) {
     if (rdb && rioWrite(rdb,p,len) == 0)
         return -1;
     return len;
+}
+
+static inline int rdbIsDumpPayload(const rio *rdb) {
+    /* A NULL rio is used by DEBUG OBJECT, which historically reports the DUMP
+     * payload serialization size. */
+    return rdb == NULL || (rdb->flags & RIO_FLAG_DUMP_PAYLOAD);
 }
 
 int rdbSaveType(rio *rdb, unsigned char type) {
@@ -425,7 +435,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable
 
     /* Load the compressed representation and uncompress it to target. */
     if (rioRead(rdb,c,clen) == 0) goto err;
-    if (lzf_decompress(c,clen,val,len) != len) {
+    if (lzf_decompress2(c,clen,val,len) != len) {
         rdbReportCorruptRDB("Invalid LZF compressed string");
         goto err;
     }
@@ -695,16 +705,23 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
     case OBJ_SET:
         if (o->encoding == OBJ_ENCODING_INTSET)
             return rdbSaveType(rdb,RDB_TYPE_SET_INTSET);
-        else if (o->encoding == OBJ_ENCODING_HT)
-            return rdbSaveType(rdb,RDB_TYPE_SET);
+        else if (o->encoding == OBJ_ENCODING_HT) {
+            if (setTypeGetMinExpire(o, /*accurate*/ 1) == EB_EXPIRE_TIME_INVALID)
+                return rdbSaveType(rdb,RDB_TYPE_SET);
+            else
+                return rdbSaveType(rdb,RDB_TYPE_SET_METADATA);
+        }
         else if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK);
+        else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+            return rdbSaveType(rdb,RDB_TYPE_SET_LISTPACK_EX);
         else
             serverPanic("Unknown set encoding");
     case OBJ_ZSET:
         if (o->encoding == OBJ_ENCODING_LISTPACK)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_LISTPACK);
-        else if (o->encoding == OBJ_ENCODING_SKIPLIST)
+        else if (o->encoding == OBJ_ENCODING_SKIPLIST ||
+                 o->encoding == OBJ_ENCODING_BTREE)
             return rdbSaveType(rdb,RDB_TYPE_ZSET_2);
         else
             serverPanic("Unknown sorted set encoding");
@@ -718,6 +735,20 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
                 return rdbSaveType(rdb,RDB_TYPE_HASH);
             else
                 return rdbSaveType(rdb,RDB_TYPE_HASH_METADATA);
+        } else if (o->encoding == OBJ_ENCODING_TMPL_LP ||
+                   o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+            /* Template encodings. RDB save: compact "ref" form storing only the
+             * template id + values. DUMP/RESTORE: "full" form that includes 
+             * field names. */
+            if (!rdbIsDumpPayload(rdb)) {
+                return rdbSaveType(rdb, o->encoding == OBJ_ENCODING_TMPL_LP ?
+                                                            RDB_TYPE_HASH_TMPL_LP_REF :
+                                                            RDB_TYPE_HASH_TMPL_ARRAY_REF);
+            } else {
+                return rdbSaveType(rdb, o->encoding == OBJ_ENCODING_TMPL_LP ?
+                                                            RDB_TYPE_HASH_TMPL_LP :
+                                                            RDB_TYPE_HASH_TMPL_ARRAY);
+            }
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
@@ -730,6 +761,8 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     case OBJ_ARRAY:
         return rdbSaveType(rdb,RDB_TYPE_ARRAY);
+    case OBJ_BITMAP:
+        return rdbSaveType(rdb,RDB_TYPE_BITMAP);
     default:
         serverPanic("Unknown object type");
     }
@@ -1114,6 +1147,69 @@ static ssize_t rdbSaveArraySlice(rio *rdb, arSlice *s, uint64_t slice_id,
     return nwritten;
 }
 
+/* OBJ_BITMAP persistence (RDB_TYPE_BITMAP): the bitmap's logical byte
+ * length, then an RDB string holding CRoaring's 64-bit portable
+ * serialization (RoaringFormatSpec, canonical little-endian fields on every
+ * architecture). The logical length travels separately because trailing
+ * zero bits are observable through bitmap commands but are not represented
+ * by Roaring containers. The payload size is proportional to the resident
+ * containers, never to the highest set bit, and the same format is shared
+ * by RDB snapshots, DUMP/RESTORE, and the RDB payloads used by AOF. */
+static ssize_t rdbSaveBitmapObject(rio *rdb, const robj *o) {
+    ssize_t n, nwritten = 0;
+    uint64_t byte_len = bitroarLen(o);
+    sds payload;
+
+    if ((n = rdbSaveLen(rdb, byte_len)) == -1) return -1;
+    nwritten += n;
+
+    payload = bitroarSerializePortable(o);
+    if ((n = rdbSaveRawString(rdb, (unsigned char *)payload, sdslen(payload))) == -1) {
+        sdsfree(payload);
+        return -1;
+    }
+    nwritten += n;
+    sdsfree(payload);
+
+    return nwritten;
+}
+
+/* Load a RDB_TYPE_BITMAP value. As for the other types, a read failure returns
+ * NULL without reporting it, so the caller handles it as a short read (which
+ * is not fatal when loading from a socket). Only a value that fails validation
+ * is reported as corruption. */
+static robj *rdbLoadBitmapObject(rio *rdb) {
+    uint64_t byte_len;
+    size_t payload_len;
+    sds payload;
+    robj *o;
+
+    if ((byte_len = rdbLoadLen(rdb, NULL)) == RDB_LENERR) return NULL;
+    if (byte_len > BITROAR_MAX_BYTES) goto toolarge;
+#if SIZE_MAX < UINT64_MAX
+    if (byte_len > (uint64_t)SIZE_MAX) goto toolarge;
+#endif
+
+    payload = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &payload_len);
+    if (payload == NULL) return NULL;
+    /* bitroarCreateFromPortable() validates the payload and rejects a byte_len
+     * that cannot hold the highest set bit. A byte_len beyond the highest set
+     * bit is legitimate: trailing zero bytes contain no set bits, yet extend
+     * the logical length. */
+    o = bitroarCreateFromPortable((unsigned char *)payload, payload_len, byte_len);
+    sdsfree(payload);
+    if (o == NULL) {
+        rdbReportCorruptRDB("Invalid bitmap RDB payload");
+        return NULL;
+    }
+    return o;
+
+toolarge:
+    rdbReportCorruptRDB("Bitmap byte length %llu too large",
+        (unsigned long long)byte_len);
+    return NULL;
+}
+
 ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
     ssize_t n = 0, nwritten = 0;
 
@@ -1165,6 +1261,14 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             dictIterator di;
             dictEntry *de;
 
+            /* As for hashes, a set with member expirations (RDB_TYPE_SET_METADATA)
+             * saves the earliest expiration, and every member with its
+             * expiration relative to it. */
+            uint64_t minExpire = setTypeGetMinExpire(o, 1);
+            int setWithMeta = (minExpire != EB_EXPIRE_TIME_INVALID);
+            if (setWithMeta && rdbSaveMillisecondTime(rdb, minExpire) == -1)
+                return -1;
+
             if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) {
                 return -1;
             }
@@ -1173,6 +1277,19 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             dictInitIterator(&di, set);
             while((de = dictNext(&di)) != NULL) {
                 sds ele = dictGetKey(de);
+                if (setWithMeta) {
+                    SetEntry *sEntry = (SetEntry *)ele;
+                    uint64_t expiry = sEntryHasExpiry(sEntry) ?
+                                      sEntryGetExpiry(sEntry) : EB_EXPIRE_TIME_INVALID;
+                    /* 0 means no expiration, the others are relative to
+                     * minExpire (plus one, as the zero is taken). */
+                    uint64_t ttl = (expiry == EB_EXPIRE_TIME_INVALID) ? 0 : expiry - minExpire + 1;
+                    if ((n = rdbSaveLen(rdb, ttl)) == -1) {
+                        dictResetIterator(&di);
+                        return -1;
+                    }
+                    nwritten += n;
+                }
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
                     == -1)
                 {
@@ -1191,11 +1308,20 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             size_t l = lpBytes((unsigned char *)o->ptr);
             if ((n = rdbSaveRawString(rdb, o->ptr, l)) == -1) return -1;
             nwritten += n;
+        } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            uint64_t minExpire = setTypeGetMinExpire(o, 0);
+            if (minExpire == EB_EXPIRE_TIME_INVALID) minExpire = 0;
+            if (rdbSaveMillisecondTime(rdb, minExpire) == -1) return -1;
+            unsigned char *lp = setListpackExGetLp(o);
+            if ((n = rdbSaveRawString(rdb, lp, lpBytes(lp))) == -1) return -1;
+            nwritten += n;
         } else {
             serverPanic("Unknown set encoding");
         }
     } else if (o->type == OBJ_ZSET) {
-        /* Save a sorted set value */
+        /* Save a sorted set value. SKIPLIST is only a temporary encoding,
+         * keyspace zsets are LISTPACK or BTREE. */
+        debugServerAssert(o->encoding != OBJ_ENCODING_SKIPLIST);
         if (o->encoding == OBJ_ENCODING_LISTPACK) {
             size_t l = lpBytes((unsigned char*)o->ptr);
 
@@ -1228,12 +1354,115 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
                 zn = zn->backward;
             }
+        } else if (o->encoding == OBJ_ENCODING_BTREE) {
+            zbtreeIterator iter;
+            const unsigned char *ele;
+            size_t len;
+            double score;
+
+            if ((n = rdbSaveLen(rdb, zbtreeLength(o->ptr))) == -1)
+                return -1;
+            nwritten += n;
+            zbtreeIteratorStart(o->ptr, 1, &iter);
+            while (zbtreeIteratorNext(&iter, 1, &ele, &len, &score)) {
+                if ((n = rdbSaveRawString(rdb, (unsigned char *)ele, len)) == -1)
+                    return -1;
+                nwritten += n;
+                if ((n = rdbSaveBinaryDoubleValue(rdb, score)) == -1)
+                    return -1;
+                nwritten += n;
+            }
         } else {
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
         /* Save a hash value */
-        if ((o->encoding == OBJ_ENCODING_LISTPACK) ||
+        if (o->encoding == OBJ_ENCODING_TMPL_LP ||
+            o->encoding == OBJ_ENCODING_TMPL_ARRAY) {
+
+            hashTemplate *tmpl = hashTypeGetTemplate(o);
+            unsigned long long field_count = tmpl->field_count;
+
+            /* If this is a BGSAVE, we can use the compact ref format.
+             * DUMP payload is self-contained (field names included). */
+            if (!rdbIsDumpPayload(rdb)) {
+                if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+                    /* TMPL_LP compact: raw listpack blob. The template ID is
+                     * the first listpack entry, so no separate field needed. */
+                    unsigned char *lp = o->ptr;
+                    if ((n = rdbSaveRawString(rdb, lp, lpBytes(lp))) == -1)
+                        return -1;
+                    nwritten += n;
+                } else {
+                    /* TMPL_ARRAY compact: [template_id][value1][value2]... */
+                    if ((n = rdbSaveLen(rdb, tmpl->id)) == -1) return -1;
+                    nwritten += n;
+                    hashTemplateArray *hta = o->ptr;
+                    for (unsigned long long i = 0; i < field_count; i++) {
+                        sds value = hta->values[i];
+                        if ((n = rdbSaveRawString(rdb, (unsigned char *)value, sdslen(value))) == -1)
+                            return -1;
+                        nwritten += n;
+                    }
+                }
+            } else {
+                /* Self-contained format (DUMP/RESTORE).
+                 * Layout: [fields_fmt][field names][values]
+                 *
+                 * fields_fmt (1 len-encoded byte) — how field names are stored:
+                 *   0 = FIELDS_LP : field names as one listpack blob. Lets the 
+                 *       destination resolve the template with one O(1) blob 
+                 *       lookup. Used when tmpl->fits_in_listpack.
+                 *   1 = FIELDS_RAW: [count] then count field-name strings. Used
+                 *       when the field names don't fit a listpack.
+                 *
+                 * Values follow per the RDB type:
+                 *   TMPL_LP    : values are one listpack blob
+                 *   TMPL_ARRAY : field_count value strings
+                 *
+                 * The two are independent: fits_in_listpack picks the field format,
+                 * the value encoding picks the value format (e.g. ARRAY+FIELDS_LP
+                 * is valid: huge values but lp-able field names). */
+                int fields_lp = tmpl->fits_in_listpack;
+                if ((n = rdbSaveLen(rdb, fields_lp ? 0 : 1)) == -1) return -1;
+                nwritten += n;
+
+                /* Field names. */
+                if (fields_lp) {
+                    /* Get listpack blob and skip caching in fork. */
+                    int cache = (server.in_fork_child == CHILD_TYPE_NONE);
+                    unsigned char *blob = hashTemplateGetFieldsLp(tmpl, &cache);
+                    n = rdbSaveRawString(rdb, blob, lpBytes(blob));
+                    if (!cache) lpFree(blob);
+                    if (n == -1) return -1;
+                    nwritten += n;
+                } else {
+                    if ((n = rdbSaveLen(rdb, field_count)) == -1) return -1;
+                    nwritten += n;
+                    for (unsigned long long i = 0; i < field_count; i++) {
+                        sds field = tmpl->fields[i];
+                        if ((n = rdbSaveRawString(rdb, (unsigned char *)field, sdslen(field))) == -1)
+                            return -1;
+                        nwritten += n;
+                    }
+                }
+
+                /* Values. */
+                if (o->encoding == OBJ_ENCODING_TMPL_LP) {
+                    unsigned char *lp = o->ptr;
+                    if ((n = rdbSaveRawString(rdb, lp, lpBytes(lp))) == -1) return -1;
+                    nwritten += n;
+                } else {
+                    hashTemplateArray *hta = o->ptr;
+                    for (unsigned long long i = 0; i < field_count; i++) {
+                        sds value = hta->values[i];
+                        if ((n = rdbSaveRawString(rdb, (unsigned char *)value, sdslen(value))) == -1)
+                            return -1;
+                        nwritten += n;
+                    }
+                }
+            }
+        } else if ((o->encoding == OBJ_ENCODING_LISTPACK) ||
             (o->encoding == OBJ_ENCODING_LISTPACK_EX))
         {
             /* Save min/next HFE expiration time if needed */
@@ -1279,13 +1508,13 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             /* save all hash fields */
             dictInitIterator(&di, o->ptr);
             while((de = dictNext(&di)) != NULL) {
-                Entry *entry = dictGetKey(de);
-                sds field = entryGetField(entry);
-                sds value = entryGetValue(entry);
+                HashEntry *hEntry = dictGetKey(de);
+                sds field = hEntryGetField(hEntry);
+                sds value = hEntryGetValue(hEntry);
 
                 /* save the TTL */
                 if (hashWithMeta) {
-                    uint64_t ttl, expiryTime= entryGetExpiry(entry);
+                    uint64_t ttl, expiryTime= hEntryGetExpiry(hEntry);
 
                     /* Saved TTL value:
                      *  - 0: Indicates no TTL. This is common case so we keep it small.
@@ -1560,6 +1789,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 nwritten += n;
             }
         }
+    } else if (o->type == OBJ_BITMAP) {
+        if ((n = rdbSaveBitmapObject(rdb, o)) == -1) return -1;
+        nwritten += n;
     } else {
         serverPanic("Unknown object type");
     }
@@ -1608,6 +1840,9 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
         if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) return -1;
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
     }
+
+    if (blessIsNoEvict(val) && rdbSaveType(rdb, RDB_OPCODE_KEY_NOEVICT) == -1)
+        return -1;
 
     /* if needed save key metadata  */
     if (getModuleMetaBits(val->metabits)) {
@@ -1772,6 +2007,46 @@ werr:
     return -1;
 }
 
+/* RDB save path (not DUMP): Save the hash template registry (id -> field names)
+ * so REF-encoded hashes, which store only [id][values...], can resolve their 
+ * fields at load time.
+ *
+ * Each template is written as its own RDB_OPCODE_HASH_TEMPLATE record; the
+ * loader reads them until the next opcode differs.
+ * Record: [OPCODE][id][field_count][field1][field2]... */
+ssize_t rdbSaveHashTemplates(rio *rdb) {
+    ssize_t written = 0;
+    ssize_t ret;
+
+    if (!server.htemplates || !server.htemplates->by_fields) return 0;
+
+    dictIterator *di = dictGetIterator(server.htemplates->by_fields);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL) {
+        hashTemplate *tmpl = dictGetKey(de);
+        if (tmpl->key_refcount == 0) continue;
+
+        if ((ret = rdbSaveType(rdb, RDB_OPCODE_HASH_TEMPLATE)) < 0) goto werr;
+        written += ret;
+        if ((ret = rdbSaveLen(rdb, tmpl->id)) < 0) goto werr;
+        written += ret;
+        if ((ret = rdbSaveLen(rdb, tmpl->field_count)) < 0) goto werr;
+        written += ret;
+        for (unsigned long long i = 0; i < tmpl->field_count; i++) {
+            sds field = tmpl->fields[i];
+            if ((ret = rdbSaveRawString(rdb, (unsigned char *)field, sdslen(field))) < 0)
+                goto werr;
+            written += ret;
+        }
+    }
+    dictReleaseIterator(di);
+    return written;
+
+werr:
+    dictReleaseIterator(di);
+    return -1;
+}
+
 ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned long long *skipped) {
     dictEntry *de;
     ssize_t written = 0;
@@ -1801,6 +2076,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
     written += res;
 
     kvstoreIteratorInit(&kvs_it, db->keys);
+    kvstoreIteratorEnablePrefetch(&kvs_it);
     int last_slot = -1;
     /* Iterate this DB writing every entry */
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
@@ -1893,6 +2169,12 @@ int rdbSaveRio(int req, rio *rdb, int *error, int rdbflags, rdbSaveInfo *rsi) {
 
     /* save functions */
     if (!(req & SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS) && rdbSaveFunctions(rdb) == -1) goto werr;
+
+    /* Save the hash template registry (id -> field names). Template encoded
+     * hashes are then written in compact REF form (id + values) by rdbSaveKeyValuePair. */
+    if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA)) {
+        if (rdbSaveHashTemplates(rdb) == -1) goto werr;
+    }
 
     /* save all databases, skip this if we're in functions-only mode */
     if (!(req & SLAVE_REQ_RDB_EXCLUDE_DATA)) {
@@ -2184,27 +2466,27 @@ error:
     return null_on_error ? NULL : createStringObject("module-dummy-value",18);
 }
 
-/* Load object type and optional key metadata (into `keymeta`) from RDB stream.
+/* Load object type and optional key metadata (into `spec`) from RDB stream.
  * This function handles the RDB_OPCODE_KEY_META opcode that may appear before
  * the actual object type in RDB streams (both regular RDB files and DUMP payloads).
  * The `type` parameter is updated with the actual object type.
  * 
  * Returns: 0 on success, -1 on error
  */
-int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
+int rdbResolveKeyType(rio *rdb, int *type, int dbid, kvSpec *spec) {
     if (*type == RDB_OPCODE_KEY_META) {
         /* Load key metadata from RDB */
         uint64_t numClasses;
         if ((numClasses = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
             return -1;
         }
-        if (rdbLoadKeyMetadata(rdb, dbid, numClasses, keymeta) == -1) {
+        if (rdbLoadKeyMetadata(rdb, dbid, numClasses, spec) == -1) {
             return -1;
         }
         /* Read the actual object type after metadata */
         *type = rdbLoadObjectType(rdb);
         if (*type == -1) {
-            keyMetaSpecCleanup(keymeta);
+            kvSpecCleanup(spec);
             return -1;
         }
     } else if (!rdbIsObjectType(*type)) {
@@ -2318,23 +2600,27 @@ static int _listZiplistEntryConvertAndValidate(unsigned char *p, unsigned int he
     return 1;
 }
 
-/* callback for to check the listpack doesn't have duplicate records */
-static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
-    struct {
-        int tuple_len;
-        long count;
-        dict *fields;
-        long long last_expireat;
-    } *data = userdata;
+typedef struct {
+    int tuple_len;
+    long count;
+    dict *fields;
+    long long last_expireat;
+    int check_duplicates;
+    int validate_scores;
+} lpValidationData;
 
-    if (data->fields == NULL) {
+/* Validate tuple fields after lpValidateIntegrity checked the entry. */
+static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *userdata) {
+    lpValidationData *data = userdata;
+
+    if (data->check_duplicates && data->fields == NULL) {
         data->fields = dictCreate(&hashDictType);
         dictExpand(data->fields, head_count/data->tuple_len);
     }
 
     /* If we're checking pairs, then even records are field names. Otherwise
      * we're checking all elements. Add to dict and check that's not a dup */
-    if (data->count % data->tuple_len == 0) {
+    if (data->check_duplicates && data->count % data->tuple_len == 0) {
         unsigned char *str;
         int64_t slen;
         unsigned char buf[LP_INTBUF_SIZE];
@@ -2346,6 +2632,17 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
             sdsfree(field);
             return 0;
         }
+    }
+
+    /* A zset's second entry is a score, not an arbitrary hash value. Parse
+     * it before any conversion can store an invalid or NaN score. Integer
+     * entries are always valid, and infinity remains a supported score. */
+    if (data->validate_scores && data->count % data->tuple_len == 1) {
+        unsigned int len;
+        long long integer;
+        unsigned char *str = lpGetValue(p, &len, &integer);
+        double score;
+        if (str && !string2d((char *)str, len, &score)) return 0;
     }
 
     /* Validate TTL field, only for listpackex. */
@@ -2369,19 +2666,17 @@ static int _lpEntryValidation(unsigned char *p, unsigned int head_count, void *u
  * when `deep` is 0, only the integrity of the header is validated.
  * when `deep` is 1, we scan all the entries one by one.
  * tuple_len indicates what is a logical entry tuple size.
- * Whether tuple is of size 1 (set), 2 (feild-value) or 3 (field-value[-ttl]),
+ * Whether tuple is of size 1 (set), 2 (field-value) or 3 (field-value[-ttl]),
  * first element in the tuple must be unique */
-int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
-    if (!deep)
+static int lpValidateIntegrityAndDupsEx(unsigned char *lp, size_t size,
+                                        int deep, int tuple_len, int validate_scores)
+{
+    if (!deep && !validate_scores)
         return lpValidateIntegrity(lp, size, 0, NULL, NULL);
 
-    /* Keep track of the field names to locate duplicate ones */
-    struct {
-        int tuple_len;
-        long count;
-        dict *fields; /* Initialisation at the first callback. */
-        long long last_expireat; /* Last field's expiry time to ensure order in TTL fields. */
-    } data = {tuple_len, 0, NULL, -1};
+    /* Score validation must visit every entry even when duplicate checking
+     * is disabled. The integrity walker bounds each entry before decoding. */
+    lpValidationData data = {tuple_len, 0, NULL, -1, deep, validate_scores};
 
     int ret = lpValidateIntegrity(lp, size, 1, _lpEntryValidation, &data);
 
@@ -2391,6 +2686,366 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
 
     if (data.fields) dictRelease(data.fields);
     return ret;
+}
+
+int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tuple_len) {
+    return lpValidateIntegrityAndDupsEx(lp, size, deep, tuple_len, 0);
+}
+
+/* ---- shared SDS-array helpers ---- */
+
+/* Free 'count' SDS strings and the array holding them. Safe on NULL. */
+static void rdbFreeSdsArray(sds *v, uint64_t count) {
+    if (v == NULL) return;
+    for (uint64_t i = 0; i < count; i++) sdsfree(v[i]);
+    zfree(v);
+}
+
+/* Load 'count' SDS strings into a fresh array; NULL on failure ('ctx' names it). */
+static sds *rdbLoadSdsArray(rio *rdb, uint64_t count, const char *ctx) {
+    /* Grow as we read; don't pre-size to 'count' (untrusted: a corrupt huge
+     * value would reserve gigabytes before reading any data). */
+    sds *v = NULL;
+    uint64_t cap = 0;
+    for (uint64_t i = 0; i < count; i++) {
+        if (i == cap) {
+            uint64_t newcap = cap ? cap * 2 : 16;
+            if (newcap > count) newcap = count;
+            sds *nv = ztryrealloc(v, sizeof(sds) * newcap);
+            if (nv == NULL) {
+                rdbReportCorruptRDB("%s field count %llu too large",
+                    ctx, (unsigned long long)count);
+                rdbFreeSdsArray(v, i);
+                return NULL;
+            }
+            v = nv;
+            cap = newcap;
+        }
+        v[i] = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
+        if (v[i] == NULL) {
+            rdbFreeSdsArray(v, i);
+            return NULL;
+        }
+    }
+    return v;
+}
+
+/* ---- RDB file template section (REF-encoded hashes) ---- */
+
+/* Used during loading, mapping a saved template ID to the loaded template's
+ * registry id. */
+static dict *rdb_tmpls = NULL;
+
+static uint64_t rdbTmplIdHash(const void *key) {
+    uint64_t id = (uint64_t)(uintptr_t)key;
+    return dictGenHashFunction(&id, sizeof(id));
+}
+
+static int rdbTmplIdCompare(dictCmpCache *cache, const void *k1, const void *k2) {
+    UNUSED(cache);
+    return k1 == k2;
+}
+
+/* Dict for saved template ID to the loaded template's registry id. */
+static dictType rdbTmplDictType = {
+    rdbTmplIdHash,     /* hash function */
+    NULL,              /* key dup */
+    NULL,              /* val dup */
+    rdbTmplIdCompare,  /* key compare */
+    NULL,              /* key destructor (integer key) */
+    NULL,              /* val destructor (template owned by registry) */
+    NULL               /* allow to expand */
+};
+
+/* RDB-file load path (not RESTORE): load one hash template record from the RDB
+ * template section (one RDB_OPCODE_HASH_TEMPLATE opcode), where templates are
+ * stored once by id and REF-encoded hashes reference them. The main load loop
+ * calls this once per record; the section ends when the next opcode differs.
+ * Record: [id][field_count][field1][field2]...
+ * Registers the loaded template under its saved id in rdb_tmpls. */
+int rdbLoadHashTemplate(rio *rdb) {
+    uint64_t id, field_count;
+
+    /* Read template ID. */
+    if ((id = rdbLoadLen(rdb, NULL)) == RDB_LENERR)
+        return C_ERR;
+
+    /* Read field count. */
+    if ((field_count = rdbLoadLen(rdb, NULL)) == RDB_LENERR)
+        return C_ERR;
+
+    /* A zero-field template is invalid. */
+    if (field_count == 0) {
+        rdbReportCorruptRDB("Hash template ID %llu has zero fields", (unsigned long long)id);
+        return C_ERR;
+    }
+
+    if (rdb_tmpls == NULL)
+        rdb_tmpls = dictCreate(&rdbTmplDictType);
+    if (dictFind(rdb_tmpls, (void *)(uintptr_t)id) != NULL) {
+        rdbReportCorruptRDB("Duplicate hash template ID %llu", (unsigned long long)id);
+        return C_ERR;
+    }
+
+    /* Read field names */
+    sds *fields = rdbLoadSdsArray(rdb, field_count, "Hash template");
+    if (fields == NULL) return C_ERR;
+
+    /* Reject unsorted/duplicate fields; the template field lookup assumes them. */
+    if (!hashTemplateValidateFields(fields, field_count)) {
+        rdbReportCorruptRDB("Hash template fields not strictly sorted");
+        for (uint64_t j = 0; j < field_count; j++) sdsfree(fields[j]);
+        zfree(fields);
+        return C_ERR;
+    }
+
+    /* Get or create template. */
+    hashTemplate *tmpl = hashTemplateGetOrCreate(fields, field_count);
+    hashTemplateIncrHoldRef(tmpl);
+
+    dictEntry *de = dictAddRaw(rdb_tmpls, (void *)(uintptr_t)id, NULL);
+    serverAssert(de != NULL); /* duplicate id already rejected above */
+    dictSetUnsignedIntegerVal(de, tmpl->id);
+
+    /* Free fields array */
+    for (uint64_t j = 0; j < field_count; j++)
+        sdsfree(fields[j]);
+    zfree(fields);
+
+    return C_OK;
+}
+
+/* Get template by saved ID (for loading keys). */
+static hashTemplate *rdbGetHashTemplateById(uint64_t id) {
+    if (rdb_tmpls == NULL) return NULL;
+    dictEntry *de = dictFind(rdb_tmpls, (void *)(uintptr_t)id);
+    return de ? hashTemplateGetById(dictGetUnsignedIntegerVal(de)) : NULL;
+}
+
+/* Clear RDB template map after load. */
+void rdbClearHashTemplates(void) {
+    if (rdb_tmpls == NULL) return;
+    dictIterator *di = dictGetIterator(rdb_tmpls);
+    dictEntry *de;
+    while ((de = dictNext(di)) != NULL)
+        hashTemplateDecrHoldRef(hashTemplateGetById(dictGetUnsignedIntegerVal(de)));
+    dictReleaseIterator(di);
+    dictRelease(rdb_tmpls);
+    rdb_tmpls = NULL;
+}
+
+/* RDB versions that may hold the compact boundary backlen written by
+ * Redis 8.8 - 8.10 (#15151), see lpUpgradeCompactBacklen(). */
+#define RDB_VERSION_COMPACT_BACKLEN_MIN 14
+#define RDB_VERSION_COMPACT_BACKLEN_MAX 15
+
+/* Rewrite a listpack just loaded from an RDB of version 'rdbver' in the
+ * backlen width the rest of the code reads. Must run before the integrity
+ * check and before anything else reads the listpack. Updates '*len'. */
+static inline unsigned char *rdbUpgradeListpack(unsigned char *lp, size_t *len, int rdbver) {
+    if (rdbver < RDB_VERSION_COMPACT_BACKLEN_MIN || rdbver > RDB_VERSION_COMPACT_BACKLEN_MAX)
+        return lp;
+    return lpUpgradeCompactBacklen(lp, len);
+}
+
+/* ---- DUMP/RESTORE self-contained payloads ---- */
+
+/* Converts plain hashes into template-encoded hashes while loading a legacy RDB.
+ * NULL unless hash-rdb-load-min-template-entries > 0. */
+static rdbLoadTemplateCtx *rdb_load_tmpl_ctx = NULL;
+
+/* Load and validate a TMPL_LP listpack blob whose first entry is a template ID.
+ * Returns the listpack and if 'id_out' is non-NULL, the encoded id.
+ * On failure, frees the blob and returns NULL. */
+static unsigned char *rdbLoadTmplLpBlob(rio *rdb, int deep, int rdbver, long long *id_out) {
+    size_t encoded_len;
+    unsigned char *lp = rdbGenericLoadStringObject(rdb, RDB_LOAD_PLAIN, &encoded_len);
+    if (lp == NULL || encoded_len == 0) {
+        zfree(lp);
+        return NULL;
+    }
+    lp = rdbUpgradeListpack(lp, &encoded_len, rdbver);
+
+    if (deep) server.stat_dump_payload_sanitizations++;
+    if (!lpValidateIntegrity(lp, encoded_len, deep, NULL, NULL)) {
+        rdbReportCorruptRDB("template-listpack integrity check failed.");
+        zfree(lp);
+        return NULL;
+    }
+
+    /* First entry is the saved-side template ID (must be an integer). */
+    unsigned char *p = lpFirst(lp);
+    if (p == NULL) {
+        rdbReportCorruptRDB("template-listpack is empty.");
+        zfree(lp);
+        return NULL;
+    }
+    unsigned int vlen;
+    long long vll;
+    if (lpGetValue(p, &vlen, &vll) != NULL) {
+        rdbReportCorruptRDB("template-listpack first entry is not an integer.");
+        zfree(lp);
+        return NULL;
+    }
+    if (id_out) *id_out = vll;
+    return lp;
+}
+
+/* A TMPL_LP values listpack must hold one entry per field plus the leading
+ * template-id entry. On mismatch, report corruption, free 'lp', return 0. */
+static int rdbCheckTmplLpCount(unsigned char *lp, unsigned long long field_count) {
+    if (lpLength(lp) == field_count + 1) return 1;
+    rdbReportCorruptRDB("template-listpack entry count %lu does not match %llu fields",
+                        (unsigned long)lpLength(lp), (unsigned long long)field_count);
+    zfree(lp);
+    return 0;
+}
+
+/* Rewrite the leading template-ID entry of 'lp' to tmpl's local id, bump the
+ * key ref and wrap the listpack in a TMPL_LP hash object. Consumes 'lp'. */
+static robj *rdbFinalizeTmplLp(unsigned char *lp, hashTemplate *tmpl) {
+    unsigned char *p = lpFirst(lp);
+    serverAssert(p != NULL);
+    lp = lpReplaceInteger(lp, &p, (long long)tmpl->id);
+    serverAssert(lp != NULL);
+
+    hashTemplateIncrKeyRef(tmpl);
+    robj *o = createObject(OBJ_HASH, lp);
+    o->encoding = OBJ_ENCODING_TMPL_LP;
+    return o;
+}
+
+/* Field names parsed from a template hash in a RESTORE payload. Either the
+ * payload matched a template already in the registry, or the names
+ * were parsed but no template built yet - the caller builds it only after the
+ * values load cleanly, so a bad value can't leave an orphan template behind. */
+typedef struct {
+    hashTemplate *tmpl;        /* Set if resolved from the registry, else NULL. */
+    sds *fields;               /* Set if parsed but not yet a template, else NULL. */
+    uint64_t field_count;      /* Number of entries in 'fields'. */
+    unsigned char *fields_lp;  /* Optional listpack blob for a fast blob->template lookup. */
+} rdbTmplFields;
+
+/* Read the fields_fmt byte and the field-names section of a template RESTORE
+ * payload, filling 'out'. Returns C_OK or C_ERR (on C_ERR corruption is already
+ * reported and there is nothing for the caller to free). */
+static int rdbLoadTemplateFields(rio *rdb, int deep, int rdbver, rdbTmplFields *out) {
+    *out = (rdbTmplFields) {0};
+
+    uint64_t fmt = rdbLoadLen(rdb, NULL);
+    if (fmt == RDB_LENERR) return C_ERR;
+
+    if (fmt == 0) {
+        /* FIELDS_LP: field names come as one listpack blob. Try a registry
+         * lookup keyed by the blob first; only parse the fields if that misses. */
+        size_t blen;
+        unsigned char *blob = rdbGenericLoadStringObject(rdb, RDB_LOAD_PLAIN, &blen);
+        if (blob == NULL) return C_ERR;
+        /* Before the lookup below, which matches the blob byte by byte. */
+        blob = rdbUpgradeListpack(blob, &blen, rdbver);
+
+        if (blen == 0 || !lpValidateIntegrity(blob, blen, deep, NULL, NULL)) {
+            rdbReportCorruptRDB("template field blob integrity check failed.");
+            zfree(blob);
+            return C_ERR;
+        }
+        /* Fast path: Lookup template with blob to avoid parsing the fields */
+        hashTemplate *tmpl = hashTemplateGetByFieldsLp(blob);
+        if (tmpl != NULL) {
+            zfree(blob);
+            out->tmpl = tmpl;
+            out->field_count = tmpl->field_count;
+            return C_OK;
+        }
+        /* Slow path: Parse the fields. Caller will lookup the template later. */
+        uint64_t count = lpLength(blob);
+        if (count == 0) {
+            rdbReportCorruptRDB("template with zero fields");
+            zfree(blob);
+            return C_ERR;
+        }
+        sds *fields = count > SIZE_MAX / sizeof(sds) ?
+                      NULL : ztrymalloc(sizeof(sds) * count);
+        if (fields == NULL) {
+            rdbReportCorruptRDB("template field count %llu too large", (unsigned long long)count);
+            zfree(blob);
+            return C_ERR;
+        }
+        unsigned char *p = lpFirst(blob);
+        uint64_t i = 0;
+        for (; i < count && p != NULL; i++) {
+            unsigned int slen;
+            long long lval;
+            unsigned char *s = lpGetValue(p, &slen, &lval);
+            fields[i] = s ? sdsnewlen(s, slen) : sdsfromlonglong(lval);
+            p = lpNext(blob, p);
+        }
+        if (i != count || p != NULL) {
+            rdbReportCorruptRDB("template field blob entry count mismatch");
+            rdbFreeSdsArray(fields, i);
+            zfree(blob);
+            return C_ERR;
+        }
+        if (!hashTemplateValidateFields(fields, count)) {
+            rdbReportCorruptRDB("template fields not strictly sorted");
+            rdbFreeSdsArray(fields, count);
+            zfree(blob);
+            return C_ERR;
+        }
+        out->fields = fields;
+        out->field_count = count;
+        out->fields_lp = blob; /* attached on create; transfers ownership */
+        return C_OK;
+    }
+
+    if (fmt == 1) {
+        /* FIELDS_RAW: a field count, then that many field-name strings, one by
+         * one. No blob to look up by, so the fields are always parsed. */
+        uint64_t count = rdbLoadLen(rdb, NULL);
+        if (count == RDB_LENERR) return C_ERR;
+        if (count == 0) {
+            rdbReportCorruptRDB("template with zero fields");
+            return C_ERR;
+        }
+        sds *fields = rdbLoadSdsArray(rdb, count, "template fields");
+        if (fields == NULL) return C_ERR;
+        if (!hashTemplateValidateFields(fields, count)) {
+            rdbReportCorruptRDB("template fields not strictly sorted");
+            rdbFreeSdsArray(fields, count);
+            return C_ERR;
+        }
+        out->fields = fields;
+        out->field_count = count;
+        return C_OK;
+    }
+
+    rdbReportCorruptRDB("unknown template fields format %llu", (unsigned long long)fmt);
+    return C_ERR;
+}
+
+/* Build the template from parsed fields, called after the values load cleanly.
+ * If the fields already resolved to a registry template, return that; otherwise
+ * create one now, attaching the parsed blob if present. Either way the parsed
+ * fields and blob in 'out' are consumed: freed, or handed to the template. */
+static hashTemplate *rdbCreateTemplateFromFields(rdbTmplFields *out) {
+    if (out->tmpl != NULL) return out->tmpl; /* registry hit */
+    hashTemplate *tmpl = hashTemplateGetOrCreate(out->fields, out->field_count);
+    rdbFreeSdsArray(out->fields, out->field_count);
+    out->fields = NULL;
+    if (out->fields_lp != NULL) {
+        if (!hashTemplateIndexFieldsLp(tmpl, out->fields_lp))
+            lpFree(out->fields_lp);
+        out->fields_lp = NULL;
+    }
+    return tmpl;
+}
+
+/* Free rdbTmplFields. */
+static void rdbDiscardTemplateFields(rdbTmplFields *out) {
+    if (out->fields) rdbFreeSdsArray(out->fields, out->field_count);
+    if (out->fields_lp) zfree(out->fields_lp);
+    out->fields = NULL;
+    out->fields_lp = NULL;
 }
 
 /* Load a Redis object of the specified type from the specified file.
@@ -2403,7 +3058,7 @@ int lpValidateIntegrityAndDups(unsigned char *lp, size_t size, int deep, int tup
  *   no fields with expiration or it is not a hash, then it will set be to
  *   EB_EXPIRE_TIME_INVALID.
  */
-robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
+robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int rdbver, int *error)
 {
     robj *o = NULL, *ele, *dec;
     uint64_t len;
@@ -2548,20 +3203,70 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 sdsfree(sdsele);
             }
         }
+    } else if (rdbtype == RDB_TYPE_SET_METADATA) {
+        /* Read a set with member expirations: [minExpire][len]([ttl][member])... */
+        uint64_t minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
+        if (rioGetReadError(rdb)) {
+            rdbReportReadError("Set failed loading minExpire");
+            return NULL;
+        }
+        if (minExpire > EB_EXPIRE_TIME_MAX) {
+            rdbReportCorruptRDB("Set read invalid minExpire value");
+            return NULL;
+        }
+        if ((len = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
+        if (len == 0) goto emptykey;
+
+        o = createSetObject();
+        setHashtableAddExpireSupport(o);
+        if (len > DICT_HT_INITIAL_SIZE && dictTryExpand(o->ptr, len) != DICT_OK) {
+            rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)len);
+            decrRefCount(o);
+            return NULL;
+        }
+
+        for (i = 0; i < len; i++) {
+            uint64_t ttl;
+            if (rdbLoadLenByRef(rdb, NULL, &ttl) == -1) {
+                rdbReportReadError("Set TTL loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+            /* 0 is no expiration, the others are relative to minExpire. */
+            uint64_t expireAt = (ttl != 0) ? (ttl + minExpire - 1) : EB_EXPIRE_TIME_INVALID;
+            if (ttl != 0 && (ttl > EB_EXPIRE_TIME_MAX || expireAt > EB_EXPIRE_TIME_MAX)) {
+                rdbReportCorruptRDB("Set read invalid expireAt time: %llu",
+                                    (unsigned long long) expireAt);
+                decrRefCount(o);
+                return NULL;
+            }
+            sds sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL);
+            if (sdsele == NULL) {
+                decrRefCount(o);
+                return NULL;
+            }
+            int added = setTypeAddExAux(o, sdsele, sdslen(sdsele), 0, 1, expireAt);
+            sdsfree(sdsele);
+            if (!added) {
+                rdbReportCorruptRDB("Duplicate set members detected");
+                decrRefCount(o);
+                return NULL;
+            }
+        }
     } else if (rdbtype == RDB_TYPE_ZSET_2 || rdbtype == RDB_TYPE_ZSET) {
         /* Read sorted set value. */
         uint64_t zsetlen;
         size_t maxelelen = 0, totelelen = 0;
-        zset *zs;
 
         if ((zsetlen = rdbLoadLen(rdb,NULL)) == RDB_LENERR) return NULL;
         if (zsetlen == 0) goto emptykey;
-
-        o = createZsetObject();
-        zs = o->ptr;
-
-        if (zsetlen > DICT_HT_INITIAL_SIZE && dictTryExpand(zs->dict,zsetlen) != DICT_OK) {
-            rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)zsetlen);
+        /* Decide listpack eligibility only after seeing every member. A
+         * temporary listpack would normalize -0 before a later long member
+         * promotes the object, changing the final B+tree's score bits. */
+        o = createZsetBtreeObject();
+        if (!zbtreeTryReserve(o->ptr, zsetlen)) {
+            rdbReportCorruptRDB("Unable to reserve zset index for %llu elements",
+                                (unsigned long long)zsetlen);
             decrRefCount(o);
             return NULL;
         }
@@ -2570,7 +3275,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         while(zsetlen--) {
             sds sdsele;
             double score;
-            zskiplistNode *znode;
 
             if ((sdsele = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                 decrRefCount(o);
@@ -2598,32 +3302,28 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* Don't care about integer-encoded strings. */
-            if (sdslen(sdsele) > maxelelen) maxelelen = sdslen(sdsele);
-            totelelen += sdslen(sdsele);
-
-            znode = zslInsert(zs->zsl,score,sdsele);
-            if (dictAdd(zs->dict, znode, NULL) != DICT_OK) {
+            int out_flags;
+            serverAssert(zsetAdd(o, score, sdsele, ZADD_IN_NX, &out_flags, NULL));
+            if (!(out_flags & ZADD_OUT_ADDED)) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
                 decrRefCount(o);
-                sdsfree(sdsele); /* zslInsert copies the sds, so we need to free the original */
+                sdsfree(sdsele);
                 return NULL;
             }
-            sdsfree(sdsele); /* zslInsert copies the sds into the node, so free the original */
+            size_t elelen = sdslen(sdsele);
+            if (elelen > maxelelen) maxelelen = elelen;
+            if (totelelen <= SIZE_MAX - elelen)
+                totelelen += elelen;
+            else
+                totelelen = SIZE_MAX;
+            sdsfree(sdsele);
         }
-
-        /* Convert *after* loading, since sorted sets are not stored ordered. */
-        if (zsetLength(o) <= server.zset_max_listpack_entries &&
-            maxelelen <= server.zset_max_listpack_value &&
-            lpSafeToAdd(NULL, totelelen))
-        {
-            zsetConvert(o, OBJ_ENCODING_LISTPACK);
-        }
+        zsetConvertAfterBulkInsert(o, maxelelen, totelelen);
     } else if (rdbtype == RDB_TYPE_HASH) {
         uint64_t len, original_len;
         int ret;
         sds value;
-        Entry *entry;
+        HashEntry *hEntry;
         dict *dupSearchDict = NULL;
 
         len = rdbLoadLen(rdb, NULL);
@@ -2663,33 +3363,33 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Create entry with field and value - take ownership of value */
-            entry = entryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
-            sdsfree(fieldSds);  /* entryCreate() doesn't take ownership of field */
+            hEntry = hEntryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
+            sdsfree(fieldSds);  /* hEntryCreate() doesn't take ownership of field */
 
             if (dupSearchDict) {
-                sds field_dup = sdsdup(entryGetField(entry));
+                sds field_dup = sdsdup(hEntryGetField(hEntry));
 
                 if (dictAdd(dupSearchDict, field_dup, NULL) != DICT_OK) {
                     rdbReportCorruptRDB("Hash with dup elements");
                     dictRelease(dupSearchDict);
                     decrRefCount(o);
                     sdsfree(field_dup);
-                    entryFree(entry, NULL);
+                    hEntryFree(hEntry, NULL);
                     return NULL;
                 }
             }
 
             /* Convert to hash table if size threshold is exceeded */
-            if (entryFieldLen(entry) > server.hash_max_listpack_value ||
-                sdslen(entryGetValue(entry)) > server.hash_max_listpack_value ||
-                !lpSafeToAdd(o->ptr, entryFieldLen(entry) + sdslen(entryGetValue(entry))))
+            if (hEntryFieldLen(hEntry) > server.hash_max_listpack_value ||
+                sdslen(hEntryGetValue(hEntry)) > server.hash_max_listpack_value ||
+                !lpSafeToAdd(o->ptr, hEntryFieldLen(hEntry) + sdslen(hEntryGetValue(hEntry))))
             {
                 hashTypeConvert(NULL, o, OBJ_ENCODING_HT);
-                ret = dictAdd((dict*)o->ptr, entry, NULL);  /* no_value=1 */
+                ret = dictAdd((dict*)o->ptr, hEntry, NULL);  /* no_value=1 */
                 if (ret == DICT_ERR) {
                     rdbReportCorruptRDB("Duplicate hash fields detected");
                     if (dupSearchDict) dictRelease(dupSearchDict);
-                    entryFree(entry, NULL);
+                    hEntryFree(hEntry, NULL);
                     decrRefCount(o);
                     return NULL;
                 }
@@ -2698,10 +3398,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Add pair to listpack */
-            o->ptr = lpAppend(o->ptr, (unsigned char*)entryGetField(entry), entryFieldLen(entry));
-            o->ptr = lpAppend(o->ptr, (unsigned char*)entryGetValue(entry), sdslen(entryGetValue(entry)));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)hEntryGetField(hEntry), hEntryFieldLen(hEntry));
+            o->ptr = lpAppend(o->ptr, (unsigned char*)hEntryGetValue(hEntry), sdslen(hEntryGetValue(hEntry)));
 
-            entryFree(entry, NULL);
+            hEntryFree(hEntry, NULL);
         }
 
         if (dupSearchDict) {
@@ -2736,15 +3436,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Create entry with field and value - take ownership of value */
-            entry = entryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
-            sdsfree(fieldSds);  /* entryCreate() doesn't take ownership of field */
+            hEntry = hEntryCreate(fieldSds, value, ENTRY_TAKE_VALUE, &usable);
+            sdsfree(fieldSds);  /* hEntryCreate() doesn't take ownership of field */
 
             /* Add entry to hash table */
             dict *d = o->ptr;
-            ret = dictAdd(d, entry, NULL);  /* no_value=1 */
+            ret = dictAdd(d, hEntry, NULL);  /* no_value=1 */
             if (ret == DICT_ERR) {
                 rdbReportCorruptRDB("Duplicate hash fields detected");
-                entryFree(entry, NULL);
+                hEntryFree(hEntry, NULL);
                 decrRefCount(o);
                 return NULL;
             }
@@ -2753,9 +3453,104 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
         /* All pairs should be read by now */
         serverAssert(len == 0);
+
+        /* Try to convert to template-based hash if threshold met. RDB load only 
+         * (the ctx is NULL on RESTORE/DUMP and when the RDB header already
+         * has templates). */
+        rdbLoadTemplateCtxTryConvert(rdb_load_tmpl_ctx, o);
+    } else if (rdbtype == RDB_TYPE_HASH_TMPL_LP) {
+        /* Self-contained TMPL_LP (DUMP/RESTORE): [fields_fmt][field names]
+         * [values_lp_blob]. The field names are resolved/parsed by the shared
+         * helper; the values are one listpack blob whose first entry is the
+         * source template id (rewritten to our local id by rdbFinalizeTmplLp).
+         * The template is created only after the values blob validates, so a
+         * value error never leaves an unreferenced template behind. */
+        rdbTmplFields tf;
+        if (rdbLoadTemplateFields(rdb, deep_integrity_validation, rdbver, &tf) != C_OK)
+            return NULL;
+
+        unsigned char *lp = rdbLoadTmplLpBlob(rdb, deep_integrity_validation, rdbver, NULL);
+        if (lp == NULL || !rdbCheckTmplLpCount(lp, tf.field_count)) {
+            rdbDiscardTemplateFields(&tf);
+            return NULL;
+        }
+        o = rdbFinalizeTmplLp(lp, rdbCreateTemplateFromFields(&tf));
+
+        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+            hashTypeConvert(NULL, o, OBJ_ENCODING_TMPL_ARRAY);
+    } else if (rdbtype == RDB_TYPE_HASH_TMPL_LP_REF) {
+        /* REF form is RDB-file only (needs the template section), never a DUMP payload. */
+        if (rdbIsDumpPayload(rdb)) {
+            rdbReportCorruptRDB("Hash type %d not valid in a DUMP payload", rdbtype);
+            return NULL;
+        }
+        /* TMPL_LP compact: The first listpack entry is the template ID */
+        long long src_id;
+        unsigned char *lp = rdbLoadTmplLpBlob(rdb, deep_integrity_validation, rdbver, &src_id);
+        if (lp == NULL)
+            return NULL;
+
+        /* Template IDs must be non-negative (stored as uint64_t in registry) */
+        if (src_id < 0) {
+            rdbReportCorruptRDB("Hash template ID %lld is negative", src_id);
+            zfree(lp);
+            return NULL;
+        }
+
+        hashTemplate *tmpl = rdbGetHashTemplateById((uint64_t)src_id);
+        if (tmpl == NULL) {
+            rdbReportCorruptRDB("Invalid hash template ID %lld in template-listpack", src_id);
+            zfree(lp);
+            return NULL;
+        }
+        if (!rdbCheckTmplLpCount(lp, tmpl->field_count)) return NULL;
+        o = rdbFinalizeTmplLp(lp, tmpl);
+
+        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+            hashTypeConvert(NULL, o, OBJ_ENCODING_TMPL_ARRAY);
+    } else if (rdbtype == RDB_TYPE_HASH_TMPL_ARRAY) {
+        /* Self-contained TMPL_ARRAY (DUMP/RESTORE): [fields_fmt][field names]
+         * [v0][v1]...[vN-1]. The field names are resolved/parsed by the shared
+         * helper; the values are field_count raw strings. The template is
+         * created only after the values load, so a value error never leaves an
+         * unreferenced template behind. */
+        rdbTmplFields tf;
+        if (rdbLoadTemplateFields(rdb, deep_integrity_validation, rdbver, &tf) != C_OK)
+            return NULL;
+
+        sds *values = rdbLoadSdsArray(rdb, tf.field_count, "template-array values");
+        if (values == NULL) {
+            rdbDiscardTemplateFields(&tf);
+            return NULL;
+        }
+        hashTemplate *tmpl = rdbCreateTemplateFromFields(&tf);
+        o = createHashObjectFromTemplate(tmpl, values, 1);
+        zfree(values);
+    } else if (rdbtype == RDB_TYPE_HASH_TMPL_ARRAY_REF) {
+        /* REF form is RDB-file only (needs the template section), never a DUMP payload. */
+        if (rdbIsDumpPayload(rdb)) {
+            rdbReportCorruptRDB("Hash type %d not valid in a DUMP payload", rdbtype);
+            return NULL;
+        }
+        /* TMPL_ARRAY REF form: [template_id][value1][value2]... */
+        uint64_t template_id;
+        if ((template_id = rdbLoadLen(rdb, NULL)) == RDB_LENERR)
+            return NULL;
+
+        hashTemplate *tmpl = rdbGetHashTemplateById(template_id);
+        if (tmpl == NULL) {
+            rdbReportCorruptRDB("Invalid hash template ID %lu", (unsigned long)template_id);
+            return NULL;
+        }
+        unsigned long long field_count = tmpl->field_count;
+
+        sds *values = rdbLoadSdsArray(rdb, field_count, "template-array");
+        if (values == NULL) return NULL;
+        o = createHashObjectFromTemplate(tmpl, values, 1);
+        zfree(values);
     } else if (rdbtype == RDB_TYPE_HASH_METADATA || rdbtype == RDB_TYPE_HASH_METADATA_PRE_GA) {
         sds value;
-        Entry *entry;
+        HashEntry *hEntry;
         uint64_t ttl, expireAt, minExpire = EB_EXPIRE_TIME_INVALID;
         uint64_t original_len;
         dict *dupSearchDict = NULL;
@@ -2851,12 +3646,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             /* Create entry with field, value, and optional expiration */
             uint32_t entryFlags = ENTRY_TAKE_VALUE | ((expireAt != 0) ? ENTRY_HAS_EXPIRY : 0);
-            entry = entryCreate(fieldSds, value, entryFlags, &usable);
-            sdsfree(fieldSds);  /* entryCreate() doesn't take ownership of field */
+            hEntry = hEntryCreate(fieldSds, value, entryFlags, &usable);
+            sdsfree(fieldSds);  /* hEntryCreate() doesn't take ownership of field */
 
-            sds field = entryGetField(entry);
+            sds field = hEntryGetField(hEntry);
             size_t flen = sdslen(field);
-            sds value = entryGetValue(entry);
+            sds value = hEntryGetValue(hEntry);
             size_t vlen = sdslen(value);            
 
             /* store the values read - either to listpack or dict */
@@ -2870,7 +3665,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         dictRelease(dupSearchDict);
                         decrRefCount(o);
                         sdsfree(field_dup);
-                        entryFree(entry, NULL);
+                        hEntryFree(hEntry, NULL);
                         return NULL;
                     }
                 }
@@ -2888,7 +3683,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                             rdbReportCorruptRDB("OOM in dictTryExpand %llu", (unsigned long long)original_len);
                             decrRefCount(o);
                             if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                            entryFree(entry, NULL);
+                            hEntryFree(hEntry, NULL);
                             return NULL;
                         }
                     }
@@ -2896,24 +3691,24 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     /* don't add the values to the new hash: the next if will catch and the values will be added there */
                 } else {
                     listpackExAddNew(o, field, flen, value, vlen, expireAt);
-                    entryFree(entry, NULL);
+                    hEntryFree(hEntry, NULL);
                 }
             }
 
             if (o->encoding == OBJ_ENCODING_HT) {
                 /* Add entry to hash table */
                 dict *d = o->ptr;
-                int ret = dictAdd(d, entry, NULL);  /* no_value=1 */
+                int ret = dictAdd(d, hEntry, NULL);  /* no_value=1 */
 
                 /* Attach expiry to the hash field and register in hash private HFE DS */
                 if ((ret != DICT_ERR) && expireAt) {
                     htMetadataEx *m = htGetMetadataEx(d);
-                    ret = ebAdd(&m->hfe, &hashFieldExpireBucketsType, entry, expireAt);
+                    ret = ebAdd(&m->elemExpires, &hashFieldExpireBucketsType, hEntry, expireAt);
                 }
 
                 if (ret == DICT_ERR) {
                     rdbReportCorruptRDB("Duplicate hash fields detected");
-                    entryFree(entry, NULL);
+                    hEntryFree(hEntry, NULL);
                     decrRefCount(o);
                     return NULL;
                 }
@@ -2960,7 +3755,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             if (rdbtype == RDB_TYPE_LIST_QUICKLIST_2) {
-                lp = data;
+                lp = rdbUpgradeListpack(data, &encoded_len, rdbver);
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
                 if (!lpValidateIntegrity(lp, encoded_len, deep_integrity_validation, NULL, NULL)) {
                     rdbReportCorruptRDB("Listpack integrity check failed.");
@@ -3002,6 +3797,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                rdbtype == RDB_TYPE_LIST_ZIPLIST ||
                rdbtype == RDB_TYPE_SET_INTSET   ||
                rdbtype == RDB_TYPE_SET_LISTPACK ||
+               rdbtype == RDB_TYPE_SET_LISTPACK_EX ||
                rdbtype == RDB_TYPE_ZSET_ZIPLIST ||
                rdbtype == RDB_TYPE_ZSET_LISTPACK ||
                rdbtype == RDB_TYPE_HASH_ZIPLIST ||
@@ -3011,8 +3807,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
     {
         size_t encoded_len;
 
-        /* If Hash TTLs, Load next/min expiration time before the `encoded` */
-        if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX) {
+        /* If Hash or Set TTLs, Load next/min expiration time before the `encoded` */
+        if (rdbtype == RDB_TYPE_HASH_LISTPACK_EX || rdbtype == RDB_TYPE_SET_LISTPACK_EX) {
             uint64_t minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
             /* This value was serialized for future use-case of streaming the object
              * directly to FLASH (while keeping in mem its next expiration time) */
@@ -3026,6 +3822,17 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         unsigned char *encoded =
             rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&encoded_len);
         if (encoded == NULL) return NULL;
+
+        /* Listpacks saved by Redis 8.8 - 8.10 may hold the compact boundary
+         * backlen, rewrite them before the integrity check below. */
+        if (rdbtype == RDB_TYPE_SET_LISTPACK ||
+            rdbtype == RDB_TYPE_ZSET_LISTPACK ||
+            rdbtype == RDB_TYPE_HASH_LISTPACK ||
+            rdbtype == RDB_TYPE_HASH_LISTPACK_EX_PRE_GA ||
+            rdbtype == RDB_TYPE_HASH_LISTPACK_EX)
+        {
+            encoded = rdbUpgradeListpack(encoded, &encoded_len, rdbver);
+        }
 
         o = createObject(OBJ_STRING, encoded); /* Obj type fixed below. */
 
@@ -3158,10 +3965,34 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 if (setTypeSize(o) > server.set_max_listpack_entries)
                     setTypeConvert(o, OBJ_ENCODING_HT);
                 break;
+            case RDB_TYPE_SET_LISTPACK_EX:
+                if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
+                if (!setListpackExValidate(encoded, encoded_len, deep_integrity_validation)) {
+                    rdbReportCorruptRDB("Set listpack with expirations integrity check failed.");
+                    zfree(encoded);
+                    o->ptr = NULL;
+                    decrRefCount(o);
+                    return NULL;
+                }
+                setListpackExAttach(o, encoded);
+
+                if (setTypeSize(o) == 0) {
+                    decrRefCount(o);
+                    goto emptykey;
+                }
+                /* Not registered in the database yet, so no unregistering. */
+                if (setTypeSize(o) > server.set_max_listpack_entries)
+                    setTypeConvert(o, OBJ_ENCODING_HT);
+                break;
             case RDB_TYPE_ZSET_ZIPLIST:
                 {
                     unsigned char *lp = lpNew(encoded_len);
-                    if (!ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp)) {
+                    int valid = ziplistPairsConvertAndValidateIntegrity(encoded, encoded_len, &lp);
+                    /* See RDB_TYPE_ZSET_LISTPACK below for when scores are parsed. */
+                    if (valid && (deep_integrity_validation ||
+                                  lpLength(lp) / 2 > server.zset_max_listpack_entries))
+                        valid = lpValidateIntegrityAndDupsEx(lp, lpBytes(lp), 0, 2, 1);
+                    if (!valid) {
                         rdbReportCorruptRDB("Zset ziplist integrity check failed.");
                         zfree(lp);
                         zfree(encoded);
@@ -3180,14 +4011,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
 
                     if (zsetLength(o) > server.zset_max_listpack_entries)
-                        zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                        zsetConvert(o, OBJ_ENCODING_BTREE);
                     else
                         o->ptr = lpShrinkToFit(o->ptr);
                     break;
                 }
             case RDB_TYPE_ZSET_LISTPACK:
                 if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
-                if (!lpValidateIntegrityAndDups(encoded, encoded_len, deep_integrity_validation, 2)) {
+                if (!lpValidateIntegrityAndDupsEx(encoded, encoded_len,
+                                                  deep_integrity_validation, 2,
+                                                  deep_integrity_validation)) {
                     rdbReportCorruptRDB("Zset listpack integrity check failed.");
                     zfree(encoded);
                     o->ptr = NULL;
@@ -3201,8 +4034,21 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     goto emptykey;
                 }
 
-                if (zsetLength(o) > server.zset_max_listpack_entries)
-                    zsetConvert(o, OBJ_ENCODING_SKIPLIST);
+                if (zsetLength(o) > server.zset_max_listpack_entries) {
+                    /* Parsing every score costs a full walk, so a listpack
+                     * that stays one is checked only by deep sanitization.
+                     * A conversion parses every score anyway and must not
+                     * store an invalid one, so check them first. */
+                    if (!deep_integrity_validation &&
+                        !lpValidateIntegrityAndDupsEx(encoded, encoded_len, 0, 2, 1)) {
+                        rdbReportCorruptRDB("Zset listpack integrity check failed.");
+                        zfree(encoded);
+                        o->ptr = NULL;
+                        decrRefCount(o);
+                        return NULL;
+                    }
+                    zsetConvert(o, OBJ_ENCODING_BTREE);
+                }
                 break;
             case RDB_TYPE_HASH_ZIPLIST:
                 {
@@ -3269,6 +4115,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
                     hashTypeConvert(NULL /*db*/, o, OBJ_ENCODING_HT);
 
+                /* Try to convert to template-based hash if threshold met. Bulk
+                 * RDB load only (ctx NULL on RESTORE/DUMP or when the RDB
+                 * header already carried templates). */
+                rdbLoadTemplateCtxTryConvert(rdb_load_tmpl_ctx, o);
                 break;
             default:
                 /* totally unreachable */
@@ -3319,6 +4169,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 decrRefCount(o);
                 return NULL;
             }
+
+            /* Listpacks saved by Redis 8.8 - 8.10 may hold the compact boundary
+             * backlen, rewrite them before the integrity check below. */
+            lp = rdbUpgradeListpack(lp, &lp_size, rdbver);
+
             if (deep_integrity_validation) server.stat_dump_payload_sanitizations++;
             if (!streamValidateListpackIntegrity(lp, lp_size, deep_integrity_validation)) {
                 rdbReportCorruptRDB("Stream listpack integrity check failed.");
@@ -3897,6 +4752,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             arSet(ar, idx, v);
         }
+    } else if (rdbtype == RDB_TYPE_BITMAP) {
+        if ((o = rdbLoadBitmapObject(rdb)) == NULL) return NULL;
     } else {
         rdbReportReadError("Unknown RDB encoding type %d",rdbtype);
         return NULL;
@@ -4010,7 +4867,10 @@ void stopSaving(int success) {
 /* Track loading progress in order to serve client's from time to time
    and if needed calculate rdb checksum  */
 void rdbLoadProgressCallback(rio *r, const void *buf, size_t len) {
-    if (server.rdb_checksum && !server.loading_skip_checksum)
+    /* When RIO_FLAG_CKSUM_AT_SOURCE is set, the rio's read() method already
+     * folded these bytes into the checksum itself (see rioInitWithFileLoad);
+     * doing it again here would checksum every byte twice. */
+    if (server.rdb_checksum && !server.loading_skip_checksum && !(r->flags & RIO_FLAG_CKSUM_AT_SOURCE))
         rioGenericUpdateChecksum(r, buf, len);
     if (server.loading_process_events_interval_bytes &&
         (r->processed_bytes + len)/server.loading_process_events_interval_bytes > r->processed_bytes/server.loading_process_events_interval_bytes)
@@ -4083,7 +4943,7 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
  * currently it only allow to set db object and functionLibCtx to which the data
  * will be loaded (in the future it might contains more such objects). */
-int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
+static int rdbLoadRioWithLoadingCtxInternal(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
     uint64_t dbid = 0;
     int type, rdbver;
     uint64_t db_size = 0, expires_size = 0;
@@ -4110,8 +4970,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     /* Key-specific attributes, set by opcodes before the key type. */
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
-    KeyMetaSpec keyMeta; /* Updated by OPCODE_KEY_META and OPCODE_EXPIRETIME */
-    keyMetaSpecInit(&keyMeta);
+    kvSpec spec; /* Key attributes populated by RDB opcodes. */
+    kvSpecInit(&spec);
 
     while(1) {
         sds key;
@@ -4127,14 +4987,14 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
              * load the actual type, and continue. */
             expiretime = rdbLoadTime(rdb);
             expiretime *= 1000;
-            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
+            kvSpecAddMeta(&spec, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             expiretime = rdbLoadMillisecondTime(rdb,rdbver);
-            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
+            kvSpecAddMeta(&spec, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
@@ -4148,6 +5008,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             uint64_t qword;
             if ((qword = rdbLoadLen(rdb,NULL)) == RDB_LENERR) goto eoferr;
             lru_idle = qword;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_KEY_NOEVICT) {
+            spec.no_evict = 1;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */
@@ -4183,6 +5046,16 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             if (!server.cluster_enabled) {
                 continue; /* Ignore gracefully. */
+            }
+            /* slot_id comes straight from the RDB and is used as an index into the
+             * per-slot kvstore dictionaries. A malformed RDB can supply a value
+             * outside the valid slot range, which would be truncated to a negative or
+             * out-of-range int index inside the kvstore layer and cause an
+             * out-of-bounds access. Reject such records as corrupt before expanding. */
+            if (slot_id >= (uint64_t)kvstoreNumDicts(db->keys)) {
+                rdbReportCorruptRDB("SLOT_INFO slot id %llu is out of range (max %d)",
+                    (unsigned long long)slot_id, kvstoreNumDicts(db->keys));
+                return C_ERR;
             }
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             kvstoreDictExpand(db->keys, slot_id, slot_size);
@@ -4317,6 +5190,18 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             }
             continue;
+        } else if (type == RDB_OPCODE_HASH_TEMPLATE) {
+            /* Load one hash template. Seeing a template record means this RDB
+             * already has templates, so the load-time conversion context must
+             * stay off. These records precede all keys, so the ctx has not been
+             * used yet: just free it. A NULL ctx is a no-op in every helper. */
+            rdbLoadTemplateCtxFree(rdb_load_tmpl_ctx);
+            rdb_load_tmpl_ctx = NULL;
+            if (rdbLoadHashTemplate(rdb) != C_OK) {
+                serverLog(LL_WARNING, "Failed loading hash template");
+                goto eoferr;
+            }
+            continue;
         }
 
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
@@ -4330,16 +5215,16 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         }
 
         /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
-        if (rdbResolveKeyType(rdb, &type, dbid, &keyMeta) == -1) 
+        if (rdbResolveKeyType(rdb, &type, dbid, &spec) == -1)
             goto eoferr;
 
         /* Read key */
         if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&spec);
             goto eoferr;
         }
         /* Read value */
-        val = rdbLoadObject(type,rdb,key,db->id,&error);
+        val = rdbLoadObject(type,rdb,key,db->id,rdbver,&error);
 
         /* Check if the key already expired. This function is used when loading
          * an RDB file from disk, either at startup, or when an RDB was
@@ -4350,7 +5235,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * the keys they are, since the log of operations in the incr AOF
          * is assumed to work in the exact keyspace state. */
         if (val == NULL) {
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&spec);
             /* Since we used to have bug that could lead to empty keys
              * (See #8453), we rather not fail when empty key is encountered
              * in an RDB file, instead we will silently discard it and
@@ -4381,14 +5266,14 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             }
             sdsfree(key);
             decrRefCount(val);
-            keyMetaSpecCleanup(&keyMeta);
+            kvSpecCleanup(&spec);
             server.rdb_last_load_keys_expired++;
         } else {
             robj keyobj;
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
-            kvobj *kv = dbAddRDBLoad(db, key, &val, &keyMeta);
+            kvobj *kv = dbAddRDBLoad(db, key, &val, &spec);
             server.rdb_last_load_keys_loaded++;
             if (!kv) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -4396,7 +5281,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    kv = dbAddRDBLoad(db, key, &val, &keyMeta);
+                    kv = dbAddRDBLoad(db, key, &val, &spec);
                     serverAssert(kv != NULL);
                 } else {
                     serverLog(LL_WARNING,
@@ -4405,12 +5290,15 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 }
             }
 
-            /* If minExpiredField was set, then the object is hash with expiration
-             * on fields and need to register it in global HFE DS */
-            if (kv->type == OBJ_HASH) {
-                uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
-                if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-                    estoreAdd(db->subexpires, getKeySlot(key), kv, minExpiredField);
+            /* Track few-key template keys for disassembly at the end of RDb load. */
+            rdbLoadTemplateCtxRecord(rdb_load_tmpl_ctx, kv, db);
+
+            /* If the object is a hash or set with expiration on its members or
+             * fields, register it in the global subexpires DS */
+            if (typeMaySubexpire(kv->type)) {
+                uint64_t minSubexpiry = kvobjGetMinSubexpiry(kv);
+                if (minSubexpiry != EB_EXPIRE_TIME_INVALID)
+                    estoreAdd(db->subexpires, getKeySlot(key), kv, minSubexpiry);
             }
 
             /* Register streams with IDMP producers for cron-based expiration. */
@@ -4437,7 +5325,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         expiretime = -1;
         lfu_freq = -1;
         lru_idle = -1;
-        keyMetaSpecInit(&keyMeta);
+        kvSpecInit(&spec);
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5) {
@@ -4481,6 +5369,30 @@ eoferr:
     return C_ERR;
 }
 
+/* Public entry point for all load paths, so the load-time template registry
+ * (rdb_tmpls) is always released here regardless of success or failure.  */
+int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadingCtx *rdb_loading_ctx) {
+    /* Create the load-time conversion context (plain hash -> template hash), 
+     * but only when load-time conversion config is enabled (min-entries > 0). 
+     * It applies only to RDBs that have no templates and is freed as soon as a
+     * template header is seen. */
+    rdb_load_tmpl_ctx = (server.hash_rdb_load_min_template_entries > 0)
+        ? rdbLoadTemplateCtxCreate(server.hash_rdb_load_template_disassembly_threshold)
+        : NULL;
+    
+    int retval = rdbLoadRioWithLoadingCtxInternal(rdb, rdbflags, rsi, rdb_loading_ctx);
+    
+    /* On success, disassemble the templates that stayed few-key back to plain
+     * hashes. Skip on failure: the partial dataset is discarded anyway. */
+    if (retval == C_OK)
+        rdbLoadTemplateCtxDisassemble(rdb_load_tmpl_ctx);
+    rdbLoadTemplateCtxFree(rdb_load_tmpl_ctx);
+    rdb_load_tmpl_ctx = NULL;
+    
+    rdbClearHashTemplates();
+    return retval;
+}
+
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     return rdbLoadWithEmptyFunc(filename, rsi, rdbflags, NULL);
 }
@@ -4512,7 +5424,8 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
         return RDB_FAILED;
     }
 
-    if (fstat(fileno(fp), &sb) == -1)
+    int have_filesize = fstat(fileno(fp), &sb) != -1;
+    if (!have_filesize)
         sb.st_size = 0;
 
     loadingSetFlags(filename, sb.st_size, 0);
@@ -4521,10 +5434,22 @@ int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*
     if (emptyDbFunc)
         emptyDbFunc(); /* Flush existing db. */
     loadingFireEvent(rdbflags);
-    rioInitWithFile(&rdb,fp);
+    /* rioInitWithFileLoad() needs a real file size to know where the
+     * trailing checksum footer begins; fall back to the plain rio in the
+     * rare case fstat() failed on an already-open fd. */
+    if (have_filesize)
+        rioInitWithFileLoad(&rdb,fp,sb.st_size,server.rdb_checksum && !server.loading_skip_checksum);
+    else
+        rioInitWithFile(&rdb,fp);
+
+#ifdef HAVE_FADVISE
+    /* The file is read sequentially: let the kernel use a larger read-ahead window. */
+    posix_fadvise(fileno(fp), 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
 
+    if (have_filesize) rioFreeFileLoad(&rdb);
     fclose(fp);
     if (retval != C_OK && emptyDbFunc)
         emptyDbFunc(); /* Clean up partial db. */
@@ -4656,6 +5581,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     int pipefds[2], rdb_pipe_write = 0, safe_to_exit_pipe = 0;
     int rdb_channel = server.repl_rdb_channel && (req & SLAVE_REQ_RDB_CHANNEL);
     int slots_req = req & SLAVE_REQ_SLOTS_SNAPSHOT;
+    unsigned long long slots_keys = 0;
 
     if (hasActiveChildProcess()) return C_ERR;
 
@@ -4695,6 +5621,9 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             if (slave->slave_req != req)
                 continue;
             replicationSetupSlaveForFullResync(slave, getPsyncInitialOffset());
+            /* In replicationSetupSlaveForFullResync, we would update the total keys
+             * of the current task. */
+            if (slots_req) slots_keys = asmGetTaskTotalKeys(slave->task);
             conns[numconns++] = slave->conn;
             if (rdb_channel) {
                 /* Put the socket in blocking mode to simplify RDB transfer. */
@@ -4801,6 +5730,8 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
                     serverPanic("Unrecoverable error creating server.rdb_pipe_read file event.");
                 }
             }
+            /* redisFork() defaults to all server keys. ASM saves only its slots. */
+            if (slots_req) server.stat_current_save_keys_total = slots_keys;
         }
         if (rdb_channel)
             zfree(conns);

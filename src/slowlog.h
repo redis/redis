@@ -19,6 +19,7 @@ typedef struct slowlogEntry {
     time_t time;        /* Unix time at which the query was executed. */
     sds cname;          /* Client name. */
     sds peerid;         /* Client network address. */
+    int cmd_argc;       /* Total argument count of the command. */
 } slowlogEntry;
 
 /* Exported API */
