@@ -3648,6 +3648,7 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf);
 
 unsigned long long estimateObjectIdleTime(robj *o);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
+#define inlineEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_INT || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
@@ -4900,6 +4901,7 @@ void functionDumpCommand(client *c);
 void timeCommand(client *c);
 void bitopCommand(client *c);
 void bitroaropCommand(client *c);
+void bitrangeintarrayCommand(client *c);
 void bitcountCommand(client *c);
 void bitposCommand(client *c);
 void replconfCommand(client *c);

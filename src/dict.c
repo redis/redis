@@ -1426,6 +1426,13 @@ void dictInitIterator(dictIterator *iter, dict *d)
     iter->bucket = NULL;
     iter->pos = 0;
     iter->last_seen_size = 0;
+    iter->prefetch = 0;
+}
+
+/* Make dictNext() prefetch entries ahead. Use it for full scans that read
+ * every entry, like the RDB save. */
+void dictIteratorEnablePrefetch(dictIterator *iter) {
+    iter->prefetch = 1;
 }
 
 void dictInitSafeIterator(dictIterator *iter, dict *d)
@@ -1458,6 +1465,45 @@ dictIterator *dictGetSafeIterator(dict *d) {
     return i;
 }
 
+#define DICT_ITER_PREFETCH_AHEAD 16
+
+/* Prefetch each bucket in three steps as the iterator gets closer. */
+static void dictIteratorPrefetchAhead(dictIterator *iter) {
+    dict *d = iter->d;
+    int t = iter->table;
+    long size = DICTHT_SIZE(d->ht_size_exp[t]);
+
+    /* Bucket 2*AHEAD away: prefetch the bucket. */
+    long idx = iter->index + 2*DICT_ITER_PREFETCH_AHEAD;
+    if (idx < size) redis_prefetch_read(&d->ht_table[t][idx]);
+
+    /* Bucket AHEAD away: prefetch the entries, the bucket is in cache by now.
+     * An entry is the key itself or the dictEntry that holds it. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD;
+    if (idx < size) {
+        for (dictBucket *b = &d->ht_table[t][idx]; b; b = getChildBucket(b)) {
+            bucketBits present = b->presence;
+            while (present) {
+                redis_prefetch_read(b->slots[__builtin_ctz(present)]);
+                present &= present - 1;
+            }
+        }
+    }
+
+    /* Bucket AHEAD/2 away: prefetch the values, the entries are in cache by now. */
+    idx = iter->index + DICT_ITER_PREFETCH_AHEAD/2;
+    if (idx < size && d->type->prefetchEntryValue) {
+        for (dictBucket *b = &d->ht_table[t][idx]; b; b = getChildBucket(b)) {
+            bucketBits present = b->presence;
+            while (present) {
+                void *addr = d->type->prefetchEntryValue(b->slots[__builtin_ctz(present)]);
+                present &= present - 1;
+                if (addr) redis_prefetch_read(addr);
+            }
+        }
+    }
+}
+
 dictEntry *dictNext(dictIterator *iter)
 {
     dict *d = iter->d;
@@ -1482,6 +1528,7 @@ dictEntry *dictNext(dictIterator *iter)
         }
         b = &d->ht_table[0][iter->index];
         pos = 0;
+        if (iter->prefetch) dictIteratorPrefetchAhead(iter);
     } else {
         b = iter->bucket;
         if (b == NULL) return NULL;
@@ -1529,6 +1576,7 @@ dictEntry *dictNext(dictIterator *iter)
         b = &d->ht_table[iter->table][iter->index];
         pos = 0;
         if (iter->safe) iter->last_seen_size = d->ht_used[iter->table];
+        if (iter->prefetch) dictIteratorPrefetchAhead(iter);
     }
 }
 

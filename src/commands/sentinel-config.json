@@ -44,6 +44,16 @@
                                 }
                             ]
                         },
+                        "tls-verify-hostnames": {
+                            "oneOf": [
+                                {
+                                    "const": "yes"
+                                },
+                                {
+                                    "const": "no"
+                                }
+                            ]
+                        },
                         "announce-ip": {
                             "type": "string"
                         },

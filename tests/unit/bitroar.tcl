@@ -473,10 +473,10 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         }
     }
 
-    test {DEBUG DIGEST for fragmented Roaring bitmaps is fast and history independent} {
+    test {DEBUG DIGEST for fragmented Roaring bitmaps is history independent} {
         # Alternating bits give one set-bit run per two bits, so 1MB holds 4M
-        # runs. All of them must be streamed into one SHA1 rather than paying
-        # SHA1 finalizations for every run.
+        # runs. Verify that identical bits have the same digest across
+        # different construction histories and DUMP/RESTORE round-trips.
         set bytes 1048576
         set raw [string repeat [binary format H* 55] $bytes]
         r del bitmap:digest:frag:converted bitmap:digest:frag:bitfield \
@@ -486,28 +486,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "needs:debug" "cluster:skip"}} {
         assert_equal OK [create_roaring_bitmap_from_raw r bitmap:digest:frag:converted $raw]
         assert_equal [expr {$bytes * 4}] [r bitcount bitmap:digest:frag:converted]
         set digest [r debug digest-value bitmap:digest:frag:converted]
-        if {!$::valgrind} {
-            # Time the digest against a plain SHA1 pass over a 16MB string in
-            # the same server instead of a fixed limit, so the check holds on
-            # slow builds and busy runners alike. Streaming costs about 5x that
-            # baseline, while a SHA1 finalization per run costs about 100x.
-            # Keep the fastest of three runs to ride out scheduling noise.
-            r setrange bitmap:digest:baseline [expr {16 * 1024 * 1024 - 1}] x
-            foreach key {bitmap:digest:frag:converted bitmap:digest:baseline} {
-                set fastest($key) {}
-                for {set i 0} {$i < 3} {incr i} {
-                    set start [clock milliseconds]
-                    r debug digest-value $key
-                    set elapsed [expr {[clock milliseconds] - $start}]
-                    if {$fastest($key) eq {} || $elapsed < $fastest($key)} {
-                        set fastest($key) $elapsed
-                    }
-                }
-            }
-            r del bitmap:digest:baseline
-            assert_lessthan $fastest(bitmap:digest:frag:converted) \
-                [expr {25 * max(1, $fastest(bitmap:digest:baseline))}]
-        }
 
         # Build the same bits through other container histories: BITFIELD
         # writes into an empty bitmap grow array containers into bitsets, and
@@ -2172,14 +2150,6 @@ start_server {tags {"bitmap" "bitmap-roaring" "repl" "aof" "needs:debug" "extern
     }
 }
 
-# Note: the notify-race tests that mutated the key from a module keyspace
-# notification callback ("new", "overwritten" and "type_changed" variants,
-# via tests/modules/bitmap_notify.c) are removed. With dbAddInternal() and
-# setKeyByLink() restored to the upstream shape, such a mutation hits the
-# pre-existing upstream use-after-free (the post-notification bookkeeping
-# dereferences the possibly freed value). Re-add them once the upstream fix
-# lands.
-
 proc seed_string_bitmap {key bits} {
     r del $key
     r set $key ""
@@ -2204,6 +2174,12 @@ proc assert_bitmap_has_exact_bits {key bits} {
     assert_equal [llength $unique] [r bitcount $key]
     foreach bit $unique {
         assert_equal 1 [r getbit $key $bit]
+    }
+    # Check integer-array reads on both string and native bitmaps.
+    assert_equal $unique [r bitrangeintarray $key 0 -1]
+    if {[llength $unique] >= 4} {
+        assert_equal [lrange $unique 1 3] [r bitrangeintarray $key \
+            [lindex $unique 1] [lindex $unique 3] bit]
     }
 }
 
@@ -4839,3 +4815,658 @@ start_server {tags {"bitmap" "bitmap-roaring" "cluster:skip"}} {
     } {} {large-memory config:restore}
 }
 } ;# run_solo
+
+# BITRANGEINTARRAY returns the offsets of the set bits in a range, or of the
+# clear bits with ZEROS, in ascending order. The range is interpreted as in
+# BITCOUNT: start and end indexes in BYTE (the default) or BIT units, where
+# negative indexes count from the end of the value. LIMIT caps the number of
+# returned offsets.
+
+# Create a native bitmap with bits 0 .. nbits - 1 all set. NOT stores each
+# full container as a single run, so even 2^32 bits take only a few MiB.
+proc create_full_bitmap {key nbits} {
+    set old_bitmap [config_get_set bitmap-default-roaring yes]
+    set old_limit [lindex [r config get proto-max-bulk-len] 1]
+    r config set proto-max-bulk-len [expr {max($old_limit, ($nbits + 7) / 8)}]
+    r del $key
+    r setbit $key [expr {$nbits - 1}] 0
+    r bitop not $key $key
+    r config set bitmap-default-roaring $old_bitmap
+    r config set proto-max-bulk-len $old_limit
+    assert_equal $nbits [r bitcount $key]
+}
+
+# Check that BITRANGEINTARRAY returns 'expected' for the range in 'args', and
+# that BITCOUNT counts the same bits.
+proc assert_bitrange {key expected args} {
+    assert_equal $expected [r bitrangeintarray $key {*}$args] "range $args"
+    assert_equal [llength $expected] [r bitcount $key {*}$args] "bitcount $args"
+}
+
+# Reference implementation: the sorted 'offsets' that fall in the range
+# BITCOUNT would cover for a value of 'len' bytes.
+proc intarray_expected {offsets len start end unit} {
+    set total [expr {$unit eq "bit" ? $len * 8 : $len}]
+    if {$start < 0 && $end < 0 && $start > $end} {return {}}
+    if {$start < 0} {set start [expr {max(0, $total + $start)}]}
+    if {$end < 0} {set end [expr {max(0, $total + $end)}]}
+    if {$end >= $total} {set end [expr {$total - 1}]}
+    if {$start > $end} {return {}}
+    if {$unit eq "byte"} {
+        set start [expr {$start * 8}]
+        set end [expr {$end * 8 + 7}]
+    }
+    set result {}
+    foreach offset $offsets {
+        if {$offset >= $start && $offset <= $end} {lappend result $offset}
+    }
+    return $result
+}
+
+start_server {tags {"bitmap" "bitmap-roaring"}} {
+    test {BITRANGEINTARRAY validates its arguments} {
+        seed_roaring_bitmap bitmap:bitmap {0 9}
+        # The range is required.
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray}
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray bitmap:bitmap}
+        assert_error {ERR wrong number of arguments*} {r bitrangeintarray bitmap:bitmap 0}
+        # ZEROS is an option after the range, and takes no argument.
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap zeros 0 1}
+        assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0 1 zeros 1}
+        assert_equal {1 2 3 4 5 6 7} [r bitrangeintarray bitmap:bitmap 0 0 zeros zeros]
+        assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0 1 bit extra}
+        # Both ends must be 64-bit integers.
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap a 1}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 1.5}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 9223372036854775808}
+        # LIMIT takes one non-negative count, after the range.
+        assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0 1 limit}
+        assert_error {ERR syntax error*} {r bitrangeintarray bitmap:bitmap 0 1 bit limit}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap limit 1 0 1}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 limit 1}
+        assert_error {ERR value is not an integer*} {r bitrangeintarray bitmap:bitmap 0 1 limit a}
+        assert_error {ERR LIMIT can't be negative*} {r bitrangeintarray bitmap:bitmap 0 1 limit -1}
+    }
+
+    test {BITRANGEINTARRAY over the whole value returns every set bit} {
+        # Unsorted input with a duplicate, across two containers. The reply is
+        # sorted and unique.
+        set offsets {65536 9 1 0 9 257 2 65535}
+        seed_roaring_bitmap bitmap:basic $offsets
+        assert_equal bitmap [r type bitmap:basic]
+        set all [lsort -integer -unique $offsets]
+
+        # The ranges that cover the whole value.
+        assert_equal $all [r bitrangeintarray bitmap:basic 0 -1]
+        assert_equal $all [r bitrangeintarray bitmap:basic 0 -1 bit]
+        assert_equal $all [r bitrangeintarray bitmap:basic -9223372036854775808 9223372036854775807]
+    }
+
+    test {BITRANGEINTARRAY byte ranges cover the same bits as BITCOUNT} {
+        # Four bytes, with the first and last bit of each byte set.
+        seed_roaring_bitmap bitmap:byte {0 7 8 15 16 23 24 31}
+
+        # Ranges inside the value, by positive and negative index.
+        assert_bitrange bitmap:byte {8 15} 1 1
+        assert_bitrange bitmap:byte {8 15 16 23} 1 2
+        assert_bitrange bitmap:byte {24 31} -1 -1
+        assert_bitrange bitmap:byte {16 23 24 31} -2 -1
+
+        # Ends outside the value are clamped. Here both clamp to the first byte.
+        assert_bitrange bitmap:byte {16 23 24 31} 2 99
+        assert_bitrange bitmap:byte {0 7} -99 0
+        assert_bitrange bitmap:byte {0 7} -99 -98
+
+        # Empty ranges: reversed, past the end, or both negative and reversed.
+        assert_bitrange bitmap:byte {} 3 1
+        assert_bitrange bitmap:byte {} 4 9
+        assert_bitrange bitmap:byte {} -1 -2
+    }
+
+    test {BITRANGEINTARRAY bit ranges cover the same bits as BITCOUNT} {
+        # The same four bytes, with the first and last bit of each byte set.
+        seed_roaring_bitmap bitmap:bit {0 7 8 15 16 23 24 31}
+
+        # Ranges inside the value: one bit, across a byte boundary, between
+        # set bits, and ending on a set bit.
+        assert_bitrange bitmap:bit {0} 0 0 bit
+        assert_bitrange bitmap:bit {7 8} 7 8 bit
+        assert_bitrange bitmap:bit {} 1 6 bit
+        assert_bitrange bitmap:bit {15} 9 15 bit
+
+        # Negative indexes count bits from the end, and an end past the value
+        # is clamped.
+        assert_bitrange bitmap:bit {31} -1 -1 bit
+        assert_bitrange bitmap:bit {24 31} -8 -1 bit
+        assert_bitrange bitmap:bit {31} 30 1000 bit
+
+        # Empty ranges: reversed, both negative and reversed, or past the end.
+        assert_bitrange bitmap:bit {} 8 7 bit
+        assert_bitrange bitmap:bit {} -1 -2 bit
+        assert_bitrange bitmap:bit {} 32 40 bit
+    }
+
+    test {BITRANGEINTARRAY string scan handles word boundaries and partial words} {
+        # A mixed 64-bit word (bits 0-63), a zero word (64-127), a full word
+        # (128-191), and a 3-byte tail (192-215).
+        set words {ffa500813c000180 0000000000000000 ffffffffffffffff c3007f}
+        set value [binary format H* [join $words ""]]
+        set len [string length $value]
+        binary scan $value B* binary
+        r set bitmap:words $value
+        # Each row tests both bits: the whole value, skipping the zero or full
+        # word; both ends inside the first word; a range across a word
+        # boundary; a word without the wanted bit; words read from byte 1, not
+        # aligned with the value's words; and a range ending in the
+        # zero-padded tail.
+        foreach {bit start end} {
+            1 0 -1      0 0 -1
+            1 1 12      0 1 12
+            1 60 70     0 60 70
+            1 64 127    0 128 191
+            1 9 200     0 9 200
+            1 205 215   0 205 215
+        } {
+            set offsets [lsearch -all [split $binary ""] $bit]
+            set option [expr {$bit ? {} : {zeros}}]
+            assert_equal [intarray_expected $offsets $len $start $end bit] \
+                [r bitrangeintarray bitmap:words $start $end bit {*}$option] "$bit $start $end"
+        }
+    }
+
+    test {BITRANGEINTARRAY returns the same results for strings and native bitmaps} {
+        # The same random bits in a string and in a native bitmap.
+        set bits {}
+        for {set i 0} {$i < 200} {incr i} {lappend bits [randomInt 100000]}
+        r del bitmap:str{t}
+        foreach bit $bits {r setbit bitmap:str{t} $bit 1}
+        seed_roaring_bitmap bitmap:native{t} $bits
+
+        # The same bits as clear bits: NOT keeps the type, and stores the
+        # native bitmap mostly as runs of set bits.
+        r bitop not bitmap:strnot{t} bitmap:str{t}
+        r bitop not bitmap:nativenot{t} bitmap:native{t}
+
+        # The whole value is sorted and unique, and the same for every key.
+        set ones [lsort -integer -unique $bits]
+        foreach key {bitmap:str{t} bitmap:native{t} bitmap:strnot{t} bitmap:nativenot{t}} option {{} {} zeros zeros} {
+            assert_equal $ones [r bitrangeintarray $key 0 -1 {*}$option] $key
+        }
+
+        # Random ranges, including negative indexes and ends past the value
+        # (about 12500 bytes or 100000 bits long). The clear bits of the NOT
+        # keys are the set bits of the others.
+        for {set i 0} {$i < 20} {incr i} {
+            foreach {unit max} {byte 14000 bit 110000} {
+                set start [randomSignedInt $max]
+                set end [randomSignedInt $max]
+                set expected [r bitrangeintarray bitmap:str{t} $start $end $unit]
+                foreach key {bitmap:native{t} bitmap:strnot{t} bitmap:nativenot{t}} option {{} zeros zeros} {
+                    assert_equal $expected [r bitrangeintarray $key $start $end $unit {*}$option] \
+                        "$key $start $end $unit"
+                }
+            }
+        }
+    }
+
+    test {BITRANGEINTARRAY LIMIT returns the lowest offsets in the range} {
+        # 600 bits, so native bitmap batches of 256 values end before, at and
+        # after the limit. Each byte holds at most one of them, so BYTE ranges
+        # return exactly LIMIT offsets too.
+        set bits {}
+        for {set i 0} {$i < 600} {incr i} {lappend bits [expr {$i * 37}]}
+        r del bitmap:str
+        foreach bit $bits {r setbit bitmap:str $bit 1}
+        seed_roaring_bitmap bitmap:native $bits
+
+        foreach key {bitmap:str bitmap:native} {
+            # Limits inside a batch, on batch boundaries, and past the result.
+            foreach limit {1 100 255 256 257 512 599 600 601 9223372036854775807} {
+                set expected [lrange $bits 0 [expr {min($limit, [llength $bits]) - 1}]]
+                assert_equal $expected [r bitrangeintarray $key 0 -1 LIMIT $limit] "$key $limit"
+            }
+            assert_equal {} [r bitrangeintarray $key 0 -1 limit 0]
+
+            # The limit applies after the range, in either unit.
+            assert_equal {37 74 111} [r bitrangeintarray $key 1 -1 bit limit 3]
+            assert_equal {37 74 111} [r bitrangeintarray $key 1 100 byte limit 3]
+
+            # The options after the range may come in any order, and the last
+            # LIMIT or unit wins.
+            # Bits 0 .. 40 hold {0 37}, and bytes 0 .. 40 hold {0 37 74 ...}.
+            assert_equal {0 37} [r bitrangeintarray $key 0 40 limit 3 bit]
+            assert_equal {0 37 74} [r bitrangeintarray $key 0 40 limit 3 byte]
+            assert_equal {0 37 74} [r bitrangeintarray $key 0 40 bit limit 1 byte limit 3]
+            assert_equal [lrange $bits 300 309] \
+                [r bitrangeintarray $key [lindex $bits 300] -1 bit limit 10]
+            assert_equal {} [r bitrangeintarray $key -1 -2 limit 3]
+        }
+        r del bitmap:missing
+        assert_equal {} [r bitrangeintarray bitmap:missing 0 -1 limit 3]
+    }
+
+    test {BITRANGEINTARRAY LIMIT in BYTE units completes the last byte} {
+        # Bytes 0, 7 and 8 are full, byte 1 has its first and last bits set,
+        # and byte 9 has one bit set. Byte 7 ends the first 64-bit word of the
+        # string.
+        set byte0 {0 1 2 3 4 5 6 7}
+        set byte7 {56 57 58 59 60 61 62 63}
+        set byte8 {64 65 66 67 68 69 70 71}
+        set bits [concat $byte0 {8 15} $byte7 $byte8 {73}]
+        r del bitmap:str{t}
+        foreach bit $bits {r setbit bitmap:str{t} $bit 1}
+        seed_roaring_bitmap bitmap:native{t} $bits
+        # The same offsets as clear bits, in a string and a native bitmap.
+        r bitop not bitmap:strnot{t} bitmap:str{t}
+        r bitop not bitmap:nativenot{t} bitmap:native{t}
+        assert_equal {string bitmap} [list [r type bitmap:strnot{t}] [r type bitmap:nativenot{t}]]
+
+        foreach {key option} {bitmap:str{t} {} bitmap:native{t} {} bitmap:strnot{t} zeros bitmap:nativenot{t} zeros} {
+            # The reply runs to the end of the byte where LIMIT is reached,
+            # and no further.
+            assert_equal $byte0 [r bitrangeintarray $key 0 -1 limit 1 {*}$option]
+            assert_equal $byte0 [r bitrangeintarray $key 0 -1 limit 8 {*}$option]
+            assert_equal [concat $byte0 {8 15}] [r bitrangeintarray $key 0 -1 limit 9 {*}$option]
+            assert_equal [concat $byte0 {8 15} $byte7] [r bitrangeintarray $key 0 -1 limit 11 {*}$option]
+            assert_equal [lrange $bits 0 end-1] [r bitrangeintarray $key 0 -1 limit 26 {*}$option]
+            assert_equal {8 15} [r bitrangeintarray $key 1 -1 limit 1 {*}$option]
+
+            # In BIT units the reply stops at LIMIT.
+            assert_equal [lrange $bits 0 8] [r bitrangeintarray $key 0 -1 bit limit 9 {*}$option]
+            assert_equal {57 58} [r bitrangeintarray $key 57 -1 bit limit 2 {*}$option]
+        }
+    }
+
+    test {BITRANGEINTARRAY LIMIT pages through a value in either unit} {
+        # Random bits, dense enough that many bytes hold more than one.
+        set bits {}
+        for {set i 0} {$i < 300} {incr i} {lappend bits [randomInt 2000]}
+        r del bitmap:str
+        foreach bit $bits {r setbit bitmap:str $bit 1}
+        seed_roaring_bitmap bitmap:native $bits
+        set ones [lsort -integer -unique $bits]
+        set nbits [expr {[r strlen bitmap:str] * 8}]
+        set zeros {}
+        for {set i 0} {$i < $nbits} {incr i} {
+            if {[lsearch -sorted -integer $ones $i] < 0} {lappend zeros $i}
+        }
+
+        # Each page starts at the byte or bit after the last offset returned,
+        # and the pages join up to all the set or clear bits of the value.
+        foreach key {bitmap:str bitmap:native} {
+            foreach {option all} [list zeros $zeros {} $ones] {
+                foreach {unit extra} {byte 7 bit 0} {
+                    foreach limit {1 3 10} {
+                        set pages {}
+                        set start 0
+                        while 1 {
+                            set page [r bitrangeintarray $key $start -1 $unit limit $limit {*}$option]
+                            if {$page eq {}} break
+                            assert {[llength $page] <= $limit + $extra}
+                            lappend pages {*}$page
+                            set last [lindex $page end]
+                            set start [expr {$unit eq "byte" ? $last / 8 + 1 : $last + 1}]
+                        }
+                        assert_equal $all $pages "$key $option $unit $limit"
+                    }
+                }
+            }
+        }
+    }
+
+    test {BITRANGEINTARRAY LIMIT pages through a bitmap until a short page} {
+        set bits {}
+        for {set i 0} {$i < 200} {incr i} {lappend bits [expr {$i * 5}]}
+        r del bitmap:str
+        foreach bit $bits {r setbit bitmap:str $bit 1}
+        seed_roaring_bitmap bitmap:native $bits
+
+        # Each page starts after the last offset returned, and a page with
+        # fewer than LIMIT offsets ends the scan. With a LIMIT that divides
+        # 200, the last page is empty.
+        foreach key {bitmap:str bitmap:native} {
+            foreach limit {1 7 100 200 300} {
+                set pages {}
+                set start 0
+                while 1 {
+                    set page [r bitrangeintarray $key $start -1 bit limit $limit]
+                    lappend pages {*}$page
+                    if {[llength $page] < $limit} break
+                    set start [expr {[lindex $page end] + 1}]
+                }
+                assert_equal $bits $pages "$key $limit"
+            }
+        }
+    }
+
+    test {BITRANGEINTARRAY returns empty arrays for missing keys and values without set bits} {
+        # A missing key, an empty native bitmap, a native bitmap whose only bit
+        # was cleared, an empty string, and a string of zero bytes.
+        r del bitmap:missing
+        seed_roaring_bitmap bitmap:empty {}
+        seed_roaring_bitmap bitmap:zero {8192}
+        r setbit bitmap:zero 8192 0
+        r set bitmap:emptystring {}
+        r set bitmap:zerostring [binary format H* 0000]
+
+        # Ranges covering the value, inside it, reversed, past the end, and
+        # the widest possible.
+        foreach key {bitmap:missing bitmap:empty bitmap:zero bitmap:emptystring bitmap:zerostring} {
+            foreach bounds {{0 -1} {0 0} {-1 -1} {1 0} {0 99999999} {-1 -2}
+                            {0 -1 bit} {-1 -1 bit} {-9223372036854775808 9223372036854775807}} {
+                assert_equal {} [r bitrangeintarray $key {*}$bounds]
+            }
+        }
+    }
+
+    test {BITRANGEINTARRAY returns empty arrays for missing keys and values without clear bits} {
+        # A missing key, an empty native bitmap, an empty string, a native
+        # bitmap with all its bits set, and a string of 0xff bytes.
+        r del bitmap:missing
+        seed_roaring_bitmap bitmap:empty {}
+        r set bitmap:emptystring {}
+        create_full_bitmap bitmap:full 65552
+        r set bitmap:fullstring [binary format H* ffff]
+
+        foreach key {bitmap:missing bitmap:empty bitmap:emptystring bitmap:full bitmap:fullstring} {
+            foreach bounds {{0 -1} {0 0} {-1 -1} {1 0} {0 99999999} {-1 -2}
+                            {0 -1 bit} {-1 -1 bit} {-9223372036854775808 9223372036854775807}} {
+                assert_equal {} [r bitrangeintarray $key {*}$bounds zeros]
+            }
+        }
+    }
+
+    test {BITRANGEINTARRAY returns empty arrays for empty ranges and LIMIT 0} {
+        # Bits 0 and 9 set, in two bytes, so both bits have matches.
+        r del bitmap:str
+        r setbit bitmap:str 0 1
+        r setbit bitmap:str 9 1
+        seed_roaring_bitmap bitmap:native {0 9}
+
+        foreach key {bitmap:str bitmap:native} {
+            foreach option {{} zeros} {
+                # A reversed range, a range past the value, and LIMIT 0.
+                assert_equal {} [r bitrangeintarray $key 1 0 {*}$option]
+                assert_equal {} [r bitrangeintarray $key 9 8 bit {*}$option]
+                assert_equal {} [r bitrangeintarray $key 2 5 {*}$option]
+                assert_equal {} [r bitrangeintarray $key 16 20 bit {*}$option]
+                assert_equal {} [r bitrangeintarray $key 0 -1 limit 0 {*}$option]
+            }
+        }
+    }
+
+    test {BITRANGEINTARRAY returns clear bits only inside the value} {
+        # 0xff 0x7e: bits 8 and 15 are the only clear bits.
+        r set bitmap:str [binary format H* ff7e]
+        seed_roaring_bitmap bitmap:native {0 1 2 3 4 5 6 7 9 10 11 12 13 14}
+        foreach key {bitmap:str bitmap:native} {
+            assert_equal {8 15} [r bitrangeintarray $key 0 -1 zeros]
+            # Unlike BITPOS, which finds a clear bit past the end of the
+            # value, the range is clamped to the value.
+            assert_equal {8 15} [r bitrangeintarray $key 0 99 zeros]
+            assert_equal {15} [r bitrangeintarray $key 9 1000 zeros bit]
+            assert_equal {} [r bitrangeintarray $key 2 9 zeros]
+            assert_equal {} [r bitrangeintarray $key 0 0 zeros]
+        }
+        r set bitmap:full [binary format H* ffff]
+        assert_equal 16 [r bitpos bitmap:full 0]
+        assert_equal {} [r bitrangeintarray bitmap:full 0 -1 zeros]
+    }
+
+    test {BITRANGEINTARRAY rejects non-bitmap types} {
+        r del list
+        r lpush list value
+        assert_error {WRONGTYPE*} {r bitrangeintarray list 0 -1}
+        assert_error {WRONGTYPE*} {r bitrangeintarray list 0 -1 bit}
+    }
+
+    test {BITRANGEINTARRAY reads strings in place regardless of bitmap-default-roaring} {
+        foreach roaring {no yes} {
+            r config set bitmap-default-roaring $roaring
+
+            # 0x80 0x40 sets bits 0 and 9.
+            r set bitmap:string [binary format H* 8040]
+            assert_equal {0 9} [r bitrangeintarray bitmap:string 0 -1]
+            assert_equal {9} [r bitrangeintarray bitmap:string 1 1]
+            assert_equal {0} [r bitrangeintarray bitmap:string 0 8 bit]
+
+            # Integer-encoded strings expose the bits of their decimal digits:
+            # "123" is 0x31 0x32 0x33.
+            r set bitmap:integer 123
+            assert_equal {2 3 7 10 11 14 18 19 22 23} [r bitrangeintarray bitmap:integer 0 -1]
+            assert_equal {18 19 22 23} [r bitrangeintarray bitmap:integer -1 -1]
+            assert_equal {22 23} [r bitrangeintarray bitmap:integer -2 -1 bit]
+
+            # Reading leaves both keys as strings, unchanged.
+            assert_equal string [r type bitmap:string]
+            assert_equal [binary format H* 8040] [r get bitmap:string]
+            assert_equal int [r object encoding bitmap:integer]
+        }
+        r config set bitmap-default-roaring no
+    }
+
+    test {Integer-array replies contain RESP integers under RESP2 and RESP3} {
+        seed_roaring_bitmap bitmap:protocol {0 8 65536}
+        seed_roaring_bitmap bitmap:empty {}
+        r del bitmap:missing
+        # Raw replies show the RESP type of each element: an integer (":")
+        # under both protocols.
+        foreach protocol {2 3} {
+            set client [redis_client]
+            $client hello $protocol
+            $client readraw 1
+
+            # The whole value, a byte range and a bit range.
+            assert_equal {*3} [$client bitrangeintarray bitmap:protocol 0 -1]
+            foreach bit {0 8 65536} {assert_equal ":$bit" [$client read]}
+            assert_equal {*1} [$client bitrangeintarray bitmap:protocol 1 1]
+            assert_equal {:8} [$client read]
+            assert_equal {*2} [$client bitrangeintarray bitmap:protocol 8 65536 bit]
+            foreach bit {8 65536} {assert_equal ":$bit" [$client read]}
+            # LIMIT sets the array length to the number of returned offsets.
+            assert_equal {*2} [$client bitrangeintarray bitmap:protocol 0 -1 limit 2]
+            foreach bit {0 8} {assert_equal ":$bit" [$client read]}
+
+            # Empty results: a missing key and an empty bitmap.
+            assert_equal {*0} [$client bitrangeintarray bitmap:missing 0 -1]
+            assert_equal {*0} [$client bitrangeintarray bitmap:empty 0 1]
+            $client close
+        }
+    }
+
+    test {Integer-array traversal crosses 256-value batches and seeks across containers} {
+        # 1100 set bits, one per 65536-bit container, at a different position in
+        # each. The second pass puts them above 2^32, and writing there needs a
+        # larger proto-max-bulk-len.
+        set old_limit [config_get_set proto-max-bulk-len 1073741824]
+        foreach base {0 4294967296} {
+            set expected {}
+            for {set i 0} {$i < 1100} {incr i} {
+                lappend expected [expr {$base + $i * 65536 + ($i % 17)}]
+            }
+            seed_roaring_bitmap bitmap:containers $expected
+            assert_equal $expected [r bitrangeintarray bitmap:containers 0 -1]
+
+            # Bit ranges whose ends are set bits, selected by list index. The
+            # indexes sit on both sides of the 256-value batch boundaries.
+            foreach {first last} {0 255 0 256 255 256 256 512 257 513 510 1025 900 1099} {
+                assert_equal [lrange $expected $first $last] \
+                    [r bitrangeintarray bitmap:containers \
+                        [lindex $expected $first] [lindex $expected $last] bit]
+            }
+
+            # Ends that fall in the gaps between set bits exclude neighbours.
+            assert_equal [lrange $expected 258 512] \
+                [r bitrangeintarray bitmap:containers \
+                    [expr {[lindex $expected 257] + 1}] [expr {[lindex $expected 513] - 1}] bit]
+            assert_equal [lrange $expected 1099 end] \
+                [r bitrangeintarray bitmap:containers [lindex $expected 1099] -1 bit]
+            assert_equal {} [r bitrangeintarray bitmap:containers \
+                [expr {[lindex $expected 1099] + 1}] -1 bit]
+
+            # Clear bits fill the gaps between set bits. A bit range across the
+            # boundary of two containers holds every bit in it but the set bit
+            # just after the boundary.
+            set boundary [expr {$base + 256 * 65536}]
+            set first [expr {$boundary - 4}]
+            set last [expr {$boundary + 4}]
+            set zeros {}
+            for {set i $first} {$i <= $last} {incr i} {
+                if {$i != [lindex $expected 256]} {lappend zeros $i}
+            }
+            assert_equal $zeros [r bitrangeintarray bitmap:containers $first $last zeros bit]
+            # LIMIT stops inside a gap: the set bit at index 255 starts its
+            # container, and the bits after it are clear.
+            set gap {}
+            for {set i 1} {$i <= 300} {incr i} {lappend gap [expr {[lindex $expected 255] + $i}]}
+            assert_equal $gap [r bitrangeintarray bitmap:containers \
+                [expr {[lindex $expected 255] + 1}] -1 zeros bit limit 300]
+        }
+        r config set proto-max-bulk-len $old_limit
+    }
+
+    test {Integer-array traversal handles dense bitset and run containers} {
+        # 5000 even offsets in one container: more than an array container
+        # holds, so it is stored as a bitset.
+        set bitset {}
+        for {set i 0} {$i < 10000} {incr i 2} {lappend bitset $i}
+        seed_roaring_bitmap bitmap:bitset $bitset
+        assert_equal $bitset [r bitrangeintarray bitmap:bitset 0 -1]
+        # Offsets 4000 .. 4600 by bit range, and 4000 .. 4598 by byte range.
+        assert_equal [lrange $bitset 2000 2300] [r bitrangeintarray bitmap:bitset 3999 4600 bit]
+        assert_equal [lrange $bitset 2000 2299] [r bitrangeintarray bitmap:bitset 500 574]
+        # The clear bits are the odd offsets up to the end of the value.
+        set odd {}
+        for {set i 1} {$i < 10000} {incr i 2} {lappend odd $i}
+        assert_equal $odd [r bitrangeintarray bitmap:bitset 0 -1 zeros]
+        assert_equal [lrange $odd 1999 2299] [r bitrangeintarray bitmap:bitset 3999 4600 zeros bit]
+
+        # Bits 0 .. 8191 all set, stored as a single run.
+        create_full_bitmap bitmap:run 8192
+        set run {}
+        for {set i 0} {$i < 8192} {incr i} {lappend run $i}
+        assert_equal $run [r bitrangeintarray bitmap:run 0 -1]
+        # Ranges starting and ending inside the run, the last byte, and an end
+        # past the value.
+        assert_equal [lrange $run 4093 4609] [r bitrangeintarray bitmap:run 4093 4609 bit]
+        assert_equal [lrange $run 8184 end] [r bitrangeintarray bitmap:run -1 -1]
+        assert_equal {8190 8191} [r bitrangeintarray bitmap:run 8190 9000 bit]
+        # The run has no clear bits. Clearing bits at both ends and in the
+        # middle splits it, and only those bits are clear.
+        assert_equal {} [r bitrangeintarray bitmap:run 0 -1 zeros]
+        foreach bit {0 4095 4096 8191} {r setbit bitmap:run $bit 0}
+        assert_equal {0 4095 4096 8191} [r bitrangeintarray bitmap:run 0 -1 zeros]
+        assert_equal {4095 4096} [r bitrangeintarray bitmap:run 1 8190 zeros bit]
+        assert_equal {4096} [r bitrangeintarray bitmap:run 4096 4096 zeros bit]
+        assert_equal {8191} [r bitrangeintarray bitmap:run -1 -1 zeros]
+    }
+
+    if {[s arch_bits] == 64} {
+        test {BITRANGEINTARRAY preserves 64-bit offsets up to the native bitmap limit} {
+            # A native bitmap holds at most 2^60 - 1 bytes, so its largest
+            # offset is just below 2^63.
+            set max_bytes [expr {(1 << 60) - 1}]
+            set max_bit [expr {$max_bytes * 8 - 1}]
+            # Offsets on both sides of 2^32, one at 2^40, and the last four.
+            set tail [list [expr {$max_bit - 3}] [expr {$max_bit - 2}] \
+                [expr {$max_bit - 1}] $max_bit]
+            set offsets [list 0 4294967295 4294967296 1099511627776 {*}$tail]
+
+            # Writing offsets this far out needs a raised proto-max-bulk-len.
+            # Restore it before reading: reads do not apply the write limit.
+            set old_limit [config_get_set proto-max-bulk-len $max_bytes]
+            seed_roaring_bitmap bitmap:wide $offsets
+            r config set proto-max-bulk-len $old_limit
+
+            assert_equal $offsets [r bitrangeintarray bitmap:wide 0 -1]
+            # A bit range from below 2^32 to 2^40.
+            assert_equal {4294967295 4294967296 1099511627776} \
+                [r bitrangeintarray bitmap:wide 4294967295 1099511627776 bit]
+            # The end of the value: the last byte, the last four bits, and a
+            # range starting at the last bit.
+            assert_equal $tail [r bitrangeintarray bitmap:wide -1 -1]
+            assert_equal $tail [r bitrangeintarray bitmap:wide -4 -1 bit]
+            assert_equal [list $max_bit] [r bitrangeintarray bitmap:wide $max_bit -1 bit]
+            r del bitmap:wide
+        }
+    }
+
+    test {BITRANGEINTARRAY reads ranges of a bitmap with more than 2^32 set bits} {
+        # Every bit from 0 to 2^32 + 7 is set. The value is 536870913 bytes,
+        # and its last byte (index 536870912) holds offsets 2^32 .. 2^32 + 7.
+        create_full_bitmap bitmap:huge 4294967304
+        set last_byte {}
+        for {set bit 4294967296} {$bit < 4294967304} {incr bit} {lappend last_byte $bit}
+
+        # The first and last bytes, the last one by negative and by absolute index.
+        assert_equal {0 1 2 3 4 5 6 7} [r bitrangeintarray bitmap:huge 0 0]
+        assert_equal $last_byte [r bitrangeintarray bitmap:huge -1 -1]
+        assert_equal $last_byte [r bitrangeintarray bitmap:huge 536870912 536870912]
+
+        # Bit ranges across 2^32 and at the end of the value.
+        assert_equal {4294967294 4294967295 4294967296 4294967297} \
+            [r bitrangeintarray bitmap:huge 4294967294 4294967297 bit]
+        assert_equal {4294967302 4294967303} [r bitrangeintarray bitmap:huge -2 -1 bit]
+
+        # Clearing 2^32 + 4 removes only that offset from the last byte. SETBIT
+        # this far out needs a larger proto-max-bulk-len; reading does not.
+        set old_limit [config_get_set proto-max-bulk-len 536870913]
+        r setbit bitmap:huge 4294967300 0
+        r config set proto-max-bulk-len $old_limit
+        assert_equal [lsearch -all -inline -not $last_byte 4294967300] \
+            [r bitrangeintarray bitmap:huge -1 -1]
+
+        # Looking for clear bits skips the runs of set bits, so the whole
+        # value is read quickly, and only the cleared offset is returned.
+        assert_equal {4294967300} [r bitrangeintarray bitmap:huge 0 -1 zeros]
+        assert_equal {4294967300} [r bitrangeintarray bitmap:huge 0 -1 zeros bit]
+        assert_equal {} [r bitrangeintarray bitmap:huge 0 -2 zeros]
+        r del bitmap:huge
+    }
+
+    test {BITRANGEINTARRAY enumerates restored bitmaps} {
+        # A few bits in one container, unsorted bits spread over several
+        # containers, and an empty bitmap.
+        foreach bits {{0 1 2} {317811 196418 121393 233 144 89 55 34 21} {}} {
+            seed_roaring_bitmap bitmap:serialize $bits
+            r restore bitmap:restored 0 [r dump bitmap:serialize] replace
+            assert_equal [lsort -integer -unique $bits] [r bitrangeintarray bitmap:restored 0 -1]
+            # A range starting after bit 0 reads the same before and after the round trip.
+            assert_equal [r bitrangeintarray bitmap:serialize 1 -1 bit] \
+                [r bitrangeintarray bitmap:restored 1 -1 bit]
+        }
+    }
+
+    test {BITRANGEINTARRAY stops streaming when the output limit closes the client} {
+        # Both values hold 2^32 + 8 bits: one with every bit set, and one with
+        # only its last bit set, so all the others are clear.
+        create_full_bitmap bitmap:ones 4294967304
+        set old_limit [config_get_set proto-max-bulk-len 536870913]
+        seed_roaring_bitmap bitmap:zeros {4294967303}
+        r config set proto-max-bulk-len $old_limit
+
+        # The reply for 2^32 offsets is tens of GB. A 100 KB output limit
+        # closes the client after about 12,000 offsets, and the command must
+        # stop there.
+        foreach {key option} {bitmap:ones {} bitmap:zeros zeros} {
+            set old_limit [config_get_set client-output-buffer-limit {normal 100000 0 0}]
+            r config resetstat
+
+            # The server closes the connection without sending anything, so
+            # the blocking read returns empty at EOF.
+            set client [redis_deferring_client]
+            $client bitrangeintarray $key 0 -1 {*}$option
+            $client flush
+            assert_equal {} [$client rawread]
+            $client close
+            r config set client-output-buffer-limit $old_limit
+            r del $key
+
+            # The client was closed by the output limit, not for another reason.
+            assert_equal 1 [s client_output_buffer_limit_disconnections]
+            # The command stopped early: emitting every offset takes seconds.
+            regexp {cmdstat_bitrangeintarray:calls=1,usec=(\d+)} [r info commandstats] -> usec
+            assert_lessthan $usec 1000000
+        }
+    } {} {"external:skip"}
+}

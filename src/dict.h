@@ -193,6 +193,7 @@ typedef struct dictIterator {
     unsigned long last_seen_size; /* safe iterator: ht_used of table when entering the chain */
     /* unsafe iterator fingerprint for misuse detection. */
     unsigned long long fingerprint;
+    int prefetch; /* See dictIteratorEnablePrefetch(). */
 } dictIterator;
 
 typedef struct dictStats {
@@ -295,6 +296,7 @@ dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
 void dictInitIterator(dictIterator *iter, dict *d);
 void dictInitSafeIterator(dictIterator *iter, dict *d);
+void dictIteratorEnablePrefetch(dictIterator *iter);
 void dictResetIterator(dictIterator *iter);
 dictEntry *dictNext(dictIterator *iter);
 void dictReleaseIterator(dictIterator *iter);
