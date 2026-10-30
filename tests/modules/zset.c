@@ -70,6 +70,20 @@ int zset_incrby(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx, "ERR ZsetIncrby failed");
 }
 
+/* ZSET.ISMEMBER key element
+ *
+ * Calls RedisModule_ZsetScore with a NULL score pointer, which only tests
+ * membership. Replies with 1 if the element exists, 0 otherwise.
+ */
+int zset_ismember(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    if (key == NULL) return RedisModule_ReplyWithLongLong(ctx, 0);
+    int found = RedisModule_ZsetScore(key, argv[2], NULL) == REDISMODULE_OK;
+    return RedisModule_ReplyWithLongLong(ctx, found);
+}
+
 /* Range APIs take doubles directly, so expose NaN bounds even though
  * RedisModule_StringToDouble() rejects them. */
 static int zset_range_bound(RedisModuleString *arg, double *value) {
@@ -276,6 +290,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "zset.incrby", zset_incrby, "write",
+                                  1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.ismember", zset_ismember, "readonly",
                                   1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

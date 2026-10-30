@@ -34,6 +34,22 @@ start_server {tags {"modules external:skip"}} {
         assert_equal {hello 100} [r zrange k 0 -1 withscores]
     }
 
+    foreach encoding {listpack btree} {
+        test "Module zset score with a NULL score pointer tests membership - $encoding" {
+            set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
+            r config set zset-max-listpack-entries [expr {$encoding eq "listpack" ? 128 : 0}]
+
+            r del k
+            r zadd k 1 a 2 b
+            assert_encoding $encoding k
+            assert_equal 1 [r zset.ismember k a]
+            assert_equal 0 [r zset.ismember k c]
+            assert_equal 0 [r zset.ismember nokey a]
+
+            r config set zset-max-listpack-entries $old_max_entries
+        }
+    }
+
     test {Module zset range iteration with btree encoding} {
         set old_max_entries [lindex [r config get zset-max-listpack-entries] 1]
         r config set zset-max-listpack-entries 0
