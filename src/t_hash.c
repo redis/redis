@@ -2115,19 +2115,20 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
         return GETF_OK;
 
-    if (server.masterhost || server.cluster_enabled) {
-        /* If CLIENT_MASTER, assume valid as long as it didn't get delete.
-         *
-         * In cluster mode, we also assume valid if we are importing data
-         * from the source, to avoid deleting fields that are still in use.
-         * We create a fake master client for data import, which can be
-         * identified using the CLIENT_MASTER flag. */
-        if (server.current_client && (server.current_client->flags & CLIENT_MASTER))
-            return GETF_OK;
+    /* If the command comes from the master or the AOF, assume the field is
+     * valid as long as it didn't get deleted. A TTL that has already passed
+     * (e.g. while the AOF was not being loaded) must not hide the field here,
+     * since later commands in the stream may still modify or persist it.
+     *
+     * In cluster mode, we also assume valid if we are importing data
+     * from the source, to avoid deleting fields that are still in use.
+     * We create a fake master client for data import, which can be
+     * identified using the CLIENT_MASTER flag. */
+    if (server.current_client && mustObeyClient(server.current_client))
+        return GETF_OK;
 
-        /* For replica, if user client, then act as if expired, but don't delete! */
-        if (server.masterhost) return GETF_EXPIRED;
-    }
+    /* For replica, if user client, then act as if expired, but don't delete! */
+    if (server.masterhost) return GETF_EXPIRED;
 
     if ((server.loading) ||
         (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL) ||
@@ -6820,7 +6821,7 @@ void hpersistCommand(client *c) {
                 continue;
             }
 
-            if (prevExpire < commandTimeSnapshot()) {
+            if (!mustObeyClient(c) && prevExpire < commandTimeSnapshot()) {
                 addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
                 continue;
             }
@@ -6856,7 +6857,7 @@ void hpersistCommand(client *c) {
             }
 
             /* Already expired. Pretend there is no such field */
-            if ( (long long) expire < commandTimeSnapshot()) {
+            if (!mustObeyClient(c) && (long long) expire < commandTimeSnapshot()) {
                 addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
                 continue;
             }
