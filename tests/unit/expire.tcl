@@ -889,6 +889,32 @@ start_server {tags {"expire"}} {
         assert_equal [s expired_keys] 3
         assert_equal [s expired_keys_active] 3
     } {}
+
+    test {Commands deleting a key with an elapsed expire time should increment expired_keys} {
+        r flushall
+        r config resetstat
+        r set foo1 bar
+        r set foo2 bar EX 100
+        r set foo3 bar
+        r set foo4 bar
+        r set foo5 bar
+        r set foo6 bar
+
+        assert_equal 1 [r expire foo1 -1]
+        assert_equal 1 [r expireat foo2 1]
+        assert_equal 1 [r pexpire foo3 -1]
+        assert_equal 1 [r pexpireat foo4 1]
+        assert_equal bar [r getex foo5 EXAT 1]
+        assert_equal bar [r getex foo6 PXAT 1]
+        assert_equal 0 [r exists foo1 foo2 foo3 foo4 foo5 foo6]
+
+        # A missing key is not counted
+        assert_equal 0 [r expire nokey -1]
+        assert_equal {} [r getex nokey PXAT 1]
+
+        assert_equal 6 [s expired_keys]
+        assert_equal 0 [s expired_keys_active]
+    } {}
 }
 
 start_cluster 1 0 {tags {"expire external:skip cluster"}} {
