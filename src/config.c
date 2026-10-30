@@ -3267,19 +3267,13 @@ static int isValidAnnouncedNodename(char *val,const char **err) {
 }
 
 static int isValidHostnameChars(char *val, const char **err) {
-    int i = 0;
-    char c;
-    while ((c = val[i])) {
-        /* We just validate the character set to make sure that everything
-         * is parsed and handled correctly. */
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-            || (c >= '0' && c <= '9') || (c == '-') || (c == '.')))
-        {
-            *err = "Hostnames may only contain alphanumeric characters, "
-                "hyphens or dots";
-            return 0;
-        }
-        c = val[i++];
+    /* We just validate the character set to make sure that everything is
+     * parsed and handled correctly. The cluster bus applies the same rule to
+     * hostnames received from other nodes. */
+    if (!isValidHostnameString(val, strlen(val))) {
+        *err = "Hostnames may only contain alphanumeric characters, "
+            "hyphens or dots";
+        return 0;
     }
     return 1;
 }

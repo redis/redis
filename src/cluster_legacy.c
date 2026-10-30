@@ -2797,6 +2797,25 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link, clusterNod
     updateShardId(sender, ext_shardid);
 }
 
+/* Validates an address field received on the cluster bus, that is hdr->myip
+ * or the ip of a gossip entry. These end up in node->ip, from where they are
+ * written to nodes.conf, shown by CLUSTER NODES/SLOTS/SHARDS and embedded in
+ * -MOVED/-ASK redirections, so they must be checked against what a node can
+ * legitimately announce, the same rules as cluster-announce-ip: an IPv4 or
+ * IPv6 address, or a hostname. The field must also be NUL-terminated within
+ * its NET_IP_STR_LEN bytes. An empty string is valid: in hdr->myip it means
+ * the sender did not announce an address and the socket address is used. */
+static int isValidClusterMsgIp(const char *ip) {
+    const char *end = memchr(ip, '\0', NET_IP_STR_LEN);
+    if (end == NULL) return 0;
+    if (end == ip) return 1;
+
+    unsigned char buf[sizeof(struct in6_addr)];
+    if (inet_pton(AF_INET, ip, buf) == 1 || inet_pton(AF_INET6, ip, buf) == 1)
+        return 1;
+    return isValidHostnameString(ip, end - ip);
+}
+
 static clusterNode *getNodeFromLinkAndMsg(clusterLink *link, clusterMsg *hdr) {
     clusterNode *sender;
     if (link->node && !nodeInHandshake(link->node)) {
@@ -2909,6 +2928,22 @@ int clusterProcessPacket(clusterLink *link) {
                             clusterGetMessageTypeString(type), exttype);
                         return 1;
                     }
+                    /* Hold the strings to the same rules as the
+                     * cluster-announce-hostname and
+                     * cluster-announce-human-nodename configs that produce
+                     * them: they are persisted in nodes.conf and returned to
+                     * clients, so a control character or a delimiter would
+                     * corrupt both. */
+                    size_t len = strlen(str);
+                    int valid = (exttype == CLUSTERMSG_EXT_TYPE_HOSTNAME) ?
+                        (len < NET_HOST_STR_LEN && isValidHostnameString(str, len)) :
+                        isValidAuxString(str, len);
+                    if (!valid) {
+                        serverLog(LL_WARNING,
+                            "Received %s packet with invalid characters in extension type %d",
+                            clusterGetMessageTypeString(type), exttype);
+                        return 1;
+                    }
                 } else if (exttype == CLUSTERMSG_EXT_TYPE_FORGOTTEN_NODE) {
                     if (datalen < sizeof(clusterMsgPingExtForgottenNode)) {
                         serverLog(LL_WARNING,
@@ -2979,6 +3014,28 @@ int clusterProcessPacket(clusterLink *link) {
         serverLog(LL_WARNING, "Received invalid %s packet of length %lld but expected length %lld",
             clusterGetMessageTypeString(type), (unsigned long long) totlen, (unsigned long long) explen);
         return 1;
+    }
+
+    /* The announced sender address and the gossip addresses can update the
+     * address we hold for a node, so reject the packet if any of them is not
+     * something a node can announce. Done after the length check, which
+     * guarantees the gossip section holds 'count' entries. */
+    if (type == CLUSTERMSG_TYPE_PING || type == CLUSTERMSG_TYPE_PONG ||
+        type == CLUSTERMSG_TYPE_MEET)
+    {
+        if (!isValidClusterMsgIp(hdr->myip)) {
+            serverLog(LL_WARNING, "Received %s packet with invalid sender address",
+                clusterGetMessageTypeString(type));
+            return 1;
+        }
+        uint16_t count = ntohs(hdr->count);
+        for (uint16_t j = 0; j < count; j++) {
+            if (!isValidClusterMsgIp(hdr->data.ping.gossip[j].ip)) {
+                serverLog(LL_WARNING, "Received %s packet with invalid address in gossip section",
+                    clusterGetMessageTypeString(type));
+                return 1;
+            }
+        }
     }
 
     sender = getNodeFromLinkAndMsg(link, hdr);
