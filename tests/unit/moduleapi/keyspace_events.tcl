@@ -924,6 +924,85 @@ tags "modules external:skip" {
         }
     }
 
+    # A dictEntryLink taken by a command must not be used after something that
+    # may look up keys: each lookup may run an incremental rehash step on the
+    # keyspace dict, and during a shrink that step pushes other entries in front
+    # of the one the link points to. keyspace.lookup_probes makes the module
+    # open the notified key from its 'new'/'overwritten' callback.
+    #
+    # Whether a round hits the bad case depends on where the keys hash to, and
+    # the hash seed is fixed per server process. So every round uses new key
+    # names to get a new layout, and the tests run enough rounds to hit it.
+    start_server [list overrides [list loadmodule "$testmodule" enable-debug-command yes]] {
+        r select 0 ;# DEBUG HTSTATS below inspects db 0
+
+        # Leave the keyspace dict in the middle of a shrink rehash: grow it, then
+        # delete down to the 1:8 fill ratio so the shrink starts. Active
+        # rehashing is off, so from here on only key lookups advance the rehash.
+        # Keys left: <prefix>:0 up to <prefix>:511, with values value:0 up to
+        # value:511.
+        proc lookup_probes_start_shrink {prefix} {
+            r flushall
+            r config set activerehashing no
+            r debug populate 4096 $prefix
+            set dels {}
+            for {set i 512} {$i < 4096} {incr i} {
+                lappend dels $prefix:$i
+            }
+            r del {*}$dels
+            assert_match {*rehashing target*} [r debug htstats 0 full]
+        }
+
+        proc lookup_probes_expires {} {
+            scan [regexp -inline {expires=(\d+)} [r info keyspace]] expires=%d
+        }
+
+        # About 25% of the rounds hit the bad case without the fix.
+        test {SET EX on existing keys keeps the TTL on the right key while KSN callbacks do lookups} {
+            for {set round 0} {$round < 40} {incr round} {
+                lookup_probes_start_shrink r$round
+                r keyspace.lookup_probes 1
+                for {set i 0} {$i < 512} {incr i} {
+                    r set r$round:$i v2 EX 1000
+                    assert_range [r ttl r$round:$i] 1 1000
+                }
+                r keyspace.lookup_probes 0
+                # No key the SETs didn't touch got a TTL.
+                assert_equal 512 [lookup_probes_expires]
+            }
+        }
+
+        # About 30% of the rounds hit the bad case without the fix.
+        test {SET EX on new keys keeps the TTL on the right key while KSN callbacks do lookups} {
+            for {set round 0} {$round < 40} {incr round} {
+                lookup_probes_start_shrink r$round
+                r keyspace.lookup_probes 1
+                for {set i 0} {$i < 512} {incr i} {
+                    r set n$round:$i v EX 1000
+                    assert_range [r ttl n$round:$i] 1 1000
+                }
+                r keyspace.lookup_probes 0
+                assert_equal 512 [lookup_probes_expires]
+            }
+        }
+
+        # No KSN lookups needed: SET IFEQ must not look the key up twice. A
+        # stale link overwrites another key, which then goes missing. About half
+        # the rounds hit the bad case without the fix.
+        test {SET IFEQ updates the right key while the keyspace dict is shrinking} {
+            for {set round 0} {$round < 40} {incr round} {
+                lookup_probes_start_shrink r$round
+                for {set i 0} {$i < 512} {incr i} {
+                    assert_equal OK [r set r$round:$i v2 IFEQ value:$i]
+                }
+                for {set i 0} {$i < 512} {incr i} {
+                    assert_equal v2 [r get r$round:$i]
+                }
+                assert_equal 512 [r dbsize]
+            }
+        }
+    }
+
     start_server {} {
         test {OnLoad failure will handle un-registration} {
             catch {r module load $testmodule noload}

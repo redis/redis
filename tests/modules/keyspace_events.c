@@ -29,6 +29,9 @@ RedisModuleDict *module_event_log = NULL;
 /** Counts how many deleted KSN we got on keys with a prefix of "count_dels_" **/
 static size_t dels = 0;
 
+/** How many times to open the key on 'new'/'overwritten' KSN (0 = off) **/
+static long long lookup_probes = 0;
+
 /* Subkey notification log */
 #define SUBKEY_LOG_MAX 256
 #define SUBKEY_LOG_LINE 2048  /* wide enough to log a large subkey count */
@@ -280,6 +283,28 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
     RedisModule_CloseKey(redis_key);
 
     return REDISMODULE_OK;
+}
+
+/* Open the notified key `lookup_probes` times. Each lookup may run a rehash
+ * step on the keyspace dict, so a command must not reuse a dictEntryLink taken
+ * before the notification without checking it. */
+static int KeySpace_NotificationLookupProbes(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    REDISMODULE_NOT_USED(type);
+    REDISMODULE_NOT_USED(event);
+    for (long long i = 0; i < lookup_probes; i++) {
+        RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+        RedisModule_CloseKey(redis_key);
+    }
+    return REDISMODULE_OK;
+}
+
+static int cmdLookupProbes(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    long long count;
+    if (RedisModule_StringToLongLong(argv[1], &count) != REDISMODULE_OK || count < 0)
+        return RedisModule_ReplyWithError(ctx, "ERR invalid count");
+    lookup_probes = count;
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 static int KeySpace_NotificationModuleBitmap(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
@@ -762,6 +787,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     }
 
+    if(RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_NEW | REDISMODULE_NOTIFY_OVERWRITTEN,
+        KeySpace_NotificationLookupProbes) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+    
     if(RedisModule_SubscribeToKeyspaceEvents(ctx,
         REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_NEW |
         REDISMODULE_NOTIFY_OVERWRITTEN | REDISMODULE_NOTIFY_TYPE_CHANGED,
@@ -775,6 +805,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx,"keyspace.notify", cmdNotify,"",0,0,0) == REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
+    if (RedisModule_CreateCommand(ctx,"keyspace.lookup_probes", cmdLookupProbes,"",0,0,0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
 
