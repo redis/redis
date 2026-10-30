@@ -27,13 +27,16 @@ user *DefaultUser;  /* Global reference to the default user.
                        AUTH or HELLO is used to authenticate with a
                        different user. */
 
-list *UsersToLoad;  /* This is a list of users found in the configuration file
-                       that we'll need to load in the final stage of Redis
-                       initialization, after all the modules are already
-                       loaded. Every list element is a NULL terminated
-                       array of SDS pointers: the first is the user name,
-                       all the remaining pointers are ACL rules in the same
-                       format as ACLSetUser(). */
+typedef struct aclUserConfigEntry {
+    sds *rules;            /* NULL-terminated SDS array: username first, then
+                            * ACL rules in ACLSetUser() argument format. */
+    configSource source;   /* Source of the user directive, retained for
+                            * CONFIG REWRITE source handling. */
+} aclUserConfigEntry;
+
+list *UsersToLoad;  /* Pending startup users, applied after modules are loaded.
+                       Each list node contains an aclUserConfigEntry. */
+
 list *ACLLog;       /* Our security log, the user is able to inspect that
                        using the ACL LOG command .*/
 
@@ -270,12 +273,10 @@ uint64_t ACLGetCommandCategoryFlagByName(const char *name) {
     return 0; /* No match. */
 }
 
-/* Method for searching for a user within a list of user definitions. The
- * list contains an array of user arguments, and we are only
- * searching the first argument, the username, for a match. */
+/* Match a queued user definition by the username in its first rule. */
 int ACLListMatchLoadedUser(void *definition, void *user) {
-    sds *user_definition = definition;
-    return sdscmp(user_definition[0], user) == 0;
+    aclUserConfigEntry *entry = definition;
+    return sdscmp(entry->rules[0], user) == 0;
 }
 
 /* Method for passwords/pattern comparison used for the user->passwords list
@@ -427,6 +428,7 @@ aclSelector *ACLUserGetRootSelector(user *u) {
 user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
     user *u = zmalloc(sizeof(*u));
+    u->source = CONFIG_SOURCE_RUNTIME;
     u->name = sdsnewlen(name,namelen);
     atomicSet(u->flags, USER_FLAG_DISABLED | USER_FLAG_SANITIZE_PAYLOAD);
     u->passwords = listCreate();
@@ -491,7 +493,10 @@ void ACLFreeUserAndKillClients(user *u) {
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (c->user == u) {
+        /* Kill the client if `u` is its current identity, or if it still holds
+         * Pub/Sub subscriptions created under `u` before it switched identity
+         * (their stamped provenance would dangle once `u` is freed below). */
+        if (c->user == u || pubsubClientHasStampedOwner(c, u)) {
             /* We'll free the connection asynchronously, so
              * in theory to set a different user is not needed.
              * However if there are bugs in Redis, soon or later
@@ -527,10 +532,21 @@ void ACLCopyUser(user *dst, user *src) {
  * bookkeeping for the switch. In particular, any pending BCAST tracking
  * invalidations are flushed under the client's current ACL identity before
  * c->user changes, so they are not re-filtered by the new user's key
- * permissions in beforeSleep. */
-void clientSetUser(client *c, user *new_user) {
-    if (c->user != new_user)
+ * permissions in beforeSleep.
+ *
+ * Pass auth_changed = 1 for a *genuine identity switch* (AUTH, HELLO AUTH, TLS
+ * cert auto-auth, internal auth, module RM_Authenticate*): before the old
+ * identity is abandoned, every still-NULL Pub/Sub subscription — one whose
+ * stored owner is NULL and therefore belongs to the *current* c->user — is
+ * stamped with that user so its provenance survives the switch (see
+ * pubsubStampCurrentUser). Pass 0 when the identity is not really changing: the
+ * ACL LOAD object swap (which re-keys stamped values itself) and the initial
+ * default-auth setup. */
+void clientSetUser(client *c, user *new_user, int auth_changed) {
+    if (c->user != new_user) {
+        if (auth_changed) pubsubStampCurrentUser(c);
         trackingBroadcastFlushClientPrefixes(c);
+    }
     c->user = new_user;
 }
 
@@ -630,7 +646,7 @@ void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
     sdsupdatelen(selector->command_rules);
 }
 
-/* This function is resopnsible for updating the command_rules struct so that relative ordering of
+/* This function is responsible for updating the command_rules struct so that relative ordering of
  * commands and categories is maintained and can be reproduced without loss. */
 void ACLUpdateCommandRules(aclSelector *selector, const char *rule, int allow) {
     sds new_rule = sdsnew(rule);
@@ -1508,7 +1524,7 @@ void addAuthErrReply(client *c, robj *err) {
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
         c->authenticated = 1;
-        clientSetUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)));
+        clientSetUser(c, ACLGetUserByName(username->ptr,sdslen(username->ptr)), 1);
         moduleNotifyUserChanged(c);
         return AUTH_OK;
     } else {
@@ -1664,7 +1680,7 @@ static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags)
  * Note that a plain channel name like in PUBLISH or SUBSCRIBE can be
  * matched against ACL channel patterns, but the pattern provided in PSUBSCRIBE
  * can only be matched as a literal against an ACL pattern (using plain string compare). */
-static int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern) {
+int ACLCheckChannelAgainstList(list *reference, const char *channel, int channellen, int is_pattern) {
     listIter li;
     listNode *ln;
 
@@ -1940,9 +1956,18 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     return relevant_error;
 }
 
-/* High level API for checking if a client can execute the queued up command */
-int ACLCheckAllPerm(client *c, int *idxptr) {
-    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, getClientCachedKeyResult(c), idxptr);
+/* High level API for checking if a client can execute the queued up command.
+ *
+ * 'pcmd' is the pendingCommand that c->cmd / c->argv were populated from, and
+ * is used to reuse its cached key extraction result. It may be NULL for clients
+ * that don't build pendingCommand structs (module and script fake clients), in
+ * which case the keys are extracted from c->argv. */
+int ACLCheckAllPerm(client *c, pendingCommand *pcmd, int *idxptr) {
+    /* The cached key result holds key positions within pcmd->argv, so it is only
+     * usable for the command we are actually about to check. */
+    serverAssert(!pcmd || (pcmd->cmd == c->cmd));
+    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc,
+                getClientCachedKeyResult(pcmd), idxptr);
 }
 
 /* If 'new' can access all channels 'original' could then return NULL;
@@ -2002,57 +2027,17 @@ list *getUpcomingChannelList(user *new, user *original) {
     return upcoming;
 }
 
-/* Check if the client should be killed because it is subscribed to channels that were
- * permitted in the past, are not in the `upcoming` channel list. */
-int ACLShouldKillPubsubClient(client *c, list *upcoming) {
-    robj *o;
-    int kill = 0;
-
-    if (getClientType(c) == CLIENT_TYPE_PUBSUB) {
-        /* Check for pattern violations. */
-        dictIterator di;
-        dictEntry *de;
-        dictInitIterator(&di, c->pubsub_patterns);
-        while (!kill && ((de = dictNext(&di)) != NULL)) {
-            o = dictGetKey(de);
-            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-            kill = (res == ACL_DENIED_CHANNEL);
-        }
-        dictResetIterator(&di);
-
-        /* Check for channel violations. */
-        if (!kill) {
-            /* Check for global channels violation. */
-            dictInitIterator(&di, c->pubsub_channels);
-
-            while (!kill && ((de = dictNext(&di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictResetIterator(&di);
-        }
-        if (!kill) {
-            /* Check for shard channels violation. */
-            dictInitIterator(&di, c->pubsubshard_channels);
-            while (!kill && ((de = dictNext(&di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictResetIterator(&di);
-        }
-
-        if (kill) {
-            return 1;
-        }
-    }
-    return 0;
+/* Return 1 if the client holds a subscription created under `owner` that is no
+ * longer in `owner`'s upcoming channel list (i.e. it must be disconnected). */
+static int ACLShouldKillPubsubClient(client *c, user *owner, list *upcoming) {
+    return pubsubDictHasDeniedSubForOwner(c, c->pubsub_patterns, owner, upcoming, 1)
+        || pubsubDictHasDeniedSubForOwner(c, c->pubsub_channels, owner, upcoming, 0)
+        || pubsubDictHasDeniedSubForOwner(c, c->pubsubshard_channels, owner, upcoming, 0);
 }
 
 /* Check if the user's existing pub/sub clients violate the ACL pub/sub
  * permissions specified via the upcoming argument, and kill them if so. */
-void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+static void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     /* Do nothing if there are no subscribers. */
     if (pubsubTotalSubscriptions() == 0)
         return;
@@ -2065,15 +2050,18 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     listIter li;
     listNode *ln;
 
-    /* Permissions have changed, so we need to iterate through all
-     * the clients and disconnect those that are no longer valid.
-     * Scan all connected clients to find the user's pub/subs. */
+    /* Permissions have changed, so we need to disconnect clients holding
+     * subscriptions created under `original` that are no longer permitted. A
+     * subscription's owner is its stamped provenance user*, or c->user while the
+     * value is still NULL. */
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        if (c->user != original)
-            continue;
-        if (ACLShouldKillPubsubClient(c, channels))
+        if (getClientType(c) != CLIENT_TYPE_PUBSUB) continue;
+        /* Skip clients that can't own anything under `original`: never re-authed
+         * (all subs owned by current user) and c->user != original. */
+        if (!(c->flags & CLIENT_PUBSUB_REAUTHED) && c->user != original) continue;
+        if (ACLShouldKillPubsubClient(c, original, channels))
             deauthenticateAndCloseClient(c);
     }
 
@@ -2224,7 +2212,7 @@ cleanup:
  * When an error is detected and C_ERR is returned, the function populates
  * by reference (if not set to NULL) the argc_err argument with the index
  * of the argv vector that caused the error. */
-int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
+int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err, configSource source) {
     if (argc < 2 || strcasecmp(argv[0],"user")) {
         if (argc_err) *argc_err = 0;
         return C_ERR;
@@ -2261,11 +2249,14 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
     }
 
     /* Rules look valid, let's append the user to the list. */
-    sds *copy = zmalloc(sizeof(sds)*(merged_argc + 2));
-    copy[0] = sdsdup(argv[1]);
-    for (int j = 0; j < merged_argc; j++) copy[j+1] = sdsdup(acl_args[j]);
-    copy[merged_argc + 1] = NULL;
-    listAddNodeTail(UsersToLoad,copy);
+    aclUserConfigEntry *entry = zmalloc(sizeof(*entry));
+    entry->rules = zmalloc(sizeof(sds)*(merged_argc + 2));
+    entry->rules[0] = sdsdup(argv[1]);
+    for (int j = 0; j < merged_argc; j++)
+        entry->rules[j+1] = sdsdup(acl_args[j]);
+    entry->rules[merged_argc + 1] = NULL;
+    entry->source = source;
+    listAddNodeTail(UsersToLoad,entry);
     ACLFreeUser(fakeuser);
     for (int i = 0; i < merged_argc; i++) sdsfree(acl_args[i]);
     zfree(acl_args);
@@ -2280,7 +2271,8 @@ int ACLLoadConfiguredUsers(void) {
     listNode *ln;
     listRewind(UsersToLoad,&li);
     while ((ln = listNext(&li)) != NULL) {
-        sds *aclrules = listNodeValue(ln);
+        aclUserConfigEntry *entry = listNodeValue(ln);
+        sds *aclrules = entry->rules;
         sds username = aclrules[0];
 
         if (ACLStringHasSpaces(aclrules[0],sdslen(aclrules[0]))) {
@@ -2295,6 +2287,7 @@ int ACLLoadConfiguredUsers(void) {
             u = ACLGetUserByName("default",7);
             ACLSetUser(u,"reset",-1);
         }
+        u->source = entry->source;
 
         /* Load every rule defined for this user. */
         for (int j = 1; aclrules[j]; j++) {
@@ -2317,6 +2310,40 @@ int ACLLoadConfiguredUsers(void) {
         }
     }
     return C_OK;
+}
+
+/* Resolve `owner` (a stamped provenance user*, or a client's current user) to
+ * its pre-load (*old_out) and post-load (*new_out) objects. `old_users` maps
+ * every pre-load username to its old object. Old objects are alive here
+ * (old_users is freed only after the whole client walk). The out parameters
+ * are always written: they carry the resolved objects for
+ * ACL_LOAD_OWNER_MANAGED and are NULL otherwise. */
+aclLoadOwnerStatus pubsubACLLoadResolveOwner(user *owner, rax *old_users,
+                                             user **old_out, user **new_out)
+{
+    *old_out = NULL;
+    *new_out = NULL;
+    /* DefaultUser is mutated in place by ACL LOAD, so its pointer is stable and
+     * the post-load object is DefaultUser itself; old_users keeps the pre-load
+     * configuration under "default" as a snapshot copy. */
+    if (owner == DefaultUser) {
+        user *old_default = NULL;
+        raxFind(old_users, (unsigned char*)"default", 7, (void**)&old_default);
+        serverAssert(old_default != NULL);
+        *old_out = old_default;
+        *new_out = DefaultUser;
+        return ACL_LOAD_OWNER_MANAGED;
+    }
+    /* A registered ACL user is present in old_users under its own name AND is
+     * the very same object. Anything else is a module/external user. */
+    user *old_owner = NULL;
+    raxFind(old_users, (unsigned char*)owner->name, sdslen(owner->name), (void**)&old_owner);
+    if (old_owner != owner) return ACL_LOAD_OWNER_UNMANAGED;
+    user *new_owner = ACLGetUserByName(owner->name, sdslen(owner->name));
+    if (new_owner == NULL) return ACL_LOAD_OWNER_GONE;
+    *old_out = old_owner;
+    *new_out = new_owner;
+    return ACL_LOAD_OWNER_MANAGED;
 }
 
 /* This function loads the ACL from the specified filename: every line
@@ -2488,7 +2515,24 @@ sds ACLLoadFromFile(const char *filename) {
 
         /* The default user pointer is referenced in different places: instead
          * of replacing such occurrences it is much simpler to copy the new
-         * default user configuration in the old one. */
+         * default user configuration in the old one. Before doing so, snapshot
+         * the pre-load default into a throwaway copy so Pub/Sub provenance
+         * validation for subscriptions owned by "default" can compare against
+         * the OLD permissions (DefaultUser is about to be overwritten in place).
+         * We keep it in old_users under "default" — replacing the live
+         * DefaultUser pointer, which now lives in the new Users rax — so both
+         * the current-user and stamped provenance paths resolve it by name. It
+         * is freed together with old_users after the client walk. */
+        /* ACLCreateUnlinkedUser() yields a fully-initialized user (valid list
+         * fields and list methods) that is not registered in Users; rename it to
+         * "default" and copy the pre-load configuration in. Using an initialized
+         * user rather than a zeroed struct keeps us off ACLCopyUser()'s
+         * assumption that its destination is already a valid user object. */
+        user *old_default_copy = ACLCreateUnlinkedUser();
+        sdsfree(old_default_copy->name);
+        old_default_copy->name = sdsdup(DefaultUser->name);
+        ACLCopyUser(old_default_copy, DefaultUser);
+
         user *new_default = ACLGetUserByName("default",7);
         if (!new_default) {
             new_default = ACLCreateDefaultUser();
@@ -2497,7 +2541,7 @@ sds ACLLoadFromFile(const char *filename) {
         ACLCopyUser(DefaultUser,new_default);
         ACLFreeUser(new_default);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
-        raxRemove(old_users,(unsigned char*)"default",7,NULL);
+        raxInsert(old_users,(unsigned char*)"default",7,old_default_copy,NULL);
 
         /* If there are some subscribers, we need to check if we need to drop some clients. */
         rax *user_channels = NULL;
@@ -2511,27 +2555,48 @@ sds ACLLoadFromFile(const char *filename) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
-            /* Clients with no associated user (user = NULL) have nothing to
-             * re-resolve and must be skipped before dereferencing c->user.
-             * This covers MASTER clients as well as internal connections
-             * (CLIENT_INTERNAL), both of which run without a user. */
-            if (c->user == NULL)
-                continue;
-            user *original = c->user;
-            list *channels = NULL;
-            user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
-            if (new && user_channels) {
-                if (!raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name), (void**)&channels)) {
-                    channels = getUpcomingChannelList(new, original);
-                    raxInsert(user_channels, (unsigned char*)(new->name), sdslen(new->name), channels, NULL);
+
+            /* Validate and re-key Pub/Sub provenance for EVERY client, including
+             * those with no current user (c->user == NULL). With the provenance
+             * model such a client — e.g. one that subscribed as a real ACL user
+             * and then authenticated as an internal/no-user connection — can
+             * still hold subscriptions stamped with real ACL user pointers. Those
+             * must be validated against the new ACL and re-keyed before old_users
+             * is freed, or they would dangle. Sentinel- and current-user-owned
+             * (NULL-valued) entries are ignored inside the helpers.
+             *
+             * Server- and client-side subscription state move in lockstep, so if
+             * the server has no subscriptions (user_channels not allocated) no
+             * client can hold any either. */
+            serverAssert(user_channels || clientTotalPubSubSubscriptionCount(c) == 0);
+            if (user_channels && clientTotalPubSubSubscriptionCount(c) > 0) {
+                /* Validate this client's subscriptions against the new ACL and,
+                 * if it survives, re-key their stamped provenance to the new user
+                 * objects before the old ones are freed (see pubsub.c). */
+                if (pubsubACLLoadReconcileClient(c, old_users, user_channels) == C_ERR) {
+                    deauthenticateAndCloseClient(c);
+                    continue;
                 }
             }
-            /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
-            if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
+
+            /* Re-resolve the current identity, by pointer identity (same as the
+             * stamped-provenance path). No-user connections (MASTER, internal)
+             * have nothing to re-resolve. A module/external current user is not
+             * owned by ACL LOAD: leave it as-is rather than killing the client
+             * (its name is absent from the registry) or rekeying it onto a
+             * same-named ACL user. A registry user that disappeared is a kill. */
+            if (c->user == NULL)
+                continue;
+            user *old_current = NULL, *new_current = NULL;
+            aclLoadOwnerStatus st =
+                pubsubACLLoadResolveOwner(c->user, old_users, &old_current, &new_current);
+            if (st == ACL_LOAD_OWNER_UNMANAGED)
+                continue;
+            if (st == ACL_LOAD_OWNER_GONE) {
                 deauthenticateAndCloseClient(c);
                 continue;
             }
-            clientSetUser(c, new);
+            clientSetUser(c, new_current, 0);
         }
 
         if (user_channels)
@@ -3291,7 +3356,7 @@ static void internalAuth(client *c) {
         c->authenticated = 1;
         /* Set the user to the unrestricted user, if it is not already set (default). */
         if (c->user != NULL) {
-            clientSetUser(c, NULL);
+            clientSetUser(c, NULL, 1);
             moduleNotifyUserChanged(c);
         }
         addReply(c, shared.ok);

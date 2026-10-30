@@ -1044,13 +1044,13 @@ int zmalloc_get_allocator_info_by_arena(unsigned int arena, int refresh_stats, s
     *active = pactive * page;
     /* Unlike zmalloc_used_memory, this matches the stats.resident by taking
      * into account all allocations done by this process (not only zmalloc). */
-    size_t small_allcated, large_allacted;
+    size_t small_allocated, large_allocated;
     snprintf(buf, sizeof(buf), "stats.arenas.%u.small.allocated", arena);
-    assert(!je_mallctl(buf, &small_allcated, &sz, NULL, 0));
-    *allocated += small_allcated;
+    assert(!je_mallctl(buf, &small_allocated, &sz, NULL, 0));
+    *allocated += small_allocated;
     snprintf(buf, sizeof(buf), "stats.arenas.%u.large.allocated", arena);
-    assert(!je_mallctl(buf, &large_allacted, &sz, NULL, 0));
-    *allocated += large_allacted;
+    assert(!je_mallctl(buf, &large_allocated, &sz, NULL, 0));
+    *allocated += large_allocated;
 
     /* Total size of consumed meomry in unused regs in small bins (AKA external fragmentation). */
     *frag_smallbins_bytes = zmalloc_get_frag_smallbins_by_arena(arena);
@@ -1114,7 +1114,7 @@ int jemalloc_purge(void) {
 /* For proc_pidinfo() used later in zmalloc_get_smap_bytes_by_field().
  * Note that this file cannot be included in zmalloc.h because it includes
  * a Darwin queue.h file where there is a "LIST_HEAD" macro (!) defined
- * conficting with Redis user code. */
+ * conflicting with Redis user code. */
 #include <libproc.h>
 #endif
 

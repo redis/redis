@@ -12,6 +12,30 @@ proc topo_stats {node} {
     R $node cluster_topology.stats
 }
 
+# Returns whether node_id's persisted cluster entry contains the given port.
+# Persisting the config lets tests verify that an announced TCP/TLS port was
+# learned even when it is not the cluster's preferred client port.
+proc cluster_config_has_port {node node_id field port} {
+    R $node cluster saveconfig
+    set dir [lindex [R $node config get dir] 1]
+    set filename [lindex [R $node config get cluster-config-file] 1]
+    set fd [open [file join $dir $filename] r]
+    set contents [read $fd]
+    close $fd
+
+    foreach line [split $contents "\n"] {
+        if {[string match "$node_id *" $line]} {
+            # nodes.conf keeps TCP in the main address field for backward
+            # compatibility and stores TLS as an auxiliary field.
+            if {$field eq "tcp-port"} {
+                return [string match "$node_id *:$port@*" $line]
+            }
+            return [expr {[string first ",$field=$port" $line] != -1}]
+        }
+    }
+    return 0
+}
+
 start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 3000]] {
     test "ClusterTopologyChange notifies modules once the cluster becomes ready" {
         # cluster_setup has already waited for the cluster to be OK on every node.
@@ -85,9 +109,9 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             }
         }
         # Migrate the slots back so the cluster layout is restored.
-        wait_for_cluster_propagation
+        wait_for_asm_done
         R 0 cluster migration import 0 100
-        wait_for_cluster_propagation
+        wait_for_asm_done
         wait_for_cluster_state ok
     }
 
@@ -172,6 +196,182 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             } else {
                 fail "NODE change reason was not reported on node $i"
             }
+        }
+    }
+}
+
+start_cluster 2 2 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 3000]] {
+    test "ClusterTopologyChange does not report NODE when only a peer cluster bus port changes" {
+        if {$::tls} {
+            set baseport [lindex [R 0 config get tls-port] 1]
+        } else {
+            set baseport [lindex [R 0 config get port] 1]
+        }
+        set count [expr [llength $::servers] + 1]
+        set newbus [find_available_port $baseport $count]
+
+        set before [dict get [topo_stats 1] node]
+        R 0 config set cluster-announce-bus-port $newbus
+
+        wait_for_condition 50 100 {
+            [string match "*@$newbus *" [R 1 cluster nodes]]
+        } else {
+            fail "Cluster announced bus port was not propagated via gossip"
+        }
+        assert_equal $before [dict get [topo_stats 1] node]
+    }
+
+    test "ClusterTopologyChange reports NODE when peer client ports change" {
+        set node_id [R 0 cluster myid]
+        foreach change {
+            {cluster-announce-port tcp-port port 32004}
+            {cluster-announce-tls-port tls-port tls-port 32005}
+        } {
+            lassign $change config field default_config newport
+            set default_port [lindex [R 0 config get $default_config] 1]
+
+            set local_before [dict get [topo_stats 0] node]
+            set peer_before [dict get [topo_stats 1] node]
+            R 0 config set $config $newport
+
+            wait_for_condition 50 100 {
+                [cluster_config_has_port 1 $node_id $field $newport] &&
+                [dict get [topo_stats 1] node] > $peer_before
+            } else {
+                fail "NODE change reason was not reported after changing peer $config"
+            }
+            assert {[dict get [topo_stats 0] node] > $local_before}
+
+            set local_before [dict get [topo_stats 0] node]
+            set peer_before [dict get [topo_stats 1] node]
+            R 0 config set $config 0
+
+            wait_for_condition 50 100 {
+                [cluster_config_has_port 1 $node_id $field $default_port] &&
+                [dict get [topo_stats 1] node] > $peer_before
+            } else {
+                fail "NODE change reason was not reported after resetting peer $config"
+            }
+            assert {[dict get [topo_stats 0] node] > $local_before}
+        }
+    }
+}
+
+start_cluster 1 0 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule]] {
+    test "ClusterTopologyChange reports the NODE reason when local announced endpoints change" {
+        foreach change {
+            {cluster-announce-ip 127.0.0.2 ""}
+            {cluster-announce-hostname node.example.test ""}
+            {cluster-announce-port 32001 0}
+            {cluster-announce-tls-port 32002 0}
+        } {
+            lassign $change config value default
+
+            set before [dict get [topo_stats 0] node]
+            R 0 config set $config $value
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported after changing $config"
+            }
+
+            set before [dict get [topo_stats 0] node]
+            R 0 config set $config $default
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported after resetting $config"
+            }
+        }
+    }
+
+    test "ClusterTopologyChange does not report NODE for local cluster bus port changes" {
+        set before [dict get [topo_stats 0] node]
+        R 0 config set cluster-announce-bus-port 32003
+        assert_equal $before [dict get [topo_stats 0] node]
+
+        R 0 config set cluster-announce-bus-port 0
+        assert_equal $before [dict get [topo_stats 0] node]
+    }
+
+    if {$::tls} {
+        test "ClusterTopologyChange reports the NODE reason when tls-cluster changes the preferred port" {
+            set tls_port [lindex [R 0 config get tls-port] 1]
+            set tcp_port [lindex [R 0 config get port] 1]
+            assert {$tls_port != $tcp_port}
+
+            set before [dict get [topo_stats 0] node]
+            R 0 config set tls-cluster no
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported when tls-cluster was disabled"
+            }
+
+            set before [dict get [topo_stats 0] node]
+            R 0 config set tls-cluster yes
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported when tls-cluster was enabled"
+            }
+        }
+
+        test "ClusterTopologyChange is not reported when a tls-cluster change is rolled back" {
+            # A CONFIG SET whose apply fails is rolled back by
+            # configSetCommand(), which restores the previous values and calls
+            # every apply callback of the command again. tls-cluster ends up
+            # where it started, so nothing may be reported: reporting it would
+            # also mean having rebuilt the SSL_CTX, discarding the session cache
+            # held on it. Here the failure comes from the unusable certificate,
+            # with cluster-bus-port-protected-mode not involved at all.
+            R 0 config set cluster-bus-port-protected-mode no
+
+            set before [dict get [topo_stats 0] node]
+            assert_error {*Unable to update TLS configuration*} {
+                R 0 config set tls-cluster no tls-cert-file /nonexistent
+            }
+            # A pending notification is fired on the next event loop iteration,
+            # which the round trip below has certainly gone through.
+            R 0 ping
+            assert_equal $before [dict get [topo_stats 0] node]
+            assert_equal {tls-cluster yes} [R 0 config get tls-cluster]
+
+            # The rollback must not leave the value this node last acted on out
+            # of step with tls-cluster, or the next real change would be
+            # swallowed. The certificate needs no such care: it is applied by
+            # its own callback, which the rollback runs too.
+            assert_error {*Unable to update TLS configuration*} {
+                R 0 config set tls-cert-file /nonexistent
+            }
+            set before [dict get [topo_stats 0] node]
+            R 0 config set tls-cluster no
+            wait_for_condition 50 100 {
+                [dict get [topo_stats 0] node] > $before
+            } else {
+                fail "NODE change reason was not reported after a rolled back change"
+            }
+            R 0 config set tls-cluster yes
+        }
+
+        test "ClusterTopologyChange is not reported when a tls-cluster change is refused" {
+            # cluster-bus-port-protected-mode refuses to leave the cluster bus
+            # port unauthenticated. A refused CONFIG SET must change nothing,
+            # which is not free: configSetCommand() restores the previous value
+            # and calls the apply callback a second time, which would both report
+            # this change to modules and rebuild the SSL_CTX, discarding the
+            # session cache. The suite waives protection, so enable it here.
+            R 0 config set cluster-bus-port-protected-mode yes
+
+            set before [dict get [topo_stats 0] node]
+            assert_error {*can't disable tls-cluster*} {R 0 config set tls-cluster no}
+            # A pending notification is fired on the next event loop iteration,
+            # which the round trip below has certainly gone through.
+            R 0 ping
+            assert_equal $before [dict get [topo_stats 0] node]
+            assert_equal {tls-cluster yes} [R 0 config get tls-cluster]
+
+            R 0 config set cluster-bus-port-protected-mode no
         }
     }
 }

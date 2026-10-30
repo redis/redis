@@ -35,6 +35,7 @@ typedef struct {
 } listpackEntry;
 
 unsigned char *lpNew(size_t capacity);
+unsigned char *lpNewWithEntries(listpackEntry *entries, unsigned int len);
 void lpFree(unsigned char *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
@@ -77,6 +78,7 @@ unsigned char *lpSeek(unsigned char *lp, long index);
 typedef int (*listpackValidateEntryCB)(unsigned char *p, unsigned int head_count, void *userdata);
 int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
                         listpackValidateEntryCB entry_cb, void *cb_userdata);
+unsigned char *lpUpgradeCompactBacklen(unsigned char *lp, size_t *size);
 unsigned char *lpValidateFirst(unsigned char *lp);
 int lpValidateNext(unsigned char *lp, unsigned char **pp, size_t lpbytes);
 unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen, long long *cached_longval, int *cached_valid);

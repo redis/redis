@@ -371,8 +371,8 @@ void hotkeysCommand(client *c) {
             } else if (moreargs && !strcasecmp(c->argv[j]->ptr, "DURATION")) {
                 /* Arbitrary 1 million seconds limit, so we don't overflow the
                  * duration member which is kept in milliseconds */
-                if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, 1000000,
-                        &duration, "DURATION must be between 1 and 1000000") != C_OK)
+                if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 0, 1000000,
+                        &duration, "DURATION must be between 0 and 1000000") != C_OK)
                 {
                     slotRangeArrayFree(slots);
                     return;
@@ -431,20 +431,20 @@ void hotkeysCommand(client *c) {
                         return;
                     }
 
-                    /* Check for duplicate slot */
-                    for (int k = 0; k < i; k++) {
-                        if (temp_slots[k] == slot_val) {
-                            addReplyError(c, "duplicate slot number");
-                            zfree(temp_slots);
-                            return;
-                        }
-                    }
-
                     temp_slots[i] = (int)slot_val;
                 }
 
                 /* Sort the slots array */
                 qsort(temp_slots, slots_count, sizeof(int), slotCompare);
+
+                /* Check for duplicates */
+                for (int i = 1; i < slots_count; ++i) {
+                    if (temp_slots[i] == temp_slots[i-1]) {
+                        addReplyError(c, "duplicate slot number");
+                        zfree(temp_slots);
+                        return;
+                    }
+                }
 
                 /* Build slotRangeArray from sorted slots */
                 for (int i = 0; i < slots_count; i++) {

@@ -32,14 +32,15 @@
  * When iskvobj is set, it also contains:
  *   - metabits: bitmap of additional metadata attached to the object.
  *   - lru: LRU time (relative to global lru_clock) or LFU data (see robj above).
+ *   - kvbits: one extra byte that follows the robj (see struct kvBits below).
  *   - embedded key: the key string is stored inline after the struct.
  *   - embedded value: for small strings, the value is stored inline after the key.
  *
  * Example layout with key and embedded value "myvalue":
- *    +--------------+--------------+--------------------+----------------------+
- *    | serverObject | key-hdr-size | sdshdr5 "mykey" \0 | sdshdr8 "myvalue" \0 |
- *    | 16 bytes     | 1 byte       | 1      +   5   + 1 | 3    +      7    + 1 |
- *    +--------------+--------------+--------------------+----------------------+
+ *    +--------------+----------+--------------------+----------------------+
+ *    | serverObject | kvbits   | sdshdr5 "mykey" \0 | sdshdr8 "myvalue" \0 |
+ *    | 16 bytes     | 1 byte   | 1      +   5   + 1 | 3    +      7    + 1 |
+ *    +--------------+----------+--------------------+----------------------+
  * 
  * kvobj with metadata (+expiration)
  * ---------------------------------
@@ -48,18 +49,18 @@
  * the kvobj itself, in reverse class order.
  * 
  * Example of a key with expiration time (metabits=0b00000001):
- *     +--------------+--------------+--------------+--------------------+
- *     | Expiry Time  | serverObject | key-hdr-size | sdshdr5 "mykey" \0 |
- *     | 8 byte       | 16 bytes     | 1 byte       | 1      +   5   + 1 |
- *     +--------------+--------------+--------------+--------------------+
+ *     +--------------+--------------+----------+--------------------+
+ *     | Expiry Time  | serverObject | kvbits   | sdshdr5 "mykey" \0 |
+ *     | 8 byte       | 16 bytes     | 1 byte   | 1      +   5   + 1 |
+ *     +--------------+--------------+----------+--------------------+
  *                    ^
  *                    +---- kvobjCreate() returns pointer here
  * 
  * Example with metadata of class1 and class3 attached (metabits=0b00001010):
- * +--------------+--------------+--------------+--------------+--------------------+
- * | meta (class3)| meta (class1)| serverObject | key-hdr-size | sdshdr5 "mykey" \0 |
- * | 8 byte       | 8 byte       | 16 bytes     | 1 byte       | 1      +   5   + 1 |
- * +--------------+--------------+--------------+--------------+--------------------+
+ * +--------------+--------------+--------------+----------+--------------------+
+ * | meta (class3)| meta (class1)| serverObject | kvbits   | sdshdr5 "mykey" \0 |
+ * | 8 byte       | 8 byte       | 16 bytes     | 1 byte   | 1      +   5   + 1 |
+ * +--------------+--------------+--------------+----------+--------------------+
  *                               ^
  *                               +---- kvobjCreate() returns pointer here
  * 
@@ -77,7 +78,7 @@ struct RedisModuleType;
 #define OBJ_ENCODING_HT 2      /* Encoded as hash table */
 #define OBJ_ENCODING_ZIPMAP 3  /* No longer used: old hash encoding. */
 #define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
-#define OBJ_ENCODING_ZIPLIST 5 /* No longer used: old list/hash/zset encoding. */
+#define OBJ_ENCODING_BTREE 5   /* Sorted set as a packed B+ tree */
 #define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
 #define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
 #define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
@@ -86,20 +87,23 @@ struct RedisModuleType;
 #define OBJ_ENCODING_LISTPACK 11 /* Encoded as a listpack */
 #define OBJ_ENCODING_LISTPACK_EX 12 /* Encoded as listpack, extended with metadata */
 #define OBJ_ENCODING_SLICED_ARRAY 13 /* Encoded as sliced array */
+#define OBJ_ENCODING_TMPL_LP 14 /* Hash with shared template, values in listpack */
+#define OBJ_ENCODING_TMPL_ARRAY 15 /* Hash with shared template, values in sds array */
+#define OBJ_ENCODING_BITMAP_ROARING 16 /* Bitmap encoded as a Roaring bitmap. */
 
 #define LRU_BITS 24
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
 #define OBJ_NUM_KVMETA_BITS 8
-#define OBJ_REFCOUNT_BITS 23
+#define OBJ_REFCOUNT_BITS 22
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 
 struct redisObject {
     unsigned type:4;
-    unsigned encoding:4;
+    unsigned encoding:5;
     unsigned refcount : OBJ_REFCOUNT_BITS;
     unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
     
@@ -116,6 +120,22 @@ typedef struct redisObject robj;
 
 /* kvobj: see header comment above for definition and memory layout. */
 typedef struct redisObject kvobj;
+
+/* Whenever an robj serves as a kvobj base (iskvobj=1), a single byte of extra
+ * bits is allocated right after it, before the embedded key. */
+typedef struct __attribute__ ((__packed__)) kvBits {
+    /* SDS header type of the embedded key: SDS_TYPE_5/8/16 or 32 (values 0..3). 
+     * Keys are never longer than 4GB, so SDS_TYPE_64 is not needed. */
+    unsigned key_sds_type : 2;
+    unsigned no_evict : 1;    /* Protected from maxmemory eviction. */
+    unsigned unused : 5;       /* Free bits. Available for future use. */
+} kvBits;
+
+/* Returns the kvBits that follow the robj. Valid only if kv->iskvobj is set.
+ * Note that a plain robj has no such byte allocated after it. */
+static inline kvBits *kvobjBits(const kvobj *kv) {
+    return (kvBits *) (void *) (kv + 1);
+}
 
 kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits);
 kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits);
@@ -160,6 +180,7 @@ robj *createIntsetObject(void);
 robj *createSetListpackObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);
+robj *createZsetBtreeObject(void);
 robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
 robj *createGCRAObject(long long value);
@@ -169,6 +190,7 @@ int getLongFromObjectOrReply(struct client *c, robj *o, long *target, const char
 int getPositiveLongFromObjectOrReply(struct client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(struct client *c, robj *o, long min, long max, long *target, const char *msg);
 int checkType(struct client *c, robj *o, int type);
+int checkStringOrBitmapType(struct client *c, robj *o);
 int getLongLongFromObjectOrReply(struct client *c, robj *o, long long *target, const char *msg);
 int getDoubleFromObjectOrReply(struct client *c, robj *o, double *target, const char *msg);
 int getDoubleFromObject(const robj *o, double *target);

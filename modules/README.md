@@ -26,13 +26,22 @@ module, edit its `ref:` there and run `make modules-update <name>`.
 
 A release tarball (from `make tarball`) already bundles every module's
 source under `modules/<name>/src/`, so **do not** run `make modules-update`
-there — the sources are present and pinned. Just build:
+there — the sources are present and pinned.
+
+These instructions apply to Redis 8.10 and above; the tarball ships the
+built modules, so just build Redis. For the full per-OS prerequisites and
+build steps, see [Build Redis from source](../README.md#build-redis-from-source).
+For versions lower than 8.10, see the
+[8.8 build instructions](https://github.com/redis/redis/tree/8.8#build-redis-from-source).
 
 ```sh
 cd redis-<version>
 export BUILD_TLS=yes INSTALL_RUST_TOOLCHAIN=yes
 make -j "$(nproc)" all
 ```
+
+`INSTALL_RUST_TOOLCHAIN=yes` is Linux-only. On macOS, install Rust via
+[rustup](https://rustup.rs) and omit that flag.
 
 `make modules-update` is only for the from-source dev flow below, where
 modules are cloned fresh from their upstream repos.
