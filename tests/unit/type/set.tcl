@@ -1303,8 +1303,42 @@ foreach type {single multiple single_multiple} {
     proc verify_rehashing_completed_key {myset table_size keys} {
         set htstats [r debug HTSTATS-KEY $myset]
         assert {![string match {*rehashing target*} $htstats]}
-        return {[string match {*table size: $table_size*number of elements: $keys*} $htstats]}
+        assert_match "*table size: $table_size*number of elements: $keys*" $htstats
     }
+
+    test "Forced set shrink completes during BGSAVE at 1/32 occupancy" {
+        set origin_save [config_get_set save ""]
+        set origin_max_lp [config_get_set set-max-listpack-entries 0]
+        set origin_save_delay [config_get_set rdb-key-save-delay 2147483647]
+        set members {}
+        for {set i 0} {$i < 800} {incr i} {lappend members member:$i}
+        create_set forced-shrink $members
+        while {[is_rehashing forced-shrink]} {r srandmember forced-shrink}
+        assert_match "*table size: 128\n*" [r debug HTSTATS-KEY forced-shrink]
+        set remaining [expr {4 * [dict_bucket_slots]}]
+        r bgsave
+        # No try/finally: the suite still supports Tcl 8.5.
+        set failed [catch {
+            r srem forced-shrink {*}[lrange $members $remaining end]
+            assert [is_rehashing forced-shrink]
+            wait_for_condition 100 10 {
+                [r srandmember forced-shrink] ne {} && ![is_rehashing forced-shrink]
+            } else {
+                fail "Forced shrink stalled during BGSAVE"
+            }
+            assert_equal 1 [s rdb_bgsave_in_progress]
+            verify_rehashing_completed_key forced-shrink 8 $remaining
+            assert_equal [lsort [lrange $members 0 [expr {$remaining - 1}]]] [lsort [r smembers forced-shrink]]
+        } err]
+        set err_info $::errorInfo
+        catch {exec kill -9 [get_child_pid 0]}
+        waitForBgsave r
+        r del forced-shrink
+        r config set save $origin_save
+        r config set set-max-listpack-entries $origin_max_lp
+        r config set rdb-key-save-delay $origin_save_delay
+        if {$failed} {error $err $err_info}
+    } {} {needs:debug needs:local-process external:skip}
 
     test "SRANDMEMBER with a dict containing long chain" {
         set origin_save [config_get_set save ""]
@@ -1323,7 +1357,8 @@ foreach type {single multiple single_multiple} {
             r srandmember myset 100
         }
 
-        # 3) Turn off the rehashing of this set, and remove the members to 500.
+        # 3) Avoid ordinary rehashing of this set, and remove the members to 500.
+        # Forced shrinks can still make progress while the child is running.
         r bgsave
         rem_hash_set_top_N myset [expr {[r scard myset] - 500}]
         assert_equal [r scard myset] 500
@@ -1333,17 +1368,16 @@ foreach type {single multiple single_multiple} {
         catch {exec kill -9 $pid1}
         waitForBgsave r
 
-        # 5) Let the set hash to start rehashing
+        # 5) Let the set hash start its next shrink.
         r spop myset 1
         assert [is_rehashing myset]
 
-        # 6) Verify that when rdb saving is in progress, rehashing will still be performed (because
-        # the ratio is extreme) by waiting for it to finish during an active bgsave.
-        r bgsave
-
+        # 6) Finish the ordinary shrink before starting another bgsave.
+        # Its occupancy is above the forced-shrink threshold.
         while {[is_rehashing myset]} {
             r srandmember myset 1
         }
+        r bgsave
         if {$::verbose} {
             puts [r debug HTSTATS-KEY myset full]
         }
@@ -1379,7 +1413,7 @@ foreach type {single multiple single_multiple} {
         
         # Hash set rehashing would be completed while removing members from the `myset`
         # We also check the size and members in the hash table.
-        verify_rehashing_completed_key myset 64 30
+        verify_rehashing_completed_key myset [expr {[s arch_bits] == 32 ? 16 : 32}] 30
 
         # Now that we have a hash set with only one long chain bucket.
         set htstats [r debug HTSTATS-KEY myset full]

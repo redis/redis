@@ -20,75 +20,24 @@
 #include "dict.h"
 
 /* --------------------------------------------------------------------------
- * Dict prefetching state machine
+ * Dict prefetching
  * -------------------------------------------------------------------------- */
 
-typedef enum { HT_IDX_FIRST = 0, HT_IDX_SECOND = 1, HT_IDX_INVALID = -1 } dictHtIdx;
-
-typedef enum {
-    PREFETCH_BUCKET,        /* Initial state, determines which hash table to use and prefetch the table's bucket */
-    PREFETCH_ENTRY,         /* prefetch entries associated with the given key's hash */
-    PREFETCH_ENTRY_KEY,     /* dictType-driven prefetch of the entry's key payload (for keyCompare) */
-    PREFETCH_ENTRY_VALUE,   /* compare keys; on match, dictType-driven prefetch of the value payload */
-    PREFETCH_DONE           /* Indicates that prefetching for this key is complete */
-} dictPrefetchState;
-
-/* Per-key state of an in-flight, software-pipelined dictFind, advanced one
- * stage at a time by dictPrefetcher (see below). The non-state fields mirror
- * the locals that a synchronous dictFind would otherwise carry across one
- * bucket walk. */
-typedef struct dictPrefetchLookup {
-    dictPrefetchState state;  /* Current FSM stage of this lookup */
-    dictHtIdx ht_idx;         /* Index of the current hash table (0 or 1 for rehashing) */
-    uint64_t bucket_idx;      /* Index of the bucket in the current hash table */
-    uint64_t key_hash;        /* Hash value of the key being looked up */
-    dictEntry *current_entry; /* Pointer to the current entry being processed */
-} dictPrefetchLookup;
-
-/* dictPrefetcher drives a batch of dictPrefetchLookup objects through the
- * prefetch FSM, yielding to the next in-flight lookup each time a prefetch
- * is issued — so one lookup's memory stall overlaps another's work. The
- * state machine itself is fully dict-pure: any key/value payload prefetching
- * is delegated to the dictType->prefetchEntryKey / prefetchEntryValue
- * callbacks of each key's dict. The same prefetcher is used by both the
- * cross-command batch path and the intra-command dictPrefetchKeys() API. */
+/* dictPrefetcher drives a batch of dict lookups, each one a dictPrefetchState
+ * advanced by dictPrefetchNext() (see dict.c), yielding to the next in-flight
+ * lookup each time a prefetch is issued — so one lookup's memory stall
+ * overlaps another's work. The lookups are fully dict-pure: any key/value
+ * payload prefetching is delegated to the dictType->prefetchEntryKey /
+ * prefetchEntryValue callbacks of each key's dict. The same prefetcher is
+ * used by both the cross-command batch path and the intra-command
+ * dictPrefetchKeys() API. */
 typedef struct dictPrefetcher {
     size_t cur_idx;              /* Cursor; advances on each prefetch issue */
     size_t nkeys;                /* Total key lookups in this batch */
-    size_t remaining;            /* Number of in-flight key lookups (not yet PREFETCH_DONE) */
-    void **keys;                 /* Array of key pointers (sds) */
-    dict **dicts;                /* Per-key dictionary pointers */
-    dictPrefetchLookup *lookups; /* Per-key lookup state, capacity == max_keys */
+    size_t remaining;            /* Number of in-flight key lookups (not yet done) */
+    dictPrefetchState *lookups;  /* Per-key lookup state, capacity == max_keys */
     size_t max_keys;             /* Capacity of lookups[] */
 } dictPrefetcher;
-
-/******************************** State machine diagram for the dict prefetch operation. ******************************
-                                                           │
-                                                         start
-                                                           │
-                                                  ┌────────▼─────────┐
-                                       ┌─────────►│  PREFETCH_BUCKET ├────►────────┐
-                                       │          └────────┬─────────┘            no more tables -> done
-                                       |             bucket|found                  |
-                                       │                   |                       │
-        entry not found - goto next table         ┌────────▼────────┐              │
-                                       └────◄─────┤ PREFETCH_ENTRY  |              ▼
-                                    ┌────────────►└────────┬────────┘              │
-                                    |                 Entry│found                  │
-                                    │                      |                       │
-                                    |          ┌───────────▼─────────────┐         │
-                                    │          |   PREFETCH_ENTRY_KEY    |         ▼
-                                    │          └───────────┬─────────────┘         │
-        key mismatch - goto next entry                     |                       |
-                                    │          ┌───────────▼─────────────┐         │
-                                    └──────◄───│   PREFETCH_ENTRY_VALUE  │         ▼
-                                               └───────────┬─────────────┘         │
-                                                           |                       │
-                                                 ┌───────-─▼─────────────┐         │
-                                                 │     PREFETCH_DONE     │◄────────┘
-                                                 └───────────────────────┘
-
-**********************************************************************************************************************/
 
 /* Issue a software prefetch for `addr`, then yield to the next lookup by
  * advancing the cursor. */
@@ -97,116 +46,24 @@ static inline void dictPrefetchAdvance(dictPrefetcher *p, void *addr) {
     if (++p->cur_idx >= p->nkeys) p->cur_idx = 0;
 }
 
-static inline void dictPrefetchMarkDone(dictPrefetcher *p, dictPrefetchLookup *lk) {
-    lk->state = PREFETCH_DONE;
+static inline void dictPrefetchMarkDone(dictPrefetcher *p) {
     p->remaining--;
     server.stat_total_prefetch_entries++;
 }
 
 /* Return the next in-flight lookup that still needs work, or NULL if all done. */
-static inline dictPrefetchLookup *dictPrefetchNextInFlight(dictPrefetcher *p) {
+static inline dictPrefetchState *dictPrefetchNextInFlight(dictPrefetcher *p) {
     if (p->remaining == 0) return NULL;
-    while (p->lookups[p->cur_idx].state == PREFETCH_DONE) {
+    while (p->lookups[p->cur_idx].done) {
         if (++p->cur_idx >= p->nkeys) p->cur_idx = 0;
     }
     return &p->lookups[p->cur_idx];
 }
 
-/* Prefetch the bucket of the next hash table index.
- * If no tables are left, move to the PREFETCH_DONE state. */
-static void dictPrefetchBucket(dictPrefetcher *p, dictPrefetchLookup *lk) {
-    size_t i = p->cur_idx;
-    dict *d = p->dicts[i];
-
-    /* Determine which hash table to use */
-    if (lk->ht_idx == HT_IDX_INVALID) {
-        lk->ht_idx = HT_IDX_FIRST;
-    } else if (lk->ht_idx == HT_IDX_FIRST && dictIsRehashing(d)) {
-        lk->ht_idx = HT_IDX_SECOND;
-    } else {
-        /* No more tables left - mark as done. */
-        dictPrefetchMarkDone(p, lk);
-        return;
-    }
-
-    /* Prefetch the bucket */
-    lk->bucket_idx = lk->key_hash & DICTHT_SIZE_MASK(d->ht_size_exp[lk->ht_idx]);
-    dictPrefetchAdvance(p, &d->ht_table[lk->ht_idx][lk->bucket_idx]);
-    lk->current_entry = NULL;
-    lk->state = PREFETCH_ENTRY;
-}
-
-/* Prefetch the entry in the bucket and move to the PREFETCH_ENTRY_KEY state.
- * If no more entries in the bucket, move to the PREFETCH_BUCKET state to look at the next table. */
-static void dictPrefetchEntry(dictPrefetcher *p, dictPrefetchLookup *lk) {
-    size_t i = p->cur_idx;
-
-    if (lk->current_entry) {
-        /* We already found an entry in the bucket - move to the next entry */
-        lk->current_entry = dictGetNext(lk->current_entry);
-    } else {
-        /* Go to the first entry in the bucket */
-        lk->current_entry = p->dicts[i]->ht_table[lk->ht_idx][lk->bucket_idx];
-    }
-
-    if (lk->current_entry) {
-        dictPrefetchAdvance(p, lk->current_entry);
-        lk->state = PREFETCH_ENTRY_KEY;
-    } else {
-        /* No entry found in the bucket - try the bucket in the next table */
-        lk->state = PREFETCH_BUCKET;
-    }
-}
-
-/* Bring the entry's key payload into cache via the dictType callback,
- * then move to PREFETCH_ENTRY_VALUE where the keyCompare runs. If the
- * dict provides no callback, the entry alone already carries everything
- * keyCompare needs. */
-static void dictPrefetchEntryKey(dictPrefetcher *p, dictPrefetchLookup *lk) {
-    dictType *type = p->dicts[p->cur_idx]->type;
-    lk->state = PREFETCH_ENTRY_VALUE;
-    if (type->prefetchEntryKey) {
-        void *addr = type->prefetchEntryKey(lk->current_entry);
-        if (addr) dictPrefetchAdvance(p, addr);
-    }
-}
-
-/* Compare the entry's stored key against the lookup key. On match, ask
- * the dictType to prefetch the value-side payload (if any) and mark the
- * lookup done. On mismatch, walk to the next entry in the chain.
- *
- * The entry's stored key may be in a different shape than the lookup key
- * (e.g. dbDictType stores a kvobj but keyCompare wants the sds). When that
- * is the case the dict provides keyFromStoredKey to convert; otherwise the
- * stored key is already in comparable form. This mirrors what
- * dictFindLinkInternal does. */
-static void dictPrefetchEntryValue(dictPrefetcher *p, dictPrefetchLookup *lk) {
-    size_t i = p->cur_idx;
-    dict *d = p->dicts[i];
-    dictType *type = d->type;
-    const void *stored_key = dictGetKey(lk->current_entry);
-    const void *cmp_key = type->keyFromStoredKey ? type->keyFromStoredKey(stored_key) : stored_key;
-
-    /* 1. If this is the last element, we assume a hit and don't compare the keys
-     * 2. The stored entry matches the lookup key. */
-    if ((!dictGetNext(lk->current_entry) && !dictIsRehashing(d)) ||
-        dictCompareKeys(d, p->keys[i], cmp_key))
-    {
-        if (type->prefetchEntryValue) {
-            void *addr = type->prefetchEntryValue(lk->current_entry);
-            if (addr) dictPrefetchAdvance(p, addr);
-        }
-        dictPrefetchMarkDone(p, lk);
-    } else {
-        /* Not found in the current entry, move to the next entry */
-        lk->state = PREFETCH_ENTRY;
-    }
-}
-
 /* Allocate the per-key lookup array. The prefetcher can then be reused across
  * many batches by repeated dictPrefetcherReset / dictPrefetcherRun calls. */
 static void dictPrefetcherInit(dictPrefetcher *p, size_t max_keys) {
-    p->lookups = zcalloc(max_keys * sizeof(dictPrefetchLookup));
+    p->lookups = zcalloc(max_keys * sizeof(dictPrefetchState));
     p->max_keys = max_keys;
 }
 
@@ -217,43 +74,29 @@ static void dictPrefetcherFree(dictPrefetcher *p) {
 }
 
 /* Configure the prefetcher for a single batch and seed every lookup's
- * starting state. dicts/keys must remain valid until dictPrefetcherRun
- * returns; only the pointers are stored. */
+ * starting state. The dicts and keys must remain valid until
+ * dictPrefetcherRun returns; only the pointers are stored. */
 static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, size_t nkeys) {
     serverAssert(nkeys <= p->max_keys);
-    p->dicts = dicts;
-    p->keys = keys;
     p->nkeys = nkeys;
     p->cur_idx = 0;
 
     size_t remaining = 0;
     for (size_t i = 0; i < nkeys; i++) {
-        dictPrefetchLookup *lk = &p->lookups[i];
-        if (!dicts[i] || dictSize(dicts[i]) == 0) {
-            lk->state = PREFETCH_DONE;
-            continue;
-        }
-
-        /* We skip prefetch during loading, so ht_table[0] should never be NULL
-         * when dictSize() > 0 (which only happens mid-dictEmpty via _dictReset). */
-        serverAssert(dicts[i]->ht_table[0]);
-
-        lk->ht_idx = HT_IDX_INVALID;
-        lk->current_entry = NULL;
-        lk->state = PREFETCH_BUCKET;
-        lk->key_hash = dictGetHash(dicts[i], keys[i]);
-        remaining++;
+        dictPrefetchInit(&p->lookups[i], dicts[i], keys[i]);
+        if (!p->lookups[i].done) remaining++;
     }
     p->remaining = remaining;
 }
 
 /* Drive the prefetch state machine across all dict lookups until every lookup
- * reaches PREFETCH_DONE.
+ * is done.
  *
- * Conceptually each dict lookup is a dictFind broken into four stages:
- *   bucket → entry → entry key payload → entry value payload
- * If the key is not found in ht[0] and the dict is mid-rehash, the lookup
- * loops back to the bucket stage to retry against ht[1].
+ * Conceptually each dict lookup is a dictFind broken into stages (see
+ * dictPrefetchNext()):
+ *   bucket → tag match → entry → entry key payload → entry value payload
+ * If the key is not found in a bucket, the lookup goes on with its child
+ * bucket, and then retries against ht[1] if the dict is mid-rehash.
  *
  * Instead of waiting for each stage's memory access to complete, the FSM
  * issues a prefetch and yields to another in-flight lookup, hiding the
@@ -263,15 +106,11 @@ static void dictPrefetcherReset(dictPrefetcher *p, dict **dicts, void **keys, si
  * and the entry's value payload (e.g. kv->ptr for a RAW string) is delegated
  * to dictType->prefetchEntryKey and prefetchEntryValue respectively. */
 static void dictPrefetcherRun(dictPrefetcher *p) {
-    dictPrefetchLookup *lk;
+    dictPrefetchState *lk;
     while ((lk = dictPrefetchNextInFlight(p))) {
-        switch (lk->state) {
-            case PREFETCH_BUCKET:      dictPrefetchBucket(p, lk); break;
-            case PREFETCH_ENTRY:       dictPrefetchEntry(p, lk); break;
-            case PREFETCH_ENTRY_KEY:   dictPrefetchEntryKey(p, lk); break;
-            case PREFETCH_ENTRY_VALUE: dictPrefetchEntryValue(p, lk); break;
-            default: serverPanic("Unknown prefetch state %d", lk->state);
-        }
+        void *addr = dictPrefetchNext(lk);
+        if (lk->done) dictPrefetchMarkDone(p);
+        if (addr) dictPrefetchAdvance(p, addr);
     }
 }
 
@@ -312,7 +151,7 @@ void dictPrefetchKeys(dict **dicts, void **keys, size_t nkeys) {
     serverAssert(nkeys <= DICT_PREFETCH_MAX_SIZE);
     server.stat_total_prefetch_batches++;
 
-    dictPrefetchLookup lookups[DICT_PREFETCH_MAX_SIZE];
+    dictPrefetchState lookups[DICT_PREFETCH_MAX_SIZE];
     dictPrefetcher p = { .lookups = lookups, .max_keys = nkeys };
     dictPrefetcherReset(&p, dicts, keys, nkeys);
     dictPrefetcherRun(&p);

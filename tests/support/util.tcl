@@ -12,6 +12,12 @@
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
 
+# Number of entries in a dict bucket, which is one cache line on both
+# supported pointer widths.
+proc dict_bucket_slots {} {
+    expr {[s arch_bits] == 32 ? 12 : 7}
+}
+
 # Read and return the full contents of a file.
 proc read_file {path} {
     set fd [open $path r]

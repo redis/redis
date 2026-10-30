@@ -255,13 +255,15 @@ start_server {tags {"bless"}} {
     test {BLESS index completes rehashing in the background} {
         r flushall
         r config set activerehashing no
+        set count [expr {256 * [dict_bucket_slots] + 8}]
         r eval {
-            for i = 1, 1025 do
+            -- Stop shortly after expanding a 256-bucket table.
+            for i = 1, tonumber(ARGV[1]) do
                 local key = 'blessed:' .. i
                 redis.call('SET', key, 'value')
                 redis.call('BLESS', 'SET', key, 'NO-EVICT')
             end
-        } 0
+        } 0 $count
         set rehashing [dict get [r memory stats] db.dict.rehashing.count]
         r config set activerehashing yes
         assert_morethan $rehashing 0
@@ -270,7 +272,7 @@ start_server {tags {"bless"}} {
         } else {
             fail "Blessed index rehashing did not complete in the background"
         }
-        assert_equal 1025 [s blessed_keys]
+        assert_equal $count [s blessed_keys]
         r flushall
     } {OK} {external:skip}
 
