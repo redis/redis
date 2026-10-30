@@ -1384,7 +1384,8 @@ int quicklistInitIteratorAtIdx(quicklistIter *iter, quicklist *quicklist,
 
     quicklistInitIterator(iter, quicklist, direction);
 
-    index = forward ? idx : (-idx) - 1;
+    /* -(idx+1) rather than (-idx)-1 so that idx == LLONG_MIN doesn't overflow. */
+    index = forward ? (unsigned long long)idx : (unsigned long long)-(idx+1);
     if (index >= quicklist->count) {
         iter->current = NULL;
         return 0;
