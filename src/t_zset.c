@@ -3817,7 +3817,9 @@ static void zrangeResultEmitCBufferForStore(zrange_result_handler *handler,
      * reverse-order emission both keep the original, always-correct path.
      * The batch is created lazily on the first fast-path emit (the
      * destination may start as LISTPACK and convert mid-stream) and flushed
-     * once in zrangeResultFinalizeStore(). */
+     * once in zrangeResultFinalizeStore(). A REV rank range whose result
+     * does not fit in a listpack arrives here in forward order too, see
+     * zrangeGenericCommand(). */
     if (!handler->reverse && handler->dstobj->encoding == OBJ_ENCODING_BTREE) {
         if (!handler->append_batch)
             handler->append_batch = zbtreeAppendBatchCreate(handler->dstobj->ptr);
@@ -4516,6 +4518,23 @@ void zrevrangebylexCommand(client *c) {
     zrangeGenericCommand(&handler, 1, 0, ZRANGE_LEX, ZRANGE_DIRECTION_REVERSE);
 }
 
+/* Return 1 if the rank range [start,end] of zobj has more elements than a
+ * listpack may hold, so a ZRANGESTORE destination for it will be a B+ tree.
+ * The indexes are sanitized the same way genericZrangebyrankCommand() does,
+ * and the size test must match the one in zsetTypeCreate(). */
+static int zrangeRankRangeExceedsListpack(const kvobj *zobj, long start,
+                                          long end)
+{
+    long llen = zsetLength(zobj);
+
+    if (start < 0) start = llen+start;
+    if (end < 0) end = llen+end;
+    if (start < 0) start = 0;
+    if (end >= llen) end = llen-1;
+    return start <= end &&
+           (unsigned long)(end-start)+1 > server.zset_max_listpack_entries;
+}
+
 /**
  * This function handles ZRANGE and ZRANGESTORE, and also the deprecated
  * Z[REV]RANGE[BYSCORE|BYLEX] commands.
@@ -4631,7 +4650,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     if (opt_withscores || store) {
         zrangeResultHandlerScoreEmissionEnable(handler);
     }
-    zrangeResultHandlerDirectionSet(handler, direction == ZRANGE_DIRECTION_REVERSE);
 
     /* Step 3: Lookup the key and get the range. */
     kvobj *zobj = lookupKeyRead(c->db, key);
@@ -4646,6 +4664,22 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
+
+    /* ZRANGESTORE of a REV rank range stores the same elements as the
+     * mirrored forward range, and ascending emission lets a B+ tree
+     * destination use the append path. A listpack destination is cheaper to
+     * fill in descending order, so small results stay REV. REV index i is
+     * forward index -1-i; written this way it cannot overflow. */
+    if (store && rangetype == ZRANGE_RANK &&
+        direction == ZRANGE_DIRECTION_REVERSE &&
+        zrangeRankRangeExceedsListpack(zobj, opt_start, opt_end))
+    {
+        long tmp = opt_start;
+        opt_start = -1 - opt_end;
+        opt_end = -1 - tmp;
+        direction = ZRANGE_DIRECTION_FORWARD;
+    }
+    zrangeResultHandlerDirectionSet(handler, direction == ZRANGE_DIRECTION_REVERSE);
 
     /* Step 4: Pass this to the command-specific handler.
      *

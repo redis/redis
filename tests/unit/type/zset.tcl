@@ -2907,17 +2907,13 @@ start_server {tags {"zset"}} {
         }
         assert_equal [lrange $full_sorted 100 399] $got_fwd
 
-        # REV rank slice -- must keep using the original (slower but always
-        # correct) zsetAdd() path; the fast path is guarded off for reverse
-        # emission. Rank indices for REV count from the highest score down.
+        # REV rank slice -- the result does not fit in a listpack, so STORE
+        # walks the mirrored forward range and takes the same fast path.
+        # Rank indices for REV count from the highest score down.
         r zrangestore zdst_rev{t} zsrc{t} 100 399 REV
         assert_encoding btree zdst_rev{t}
         set full_desc [lreverse $full_sorted]
-        set expected_rev [lsort -command {apply {{a b} {
-            set sa [lindex $a 0]; set sb [lindex $b 0]
-            if {$sa != $sb} { return [expr {$sa < $sb ? -1 : 1}] }
-            return [string compare [lindex $a 1] [lindex $b 1]]
-        }}} [lrange $full_desc 100 399]]
+        set expected_rev [lsort -command zlistAlikeSort [lrange $full_desc 100 399]]
         set got_rev {}
         foreach {ele score} [r zrange zdst_rev{t} 0 -1 withscores] {
             lappend got_rev [list $score $ele]
@@ -2964,6 +2960,90 @@ start_server {tags {"zset"}} {
         assert_equal $expected_lim $got_lim
 
         r config set zset-max-listpack-entries $original_max
+    }
+
+    test {ZRANGESTORE REV stores the same set as ZRANGE REV returns} {
+        set old_entries [lindex [r config get zset-max-listpack-entries] 1]
+        set old_value [lindex [r config get zset-max-listpack-value] 1]
+        r config set zset-max-listpack-entries 128
+        r config set zset-max-listpack-value 64
+        r del zsrc{t} zlex{t} zdst{t}
+        set cmd [list r zadd zsrc{t}]
+        for {set j 0} {$j < 1000} {incr j} {
+            lappend cmd [expr {($j * 7919) % 400}].5 [format "m:%04d" $j]
+        }
+        {*}$cmd
+        r zadd zsrc{t} 150 [string repeat x 100]
+        assert_encoding btree zsrc{t}
+        set cmd [list r zadd zlex{t}]
+        for {set j 0} {$j < 1000} {incr j} {
+            lappend cmd 0 [format "m:%04d" $j]
+        }
+        {*}$cmd
+
+        # Rank ranges on both sides of the listpack/btree destination
+        # boundary, negative, out of range and empty ranges, and BYSCORE
+        # ranges with and without LIMIT. The member longer than
+        # zset-max-listpack-value converts a small destination mid-store.
+        foreach args {
+            {0 9} {0 127} {0 128} {0 999} {-300 -1} {0 1000000} {-1000000 5}
+            {-1 5} {5 3} {2000 3000}
+            {+inf 390 BYSCORE} {+inf 300 BYSCORE} {151 149 BYSCORE}
+            {(200 (100 BYSCORE} {-inf +inf BYSCORE} {5 10 BYSCORE}
+            {+inf -inf BYSCORE LIMIT 0 -1} {+inf -inf BYSCORE LIMIT 10 200}
+            {+inf -inf BYSCORE LIMIT 0 50}
+        } {
+            set rev [r zrange zsrc{t} {*}$args REV withscores]
+            set want [lsort -command zlistAlikeSort \
+                [lmap {ele score} $rev {list $score $ele}]]
+            assert_equal [llength $want] [r zrangestore zdst{t} zsrc{t} {*}$args REV]
+            set got [lmap {ele score} [r zrange zdst{t} 0 -1 withscores] \
+                {list $score $ele}]
+            assert_equal $want $got
+            if {[llength $want] > 128} {
+                assert_encoding btree zdst{t}
+            } elseif {[llength $want] == 0} {
+                assert_equal 0 [r exists zdst{t}]
+            }
+        }
+
+        # BYLEX on a source with distinct scores selects different members
+        # depending on the walk direction, so it must match ZRANGE BYLEX REV.
+        r del zmix{t}
+        r zadd zmix{t} 1 a 2 z 3 b
+        foreach src {zlex{t} zsrc{t} zmix{t}} {
+            foreach args {
+                {(m:0900 (m:0800} {[m:0999 [m:0700} {+ -} {[m:0500 [m:0600}
+                {+ - LIMIT 10 200} {[b [a}
+            } {
+                set want [lsort [r zrange $src {*}$args BYLEX REV]]
+                assert_equal [llength $want] [r zrangestore zdst{t} $src {*}$args BYLEX REV]
+                assert_equal $want [lsort [r zrange zdst{t} 0 -1]]
+            }
+        }
+        assert_equal 3 [r zrangestore zdst{t} zmix{t} {[b} {[a} BYLEX REV]
+
+        # Destination is the source.
+        set rev [r zrange zsrc{t} 0 199 REV withscores]
+        set want [lsort -command zlistAlikeSort \
+            [lmap {ele score} $rev {list $score $ele}]]
+        assert_equal 200 [r zrangestore zsrc{t} zsrc{t} 0 199 REV]
+        set got [lmap {ele score} [r zrange zsrc{t} 0 -1 withscores] \
+            {list $score $ele}]
+        assert_equal $want $got
+
+        # A listpack source larger than the current listpack limit.
+        r del zsrc{t}
+        r zadd zsrc{t} 1 a 2 b 3 c 4 d 5 e
+        assert_encoding listpack zsrc{t}
+        r config set zset-max-listpack-entries 2
+        assert_equal 4 [r zrangestore zdst{t} zsrc{t} 0 3 REV]
+        assert_equal {b 2 c 3 d 4 e 5} [r zrange zdst{t} 0 -1 withscores]
+        assert_encoding btree zdst{t}
+
+        r del zsrc{t} zlex{t} zmix{t} zdst{t}
+        r config set zset-max-listpack-entries $old_entries
+        r config set zset-max-listpack-value $old_value
     }
 
     test {ZRANGE invalid syntax} {
