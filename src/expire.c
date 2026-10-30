@@ -134,7 +134,11 @@ static inline int expirySamplingShouldSkipDict(dict *d, int didx) {
      * space is expensive, so stop here waiting for better times...
      * The dictionary will be resized asap. */
     if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1)) {
-        return 1;
+        /* While rehashing both tables are counted, so a shrinking dict looks
+         * sparse until the rehash ends. Keep scanning it, unless the tables
+         * differ so much that a single scan step visits too many buckets. */
+        if (!dictIsRehashing(d) || abs(d->ht_size_exp[0] - d->ht_size_exp[1]) > 6)
+            return 1;
     }
 
     /* During atomic slot migration, keys that are being imported are in an
