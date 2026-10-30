@@ -782,6 +782,13 @@ start_server {tags {"scripting"}} {
              [run_script {return redis.sha1hex('Pizza & Mandolino')} 0]
     } {da39a3ee5e6b4b0d3255bfef95601890afd80709 74822d82031af7493c20eefa13bd07ec4fada82f}
 
+    test "redis.sha1hex() rejects non-string arguments" {
+        foreach arg {nil true false} {
+            catch {run_script "return redis.sha1hex($arg)" 0} e
+            assert_match {*wrong number or type of arguments*} $e
+        }
+    }
+
     test "Measures elapsed time os.clock()" {
         set escaped [run_script {
             local start = os.clock()
