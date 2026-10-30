@@ -1442,11 +1442,33 @@ void addReplyBulkSds(client *c, sds s) {
     _addReplyToBufferOrList(c, "\r\n", 2);
 }
 
+/* Set a C buffer as a deferred bulk reply. The "$<len>\r\n<payload>\r\n" frame
+ * is assembled on the stack when it fits in 128 bytes (any stream ID does), so
+ * short payloads cost no allocation. A longer frame is assembled in a heap
+ * buffer, and setDeferredReply() then copies it again. */
+void setDeferredReplyBulkCBuffer(client *c, void *node, const char *p, size_t len) {
+    /* No node means the client takes no replies (see addReplyDeferredLen()):
+     * don't build a frame only to have setDeferredReply() discard it. */
+    if (node == NULL) return;
+    char stackbuf[128];
+    size_t framelen = 1 + LONG_STR_SIZE + 2 + len + 2;
+    char *frame = framelen <= sizeof(stackbuf) ? stackbuf : zmalloc(framelen);
+    size_t n = 0;
+    frame[n++] = '$';
+    n += ll2string(frame + n, LONG_STR_SIZE, (long long)len);
+    frame[n++] = '\r';
+    frame[n++] = '\n';
+    memcpy(frame + n, p, len);
+    n += len;
+    frame[n++] = '\r';
+    frame[n++] = '\n';
+    setDeferredReply(c, node, frame, n);
+    if (frame != stackbuf) zfree(frame);
+}
+
 /* Set sds to a deferred reply (for symmetry with addReplyBulkSds it also frees the sds) */
 void setDeferredReplyBulkSds(client *c, void *node, sds s) {
-    sds reply = sdscatprintf(sdsempty(), "$%d\r\n%s\r\n", (unsigned)sdslen(s), s);
-    setDeferredReply(c, node, reply, sdslen(reply));
-    sdsfree(reply);
+    setDeferredReplyBulkCBuffer(c, node, s, sdslen(s));
     sdsfree(s);
 }
 
