@@ -138,8 +138,9 @@ if {$::tls} {
             # one. Every way a session can be resumed is tried, since they take
             # different paths in OpenSSL: TLS 1.2 by a ticket or, with
             # -no_ticket, by a session ID looked up in the server's cache;
-            # TLS 1.3 by a pre-shared key carried in the ticket. The cache
-            # path needs session caching on, so the test turns it on itself.
+            # TLS 1.3, where the server has it, by a pre-shared key carried in
+            # the ticket. The cache path needs session caching on, so the test
+            # turns it on itself.
             #
             # The connection that obtains each session is kept open until the
             # attempts are over. OpenSSL drops a cached session when its
@@ -156,11 +157,14 @@ if {$::tls} {
             R 0 config set tls-session-caching yes
             foreach mode {no optional} {
                 R 0 config set tls-auth-clients $mode
-                foreach {flags proto by} {
-                    {-tls1_3}            TLSv1.3 ticket
+                set variants {
                     {-tls1_2}            TLSv1.2 ticket
                     {-tls1_2 -no_ticket} TLSv1.2 id
-                } {
+                }
+                if {[tls13_supported $host $port]} {
+                    set variants [concat {{-tls1_3} TLSv1.3 ticket} $variants]
+                }
+                foreach {flags proto by} $variants {
                     # A full handshake on the client port, presenting no
                     # certificate, saving the session the server hands out. The
                     # saved session has to be the one just negotiated, and

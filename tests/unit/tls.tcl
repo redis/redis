@@ -855,7 +855,7 @@ if {$::tls} {
             # tls-auth-clients is at its default, yes: the suite's client
             # certificate is verified on the full handshake.
             assert_equal yes [lindex [r config get tls-auth-clients] 1]
-            foreach ver {-tls1_3 -tls1_2} {
+            foreach ver [tls_client_versions $host $port] {
                 file delete $sess
                 set out [openssl_s_client $host $port $ver {*}$client -sess_out $sess]
                 assert_match {*New, TLSv1*} $out
@@ -871,7 +871,7 @@ if {$::tls} {
             set old_session_caching [lindex [r config get tls-session-caching] 1]
             r config set tls-session-caching yes
             set timeout [lindex [r config get tls-session-cache-timeout] 1]
-            foreach ver {-tls1_3 -tls1_2} {
+            foreach ver [tls_client_versions $host $port] {
                 file delete $sess
                 set out [openssl_s_client $host $port $ver {*}$client -sess_out $sess]
                 assert_match {*New, TLSv1*} $out
@@ -902,11 +902,14 @@ if {$::tls} {
             set old_auth [lindex [r config get tls-auth-clients] 1]
             foreach from {no optional} {
                 r config set tls-auth-clients $from
-                foreach {flags proto by} {
-                    {-tls1_3}            TLSv1.3 ticket
+                set variants {
                     {-tls1_2}            TLSv1.2 ticket
                     {-tls1_2 -no_ticket} TLSv1.2 id
-                } {
+                }
+                if {[tls13_supported $host $port]} {
+                    set variants [concat {{-tls1_3} TLSv1.3 ticket} $variants]
+                }
+                foreach {flags proto by} $variants {
                     # Issue a session without a certificate. The connection is
                     # kept open until the end: the server drops the cached
                     # session of a connection its peer closed first.
