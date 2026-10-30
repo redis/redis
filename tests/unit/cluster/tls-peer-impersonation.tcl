@@ -157,7 +157,7 @@ if {$::tls} {
             # differently: TLS 1.2 by session ID or ticket, TLS 1.3 by a
             # pre-shared key carried in the ticket. The fix must hold for both.
             set sess [file join [pwd] tests/tmp resumed.[pid].pem]
-            foreach ver {-tls1_3 -tls1_2} {
+            foreach ver [tls_client_versions $target_host [srv 0 port]] {
                 # Step 1: connect to the ordinary CLIENT port with the attacker
                 # certificate. Only the CA chain is checked there, so the
                 # handshake succeeds ("New") and s_client saves the session
@@ -196,37 +196,73 @@ if {$::tls} {
             # was then changed with CONFIG SET. Its old session must not be
             # resumed under the new policy, since nothing has verified the peer
             # against the new names yet. The member certificate san.crt carries
-            # both names used below, so every full handshake succeeds; what is
-            # asserted is only whether a resumption happened or not.
+            # redis.local and cluster.local but not other.local, so the full
+            # handshake that the change forces succeeds under the second name
+            # and is refused under the third: the new policy is enforced, not
+            # merely a handshake run.
+            #
+            # Every way a session can be resumed is tried, as in the bus test
+            # of cluster-bus-tls.tcl, and the issuing connection is kept open
+            # for the same reason: the server drops the cached session of a
+            # connection its peer closed first.
+            set host $target_host
+            set bus $target_bus_port
+            set member [list -cert $::tlsdir/san.crt -key $::tlsdir/san.key]
             set sess [file join [pwd] tests/tmp policy.[pid].pem]
+            set variants {
+                {-tls1_2}            TLSv1.2 ticket
+                {-tls1_2 -no_ticket} TLSv1.2 id
+            }
+            if {[tls13_supported $host [srv 0 port]]} {
+                set variants [concat {{-tls1_3} TLSv1.3 ticket} $variants]
+            }
+            foreach {flags proto by} $variants {
+                # Step 1: a full handshake on the bus under redis.local, saving
+                # the session, which has to be of the kind this variant resumes
+                # by.
+                file delete $sess
+                set issuing [openssl_s_client_open $host $bus {*}$flags {*}$member -sess_out $sess]
+                wait_for_condition 50 100 {
+                    [file exists $sess] && ![catch {exec openssl sess_id -in $sess -noout}]
+                } else {
+                    fail "no session was saved from the bus"
+                }
+                set saved [exec openssl sess_id -in $sess -noout -text 2>@1]
+                assert_match "*Protocol*: $proto*" $saved
+                if {$by eq "ticket"} {
+                    assert_match {*TLS session ticket:*} $saved
+                } else {
+                    assert_no_match {*TLS session ticket:*} $saved
+                    assert {[regexp {Session-ID: [0-9A-F]+} $saved]}
+                }
 
-            # Step 1: a full handshake on the bus with the member certificate,
-            # under the current policy (redis.local), saving the session token.
-            set out [openssl_s_client $target_host $target_bus_port -tls1_3 \
-                -cert $::tlsdir/san.crt -key $::tlsdir/san.key -sess_out $sess]
-            assert_match {*New, TLSv1.3*} $out
-            assert {[file size $sess] > 0}
+                # Step 2: a name the certificate also carries. The session is
+                # not resumed; the full handshake run instead verifies the
+                # peer against the new name and succeeds.
+                R 0 config set tls-expected-peer-name cluster.local
+                set out [openssl_s_client $host $bus {*}$flags {*}$member -sess_in $sess]
+                assert_no_match {*Reused, TLSv1*} $out
+                assert_match {*New, TLSv1*} $out
+                assert_no_match {*alert number*} $out
 
-            # Step 2: same policy, present the token again. Resumption is fine
-            # here, the peer was verified against the very same names, and
-            # s_client reports "Reused". This also proves the token is good, so
-            # the next step cannot pass by accident.
-            set out [openssl_s_client $target_host $target_bus_port -tls1_3 \
-                -cert $::tlsdir/san.crt -key $::tlsdir/san.key -sess_in $sess]
-            assert_match {*Reused, TLSv1.3*} $out
+                # Step 3: a name the certificate does not carry. Not resumed
+                # either, and the full handshake is refused, which the bus
+                # logs as a rejected connection.
+                R 0 config set tls-expected-peer-name other.local
+                set loglines [count_log_lines 0]
+                set out [openssl_s_client $host $bus {*}$flags {*}$member -sess_in $sess]
+                assert_no_match {*Reused, TLSv1*} $out
+                wait_for_log_messages 0 {"*Error accepting cluster node connection*"} $loglines 50 100
 
-            # Step 3: change the policy, then present the same token. The
-            # session ID context now differs, so the server must decline the
-            # resumption and run a full handshake ("New", not "Reused"), which
-            # verifies the peer against the new name.
-            R 0 config set tls-expected-peer-name cluster.local
-            set out [openssl_s_client $target_host $target_bus_port -tls1_3 \
-                -cert $::tlsdir/san.crt -key $::tlsdir/san.key -sess_in $sess]
-            assert_no_match {*Reused, TLSv1.3*} $out
-            assert_match {*New, TLSv1.3*} $out
+                # Positive control: back under the issuing policy the session
+                # resumes, so the refusals above were the policy change at
+                # work, not a session that had become unusable.
+                R 0 config set tls-expected-peer-name redis.local
+                set out [openssl_s_client $host $bus {*}$flags {*}$member -sess_in $sess]
+                assert_match {*Reused, TLSv1*} $out
 
-            # Restore the policy the rest of the file expects.
-            R 0 config set tls-expected-peer-name redis.local
+                assert_match {*New, TLSv1*} [openssl_s_client_close $issuing]
+            }
             file delete $sess
         }
 
